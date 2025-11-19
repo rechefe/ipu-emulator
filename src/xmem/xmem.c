@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "xmem.h"
 
 xmem__obj_t *xmem__initialize_xmem()
@@ -10,16 +11,17 @@ xmem__obj_t *xmem__initialize_xmem()
     return xmem;
 }
 
-void xmem__load_matrix_to(xmem__obj_t *xmem, const uint8_t **matrix, int rows, int cols, int start_address)
+void xmem__load_matrix_to(xmem__obj_t *xmem, uint8_t *matrix, int rows, int cols, int start_address)
 {
     for (int i = 0; i < rows; i++)
     {
         int addr_offset = XMEM__ALIGN_ADDR(i * cols);
-        xmem__load_array_to(xmem, matrix[i], cols, start_address + addr_offset);
+        uint8_t *row_ptr = matrix + (i * cols);
+        xmem__load_array_to(xmem, row_ptr, cols, start_address + addr_offset);
     }
 }
 
-void xmem__load_array_to(xmem__obj_t *xmem, const uint8_t *array, int count, int start_address)
+void xmem__load_array_to(xmem__obj_t *xmem, uint8_t *array, int count, int start_address)
 {
     for (int i = 0; i < count; i++)
     {

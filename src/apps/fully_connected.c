@@ -1,12 +1,11 @@
 #include "ipu/ipu.h"
 #include "xmem/xmem.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define INPUT_LAYER_FEATURES_NUM 600
 #define OUTPUT_LAYER_FEATURES_NUM 300
-
-const uint8_t features[INPUT_LAYER_FEATURES_NUM];
-const uint8_t weights[INPUT_LAYER_FEATURES_NUM][OUTPUT_LAYER_FEATURES_NUM];
 
 #define FEATURES_BASE_ADDR 0
 #define WEIGHTS_BASE_ADDR XMEM__ALIGN_ADDR(FEATURES_BASE_ADDR + INPUT_LAYER_FEATURES_NUM)
@@ -21,17 +20,27 @@ const uint8_t weights[INPUT_LAYER_FEATURES_NUM][OUTPUT_LAYER_FEATURES_NUM];
 
 int main()
 {
+    printf("Initializing IPU...\n");
     ipu__obj_t *ipu = ipu__init_ipu();
 
-    xmem__load_array_to(ipu->xmem, (const uint8_t *)features, INPUT_LAYER_FEATURES_NUM, 0);
-    xmem__load_matrix_to(ipu->xmem, (const uint8_t **)weights, INPUT_LAYER_FEATURES_NUM, OUTPUT_LAYER_FEATURES_NUM, INPUT_LAYER_FEATURES_NUM);
+    uint8_t *features = malloc(INPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
+    uint8_t (*weights)[OUTPUT_LAYER_FEATURES_NUM] = malloc(INPUT_LAYER_FEATURES_NUM * OUTPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
+    memset(features, 1, INPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
+    memset(weights, 1, INPUT_LAYER_FEATURES_NUM * OUTPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
+
+    printf("Loading data to XMEM...\n");
+    xmem__load_array_to(ipu->xmem, (uint8_t *)features, INPUT_LAYER_FEATURES_NUM, 0);
+    printf("Weights base address: %d\n", WEIGHTS_BASE_ADDR);
+    xmem__load_matrix_to(ipu->xmem, (uint8_t *)weights, INPUT_LAYER_FEATURES_NUM, OUTPUT_LAYER_FEATURES_NUM, INPUT_LAYER_FEATURES_NUM);
 
     for (int i = 0; i < OUTPUT_LAYER_WORDS; i++)
     {
+        printf("Processing output layer word %d/%d...\n", i + 1, OUTPUT_LAYER_WORDS);
         ipu__clear_rq_reg(ipu, IPU_REG_RES_INDEX_RQ);
 
         for (int j = 0; j < INPUT_LAYER_FEATURES_NUM; j++)
         {
+            // printf("  MAC input feature %d/%d...\n", j + 1, INPUT_LAYER_FEATURES_NUM);
             if (j % IPU__R_REG_SIZE_BYTES == 0)
             {
                 ipu__load_r_reg(ipu, IPU_REG_FEATURE_INDEX_R, FEATURES_BASE_ADDR + (j * XMEM__XMEM_WIDTH_BYTES));

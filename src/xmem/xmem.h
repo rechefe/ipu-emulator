@@ -20,8 +20,8 @@ typedef union
 } xmem__obj_t;
 
 xmem__obj_t *xmem__initialize_xmem();
-void xmem__load_matrix_to(xmem__obj_t *xmem, const uint8_t **matrix, int rows, int cols, int start_address);
-void xmem__load_array_to(xmem__obj_t *xmem, const uint8_t *array, int count, int start_address);
+void xmem__load_matrix_to(xmem__obj_t *xmem, uint8_t *matrix, int rows, int cols, int start_address);
+void xmem__load_array_to(xmem__obj_t *xmem, uint8_t *array, int count, int start_address);
 
 void xmem__write_address(xmem__obj_t *xmem, int address, const uint8_t *data, int size);
 void xmem__read_address(xmem__obj_t *xmem, int address, uint8_t *data, int size);
