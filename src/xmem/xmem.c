@@ -23,6 +23,7 @@ void xmem__load_matrix_to(xmem__obj_t *xmem, uint8_t *matrix, int rows, int cols
 
 void xmem__load_array_to(xmem__obj_t *xmem, uint8_t *array, int count, int start_address)
 {
+    assert (array != NULL);
     for (int i = 0; i < count; i++)
     {
         int addr = start_address + i;
