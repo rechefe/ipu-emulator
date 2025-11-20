@@ -76,3 +76,9 @@ genhtml coverage.info --output-directory coverage-report
 CI
 --
 A GitHub Actions workflow has been added at `.github/workflows/ci.yml`. It configures the project with coverage enabled, runs the tests, captures coverage with `lcov`, generates an HTML report with `genhtml`, and uploads the coverage report as a workflow artifact.
+
+Coverage badge
+--------------
+The project uploads coverage to Codecov in CI. Once the workflow runs on GitHub, the coverage badge below will reflect the latest commit coverage.
+
+[![codecov](https://codecov.io/gh/rechefe/ipu-emulator/branch/master/graph/badge.svg)](https://codecov.io/gh/rechefe/ipu-emulator)

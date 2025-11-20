@@ -1,4 +1,6 @@
 #include "ipu.h"
+#include <stdlib.h>
+#include <string.h>
 
 ipu__obj_t *ipu__init_ipu()
 {
@@ -12,13 +14,13 @@ ipu__obj_t *ipu__init_ipu()
 void ipu__load_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
 {
     assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__read_address(ipu->xmem, xmem_addr, &ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    xmem__read_address(ipu->xmem, xmem_addr, (uint8_t *)&ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
 }
 
 void ipu__store_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
 {
     assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__write_address(ipu->xmem, xmem_addr, &ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    xmem__write_address(ipu->xmem, xmem_addr, (const uint8_t *)&ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
 }
 
 void ipu__clear_reg(ipu__obj_t *ipu, int index)
@@ -78,6 +80,10 @@ void ipu__mac(ipu__obj_t *ipu,
               uint8_t multiplicand,
               ipu__data_type_t data_type)
 {
+    (void)ipu;
+    (void)r_reg_index;
+    (void)multiplicand;
+    (void)data_type;
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
     }

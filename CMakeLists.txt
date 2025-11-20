@@ -3,6 +3,13 @@ project(MyProject C CXX)
 
 set(CMAKE_C_STANDARD 11)
 
+# Recommended warning flags for GCC/Clang to surface issues
+if(NOT MSVC)
+    add_compile_options(-Wall -Wextra -Wpedantic)
+else()
+    add_compile_options(/W4)
+endif()
+
 # Option to enable coverage instrumentation
 option(ENABLE_COVERAGE "Enable coverage flags (uses lcov/genhtml)" OFF)
 if(ENABLE_COVERAGE)

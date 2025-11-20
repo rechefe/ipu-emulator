@@ -29,7 +29,8 @@ jobs:
 
       - name: Capture coverage (lcov)
         run: |
-          lcov --directory build --capture --output-file coverage.info || true
+          # Use geninfo directly and ignore known mismatch/empty errors that can occur
+          geninfo build --output-filename coverage.info --ignore-errors mismatch,empty || true
           lcov --remove coverage.info '/usr/*' --output-file coverage.info || true
           lcov --list coverage.info || true
 
@@ -43,3 +44,10 @@ jobs:
           path: |
             coverage.info
             coverage-report
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.info
+          flags: unittests
+          fail_ci_if_error: false
