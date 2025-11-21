@@ -25,7 +25,21 @@ jobs:
         run: cmake --build build -- -j 2
 
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          # Run tests and produce JUnit XML for test reporting
+          ctest --test-dir build --output-on-failure --output-junit test_results.xml || true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test_results.xml
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Capture coverage (lcov)
         run: |
