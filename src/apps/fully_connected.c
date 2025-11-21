@@ -1,5 +1,6 @@
 #include "ipu/ipu.h"
 #include "xmem/xmem.h"
+#include "logging/logger.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,7 +21,9 @@
 
 int main()
 {
-    printf("Initializing IPU...\n");
+    logger__set_level(LOG_LEVEL_INFO);
+
+    LOG_INFO("Initializing IPU...");
     ipu__obj_t *ipu = ipu__init_ipu();
 
     uint8_t *features = malloc(INPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
@@ -28,19 +31,19 @@ int main()
     memset(features, 1, INPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
     memset(weights, 1, INPUT_LAYER_FEATURES_NUM * OUTPUT_LAYER_FEATURES_NUM * sizeof(uint8_t));
 
-    printf("Loading data to XMEM...\n");
+    LOG_INFO("Loading data to XMEM...");
     xmem__load_array_to(ipu->xmem, (uint8_t *)features, INPUT_LAYER_FEATURES_NUM, 0);
-    printf("Weights base address: %d\n", WEIGHTS_BASE_ADDR);
+    LOG_INFO("Weights base address: %d", WEIGHTS_BASE_ADDR);
     xmem__load_matrix_to(ipu->xmem, (uint8_t *)weights, INPUT_LAYER_FEATURES_NUM, OUTPUT_LAYER_FEATURES_NUM, INPUT_LAYER_FEATURES_NUM);
 
     for (int i = 0; i < OUTPUT_LAYER_WORDS; i++)
     {
-        printf("Processing output layer word %d/%d...\n", i + 1, OUTPUT_LAYER_WORDS);
+        LOG_INFO("Processing output layer word %d/%d...", i + 1, OUTPUT_LAYER_WORDS);
         ipu__clear_rq_reg(ipu, IPU_REG_RES_INDEX_RQ);
 
         for (int j = 0; j < INPUT_LAYER_FEATURES_NUM; j++)
         {
-            // printf("  MAC input feature %d/%d...\n", j + 1, INPUT_LAYER_FEATURES_NUM);
+            LOG_DEBUG("  MAC input feature %d/%d...", j + 1, INPUT_LAYER_FEATURES_NUM);
             if (j % IPU__R_REG_SIZE_BYTES == 0)
             {
                 ipu__load_r_reg(ipu, IPU_REG_FEATURE_INDEX_R, FEATURES_BASE_ADDR + (j * XMEM__XMEM_WIDTH_BYTES));

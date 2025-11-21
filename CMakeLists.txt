@@ -48,6 +48,12 @@ add_library(xmem
     src/xmem/xmem.h
 )
 
+# Logger library
+add_library(logger
+    src/logging/logger.c
+    src/logging/logger.h
+)
+
 include_directories(src)
 
 # Build the app
@@ -59,6 +65,7 @@ add_executable(fully_connected
 target_link_libraries(fully_connected
     ipu
     xmem
+    logger
 )
 
 # xmem unit tests
@@ -75,4 +82,7 @@ target_link_libraries(xmem_tests PRIVATE xmem)
 
 # Add ipu tests (see tests/test_ipu.cpp)
 add_c_test(ipu_tests tests/test_ipu.cpp)
-target_link_libraries(ipu_tests PRIVATE ipu xmem)
+target_link_libraries(ipu_tests PRIVATE ipu xmem logger)
+
+# Ensure tests have access to logger too
+target_link_libraries(xmem_tests PRIVATE logger)
