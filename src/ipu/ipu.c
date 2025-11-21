@@ -14,25 +14,25 @@ ipu__obj_t *ipu__init_ipu()
 void ipu__load_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
 {
     assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__read_address(ipu->xmem, xmem_addr, (uint8_t *)&ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    xmem__read_address(ipu->xmem, xmem_addr, (uint8_t *)&ipu->regfile.rx_regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
 }
 
 void ipu__store_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
 {
     assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__write_address(ipu->xmem, xmem_addr, (const uint8_t *)&ipu->regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    xmem__write_address(ipu->xmem, xmem_addr, (const uint8_t *)&ipu->regfile.rx_regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
 }
 
 void ipu__clear_reg(ipu__obj_t *ipu, int index)
 {
     assert(index >= 0 && index < IPU__R_REGS_NUM);
-    memset(&ipu->regfile.r_regs[index], 0, sizeof(ipu__r_reg_t));
+    memset(&ipu->regfile.rx_regfile.r_regs[index], 0, sizeof(ipu__r_reg_t));
 }
 
 void ipu__clear_rq_reg(ipu__obj_t *ipu, int index)
 {
     assert(index >= 0 && index < IPU__RQ_REGS_NUM);
-    memset(&ipu->regfile.rq_regs[index], 0, sizeof(ipu__rq_reg_t));
+    memset(&ipu->regfile.rx_regfile.rq_regs[index], 0, sizeof(ipu__rq_reg_t));
 }
 
 void ipu__mac_element_element(ipu__obj_t *ipu,
@@ -45,12 +45,12 @@ void ipu__mac_element_element(ipu__obj_t *ipu,
 
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = ipu->regfile.r_regs[rx].bytes[i];
-        uint8_t b = ipu->regfile.r_regs[ry].bytes[i];
+        uint8_t a = ipu->regfile.rx_regfile.rq_regs[rx].bytes[i];
+        uint8_t b = ipu->regfile.rx_regfile.rq_regs[ry].bytes[i];
         uint32_t product = ipu__mult(a, b, data_type);
-        uint32_t acc = ipu->regfile.rq_regs[rz].words[i];
+        uint32_t acc = ipu->regfile.rx_regfile.rq_regs[rz].words[i];
         uint32_t result = ipu__add(acc, product, data_type);
-        ipu->regfile.rq_regs[rz].words[i] = result;
+        ipu->regfile.rx_regfile.rq_regs[rz].words[i] = result;
     }
 }
 
@@ -66,12 +66,12 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
 
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = ipu->regfile.r_regs[rx].bytes[i];
-        uint8_t b = ipu->regfile.r_regs[ry].bytes[element_index];
+        uint8_t a = ipu->regfile.rx_regfile.r_regs[rx].bytes[i];
+        uint8_t b = ipu->regfile.rx_regfile.r_regs[ry].bytes[element_index];
         uint32_t product = ipu__mult(a, b, data_type);
-        uint32_t acc = ipu->regfile.rq_regs[rz].words[i];
+        uint32_t acc = ipu->regfile.rx_regfile.rq_regs[rz].words[i];
         uint32_t result = ipu__add(acc, product, data_type);
-        ipu->regfile.rq_regs[rz].words[i] = result;
+        ipu->regfile.rx_regfile.rq_regs[rz].words[i] = result;
     }
 }
 

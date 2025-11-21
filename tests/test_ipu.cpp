@@ -16,7 +16,7 @@ TEST(IpuInit, CreatesXmemAndZeroedRegs)
     {
         for (int b = 0; b < IPU__R_REG_SIZE_BYTES; ++b)
         {
-            EXPECT_EQ(ipu->regfile.r_regs[i].bytes[b], 0u);
+            EXPECT_EQ(ipu->regfile.rx_regfile.r_regs[i].bytes[b], 0u);
         }
     }
 
@@ -29,7 +29,7 @@ TEST(IpuLoadStoreReg, RoundTripThroughXmem)
     ipu__obj_t *ipu = ipu__init_ipu();
     // fill r_reg 0 with pattern
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
-        ipu->regfile.r_regs[0].bytes[i] = (uint8_t)(i & 0xFF);
+        ipu->regfile.rx_regfile.r_regs[0].bytes[i] = (uint8_t)(i & 0xFF);
 
     const int addr = 1024;
     ipu__store_r_reg(ipu, 0, addr);
@@ -38,7 +38,7 @@ TEST(IpuLoadStoreReg, RoundTripThroughXmem)
     ipu__clear_reg(ipu, 1);
     ipu__load_r_reg(ipu, 1, addr);
 
-    EXPECT_EQ(0, memcmp(&ipu->regfile.r_regs[0], &ipu->regfile.r_regs[1], IPU__R_REG_SIZE_BYTES));
+    EXPECT_EQ(0, memcmp(&ipu->regfile.rx_regfile.r_regs[0], &ipu->regfile.rx_regfile.r_regs[1], IPU__R_REG_SIZE_BYTES));
 
     free(ipu->xmem);
     free(ipu);
@@ -48,11 +48,12 @@ TEST(IpuMacElementVector, ProducesExpectedAccumulation)
 {
     ipu__obj_t *ipu = ipu__init_ipu();
 
+    ipu->regfile.rx_regfile.r_regs[3].bytes[0] = 3; // ry
+    
     // Prepare rx and ry registers with simple data
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
     {
-        ipu->regfile.r_regs[2].bytes[i] = 2; // rx
-        ipu->regfile.r_regs[3].bytes[i] = 3; // ry
+        ipu->regfile.rx_regfile.r_regs[2].bytes[i] = 2; // rx
     }
 
     // ensure rq reg zero
@@ -63,7 +64,7 @@ TEST(IpuMacElementVector, ProducesExpectedAccumulation)
     // each byte product = 2 * 3 = 6, accumulation initially 0
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
     {
-        EXPECT_EQ(ipu->regfile.rq_regs[0].words[i], 6u);
+        EXPECT_EQ(ipu->regfile.rx_regfile.rq_regs[0].words[i], 6u);
     }
 
     free(ipu->xmem);

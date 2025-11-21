@@ -13,6 +13,9 @@
 #define IPU__RQ_SIZE_IN_R_REGS 4
 #define IPU__RQ_REGS_NUM (IPU__R_REGS_NUM / IPU__RQ_SIZE_IN_R_REGS)
 
+#define IPU__LR_REGS_NUM 16
+#define IPU__CR_REGS_NUM 16
+
 #define IPU__RQ_REG_SIZE_BYTES (IPU__R_REG_SIZE_BYTES * IPU__RQ_SIZE_IN_R_REGS)
 #define IPU__RQ_REG_SIZE_WORDS (IPU__RQ_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
 
@@ -34,6 +37,20 @@ typedef union
 {
     ipu__r_reg_t r_regs[IPU__R_REGS_NUM];
     ipu__rq_reg_t rq_regs[IPU__RQ_REGS_NUM];
+} ipu__rx_regfile_t;
+
+typedef struct {
+    uint32_t lr[IPU__LR_REGS_NUM];
+} ipu__lr_regfile_t;
+
+typedef struct {
+    uint32_t cr[IPU__CR_REGS_NUM];
+} ipu__cr_regfile_t;
+
+typedef struct {
+    ipu__rx_regfile_t rx_regfile;
+    ipu__lr_regfile_t lr_regfile;
+    ipu__cr_regfile_t cr_regfile;
 } ipu__regfile_t;
 
 typedef enum
