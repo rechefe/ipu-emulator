@@ -11,16 +11,28 @@ ipu__obj_t *ipu__init_ipu()
     return ipu;
 }
 
-void ipu__load_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
+void ipu__load_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx)
 {
-    assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__read_address(ipu->xmem, xmem_addr, (uint8_t *)&ipu->regfile.rx_regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    assert(rx_idx >= 0 && rx_idx < IPU__R_REGS_NUM);
+    assert(cr_idx >= 0 && cr_idx < IPU__CR_REGS_NUM);
+    assert(lr_idx >= 0 && lr_idx < IPU__CR_REGS_NUM);
+
+    uint32_t xmem_addr =
+        ipu->regfile.lr_regfile.lr[lr_idx] +
+        ipu->regfile.cr_regfile.cr[cr_idx];
+    xmem__read_address(ipu->xmem, xmem_addr, (uint8_t *)&ipu->regfile.rx_regfile.r_regs[rx_idx], IPU__R_REG_SIZE_BYTES);
 }
 
-void ipu__store_r_reg(ipu__obj_t *ipu, int index, int xmem_addr)
+void ipu__store_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx)
 {
-    assert(index >= 0 && index < IPU__R_REGS_NUM);
-    xmem__write_address(ipu->xmem, xmem_addr, (const uint8_t *)&ipu->regfile.rx_regfile.r_regs[index], IPU__R_REG_SIZE_BYTES);
+    assert(rx_idx >= 0 && rx_idx < IPU__R_REGS_NUM);
+    assert(cr_idx >= 0 && cr_idx < IPU__CR_REGS_NUM);
+    assert(lr_idx >= 0 && lr_idx < IPU__CR_REGS_NUM);
+
+    uint32_t xmem_addr =
+        ipu->regfile.lr_regfile.lr[lr_idx] +
+        ipu->regfile.cr_regfile.cr[cr_idx];
+    xmem__write_address(ipu->xmem, xmem_addr, (const uint8_t *)&ipu->regfile.rx_regfile.r_regs[rx_idx], IPU__R_REG_SIZE_BYTES);
 }
 
 void ipu__clear_reg(ipu__obj_t *ipu, int index)
@@ -36,8 +48,8 @@ void ipu__clear_rq_reg(ipu__obj_t *ipu, int index)
 }
 
 void ipu__mac_element_element(ipu__obj_t *ipu,
-              int rz, int rx, int ry,
-              ipu__data_type_t data_type)
+                              int rz, int rx, int ry,
+                              ipu__data_type_t data_type)
 {
     assert(rz >= 0 && rz < IPU__RQ_REGS_NUM);
     assert(rx >= 0 && rx < IPU__R_REGS_NUM);
@@ -55,14 +67,19 @@ void ipu__mac_element_element(ipu__obj_t *ipu,
 }
 
 void ipu__mac_element_vector(ipu__obj_t *ipu,
-              int rz, int rx, int ry,
-              int element_index,
-              ipu__data_type_t data_type)
+                             int rz, int rx, int ry,
+                             int lr_idx,
+                             ipu__data_type_t data_type)
 {
     assert(rz >= 0 && rz < IPU__RQ_REGS_NUM);
     assert(rx >= 0 && rx < IPU__R_REGS_NUM);
     assert(ry >= 0 && ry < IPU__R_REGS_NUM);
-    assert(element_index >= 0 && element_index < IPU__R_REG_SIZE_BYTES);
+    assert(lr_idx >= 0 && lr_idx < IPU__LR_REGS_NUM);
+
+    // The LR value is the element we choose for MAC from RY reg
+    uint32_t element_index = ipu->regfile.lr_regfile.lr[lr_idx];
+
+    assert(element_index < IPU__R_REG_SIZE_BYTES);
 
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
@@ -160,4 +177,14 @@ uint32_t ipu__mult(uint8_t a, uint8_t b, ipu__data_type_t data_type)
         assert(0 && "Unsupported data type in ipu__mult");
         return 0;
     }
+}
+
+void ipu__set_lr(ipu__obj_t *ipu, int lr_idx, uint32_t imm)
+{
+    ipu->regfile.lr_regfile.lr[lr_idx] = imm;
+}
+
+void ipu__set_cr(ipu__obj_t *ipu, int cr_idx, uint32_t imm)
+{
+    ipu->regfile.cr_regfile.cr[cr_idx] = imm;
 }

@@ -32,11 +32,13 @@ TEST(IpuLoadStoreReg, RoundTripThroughXmem)
         ipu->regfile.rx_regfile.r_regs[0].bytes[i] = (uint8_t)(i & 0xFF);
 
     const int addr = 1024;
-    ipu__store_r_reg(ipu, 0, addr);
+    const int lr_idx = 0, cr_idx = 0;
+    ipu__set_lr(ipu, lr_idx, addr);
+    ipu__store_r_reg(ipu, 0, cr_idx, lr_idx);
 
     // clear reg 1 and load into it from memory
     ipu__clear_reg(ipu, 1);
-    ipu__load_r_reg(ipu, 1, addr);
+    ipu__load_r_reg(ipu, 1, cr_idx, lr_idx);
 
     EXPECT_EQ(0, memcmp(&ipu->regfile.rx_regfile.r_regs[0], &ipu->regfile.rx_regfile.r_regs[1], IPU__R_REG_SIZE_BYTES));
 
@@ -48,10 +50,13 @@ class IpuMacElementVectorTest : public ::testing::TestWithParam<int> {};
 
 TEST_P(IpuMacElementVectorTest, ProducesExpectedAccumulation)
 {
+    const int element_idx_lr_reg = 0;
     int element_index = GetParam();
 
     ipu__obj_t *ipu = ipu__init_ipu();
     ASSERT_NE(ipu, nullptr);
+
+    ipu__set_lr(ipu, element_idx_lr_reg, element_index);
 
     // Prepare rx register (filled with 2) and ry register (single-byte at element_index = 3)
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
@@ -63,7 +68,7 @@ TEST_P(IpuMacElementVectorTest, ProducesExpectedAccumulation)
 
     // run the MAC
     ipu__clear_rq_reg(ipu, 0);
-    ipu__mac_element_vector(ipu, 0, 2, 3, element_index, IPU__DATA_TYPE_INT8);
+    ipu__mac_element_vector(ipu, 0, 2, 3, element_idx_lr_reg, IPU__DATA_TYPE_INT8);
 
     // each byte product = 2 * 3 = 6, accumulation initially 0
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)

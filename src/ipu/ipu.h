@@ -71,20 +71,44 @@ typedef struct
 
 ipu__obj_t *ipu__init_ipu();
 
-void ipu__load_r_reg(ipu__obj_t *ipu, int index, int xmem_addr);
-void ipu__store_r_reg(ipu__obj_t *ipu, int index, int xmem_addr);
-void ipu__clear_reg(ipu__obj_t *ipu, int index);
-void ipu__clear_rq_reg(ipu__obj_t *ipu, int index);
+// R registers instructions
+void ipu__load_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx);
+void ipu__store_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx);
+
+void ipu__clear_reg(ipu__obj_t *ipu, int rx_idx);
+void ipu__clear_rq_reg(ipu__obj_t *ipu, int rq_idx);
+
+// MAC instructions
 void ipu__mac_element_element(ipu__obj_t *ipu,
                               int rz, int rx, int ry,
                               ipu__data_type_t data_type);
 
+/**
+ * @brief This function makes the IPU do a MAC operation
+ * while taking only one byte of the R[ry] reg -
+ * RQ[rz][i] += (R[rx][i] * R[ry][LR[lr_idx]]) 
+ * @param rz the index of the result RQ register
+ * @param rx the index of the first R register
+ * @param ry the index of the second R register
+ * @param lr_idx - selects the LR - according to its value we 
+ * choose which byte to read from R[ry]
+ * @param ipu__data_type_t - which data type to use 
+ * @return none
+ */
 void ipu__mac_element_vector(ipu__obj_t *ipu,
                              int rz, int rx, int ry,
-                             int element_index,
+                             int lr_idx,
                              ipu__data_type_t data_type);
 
+// Helper functions - for add and multiply
 uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type);
 uint32_t ipu__mult(uint8_t a, uint8_t b, ipu__data_type_t data_type);
+
+// LR registers instructions
+void ipu__set_lr(ipu__obj_t *ipu, int lr_idx, uint32_t imm);
+void ipu__add_lr(ipu__obj_t *ipu, int lr_idx, uint32_t imm);
+
+// CR registers instructions
+void ipu__set_cr(ipu__obj_t *ipu, int cr_idx, uint32_t imm);
 
 #endif // IPU_H
