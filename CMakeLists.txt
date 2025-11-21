@@ -86,3 +86,22 @@ target_link_libraries(ipu_tests PRIVATE ipu xmem logger)
 
 # Ensure tests have access to logger too
 target_link_libraries(xmem_tests PRIVATE logger)
+
+## Helper macro to add small tools/executables that reuse libraries
+macro(add_tool name)
+    add_executable(${name} ${ARGN})
+    # link common libs by default; callers can add more
+    target_link_libraries(${name} PRIVATE ipu xmem logger)
+    add_custom_target(${name}_run
+        COMMAND ${name}
+        DEPENDS ${name}
+        COMMENT "Run ${name}" VERBATIM
+    )
+endmacro()
+
+# Add tool stubs
+add_tool(ipu-emulator src/tools/ipu-emulator.c)
+add_tool(ipu-assembler src/tools/ipu-assembler.c)
+
+# Meta target for building all tools
+add_custom_target(tools DEPENDS ipu-emulator ipu-assembler)
