@@ -117,6 +117,17 @@ TEST(Validator, DecodeLoadImmediate)
     EXPECT_EQ(d->operands[1].imm, 0x10);
 }
 
+TEST(Validator, DecodeLabelOperand)
+{
+    auto inst = parse_line("JMP start");
+    ASSERT_TRUE(inst.has_value());
+    auto d = decode_inst(*inst);
+    ASSERT_TRUE(d.has_value());
+    ASSERT_EQ(d->operands.size(), 1u);
+    EXPECT_EQ(d->operands[0].kind, DecodedKind::DK_LABEL);
+    EXPECT_EQ(d->operands[0].label, "start");
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

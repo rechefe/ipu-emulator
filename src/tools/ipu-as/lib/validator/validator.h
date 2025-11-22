@@ -11,7 +11,7 @@
 
 namespace ipu_as {
 
-enum class OperandType { REG_R, REG_RQ, REG_LR, REG_CR, IMM, ANY };
+enum class OperandType { REG_R, REG_RQ, REG_LR, REG_CR, IMM, LABEL, ANY };
 
 enum class RegKind { R, RQ, LR, CR };
 
@@ -21,7 +21,7 @@ struct RegRef {
 };
 
 // Decoded operand value (either a register reference or an immediate)
-enum class DecodedKind { DK_REG, DK_IMM };
+enum class DecodedKind { DK_REG, DK_IMM, DK_LABEL };
 
 struct DecodedOperand {
     DecodedKind kind;
@@ -29,6 +29,8 @@ struct DecodedOperand {
     RegRef reg;
     // valid when kind == DK_IMM
     int64_t imm;
+    // valid when kind == DK_LABEL
+    std::string label;
 };
 
 struct DecodedInst {

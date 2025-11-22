@@ -5,12 +5,19 @@
 #include <cctype>
 #include <optional>
 #include <cstdint>
+#include <iostream>
 
 extern "C"
 {
-    #include "ipu/ipu.h"
+#include "ipu/ipu.h"
 }
 
+// range checks
+// default limits (can be made configurable later)
+const int kMaxR = IPU__R_REGS_NUM - 1;
+const int kMaxRQ = IPU__RQ_REGS_NUM - 1;
+const int kMaxLR = IPU__LR_REGS_NUM - 1;
+const int kMaxCR = IPU__CR_REGS_NUM - 1;
 namespace ipu_as
 {
 
@@ -25,6 +32,11 @@ namespace ipu_as
         {"dotrq", {OperandType::REG_RQ, OperandType::REG_RQ}},
         {"setlr", {OperandType::REG_LR}},
         {"setcr", {OperandType::REG_CR}},
+        // branching/jump to label
+        {"jmp", {OperandType::LABEL}},
+        {"b", {OperandType::LABEL}},
+        {"beq", {OperandType::LABEL}},
+        {"bne", {OperandType::LABEL}},
     };
 
     static bool is_register_token_impl(const std::string &s)
@@ -58,6 +70,22 @@ namespace ipu_as
 
     bool is_register_token(const std::string &tok) { return is_register_token_impl(tok); }
     bool is_immediate_token(const std::string &tok) { return is_immediate_token_impl(tok); }
+
+    static bool is_label_token_impl(const std::string &s)
+    {
+        if (s.empty())
+            return false;
+        if (!(std::isalpha((unsigned char)s[0]) || s[0] == '_'))
+            return false;
+        for (size_t i = 1; i < s.size(); ++i)
+        {
+            if (!(std::isalnum((unsigned char)s[i]) || s[i] == '_'))
+                return false;
+        }
+        return true;
+    }
+
+    bool is_label_token(const std::string &tok) { return is_label_token_impl(tok); }
 
     static std::optional<RegRef> parse_register_token_impl(const std::string &s)
     {
@@ -144,6 +172,13 @@ namespace ipu_as
                     return {false, "operand " + std::to_string(i) + " for '" + inst.op + "' must be immediate"};
                 continue;
             }
+            if(t == OperandType::LABEL)
+            {
+                if(!is_label_token_impl(tok))
+                    return {false, "operand " + std::to_string(i) + " for '" + inst.op + "' must be a label"};
+                continue;
+            }
+
             if (t == OperandType::ANY)
                 continue;
 
@@ -172,12 +207,6 @@ namespace ipu_as
             if (r->kind != need)
                 return {false, "operand " + std::to_string(i) + " for '" + inst.op + "' must be register of correct kind"};
 
-            // range checks
-            // default limits (can be made configurable later)
-            const int kMaxR = IPU__R_REGS_NUM - 1;
-            const int kMaxRQ = IPU__RQ_REGS_NUM - 1;
-            const int kMaxLR = IPU__LR_REGS_NUM - 1;
-            const int kMaxCR = IPU__CR_REGS_NUM - 1;
             switch (r->kind)
             {
             case RegKind::R:
@@ -214,8 +243,10 @@ namespace ipu_as
     {
         auto vr = validate_inst(inst);
         if (!vr.ok)
+        {
+            std::cout << vr.message << std::endl;
             return std::nullopt;
-
+        }
         DecodedInst d;
         d.op = inst.op;
         d.operands.reserve(inst.operands.size());
@@ -230,6 +261,11 @@ namespace ipu_as
                 char *end = nullptr;
                 long long v = std::strtoll(tok.c_str(), &end, 0);
                 dob.imm = (int64_t)v;
+            }
+            else if (expected == OperandType::LABEL)
+            {
+                dob.kind = DecodedKind::DK_LABEL;
+                dob.label = tok;
             }
             else
             {

@@ -12,6 +12,7 @@ endif()
 add_library(ipu_as_parser STATIC lib/parser/parser.cpp lib/parser/parser.h)
 
 add_library(ipu_as_validator STATIC lib/validator/validator.cpp lib/validator/validator.h)
+add_library(ipu_as_encoder STATIC lib/encoder/encoder.cpp lib/encoder/encoder.h)
 
 add_executable(ipu-as ${IPU_AS_SOURCES})
 if(DEFINED cxxopts_SOURCE_DIR)
@@ -33,5 +34,10 @@ target_link_libraries(parser_tests PRIVATE ipu_as_parser)
 add_c_test(validator_tests ${CMAKE_CURRENT_SOURCE_DIR}/test/test_validator.cpp)
 target_include_directories(validator_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(validator_tests PRIVATE ipu_as_parser ipu_as_validator)
+
+# Encoder tests
+add_c_test(encoder_tests ${CMAKE_CURRENT_SOURCE_DIR}/test/test_encoder.cpp)
+target_include_directories(encoder_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(encoder_tests PRIVATE ipu_as_parser ipu_as_validator ipu_as_encoder)
 
 install(TARGETS ipu-as RUNTIME DESTINATION bin)

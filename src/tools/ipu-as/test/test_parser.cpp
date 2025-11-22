@@ -53,6 +53,28 @@ TEST(ParserLines, Multiple)
     EXPECT_EQ(out[2].op, "sub");
 }
 
+TEST(ParserLabels, Basic)
+{
+    std::vector<std::string> lines = {
+        "start:",
+        "  add r1, r2, r3",
+        "loop: mul r4, r5, r6",
+        "  // comment",
+        "sub r6, r7, r8",
+        "end:"
+    };
+    std::unordered_map<std::string, size_t> labels;
+    auto out = parse_lines_with_labels(lines, labels);
+    // instructions: add, mul, sub  => indices 0,1,2
+    ASSERT_EQ(out.size(), 3u);
+    EXPECT_EQ(labels["start"], 0u);
+    EXPECT_EQ(labels["loop"], 1u);
+    EXPECT_EQ(labels["end"], 3u); // 'end' label points to instruction index 3 (after last instruction)
+    // label attached to instruction on same line (loop)
+    EXPECT_TRUE(out[1].label.has_value());
+    EXPECT_EQ(out[1].label.value(), "loop");
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);
