@@ -31,9 +31,10 @@ jobs:
 
       - name: Capture coverage (lcov)
         run: |
-          # Use geninfo directly and ignore known mismatch/empty errors that can occur
-          geninfo build --output-filename coverage.info --ignore-errors mismatch,empty || true
-          lcov --remove coverage.info '/usr/*' --output-file coverage.info || true
+          # Capture coverage data from the build directory and exclude external deps (googletest/_deps)
+          lcov --capture --directory build --output-file coverage.info || true
+          # Remove system and third-party coverage that causes gcov/geninfo failures
+          lcov --remove coverage.info '/usr/*' '*/_deps/*' '*/googletest/*' --output-file coverage.info || true
           lcov --list coverage.info || true
 
       - name: Generate HTML report

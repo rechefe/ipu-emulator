@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyProject C CXX)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 # Recommended warning flags for GCC/Clang to surface issues
 if(NOT MSVC)
@@ -30,6 +31,14 @@ FetchContent_Declare(
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+# Fetch cxxopts for command-line parsing in tools
+FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG v3.0.0
+)
+FetchContent_MakeAvailable(cxxopts)
 
 enable_testing()
 
@@ -77,31 +86,16 @@ macro(add_c_test target)
 endmacro()
 
 # Add xmem tests
-add_c_test(xmem_tests tests/test_xmem.cpp)
+add_c_test(xmem_tests test/test_xmem.cpp)
 target_link_libraries(xmem_tests PRIVATE xmem)
 
 # Add ipu tests (see tests/test_ipu.cpp)
-add_c_test(ipu_tests tests/test_ipu.cpp)
+add_c_test(ipu_tests test/test_ipu.cpp)
 target_link_libraries(ipu_tests PRIVATE ipu xmem logger)
 
 # Ensure tests have access to logger too
 target_link_libraries(xmem_tests PRIVATE logger)
 
-## Helper macro to add small tools/executables that reuse libraries
-macro(add_tool name)
-    add_executable(${name} ${ARGN})
-    # link common libs by default; callers can add more
-    target_link_libraries(${name} PRIVATE ipu xmem logger)
-    add_custom_target(${name}_run
-        COMMAND ${name}
-        DEPENDS ${name}
-        COMMENT "Run ${name}" VERBATIM
-    )
-endmacro()
-
-# Add tool stubs
-add_tool(ipu-emulator src/tools/ipu-emulator.c)
-add_tool(ipu-assembler src/tools/ipu-assembler.c)
-
-# Meta target for building all tools
-add_custom_target(tools DEPENDS ipu-emulator ipu-assembler)
+# Add tools
+add_subdirectory(src/tools/ipu-as)
+include_directories(src/tools/ipu-as/lib)
