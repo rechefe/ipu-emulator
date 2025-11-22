@@ -38,23 +38,23 @@ include_directories(include)
 
 # Build ipu library
 add_library(ipu
-    src/ipu/ipu.c
-    src/ipu/ipu.h
+    src/lib/ipu/ipu.c
+    src/lib/ipu/ipu.h
 )
 
 # Build xmem library
 add_library(xmem
-    src/xmem/xmem.c
-    src/xmem/xmem.h
+    src/lib/xmem/xmem.c
+    src/lib/xmem/xmem.h
 )
 
 # Logger library
 add_library(logger
-    src/logging/logger.c
-    src/logging/logger.h
+    src/lib/logging/logger.c
+    src/lib/logging/logger.h
 )
 
-include_directories(src)
+include_directories(src/lib)
 
 # Build the app
 add_executable(fully_connected
