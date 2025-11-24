@@ -1,4 +1,4 @@
 /build/
 coverage.info
-coverage-report/
+/coverage/
 /.vscode/

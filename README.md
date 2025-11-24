@@ -68,7 +68,7 @@ cmake --build build -j 4
 ctest --test-dir build --verbose
 lcov --directory build --capture --output-file coverage.info
 lcov --remove coverage.info '/usr/*' --output-file coverage.info
-genhtml coverage.info --output-directory coverage-report
+genhtml coverage.info --output-directory coverage
 
 # open coverage-report/index.html in your browser
 ```

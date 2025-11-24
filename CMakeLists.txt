@@ -95,7 +95,3 @@ target_link_libraries(ipu_tests PRIVATE ipu xmem logger)
 
 # Ensure tests have access to logger too
 target_link_libraries(xmem_tests PRIVATE logger)
-
-# Add tools
-add_subdirectory(src/tools/ipu-as)
-include_directories(src/tools/ipu-as/lib)

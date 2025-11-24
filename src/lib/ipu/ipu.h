@@ -19,8 +19,22 @@
 #define IPU__RQ_REG_SIZE_BYTES (IPU__R_REG_SIZE_BYTES * IPU__RQ_SIZE_IN_R_REGS)
 #define IPU__RQ_REG_SIZE_WORDS (IPU__RQ_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
 
+// Data type parameters
+#define IPU__UINT4T_BITS 4
+#define IPU__UINT4T_MASK ((1 << IPU__UINT4T_BITS) - 1) 
+
+#define IPU__UINT16T_BITS 16
+
+typedef union {
+    struct {
+        uint8_t low : 4;
+        uint8_t high : 4;
+    } f;
+    uint8_t w;
+} ipu__uint8_t_as_uint4_t_t;
+
 // Register types
-typedef struct
+typedef union
 {
     uint8_t bytes[IPU__R_REG_SIZE_BYTES];
     uint32_t words[IPU__R_REG_SIZE_WORDS];

@@ -4,9 +4,9 @@
 #include <stdint.h>
 #include "assert.h"
 
-#define XMEM__XMEM_SIZE_BYTES (1 << 24) // 16 MB
+#define XMEM__XMEM_SIZE_BYTES (1 << 21) // 2 MB
 #define XMEM__XMEM_WIDTH_BYTES 128
-#define XMEM__XMEM_DEPTH_WORDS (((1 << 24) / XMEM__XMEM_WIDTH_BYTES))
+#define XMEM__XMEM_DEPTH_WORDS ((XMEM__XMEM_SIZE_BYTES / XMEM__XMEM_WIDTH_BYTES))
 
 #define XMEM__ALIGN_ADDR(addr) \
     (((addr) % XMEM__XMEM_WIDTH_BYTES == 0) ? (addr) : ((addr) + XMEM__XMEM_WIDTH_BYTES - ((addr) % XMEM__XMEM_WIDTH_BYTES)))

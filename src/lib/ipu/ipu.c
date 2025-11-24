@@ -1,6 +1,7 @@
 #include "ipu.h"
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 ipu__obj_t *ipu__init_ipu()
 {
@@ -106,6 +107,16 @@ void ipu__mac(ipu__obj_t *ipu,
     }
 }
 
+uint32_t ipu__add_twice_uint4_t(uint8_t a, uint8_t b)
+{
+    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t) a;
+    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t) b;
+
+    uint16_t res_low = (a_as_two.f.low + b_as_two.f.low);
+    uint16_t res_high = (b_as_two.f.high + b_as_two.f.high);
+    return (res_high << IPU__UINT16T_BITS) | res_low;
+}
+
 uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type)
 {
     switch (data_type)
@@ -113,15 +124,7 @@ uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type)
     case IPU__DATA_TYPE_INT8:
         return (uint32_t)(a + b);
     case IPU__DATA_TYPE_INT4:
-    {
-        uint16_t a_low = a & 0xFFFF;
-        uint16_t a_high = (a >> 16) & 0xFFFF;
-        uint16_t b_low = b & 0xFFFF;
-        uint16_t b_high = (b >> 16) & 0xFFFF;
-        uint16_t res_low = (a_low + b_low) & 0xFFFF;
-        uint16_t res_high = (a_high + b_high) & 0xFFFF;
-        return (res_high << 16) | res_low;
-    }
+        return ipu__add_twice_uint4_t(a, b);
     case IPU__DATA_TYPE_FP16:
         // Placeholder for FP16 addition
         assert(0 && "FP16 addition not implemented");
@@ -144,6 +147,16 @@ uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type)
     }
 }
 
+uint32_t ipu__mult_twice_uint4_t(uint8_t a, uint8_t b)
+{
+    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t) a;
+    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t) b;
+
+    uint16_t res_low = (a_as_two.f.low * b_as_two.f.low);
+    uint16_t res_high = (b_as_two.f.high * b_as_two.f.high);
+    return (res_high << IPU__UINT16T_BITS) | res_low;
+}
+
 uint32_t ipu__mult(uint8_t a, uint8_t b, ipu__data_type_t data_type)
 {
     switch (data_type)
@@ -151,15 +164,7 @@ uint32_t ipu__mult(uint8_t a, uint8_t b, ipu__data_type_t data_type)
     case IPU__DATA_TYPE_INT8:
         return (uint32_t)(a * b);
     case IPU__DATA_TYPE_INT4:
-    {
-        uint8_t a_low = a & 0x0F;
-        uint8_t a_high = (a >> 4) & 0x0F;
-        uint8_t b_low = b & 0x0F;
-        uint8_t b_high = (b >> 4) & 0x0F;
-        uint16_t res_low = (a_low * b_low);
-        uint16_t res_high = (a_high * b_high);
-        return (res_high << 16) | res_low;
-    }
+        return ipu__mult_twice_uint4_t(a, b);
     case IPU__DATA_TYPE_FP16:
         // Placeholder for FP16 multiplication
         assert(0 && "FP16 multiplication not implemented");
