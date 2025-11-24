@@ -135,8 +135,13 @@ std::vector<Inst> ipu_as::parse_lines_with_labels(const std::vector<std::string>
         size_t colon = std::string::npos;
         for (size_t i = pos; i < s.size(); ++i)
         {
-            if (s[i] == ':') { colon = i; break; }
-            if (std::isspace((unsigned char)s[i])) break; // not a label
+            if (s[i] == ':')
+            {
+                colon = i;
+                break;
+            }
+            if (std::isspace((unsigned char)s[i]))
+                break; // not a label
         }
         if (colon != std::string::npos)
         {
