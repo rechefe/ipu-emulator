@@ -1,0 +1,20 @@
+constants:
+    program_counter_width: 9
+    
+    rx_register_num: 12
+    lr_register_num: 16
+    cr_register_num: 16
+    immediate_width: 16
+
+
+sub_instructions:
+    - tag: ipu_lr_operation 
+      fields: 
+        - name: op_lr
+          width: 6
+        - name: lr_0
+          bits: 
+        - name: immediate
+          width: immediate_width
+        - name: lr
+          bits: [0:3]
