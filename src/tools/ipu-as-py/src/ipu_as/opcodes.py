@@ -1,7 +1,11 @@
 import ipu_as.ipu_token as token
 
 
-class XmemInstOpcode(token.EnumToken):
+class Opcode(token.EnumToken):
+    pass
+
+
+class XmemInstOpcode(Opcode):
     @property
     def enum_array(self):
         return [
@@ -10,28 +14,25 @@ class XmemInstOpcode(token.EnumToken):
         ]
 
 
-class LrInstOpcode(token.EnumToken):
+class LrInstOpcode(Opcode):
     @property
     def enum_array(self):
         return [
             "incr",
-            "add",
             "set",
         ]
 
 
-class MacInstOpcode(token.EnumToken):
+class MacInstOpcode(Opcode):
     @property
     def enum_array(self):
         return [
-            "mac",
-            "macu",
-            "macs",
-            "macus",
+            "mac.ee",
+            "mac.ev",
         ]
 
 
-class CondInstOpcode(token.EnumToken):
+class CondInstOpcode(Opcode):
     @property
     def enum_array(self):
         return [

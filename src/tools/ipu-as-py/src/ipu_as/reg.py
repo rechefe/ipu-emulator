@@ -1,10 +1,6 @@
 import ipu_as.ipu_token as token
 
 
-class RegFields(token.EnumToken):
-    pass
-
-
 IPU_R_REG_NUM = 12
 
 IPU_RD_REG_NUM = IPU_R_REG_NUM // 2

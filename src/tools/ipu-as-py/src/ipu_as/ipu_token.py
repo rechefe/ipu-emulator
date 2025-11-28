@@ -28,6 +28,8 @@ class NumberToken(Token):
     def bits(self) -> int:
         raise NotImplementedError("bits property must be implemented by subclasses")
 
+    @property 
+
     def encode(self) -> int:
         return self.int
 
@@ -60,6 +62,7 @@ class EnumToken(Token):
 
     def _reverse_map(self) -> dict[str, int]:
         return {name.lower(): idx for idx, name in enumerate(self.enum_array)}
+
 
 class LabelToken(Token):
     def __init__(self, token_str: str):
