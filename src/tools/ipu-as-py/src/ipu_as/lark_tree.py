@@ -1,8 +1,7 @@
 import os
 import lark
-import ipu_as.label as ipu_label
-import ipu_as.compound_inst as compound_inst
-import ipu_as.ipu_token as ipu_token
+from . import compound_inst, ipu_token
+from . import label as ipu_label
 
 IPU_INSTR_ADDR_JUMP = 1
 
@@ -58,7 +57,7 @@ class ASTBuilder(lark.Transformer):
         return items[0]
 
 
-def parse(text):
+def parse(text: str) -> list[dict[str, any]]:
     script_dir = os.path.dirname(__file__)
     parser = lark.Lark.open(
         os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
@@ -73,7 +72,7 @@ def parse(text):
         exit(1)
 
 
-def assemble(text):
+def assemble(text: str) -> list[int]:
     ast = parse(text)
     try:
         program = [compound_inst.CompoundInst(instr).encode() for instr in ast]
@@ -83,17 +82,71 @@ def assemble(text):
         exit(1)
 
 
+def assemble_to_mem_file(text: str, output_path: str):
+    program = assemble(text)
+    with open(output_path, "w") as f:
+        for word in program:
+            f.write(f"0x0{word:08x}\n")
+
+
+BYTE_SIZE = 8
+
+
+def instruction_aligned_bytes_len() -> int:
+    val = compound_inst.CompoundInst.bits() // BYTE_SIZE
+    if val % BYTE_SIZE != 0:
+        val += 1
+    return val
+
+
+def assemble_to_bin_file(text: str, output_path: str):
+    program = assemble(text)
+    with open(output_path, "wb") as f:
+        for word in program:
+            f.write(
+                word.to_bytes(
+                    compound_inst.CompoundInst.bits()
+                    // instruction_aligned_bytes_len(),
+                    byteorder="little",
+                )
+            )
+
+
 def disassemble(program: list[int]) -> list[str]:
     disassembled_instructions = []
-    for encoded_inst in program:
+    for i, encoded_inst in enumerate(program):
         disassembled_instructions.append(
-            compound_inst.CompoundInst.decode(encoded_inst)
+            f"{i:04x}:\t\t{compound_inst.CompoundInst.decode(encoded_inst)}"
         )
     return disassembled_instructions
 
 
+def disassemble_from_mem_file(input_path: str, output_path: str):
+    with open(input_path, "r") as f:
+        program = [int(line.strip(), 0) for line in f.readlines()]
+    with open(output_path, "w") as f:
+        for line in disassemble(program):
+            f.write(f"{line}\n")
+
+
+def disassemble_from_bin_file(input_path: str, output_path: str):
+    with open(input_path, "rb") as f:
+        byte_data = f.read()
+        instruction_size_bytes = instruction_aligned_bytes_len()
+        program = []
+        for i in range(0, len(byte_data), instruction_size_bytes):
+            word_bytes = byte_data[i : i + instruction_size_bytes]
+            word_int = int.from_bytes(word_bytes, byteorder="little")
+            program.append(word_int)
+    with open(output_path, "w") as f:
+        for line in disassemble(program):
+            f.write(f"{line}\n")
+
+
 if __name__ == "__main__":
     code = """
+# The provided code snippet is a simple assembly-like code written in a custom language. Here's a
+# breakdown of what it does:
 start:
     beq lr13 lr15 end; 
     mac.ee rq4 r1 r2;

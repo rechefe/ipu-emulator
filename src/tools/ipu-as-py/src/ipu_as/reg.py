@@ -1,4 +1,4 @@
-import ipu_as.ipu_token as token
+from . import ipu_token
 
 
 IPU_R_REG_NUM = 12
@@ -19,7 +19,7 @@ RX_REG_FIELDS = (
 )
 
 
-class RxRegField(token.EnumToken):
+class RxRegField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
         return RX_REG_FIELDS
@@ -29,7 +29,7 @@ IPU_LR_REG_NUM = 16
 LR_REG_FIELDS = [f"lr{i}" for i in range(IPU_LR_REG_NUM)]
 
 
-class LrRegField(token.EnumToken):
+class LrRegField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
         return LR_REG_FIELDS
@@ -39,7 +39,7 @@ IPU_CR_REG_NUM = 16
 CR_REG_FIELDS = [f"cr{i}" for i in range(IPU_CR_REG_NUM)]
 
 
-class CrRegField(token.EnumToken):
+class CrRegField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
         return CR_REG_FIELDS

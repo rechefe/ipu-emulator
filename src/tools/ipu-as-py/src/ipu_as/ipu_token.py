@@ -1,6 +1,6 @@
 import lark
 import dataclasses
-import ipu_as.label as label
+from . import label
 
 MAX_PROGRAM_SIZE = 1024
 

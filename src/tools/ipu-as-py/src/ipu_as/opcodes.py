@@ -1,8 +1,8 @@
 import lark
-import ipu_as.ipu_token as token
+from . import ipu_token
 
 
-class Opcode(token.EnumToken):
+class Opcode(ipu_token.EnumToken):
     @classmethod
     def find_opcode_class(cls, opcode: lark.Token) -> type["Opcode"]:
         for subclass in cls.__subclasses__():

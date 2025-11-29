@@ -1,4 +1,4 @@
-import ipu_as.inst as inst
+from . import inst
 
 
 INST_SEPARATOR = ";"
@@ -61,7 +61,7 @@ class CompoundInst:
             inst_value = (value >> shift_amount) & ((1 << inst_bits) - 1)
             decoded_instructions.append(inst_type.decode(inst_value))
             shift_amount += inst_bits
-        return "; ".join(reversed(decoded_instructions))
+        return ";\n\t\t\t".join(reversed(decoded_instructions)) + ';;'
 
     @classmethod
     def desc(cls) -> list[str]:

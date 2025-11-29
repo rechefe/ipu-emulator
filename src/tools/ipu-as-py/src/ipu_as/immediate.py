@@ -1,4 +1,4 @@
-import ipu_as.ipu_token as ipu_token
+from . import ipu_token
 
 
 class LrImmediateType(ipu_token.NumberToken):
