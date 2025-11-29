@@ -4,11 +4,12 @@ class Labels:
     def __init__(self):
         self.labels = {}
 
-    def add_label(self, token):
+    def add_label(self, token: any):
         if token.token.value in self.labels:
-            existing_token = self.labels[token.token.value]["token"]
+            print(token)
+            existing_token = self.labels[token.token.value].token
             raise ValueError(
-                f"Label '{token.token.value}' is defined for the second time at Line {token.token.line}, Column {token.token.column}."
+                f"Label '{token.token.value}' is defined for the second time at Line {token.token.line}, Column {token.token.column}. "
                 f"Previous definition at Line {existing_token.line}, Column {existing_token.column}."
             )
         self.labels[token.token.value] = token

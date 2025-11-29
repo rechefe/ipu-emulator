@@ -14,6 +14,13 @@ def validate_inst_structure(cls: type) -> type:
 class Inst:
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
+        if len(inst["operands"]) != len(
+            self.struct_by_opcode_table()[inst["opcode"].token.value]
+        ):
+            raise ValueError(
+                f"Instruction {inst['opcode'].token.value} expects {len(self.struct_by_opcode_table()[inst['opcode'].token.value])} operands, "
+                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
+            )
 
         self.operands = [
             op_type(op)
@@ -22,15 +29,9 @@ class Inst:
                 inst["operands"],
             )
         ]
-
         self.specific_operand_types = self.struct_by_opcode_table()[
             inst["opcode"].token.value
         ]
-        if len(self.operands) != len(self.specific_operand_types):
-            raise ValueError(
-                f"Instruction {inst['opcode'].token.value} expects {len(self.specific_operand_types)} operands, "
-                f"got {len(self.operands)}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
-            )
 
     def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
         full_token_list = [None for _ in range(1 + len(self.operand_types()))]
@@ -57,8 +58,8 @@ class Inst:
                 opcode in cls.opcode_type().enum_array()
             ), f"Configuration of {cls.__name__} is invalid, opcode key must be of type {cls.opcode_type().__name__}"
 
-            cls._inst_mapping_table[opcode] = cls._reversed_inst_mapping_table(
-                cls._find_instruction_inst_mapping(token_list)
+            cls._inst_mapping_table[opcode] = cls._find_instruction_inst_mapping(
+                token_list
             )
 
     @classmethod
@@ -104,7 +105,7 @@ class Inst:
 
     @classmethod
     def bits(cls) -> int:
-        return sum(token_type.bits() for token_type in cls.operand_types())
+        return sum(token_type.bits() for token_type in cls.all_tokens())
 
     @classmethod
     def find_inst_type_by_opcode(cls, opcode: str) -> type["Inst"]:
@@ -112,6 +113,29 @@ class Inst:
             if opcode in subclass.struct_by_opcode_table().keys():
                 return subclass
         raise ValueError(f"Opcode '{opcode}' not found in any Inst subclass.")
+
+    @classmethod
+    def all_tokens(cls) -> list[type[ipu_token.IpuToken]]:
+        return [cls.opcode_type()] + cls.operand_types()
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        decoded_tokens = []
+        shift_amount = 0
+        for token_type in reversed(cls.all_tokens()):
+            token_bits = token_type.bits()
+            token_value = (value >> shift_amount) & ((1 << token_bits) - 1)
+            decoded_tokens.append(token_type.decode(token_value))
+            shift_amount += token_bits
+        return " ".join(reversed(decoded_tokens))
+
+    @classmethod
+    def desc(cls) -> list[str]:
+        res = []
+        res.append(f"{cls.__name__} - {cls.bits()} bits:")
+        for token_type in cls.all_tokens():
+            res.append(f"\t{token_type.__name__} - {token_type.bits()} bits")
+        return res
 
 
 @validate_inst_structure
@@ -233,7 +257,7 @@ class CondInst(Inst):
             "blt": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
             "bnz": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
             "bz": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "b": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+            "b": [ipu_token.LabelToken],
             "br": [reg.LrRegField],
             "bkpt": [],
         }

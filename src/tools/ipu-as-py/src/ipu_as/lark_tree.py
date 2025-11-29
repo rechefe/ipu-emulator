@@ -64,23 +64,56 @@ def parse(text):
         os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
     )
 
-    tree = parser.parse(text)
-    ast = ASTBuilder().transform(tree)
-    return ast
+    try:
+        tree = parser.parse(text)
+        ast = ASTBuilder().transform(tree)
+        return ast
+    except lark.exceptions.LarkError as e:
+        print(f"Error parsing code: {e}")
+        exit(1)
+
+
+def assemble(text):
+    ast = parse(text)
+    try:
+        program = [compound_inst.CompoundInst(instr).encode() for instr in ast]
+        return program
+    except ValueError as e:
+        print(f"Error assembling code: {e}")
+        exit(1)
+
+
+def disassemble(program: list[int]) -> list[str]:
+    disassembled_instructions = []
+    for encoded_inst in program:
+        disassembled_instructions.append(
+            compound_inst.CompoundInst.decode(encoded_inst)
+        )
+    return disassembled_instructions
 
 
 if __name__ == "__main__":
     code = """
 start:
-    beq lr0 lr15 end;;
+    beq lr13 lr15 end; 
+    mac.ee rq4 r1 r2;
+    ldr lr3 cr9;                     ;;
     
     
 end:
-    bkpt;
+    mac.ev rq8 r5 r9 lr0; 
+    beq lr0 lr1 +2;
+    incr lr2 15;
+    ;;
+    
+    b start; mac.ev rq0 r3 mem_bypass lr15; ;;
     """
-    ast = parse(code)
 
-    program = [compound_inst.CompoundInst(instr) for instr in ast]
+    description = compound_inst.CompoundInst.desc()
+    print("\n".join(description))
+    assembled = assemble(code)
+    for line in assembled:
+        print(hex(line))
 
-    for inst in program:
-        print(inst.encode())
+    for line in disassemble(assembled):
+        print(line)

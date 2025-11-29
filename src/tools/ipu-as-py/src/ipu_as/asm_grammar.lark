@@ -20,7 +20,7 @@ label: TOKEN ":" -> label
 operand: TOKEN -> operand
 
 // ----------------- Tokens -----------------
-TOKEN: /[A-Za-z0-9_][A-Za-z0-9_\.]*/
+TOKEN: /[+]?[A-Za-z0-9_][A-Za-z0-9_\.]*/
 
 // ----------------- Whitespace & comments -----------------
 _NL: /\r?\n/

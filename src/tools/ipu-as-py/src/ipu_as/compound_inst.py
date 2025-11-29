@@ -14,7 +14,7 @@ class CompoundInst:
 
     def _fill_instructions(self, instructions: list[dict[str, any]]) -> int:
         address = None
-        for instruction in instructions['instructions']:
+        for instruction in instructions["instructions"]:
             inst_type = inst.Inst.find_inst_type_by_opcode(
                 instruction["opcode"].token.value
             )
@@ -25,7 +25,7 @@ class CompoundInst:
             else:
                 raise ValueError(
                     f"Duplicate instruction of type {inst_type.__name__} in compound instruction\n"
-                    f"First occurrence: {self.instructions[inst_type].opcode.get_location_string()}\n"
+                    f"First occurrence: {self.instructions[inst_type].opcode.annotated_token.get_location_string()}\n"
                     f"Second occurrence: {instruction['opcode'].get_location_string()}"
                 )
         return address
@@ -39,9 +39,9 @@ class CompoundInst:
     def instruction_types(cls) -> list[type[inst.Inst]]:
         return [inst_type for inst_type in inst.Inst.__subclasses__()]
 
-    @property
-    def bits(self) -> int:
-        return sum(instruction.bits() for instruction in self.instructions)
+    @classmethod
+    def bits(cls) -> int:
+        return sum(instruction.bits() for instruction in cls.instruction_types())
 
     def encode(self) -> int:
         encoded_line = 0
@@ -51,3 +51,23 @@ class CompoundInst:
             encoded_line |= encoded_inst << shift_amount
             shift_amount += instruction.bits()
         return encoded_line
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        decoded_instructions = []
+        shift_amount = 0
+        for inst_type in reversed(cls.instruction_types()):
+            inst_bits = inst_type.bits()
+            inst_value = (value >> shift_amount) & ((1 << inst_bits) - 1)
+            decoded_instructions.append(inst_type.decode(inst_value))
+            shift_amount += inst_bits
+        return "; ".join(reversed(decoded_instructions))
+
+    @classmethod
+    def desc(cls) -> list[str]:
+        res = []
+        res.append(f"{cls.__name__} - {cls.bits()} bits:")
+        res.append("Subitems:")
+        for inst_type in cls.instruction_types():
+            res.extend(f"\t{line}" for line in inst_type.desc())
+        return res

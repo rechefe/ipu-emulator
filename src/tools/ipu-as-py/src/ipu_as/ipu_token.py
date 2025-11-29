@@ -55,6 +55,10 @@ class NumberToken(IpuToken):
     def encode(self) -> int:
         return self.int
 
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return f"{value}"
+
 
 class EnumToken(IpuToken):
     def __init__(self, token: AnnotatedToken):
@@ -78,9 +82,7 @@ class EnumToken(IpuToken):
 
     @classmethod
     def default(cls) -> "IpuToken":
-        return cls(
-            AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0)
-        )
+        return cls(AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0))
 
     @classmethod
     def bits(cls) -> int:
@@ -95,6 +97,10 @@ class EnumToken(IpuToken):
 
     def _reverse_map(self) -> dict[str, int]:
         return {name.lower(): idx for idx, name in enumerate(self.enum_array())}
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return cls.enum_array()[value]
 
 
 class LabelToken(IpuToken):
@@ -131,3 +137,7 @@ class LabelToken(IpuToken):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
         return label.ipu_labels.get_address(self.token)
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return f"{value}"
