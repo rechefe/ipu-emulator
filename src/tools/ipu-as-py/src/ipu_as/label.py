@@ -1,12 +1,10 @@
 import lark
-import ipu_as.lark_tree as lark_tree
-
 
 class Labels:
     def __init__(self):
         self.labels = {}
 
-    def add_label(self, token: lark_tree.AnnotatedToken):
+    def add_label(self, token):
         if token.token.value in self.labels:
             existing_token = self.labels[token.token.value]["token"]
             raise ValueError(

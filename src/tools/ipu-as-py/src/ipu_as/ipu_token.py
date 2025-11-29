@@ -1,12 +1,21 @@
 import lark
-import ipu_as.lark_tree as lark_tree
+import dataclasses
 import ipu_as.label as label
 
 MAX_PROGRAM_SIZE = 1024
 
 
+@dataclasses.dataclass
+class AnnotatedToken:
+    token: lark.Token
+    instr_id: int
+
+    def get_location_string(self) -> str:
+        return f"Line {self.token.line}, Column {self.token.column}"
+
+
 class IpuToken:
-    def __init__(self, token: lark_tree.AnnotatedToken):
+    def __init__(self, token: AnnotatedToken):
         self.annotated_token = token
         self.token = token.token
         self.instr_id = token.instr_id
@@ -26,10 +35,10 @@ class IpuToken:
 
 
 class NumberToken(IpuToken):
-    def __init__(self, token: lark_tree.AnnotatedToken):
+    def __init__(self, token: AnnotatedToken):
         super().__init__(token)
         try:
-            self.int = int(token.value, 0)
+            self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
         if not (0 <= self.int < (1 << self.bits())):
@@ -37,7 +46,7 @@ class NumberToken(IpuToken):
 
     @classmethod
     def default(cls) -> "IpuToken":
-        return cls.__init__(lark_tree.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+        return cls.__init__(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
     @classmethod
     def bits(self) -> int:
@@ -48,7 +57,7 @@ class NumberToken(IpuToken):
 
 
 class EnumToken(IpuToken):
-    def __init__(self, token: lark_tree.AnnotatedToken):
+    def __init__(self, token: AnnotatedToken):
         super().__init__(token)
         if self.token.value.lower() not in self.enum_array():
             self._raise_error(
@@ -69,8 +78,8 @@ class EnumToken(IpuToken):
 
     @classmethod
     def default(cls) -> "IpuToken":
-        return cls.__init__(
-            lark_tree.AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0)
+        return cls(
+            AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0)
         )
 
     @classmethod
@@ -91,7 +100,7 @@ class EnumToken(IpuToken):
 class LabelToken(IpuToken):
     def __init__(
         self,
-        token: lark_tree.AnnotatedToken,
+        token: AnnotatedToken,
     ):
         super().__init__(token)
         if self.token.value.startswith("+"):
@@ -111,7 +120,7 @@ class LabelToken(IpuToken):
 
     @classmethod
     def default(cls) -> "IpuToken":
-        return cls.__init__(lark_tree.AnnotatedToken(lark.Token("LABEL", "+0"), 0))
+        return cls(AnnotatedToken(lark.Token("LABEL", "+0"), 0))
 
     @classmethod
     def bits(self) -> int:
@@ -121,4 +130,4 @@ class LabelToken(IpuToken):
         if self.token.value.startswith("+"):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
-        return label.ipu_labels.get_address(self.token_str)
+        return label.ipu_labels.get_address(self.token)

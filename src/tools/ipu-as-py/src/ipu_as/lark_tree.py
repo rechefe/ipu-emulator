@@ -1,18 +1,10 @@
 import os
 import lark
-import dataclasses
 import ipu_as.label as ipu_label
+import ipu_as.compound_inst as compound_inst
+import ipu_as.ipu_token as ipu_token
 
 IPU_INSTR_ADDR_JUMP = 1
-
-
-@dataclasses.dataclass
-class AnnotatedToken:
-    token: lark.Token
-    instr_id: int
-
-    def get_location_string(self) -> str:
-        return f"Line {self.token.line}, Column {self.token.column}"
 
 
 class ASTBuilder(lark.Transformer):
@@ -21,7 +13,7 @@ class ASTBuilder(lark.Transformer):
         self.instr_index = 0
 
     def __default_token__(self, token: lark.Token):
-        return AnnotatedToken(token=token, instr_id=self.instr_index)
+        return ipu_token.AnnotatedToken(token=token, instr_id=self.instr_index)
 
     def program(self, items):
         return items
@@ -79,19 +71,16 @@ def parse(text):
 
 if __name__ == "__main__":
     code = """
-    l1:
-        add r1 r2 r3;
-        mov rq3 rq4;
-        sub r5 r6 r7; ;;
-        
-    l2:
-        load rq8 100; beq lr1 lr2 l1; store rq9 200; nop; ;;
-
-        mul r10 r11 r12;
-        div r13 r14 r15;
-        div rq16 rq17 rq18
+start:
+    beq lr0 lr15 end;;
+    
+    
+end:
+    bkpt;
     """
     ast = parse(code)
 
-    print(ast)
-    print(ipu_label.ipu_labels.labels)
+    program = [compound_inst.CompoundInst(instr) for instr in ast]
+
+    for inst in program:
+        print(inst.encode())

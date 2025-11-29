@@ -14,7 +14,7 @@ class CompoundInst:
 
     def _fill_instructions(self, instructions: list[dict[str, any]]) -> int:
         address = None
-        for instruction in instructions:
+        for instruction in instructions['instructions']:
             inst_type = inst.Inst.find_inst_type_by_opcode(
                 instruction["opcode"].token.value
             )
