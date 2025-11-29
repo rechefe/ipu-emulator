@@ -1,22 +1,31 @@
+import lark
 import ipu_as.ipu_token as token
 
 
 class Opcode(token.EnumToken):
-    pass
+    @classmethod
+    def find_opcode_class(cls, opcode: lark.Token) -> type["Opcode"]:
+        for subclass in cls.__subclasses__():
+            if opcode.value in subclass.enum_array():
+                return subclass
+        raise ValueError(
+            f"Opcode '{opcode.value}' declared in Line {opcode.line} and Column {opcode.column} not found in any Opcode subclass."
+        )
 
 
 class XmemInstOpcode(Opcode):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return [
             "str",
             "ldr",
+            "xmem_nop",
         ]
 
 
 class LrInstOpcode(Opcode):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return [
             "incr",
             "set",
@@ -24,24 +33,45 @@ class LrInstOpcode(Opcode):
 
 
 class MacInstOpcode(Opcode):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return [
             "mac.ee",
             "mac.ev",
+            "mac_nop",
         ]
 
 
 class CondInstOpcode(Opcode):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return [
             "beq",
             "bne",
             "blt",
-            "bge",
             "bnz",
             "bz",
             "b",
+            "br",
             "bkpt",
         ]
+
+
+def validate_unique_opcodes():
+    opcodes_subclasses = Opcode.__subclasses__()
+    opcode_to_class = {}
+
+    for cls in opcodes_subclasses:
+        for opcode in cls.enum_array():
+            if opcode in opcode_to_class:
+                existing_class = opcode_to_class[opcode]
+                error_msg = (
+                    f"Duplicate opcode '{opcode}' found in classes "
+                    f"'{existing_class.__name__}' and '{cls.__name__}'"
+                )
+                raise AssertionError(error_msg)
+            opcode_to_class[opcode] = cls
+
+
+# Call it to validate on module load
+validate_unique_opcodes()

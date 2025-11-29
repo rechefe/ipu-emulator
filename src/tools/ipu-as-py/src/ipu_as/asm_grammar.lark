@@ -1,0 +1,32 @@
+_SEMI2: ";;"
+_SEMI: ";"
+
+// ----------------- Compound instruction -----------------
+// Each compound instruction may optionally start with a label
+compound_instruction: label? instr_list  -> compound_instr_list
+
+?start: compound_instruction (_SEMI2 _NL* compound_instruction)* (_SEMI2 _NL*)?  -> program
+
+// Instructions inside a compound are separated by ';'
+instr_list: instr (_SEMI _NL* instr)* (_SEMI _NL*)? -> instr_list
+
+// Single instruction
+?instr: TOKEN operand* -> instruction
+
+// Optional label
+label: TOKEN ":" -> label
+
+// Operands are just tokens
+operand: TOKEN -> operand
+
+// ----------------- Tokens -----------------
+TOKEN: /[A-Za-z0-9_][A-Za-z0-9_\.]*/
+
+// ----------------- Whitespace & comments -----------------
+_NL: /\r?\n/
+%ignore /[ \t]+/
+%ignore _NL
+%ignore /\/\/[^\n]*/  // line comments
+%ignore /#[^\n]*/     // python-style comments
+//_BLOCK_COMMENT: /\/\*([^*]|\*+[^*/])*\*+\//
+//%ignore _BLOCK_COMMENT

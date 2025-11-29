@@ -1,79 +1,124 @@
+import lark
+import ipu_as.lark_tree as lark_tree
 import ipu_as.label as label
 
 MAX_PROGRAM_SIZE = 1024
 
 
-class Token:
-    def __init__(self, token_str: str):
-        pass
+class IpuToken:
+    def __init__(self, token: lark_tree.AnnotatedToken):
+        self.annotated_token = token
+        self.token = token.token
+        self.instr_id = token.instr_id
 
-    @property
-    def bits(self) -> int:
+    @classmethod
+    def bits(cls) -> int:
         raise NotImplementedError("bits property must be implemented by subclasses")
 
-    def is_valid(self, value: str) -> bool:
-        raise NotImplementedError("is_valid method must be implemented by subclasses")
+    def _raise_error(self, extra_msg: str = ""):
+        error_msg = (
+            f"Invalid token value - {self.token.value} in token {self.__class__.__name__}\n"
+            f"In {self.annotated_token.get_location_string()}"
+        )
+        if extra_msg:
+            error_msg += f"\nAdditional Information: {extra_msg}"
+        raise ValueError(error_msg)
 
 
-class NumberToken(Token):
-    def __init__(self, token_str: int):
+class NumberToken(IpuToken):
+    def __init__(self, token: lark_tree.AnnotatedToken):
+        super().__init__(token)
         try:
-            self.int = int(token_str)
+            self.int = int(token.value, 0)
         except ValueError:
-            raise ValueError(f"Invalid number token value: {token_str}")
-        if self.int < 0 or self.int >= (1 << self.bits):
-            raise ValueError(f"Number token value out of range: {token_str}")
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        if not (0 <= self.int < (1 << self.bits())):
+            self._raise_error(f"Value {self.int} out of range for {self.bits()} bits")
 
-    @property
+    @classmethod
+    def default(cls) -> "IpuToken":
+        return cls.__init__(lark_tree.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    @classmethod
     def bits(self) -> int:
         raise NotImplementedError("bits property must be implemented by subclasses")
-
-    @property 
 
     def encode(self) -> int:
         return self.int
 
 
-class EnumToken(Token):
-    def __init__(self, token_str: list[str]):
-        self.token_str = token_str
-        if self.token_str not in self.enum_array:
-            raise ValueError(f"Invalid enum token value: {token_str}")
+class EnumToken(IpuToken):
+    def __init__(self, token: lark_tree.AnnotatedToken):
+        super().__init__(token)
+        if self.token.value.lower() not in self.enum_array():
+            self._raise_error(
+                (
+                    f"Value {self.token.value} not in enum options\n"
+                    f"Available options: {self.enum_array()}"
+                )
+            )
 
     def __len__(self):
-        return len(self.enum_array)
+        return len(self.enum_array())
 
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls) -> list[str]:
         raise NotImplementedError(
             "enum_array property must be implemented by subclasses"
         )
 
-    @property
-    def bits(self) -> int:
-        assert len(self.enum_array) > 1, (
+    @classmethod
+    def default(cls) -> "IpuToken":
+        return cls.__init__(
+            lark_tree.AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0)
+        )
+
+    @classmethod
+    def bits(cls) -> int:
+        assert len(cls.enum_array()) > 1, (
             "EnumToken must have at least two values, check if you really need an Enum here if its "
             "just the one, consider adding 'nop' instruction instead."
         )
-        return (len(self.enum_array) - 1).bit_length()
+        return (len(cls.enum_array()) - 1).bit_length()
 
     def encode(self) -> int:
-        return self._reverse_map()[self.token_str]
+        return self._reverse_map()[self.token.value.lower()]
 
     def _reverse_map(self) -> dict[str, int]:
-        return {name.lower(): idx for idx, name in enumerate(self.enum_array)}
+        return {name.lower(): idx for idx, name in enumerate(self.enum_array())}
 
 
-class LabelToken(Token):
-    def __init__(self, token_str: str):
-        self.token_str = token_str
-        if self.token_str not in label.ipu_labels.labels:
-            print(label.ipu_labels.labels)
-            raise ValueError(f"Undefined label token value: {token_str}")
+class LabelToken(IpuToken):
+    def __init__(
+        self,
+        token: lark_tree.AnnotatedToken,
+    ):
+        super().__init__(token)
+        if self.token.value.startswith("+"):
+            try:
+                offset = int(self.token.value, 0)
+            except ValueError:
+                self._raise_error(
+                    f"Relative label value {self.token.value} is not a valid integer"
+                )
+            target_address = self.instr_id + offset
+            if not (0 <= target_address < MAX_PROGRAM_SIZE):
+                self._raise_error(
+                    f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
+                )
+        elif self.token.value not in label.ipu_labels.labels:
+            self._raise_error(f"Label {self.token.value} not defined")
 
-    @property
+    @classmethod
+    def default(cls) -> "IpuToken":
+        return cls.__init__(lark_tree.AnnotatedToken(lark.Token("LABEL", "+0"), 0))
+
+    @classmethod
     def bits(self) -> int:
         return (MAX_PROGRAM_SIZE - 1).bit_length()
 
     def encode(self) -> int:
+        if self.token.value.startswith("+"):
+            offset = int(self.token.value, 0)
+            return self.instr_id + offset
         return label.ipu_labels.get_address(self.token_str)

@@ -1,16 +1,26 @@
+import lark
+import ipu_as.lark_tree as lark_tree
+
+
 class Labels:
     def __init__(self):
         self.labels = {}
 
-    def add_label(self, label: str, address: int):
-        if label in self.labels:
-            raise ValueError(f"Label '{label}' already defined.")
-        self.labels[label] = address
+    def add_label(self, token: lark_tree.AnnotatedToken):
+        if token.token.value in self.labels:
+            existing_token = self.labels[token.token.value]["token"]
+            raise ValueError(
+                f"Label '{token.token.value}' is defined for the second time at Line {token.token.line}, Column {token.token.column}."
+                f"Previous definition at Line {existing_token.line}, Column {existing_token.column}."
+            )
+        self.labels[token.token.value] = token
 
-    def get_address(self, label: str) -> int:
-        if label not in self.labels:
-            raise ValueError(f"Label '{label}' not defined.")
-        return self.labels[label]
+    def get_address(self, token: lark.Token) -> int:
+        if token.value not in self.labels:
+            raise ValueError(
+                f"Label '{token.value}' referenced in Line {token.line}, Column {token.column} not defined."
+            )
+        return self.labels[token.value].instr_id
 
 
 ipu_labels = Labels()

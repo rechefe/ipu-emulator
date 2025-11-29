@@ -20,8 +20,8 @@ RX_REG_FIELDS = (
 
 
 class RxRegField(token.EnumToken):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return RX_REG_FIELDS
 
 
@@ -30,8 +30,8 @@ LR_REG_FIELDS = [f"lr{i}" for i in range(IPU_LR_REG_NUM)]
 
 
 class LrRegField(token.EnumToken):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return LR_REG_FIELDS
 
 
@@ -40,6 +40,6 @@ CR_REG_FIELDS = [f"cr{i}" for i in range(IPU_CR_REG_NUM)]
 
 
 class CrRegField(token.EnumToken):
-    @property
-    def enum_array(self):
+    @classmethod
+    def enum_array(cls):
         return CR_REG_FIELDS
