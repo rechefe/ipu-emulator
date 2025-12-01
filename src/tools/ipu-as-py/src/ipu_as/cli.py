@@ -1,10 +1,18 @@
 import click
-import ipu_as.lark_tree as lark_tree
+from ipu_as import lark_tree, template
 
 
 @click.group()
 def cli():
     pass
+
+
+@click.command()
+@click.option("--output", type=click.Path(exists=False), required=True)
+def c_header(output: click.Path):
+    """Generates a C header file representing the instruction parser."""
+    click.echo(f"Generating C header file: {output}")
+    template.expand_template_to_file(output)
 
 
 @click.command()
@@ -49,6 +57,7 @@ def disassemble(input: click.Path, output: click.Path, format: str):
 
 cli.add_command(assemble)
 cli.add_command(disassemble)
+cli.add_command(c_header)
 
 if __name__ == "__main__":
     cli()

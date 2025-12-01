@@ -1,8 +1,8 @@
 import jinja2
-from ipu_as import compound_inst, ipu_token, opcodes
+from ipu_as import compound_inst, ipu_token
 
 
-def expand_template():
+def expand_template_to_file(path: str):
     template_loader = jinja2.FileSystemLoader(searchpath="src/ipu_as/templates")
     template_env = jinja2.Environment(loader=template_loader)
 
@@ -16,12 +16,5 @@ def expand_template():
         }
     )
 
-    with open("generated/inst_parser.h", "w") as f:
+    with open(path, "w") as f:
         f.write(rendered_code)
-
-    for line in compound_inst.CompoundInst.desc():
-        print(line)
-
-
-if __name__ == "__main__":
-    expand_template()
