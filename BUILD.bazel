@@ -1,0 +1,67 @@
+# Root BUILD file
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "xmem",
+    srcs = ["src/lib/xmem/xmem.c"],
+    hdrs = ["src/lib/xmem/xmem.h"],
+    includes = ["src/lib"],
+)
+
+cc_library(
+    name = "logger",
+    srcs = ["src/lib/logging/logger.c"],
+    hdrs = ["src/lib/logging/logger.h"],
+    includes = ["src/lib"],
+)
+
+cc_library(
+    name = "ipu",
+    srcs = ["src/lib/ipu/ipu.c"],
+    hdrs = ["src/lib/ipu/ipu.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":xmem",
+    ],
+)
+
+cc_library(
+    name = "fp",
+    srcs = ["src/lib/fp/fp.c"],
+    hdrs = ["src/lib/fp/fp.h"],
+    includes = ["src/lib"],
+)
+
+cc_binary(
+    name = "fully_connected",
+    srcs = ["src/apps/fully_connected.c"],
+    deps = [
+        ":ipu",
+        ":xmem",
+        ":logger",
+    ],
+)
+
+cc_test(
+    name = "xmem_tests",
+    size = "small",
+    srcs = ["test/test_xmem.cpp"],
+    deps = [
+        ":xmem",
+        ":logger",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "ipu_tests",
+    size = "small",
+    srcs = ["test/test_ipu.cpp"],
+    deps = [
+        ":ipu",
+        ":xmem",
+        ":logger",
+        "@googletest//:gtest_main",
+    ],
+)

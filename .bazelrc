@@ -1,0 +1,19 @@
+# Bazel configuration
+
+# C/C++ standards
+build --cxxopt=-std=c++17
+build --conlyopt=-std=c11
+
+# Warnings
+build --copt=-Wall
+build --copt=-Wextra
+build --copt=-Wpedantic
+
+# Coverage support
+coverage --combined_report=lcov
+coverage --experimental_generate_llvm_lcov
+coverage --instrument_test_targets
+
+# Test output
+test --test_output=errors
+test --test_summary=detailed

@@ -1,0 +1,33 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "ipu_as_lib",
+    srcs = glob([
+        "src/ipu_as/*.py",
+    ]),
+    data = glob([
+        "src/ipu_as/**/*.lark",
+        "src/ipu_as/**/*.j2",
+    ]),
+    imports = ["src"],
+    deps = [
+    ],
+)
+
+py_binary(
+    name = "ipu-as",
+    srcs = ["src/ipu_as/cli.py"],
+    main = "src/ipu_as/cli.py",
+    deps = [":ipu_as_lib"],
+    imports = ["src"],
+)
+
+py_test(
+    name = "test_assemble",
+    srcs = ["test/test_assemble.py"],
+    deps = [":ipu_as_lib"],
+    imports = ["src"],
+)

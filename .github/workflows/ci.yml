@@ -13,32 +13,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Bazelisk
         run: |
-          sudo apt-get update
-          sudo apt-get install -y lcov
+          curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x /usr/local/bin/bazel
 
-      - name: Configure (with coverage)
-        run: cmake -S . -B build -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build all targets
+        run: bazel build //...
 
-      - name: Build
-        run: cmake --build build -- -j 2
+      - name: Run all tests
+        run: bazel test //... --test_output=errors
 
-      - name: Run tests
+      - name: Generate coverage
         run: |
-          # Run tests and produce JUnit XML for test reporting
-          ctest --test-dir build --output-on-failure --output-junit test_results.xml || true
+          bazel coverage //...
+          # Convert coverage to lcov format
+          cp bazel-out/_coverage/_coverage_report.dat coverage.info || true
 
-      - name: Capture coverage (lcov)
+      - name: Install lcov for HTML report
+        run: sudo apt-get update && sudo apt-get install -y lcov
+
+      - name: Generate HTML coverage report
         run: |
-          # Capture coverage data from the build directory and exclude external deps (googletest/_deps)
-          lcov --capture --directory build --output-file coverage.info || true
-          # Remove system and third-party coverage that causes gcov/geninfo failures
-          lcov --remove coverage.info '/usr/*' '*/_deps/*' '*/googletest/*' --output-file coverage.info || true
-          lcov --list coverage.info || true
-
-      - name: Generate HTML report
-        run: genhtml coverage.info --output-directory coverage-report || true
+          genhtml coverage.info --output-directory coverage-report || true
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
