@@ -10,7 +10,7 @@ C_HEADER_TEMPLATE = jinja2.Template(
     open(os.path.join(TEMPLATE_DIR, "inst_parser.h.j2")).read()
 )
 C_TEMPLATE = jinja2.Template(
-    open(os.path.join(TEMPLATE_DIR, "inst_parser.h.j2")).read()
+    open(os.path.join(TEMPLATE_DIR, "inst_parser.c.j2")).read()
 )
 
 

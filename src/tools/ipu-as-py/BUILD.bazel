@@ -1,5 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
-load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+load("@ipu_as_deps//:requirements.bzl", "requirement")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,6 +14,9 @@ py_library(
     ]),
     imports = ["src"],
     deps = [
+        requirement("click"),
+        requirement("lark"),
+        requirement("jinja2"),
     ],
 )
 
@@ -30,4 +33,21 @@ py_test(
     srcs = ["test/test_assemble.py"],
     deps = [":ipu_as_lib"],
     imports = ["src"],
+)
+
+genrule(
+    name = "gen_inst_parser",
+    outs = [
+        "inst_parser.h",
+        "inst_parser.c",
+    ],
+    cmd = "$(location :ipu-as) c-gen --out-dir $(@D)",
+    tools = [":ipu-as"],
+)
+
+cc_library(
+    name = "inst_parser",
+    srcs = ["inst_parser.c"],
+    hdrs = ["inst_parser.h"],
+    copts = ["-Wno-unused-variable"],
 )

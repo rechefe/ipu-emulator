@@ -97,7 +97,7 @@ def instruction_aligned_bytes_len() -> int:
     val = compound_inst.CompoundInst.bits()
     if val % WORD_SIZE != 0:
         val += WORD_SIZE - (val % WORD_SIZE)
-    return val // WORD_SIZE
+    return (val // WORD_SIZE) * 4
 
 
 def assemble_to_bin_file(text: str, output_path: str):
@@ -106,8 +106,7 @@ def assemble_to_bin_file(text: str, output_path: str):
         for word in program:
             f.write(
                 word.to_bytes(
-                    compound_inst.CompoundInst.bits()
-                    // instruction_aligned_bytes_len(),
+                    instruction_aligned_bytes_len(),
                     byteorder="little",
                 )
             )
