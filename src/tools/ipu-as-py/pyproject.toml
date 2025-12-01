@@ -22,7 +22,7 @@ dev = [
 ipu-as = "ipu_as.cli:cli"
 
 [tool.setuptools.package-data]
-ipu_as = ["*.lark", "**/*.lark"]
+ipu_as = ["*.lark", "**/*.lark", "*.j2", "**/*.j2"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

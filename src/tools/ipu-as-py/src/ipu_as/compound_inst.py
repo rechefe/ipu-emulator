@@ -83,4 +83,4 @@ class CompoundInst:
                     f"_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
                 )
                 fields.append((field_name, token_type.bits()))
-        return reversed(fields)
+        return list(reversed(fields))

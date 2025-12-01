@@ -1,0 +1,12 @@
+#include "inst_parser.h"
+
+void inst_parser__print_inst(inst_parser__inst_t* inst) {
+    printf("Instruction Fields:\n");
+    {%- for name, bits in inst_bit_fields %}
+    printf("  {{ name }}[{{ bits }}]: %u\n", inst->{{ name }});
+    {%- endfor %}
+}
+
+void inst_parser__read_inst_from_file(FILE* file, inst_parser__inst_t* inst) {
+    fread(inst, sizeof(inst_parser__inst_t), 1, file);
+}

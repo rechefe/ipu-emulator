@@ -90,14 +90,14 @@ def assemble_to_mem_file(text: str, output_path: str):
             f.write(f"0x0{word:08x}\n")
 
 
-BYTE_SIZE = 8
+WORD_SIZE = 32
 
 
 def instruction_aligned_bytes_len() -> int:
-    val = compound_inst.CompoundInst.bits() // BYTE_SIZE
-    if val % BYTE_SIZE != 0:
-        val += 1
-    return val
+    val = compound_inst.CompoundInst.bits()
+    if val % WORD_SIZE != 0:
+        val += WORD_SIZE - (val % WORD_SIZE)
+    return val // WORD_SIZE
 
 
 def assemble_to_bin_file(text: str, output_path: str):

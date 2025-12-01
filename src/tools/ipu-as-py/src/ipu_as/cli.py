@@ -8,11 +8,15 @@ def cli():
 
 
 @click.command()
-@click.option("--output", type=click.Path(exists=False), required=True)
-def c_header(output: click.Path):
+@click.option(
+    "--out-dir",
+    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+    required=True,
+)
+def c_gen(out_dir: click.Path):
     """Generates a C header file representing the instruction parser."""
-    click.echo(f"Generating C header file: {output}")
-    template.expand_template_to_file(output)
+    click.echo(f"Generating C header file: {out_dir}")
+    template.expand_template_to_file(out_dir)
 
 
 @click.command()
@@ -57,7 +61,7 @@ def disassemble(input: click.Path, output: click.Path, format: str):
 
 cli.add_command(assemble)
 cli.add_command(disassemble)
-cli.add_command(c_header)
+cli.add_command(c_gen)
 
 if __name__ == "__main__":
     cli()

@@ -2,20 +2,26 @@
 #define INST_PARSER_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 {% for enum in enums -%}
-typedef enum {
+typedef enum 
+{
     {%- for value, name in enums[enum] %}
-    {{ enum | upper }}_{{ name | upper }} = {{ value }},
+    INST_PARSER__{{ enum | upper }}_{{ name | upper }} = {{ value }}{% if not loop.last %},{% endif %}
     {%- endfor %}
-} {{ enum }}_t;
+} inst_parser__{{ enum }}_t;
 
 {% endfor -%}
 
-typedef struct {
+typedef struct __attribute__((packed)) 
+{
     {%- for name, bits in inst_bit_fields %}
     uint32_t {{ name }} : {{ bits }};
     {%- endfor %}
 } inst_parser__inst_t;
+
+void inst_parser__print_inst(inst_parser__inst_t* inst);
+void inst_parser__read_inst_from_file(FILE* file, inst_parser__inst_t* inst);
 
 #endif
