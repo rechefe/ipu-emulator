@@ -1,5 +1,5 @@
 import click
-from . import lark_tree
+import ipu_as.lark_tree as lark_tree
 
 
 @click.group()

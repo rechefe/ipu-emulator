@@ -1,5 +1,8 @@
 import lark
-from . import opcodes, ipu_token, reg, immediate
+import ipu_as.opcodes as opcodes
+import ipu_as.ipu_token as ipu_token
+import ipu_as.reg as reg
+import ipu_as.immediate as immediate
 
 
 def validate_inst_structure(cls: type) -> type:

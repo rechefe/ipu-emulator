@@ -1,6 +1,7 @@
 import lark
 import dataclasses
-from . import label
+import ipu_as.label as label
+import ipu_as.utils as utils
 
 MAX_PROGRAM_SIZE = 1024
 
@@ -101,6 +102,29 @@ class EnumToken(IpuToken):
     @classmethod
     def decode(cls, value: int) -> str:
         return cls.enum_array()[value]
+
+    @classmethod
+    def get_all_enum_descriptors(cls) -> dict[str, any]:
+        enums = dict()
+
+        def get_all_subclasses(base_class):
+            """Recursively get all subclasses of a class"""
+            all_subclasses = []
+            for subclass in base_class.__subclasses__():
+                all_subclasses.append(subclass)
+                all_subclasses.extend(get_all_subclasses(subclass))
+            return all_subclasses
+
+        for subclass in get_all_subclasses(cls):
+            try:
+                if issubclass(subclass, EnumToken):
+                    enums[utils.camel_case_to_snake_case(subclass.__name__)] = [
+                        (idx, value.upper().replace(".", "_"))
+                        for idx, value in enumerate(subclass.enum_array())
+                    ]
+            except NotImplementedError:
+                continue
+        return enums
 
 
 class LabelToken(IpuToken):

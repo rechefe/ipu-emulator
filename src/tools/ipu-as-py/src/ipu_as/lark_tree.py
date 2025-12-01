@@ -1,7 +1,8 @@
 import os
 import lark
-from . import compound_inst, ipu_token
-from . import label as ipu_label
+import ipu_as.compound_inst as compound_inst
+import ipu_as.ipu_token as ipu_token
+import ipu_as.label as ipu_label
 
 IPU_INSTR_ADDR_JUMP = 1
 

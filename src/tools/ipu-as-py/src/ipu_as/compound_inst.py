@@ -1,4 +1,5 @@
-from . import inst
+import ipu_as.inst as inst
+import ipu_as.utils as utils
 
 
 INST_SEPARATOR = ";"
@@ -61,7 +62,7 @@ class CompoundInst:
             inst_value = (value >> shift_amount) & ((1 << inst_bits) - 1)
             decoded_instructions.append(inst_type.decode(inst_value))
             shift_amount += inst_bits
-        return ";\n\t\t\t".join(reversed(decoded_instructions)) + ';;'
+        return ";\n\t\t\t".join(reversed(decoded_instructions)) + ";;"
 
     @classmethod
     def desc(cls) -> list[str]:
@@ -71,3 +72,15 @@ class CompoundInst:
         for inst_type in cls.instruction_types():
             res.extend(f"\t{line}" for line in inst_type.desc())
         return res
+
+    @classmethod
+    def get_fields(cls) -> list[tuple[str, int]]:
+        fields = []
+        for inst_type in cls.instruction_types():
+            for i, token_type in enumerate(inst_type.all_tokens()):
+                field_name = (
+                    f"{utils.camel_case_to_snake_case(inst_type.__name__)}"
+                    f"_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
+                )
+                fields.append((field_name, token_type.bits()))
+        return reversed(fields)

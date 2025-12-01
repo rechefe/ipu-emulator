@@ -3,18 +3,19 @@
 
 #include <stdint.h>
 
-    {% for enum in enums %}
-    typedef enum {
-        {% for value in enum.values %}
-            {{ value.name }} = {{ value.value }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    } inst_parser__{{ enum.name }}_t;
-    {% endfor %}
+{% for enum in enums -%}
+typedef enum {
+    {%- for value, name in enums[enum] %}
+    {{ enum | upper }}_{{ name | upper }} = {{ value }},
+    {%- endfor %}
+} {{ enum }}_t;
 
-    typedef struct {
-        {% for name, bits in inst_bit_fields %}
-            inst_parser__inst_t {{ name }} : {{ bits }};
-        {% endfor %}
-    } inst_parser__inst_t;
+{% endfor -%}
+
+typedef struct {
+    {%- for name, bits in inst_bit_fields %}
+    uint32_t {{ name }} : {{ bits }};
+    {%- endfor %}
+} inst_parser__inst_t;
 
 #endif

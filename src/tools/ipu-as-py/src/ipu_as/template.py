@@ -1,5 +1,5 @@
-from . import compound_inst
 import jinja2
+from ipu_as import compound_inst, ipu_token, opcodes
 
 
 def expand_template():
@@ -11,13 +11,16 @@ def expand_template():
 
     rendered_code = template.render(
         {
-            "enums": compound_inst.get_enums(),
-            "inst_bit_fields": compound_inst.get_fields(),
+            "enums": ipu_token.EnumToken.get_all_enum_descriptors(),
+            "inst_bit_fields": compound_inst.CompoundInst.get_fields(),
         }
     )
 
     with open("generated/inst_parser.h", "w") as f:
         f.write(rendered_code)
+
+    for line in compound_inst.CompoundInst.desc():
+        print(line)
 
 
 if __name__ == "__main__":

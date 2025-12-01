@@ -1,5 +1,5 @@
 import lark
-from . import ipu_token
+import ipu_as.ipu_token as ipu_token
 
 
 class Opcode(ipu_token.EnumToken):
