@@ -38,8 +38,8 @@ cc_binary(
     srcs = ["src/apps/fully_connected.c"],
     deps = [
         ":ipu",
-        ":xmem",
         ":logger",
+        ":xmem",
     ],
 )
 
@@ -58,8 +58,8 @@ cc_test(
     size = "small",
     srcs = ["test/test_xmem.cpp"],
     deps = [
-        ":xmem",
         ":logger",
+        ":xmem",
         "@googletest//:gtest_main",
     ],
 )
@@ -70,8 +70,8 @@ cc_test(
     srcs = ["test/test_ipu.cpp"],
     deps = [
         ":ipu",
-        ":xmem",
         ":logger",
+        ":xmem",
         "@googletest//:gtest_main",
     ],
 )

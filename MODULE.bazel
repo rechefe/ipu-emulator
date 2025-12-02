@@ -18,11 +18,25 @@ python.toolchain(
 )
 use_repo(python, "python_3_10")
 
+# Auto-generate requirements from pyproject.toml
+generate_requirements = use_repo_rule("//:tools/python_deps.bzl", "generate_requirements")
+parse_pyproject_deps = use_repo_rule("//:tools/pyproject_deps.bzl", "parse_pyproject_deps")
+
+generate_requirements(
+    name = "ipu_as_requirements",
+    pyproject_toml = "//src/tools/ipu-as-py:pyproject.toml",
+)
+
+parse_pyproject_deps(
+    name = "ipu_as_pyproject",
+    pyproject_toml = "//src/tools/ipu-as-py:pyproject.toml",
+)
+
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "ipu_as_deps",
     python_version = "3.10",
-    requirements_lock = "//src/tools/ipu-as-py:requirements.txt",
+    requirements_lock = "@ipu_as_requirements//:requirements.txt",
 )
 use_repo(pip, "ipu_as_deps")
 

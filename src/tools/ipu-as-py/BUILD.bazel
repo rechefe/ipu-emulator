@@ -1,7 +1,14 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_as_pyproject//:deps.bzl", "get_requirements")
 
 package(default_visibility = ["//visibility:public"])
+
+# Update requirements.txt from pyproject.toml by running:
+# bazel run //src/tools/ipu-as-py:update_requirements
+exports_files([
+    "pyproject.toml",
+])
 
 py_library(
     name = "ipu_as_lib",
@@ -13,26 +20,22 @@ py_library(
         "src/ipu_as/**/*.j2",
     ]),
     imports = ["src"],
-    deps = [
-        requirement("click"),
-        requirement("lark"),
-        requirement("jinja2"),
-    ],
+    deps = get_requirements(requirement),
 )
 
 py_binary(
     name = "ipu-as",
     srcs = ["src/ipu_as/cli.py"],
+    imports = ["src"],
     main = "src/ipu_as/cli.py",
     deps = [":ipu_as_lib"],
-    imports = ["src"],
 )
 
 py_test(
     name = "test_assemble",
     srcs = ["test/test_assemble.py"],
-    deps = [":ipu_as_lib"],
     imports = ["src"],
+    deps = [":ipu_as_lib"],
 )
 
 genrule(
