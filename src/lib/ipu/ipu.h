@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "xmem/xmem.h"
 #include "assert.h"
+#include "src/tools/ipu-as-py/inst_parser.h"
 
 #define IPU__R_REG_SIZE_BYTES 128
 #define IPU__WORD_SIZE_BYTES 4
@@ -21,12 +22,16 @@
 
 // Data type parameters
 #define IPU__UINT4T_BITS 4
-#define IPU__UINT4T_MASK ((1 << IPU__UINT4T_BITS) - 1) 
+#define IPU__UINT4T_MASK ((1 << IPU__UINT4T_BITS) - 1)
 
 #define IPU__UINT16T_BITS 16
 
-typedef union {
-    struct {
+#define IPU__INST_MEM_SIZE 1024
+
+typedef union
+{
+    struct
+    {
         uint8_t low : 4;
         uint8_t high : 4;
     } f;
@@ -53,15 +58,18 @@ typedef union
     ipu__rq_reg_t rq_regs[IPU__RQ_REGS_NUM];
 } ipu__rx_regfile_t;
 
-typedef struct {
+typedef struct
+{
     uint32_t lr[IPU__LR_REGS_NUM];
 } ipu__lr_regfile_t;
 
-typedef struct {
+typedef struct
+{
     uint32_t cr[IPU__CR_REGS_NUM];
 } ipu__cr_regfile_t;
 
-typedef struct {
+typedef struct
+{
     ipu__rx_regfile_t rx_regfile;
     ipu__lr_regfile_t lr_regfile;
     ipu__cr_regfile_t cr_regfile;
@@ -80,14 +88,27 @@ typedef enum
 typedef struct
 {
     ipu__regfile_t regfile;
+    uint32_t program_counter;
     xmem__obj_t *xmem;
+    inst_parser__inst_t inst_mem[IPU__INST_MEM_SIZE];
 } ipu__obj_t;
 
 ipu__obj_t *ipu__init_ipu();
 
+// Instruction execution functions
+inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu);
+void ipu__execute_next_instruction(ipu__obj_t *ipu);
+void ipu__execute_xmem_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_lr_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_mac_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_cond_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
+
+// Instruction memory management
+void ipu__load_inst_mem(ipu__obj_t *ipu, FILE *file);
+
 // R registers instructions
-void ipu__load_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx);
-void ipu__store_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx);
+void ipu__load_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx, const ipu__regfile_t *regfile_snapshot);
+void ipu__store_r_reg(ipu__obj_t *ipu, int rx_idx, int cr_idx, int lr_idx, const ipu__regfile_t *regfile_snapshot);
 
 void ipu__clear_reg(ipu__obj_t *ipu, int rx_idx);
 void ipu__clear_rq_reg(ipu__obj_t *ipu, int rq_idx);
@@ -95,24 +116,26 @@ void ipu__clear_rq_reg(ipu__obj_t *ipu, int rq_idx);
 // MAC instructions
 void ipu__mac_element_element(ipu__obj_t *ipu,
                               int rz, int rx, int ry,
-                              ipu__data_type_t data_type);
+                              ipu__data_type_t data_type,
+                              const ipu__regfile_t *regfile_snapshot);
 
 /**
  * @brief This function makes the IPU do a MAC operation
  * while taking only one byte of the R[ry] reg -
- * RQ[rz][i] += (R[rx][i] * R[ry][LR[lr_idx]]) 
+ * RQ[rz][i] += (R[rx][i] * R[ry][LR[lr_idx]])
  * @param rz the index of the result RQ register
  * @param rx the index of the first R register
  * @param ry the index of the second R register
- * @param lr_idx - selects the LR - according to its value we 
+ * @param lr_idx - selects the LR - according to its value we
  * choose which byte to read from R[ry]
- * @param ipu__data_type_t - which data type to use 
+ * @param ipu__data_type_t - which data type to use
  * @return none
  */
 void ipu__mac_element_vector(ipu__obj_t *ipu,
                              int rz, int rx, int ry,
                              int lr_idx,
-                             ipu__data_type_t data_type);
+                             ipu__data_type_t data_type,
+                             const ipu__regfile_t *regfile_snapshot);
 
 // Helper functions - for add and multiply
 uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type);

@@ -1,6 +1,6 @@
-load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@ipu_as_pyproject//:deps.bzl", "get_requirements")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
