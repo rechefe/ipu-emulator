@@ -98,10 +98,10 @@ ipu__obj_t *ipu__init_ipu();
 // Instruction execution functions
 inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu);
 void ipu__execute_next_instruction(ipu__obj_t *ipu);
-void ipu__execute_xmem_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
-void ipu__execute_lr_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
-void ipu__execute_mac_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
-void ipu__execute_cond_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_lr_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot);
+void ipu__execute_cond_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot);
 
 // Instruction memory management
 void ipu__load_inst_mem(ipu__obj_t *ipu, FILE *file);

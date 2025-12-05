@@ -1,4 +1,5 @@
 #include "ipu.h"
+#include "logging/logger.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -16,6 +17,33 @@ ipu__obj_t *ipu__init_ipu()
     return ipu;
 }
 
+int ipu__get_r_from_r_enum(int r_enum_val)
+{
+    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_R0 &&
+           r_enum_val <= INST_PARSER__RX_REG_FIELD_R11);
+    return r_enum_val - INST_PARSER__RX_REG_FIELD_R0;
+}
+
+int ipu__get_rd_from_r_enum(int r_enum_val)
+{
+    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_RD0 &&
+           r_enum_val <= INST_PARSER__RX_REG_FIELD_RD10);
+    return (r_enum_val - INST_PARSER__RX_REG_FIELD_RD0);
+}
+
+int ipu__get_rq_from_r_enum(int r_enum_val)
+{
+    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_RQ0 &&
+           r_enum_val <= INST_PARSER__RX_REG_FIELD_RQ8);
+    return r_enum_val - INST_PARSER__RX_REG_FIELD_RQ0;
+}
+
+int ipu__get_ro_from_r_enum(int r_enum_val)
+{
+    assert(r_enum_val == INST_PARSER__RX_REG_FIELD_RO0);
+    return r_enum_val - INST_PARSER__RX_REG_FIELD_RO0;
+}
+
 inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu)
 {
     return ipu->inst_mem[ipu->program_counter];
@@ -23,8 +51,8 @@ inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu)
 
 static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    // Store R register to external memory: STR RX, [LR, CR]
-    int rx_idx = inst.mac_inst_token_1_rx_reg_field;
+    // Store R register to external memory: SR RX, [LR, CR]
+    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
     ipu__store_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
@@ -33,29 +61,27 @@ static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, con
 static void ipu__execute_xmem_ldr(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Load R register from external memory: LDR RX, [LR, CR]
-    int rx_idx = inst.mac_inst_token_1_rx_reg_field;
+    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
     ipu__load_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
 }
 
-void ipu__execute_xmem_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot)
+void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    inst_parser__inst_t inst = ipu__fetch_current_instruction(ipu);
-    
     switch (inst.xmem_inst_token_0_xmem_inst_opcode)
     {
-        case INST_PARSER__XMEM_INST_OPCODE_STR:
-            ipu__execute_xmem_str(ipu, inst, regfile_snapshot);
-            break;
-        case INST_PARSER__XMEM_INST_OPCODE_LDR:
-            ipu__execute_xmem_ldr(ipu, inst, regfile_snapshot);
-            break;
-        case INST_PARSER__XMEM_INST_OPCODE_XMEM_NOP:
-            // No operation for XMEM
-            break;
-        default:
-            assert(0 && "Unknown XMEM instruction opcode");
+    case INST_PARSER__XMEM_INST_OPCODE_STR:
+        ipu__execute_xmem_str(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__XMEM_INST_OPCODE_LDR:
+        ipu__execute_xmem_ldr(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__XMEM_INST_OPCODE_XMEM_NOP:
+        // No operation for XMEM
+        break;
+    default:
+        assert(0 && "Unknown XMEM instruction opcode");
     }
 }
 
@@ -76,78 +102,77 @@ static void ipu__execute_lr_incr(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     ipu->regfile.lr_regfile.lr[lr_idx] = lr_value + imm;
 }
 
-void ipu__execute_lr_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot)
+void ipu__execute_lr_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    inst_parser__inst_t inst = ipu__fetch_current_instruction(ipu);
-    
     switch (inst.lr_inst_token_0_lr_inst_opcode)
     {
-        case INST_PARSER__LR_INST_OPCODE_SET:
-            ipu__execute_lr_set(ipu, inst);
-            break;
-        case INST_PARSER__LR_INST_OPCODE_INCR:
-            ipu__execute_lr_incr(ipu, inst, regfile_snapshot);
-            break;
-        default:
-            assert(0 && "Unknown LR instruction opcode");
+    case INST_PARSER__LR_INST_OPCODE_SET:
+        ipu__execute_lr_set(ipu, inst);
+        break;
+    case INST_PARSER__LR_INST_OPCODE_INCR:
+        ipu__execute_lr_incr(ipu, inst, regfile_snapshot);
+        break;
+    default:
+        assert(0 && "Unknown LR instruction opcode");
     }
 }
 
 static void ipu__execute_mac_ee(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // MAC element-element: RQ[rz] += R[rx] * R[ry]
-    int rz_idx = inst.mac_inst_token_1_rx_reg_field;
-    int rx_idx = inst.mac_inst_token_2_rx_reg_field;
-    int ry_idx = inst.mac_inst_token_3_rx_reg_field;
+    int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
     // TODO: data_type should come from instruction or be configurable
     ipu__data_type_t data_type = IPU__DATA_TYPE_INT8;
-    ipu__mac_element_element(ipu, rz_idx, rx_idx, ry_idx, data_type, regfile_snapshot);
+    ipu__mac_element_element(ipu, rq_dest, r_source_0, r_source_1, data_type, regfile_snapshot);
 }
 
 static void ipu__execute_mac_ev(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // MAC element-vector: RQ[rz][i] += R[rx][i] * R[ry][LR]
-    int rz_idx = inst.mac_inst_token_1_rx_reg_field;
-    int rx_idx = inst.mac_inst_token_2_rx_reg_field;
-    int ry_idx = inst.mac_inst_token_3_rx_reg_field;
+    int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
     int lr_idx = inst.mac_inst_token_4_lr_reg_field;
-    // TODO: data_type should come from instruction or be configurable
+
     ipu__data_type_t data_type = IPU__DATA_TYPE_INT8;
-    ipu__mac_element_vector(ipu, rz_idx, rx_idx, ry_idx, lr_idx, data_type, regfile_snapshot);
+    ipu__mac_element_vector(ipu, rq_dest, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot);
 }
 
-void ipu__execute_mac_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot)
+void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    inst_parser__inst_t inst = ipu__fetch_current_instruction(ipu);
-    
     switch (inst.mac_inst_token_0_mac_inst_opcode)
     {
-        case INST_PARSER__MAC_INST_OPCODE_MAC_EE:
-            ipu__execute_mac_ee(ipu, inst, regfile_snapshot);
-            break;
-        case INST_PARSER__MAC_INST_OPCODE_MAC_EV:
-            ipu__execute_mac_ev(ipu, inst, regfile_snapshot);
-            break;
-        case INST_PARSER__MAC_INST_OPCODE_MAC_NOP:
-            // No operation for MAC
-            break;
-        default:
-            assert(0 && "Unknown MAC instruction opcode");
+    case INST_PARSER__MAC_INST_OPCODE_MAC_EE:
+        ipu__execute_mac_ee(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__MAC_INST_OPCODE_MAC_EV:
+        ipu__execute_mac_ev(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__MAC_INST_OPCODE_MAC_NOP:
+        // No operation for MAC
+        break;
+    default:
+        assert(0 && "Unknown MAC instruction opcode");
     }
 }
 
 void ipu__execute_next_instruction(ipu__obj_t *ipu)
 {
+    // Fetch instruction once at the start of the cycle
+    inst_parser__inst_t inst = ipu__fetch_current_instruction(ipu);
+
     // Create a snapshot of the register file at the start of the cycle
     // All subinstructions read from this snapshot to avoid race conditions
     ipu__regfile_t regfile_snapshot = ipu->regfile;
-    
-    // Execute all subinstructions in parallel using the snapshot
-    ipu__execute_xmem_instruction(ipu, &regfile_snapshot);
-    ipu__execute_lr_instruction(ipu, &regfile_snapshot);
-    ipu__execute_mac_instruction(ipu, &regfile_snapshot);
-    ipu__execute_cond_instruction(ipu, &regfile_snapshot);
-    
+
+    // Execute all subinstructions in parallel using the snapshot and fetched instruction
+    ipu__execute_xmem_instruction(ipu, inst, &regfile_snapshot);
+    ipu__execute_lr_instruction(ipu, inst, &regfile_snapshot);
+    ipu__execute_mac_instruction(ipu, inst, &regfile_snapshot);
+    ipu__execute_cond_instruction(ipu, inst, &regfile_snapshot);
+
     // Increment program counter if not modified by branch
     // Note: Branch instructions modify PC directly
     ipu->program_counter++;
@@ -215,46 +240,46 @@ static void ipu__execute_cond_bkpt(ipu__obj_t *ipu)
     // Breakpoint - halt execution
     // Set PC to invalid value to stop
     ipu->program_counter = IPU__INST_MEM_SIZE;
+    LOG_INFO("IPU breakpoint reached, halting execution.");
 }
 
-void ipu__execute_cond_instruction(ipu__obj_t *ipu, const ipu__regfile_t *regfile_snapshot)
+void ipu__execute_cond_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    inst_parser__inst_t inst = ipu__fetch_current_instruction(ipu);
     int lr1_idx = inst.cond_inst_token_1_lr_reg_field;
     int lr2_idx = inst.cond_inst_token_2_lr_reg_field;
     // Read LR values from snapshot to avoid race conditions
     uint32_t lr1 = regfile_snapshot->lr_regfile.lr[lr1_idx];
     uint32_t lr2 = regfile_snapshot->lr_regfile.lr[lr2_idx];
     uint32_t label = inst.cond_inst_token_3_label_token;
-    
+
     switch (inst.cond_inst_token_0_cond_inst_opcode)
     {
-        case INST_PARSER__COND_INST_OPCODE_BEQ:
-            ipu__execute_cond_beq(ipu, lr1, lr2, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BNE:
-            ipu__execute_cond_bne(ipu, lr1, lr2, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BLT:
-            ipu__execute_cond_blt(ipu, lr1, lr2, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BNZ:
-            ipu__execute_cond_bnz(ipu, lr1, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BZ:
-            ipu__execute_cond_bz(ipu, lr1, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_B:
-            ipu__execute_cond_b(ipu, label);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BR:
-            ipu__execute_cond_br(ipu, lr1);
-            break;
-        case INST_PARSER__COND_INST_OPCODE_BKPT:
-            ipu__execute_cond_bkpt(ipu);
-            break;
-        default:
-            assert(0 && "Unknown COND instruction opcode");
+    case INST_PARSER__COND_INST_OPCODE_BEQ:
+        ipu__execute_cond_beq(ipu, lr1, lr2, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BNE:
+        ipu__execute_cond_bne(ipu, lr1, lr2, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BLT:
+        ipu__execute_cond_blt(ipu, lr1, lr2, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BNZ:
+        ipu__execute_cond_bnz(ipu, lr1, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BZ:
+        ipu__execute_cond_bz(ipu, lr1, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_B:
+        ipu__execute_cond_b(ipu, label);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BR:
+        ipu__execute_cond_br(ipu, lr1);
+        break;
+    case INST_PARSER__COND_INST_OPCODE_BKPT:
+        ipu__execute_cond_bkpt(ipu);
+        break;
+    default:
+        assert(0 && "Unknown COND instruction opcode");
     }
 }
 
@@ -325,24 +350,24 @@ void ipu__mac_element_element(ipu__obj_t *ipu,
     assert(rx >= 0 && rx < IPU__R_REGS_NUM);
     assert(ry >= 0 && ry < IPU__R_REGS_NUM);
 
-    // Read operands from snapshot
+    // Read operands from snapshot - rx and ry are R registers, not RQ
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = regfile_snapshot->rx_regfile.rq_regs[rx].bytes[i];
-        uint8_t b = regfile_snapshot->rx_regfile.rq_regs[ry].bytes[i];
+        uint8_t a = regfile_snapshot->rx_regfile.r_regs[rx].bytes[i];
+        uint8_t b = regfile_snapshot->rx_regfile.r_regs[ry].bytes[i];
         ipu__mac_accumulate(ipu, rz, i, a, b, data_type, regfile_snapshot);
     }
 }
 
 void ipu__mac_element_vector(ipu__obj_t *ipu,
-                             int rz, int rx, int ry,
+                             int rq_dest, int r_source_0, int r_source_1,
                              int lr_idx,
                              ipu__data_type_t data_type,
                              const ipu__regfile_t *regfile_snapshot)
 {
-    assert(rz >= 0 && rz < IPU__RQ_REGS_NUM);
-    assert(rx >= 0 && rx < IPU__R_REGS_NUM);
-    assert(ry >= 0 && ry < IPU__R_REGS_NUM);
+    assert(rq_dest >= 0 && rq_dest < IPU__RQ_REGS_NUM);
+    assert(r_source_0 >= 0 && r_source_0 < IPU__R_REGS_NUM);
+    assert(r_source_1 >= 0 && r_source_1 < IPU__R_REGS_NUM);
     assert(lr_idx >= 0 && lr_idx < IPU__LR_REGS_NUM);
 
     // The LR value is the element we choose for MAC from RY reg (read from snapshot)
@@ -352,9 +377,9 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
     // Read operands from snapshot
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = regfile_snapshot->rx_regfile.r_regs[rx].bytes[i];
-        uint8_t b = regfile_snapshot->rx_regfile.r_regs[ry].bytes[element_index];
-        ipu__mac_accumulate(ipu, rz, i, a, b, data_type, regfile_snapshot);
+        uint8_t a = regfile_snapshot->rx_regfile.r_regs[r_source_0].bytes[i];
+        uint8_t b = regfile_snapshot->rx_regfile.r_regs[r_source_1].bytes[element_index];
+        ipu__mac_accumulate(ipu, rq_dest, i, a, b, data_type, regfile_snapshot);
     }
 }
 
