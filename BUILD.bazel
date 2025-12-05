@@ -57,6 +57,24 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "ipu_hello_world",
+    srcs = ["src/apps/ipu_hello_world.c"],
+    deps = [
+        ":ipu",
+        ":logger",
+        ":xmem",
+    ],
+)
+
+genrule(
+    name = "assemble_hello_world",
+    srcs = ["src/apps/hello_world.asm"],
+    outs = ["hello_world.bin"],
+    cmd = "$(location //src/tools/ipu-as-py:ipu-as) assemble --input $< --output $@ --format bin",
+    tools = ["//src/tools/ipu-as-py:ipu-as"],
+)
+
 cc_test(
     name = "xmem_tests",
     size = "small",
@@ -77,5 +95,19 @@ cc_test(
         ":logger",
         ":xmem",
         "@googletest//:gtest_main",
+    ],
+)
+
+sh_test(
+    name = "ipu_hello_world_test",
+    size = "small",
+    srcs = ["test/test_ipu_hello_world.sh"],
+    args = [
+        "$(location :ipu_hello_world)",
+        "$(location :hello_world.bin)",
+    ],
+    data = [
+        ":ipu_hello_world",
+        ":hello_world.bin",
     ],
 )

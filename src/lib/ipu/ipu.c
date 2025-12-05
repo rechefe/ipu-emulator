@@ -51,8 +51,9 @@ inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu)
 
 static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
-    // Store R register to external memory: SR RX, [LR, CR]
-    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    // Store R register to external memory: STR RX, [LR, CR]
+    // RX comes from MAC instruction token_2 (first R source operand)
+    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
     ipu__store_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
@@ -61,7 +62,8 @@ static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, con
 static void ipu__execute_xmem_ldr(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Load R register from external memory: LDR RX, [LR, CR]
-    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    // RX comes from MAC instruction token_2 (first R source operand)
+    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
     ipu__load_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
@@ -286,9 +288,25 @@ void ipu__execute_cond_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, co
 void ipu__load_inst_mem(ipu__obj_t *ipu, FILE *file)
 {
     size_t inst_size = sizeof(inst_parser__inst_t);
-    for (size_t i = 0; i < IPU__INST_MEM_SIZE; i++)
+    size_t i;
+    for (i = 0; i < IPU__INST_MEM_SIZE; i++)
     {
-        assert(fread(&ipu->inst_mem[i], 1, inst_size, file) == inst_size);
+        size_t bytes_read = fread(&ipu->inst_mem[i], 1, inst_size, file);
+        if (bytes_read == 0)
+        {
+            // Reached end of file
+            break;
+        }
+        if (bytes_read != inst_size)
+        {
+            // Partial read - error
+            assert(0 && "Partial instruction read from file");
+        }
+    }
+    // Fill remaining instructions with zeros (NOP)
+    for (; i < IPU__INST_MEM_SIZE; i++)
+    {
+        memset(&ipu->inst_mem[i], 0, inst_size);
     }
 }
 
