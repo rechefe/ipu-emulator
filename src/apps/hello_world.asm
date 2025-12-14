@@ -15,7 +15,7 @@ start:
 # The MAC instruction provides the R register (r4) for the STR
 # After this, memory at 0x2000 will contain R4's data
 store:
-    str lr1 cr0; mac.ee rq0 r4 r4 ;;
+    ldr lr1 cr0; mac.ee rq8 r4 r4 ;;
 
 # Step 3: Stop execution
 halt:

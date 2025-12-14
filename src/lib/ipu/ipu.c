@@ -52,21 +52,21 @@ inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu)
 static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Store R register to external memory: STR RX, [LR, CR]
-    // RX comes from MAC instruction token_2 (first R source operand)
-    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    // TODO - figure out how we want the STR and LDR instructions to be implemented
+    // Currently stores R0 to XMEM at address LR + CR
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
-    ipu__store_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
+    ipu__store_r_reg(ipu, 0, cr_idx, lr_idx, regfile_snapshot);
 }
 
 static void ipu__execute_xmem_ldr(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Load R register from external memory: LDR RX, [LR, CR]
-    // RX comes from MAC instruction token_2 (first R source operand)
-    int rx_idx = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    // TODO - figure out how we want the STR and LDR instructions to be implemented
+    // Currently loads into R0 from XMEM at address LR + CR
     int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
-    ipu__load_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
+    ipu__load_r_reg(ipu, 0, cr_idx, lr_idx, regfile_snapshot);
 }
 
 void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
@@ -169,15 +169,13 @@ void ipu__execute_next_instruction(ipu__obj_t *ipu)
     // All subinstructions read from this snapshot to avoid race conditions
     ipu__regfile_t regfile_snapshot = ipu->regfile;
 
+    LOG_DEBUG("Executing instruction at PC=%u", ipu->program_counter);
+
     // Execute all subinstructions in parallel using the snapshot and fetched instruction
     ipu__execute_xmem_instruction(ipu, inst, &regfile_snapshot);
     ipu__execute_lr_instruction(ipu, inst, &regfile_snapshot);
     ipu__execute_mac_instruction(ipu, inst, &regfile_snapshot);
     ipu__execute_cond_instruction(ipu, inst, &regfile_snapshot);
-
-    // Increment program counter if not modified by branch
-    // Note: Branch instructions modify PC directly
-    ipu->program_counter++;
 }
 
 static void ipu__execute_cond_beq(ipu__obj_t *ipu, uint32_t lr1, uint32_t lr2, uint32_t label)

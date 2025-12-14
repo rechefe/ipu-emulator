@@ -2,6 +2,7 @@
 
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
+#load("@rules_shell//shell:sh_test.bzl", "sh_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
@@ -24,8 +25,8 @@ cc_library(
     hdrs = ["src/lib/ipu/ipu.h"],
     includes = ["src/lib"],
     deps = [
-        ":xmem",
         ":logger",
+        ":xmem",
         "//src/tools/ipu-as-py:inst_parser",
     ],
 )
@@ -107,7 +108,7 @@ sh_test(
         "$(location :hello_world.bin)",
     ],
     data = [
-        ":ipu_hello_world",
         ":hello_world.bin",
+        ":ipu_hello_world",
     ],
 )
