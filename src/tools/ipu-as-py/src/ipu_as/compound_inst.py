@@ -10,35 +10,62 @@ class CompoundInst:
         self,
         instructions: list[dict[str, any]],
     ):
-        self.instructions = {inst_type: None for inst_type in self.instruction_types()}
+        # instructions is now a list ordered by instruction_types()
+        self.instructions = [None] * len(self.instruction_types())
         self._fill_out_nop(self._fill_instructions(instructions))
 
     def _fill_instructions(self, instructions: list[dict[str, any]]) -> int:
         address = None
+        inst_types_list = self.instruction_types()
+
         for instruction in instructions["instructions"]:
             inst_type = inst.Inst.find_inst_type_by_opcode(
                 instruction["opcode"].token.value
             )
             if address is None:
                 address = instruction["opcode"].instr_id
-            if not self.instructions[inst_type]:
-                self.instructions[inst_type] = inst_type(instruction)
-            else:
-                raise ValueError(
-                    f"Duplicate instruction of type {inst_type.__name__} in compound instruction\n"
-                    f"First occurrence: {self.instructions[inst_type].opcode.annotated_token.get_location_string()}\n"
-                    f"Second occurrence: {instruction['opcode'].get_location_string()}"
-                )
+
+            # Find the first available slot for this instruction type
+            slot_filled = False
+            for i, expected_type in enumerate(inst_types_list):
+                if expected_type == inst_type and self.instructions[i] is None:
+                    self.instructions[i] = inst_type(instruction)
+                    slot_filled = True
+                    break
+
+            if not slot_filled:
+                # No available slot - either all slots are filled or no slot exists
+                available_slots = sum(1 for t in inst_types_list if t == inst_type)
+
+                if available_slots == 0:
+                    raise ValueError(
+                        f"Instruction type {inst_type.__name__} is not allowed in compound instruction\n"
+                        f"At: {instruction['opcode'].get_location_string()}"
+                    )
+                else:
+                    raise ValueError(
+                        f"Too many instructions of type {inst_type.__name__} (max {available_slots})\n"
+                        f"At: {instruction['opcode'].get_location_string()}"
+                    )
         return address
 
     def _fill_out_nop(self, address: int):
-        for inst_type, instruction in self.instructions.items():
-            if not instruction:
-                self.instructions[inst_type] = inst_type.nop_inst(address)
+        inst_types_list = self.instruction_types()
+        for i, inst_type in enumerate(inst_types_list):
+            if self.instructions[i] is None:
+                self.instructions[i] = inst_type.nop_inst(address)
 
     @classmethod
     def instruction_types(cls) -> list[type[inst.Inst]]:
-        return [inst_type for inst_type in inst.Inst.__subclasses__()]
+        # Define the instruction slots in order (with duplicates for multiple instances)
+        # Order matters for encoding/decoding
+        return [
+            inst.XmemInst,
+            inst.MacInst,
+            inst.LrInst,
+            inst.LrInst,  # Second LrInst slot
+            inst.CondInst,
+        ]
 
     @classmethod
     def bits(cls) -> int:
@@ -47,7 +74,8 @@ class CompoundInst:
     def encode(self) -> int:
         encoded_line = 0
         shift_amount = 0
-        for instruction in reversed(self.instructions.values()):
+        # Iterate through instructions in reverse order to maintain correct bit order
+        for instruction in reversed(self.instructions):
             encoded_inst = instruction.encode()
             encoded_line |= encoded_inst << shift_amount
             shift_amount += instruction.bits()
@@ -76,10 +104,32 @@ class CompoundInst:
     @classmethod
     def get_fields(cls) -> list[tuple[str, int]]:
         fields = []
-        for inst_type in cls.instruction_types():
+        inst_types_list = cls.instruction_types()
+
+        # Count occurrences of each type to generate unique names
+        type_counts = {}
+        type_indices = {}
+
+        for inst_type in inst_types_list:
+            type_counts[inst_type] = type_counts.get(inst_type, 0) + 1
+
+        for inst_type in inst_types_list:
+            # Determine the prefix for field names
+            base_name = utils.camel_case_to_snake_case(inst_type.__name__)
+
+            # Track which instance of this type we're on
+            current_index = type_indices.get(inst_type, 0)
+            type_indices[inst_type] = current_index + 1
+
+            # If there are multiple instances of this type, add index to the name
+            if type_counts[inst_type] > 1:
+                inst_prefix = f"{base_name}_{current_index}"
+            else:
+                inst_prefix = base_name
+
             for i, token_type in enumerate(inst_type.all_tokens()):
                 field_name = (
-                    f"{utils.camel_case_to_snake_case(inst_type.__name__)}"
+                    f"{inst_prefix}"
                     f"_token_{i}_{utils.camel_case_to_snake_case(token_type.__name__)}"
                 )
                 fields.append((field_name, token_type.bits()))

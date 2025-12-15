@@ -144,39 +144,58 @@ static void ipu__execute_mac_ee(ipu__obj_t *ipu, inst_parser__inst_t inst, const
 {
     // MAC element-element: RQ[rz] += R[rx] * R[ry]
     int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+
     int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
     int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
     // TODO: data_type should come from instruction or be configurable
     ipu__data_type_t data_type = IPU__DATA_TYPE_INT8;
-    ipu__mac_element_element(ipu, rq_dest, r_source_0, r_source_1, data_type, regfile_snapshot);
+    ipu__mac_element_element(ipu, r_source_0, r_source_1, data_type, regfile_snapshot, &ipu->regfile.rx_regfile.rq_regs[rq_dest]);
 }
 
 static void ipu__execute_mac_ev(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // MAC element-vector: RQ[rz][i] += R[rx][i] * R[ry][LR]
     int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+
     int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
     int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
     int lr_idx = inst.mac_inst_token_4_lr_reg_field;
 
     ipu__data_type_t data_type = IPU__DATA_TYPE_INT8;
-    ipu__mac_element_vector(ipu, rq_dest, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot);
+    ipu__mac_element_vector(ipu, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot, &ipu->regfile.rx_regfile.rq_regs[rq_dest]);
 }
 
 static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
-    int rq_source = ipu__get_rq_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+
+    int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
+
     int lr_idx = inst.mac_inst_token_4_lr_reg_field;
+
+    ipu__r_reg_t r_source_0_value;
+    ipu__r_reg_t r_source_1_value;
+
+    ipu__get_r_register_for_mac_op(ipu, r_source_0, regfile_snapshot, &r_source_0_value);
+    ipu__get_r_register_for_mac_op(ipu, r_source_1, regfile_snapshot, &r_source_1_value);
+
+    ipu__r_reg_t r_mult_result;
+
+    // Multiply R source registers element-wise
+    ipu__mac_element_element(ipu, r_source_0, r_source_1, IPU__DATA_TYPE_INT8, regfile_snapshot, (ipu__rq_reg_t *)&r_mult_result);
 
     int sum = 0;
 
     for (int i = 0; i < IPU__RQ_REG_SIZE_WORDS; i++)
     {
-        sum = ipu__add(sum, regfile_snapshot->rx_regfile.rq_regs[rq_source].words[i], IPU__DATA_TYPE_INT8);
+        sum = ipu__add(sum, r_mult_result.words[i], IPU__DATA_TYPE_INT8);
     }
 
-    ipu->regfile.rx_regfile.rq_regs[rq_dest].words[lr_idx] = sum;
+    uint32_t rq_store_idx = regfile_snapshot->lr_regfile.lr[lr_idx];
+    assert (rq_store_idx < IPU__RQ_REG_SIZE_WORDS);
+
+    ipu->regfile.rx_regfile.rq_regs[rq_dest].words[rq_store_idx] = sum;
 }
 
 void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
@@ -386,15 +405,15 @@ void ipu__clear_rq_reg(ipu__obj_t *ipu, int index)
     memset(&ipu->regfile.rx_regfile.rq_regs[index], 0, sizeof(ipu__rq_reg_t));
 }
 
-static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int rz, int i,
+static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int i,
                                        uint8_t a, uint8_t b,
                                        ipu__data_type_t data_type,
-                                       const ipu__regfile_t *regfile_snapshot)
+                                       ipu__rq_reg_t *out_rq_reg)
 {
     uint32_t product = ipu__mult(a, b, data_type);
-    uint32_t acc = regfile_snapshot->rx_regfile.rq_regs[rz].words[i];
+    uint32_t acc = out_rq_reg->words[i];
     uint32_t result = ipu__add(acc, product, data_type);
-    ipu->regfile.rx_regfile.rq_regs[rz].words[i] = result;
+    out_rq_reg->words[i] = result;
 }
 
 void ipu__get_r_register_for_mac_op(ipu__obj_t *ipu,
@@ -415,11 +434,11 @@ void ipu__get_r_register_for_mac_op(ipu__obj_t *ipu,
 }
 
 void ipu__mac_element_element(ipu__obj_t *ipu,
-                              int rz, int rx, int ry,
+                              int rx, int ry,
                               ipu__data_type_t data_type,
-                              const ipu__regfile_t *regfile_snapshot)
+                              const ipu__regfile_t *regfile_snapshot,
+                              ipu__rq_reg_t *out_rq_reg)
 {
-    assert(rz >= 0 && rz < IPU__RQ_REGS_NUM);
     ipu__r_reg_t r_reg_x;
     ipu__r_reg_t r_reg_y;
 
@@ -431,17 +450,17 @@ void ipu__mac_element_element(ipu__obj_t *ipu,
     {
         uint8_t a = r_reg_x.bytes[i];
         uint8_t b = r_reg_y.bytes[i];
-        ipu__mac_accumulate(ipu, rz, i, a, b, data_type, regfile_snapshot);
+        ipu__mac_accumulate(ipu, i, a, b, data_type, out_rq_reg);
     }
 }
 
 void ipu__mac_element_vector(ipu__obj_t *ipu,
-                             int rq_dest, int r_source_0, int r_source_1,
+                             int r_source_0, int r_source_1,
                              int lr_idx,
                              ipu__data_type_t data_type,
-                             const ipu__regfile_t *regfile_snapshot)
+                             const ipu__regfile_t *regfile_snapshot,
+                             ipu__rq_reg_t *out_rq_reg)
 {
-    assert(rq_dest >= 0 && rq_dest < IPU__RQ_REGS_NUM);
     assert(lr_idx >= 0 && lr_idx < IPU__LR_REGS_NUM);
 
     ipu__r_reg_t r_source_0_value;
@@ -459,7 +478,7 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
     {
         uint8_t a = r_source_0_value.bytes[i];
         uint8_t b = r_source_1_value.bytes[element_index];
-        ipu__mac_accumulate(ipu, rq_dest, i, a, b, data_type, regfile_snapshot);
+        ipu__mac_accumulate(ipu, i, a, b, data_type, out_rq_reg);
     }
 }
 

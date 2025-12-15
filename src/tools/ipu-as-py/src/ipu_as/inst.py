@@ -151,7 +151,7 @@ class XmemInst(Inst):
     @classmethod
     def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
         return {
-            "ldr": [reg. RxRegField, reg.LrRegField, reg.CrRegField],
+            "ldr": [reg.RxRegField, reg.LrRegField, reg.CrRegField],
             "str": [reg.RxRegField, reg.LrRegField, reg.CrRegField],
             "xmem_nop": [],
         }
@@ -184,7 +184,7 @@ class MacInst(Inst):
         return {
             "mac.ee": [reg.RxRegField, reg.RxRegField, reg.RxRegField],
             "mac.ev": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
-            "mac.agg": [reg.RxRegField, reg.RxRegField, reg.LrRegField],
+            "mac.agg": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
             "mac_nop": [],
         }
 
