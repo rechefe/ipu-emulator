@@ -2,7 +2,7 @@
 start:
     beq    lr13 lr15 end; // branch to end if lr13 == lr15
     mac.ee rq4 r1 r2;
-    ldr    lr3 cr9;
+    ldr    r0 lr3 cr9;
     ;;
 
 end:

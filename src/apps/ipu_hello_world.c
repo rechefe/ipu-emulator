@@ -34,7 +34,7 @@ void ipu_setup(ipu__obj_t *ipu)
     // Create test pattern: ascending values
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
     {
-        sample_data[i] = (uint8_t)i;
+        sample_data[i] = (uint8_t)i + 10;
     }
 
     // Write data to multiple memory locations
@@ -73,13 +73,6 @@ int ipu_run_until_complete(ipu__obj_t *ipu, uint32_t max_cycles)
         // Execute one instruction cycle
         ipu__execute_next_instruction(ipu);
         cycle_count++;
-
-        // Check if we hit a breakpoint after execution
-        if (ipu->program_counter >= IPU__INST_MEM_SIZE)
-        {
-            LOG_INFO("Execution complete: Breakpoint reached");
-            break;
-        }
 
         // Log progress every 100 cycles
         if (cycle_count % 100 == 0)

@@ -19,8 +19,9 @@ ipu__obj_t *ipu__init_ipu()
 
 int ipu__get_r_from_r_enum(int r_enum_val)
 {
-    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_R0 &&
-           r_enum_val <= INST_PARSER__RX_REG_FIELD_R11);
+    assert((r_enum_val >= INST_PARSER__RX_REG_FIELD_R0 &&
+            r_enum_val <= INST_PARSER__RX_REG_FIELD_R11) ||
+           r_enum_val == INST_PARSER__RX_REG_FIELD_MEM_BYPASS);
     return r_enum_val - INST_PARSER__RX_REG_FIELD_R0;
 }
 
@@ -52,21 +53,41 @@ inst_parser__inst_t ipu__fetch_current_instruction(ipu__obj_t *ipu)
 static void ipu__execute_xmem_str(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Store R register to external memory: STR RX, [LR, CR]
-    // TODO - figure out how we want the STR and LDR instructions to be implemented
+    int rx_idx = ipu__get_r_from_r_enum(inst.xmem_inst_token_1_rx_reg_field);
+
     // Currently stores R0 to XMEM at address LR + CR
-    int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
-    int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
-    ipu__store_r_reg(ipu, 0, cr_idx, lr_idx, regfile_snapshot);
+    int lr_idx = inst.xmem_inst_token_2_lr_reg_field;
+    int cr_idx = inst.xmem_inst_token_3_cr_reg_field;
+
+    if (rx_idx != INST_PARSER__RX_REG_FIELD_MEM_BYPASS)
+    {
+        ipu__store_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
+    }
+    else
+    {
+        assert(0 && "Storing from MEM_BYPASS register is not supported");
+    }
 }
 
 static void ipu__execute_xmem_ldr(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     // Load R register from external memory: LDR RX, [LR, CR]
-    // TODO - figure out how we want the STR and LDR instructions to be implemented
+    int rx_idx = ipu__get_r_from_r_enum(inst.xmem_inst_token_1_rx_reg_field);
+
     // Currently loads into R0 from XMEM at address LR + CR
-    int lr_idx = inst.xmem_inst_token_1_lr_reg_field;
-    int cr_idx = inst.xmem_inst_token_2_cr_reg_field;
-    ipu__load_r_reg(ipu, 0, cr_idx, lr_idx, regfile_snapshot);
+    int lr_idx = inst.xmem_inst_token_2_lr_reg_field;
+    int cr_idx = inst.xmem_inst_token_3_cr_reg_field;
+    if (rx_idx != INST_PARSER__RX_REG_FIELD_MEM_BYPASS)
+    {
+        ipu__load_r_reg(ipu, rx_idx, cr_idx, lr_idx, regfile_snapshot);
+    }
+    else
+    {
+        xmem__read_address(ipu->xmem,
+                           regfile_snapshot->lr_regfile.lr[lr_idx] + regfile_snapshot->cr_regfile.cr[cr_idx],
+                           (uint8_t *)&ipu->misc.mem_bypass_reg,
+                           IPU__R_REG_SIZE_BYTES);
+    }
 }
 
 void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
@@ -142,6 +163,22 @@ static void ipu__execute_mac_ev(ipu__obj_t *ipu, inst_parser__inst_t inst, const
     ipu__mac_element_vector(ipu, rq_dest, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot);
 }
 
+static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
+{
+    int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    int rq_source = ipu__get_rq_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
+    int lr_idx = inst.mac_inst_token_4_lr_reg_field;
+
+    int sum = 0;
+
+    for (int i = 0; i < IPU__RQ_REG_SIZE_WORDS; i++)
+    {
+        sum = ipu__add(sum, regfile_snapshot->rx_regfile.rq_regs[rq_source].words[i], IPU__DATA_TYPE_INT8);
+    }
+
+    ipu->regfile.rx_regfile.rq_regs[rq_dest].words[lr_idx] = sum;
+}
+
 void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     switch (inst.mac_inst_token_0_mac_inst_opcode)
@@ -151,6 +188,9 @@ void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, con
         break;
     case INST_PARSER__MAC_INST_OPCODE_MAC_EV:
         ipu__execute_mac_ev(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__MAC_INST_OPCODE_MAC_AGG:
+        ipu__execute_mac_agg(ipu, inst, regfile_snapshot);
         break;
     case INST_PARSER__MAC_INST_OPCODE_MAC_NOP:
         // No operation for MAC
@@ -357,20 +397,40 @@ static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int rz, int i,
     ipu->regfile.rx_regfile.rq_regs[rz].words[i] = result;
 }
 
+void ipu__get_r_register_for_mac_op(ipu__obj_t *ipu,
+                                    int r_reg_index,
+                                    const ipu__regfile_t *regfile_snapshot,
+                                    ipu__r_reg_t *out_r_reg)
+{
+    assert((r_reg_index >= 0 && r_reg_index < IPU__R_REGS_NUM) || r_reg_index == INST_PARSER__RX_REG_FIELD_MEM_BYPASS);
+    if (r_reg_index == INST_PARSER__RX_REG_FIELD_MEM_BYPASS)
+    {
+        memcpy(out_r_reg, &ipu->misc.mem_bypass_reg, sizeof(ipu__r_reg_t));
+        return;
+    }
+    else
+    {
+        memcpy(out_r_reg, &ipu->regfile.rx_regfile.r_regs[r_reg_index], sizeof(ipu__r_reg_t));
+    }
+}
+
 void ipu__mac_element_element(ipu__obj_t *ipu,
                               int rz, int rx, int ry,
                               ipu__data_type_t data_type,
                               const ipu__regfile_t *regfile_snapshot)
 {
     assert(rz >= 0 && rz < IPU__RQ_REGS_NUM);
-    assert(rx >= 0 && rx < IPU__R_REGS_NUM);
-    assert(ry >= 0 && ry < IPU__R_REGS_NUM);
+    ipu__r_reg_t r_reg_x;
+    ipu__r_reg_t r_reg_y;
+
+    ipu__get_r_register_for_mac_op(ipu, rx, regfile_snapshot, &r_reg_x);
+    ipu__get_r_register_for_mac_op(ipu, ry, regfile_snapshot, &r_reg_y);
 
     // Read operands from snapshot - rx and ry are R registers, not RQ
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = regfile_snapshot->rx_regfile.r_regs[rx].bytes[i];
-        uint8_t b = regfile_snapshot->rx_regfile.r_regs[ry].bytes[i];
+        uint8_t a = r_reg_x.bytes[i];
+        uint8_t b = r_reg_y.bytes[i];
         ipu__mac_accumulate(ipu, rz, i, a, b, data_type, regfile_snapshot);
     }
 }
@@ -382,9 +442,13 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
                              const ipu__regfile_t *regfile_snapshot)
 {
     assert(rq_dest >= 0 && rq_dest < IPU__RQ_REGS_NUM);
-    assert(r_source_0 >= 0 && r_source_0 < IPU__R_REGS_NUM);
-    assert(r_source_1 >= 0 && r_source_1 < IPU__R_REGS_NUM);
     assert(lr_idx >= 0 && lr_idx < IPU__LR_REGS_NUM);
+
+    ipu__r_reg_t r_source_0_value;
+    ipu__r_reg_t r_source_1_value;
+
+    ipu__get_r_register_for_mac_op(ipu, r_source_0, regfile_snapshot, &r_source_0_value);
+    ipu__get_r_register_for_mac_op(ipu, r_source_1, regfile_snapshot, &r_source_1_value);
 
     // The LR value is the element we choose for MAC from RY reg (read from snapshot)
     uint32_t element_index = regfile_snapshot->lr_regfile.lr[lr_idx];
@@ -393,8 +457,8 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
     // Read operands from snapshot
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        uint8_t a = regfile_snapshot->rx_regfile.r_regs[r_source_0].bytes[i];
-        uint8_t b = regfile_snapshot->rx_regfile.r_regs[r_source_1].bytes[element_index];
+        uint8_t a = r_source_0_value.bytes[i];
+        uint8_t b = r_source_1_value.bytes[element_index];
         ipu__mac_accumulate(ipu, rq_dest, i, a, b, data_type, regfile_snapshot);
     }
 }

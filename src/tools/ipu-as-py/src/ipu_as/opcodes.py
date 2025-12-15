@@ -38,6 +38,7 @@ class MacInstOpcode(Opcode):
         return [
             "mac.ee",
             "mac.ev",
+            "mac.agg",
             "mac_nop",
         ]
 

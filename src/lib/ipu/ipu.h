@@ -87,7 +87,13 @@ typedef enum
 
 typedef struct
 {
+    ipu__r_reg_t mem_bypass_reg;
+} ipu__misc_t;
+
+typedef struct
+{
     ipu__regfile_t regfile;
+    ipu__misc_t misc;
     uint32_t program_counter;
     xmem__obj_t *xmem;
     inst_parser__inst_t inst_mem[IPU__INST_MEM_SIZE];
