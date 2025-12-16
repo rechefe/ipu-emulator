@@ -120,28 +120,36 @@ void ipu__clear_reg(ipu__obj_t *ipu, int rx_idx);
 void ipu__clear_rq_reg(ipu__obj_t *ipu, int rq_idx);
 
 // MAC instructions
+void ipu__get_r_register_for_mac_op(ipu__obj_t *ipu,
+                                    int r_reg_index,
+                                    const ipu__regfile_t *regfile_snapshot,
+                                    ipu__r_reg_t *out_r_reg);
+
 void ipu__mac_element_element(ipu__obj_t *ipu,
-                              int rz, int rx, int ry,
+                              int rx, int ry,
                               ipu__data_type_t data_type,
-                              const ipu__regfile_t *regfile_snapshot);
+                              const ipu__regfile_t *regfile_snapshot,
+                              ipu__rq_reg_t *out_rq_reg);
 
 /**
  * @brief This function makes the IPU do a MAC operation
  * while taking only one byte of the R[ry] reg -
  * RQ[rz][i] += (R[rx][i] * R[ry][LR[lr_idx]])
- * @param rz the index of the result RQ register
- * @param rx the index of the first R register
- * @param ry the index of the second R register
+ * @param r_source_0 the index of the first R register
+ * @param r_source_1 the index of the second R register
  * @param lr_idx - selects the LR - according to its value we
  * choose which byte to read from R[ry]
- * @param ipu__data_type_t - which data type to use
+ * @param data_type - which data type to use
+ * @param regfile_snapshot - snapshot of register file
+ * @param out_rq_reg - output RQ register
  * @return none
  */
 void ipu__mac_element_vector(ipu__obj_t *ipu,
-                             int rz, int rx, int ry,
+                             int r_source_0, int r_source_1,
                              int lr_idx,
                              ipu__data_type_t data_type,
-                             const ipu__regfile_t *regfile_snapshot);
+                             const ipu__regfile_t *regfile_snapshot,
+                             ipu__rq_reg_t *out_rq_reg);
 
 // Helper functions - for add and multiply
 uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type);

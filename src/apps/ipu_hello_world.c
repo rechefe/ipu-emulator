@@ -124,6 +124,20 @@ void ipu_teardown(ipu__obj_t *ipu)
     }
 
     // Display LR registers
+    LOG_INFO("LR Register Contents:");
+    LOG_INFO("LR[1]: 0x%08X (expected: 0x2000)", ipu->regfile.lr_regfile.lr[1]);
+    LOG_INFO("LR[2]: 0x%08X (expected: 0x1000)", ipu->regfile.lr_regfile.lr[2]);
+    
+    // Verify LR values were set correctly by parallel instruction
+    if (ipu->regfile.lr_regfile.lr[1] == 0x2000 && ipu->regfile.lr_regfile.lr[2] == 0x1000)
+    {
+        LOG_INFO("SUCCESS: Both LR registers set correctly in parallel!");
+    }
+    else
+    {
+        LOG_ERROR("FAILURE: LR registers not set correctly!");
+    }
+    
     // Cleanup
     LOG_INFO("Cleaning up IPU resources...");
     free(ipu->xmem);
