@@ -5,17 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * @brief Setup function to initialize IPU state with test data
- *
- * @param ipu The IPU object to configure
- *
- * This function:
- * - Sets initial values for LR and CR registers
- * - Loads test data into R registers
- * - Initializes external memory (XMEM) with sample data
- */
-void ipu_setup(ipu__obj_t *ipu)
+void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
 {
     LOG_INFO("Setting up IPU initial state...");
 
@@ -44,19 +34,7 @@ void ipu_setup(ipu__obj_t *ipu)
     LOG_INFO("IPU setup complete.");
 }
 
-/**
- * @brief Teardown function to print final IPU state and cleanup
- *
- * @param ipu The IPU object to inspect and cleanup
- *
- * Displays:
- * - Final program counter value
- * - Contents of LR and CR registers
- * - Sample of R register values
- * - Sample of RQ accumulator values
- * - Sample of XMEM contents
- */
-void ipu_teardown(ipu__obj_t *ipu)
+void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 {
     LOG_INFO("IPU Teardown - Final State:");
     LOG_INFO("========================================");
@@ -100,62 +78,13 @@ void ipu_teardown(ipu__obj_t *ipu)
 
 int main(int argc, char **argv)
 {
-    LOG_INFO("IPU Hello World Example Started");
-    LOG_INFO("========================================");
-
-    // Check command line arguments
-    if (argc < 2)
-    {
-        LOG_ERROR("Usage: %s <instruction_file.bin>", argv[0]);
-        LOG_INFO("Please provide a binary instruction file to load.");
-        return 1;
-    }
-
-    const char *inst_filename = argv[1];
-    LOG_INFO("Loading instructions from: %s", inst_filename);
-
-    // Initialize IPU
-    ipu__obj_t *ipu = ipu__init_ipu();
-    if (!ipu)
-    {
-        LOG_ERROR("Failed to initialize IPU.");
-        return 1;
-    }
-    LOG_INFO("IPU initialized successfully.");
-
-    // Load instruction memory from file
-    FILE *inst_file = fopen(inst_filename, "rb");
-    if (!inst_file)
-    {
-        LOG_ERROR("Failed to open instruction file: %s", inst_filename);
-        free(ipu->xmem);
-        free(ipu);
-        return 1;
-    }
-
-    ipu__load_inst_mem(ipu, inst_file);
-    fclose(inst_file);
-    LOG_INFO("Instruction memory loaded successfully.");
-
-    // Setup initial state
-    ipu_setup(ipu);
-
-    // Run the IPU until completion (with 10000 cycle safety limit)
-    int cycles = emulator__run_until_complete(ipu, 10000, 100);
-
-    if (cycles < 0)
-    {
-        LOG_ERROR("IPU execution failed or exceeded cycle limit.");
-        ipu_teardown(ipu);
-        return 1;
-    }
-
-    LOG_INFO("IPU executed successfully for %d cycles.", cycles);
-
-    // Teardown and display final state
-    ipu_teardown(ipu);
-
-    LOG_INFO("========================================");
-    LOG_INFO("IPU Hello World Example Finished");
-    return 0;
+    emulator__test_config_t config = {
+        .test_name = "IPU Hello World Example",
+        .max_cycles = 10000,
+        .progress_interval = 100,
+        .setup = ipu_setup,
+        .teardown = ipu_teardown
+    };
+    
+    return emulator__run_test(argc, argv, &config);
 }

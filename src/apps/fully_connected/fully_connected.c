@@ -17,16 +17,17 @@
 
 /**
  * @brief Setup function to initialize IPU state for fully connected layer
- *
- * @param ipu The IPU object to configure
- *
- * Memory layout:
- * - CR0 (0x0000): Input activations - 256 inputs, 128 bytes each = 0x8000 bytes
- * - CR1 (0x20000): Weights - 64 neurons, 128 bytes each = 0x2000 bytes
- * - CR2 (0x40000): Output activations - 64 neurons, 256 inputs, 4 bytes/word = 0x10000 bytes
  */
-void ipu_setup(ipu__obj_t *ipu, const char *inputs_file, const char *weights_file)
+void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
 {
+    if (argc < 4)
+    {
+        LOG_ERROR("Setup requires: <inst_file> <inputs.bin> <weights.bin> <outputs.bin>");
+        return;
+    }
+
+    const char *inputs_file = argv[2];
+    const char *weights_file = argv[3];
     LOG_INFO("Setting up IPU for fully connected layer...");
 
     // TODO - this must be done via the IPU itself
@@ -92,12 +93,18 @@ void ipu_setup(ipu__obj_t *ipu, const char *inputs_file, const char *weights_fil
 
 /**
  * @brief Teardown function to save outputs and cleanup
- *
- * @param ipu The IPU object to inspect and cleanup
- * @param outputs_file Path to file where outputs will be saved
  */
-void ipu_teardown(ipu__obj_t *ipu, const char *outputs_file)
+void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 {
+    if (argc < 5)
+    {
+        LOG_ERROR("Teardown requires output filename");
+        free(ipu->xmem);
+        free(ipu);
+        return;
+    }
+
+    const char *outputs_file = argv[4];
     LOG_INFO("IPU Teardown - Final State:");
     LOG_INFO("========================================");
 
@@ -141,68 +148,13 @@ void ipu_teardown(ipu__obj_t *ipu, const char *outputs_file)
 
 int main(int argc, char **argv)
 {
-    LOG_INFO("IPU Fully Connected Layer Example Started");
-    LOG_INFO("========================================");
-
-    // Check command line arguments
-    if (argc < 5)
-    {
-        LOG_ERROR("Usage: %s <instruction_file.bin> <inputs.bin> <weights.bin> <outputs.bin>", argv[0]);
-        LOG_INFO("  instruction_file.bin: Binary instruction file to load");
-        LOG_INFO("  inputs.bin: Input activations (128 bytes per input)");
-        LOG_INFO("  weights.bin: Weights (128 bytes per neuron)");
-        LOG_INFO("  outputs.bin: Output file for results");
-        return 1;
-    }
-
-    const char *inst_filename = argv[1];
-    const char *inputs_filename = argv[2];
-    const char *weights_filename = argv[3];
-    const char *outputs_filename = argv[4];
-    LOG_INFO("Loading instructions from: %s", inst_filename);
-
-    // Initialize IPU
-    ipu__obj_t *ipu = ipu__init_ipu();
-    if (!ipu)
-    {
-        LOG_ERROR("Failed to initialize IPU.");
-        return 1;
-    }
-    LOG_INFO("IPU initialized successfully.");
-
-    // Load instruction memory from file
-    FILE *inst_file = fopen(inst_filename, "rb");
-    if (!inst_file)
-    {
-        LOG_ERROR("Failed to open instruction file: %s", inst_filename);
-        free(ipu->xmem);
-        free(ipu);
-        return 1;
-    }
-
-    ipu__load_inst_mem(ipu, inst_file);
-    fclose(inst_file);
-    LOG_INFO("Instruction memory loaded successfully.");
-
-    // Setup initial state with input files
-    ipu_setup(ipu, inputs_filename, weights_filename);
-
-    // Run the IPU until completion (with 1000000 cycle safety limit for larger workload)
-    int cycles = emulator__run_until_complete(ipu, 1000000, 100);
-
-    if (cycles < 0)
-    {
-        LOG_ERROR("IPU execution failed or exceeded cycle limit.");
-        ipu_teardown(ipu, outputs_filename);
-        return 1;
-    }
-
-    LOG_INFO("IPU executed successfully for %d cycles.", cycles);
-
-    // Teardown and save outputs
-    ipu_teardown(ipu, outputs_filename);
-
-    LOG_INFO("========================================");
-    LOG_INFO("IPU Fully Connected Layer Example Finished");
-    return 0;
+    emulator__test_config_t config = {
+        .test_name = "IPU Fully Connected Layer Example",
+        .max_cycles = 1000000,
+        .progress_interval = 100,
+        .setup = ipu_setup,
+        .teardown = ipu_teardown
+    };
+    
+    return emulator__run_test(argc, argv, &config);
 }

@@ -1,4 +1,5 @@
 #include "emulator.h"
+#include <string.h>
 
 /**
  * @brief Run the IPU until execution completes
@@ -39,4 +40,89 @@ int emulator__run_until_complete(ipu__obj_t *ipu, uint32_t max_cycles, uint32_t 
 
     LOG_INFO("IPU execution finished after %u cycles", cycle_count);
     return cycle_count;
+}
+
+/**
+ * @brief Run a generic IPU test with minimal boilerplate
+ */
+int emulator__run_test(int argc, char **argv, emulator__test_config_t *config)
+{
+    LOG_INFO("%s Started", config->test_name);
+    LOG_INFO("========================================");
+
+    // Check minimum arguments (instruction file is always required)
+    if (argc < 2)
+    {
+        LOG_ERROR("Usage: %s <instruction_file.bin> [additional args...]", argv[0]);
+        LOG_INFO("Please provide a binary instruction file to load.");
+        return 1;
+    }
+
+    const char *inst_filename = argv[1];
+    LOG_INFO("Loading instructions from: %s", inst_filename);
+
+    // Initialize IPU
+    ipu__obj_t *ipu = ipu__init_ipu();
+    if (!ipu)
+    {
+        LOG_ERROR("Failed to initialize IPU.");
+        return 1;
+    }
+    LOG_INFO("IPU initialized successfully.");
+
+    // Load instruction memory from file
+    FILE *inst_file = fopen(inst_filename, "rb");
+    if (!inst_file)
+    {
+        LOG_ERROR("Failed to open instruction file: %s", inst_filename);
+        free(ipu->xmem);
+        free(ipu);
+        return 1;
+    }
+
+    ipu__load_inst_mem(ipu, inst_file);
+    fclose(inst_file);
+    LOG_INFO("Instruction memory loaded successfully.");
+
+    // Call custom setup function if provided
+    if (config->setup)
+    {
+        config->setup(ipu, argc, argv);
+    }
+
+    // Run the IPU until completion
+    int cycles = emulator__run_until_complete(ipu, config->max_cycles, config->progress_interval);
+
+    if (cycles < 0)
+    {
+        LOG_ERROR("IPU execution failed or exceeded cycle limit.");
+        if (config->teardown)
+        {
+            config->teardown(ipu, argc, argv);
+        }
+        else
+        {
+            free(ipu->xmem);
+            free(ipu);
+        }
+        return 1;
+    }
+
+    LOG_INFO("IPU executed successfully for %d cycles.", cycles);
+
+    // Call custom teardown function if provided
+    if (config->teardown)
+    {
+        config->teardown(ipu, argc, argv);
+    }
+    else
+    {
+        // Default cleanup
+        free(ipu->xmem);
+        free(ipu);
+    }
+
+    LOG_INFO("========================================");
+    LOG_INFO("%s Finished", config->test_name);
+    return 0;
 }
