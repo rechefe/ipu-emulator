@@ -38,52 +38,26 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
     }
 
     // Load input activations from file
-    LOG_INFO("Loading input activations from: %s", inputs_file);
-    FILE *inputs_fp = fopen(inputs_file, "rb");
-    if (!inputs_fp)
+    int inputs_loaded = emulator__load_binary_to_xmem(
+        ipu->xmem, inputs_file, INPUT_BASE_ADDR, IPU__R_REG_SIZE_BYTES, SAMPLES_NUM);
+    
+    if (inputs_loaded < 0)
     {
-        LOG_ERROR("Failed to open inputs file: %s", inputs_file);
+        LOG_ERROR("Failed to load inputs");
         return;
     }
-
-    uint8_t input_data[IPU__R_REG_SIZE_BYTES];
-    uint32_t input_addr = INPUT_BASE_ADDR;
-    size_t inputs_read = 0;
-    while (fread(input_data, 1, IPU__R_REG_SIZE_BYTES, inputs_fp) == IPU__R_REG_SIZE_BYTES)
-    {
-        xmem__write_address(ipu->xmem, input_addr, input_data, IPU__R_REG_SIZE_BYTES);
-        input_addr += IPU__R_REG_SIZE_BYTES;
-        inputs_read++;
-        if (inputs_read >= SAMPLES_NUM)
-            break; // Max 256 inputs
-    }
-    fclose(inputs_fp);
-    LOG_INFO("Loaded %zu input activations", inputs_read);
 
     // Load weights from file
-    LOG_INFO("Loading weights from: %s", weights_file);
-    FILE *weights_fp = fopen(weights_file, "rb");
-    if (!weights_fp)
+    int weights_loaded = emulator__load_binary_to_xmem(
+        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR, IPU__R_REG_SIZE_BYTES, OUTPUT_NEURONS);
+    
+    if (weights_loaded < 0)
     {
-        LOG_ERROR("Failed to open weights file: %s", weights_file);
+        LOG_ERROR("Failed to load weights");
         return;
     }
 
-    uint8_t weight_data[IPU__R_REG_SIZE_BYTES];
-    uint32_t weight_addr = WEIGHTS_BASE_ADDR;
-    size_t weights_read = 0;
-    while (fread(weight_data, 1, IPU__R_REG_SIZE_BYTES, weights_fp) == IPU__R_REG_SIZE_BYTES)
-    {
-        xmem__write_address(ipu->xmem, weight_addr, weight_data, IPU__R_REG_SIZE_BYTES);
-        weight_addr += IPU__R_REG_SIZE_BYTES;
-        weights_read++;
-        if (weights_read >= OUTPUT_NEURONS)
-            break; // Max 64 neurons
-    }
-    fclose(weights_fp);
-    LOG_INFO("Loaded %zu weight vectors", weights_read);
-
-    // Inserting the weights base address
+    // Set control register addresses
     ipu->regfile.cr_regfile.cr[0] = INPUT_BASE_ADDR;   // Input base address
     ipu->regfile.cr_regfile.cr[1] = WEIGHTS_BASE_ADDR; // Weights base address
     ipu->regfile.cr_regfile.cr[2] = OUTPUT_BASE_ADDR;  // Output base address
@@ -112,31 +86,12 @@ void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
     LOG_INFO("Final Program Counter: %u", ipu->program_counter);
 
     // Save output activations to file
-    LOG_INFO("Saving output activations to: %s", outputs_file);
-    FILE *outputs_fp = fopen(outputs_file, "wb");
-    if (!outputs_fp)
+    int outputs_saved = emulator__dump_xmem_to_binary(
+        ipu->xmem, outputs_file, OUTPUT_BASE_ADDR, IPU__RD_REG_SIZE_BYTES, SAMPLES_NUM);
+    
+    if (outputs_saved < 0)
     {
-        LOG_ERROR("Failed to open outputs file: %s", outputs_file);
-    }
-    else
-    {
-        uint32_t output_base = OUTPUT_BASE_ADDR;
-        uint8_t output_data[IPU__RD_REG_SIZE_BYTES];
-        size_t outputs_written = 0;
-
-        // Read and save output activations from memory
-        for (int i = 0; i < SAMPLES_NUM; i++) // Up to 256 outputs
-        {
-            xmem__read_address(ipu->xmem, output_base + (i * IPU__RD_REG_SIZE_BYTES),
-                               output_data, IPU__RD_REG_SIZE_BYTES);
-            size_t written = fwrite(output_data, 1, IPU__RD_REG_SIZE_BYTES, outputs_fp);
-            if (written == IPU__RD_REG_SIZE_BYTES)
-            {
-                outputs_written++;
-            }
-        }
-        fclose(outputs_fp);
-        LOG_INFO("Saved %zu output activations", outputs_written);
+        LOG_ERROR("Failed to save outputs");
     }
 
     // Cleanup

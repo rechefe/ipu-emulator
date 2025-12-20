@@ -126,3 +126,107 @@ int emulator__run_test(int argc, char **argv, emulator__test_config_t *config)
     LOG_INFO("%s Finished", config->test_name);
     return 0;
 }
+
+/**
+ * @brief Load binary file into XMEM in chunks
+ */
+int emulator__load_binary_to_xmem(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr,
+    size_t chunk_size,
+    size_t max_chunks)
+{
+    LOG_INFO("Loading binary file to XMEM: %s", file_path);
+    
+    FILE *fp = fopen(file_path, "rb");
+    if (!fp)
+    {
+        LOG_ERROR("Failed to open file: %s", file_path);
+        return -1;
+    }
+
+    uint8_t *buffer = (uint8_t *)malloc(chunk_size);
+    if (!buffer)
+    {
+        LOG_ERROR("Failed to allocate buffer of size %zu", chunk_size);
+        fclose(fp);
+        return -1;
+    }
+
+    uint32_t addr = base_addr;
+    size_t chunks_loaded = 0;
+
+    while (fread(buffer, 1, chunk_size, fp) == chunk_size)
+    {
+        xmem__write_address(xmem, addr, buffer, chunk_size);
+        addr += chunk_size;
+        chunks_loaded++;
+
+        if (max_chunks > 0 && chunks_loaded >= max_chunks)
+        {
+            break;
+        }
+    }
+
+    free(buffer);
+    fclose(fp);
+    
+    LOG_INFO("Loaded %zu chunks of %zu bytes each to XMEM starting at 0x%08X", 
+             chunks_loaded, chunk_size, base_addr);
+    
+    return chunks_loaded;
+}
+
+/**
+ * @brief Dump XMEM contents to binary file in chunks
+ */
+int emulator__dump_xmem_to_binary(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr,
+    size_t chunk_size,
+    size_t num_chunks)
+{
+    LOG_INFO("Dumping XMEM to binary file: %s", file_path);
+    
+    FILE *fp = fopen(file_path, "wb");
+    if (!fp)
+    {
+        LOG_ERROR("Failed to open file for writing: %s", file_path);
+        return -1;
+    }
+
+    uint8_t *buffer = (uint8_t *)malloc(chunk_size);
+    if (!buffer)
+    {
+        LOG_ERROR("Failed to allocate buffer of size %zu", chunk_size);
+        fclose(fp);
+        return -1;
+    }
+
+    uint32_t addr = base_addr;
+    size_t chunks_written = 0;
+
+    for (size_t i = 0; i < num_chunks; i++)
+    {
+        xmem__read_address(xmem, addr, buffer, chunk_size);
+        
+        if (fwrite(buffer, 1, chunk_size, fp) != chunk_size)
+        {
+            LOG_ERROR("Failed to write chunk %zu to file", i);
+            break;
+        }
+        
+        addr += chunk_size;
+        chunks_written++;
+    }
+
+    free(buffer);
+    fclose(fp);
+    
+    LOG_INFO("Dumped %zu chunks of %zu bytes each from XMEM starting at 0x%08X", 
+             chunks_written, chunk_size, base_addr);
+    
+    return chunks_written;
+}

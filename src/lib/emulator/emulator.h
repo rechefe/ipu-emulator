@@ -42,3 +42,37 @@ typedef struct {
  * @return 0 on success, non-zero on failure
  */
 int emulator__run_test(int argc, char **argv, emulator__test_config_t *config);
+
+/**
+ * @brief Load binary file into XMEM in chunks
+ *
+ * @param xmem External memory object
+ * @param file_path Path to binary file to load
+ * @param base_addr Starting address in XMEM
+ * @param chunk_size Size of each chunk to read/write
+ * @param max_chunks Maximum number of chunks to load (0 = no limit)
+ * @return Number of chunks loaded, or -1 on error
+ */
+int emulator__load_binary_to_xmem(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr,
+    size_t chunk_size,
+    size_t max_chunks);
+
+/**
+ * @brief Dump XMEM contents to binary file in chunks
+ *
+ * @param xmem External memory object
+ * @param file_path Path to binary file to write
+ * @param base_addr Starting address in XMEM
+ * @param chunk_size Size of each chunk to read/write
+ * @param num_chunks Number of chunks to dump
+ * @return Number of chunks written, or -1 on error
+ */
+int emulator__dump_xmem_to_binary(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr,
+    size_t chunk_size,
+    size_t num_chunks);
