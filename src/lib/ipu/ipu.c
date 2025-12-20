@@ -271,6 +271,7 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     ipu__get_r_register_for_mac_op(ipu, r_source_1, regfile_snapshot, &r_source_1_value);
 
     ipu__rq_reg_t r_mult_result;
+    memset(&r_mult_result, 0, sizeof(ipu__rq_reg_t));
 
     // Multiply R source registers element-wise
     ipu__mac_element_element(ipu, r_source_0, r_source_1, IPU__DATA_TYPE_INT8, regfile_snapshot, (ipu__rq_reg_t *)&r_mult_result);

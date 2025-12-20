@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SAMPLES_NUM 1
+#define SAMPLES_NUM 10
 
 #define INPUT_BASE_ADDR 0x0000
 #define INPUT_NEURONS IPU__R_REG_SIZE_BYTES
