@@ -1,4 +1,5 @@
 #include "logging/logger.h"
+#include "emulator/emulator.h"
 #include "ipu/ipu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,49 +88,6 @@ void ipu_setup(ipu__obj_t *ipu, const char *inputs_file, const char *weights_fil
     ipu->regfile.cr_regfile.cr[2] = OUTPUT_BASE_ADDR;  // Output base address
 
     LOG_INFO("IPU setup complete.");
-}
-
-/**
- * @brief Run the IPU until execution completes
- *
- * @param ipu The IPU object to execute
- * @param max_cycles Maximum number of cycles to execute (safety limit)
- * @return Number of cycles executed, or -1 on error
- */
-int ipu_run_until_complete(ipu__obj_t *ipu, uint32_t max_cycles)
-{
-    LOG_INFO("Starting IPU execution...");
-
-    uint32_t cycle_count = 0;
-
-    while (cycle_count < max_cycles)
-    {
-        // Check if PC is out of bounds (indicates end of program)
-        if (ipu->program_counter >= IPU__INST_MEM_SIZE)
-        {
-            LOG_INFO("Execution complete: PC out of bounds (halted)");
-            break;
-        }
-
-        // Execute one instruction cycle
-        ipu__execute_next_instruction(ipu);
-        cycle_count++;
-
-        // Log progress every 100 cycles
-        if (cycle_count % 100 == 0)
-        {
-            LOG_INFO("Executed %u cycles, PC=%u", cycle_count, ipu->program_counter);
-        }
-    }
-
-    if (cycle_count >= max_cycles)
-    {
-        LOG_WARN("Execution stopped: Maximum cycle limit (%u) reached", max_cycles);
-        return -1;
-    }
-
-    LOG_INFO("IPU execution finished after %u cycles", cycle_count);
-    return cycle_count;
 }
 
 /**
@@ -230,7 +188,7 @@ int main(int argc, char **argv)
     ipu_setup(ipu, inputs_filename, weights_filename);
 
     // Run the IPU until completion (with 1000000 cycle safety limit for larger workload)
-    int cycles = ipu_run_until_complete(ipu, 1000000);
+    int cycles = emulator__run_until_complete(ipu, 1000000, 100);
 
     if (cycles < 0)
     {

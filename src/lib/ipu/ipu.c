@@ -286,8 +286,6 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     uint32_t rq_store_idx = regfile_snapshot->lr_regfile.lr[lr_idx];
     assert(rq_store_idx < IPU__RQ_REG_SIZE_WORDS);
 
-    LOG_INFO("MAC AGG: Storing sum %u into RQ[%d][%u]", sum, rq_dest, rq_store_idx);
-
     ipu->regfile.rx_regfile.rq_regs[rq_dest].words[rq_store_idx] = sum;
 }
 
@@ -320,8 +318,6 @@ void ipu__execute_next_instruction(ipu__obj_t *ipu)
     // Create a snapshot of the register file at the start of the cycle
     // All subinstructions read from this snapshot to avoid race conditions
     ipu__regfile_t regfile_snapshot = ipu->regfile;
-
-    uint32_t old_pc = ipu->program_counter;
 
     // Execute all subinstructions in parallel using the snapshot and fetched instruction
     ipu__execute_xmem_instruction(ipu, inst, &regfile_snapshot);
@@ -507,6 +503,7 @@ static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int i,
                                        ipu__data_type_t data_type,
                                        ipu__rq_reg_t *out_rq_reg)
 {
+    (void)ipu; // Unused parameter
     if (i >= IPU__RQ_REG_SIZE_WORDS)
     {
         LOG_ERROR("MAC accumulate index out of bounds: i=%d, max=%d", i, IPU__RQ_REG_SIZE_WORDS);
@@ -523,6 +520,7 @@ void ipu__get_r_register_for_mac_op(ipu__obj_t *ipu,
                                     const ipu__regfile_t *regfile_snapshot,
                                     ipu__r_reg_t *out_r_reg)
 {
+    (void)regfile_snapshot; // Unused parameter
     assert((r_reg_index >= 0 && r_reg_index < IPU__R_REGS_NUM) || r_reg_index == INST_PARSER__RX_REG_FIELD_MEM_BYPASS);
     if (r_reg_index == INST_PARSER__RX_REG_FIELD_MEM_BYPASS)
     {
@@ -586,8 +584,8 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
 
 uint32_t ipu__add_twice_uint4_t(uint8_t a, uint8_t b)
 {
-    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t)a;
-    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t)b;
+    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t){.w = a};
+    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t){.w = b};
 
     uint16_t res_low = (a_as_two.f.low + b_as_two.f.low);
     uint16_t res_high = (b_as_two.f.high + b_as_two.f.high);
@@ -651,8 +649,8 @@ uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type)
 
 uint32_t ipu__mult_twice_uint4_t(uint8_t a, uint8_t b)
 {
-    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t)a;
-    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t)b;
+    ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t){.w = a};
+    ipu__uint8_t_as_uint4_t_t b_as_two = (ipu__uint8_t_as_uint4_t_t){.w = b};
 
     uint16_t res_low = (a_as_two.f.low * b_as_two.f.low);
     uint16_t res_high = (b_as_two.f.high * b_as_two.f.high);

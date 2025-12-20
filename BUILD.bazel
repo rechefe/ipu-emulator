@@ -37,9 +37,11 @@ cc_library(
     includes = ["src/lib"],
 )
 
-cc_binary(
-    name = "fully_connected",
-    srcs = ["src/apps/fully_connected/fully_connected.c"],
+cc_library(
+    name = "emulator",
+    srcs = ["src/lib/emulator/emulator.c"],
+    hdrs = ["src/lib/emulator/emulator.h"],
+    includes = ["src/lib"],
     deps = [
         ":ipu",
         ":logger",
@@ -55,24 +57,6 @@ cc_binary(
     deps = [
         "//src/tools/ipu-as-py:inst_parser",
     ],
-)
-
-cc_binary(
-    name = "ipu_hello_world",
-    srcs = ["src/apps/ipu_hello_world.c"],
-    deps = [
-        ":ipu",
-        ":logger",
-        ":xmem",
-    ],
-)
-
-genrule(
-    name = "assemble_hello_world",
-    srcs = ["src/apps/hello_world.asm"],
-    outs = ["hello_world.bin"],
-    cmd = "$(location //src/tools/ipu-as-py:ipu-as) assemble --input $< --output $@ --format bin",
-    tools = ["//src/tools/ipu-as-py:ipu-as"],
 )
 
 cc_test(
@@ -95,47 +79,5 @@ cc_test(
         ":logger",
         ":xmem",
         "@googletest//:gtest_main",
-    ],
-)
-
-sh_test(
-    name = "ipu_hello_world_test",
-    size = "small",
-    srcs = ["test/test_ipu_hello_world.sh"],
-    args = [
-        "$(location :ipu_hello_world)",
-        "$(location :hello_world.bin)",
-    ],
-    data = [
-        ":hello_world.bin",
-        ":ipu_hello_world",
-    ],
-)
-
-genrule(
-    name = "assemble_fully_connected",
-    srcs = ["src/apps/fully_connected/fully_connected.asm"],
-    outs = ["fully_connected.bin"],
-    cmd = "$(location //src/tools/ipu-as-py:ipu-as) assemble --input $< --output $@ --format bin",
-    tools = ["//src/tools/ipu-as-py:ipu-as"],
-)
-
-sh_test(
-    name = "fully_connected_test",
-    size = "medium",
-    srcs = ["test/fully_connected/test_fully_connected.sh"],
-    args = [
-        "$(location :fully_connected)",
-        "$(location :fully_connected.bin)",
-        "$(location test/fully_connected/inputs_10x128_int8.bin)",
-        "$(location test/fully_connected/weights_64x128_int8.bin)",
-        "output_10x64_int32.bin",  # Just the filename, will be written to test outputs
-    ],
-    data = [
-        ":fully_connected",
-        ":fully_connected.bin",
-        "test/fully_connected/inputs_10x128_int8.bin",
-        "test/fully_connected/weights_64x128_int8.bin",
-        "test/fully_connected/output_10x64_int32.bin",
     ],
 )

@@ -1,0 +1,38 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("//:asm_rules.bzl", "assemble_asm")
+
+cc_binary(
+    name = "fully_connected",
+    srcs = ["fully_connected.c"],
+    deps = [
+        "//:emulator",
+        "//:ipu",
+        "//:logger",
+        "//:xmem",
+    ],
+)
+
+assemble_asm(
+    name = "assemble_fully_connected",
+    src = "fully_connected.asm",
+)
+
+sh_test(
+    name = "fully_connected_test",
+    size = "medium",
+    srcs = ["test_fully_connected.sh"],
+    args = [
+        "$(location :fully_connected)",
+        "$(location :assemble_fully_connected.bin)",
+        "$(location inputs_10x128_int8.bin)",
+        "$(location weights_64x128_int8.bin)",
+        "output_10x64_int32.bin",  # Just the filename, will be written to test outputs
+    ],
+    data = [
+        "inputs_10x128_int8.bin",
+        "output_10x64_int32.bin",
+        "weights_64x128_int8.bin",
+        ":assemble_fully_connected.bin",
+        ":fully_connected",
+    ],
+)

@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("//:asm_rules.bzl", "assemble_asm")
+
+cc_binary(
+    name = "ipu_hello_world",
+    srcs = ["hello_world.c"],
+    deps = [
+        "//:emulator",
+        "//:ipu",
+        "//:logger",
+        "//:xmem",
+    ],
+)
+
+assemble_asm(
+    name = "assemble_hello_world",
+    src = "hello_world.asm",
+)
+
+sh_test(
+    name = "ipu_hello_world_test",
+    size = "small",
+    srcs = ["test_ipu_hello_world.sh"],
+    args = [
+        "$(location :ipu_hello_world)",
+        "$(location :assemble_hello_world.bin)",
+    ],
+    data = [
+        ":assemble_hello_world.bin",
+        ":ipu_hello_world",
+    ],
+)

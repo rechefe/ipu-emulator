@@ -1,5 +1,6 @@
-#include "logging/logger.h"
 #include "ipu/ipu.h"
+#include "logging/logger.h"
+#include "emulator/emulator.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,54 +45,6 @@ void ipu_setup(ipu__obj_t *ipu)
 }
 
 /**
- * @brief Run the IPU until execution completes
- *
- * @param ipu The IPU object to execute
- * @param max_cycles Maximum number of cycles to execute (safety limit)
- * @return Number of cycles executed, or -1 on error
- *
- * Execution stops when:
- * - A breakpoint instruction is encountered
- * - Program counter exceeds instruction memory bounds
- * - Maximum cycle count is reached
- */
-int ipu_run_until_complete(ipu__obj_t *ipu, uint32_t max_cycles)
-{
-    LOG_INFO("Starting IPU execution...");
-
-    uint32_t cycle_count = 0;
-
-    while (cycle_count < max_cycles)
-    {
-        // Check if PC is out of bounds (indicates end of program)
-        if (ipu->program_counter >= IPU__INST_MEM_SIZE)
-        {
-            LOG_INFO("Execution complete: PC out of bounds (halted)");
-            break;
-        }
-
-        // Execute one instruction cycle
-        ipu__execute_next_instruction(ipu);
-        cycle_count++;
-
-        // Log progress every 100 cycles
-        if (cycle_count % 100 == 0)
-        {
-            LOG_INFO("Executed %u cycles, PC=%u", cycle_count, ipu->program_counter);
-        }
-    }
-
-    if (cycle_count >= max_cycles)
-    {
-        LOG_WARN("Execution stopped: Maximum cycle limit (%u) reached", max_cycles);
-        return -1;
-    }
-
-    LOG_INFO("IPU execution finished after %u cycles", cycle_count);
-    return cycle_count;
-}
-
-/**
  * @brief Teardown function to print final IPU state and cleanup
  *
  * @param ipu The IPU object to inspect and cleanup
@@ -127,7 +80,7 @@ void ipu_teardown(ipu__obj_t *ipu)
     LOG_INFO("LR Register Contents:");
     LOG_INFO("LR[1]: 0x%08X (expected: 0x2000)", ipu->regfile.lr_regfile.lr[1]);
     LOG_INFO("LR[2]: 0x%08X (expected: 0x1000)", ipu->regfile.lr_regfile.lr[2]);
-    
+
     // Verify LR values were set correctly by parallel instruction
     if (ipu->regfile.lr_regfile.lr[1] == 0x2000 && ipu->regfile.lr_regfile.lr[2] == 0x1000)
     {
@@ -137,7 +90,7 @@ void ipu_teardown(ipu__obj_t *ipu)
     {
         LOG_ERROR("FAILURE: LR registers not set correctly!");
     }
-    
+
     // Cleanup
     LOG_INFO("Cleaning up IPU resources...");
     free(ipu->xmem);
@@ -188,7 +141,7 @@ int main(int argc, char **argv)
     ipu_setup(ipu);
 
     // Run the IPU until completion (with 10000 cycle safety limit)
-    int cycles = ipu_run_until_complete(ipu, 10000);
+    int cycles = emulator__run_until_complete(ipu, 10000, 100);
 
     if (cycles < 0)
     {
