@@ -10,7 +10,7 @@
 # Step 1: Set LR1 and LR2 simultaneously in one cycle
 # This tests parallel LR instruction execution
 start:
-    set  lr1 0x2000 ; set  lr2 0x1000 ;
+    set  lr1 0x2000 ; set lr2 0x1000 ;
 
 # Step 2: Store register R4 to memory address 0x2000
 # The MAC instruction provides the R register (r4) for the STR

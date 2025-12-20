@@ -110,7 +110,8 @@ void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, co
 }
 
 // Structure to hold information about a single LR instruction
-typedef struct {
+typedef struct
+{
     bool valid;
     inst_parser__lr_inst_opcode_t opcode;
     int lr_idx;
@@ -174,7 +175,7 @@ static bool ipu__check_lr_conflicts(const ipu__lr_inst_info_t *lr_insts, int cou
             if (lr_insts[i].lr_idx == lr_insts[j].lr_idx)
             {
                 LOG_ERROR("LR instruction conflict detected: LR%d written by multiple instructions in the same cycle",
-                         lr_insts[i].lr_idx);
+                          lr_insts[i].lr_idx);
                 return true; // Conflict detected
             }
         }
@@ -183,7 +184,7 @@ static bool ipu__check_lr_conflicts(const ipu__lr_inst_info_t *lr_insts, int cou
 }
 
 // Execute a single LR instruction operation
-static void ipu__execute_single_lr_inst(ipu__obj_t *ipu, 
+static void ipu__execute_single_lr_inst(ipu__obj_t *ipu,
                                         const ipu__lr_inst_info_t *lr_inst,
                                         const ipu__regfile_t *regfile_snapshot)
 {
@@ -269,12 +270,12 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     ipu__get_r_register_for_mac_op(ipu, r_source_0, regfile_snapshot, &r_source_0_value);
     ipu__get_r_register_for_mac_op(ipu, r_source_1, regfile_snapshot, &r_source_1_value);
 
-    ipu__r_reg_t r_mult_result;
+    ipu__rq_reg_t r_mult_result;
 
     // Multiply R source registers element-wise
     ipu__mac_element_element(ipu, r_source_0, r_source_1, IPU__DATA_TYPE_INT8, regfile_snapshot, (ipu__rq_reg_t *)&r_mult_result);
 
-    int sum = 0;
+    uint32_t sum = 0;
 
     for (int i = 0; i < IPU__RQ_REG_SIZE_WORDS; i++)
     {
@@ -282,7 +283,9 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     }
 
     uint32_t rq_store_idx = regfile_snapshot->lr_regfile.lr[lr_idx];
-    assert (rq_store_idx < IPU__RQ_REG_SIZE_WORDS);
+    assert(rq_store_idx < IPU__RQ_REG_SIZE_WORDS);
+
+    LOG_INFO("MAC AGG: Storing sum %u into RQ[%d][%u]", sum, rq_dest, rq_store_idx);
 
     ipu->regfile.rx_regfile.rq_regs[rq_dest].words[rq_store_idx] = sum;
 }
@@ -317,7 +320,7 @@ void ipu__execute_next_instruction(ipu__obj_t *ipu)
     // All subinstructions read from this snapshot to avoid race conditions
     ipu__regfile_t regfile_snapshot = ipu->regfile;
 
-    LOG_DEBUG("Executing instruction at PC=%u", ipu->program_counter);
+    uint32_t old_pc = ipu->program_counter;
 
     // Execute all subinstructions in parallel using the snapshot and fetched instruction
     ipu__execute_xmem_instruction(ipu, inst, &regfile_snapshot);
@@ -350,6 +353,10 @@ static void ipu__execute_cond_blt(ipu__obj_t *ipu, uint32_t lr1, uint32_t lr2, u
     if (lr1 < lr2)
     {
         ipu->program_counter = label;
+    }
+    else
+    {
+        ipu->program_counter += 1;
     }
 }
 
@@ -499,6 +506,11 @@ static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int i,
                                        ipu__data_type_t data_type,
                                        ipu__rq_reg_t *out_rq_reg)
 {
+    if (i >= IPU__RQ_REG_SIZE_WORDS)
+    {
+        LOG_ERROR("MAC accumulate index out of bounds: i=%d, max=%d", i, IPU__RQ_REG_SIZE_WORDS);
+        assert(0 && "MAC accumulate index out of bounds");
+    }
     uint32_t product = ipu__mult(a, b, data_type);
     uint32_t acc = out_rq_reg->words[i];
     uint32_t result = ipu__add(acc, product, data_type);
@@ -571,20 +583,6 @@ void ipu__mac_element_vector(ipu__obj_t *ipu,
     }
 }
 
-void ipu__mac(ipu__obj_t *ipu,
-              int r_reg_index,
-              uint8_t multiplicand,
-              ipu__data_type_t data_type)
-{
-    (void)ipu;
-    (void)r_reg_index;
-    (void)multiplicand;
-    (void)data_type;
-    for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
-    {
-    }
-}
-
 uint32_t ipu__add_twice_uint4_t(uint8_t a, uint8_t b)
 {
     ipu__uint8_t_as_uint4_t_t a_as_two = (ipu__uint8_t_as_uint4_t_t)a;
@@ -595,14 +593,39 @@ uint32_t ipu__add_twice_uint4_t(uint8_t a, uint8_t b)
     return (res_high << IPU__UINT16T_BITS) | res_low;
 }
 
+uint32_t ipu__add_uint8_sign_extended(uint8_t a, uint8_t b, ipu__data_type_t data_type)
+{
+    // Sign extend uint8_t to int32_t
+    int32_t a_extended = (int8_t)a;
+    int32_t b_extended = (int8_t)b;
+
+    // Convert to uint32_t and call ipu__add
+    uint32_t a_as_uint32 = *(uint32_t *)&a_extended;
+    uint32_t b_as_uint32 = *(uint32_t *)&b_extended;
+
+    return ipu__add(a_as_uint32, b_as_uint32, data_type);
+}
+
 uint32_t ipu__add(uint32_t a, uint32_t b, ipu__data_type_t data_type)
 {
     switch (data_type)
     {
     case IPU__DATA_TYPE_INT8:
-        return (uint32_t)(a + b);
+    {
+        // Treat uint32_t as int32_t during addition
+        int32_t a_signed = *(int32_t *)&a;
+        int32_t b_signed = *(int32_t *)&b;
+        int32_t result = a_signed + b_signed;
+        return *(uint32_t *)&result;
+    }
     case IPU__DATA_TYPE_INT4:
-        return ipu__add_twice_uint4_t(a, b);
+    {
+        // Treat uint32_t as int32_t during addition
+        int32_t a_signed = *(int32_t *)&a;
+        int32_t b_signed = *(int32_t *)&b;
+        int32_t result_temp = ipu__add_twice_uint4_t(a_signed, b_signed);
+        return *(uint32_t *)&result_temp;
+    }
     case IPU__DATA_TYPE_FP16:
         // Placeholder for FP16 addition
         assert(0 && "FP16 addition not implemented");
@@ -640,7 +663,13 @@ uint32_t ipu__mult(uint8_t a, uint8_t b, ipu__data_type_t data_type)
     switch (data_type)
     {
     case IPU__DATA_TYPE_INT8:
-        return (uint32_t)(a * b);
+    {
+        // Treat uint8_t as int8_t (signed) for multiplication
+        int8_t a_signed = (int8_t)a;
+        int8_t b_signed = (int8_t)b;
+        int32_t result = (int32_t)a_signed * (int32_t)b_signed;
+        return *(uint32_t *)&result;
+    }
     case IPU__DATA_TYPE_INT4:
         return ipu__mult_twice_uint4_t(a, b);
     case IPU__DATA_TYPE_FP16:

@@ -39,7 +39,7 @@ cc_library(
 
 cc_binary(
     name = "fully_connected",
-    srcs = ["src/apps/fully_connected.c"],
+    srcs = ["src/apps/fully_connected/fully_connected.c"],
     deps = [
         ":ipu",
         ":logger",
@@ -109,5 +109,33 @@ sh_test(
     data = [
         ":hello_world.bin",
         ":ipu_hello_world",
+    ],
+)
+
+genrule(
+    name = "assemble_fully_connected",
+    srcs = ["src/apps/fully_connected/fully_connected.asm"],
+    outs = ["fully_connected.bin"],
+    cmd = "$(location //src/tools/ipu-as-py:ipu-as) assemble --input $< --output $@ --format bin",
+    tools = ["//src/tools/ipu-as-py:ipu-as"],
+)
+
+sh_test(
+    name = "fully_connected_test",
+    size = "medium",
+    srcs = ["test/fully_connected/test_fully_connected.sh"],
+    args = [
+        "$(location :fully_connected)",
+        "$(location :fully_connected.bin)",
+        "$(location test/fully_connected/inputs_10x128_int8.bin)",
+        "$(location test/fully_connected/weights_64x128_int8.bin)",
+        "output_10x64_int32.bin",  # Just the filename, will be written to test outputs
+    ],
+    data = [
+        ":fully_connected",
+        ":fully_connected.bin",
+        "test/fully_connected/inputs_10x128_int8.bin",
+        "test/fully_connected/weights_64x128_int8.bin",
+        "test/fully_connected/output_10x64_int32.bin",
     ],
 )
