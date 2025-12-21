@@ -26,6 +26,7 @@ cc_library(
     deps = [
         ":logger",
         ":xmem",
+        "//src/tools/ipu-as-py:inst_parser",
     ],
 )
 
@@ -45,6 +46,16 @@ cc_library(
         ":ipu",
         ":logger",
         ":xmem",
+    ],
+)
+
+cc_binary(
+    name = "inst_parser_example",
+    srcs = [
+        "src/apps/inst_parser_example.c",
+    ],
+    deps = [
+        "//src/tools/ipu-as-py:inst_parser",
     ],
 )
 
