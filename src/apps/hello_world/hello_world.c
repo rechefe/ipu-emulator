@@ -7,6 +7,8 @@
 
 void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
 {
+    (void)argc; // Unused parameter
+    (void)argv; // Unused parameter
     LOG_INFO("Setting up IPU initial state...");
 
     // Fill R registers with a test pattern: ascending values
@@ -36,6 +38,8 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
 
 void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 {
+    (void)argc; // Unused parameter
+    (void)argv; // Unused parameter
     LOG_INFO("IPU Teardown - Final State:");
     LOG_INFO("========================================");
 
@@ -83,8 +87,7 @@ int main(int argc, char **argv)
         .max_cycles = 10000,
         .progress_interval = 100,
         .setup = ipu_setup,
-        .teardown = ipu_teardown
-    };
-    
+        .teardown = ipu_teardown};
+
     return emulator__run_test(argc, argv, &config);
 }
