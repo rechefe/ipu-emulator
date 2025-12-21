@@ -28,6 +28,9 @@ jobs:
           sudo curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
           sudo chmod +x /usr/local/bin/bazel
 
+      - name: Make shell scripts executable
+        run: find . -name "*.sh" -type f -exec chmod +x {} \;
+
       - name: Build all targets
         run: bazel build //...
 
