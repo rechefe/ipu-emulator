@@ -50,4 +50,8 @@ ENV PATH="/home/$USERNAME/.cargo/bin:${PATH}"
 # Re-install uv for the non-root user
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Make shell scripts executable
+COPY --chown=$USERNAME:$USERNAME . /workspace
+RUN find /workspace -type f -name "*.sh" -exec chmod +x {} \;
+
 CMD ["/bin/bash"]
