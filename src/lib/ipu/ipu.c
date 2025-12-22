@@ -333,6 +333,10 @@ static void ipu__execute_cond_beq(ipu__obj_t *ipu, uint32_t lr1, uint32_t lr2, u
     {
         ipu->program_counter = label;
     }
+    else
+    {
+        ipu->program_counter += 1;
+    }
 }
 
 static void ipu__execute_cond_bne(ipu__obj_t *ipu, uint32_t lr1, uint32_t lr2, uint32_t label)
@@ -341,6 +345,10 @@ static void ipu__execute_cond_bne(ipu__obj_t *ipu, uint32_t lr1, uint32_t lr2, u
     if (lr1 != lr2)
     {
         ipu->program_counter = label;
+    }
+    else
+    {
+        ipu->program_counter += 1;
     }
 }
 
@@ -364,6 +372,10 @@ static void ipu__execute_cond_bnz(ipu__obj_t *ipu, uint32_t lr1, uint32_t label)
     {
         ipu->program_counter = label;
     }
+    else
+    {
+        ipu->program_counter += 1;
+    }
 }
 
 static void ipu__execute_cond_bz(ipu__obj_t *ipu, uint32_t lr1, uint32_t label)
@@ -372,6 +384,10 @@ static void ipu__execute_cond_bz(ipu__obj_t *ipu, uint32_t lr1, uint32_t label)
     if (lr1 == 0)
     {
         ipu->program_counter = label;
+    }
+    else
+    {
+        ipu->program_counter += 1;
     }
 }
 
@@ -383,8 +399,8 @@ static void ipu__execute_cond_b(ipu__obj_t *ipu, uint32_t label)
 
 static void ipu__execute_cond_br(ipu__obj_t *ipu, uint32_t lr1)
 {
-    // Branch relative: PC = PC + LR1
-    ipu->program_counter += lr1;
+    // Branch register: PC = LR1
+    ipu->program_counter = lr1;
 }
 
 static void ipu__execute_cond_bkpt(ipu__obj_t *ipu)
