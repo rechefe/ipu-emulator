@@ -137,6 +137,18 @@ class Inst:
             res.append(f"\t{token_type.__name__} - {token_type.bits()} bits")
         return res
 
+    @classmethod
+    def description(cls) -> str:
+        """Return human-readable description of this instruction type."""
+        raise NotImplementedError(
+            "description method must be implemented by subclasses"
+        )
+
+    @classmethod
+    def get_all_instruction_classes(cls) -> list[type["Inst"]]:
+        """Return all instruction subclasses."""
+        return cls.__subclasses__()
+
 
 @validate_inst_structure
 class XmemInst(Inst):
@@ -167,6 +179,24 @@ class XmemInst(Inst):
                 "operands": [],
             }
         )
+
+    @classmethod
+    def description(cls) -> str:
+        return """
+## XMEM Instructions
+
+Memory access instructions for loading and storing data between registers and memory.
+
+### Supported Operations:
+- **ldr**: Load data from memory to register using address in Lr and offset in Cr
+- **str**: Store data from register to memory using address in Lr and offset in Cr  
+- **xmem_nop**: No operation for XMEM pipeline
+
+### Operands:
+- Rx: Data register
+- Lr: Address register
+- Cr: Offset register
+"""
 
 
 @validate_inst_structure
@@ -199,6 +229,24 @@ class MacInst(Inst):
                 "operands": [],
             }
         )
+
+    @classmethod
+    def description(cls) -> str:
+        return """
+## MAC Instructions
+
+Multiply-accumulate instructions for vector and scalar operations.
+
+### Supported Operations:
+- **mac.ee**: Element-wise multiply-accumulate (3 Rx operands)
+- **mac.ev**: Element-vector multiply-accumulate (3 Rx operands + 1 Lr operand)
+- **mac.agg**: Aggregate multiply-accumulate (3 Rx operands + 1 Lr operand)
+- **mac_nop**: No operation for MAC pipeline
+
+### Operands:
+- Rx: Vector/scalar data registers
+- Lr: Loop/address register (for mac.ev and mac.agg)
+"""
 
 
 @validate_inst_structure
@@ -239,6 +287,22 @@ class LrInst(Inst):
             }
         )
 
+    @classmethod
+    def description(cls) -> str:
+        return """
+## LR Instructions
+
+Loop register manipulation instructions for controlling loop counters and addresses.
+
+### Supported Operations:
+- **incr**: Increment Lr register by immediate value
+- **set**: Set Lr register to immediate value
+
+### Operands:
+- Lr: Loop/address register
+- Immediate: Constant value
+"""
+
 
 @validate_inst_structure
 class CondInst(Inst):
@@ -277,3 +341,25 @@ class CondInst(Inst):
                 ],
             }
         )
+
+    @classmethod
+    def description(cls) -> str:
+        return """
+## Conditional Branch Instructions
+
+Control flow instructions for branching based on conditions or unconditionally.
+
+### Supported Operations:
+- **beq**: Branch if equal (compare two Lr registers)
+- **bne**: Branch if not equal (compare two Lr registers)
+- **blt**: Branch if less than (compare two Lr registers)
+- **bnz**: Branch if not zero (compare two Lr registers)
+- **bz**: Branch if zero (compare two Lr registers)
+- **b**: Unconditional branch to label
+- **br**: Branch to address in Lr register
+- **bkpt**: Breakpoint (halt execution)
+
+### Operands:
+- Lr: Loop/address registers for comparison or branch target
+- Label: Branch target label (resolved at assembly time)
+"""

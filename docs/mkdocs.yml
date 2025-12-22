@@ -1,0 +1,27 @@
+site_name: IPU C Samples Documentation
+site_description: Documentation for IPU C samples and assembly language
+site_author: IPU Development Team
+repo_url: https://github.com/yourusername/ipu-c-samples
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Assembly:
+    - Instruction Reference: instructions.md
+    - Getting Started: assembly/getting-started.md
+  - Examples: examples.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true

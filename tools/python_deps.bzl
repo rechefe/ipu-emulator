@@ -4,9 +4,9 @@ def _generate_requirements_impl(repository_ctx):
     """Generate requirements.txt from pyproject.toml using uv"""
     pyproject = repository_ctx.path(repository_ctx.attr.pyproject_toml)
     
-    # Run uv pip compile to generate requirements
+    # Run uv pip compile to generate requirements including optional dependencies
     result = repository_ctx.execute(
-        ["uv", "pip", "compile", str(pyproject), "--generate-hashes"],
+        ["uv", "pip", "compile", str(pyproject), "--extra=docs", "--generate-hashes"],
         quiet = False,
     )
     

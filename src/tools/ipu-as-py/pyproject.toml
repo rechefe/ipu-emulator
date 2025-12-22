@@ -18,6 +18,10 @@ dependencies = [
 dev = [
     "pytest>=9.0.1",
 ]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+]
 
 [project.scripts]
 ipu-as = "ipu_as.cli:cli"

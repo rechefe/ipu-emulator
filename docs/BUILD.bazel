@@ -1,0 +1,99 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+
+py_binary(
+    name = "gen_docs",
+    srcs = ["gen_docs_wrapper.py"],
+    main = "gen_docs_wrapper.py",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    python_version = "PY3",
+)
+
+genrule(
+    name = "generate_instruction_docs",
+    outs = ["instructions.md"],
+    cmd = "$(location :gen_docs) $(@D)",
+    tools = [":gen_docs"],
+)
+
+py_binary(
+    name = "mkdocs",
+    srcs = ["mkdocs_wrapper.py"],
+    main = "mkdocs_wrapper.py",
+    deps = [
+        requirement("mkdocs"),
+        requirement("mkdocs-material"),
+    ],
+    data = [
+        "mkdocs.yml",
+        "index.md",
+        ":generate_instruction_docs",
+    ],
+    python_version = "PY3",
+)
+
+genrule(
+    name = "build_docs",
+    srcs = [
+        "mkdocs.yml",
+        "index.md",
+        ":generate_instruction_docs",
+    ],
+    outs = ["site.tar"],
+    cmd = """
+        mkdir -p $(@D)/docs_temp/docs
+        cp $(location mkdocs.yml) $(@D)/docs_temp/
+        cp $(location index.md) $(@D)/docs_temp/docs/
+        cp $(location :generate_instruction_docs) $(@D)/docs_temp/docs/
+        ORIGDIR=$$PWD
+        cd $(@D)/docs_temp
+        $$ORIGDIR/$(location :mkdocs) build --site-dir $$ORIGDIR/$(@D)/site_output
+        cd $$ORIGDIR
+        tar -cf $@ -C $(@D)/site_output .
+    """,
+    tools = [":mkdocs"],
+)
+
+
+# Shell script to build HTML docs with mkdocs
+genrule(
+    name = "build_docs_html",
+    srcs = [
+        "mkdocs.yml",
+        "index.md",
+        ":generate_instruction_docs",
+    ],
+    outs = ["html_docs.tar.gz"],
+    cmd = """
+        # Create temporary docs directory structure
+        TEMP_DIR=$$(mktemp -d)
+        SITE_DIR=$$(mktemp -d)
+        
+        # Copy files to temp directory
+        cp $(location mkdocs.yml) $$TEMP_DIR/
+        mkdir -p $$TEMP_DIR/docs
+        cp $(location index.md) $$TEMP_DIR/docs/
+        cp $(location :generate_instruction_docs) $$TEMP_DIR/docs/instructions.md
+        
+        # Build docs using system mkdocs or fail gracefully
+        cd $$TEMP_DIR
+        if command -v mkdocs >/dev/null 2>&1; then
+            mkdocs build --site-dir $$SITE_DIR
+            cd $$SITE_DIR
+            tar czf $(location html_docs.tar.gz) .
+        else
+            echo "================================"
+            echo "ERROR: mkdocs not found"
+            echo "Please install with:"
+            echo "  pip install mkdocs mkdocs-material"
+            echo "Or run in the ipu-as-py directory:"
+            echo "  cd src/tools/ipu-as-py && pip install -e '.[docs]'"
+            echo "================================"
+            exit 1
+        fi
+        
+        # Cleanup
+        rm -rf $$TEMP_DIR $$SITE_DIR
+    """,
+    message = "Building HTML documentation with MkDocs",
+)
