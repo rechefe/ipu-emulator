@@ -40,6 +40,7 @@ genrule(
         ":generate_instruction_docs",
     ],
     outs = ["site.tar"],
+    tags = ["docs"],
     cmd = """
         mkdir -p $(@D)/docs_temp/docs
         cp $(location mkdocs.yml) $(@D)/docs_temp/

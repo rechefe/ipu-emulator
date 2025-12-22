@@ -32,7 +32,7 @@ jobs:
         run: find . -name "*.sh" -type f -exec chmod +x {} \;
 
       - name: Build all targets
-        run: bazel build //...
+        run: bazel build //... --build_tag_filters=-docs
 
       - name: Run all tests
         run: bazel test //... --test_output=errors
