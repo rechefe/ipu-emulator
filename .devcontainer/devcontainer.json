@@ -18,5 +18,5 @@
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "remoteUser": "vscode",
-  "postCreateCommand": "bazel version && uv --version"
+  "postCreateCommand": "git config --global core.autocrlf input && bazel version && uv --version"
 }
