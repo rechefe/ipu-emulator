@@ -21,7 +21,7 @@ start:
 
     //      Build 0x40000 (262144) using multiple 16-bit increments
     set     lr0 0 ;; // Input index counter
-    set     lr1 0x2000 ;; // Total inputs limit (256 * 128 = 32768 bytes)
+    set     lr1 0x500 ;; // Total inputs limit (256 * 128 = 32768 bytes)
 
 input_loop:
     ldr     r0 lr0 cr0;;
