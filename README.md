@@ -1,6 +1,10 @@
 ipu-c-samples
 ===============
 
+[![CI](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml)
+[![Documentation](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/docs.yml)
+[![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://rechefe.github.io/ipu-emulator/)
+
 Small C project that emulates simple IPU and XMEM behavior. Includes a sample `fully_connected` app and unit tests using GoogleTest.
 
 Build

@@ -187,15 +187,55 @@ class XmemInst(Inst):
 
 Memory access instructions for loading and storing data between registers and memory.
 
-### Supported Operations:
-- **ldr**: Load data from memory to register using address in Lr and offset in Cr
-- **str**: Store data from register to memory using address in Lr and offset in Cr  
-- **xmem_nop**: No operation for XMEM pipeline
+### ldr - Load Register
+Loads data from memory into a register.
 
-### Operands:
-- Rx: Data register
-- Lr: Address register
-- Cr: Offset register
+**Syntax:** `ldr Rx Lr Cr`
+
+**Operands:**
+- `Rx`: Destination data register (where loaded value will be stored)
+- `Lr`: Base address register (contains memory address)
+- `Cr`: Offset register (added to base address)
+
+**Operation:** `Rx = Memory[Lr + Cr]`
+
+**Example:**
+```
+set lr0 0x1000    # Set base address
+set cr0 4         # Set offset
+ldr rx0 lr0 cr0  # Load from address 0x1004 into rx0
+```
+
+### str - Store Register
+Stores data from a register to memory.
+
+**Syntax:** `str Rx Lr Cr`
+
+**Operands:**
+- `Rx`: Source data register (value to store)
+- `Lr`: Base address register (contains memory address)
+- `Cr`: Offset register (added to base address)
+
+**Operation:** `Memory[Lr + Cr] = Rx`
+
+**Example:**
+```
+set lr1 0x2000    # Set base address
+set cr1 8         # Set offset
+str rx1 lr1 cr1  # Store rx1 to address 0x2008
+```
+
+### xmem_nop - No Operation
+No operation for the XMEM pipeline.
+
+**Syntax:** `xmem_nop`
+
+**Operands:** None
+
+**Example:**
+```
+xmem_nop          # Pipeline stall or placeholder
+```
 """
 
 
@@ -237,15 +277,70 @@ class MacInst(Inst):
 
 Multiply-accumulate instructions for vector and scalar operations.
 
-### Supported Operations:
-- **mac.ee**: Element-wise multiply-accumulate (3 Rx operands)
-- **mac.ev**: Element-vector multiply-accumulate (3 Rx operands + 1 Lr operand)
-- **mac.agg**: Aggregate multiply-accumulate (3 Rx operands + 1 Lr operand)
-- **mac_nop**: No operation for MAC pipeline
+### mac.ee - Element-wise Multiply-Accumulate
+Performs element-wise multiplication and accumulation.
 
-### Operands:
-- Rx: Vector/scalar data registers
-- Lr: Loop/address register (for mac.ev and mac.agg)
+**Syntax:** `mac.ee Rd Ra Rb`
+
+**Operands:**
+- `Rd`: Destination register (accumulator) - must be an RQ register
+- `Ra`: First source register (multiplicand) - must be an R register
+- `Rb`: Second source register (multiplier) - must be an R register
+
+**Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[i])`, i runs from 0 to 127
+
+**Example:**
+```
+# Vector dot product step
+mac.ee rq0 r4 r5
+```
+
+### mac.ev - Element-Vector Multiply-Accumulate
+Performs element-vector multiplication with accumulation using loop register.
+
+**Syntax:** `mac.ev Rd, Ra, Rb, Lr`
+
+**Operands:**
+- `Rd`: Destination register (accumulator) - must be an RQ register
+- `Ra`: First source register (multiplicand) - must be an R register
+- `Rb`: Second source register (multiplier) - must be an R register
+- `Lr`: Loop/index register (controls iteration)
+
+**Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])` - i runs from 0 to 127
+
+**Example:**
+```
+set lr0 0
+mac.ev rq0 r7, r9 lr0
+```
+
+### mac.agg - Aggregate Multiply-Accumulate
+Performs aggregated multiplication and accumulation across elements.
+
+**Syntax:** `mac.agg Rd Ra Rb Lr`
+
+**Operands:**
+- `Lr`: Loop/control register
+
+**Operation:** `Rd[Lr] = sum(Ra[i] * Rb[i])` - i runs from 0 to 127
+
+**Example:**
+```
+# Reduction operation
+mac.agg rq4 r0 r1 lr0  # Aggregate multiply-accumulate
+```
+
+### mac_nop - No Operation
+No operation for the MAC pipeline.
+
+**Syntax:** `mac_nop`
+
+**Operands:** None
+
+**Example:**
+```
+mac_nop  # Pipeline placeholder
+```
 """
 
 
@@ -294,13 +389,41 @@ class LrInst(Inst):
 
 Loop register manipulation instructions for controlling loop counters and addresses.
 
-### Supported Operations:
-- **incr**: Increment Lr register by immediate value
-- **set**: Set Lr register to immediate value
+### incr - Increment Register
+Increments a loop register by an immediate value.
 
-### Operands:
-- Lr: Loop/address register
-- Immediate: Constant value
+**Syntax:** `incr Lr imm`
+
+**Operands:**
+- `Lr`: Loop/address register to increment
+- `imm`: Immediate value (constant to add)
+
+**Operation:** `Lr = Lr + imm`
+
+**Example:**
+```
+set lr0 10       # Initialize lr0 to 10
+incr lr0 1       # lr0 = 11
+incr lr0 5       # lr0 = 16
+```
+
+### set - Set Register
+Sets a loop register to an immediate value.
+
+**Syntax:** `set Lr imm`
+
+**Operands:**
+- `Lr`: Loop/address register to set
+- `imm`: Immediate value (constant to assign)
+
+**Operation:** `Lr = imm`
+
+**Example:**
+```
+set lr0 0x1000   # lr0 = 0x1000 (4096)
+set lr1 100      # lr1 = 100
+set lr2 -5       # lr2 = -5
+```
 """
 
 
@@ -349,17 +472,118 @@ class CondInst(Inst):
 
 Control flow instructions for branching based on conditions or unconditionally.
 
-### Supported Operations:
-- **beq**: Branch if equal (compare two Lr registers)
-- **bne**: Branch if not equal (compare two Lr registers)
-- **blt**: Branch if less than (compare two Lr registers)
-- **bnz**: Branch if not zero (compare two Lr registers)
-- **bz**: Branch if zero (compare two Lr registers)
-- **b**: Unconditional branch to label
-- **br**: Branch to address in Lr register
-- **bkpt**: Breakpoint (halt execution)
+### beq - Branch if Equal
+Branches to a label if two registers are equal.
 
-### Operands:
-- Lr: Loop/address registers for comparison or branch target
-- Label: Branch target label (resolved at assembly time)
+**Syntax:** `beq Lr1 Lr2 label`
+
+**Operands:**
+- `Lr1`: First register to compare
+- `Lr2`: Second register to compare
+- `label`: Branch target label
+
+**Operation:** `if (Lr1 == Lr2) goto label`
+
+**Example:**
+```
+loop:
+    incr lr0 1
+    beq lr0 lr1 end  # Branch to 'end' if lr0 == lr1
+    b loop
+end:
+```
+
+### bne - Branch if Not Equal
+Branches to a label if two registers are not equal.
+
+**Syntax:** `bne Lr1 Lr2 label`
+
+**Operation:** `if (Lr1 != Lr2) goto label`
+
+**Example:**
+```
+bne lr0 lr1 different  # Branch if lr0 != lr1
+```
+
+### blt - Branch if Less Than
+Branches to a label if first register is less than second.
+
+**Syntax:** `blt Lr1 Lr2 label`
+
+**Operation:** `if (Lr1 < Lr2) goto label`
+
+**Example:**
+```
+blt lr0 lr1 smaller  # Branch if lr0 < lr1
+```
+
+### bnz - Branch if Not Zero
+Branches to a label if comparison result is not zero.
+
+**Syntax:** `bnz Lr1 label`
+
+**Operation:** `if (Lr1 != 0) goto label`
+
+**Example:**
+```
+bnz lr0 nonzero  # Branch if lr0 != 0
+```
+
+### bz - Branch if Zero
+Branches to a label if comparison result is zero.
+
+**Syntax:** `bz Lr1 label`
+
+**Operation:** `if (Lr1 == 0) goto label`
+**Example:**
+```
+bz lr0 zero  # Branch if lr0 == 0
+```
+
+### b - Unconditional Branch
+Always branches to the specified label.
+
+**Syntax:** `b label`
+
+**Operands:**
+- `label`: Branch target label
+
+**Operation:** `goto label`
+
+**Example:**
+```
+b start        # Jump to 'start' label
+b +5           # Jump forward 5 instructions
+b -3           # Jump backward 3 instructions
+```
+
+### br - Branch to Register
+Branches to the address stored in a register.
+
+**Syntax:** `br Lr`
+
+**Operands:**
+- `Lr`: Register containing branch target address
+
+**Operation:** `goto address_in(Lr)`
+
+**Example:**
+```
+set lr0, 0x100
+br lr0         # Jump to address 0x100
+```
+
+### bkpt - Breakpoint
+Halts execution (breakpoint for debugging).
+
+**Syntax:** `bkpt`
+
+**Operands:** None
+
+**Operation:** Halt execution
+
+**Example:**
+```
+bkpt           # Stop here for debugging
+```
 """
