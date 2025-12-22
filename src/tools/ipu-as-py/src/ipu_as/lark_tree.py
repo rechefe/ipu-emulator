@@ -1,5 +1,6 @@
 import os
 import lark
+import jinja2
 import ipu_as.compound_inst as compound_inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.label as ipu_label
@@ -59,6 +60,11 @@ class ASTBuilder(lark.Transformer):
 
 
 def parse(text: str) -> list[dict[str, any]]:
+    # Check if text contains Jinja statements and preprocess if needed
+    if any(marker in text for marker in ['{{', '{%', '{#']):
+        template = jinja2.Template(text)
+        text = template.render()
+    
     script_dir = os.path.dirname(__file__)
     parser = lark.Lark.open(
         os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"

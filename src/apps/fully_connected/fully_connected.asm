@@ -1,52 +1,56 @@
-    //      Entry point for the fully connected layer application
+    {%      set INPUT_SIZE = 128 %}
+    {%      set NUM_INPUTS = 256 %}
+    {%      set NUM_OUTPUT_NEURONS = 64 %}
+    {%      set WEIGHT_SIZE = 128 %}
 
-    //      CR0 - base address of input activations = 0
-    //      Each input is 128 bytes (128 activations, 1 byte each) - we have 256 inputs
-    //      128 * 256 = 32768 = 0x8000
-    //      [input_idx][neuron] - for input index - jump in 128 bytes
+    {%      set input_idx = 'lr0' %}
+    {%      set input_limit = 'lr1' %}
+    {%      set weight_byte_offset = 'lr2' %}
+    {%      set neuron_idx = 'lr3' %}
+    {%      set last_neuron_idx = 'lr4' %}
+    {%      set output_offset = 'lr5' %}
 
-    //      Starts in next bank (128 * 1024 = 0x20000)
-    //      CR1 - base of weights - each weight is 128 bytes - 64 bytes overall
-    //      64 * 128 = 8192 = 0x2000
+    {%      set input_vec = 'r0' %}
+    {%      set result_quad = 'rq8' %}
+    {%      set result_r0 = 'r8' %}
+    {%      set result_r1 = 'r9' %}
 
-    //      Starts in next bank (2 * 128 * 1024 = 0x40000)
-    //      CR2 - base of output activations - each output is 64 words
-    //      256 * 64 * 4 = 65536 = 0x10000
-    //      [output_idx][neuron][byte_idx_in_word]
+    {%      set input_base = 'cr0' %}
+    {%      set weight_base = 'cr1' %}
+    {%      set output_base = 'cr2' %}
 
-    //      Starts from reading first input
 start:
     //      Clear output activations to zero
     //      TODO - add reset command for R registers
 
-    //      Build 0x40000 (262144) using multiple 16-bit increments
-    set     lr0 0 ;; // Input index counter
-    set     lr1 0x500 ;; // Total inputs limit (128 bytes * 10 = 1280 = 0x500)
+    //      Initialize loop counters
+    set     {{ input_idx }} 0 ;; // Input index counter
+    set     {{ input_limit }} {{ INPUT_SIZE * 10 }} ;; // Total inputs limit ({{ INPUT_SIZE }} bytes * 10 = {{ INPUT_SIZE * 10 }})
 
 input_loop:
-    ldr     r0 lr0 cr0;;
+    ldr     {{ input_vec }} {{ input_idx }} {{ input_base }};;
 
-    set     lr2 0 ;; // Output neuron index counter (in bytes - jumps in 128)
-    set     lr3 0 ;; // (In neurons - jumps in 1)
-    set     lr4 63 ;; // Last output neuron index
+    set     {{ weight_byte_offset }} 0 ;; // Output neuron index counter (in bytes - jumps in {{ WEIGHT_SIZE }})
+    set     {{ neuron_idx }} 0 ;; // (In neurons - jumps in 1)
+    set     {{ last_neuron_idx }} {{ NUM_OUTPUT_NEURONS - 1 }} ;; // Last output neuron index
 
 weight_loop:
-    ldr     mem_bypass lr2 cr1;
-    incr    lr2 128;
-    incr    lr3 1;
-    mac.agg rq8 r0 mem_bypass lr3;
-    blt     lr3 lr4 weight_loop;;
+    ldr     mem_bypass {{ weight_byte_offset }} {{ weight_base }};
+    incr    {{ weight_byte_offset }} {{ WEIGHT_SIZE }};
+    incr    {{ neuron_idx }} 1;
+    mac.agg {{ result_quad }} {{ input_vec }} mem_bypass {{ neuron_idx }};
+    blt     {{ neuron_idx }} {{ last_neuron_idx }} weight_loop;;
 
     //      After all weights processed, store results
-    //      Results are already in RQ8 (r8-r11)
-    str     r8 lr5 cr2;
-    incr    lr5 128;;
-    str     r9 lr5 cr2;
-    incr    lr5 128;;
+    //      Results are already in {{ result_quad }} ({{ result_r0 }}-r11)
+    str     {{ result_r0 }} {{ output_offset }} {{ output_base }};
+    incr    {{ output_offset }} {{ WEIGHT_SIZE }};;
+    str     {{ result_r1 }} {{ output_offset }} {{ output_base }};
+    incr    {{ output_offset }} {{ WEIGHT_SIZE }};;
 
     //      Move to next input
-    incr    lr0 128;;
-    blt     lr0 lr1 input_loop;;
+    incr    {{ input_idx }} {{ INPUT_SIZE }};;
+    blt     {{ input_idx }} {{ input_limit }} input_loop;;
 
 end:
     bkpt;;
