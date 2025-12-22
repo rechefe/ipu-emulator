@@ -1,0 +1,22 @@
+{
+  "name": "IPU C Samples Dev Container",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "BazelBuild.vscode-bazel",
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "remoteUser": "vscode",
+  "postCreateCommand": "bazel version && uv --version"
+}
