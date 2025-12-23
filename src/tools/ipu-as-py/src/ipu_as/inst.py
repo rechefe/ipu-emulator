@@ -202,8 +202,8 @@ Loads data from memory into a register.
 
 **Example:**
 ```asm
-set lr0 0x1000    # Set base address
-ldr r0 lr0 cr0  # Load from address 0x1000 + cr0 into r0
+set lr0 0x1000;;    # Set base address
+ldr r0 lr0 cr0;;    # Load from address 0x1000 + cr0 into r0
 ```
 
 ### str - Store Register
@@ -221,8 +221,8 @@ Stores data from a register to memory.
 
 **Example:**
 ```asm
-set lr1 0x2000    # Set base address
-str r1 lr1 cr1  # Store r1 to address (0x2000 + cr1)
+set lr1 0x2000;;    # Set base address
+str r1 lr1 cr1;;    # Store r1 to address (0x2000 + cr1)
 ```
 
 ### xmem_nop - No Operation
@@ -234,7 +234,7 @@ No operation for the XMEM pipeline.
 
 **Example:**
 ```asm
-xmem_nop          # Pipeline stall or placeholder
+xmem_nop;;          # Pipeline stall or placeholder
 ```
 """
 
@@ -293,7 +293,7 @@ Performs element-wise multiplication and accumulation.
 **Example:**
 ```asm
 # Vector dot product step
-mac.ee rq0 r4 r5
+mac.ee rq0 r4 r5;;
 ```
 
 ### mac.ev - Element-Vector Multiply-Accumulate
@@ -312,8 +312,8 @@ Performs element-vector multiplication with accumulation using loop register.
 
 **Example:**
 ```asm
-set lr0 0
-mac.ev rq0 r7 r9 lr0
+set lr0 0;;
+mac.ev rq0 r7 r9 lr0;;
 ```
 
 ### mac.agg - Aggregate Multiply-Accumulate
@@ -332,7 +332,7 @@ Performs aggregated multiplication and accumulation across elements.
 **Example:**
 ```asm
 # Reduction operation
-mac.agg rq4 r0 r1 lr0  # Aggregate multiply-accumulate
+mac.agg rq4 r0 r1 lr0;;  # Aggregate multiply-accumulate
 ```
 
 ### mac_nop - No Operation
@@ -344,7 +344,7 @@ No operation for the MAC pipeline.
 
 **Example:**
 ```asm
-mac_nop  # Pipeline placeholder
+mac_nop;;  # Pipeline placeholder
 ```
 """
 
@@ -408,9 +408,9 @@ Increments a loop register by an immediate value.
 
 **Example:**
 ```
-set lr0 10       # Initialize lr0 to 10
-incr lr0 1       # lr0 = 11
-incr lr0 5       # lr0 = 16
+set lr0 10;;       # Initialize lr0 to 10
+incr lr0 1;;       # lr0 = 11
+incr lr0 5;;       # lr0 = 16
 ```
 
 ### set - Set Register
@@ -427,9 +427,9 @@ Sets a loop register to an immediate value.
 
 **Example:**
 ```
-set lr0 0x1000   # lr0 = 0x1000 (4096)
-set lr1 100      # lr1 = 100
-set lr2 -5       # lr2 = -5
+set lr0 0x1000;;   # lr0 = 0x1000 (4096)
+set lr1 100;;      # lr1 = 100
+set lr2 -5;;       # lr2 = -5
 ```
 """
 
@@ -495,9 +495,9 @@ Branches to a label if two registers are equal.
 **Example:**
 ```asm
 loop:
-    incr lr0 1
-    beq lr0 lr1 end  # Branch to 'end' if lr0 == lr1
-    b loop
+    incr lr0 1;
+    beq lr0 lr1 end;;  # Branch to 'end' if lr0 == lr1
+    b loop;;
 end:
 ```
 
@@ -510,7 +510,7 @@ Branches to a label if two registers are not equal.
 
 **Example:**
 ```asm
-bne lr0 lr1 different  # Branch if lr0 != lr1
+bne lr0 lr1 different;;  # Branch if lr0 != lr1
 ```
 
 ### blt - Branch if Less Than
@@ -522,7 +522,7 @@ Branches to a label if first register is less than second.
 
 **Example:**
 ```asm
-blt lr0 lr1 smaller  # Branch if lr0 < lr1
+blt lr0 lr1 smaller;;  # Branch if lr0 < lr1
 ```
 
 ### bnz - Branch if Not Zero
@@ -534,7 +534,7 @@ Branches to a label if comparison result is not zero.
 
 **Example:**
 ```asm
-bnz lr0 nonzero  # Branch if lr0 != 0
+bnz lr0 nonzero;;  # Branch if lr0 != 0
 ```
 
 ### bz - Branch if Zero
@@ -545,7 +545,7 @@ Branches to a label if comparison result is zero.
 **Operation:** `if (Lr1 == 0) goto label`
 **Example:**
 ```asm
-bz lr0 zero  # Branch if lr0 == 0
+bz lr0 zero;;  # Branch if lr0 == 0
 ```
 
 ### b - Unconditional Branch
@@ -561,9 +561,9 @@ Always branches to the specified label.
 
 **Example:**
 ```asm
-b start        # Jump to 'start' label
-b +5           # Jump forward 5 instructions
-b -3           # Jump backward 3 instructions
+b start;;        # Jump to 'start' label
+b +5;;           # Jump forward 5 instructions
+b -3;;           # Jump backward 3 instructions
 ```
 
 ### br - Branch to Register
@@ -579,7 +579,7 @@ Branches to the address stored in a register.
 
 **Example:**
 ```asm
-set lr0 0x100
+set lr0 0x100;
 br lr0         # Jump to address 0x100
 ```
 

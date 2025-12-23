@@ -1,6 +1,6 @@
 # Building IPU Applications
 
-This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/main/src/apps/fully_connected).
+This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/apps/fully_connected).
 
 ## Application Structure
 

@@ -47,6 +47,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
+      - Setup: setup.md
       - Building Applications: building-applications.md
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
