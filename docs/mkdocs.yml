@@ -46,10 +46,11 @@ theme:
 
 nav:
   - Home: index.md
+  - Getting Started:
+      - Building Applications: building-applications.md
   - Assembly:
-    - Instruction Reference: instructions.md
-    # - Getting Started: assembly/getting-started.md
-  # - Examples: examples.md
+      - Assembly Syntax: assembly-syntax.md
+      - Instruction Reference: instructions.md
 
 markdown_extensions:
   - admonition
@@ -79,4 +80,3 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/rechefe/ipu-emulator
   generator: false
-

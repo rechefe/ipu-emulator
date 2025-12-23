@@ -64,17 +64,17 @@ bazel build //...
 bazel test //...
 ```
 
-**Run sample application:**
-
-```bash
-bazel run //:fully_connected
-```
-
 **Generate documentation:**
 
 ```bash
 bazel build //docs:build_docs
 ```
+
+## Next Steps
+
+- [Building Applications](building-applications.md) - Learn how to build IPU applications
+- [Assembly Syntax Guide](assembly-syntax.md) - Complete assembly language reference
+- [Instruction Reference](instructions.md) - Complete IPU instruction set
 
 ## Contributing
 

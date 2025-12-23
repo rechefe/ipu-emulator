@@ -66,7 +66,7 @@ incr lr0 1;;
 b next;;
 
 # Parallel execution (1 cycle)
-ldr rq0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next
+ldr rq0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
 ```
 
 ## Instruction Format
@@ -74,7 +74,7 @@ ldr rq0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next
 Each instruction follows the pattern:
 
 ```
-opcode operand1, operand2, operand3
+opcode operand1 operand2 operand3
 ```
 
 **Register Types:**

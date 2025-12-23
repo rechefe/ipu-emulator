@@ -201,7 +201,7 @@ Loads data from memory into a register.
 **Operation:** `Rx = Memory[Lr + Cr]`
 
 **Example:**
-```
+```asm
 set lr0 0x1000    # Set base address
 ldr r0 lr0 cr0  # Load from address 0x1000 + cr0 into r0
 ```
@@ -220,7 +220,7 @@ Stores data from a register to memory.
 **Operation:** `Memory[Lr + Cr] = Rx`
 
 **Example:**
-```
+```asm
 set lr1 0x2000    # Set base address
 str r1 lr1 cr1  # Store r1 to address (0x2000 + cr1)
 ```
@@ -233,7 +233,7 @@ No operation for the XMEM pipeline.
 **Operands:** None
 
 **Example:**
-```
+```asm
 xmem_nop          # Pipeline stall or placeholder
 ```
 """
@@ -291,7 +291,7 @@ Performs element-wise multiplication and accumulation.
 **Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[i])`, i runs from 0 to 127
 
 **Example:**
-```
+```asm
 # Vector dot product step
 mac.ee rq0 r4 r5
 ```
@@ -311,9 +311,9 @@ Performs element-vector multiplication with accumulation using loop register.
 **Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])` - i runs from 0 to 127
 
 **Example:**
-```
+```asm
 set lr0 0
-mac.ev rq0 r7, r9 lr0
+mac.ev rq0 r7 r9 lr0
 ```
 
 ### mac.agg - Aggregate Multiply-Accumulate
@@ -330,7 +330,7 @@ Performs aggregated multiplication and accumulation across elements.
 **Operation:** `Rd[Lr] = sum(Ra[i] * Rb[i])` - i runs from 0 to 127
 
 **Example:**
-```
+```asm
 # Reduction operation
 mac.agg rq4 r0 r1 lr0  # Aggregate multiply-accumulate
 ```
@@ -343,7 +343,7 @@ No operation for the MAC pipeline.
 **Operands:** None
 
 **Example:**
-```
+```asm
 mac_nop  # Pipeline placeholder
 ```
 """
@@ -493,7 +493,7 @@ Branches to a label if two registers are equal.
 **Operation:** `if (Lr1 == Lr2) goto label`
 
 **Example:**
-```
+```asm
 loop:
     incr lr0 1
     beq lr0 lr1 end  # Branch to 'end' if lr0 == lr1
@@ -509,7 +509,7 @@ Branches to a label if two registers are not equal.
 **Operation:** `if (Lr1 != Lr2) goto label`
 
 **Example:**
-```
+```asm
 bne lr0 lr1 different  # Branch if lr0 != lr1
 ```
 
@@ -521,7 +521,7 @@ Branches to a label if first register is less than second.
 **Operation:** `if (Lr1 < Lr2) goto label`
 
 **Example:**
-```
+```asm
 blt lr0 lr1 smaller  # Branch if lr0 < lr1
 ```
 
@@ -533,7 +533,7 @@ Branches to a label if comparison result is not zero.
 **Operation:** `if (Lr1 != 0) goto label`
 
 **Example:**
-```
+```asm
 bnz lr0 nonzero  # Branch if lr0 != 0
 ```
 
@@ -544,7 +544,7 @@ Branches to a label if comparison result is zero.
 
 **Operation:** `if (Lr1 == 0) goto label`
 **Example:**
-```
+```asm
 bz lr0 zero  # Branch if lr0 == 0
 ```
 
@@ -560,7 +560,7 @@ Always branches to the specified label.
 **Operation:** `goto label`
 
 **Example:**
-```
+```asm
 b start        # Jump to 'start' label
 b +5           # Jump forward 5 instructions
 b -3           # Jump backward 3 instructions
@@ -578,8 +578,8 @@ Branches to the address stored in a register.
 **Operation:** `goto address_in(Lr)`
 
 **Example:**
-```
-set lr0, 0x100
+```asm
+set lr0 0x100
 br lr0         # Jump to address 0x100
 ```
 
@@ -593,7 +593,7 @@ Halts execution (breakpoint for debugging).
 **Operation:** Halt execution
 
 **Example:**
-```
+```asm
 bkpt           # Stop here for debugging
 ```
 """
