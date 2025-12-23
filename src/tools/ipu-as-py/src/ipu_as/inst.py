@@ -193,7 +193,8 @@ Loads data from memory into a register.
 **Syntax:** `ldr Rx Lr Cr`
 
 **Operands:**
-- `Rx`: Destination data register (where loaded value will be stored)
+
+- `Rx`: Destination data register (where loaded value will be stored) - Must be an R register (128-byte)
 - `Lr`: Base address register (contains memory address)
 - `Cr`: Offset register (added to base address)
 
@@ -202,8 +203,7 @@ Loads data from memory into a register.
 **Example:**
 ```
 set lr0 0x1000    # Set base address
-set cr0 4         # Set offset
-ldr rx0 lr0 cr0  # Load from address 0x1004 into rx0
+ldr r0 lr0 cr0  # Load from address 0x1000 + cr0 into r0
 ```
 
 ### str - Store Register
@@ -212,7 +212,8 @@ Stores data from a register to memory.
 **Syntax:** `str Rx Lr Cr`
 
 **Operands:**
-- `Rx`: Source data register (value to store)
+
+- `Rx`: Source data register (value to store) - Must be an R register (128-byte)
 - `Lr`: Base address register (contains memory address)
 - `Cr`: Offset register (added to base address)
 
@@ -221,8 +222,7 @@ Stores data from a register to memory.
 **Example:**
 ```
 set lr1 0x2000    # Set base address
-set cr1 8         # Set offset
-str rx1 lr1 cr1  # Store rx1 to address 0x2008
+str r1 lr1 cr1  # Store r1 to address (0x2000 + cr1)
 ```
 
 ### xmem_nop - No Operation
@@ -283,6 +283,7 @@ Performs element-wise multiplication and accumulation.
 **Syntax:** `mac.ee Rd Ra Rb`
 
 **Operands:**
+
 - `Rd`: Destination register (accumulator) - must be an RQ register
 - `Ra`: First source register (multiplicand) - must be an R register
 - `Rb`: Second source register (multiplier) - must be an R register
@@ -301,10 +302,11 @@ Performs element-vector multiplication with accumulation using loop register.
 **Syntax:** `mac.ev Rd, Ra, Rb, Lr`
 
 **Operands:**
+
 - `Rd`: Destination register (accumulator) - must be an RQ register
 - `Ra`: First source register (multiplicand) - must be an R register
 - `Rb`: Second source register (multiplier) - must be an R register
-- `Lr`: Loop/index register (controls iteration)
+- `Lr`: index register (controls iteration)
 
 **Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])` - i runs from 0 to 127
 
@@ -320,7 +322,10 @@ Performs aggregated multiplication and accumulation across elements.
 **Syntax:** `mac.agg Rd Ra Rb Lr`
 
 **Operands:**
-- `Lr`: Loop/control register
+- `Rd`: Destination register (accumulator) - must be an RQ register
+- `Ra`: First source register (multiplicand) - must be an R register
+- `Rb`: Second source register (multiplier) - must be an R register
+- `Lr`: index register (controls iteration)
 
 **Operation:** `Rd[Lr] = sum(Ra[i] * Rb[i])` - i runs from 0 to 127
 
@@ -395,6 +400,7 @@ Increments a loop register by an immediate value.
 **Syntax:** `incr Lr imm`
 
 **Operands:**
+
 - `Lr`: Loop/address register to increment
 - `imm`: Immediate value (constant to add)
 
@@ -413,6 +419,7 @@ Sets a loop register to an immediate value.
 **Syntax:** `set Lr imm`
 
 **Operands:**
+
 - `Lr`: Loop/address register to set
 - `imm`: Immediate value (constant to assign)
 
@@ -478,6 +485,7 @@ Branches to a label if two registers are equal.
 **Syntax:** `beq Lr1 Lr2 label`
 
 **Operands:**
+
 - `Lr1`: First register to compare
 - `Lr2`: Second register to compare
 - `label`: Branch target label
@@ -546,6 +554,7 @@ Always branches to the specified label.
 **Syntax:** `b label`
 
 **Operands:**
+
 - `label`: Branch target label
 
 **Operation:** `goto label`
@@ -563,6 +572,7 @@ Branches to the address stored in a register.
 **Syntax:** `br Lr`
 
 **Operands:**
+
 - `Lr`: Register containing branch target address
 
 **Operation:** `goto address_in(Lr)`

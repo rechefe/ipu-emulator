@@ -13,15 +13,4 @@ This repository contains samples and tools for IPU development, including:
 ## Quick Links
 
 - [Instruction Reference](instructions.md) - Complete IPU assembly instruction set
-- [Getting Started](assembly/getting-started.md) - Start writing IPU assembly
-
-## Repository Structure
-
-```
-ipu-c-samples/
-├── src/
-│   └── tools/
-│       └── ipu-as-py/    # IPU assembler
-├── docs/                  # Documentation
-└── BUILD.bazel           # Bazel build files
-```
+<!-- - [Getting Started](assembly/getting-started.md) - Start writing IPU assembly -->

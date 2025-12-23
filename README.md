@@ -1,4 +1,4 @@
-ipu-c-samples
+IPU Development
 ===============
 
 [![CI](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/rechefe/ipu-emulator/actions/workflows/ci.yml)

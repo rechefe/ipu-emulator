@@ -1,6 +1,12 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
+# Automatically include all markdown files in docs/
+filegroup(
+    name = "doc_sources",
+    srcs = glob(["*.md"]),
+)
+
 py_binary(
     name = "gen_docs",
     srcs = ["gen_docs_wrapper.py"],
@@ -24,11 +30,6 @@ py_binary(
         requirement("mkdocs"),
         requirement("mkdocs-material"),
     ],
-    data = [
-        "mkdocs.yml",
-        "index.md",
-        ":generate_instruction_docs",
-    ],
     python_version = "PY3",
 )
 
@@ -36,20 +37,33 @@ genrule(
     name = "build_docs",
     srcs = [
         "mkdocs.yml",
-        "index.md",
+        ":doc_sources",
         ":generate_instruction_docs",
     ],
     outs = ["site.tar"],
     tags = ["docs"],
     cmd = """
+        # Create temp directory structure
         mkdir -p $(@D)/docs_temp/docs
+        
+        # Copy mkdocs config
         cp $(location mkdocs.yml) $(@D)/docs_temp/
-        cp $(location index.md) $(@D)/docs_temp/docs/
+        
+        # Copy all source markdown files
+        for src in $(locations :doc_sources); do
+            cp $$src $(@D)/docs_temp/docs/
+        done
+        
+        # Copy generated instruction docs
         cp $(location :generate_instruction_docs) $(@D)/docs_temp/docs/
+        
+        # Build with mkdocs
         ORIGDIR=$$PWD
         cd $(@D)/docs_temp
         $$ORIGDIR/$(location :mkdocs) build --site-dir $$ORIGDIR/$(@D)/site_output
         cd $$ORIGDIR
+        
+        # Package output
         tar -cf $@ -C $(@D)/site_output .
     """,
     tools = [":mkdocs"],
