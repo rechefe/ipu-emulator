@@ -38,6 +38,16 @@ cc_library(
 )
 
 cc_library(
+    name = "ipu_math",
+    srcs = ["src/lib/ipu_math/ipu_math.c"],
+    hdrs = ["src/lib/ipu_math/ipu_math.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":fp",
+    ],
+)
+
+cc_library(
     name = "emulator",
     srcs = ["src/lib/emulator/emulator.c"],
     hdrs = ["src/lib/emulator/emulator.h"],
