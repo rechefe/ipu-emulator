@@ -7,30 +7,21 @@
 #include <math.h>
 #include "fp/fp.h"
 
-static inline int8_t ipu_math__sign_extend_int4(uint8_t x, bool is_lower_nibble)
+// Data type enumeration
+typedef enum
 {
-    uint8_t val = is_lower_nibble ? (x & 0x0F) : ((x >> 4) & 0x0F);
-    if (val & 0x08) // Check sign bit
-    {
-        return (int8_t)(val | 0xF0); // Sign-extend to 8 bits
-    }
-    else
-    {
-        return (int8_t)(val & 0x0F); // Positive number
-    }
-}
+    IPU_MATH__DTYPE_INT4_LOWER, // INT4 in lower nibble
+    IPU_MATH__DTYPE_INT4_UPPER, // INT4 in upper nibble
+    IPU_MATH__DTYPE_INT8,
+    IPU_MATH__DTYPE_FP4,
+    IPU_MATH__DTYPE_FP8_E4M3,
+    IPU_MATH__DTYPE_FP8_E5M2,
+    IPU_MATH__DTYPE_FP16
+} ipu_math__dtype_t;
 
-static inline int16_t ipu_math__mul_int8(int8_t a, int8_t b)
-{
-    return (int16_t)a * (int16_t)b;
-}
-
-static inline int8_t ipu_math__mul_int4(
-    uint8_t a, bool a_is_lower_nibble, uint8_t b, bool b_is_lower_nibble)
-{
-    int8_t a_sext = ipu_math__sign_extend_int4(a, a_is_lower_nibble);
-    int8_t b_sext = ipu_math__sign_extend_int4(b, b_is_lower_nibble);
-    return (int8_t)a_sext * (int8_t)b_sext;
-}
+// Generic operations - work on any data type
+void ipu_math__mult(const void *a, const void *b, void *result, ipu_math__dtype_t dtype);
+void ipu_math__add(const void *a, const void *b, void *result, ipu_math__dtype_t dtype);
+void ipu_math__mac(const void *a, const void *b, const void *acc, void *result, ipu_math__dtype_t dtype);
 
 #endif // IPU_MATH_H
