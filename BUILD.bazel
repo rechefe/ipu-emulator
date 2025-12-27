@@ -19,14 +19,87 @@ cc_library(
 )
 
 cc_library(
+    name = "ipu_base",
+    srcs = ["src/lib/ipu/ipu_base.c"],
+    hdrs = ["src/lib/ipu/ipu_base.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":xmem",
+        "//src/tools/ipu-as-py:inst_parser",
+    ],
+)
+
+cc_library(
+    name = "ipu_regfile",
+    srcs = ["src/lib/ipu/ipu_regfile.c"],
+    hdrs = ["src/lib/ipu/ipu_regfile.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":xmem",
+    ],
+)
+
+cc_library(
+    name = "ipu_xmem_inst",
+    srcs = ["src/lib/ipu/ipu_xmem_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_xmem_inst.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":ipu_regfile",
+        ":xmem",
+    ],
+)
+
+cc_library(
+    name = "ipu_lr_inst",
+    srcs = ["src/lib/ipu/ipu_lr_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_lr_inst.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":ipu_regfile",
+        ":logger",
+    ],
+)
+
+cc_library(
+    name = "ipu_mac_inst",
+    srcs = ["src/lib/ipu/ipu_mac_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_mac_inst.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":ipu_regfile",
+        ":ipu_math",
+        ":logger",
+    ],
+)
+
+cc_library(
+    name = "ipu_cond_inst",
+    srcs = ["src/lib/ipu/ipu_cond_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_cond_inst.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":logger",
+    ],
+)
+
+cc_library(
     name = "ipu",
     srcs = ["src/lib/ipu/ipu.c"],
     hdrs = ["src/lib/ipu/ipu.h"],
     includes = ["src/lib"],
     deps = [
-        ":logger",
-        ":xmem",
-        "//src/tools/ipu-as-py:inst_parser",
+        ":ipu_base",
+        ":ipu_regfile",
+        ":ipu_xmem_inst",
+        ":ipu_lr_inst",
+        ":ipu_mac_inst",
+        ":ipu_cond_inst",
     ],
 )
 

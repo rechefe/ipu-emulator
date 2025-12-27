@@ -1,4 +1,30 @@
 #include "ipu_math/ipu_math.h"
+#include <assert.h>
+#include <string.h>
+
+// Helper function for sign-extending INT4 values
+static int8_t ipu_math__sign_extend_int4(uint8_t value, bool lower_nibble)
+{
+    uint8_t nibble;
+    if (lower_nibble)
+    {
+        nibble = value & 0x0F; // Extract lower 4 bits
+    }
+    else
+    {
+        nibble = (value >> 4) & 0x0F; // Extract upper 4 bits
+    }
+
+    // Sign extend from 4 bits to 8 bits
+    if (nibble & 0x08) // Check if sign bit is set
+    {
+        return (int8_t)(nibble | 0xF0); // Sign extend with 1s
+    }
+    else
+    {
+        return (int8_t)nibble; // Sign extend with 0s
+    }
+}
 
 // Generic multiplication function
 void ipu_math__mult(const void *a, const void *b, void *result, ipu_math__dtype_t dtype)
@@ -20,9 +46,13 @@ void ipu_math__mult(const void *a, const void *b, void *result, ipu_math__dtype_
         break;
     }
     case IPU_MATH__DTYPE_INT8:
-        *(int16_t *)result = (int16_t)(*(const int8_t *)a) * (int16_t)(*(const int8_t *)b);
+    {
+        int32_t a_val = (int32_t)(*(const int8_t *)a);
+        int32_t b_val = (int32_t)(*(const int8_t *)b);
+        int32_t res_val = a_val * b_val;
+        *(int32_t *)result = res_val;
         break;
-
+    }
     case IPU_MATH__DTYPE_FP4:
         *(float *)result = fp__fp4_mult(*(const fp__fp4_t *)a, *(const fp__fp4_t *)b);
         break;
@@ -65,7 +95,7 @@ void ipu_math__add(const void *a, const void *b, void *result, ipu_math__dtype_t
         break;
     }
     case IPU_MATH__DTYPE_INT8:
-        *(int16_t *)result = (int16_t)(*(const int8_t *)a) + (int16_t)(*(const int8_t *)b);
+        *(int32_t *)result = (int32_t)(*(const int32_t *)a) + (int32_t)(*(const int32_t *)b);
         break;
 
     case IPU_MATH__DTYPE_FP4:
@@ -105,9 +135,9 @@ void ipu_math__mac(const void *a, const void *b, const void *acc, void *result, 
     }
     case IPU_MATH__DTYPE_INT8:
     {
-        int16_t mult_result;
+        int32_t mult_result;
         ipu_math__mult(a, b, &mult_result, dtype);
-        *(int16_t *)result = *(const int16_t *)acc + mult_result;
+        *(int32_t *)result = *(const int32_t *)acc + mult_result;
         break;
     }
     case IPU_MATH__DTYPE_FP4:

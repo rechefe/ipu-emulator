@@ -66,7 +66,7 @@ TEST(IpuMacElementElement, BasicMultiplyAccumulate)
     
     // Run MAC: RQ[1] += R[8] * R[9]
     ipu__regfile_t snapshot = ipu->regfile;
-    ipu__mac_element_element(ipu, 8, 9, IPU__DATA_TYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
+    ipu__mac_element_element(ipu, 8, 9, IPU_MATH__DTYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
     
     // Each word should be 2 * 3 = 6
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
@@ -93,11 +93,11 @@ TEST(IpuMacElementElement, AccumulationOverMultipleCalls)
     
     // First MAC: RQ[1] = 0 + (2 * 3) = 6
     ipu__regfile_t snapshot = ipu->regfile;
-    ipu__mac_element_element(ipu, 8, 9, IPU__DATA_TYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
+    ipu__mac_element_element(ipu, 8, 9, IPU_MATH__DTYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
     
     // Second MAC: RQ[1] = 6 + (2 * 3) = 12
     snapshot = ipu->regfile;
-    ipu__mac_element_element(ipu, 8, 9, IPU__DATA_TYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
+    ipu__mac_element_element(ipu, 8, 9, IPU_MATH__DTYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[1]);
     
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
     {
@@ -128,7 +128,7 @@ TEST(IpuMacElementVector, SingleElementBroadcast)
     ipu->regfile.rx_regfile.r_regs[5].bytes[element_index] = 4;
     
     ipu__regfile_t snapshot = ipu->regfile;
-    ipu__mac_element_vector(ipu, 4, 5, element_idx_lr_reg, IPU__DATA_TYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[2]);
+    ipu__mac_element_vector(ipu, 4, 5, element_idx_lr_reg, IPU_MATH__DTYPE_INT8, &snapshot, &ipu->regfile.rx_regfile.rq_regs[2]);
     
     // All words should be 2 * 4 = 8 (element at index 5 broadcasted)
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; ++i)
