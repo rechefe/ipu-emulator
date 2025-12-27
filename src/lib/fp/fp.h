@@ -54,23 +54,26 @@ typedef union
     uint32_t raw;
 } fp__fp32_t;
 
+// Generic conversion to fp32
+float fp__convert_to_fp32(uint8_t sign, uint32_t exp, uint32_t man,
+                          int exp_bits, int man_bits);
 
-// TODO - add bias which Yuval talked about
-#define FP__FP_MULT_FUNC_GEN(type, operator, num_bits) \
-    type fp__type_mult(type a, type b) \
-    { \
-        type res; \
-        uint32_t c_exp = a.exp + b.exp; \
-        uint32_t c_man = a.man * b.man; \
-        int first_one_from_msb_idx = -1; \
-        for (uint32_t a = num_bits - 1; a >= 0; i--) \
-        { \
-            if (num_bits & 0x80000000) \
-                first_one_from_msb_idx = a; \
-                break; \
-        } \
-        int man_overflow = 
-        \
-    }
+// Conversion functions to fp32
+float fp__fp8_e4m3_to_fp32(fp__fp8_e4m3_t a);
+float fp__fp8_e5m2_to_fp32(fp__fp8_e5m2_t a);
+float fp__fp4_to_fp32(fp__fp4_t a);
+float fp__fp16_to_fp32(fp__fp16_t a);
+
+// Multiplication functions - return fp32
+float fp__fp8_e4m3_mult(fp__fp8_e4m3_t a, fp__fp8_e4m3_t b);
+float fp__fp8_e5m2_mult(fp__fp8_e5m2_t a, fp__fp8_e5m2_t b);
+float fp__fp4_mult(fp__fp4_t a, fp__fp4_t b);
+float fp__fp16_mult(fp__fp16_t a, fp__fp16_t b);
+
+// Addition functions - return fp32
+float fp__fp8_e4m3_add(fp__fp8_e4m3_t a, fp__fp8_e4m3_t b);
+float fp__fp8_e5m2_add(fp__fp8_e5m2_t a, fp__fp8_e5m2_t b);
+float fp__fp4_add(fp__fp4_t a, fp__fp4_t b);
+float fp__fp16_add(fp__fp16_t a, fp__fp16_t b);
 
 #endif // FP_H
