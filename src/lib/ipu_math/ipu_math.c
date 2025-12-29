@@ -99,19 +99,10 @@ void ipu_math__add(const void *a, const void *b, void *result, ipu_math__dtype_t
         break;
 
     case IPU_MATH__DTYPE_FP4:
-        *(float *)result = fp__fp4_add(*(const fp__fp4_t *)a, *(const fp__fp4_t *)b);
-        break;
-
     case IPU_MATH__DTYPE_FP8_E4M3:
-        *(float *)result = fp__fp8_e4m3_add(*(const fp__fp8_e4m3_t *)a, *(const fp__fp8_e4m3_t *)b);
-        break;
-
     case IPU_MATH__DTYPE_FP8_E5M2:
-        *(float *)result = fp__fp8_e5m2_add(*(const fp__fp8_e5m2_t *)a, *(const fp__fp8_e5m2_t *)b);
-        break;
-
     case IPU_MATH__DTYPE_FP16:
-        *(float *)result = fp__fp16_add(*(const fp__fp16_t *)a, *(const fp__fp16_t *)b);
+        *(float *)result = *(float *)a + *(float *)b;
         break;
 
     default:

@@ -138,7 +138,7 @@ int emulator__load_binary_to_xmem(
     size_t max_chunks)
 {
     LOG_INFO("Loading binary file to XMEM: %s", file_path);
-    
+
     FILE *fp = fopen(file_path, "rb");
     if (!fp)
     {
@@ -171,10 +171,10 @@ int emulator__load_binary_to_xmem(
 
     free(buffer);
     fclose(fp);
-    
-    LOG_INFO("Loaded %zu chunks of %zu bytes each to XMEM starting at 0x%08X", 
+
+    LOG_INFO("Loaded %zu chunks of %zu bytes each to XMEM starting at 0x%08X",
              chunks_loaded, chunk_size, base_addr);
-    
+
     return chunks_loaded;
 }
 
@@ -189,7 +189,7 @@ int emulator__dump_xmem_to_binary(
     size_t num_chunks)
 {
     LOG_INFO("Dumping XMEM to binary file: %s", file_path);
-    
+
     FILE *fp = fopen(file_path, "wb");
     if (!fp)
     {
@@ -211,22 +211,22 @@ int emulator__dump_xmem_to_binary(
     for (size_t i = 0; i < num_chunks; i++)
     {
         xmem__read_address(xmem, addr, buffer, chunk_size);
-        
+
         if (fwrite(buffer, 1, chunk_size, fp) != chunk_size)
         {
             LOG_ERROR("Failed to write chunk %zu to file", i);
             break;
         }
-        
+
         addr += chunk_size;
         chunks_written++;
     }
 
     free(buffer);
     fclose(fp);
-    
-    LOG_INFO("Dumped %zu chunks of %zu bytes each from XMEM starting at 0x%08X", 
+
+    LOG_INFO("Dumped %zu chunks of %zu bytes each from XMEM starting at 0x%08X",
              chunks_written, chunk_size, base_addr);
-    
+
     return chunks_written;
 }

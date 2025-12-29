@@ -36,3 +36,22 @@ sh_test(
         ":fully_connected",
     ],
 )
+
+sh_test(
+    name = "fully_connected_test_fpu",
+    size = "medium",
+    srcs = ["test_fully_connected.sh"],
+    args = [
+        "$(location :fully_connected)",
+        "$(location :assemble_fully_connected.bin)",
+        "$(location test_data_format/fp8_e4m3/inputs_fp8_e4m3_deq_fp32.bin)",
+        "$(location test_data_format/fp8_e4m3/weights_fp8_e4m3_deq_fp32.bin)",
+        "output_fp8_e4m3_acc_fp32.bin",  # Just the filename, will be written to test outputs
+    ],
+    data = [
+        "test_data_format/fp8_e4m3/inputs_fp8_e4m3_deq_fp32.bin",
+        "test_data_format/fp8_e4m3/weights_fp8_e4m3_deq_fp32.bin",
+        ":assemble_fully_connected.bin",
+        ":fully_connected",
+    ],
+)
