@@ -1,0 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("//:asm_rules.bzl", "assemble_asm")
+
+cc_binary(
+    name = "fully_connected_ZD",
+    srcs = ["fully_connected_ZD.c"],
+    deps = [
+        "//:emulator",
+        "//:ipu",
+        "//:logger",
+        "//:xmem",
+    ],
+)
+
+assemble_asm(
+    name = "assemble_fully_connected_ZD",
+    src = "fully_connected_ZD.asm",
+)
+
+sh_test(
+    name = "fully_connected_ZD_test",
+    size = "medium",
+    srcs = ["test_fully_connected_ZD.sh"],
+    args = [
+        "$(location :fully_connected_ZD)",
+        "$(location :assemble_fully_connected_ZD.bin)",
+        "$(location inputs_10x128_int8.bin)",
+        "$(location weights_128x128_int8.bin)",
+        "output_10x128_int32.bin",  # Just the filename, will be written to test outputs
+    ],
+    data = [
+        "inputs_10x128_int8.bin",
+        "output_10x128_int32.bin",
+        "weights_128x128_int8.bin",
+        "zeros_512_bytes.bin",
+        ":assemble_fully_connected_ZD.bin",
+        ":fully_connected_ZD",
+    ],
+)
