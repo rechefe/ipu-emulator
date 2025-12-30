@@ -289,6 +289,12 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     ipu->regfile.rx_regfile.rq_regs[rq_dest].words[rq_store_idx] = sum;
 }
 
+static void ipu__execute_reset_rq(ipu__obj_t *ipu, inst_parser__inst_t inst)
+{
+    int rq_idx = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    ipu__clear_rq_reg(ipu, rq_idx);
+}
+
 void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     switch (inst.mac_inst_token_0_mac_inst_opcode)
@@ -302,6 +308,9 @@ void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, con
     case INST_PARSER__MAC_INST_OPCODE_MAC_AGG:
         ipu__execute_mac_agg(ipu, inst, regfile_snapshot);
         break;
+    case INST_PARSER__MAC_INST_OPCODE_ZERO_RQ:
+        ipu__execute_reset_rq(ipu, inst);
+        break;
     case INST_PARSER__MAC_INST_OPCODE_MAC_NOP:
         // No operation for MAC
         break;
@@ -309,6 +318,7 @@ void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, con
         assert(0 && "Unknown MAC instruction opcode");
     }
 }
+
 
 void ipu__execute_next_instruction(ipu__obj_t *ipu)
 {
