@@ -255,6 +255,7 @@ class MacInst(Inst):
             "mac.ee": [reg.RxRegField, reg.RxRegField, reg.RxRegField],
             "mac.ev": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
             "mac.agg": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
+            "zero_rq": [reg.RxRegField],
             "mac_nop": [],
         }
 
@@ -346,7 +347,23 @@ No operation for the MAC pipeline.
 ```asm
 mac_nop;;  # Pipeline placeholder
 ```
+
+### zero_rq - Zero Register
+Zeros out the specified RQ register.
+
+**Syntax:** `zero_rq Rd`
+
+**Operands:**
+- `Rd`: Destination register to be zeroed - must be an RQ register
+
+**Operation:** `Rd = 0`
+
+**Example:**
+```asm
+zero_rq rq0;;  # Set rq0 to zero
+```
 """
+
 
 
 @validate_inst_structure
