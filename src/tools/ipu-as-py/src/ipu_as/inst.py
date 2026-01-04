@@ -1,8 +1,26 @@
+from dataclasses import dataclass
+
 import lark
 import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
+
+
+@dataclass
+class InstructionDoc:
+    title: str
+    summary: str
+    syntax: str
+    operands: list[str]
+    operation: str | None = None
+    example: str | None = None
+
+
+@dataclass
+class InstructionFormat:
+    operands: list[type[ipu_token.IpuToken]]
+    doc: InstructionDoc | None = None
 
 
 def validate_inst_structure(cls: type) -> type:
@@ -14,24 +32,19 @@ def validate_inst_structure(cls: type) -> type:
 class Inst:
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
-        if len(inst["operands"]) != len(
-            self.struct_by_opcode_table()[inst["opcode"].token.value]
-        ):
+        struct_entry = self.struct_by_opcode_table()[inst["opcode"].token.value]
+        operand_types = self._operand_types_from_struct(struct_entry)
+
+        if len(inst["operands"]) != len(operand_types):
             raise ValueError(
-                f"Instruction {inst['opcode'].token.value} expects {len(self.struct_by_opcode_table()[inst['opcode'].token.value])} operands, "
+                f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
                 f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
             )
 
         self.operands = [
-            op_type(op)
-            for op_type, op in zip(
-                self.struct_by_opcode_table()[inst["opcode"].token.value],
-                inst["operands"],
-            )
+            op_type(op) for op_type, op in zip(operand_types, inst["operands"])
         ]
-        self.specific_operand_types = self.struct_by_opcode_table()[
-            inst["opcode"].token.value
-        ]
+        self.specific_operand_types = operand_types
 
     def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
         full_token_list = [None for _ in range(1 + len(self.operand_types()))]
@@ -45,7 +58,9 @@ class Inst:
         return full_token_list
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         raise NotImplementedError(
             "struct_by_opcode_table property must be implemented by subclasses"
         )
@@ -53,20 +68,22 @@ class Inst:
     @classmethod
     def _validate_instr_structure(cls) -> None:
         cls._inst_mapping_table = dict()
-        for opcode, token_list in cls.struct_by_opcode_table().items():
+        for opcode, struct_entry in cls.struct_by_opcode_table().items():
             assert (
                 opcode in cls.opcode_type().enum_array()
             ), f"Configuration of {cls.__name__} is invalid, opcode key must be of type {cls.opcode_type().__name__}"
 
             cls._inst_mapping_table[opcode] = cls._find_instruction_inst_mapping(
-                token_list
+                cls._operand_types_from_struct(struct_entry)
             )
 
     @classmethod
-    def _find_instruction_inst_mapping(cls, token_list: list[type[ipu_token.IpuToken]]):
-        inst_mapping = [None for _ in token_list]
+    def _find_instruction_inst_mapping(
+        cls, operand_types: list[type[ipu_token.IpuToken]]
+    ):
+        inst_mapping = [None for _ in operand_types]
         full_token_list = [False for _ in cls.operand_types()]
-        for i, token in enumerate(token_list):
+        for i, token in enumerate(operand_types):
             for j, token_type in enumerate(cls.operand_types()):
                 if token == token_type and not full_token_list[j]:
                     full_token_list[j] = True
@@ -149,6 +166,64 @@ class Inst:
         """Return all instruction subclasses."""
         return cls.__subclasses__()
 
+    @classmethod
+    def _operand_types_from_struct(
+        cls, struct_entry: InstructionFormat | list[type[ipu_token.IpuToken]]
+    ) -> list[type[ipu_token.IpuToken]]:
+        return (
+            struct_entry.operands
+            if isinstance(struct_entry, InstructionFormat)
+            else struct_entry
+        )
+
+    @classmethod
+    def _struct_entry(cls, opcode: str) -> InstructionFormat:
+        struct_entry = cls.struct_by_opcode_table()[opcode]
+        return (
+            struct_entry
+            if isinstance(struct_entry, InstructionFormat)
+            else InstructionFormat(struct_entry)
+        )
+
+    @classmethod
+    def _render_instruction_docs(cls, heading: str, intro: str) -> str:
+        lines = [f"## {heading}", ""]
+        if intro.strip():
+            lines.append(intro.strip())
+            lines.append("")
+
+        for opcode, struct_entry in cls.struct_by_opcode_table().items():
+            instruction_format = cls._struct_entry(opcode)
+            if instruction_format.doc is None:
+                continue
+            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc))
+            lines.append("")
+
+        return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def _render_opcode_doc(opcode: str, doc: InstructionDoc) -> list[str]:
+        lines = [f"### {opcode} - {doc.title}", doc.summary, ""]
+        lines.append(f"**Syntax:** `{doc.syntax}`")
+        lines.append("")
+
+        if doc.operands:
+            lines.append("**Operands:**")
+            lines.extend([f"- {operand}" for operand in doc.operands])
+            lines.append("")
+
+        if doc.operation:
+            lines.append(f"**Operation:** `{doc.operation}`")
+            lines.append("")
+
+        if doc.example:
+            lines.append("**Example:**")
+            lines.append("```asm")
+            lines.append(doc.example)
+            lines.append("```")
+
+        return lines
+
 
 @validate_inst_structure
 class XmemInst(Inst):
@@ -161,11 +236,50 @@ class XmemInst(Inst):
         return opcodes.XmemInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "ldr": [reg.RxRegField, reg.LrRegField, reg.CrRegField],
-            "str": [reg.RxRegField, reg.LrRegField, reg.CrRegField],
-            "xmem_nop": [],
+            "ldr": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField, reg.CrRegField],
+                doc=InstructionDoc(
+                    title="Load Register",
+                    summary="Load data from memory into a register.",
+                    syntax="ldr Rx Lr Cr",
+                    operands=[
+                        "Rx: Destination data register (R register, 128-byte)",
+                        "Lr: Base address register (holds memory address)",
+                        "Cr: Offset register added to the base address",
+                    ],
+                    operation="Rx = Memory[Lr + Cr]",
+                    example="set lr0 0x1000;;\nldr r0 lr0 cr0;;",
+                ),
+            ),
+            "str": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField, reg.CrRegField],
+                doc=InstructionDoc(
+                    title="Store Register",
+                    summary="Store data from a register into memory.",
+                    syntax="str Rx Lr Cr",
+                    operands=[
+                        "Rx: Source data register (R register, 128-byte)",
+                        "Lr: Base address register (holds memory address)",
+                        "Cr: Offset register added to the base address",
+                    ],
+                    operation="Memory[Lr + Cr] = Rx",
+                    example="set lr1 0x2000;;\nstr r1 lr1 cr1;;",
+                ),
+            ),
+            "xmem_nop": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="No Operation",
+                    summary="No operation for the XMEM pipeline.",
+                    syntax="xmem_nop",
+                    operands=[],
+                    example="xmem_nop;;",
+                ),
+            ),
         }
 
     @classmethod
@@ -182,61 +296,10 @@ class XmemInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return """
-## XMEM Instructions
-
-Memory access instructions for loading and storing data between registers and memory.
-
-### ldr - Load Register
-Loads data from memory into a register.
-
-**Syntax:** `ldr Rx Lr Cr`
-
-**Operands:**
-
-- `Rx`: Destination data register (where loaded value will be stored) - Must be an R register (128-byte)
-- `Lr`: Base address register (contains memory address)
-- `Cr`: Offset register (added to base address)
-
-**Operation:** `Rx = Memory[Lr + Cr]`
-
-**Example:**
-```asm
-set lr0 0x1000;;    # Set base address
-ldr r0 lr0 cr0;;    # Load from address 0x1000 + cr0 into r0
-```
-
-### str - Store Register
-Stores data from a register to memory.
-
-**Syntax:** `str Rx Lr Cr`
-
-**Operands:**
-
-- `Rx`: Source data register (value to store) - Must be an R register (128-byte)
-- `Lr`: Base address register (contains memory address)
-- `Cr`: Offset register (added to base address)
-
-**Operation:** `Memory[Lr + Cr] = Rx`
-
-**Example:**
-```asm
-set lr1 0x2000;;    # Set base address
-str r1 lr1 cr1;;    # Store r1 to address (0x2000 + cr1)
-```
-
-### xmem_nop - No Operation
-No operation for the XMEM pipeline.
-
-**Syntax:** `xmem_nop`
-
-**Operands:** None
-
-**Example:**
-```asm
-xmem_nop;;          # Pipeline stall or placeholder
-```
-"""
+        return cls._render_instruction_docs(
+            heading="XMEM Instructions",
+            intro="Memory access instructions for loading and storing data between registers and memory.",
+        )
 
 
 @validate_inst_structure
@@ -250,12 +313,77 @@ class MacInst(Inst):
         return opcodes.MacInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "mac.ee": [reg.RxRegField, reg.RxRegField, reg.RxRegField],
-            "mac.ev": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
-            "mac.agg": [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField],
-            "mac_nop": [],
+            "mac.ee": InstructionFormat(
+                operands=[reg.RxRegField, reg.RxRegField, reg.RxRegField],
+                doc=InstructionDoc(
+                    title="Element-wise Multiply-Accumulate",
+                    summary="Multiply and accumulate element by element.",
+                    syntax="mac.ee Rd Ra Rb",
+                    operands=[
+                        "Rd: Destination accumulator (RQ register)",
+                        "Ra: First source register (R register)",
+                        "Rb: Second source register (R register)",
+                    ],
+                    operation="for i in [0, 127]: Rd[i] = Rd[i] + (Ra[i] * Rb[i])",
+                    example="# Vector dot product step\nmac.ee rq0 r4 r5;;",
+                ),
+            ),
+            "mac.ev": InstructionFormat(
+                operands=[
+                    reg.RxRegField,
+                    reg.RxRegField,
+                    reg.RxRegField,
+                    reg.LrRegField,
+                ],
+                doc=InstructionDoc(
+                    title="Element-Vector Multiply-Accumulate",
+                    summary="Multiply a vector by a loop-indexed element and accumulate.",
+                    syntax="mac.ev Rd Ra Rb Lr",
+                    operands=[
+                        "Rd: Destination accumulator (RQ register)",
+                        "Ra: First source register (R register)",
+                        "Rb: Second source register (R register)",
+                        "Lr: Loop register selecting the element of Rb",
+                    ],
+                    operation="for i in [0, 127]: Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])",
+                    example="set lr0 0;;\nmac.ev rq0 r7 r9 lr0;;",
+                ),
+            ),
+            "mac.agg": InstructionFormat(
+                operands=[
+                    reg.RxRegField,
+                    reg.RxRegField,
+                    reg.RxRegField,
+                    reg.LrRegField,
+                ],
+                doc=InstructionDoc(
+                    title="Aggregate Multiply-Accumulate",
+                    summary="Accumulate a reduction of element-wise products into a selected lane.",
+                    syntax="mac.agg Rd Ra Rb Lr",
+                    operands=[
+                        "Rd: Destination accumulator (RQ register)",
+                        "Ra: First source register (R register)",
+                        "Rb: Second source register (R register)",
+                        "Lr: Loop register selecting which element of Rd to update",
+                    ],
+                    operation="Rd[Lr] += sum(Ra[i] * Rb[i]) for i in [0, 127]",
+                    example="# Reduction operation\nmac.agg rq4 r0 r1 lr0;;",
+                ),
+            ),
+            "mac_nop": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="No Operation",
+                    summary="No operation for the MAC pipeline.",
+                    syntax="mac_nop",
+                    operands=[],
+                    example="mac_nop;;",
+                ),
+            ),
         }
 
     @classmethod
@@ -272,81 +400,10 @@ class MacInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return """
-## MAC Instructions
-
-Multiply-accumulate instructions for vector and scalar operations.
-
-### mac.ee - Element-wise Multiply-Accumulate
-Performs element-wise multiplication and accumulation.
-
-**Syntax:** `mac.ee Rd Ra Rb`
-
-**Operands:**
-
-- `Rd`: Destination register (accumulator) - must be an RQ register
-- `Ra`: First source register (multiplicand) - must be an R register
-- `Rb`: Second source register (multiplier) - must be an R register
-
-**Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[i])`, i runs from 0 to 127
-
-**Example:**
-```asm
-# Vector dot product step
-mac.ee rq0 r4 r5;;
-```
-
-### mac.ev - Element-Vector Multiply-Accumulate
-Performs element-vector multiplication with accumulation using loop register.
-
-**Syntax:** `mac.ev Rd, Ra, Rb, Lr`
-
-**Operands:**
-
-- `Rd`: Destination register (accumulator) - must be an RQ register
-- `Ra`: First source register (multiplicand) - must be an R register
-- `Rb`: Second source register (multiplier) - must be an R register
-- `Lr`: index register (controls iteration)
-
-**Operation:** for each index i `Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])` - i runs from 0 to 127
-
-**Example:**
-```asm
-set lr0 0;;
-mac.ev rq0 r7 r9 lr0;;
-```
-
-### mac.agg - Aggregate Multiply-Accumulate
-Performs aggregated multiplication and accumulation across elements.
-
-**Syntax:** `mac.agg Rd Ra Rb Lr`
-
-**Operands:**
-- `Rd`: Destination register (accumulator) - must be an RQ register
-- `Ra`: First source register (multiplicand) - must be an R register
-- `Rb`: Second source register (multiplier) - must be an R register
-- `Lr`: index register (controls iteration)
-
-**Operation:** `Rd[Lr] = sum(Ra[i] * Rb[i])` - i runs from 0 to 127
-
-**Example:**
-```asm
-# Reduction operation
-mac.agg rq4 r0 r1 lr0;;  # Aggregate multiply-accumulate
-```
-
-### mac_nop - No Operation
-No operation for the MAC pipeline.
-
-**Syntax:** `mac_nop`
-
-**Operands:** None
-
-**Example:**
-```asm
-mac_nop;;  # Pipeline placeholder
-```
-"""
+        return cls._render_instruction_docs(
+            heading="MAC Instructions",
+            intro="Multiply-accumulate instructions for vector and scalar operations.",
+        )
 
 
 @validate_inst_structure
@@ -360,10 +417,38 @@ class LrInst(Inst):
         return opcodes.LrInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "incr": [reg.LrRegField, immediate.LrImmediateType],
-            "set": [reg.LrRegField, immediate.LrImmediateType],
+            "incr": InstructionFormat(
+                operands=[reg.LrRegField, immediate.LrImmediateType],
+                doc=InstructionDoc(
+                    title="Increment Register",
+                    summary="Increment a loop register by an immediate value.",
+                    syntax="incr Lr imm",
+                    operands=[
+                        "Lr: Loop/address register to increment",
+                        "imm: Immediate value to add",
+                    ],
+                    operation="Lr = Lr + imm",
+                    example="set lr0 10;;\nincr lr0 1;;\nincr lr0 5;;",
+                ),
+            ),
+            "set": InstructionFormat(
+                operands=[reg.LrRegField, immediate.LrImmediateType],
+                doc=InstructionDoc(
+                    title="Set Register",
+                    summary="Assign an immediate value to a loop register.",
+                    syntax="set Lr imm",
+                    operands=[
+                        "Lr: Loop/address register to set",
+                        "imm: Immediate value to assign",
+                    ],
+                    operation="Lr = imm",
+                    example="set lr0 0x1000;;\nset lr1 100;;\nset lr2 -5;;",
+                ),
+            ),
         }
 
     @classmethod
@@ -389,49 +474,10 @@ class LrInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return """
-## LR Instructions
-
-Loop register manipulation instructions for controlling loop counters and addresses.
-
-### incr - Increment Register
-Increments a loop register by an immediate value.
-
-**Syntax:** `incr Lr imm`
-
-**Operands:**
-
-- `Lr`: Loop/address register to increment
-- `imm`: Immediate value (constant to add)
-
-**Operation:** `Lr = Lr + imm`
-
-**Example:**
-```
-set lr0 10;;       # Initialize lr0 to 10
-incr lr0 1;;       # lr0 = 11
-incr lr0 5;;       # lr0 = 16
-```
-
-### set - Set Register
-Sets a loop register to an immediate value.
-
-**Syntax:** `set Lr imm`
-
-**Operands:**
-
-- `Lr`: Loop/address register to set
-- `imm`: Immediate value (constant to assign)
-
-**Operation:** `Lr = imm`
-
-**Example:**
-```
-set lr0 0x1000;;   # lr0 = 0x1000 (4096)
-set lr1 100;;      # lr1 = 100
-set lr2 -5;;       # lr2 = -5
-```
-"""
+        return cls._render_instruction_docs(
+            heading="LR Instructions",
+            intro="Loop register manipulation instructions for controlling loop counters and addresses.",
+        )
 
 
 @validate_inst_structure
@@ -445,16 +491,118 @@ class CondInst(Inst):
         return opcodes.CondInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(cls) -> dict[str, list[type[ipu_token.IpuToken]]]:
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "beq": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "bne": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "blt": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "bnz": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "bz": [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-            "b": [ipu_token.LabelToken],
-            "br": [reg.LrRegField],
-            "bkpt": [],
+            "beq": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Branch if Equal",
+                    summary="Branch when two registers are equal.",
+                    syntax="beq Lr1 Lr2 label",
+                    operands=[
+                        "Lr1: First register to compare",
+                        "Lr2: Second register to compare",
+                        "label: Branch target",
+                    ],
+                    operation="if (Lr1 == Lr2) goto label",
+                    example="beq lr0 lr1 end;;",
+                ),
+            ),
+            "bne": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Branch if Not Equal",
+                    summary="Branch when two registers differ.",
+                    syntax="bne Lr1 Lr2 label",
+                    operands=[
+                        "Lr1: First register to compare",
+                        "Lr2: Second register to compare",
+                        "label: Branch target",
+                    ],
+                    operation="if (Lr1 != Lr2) goto label",
+                    example="bne lr0 lr1 different;;",
+                ),
+            ),
+            "blt": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Branch if Less Than",
+                    summary="Branch when the first register is less than the second.",
+                    syntax="blt Lr1 Lr2 label",
+                    operands=[
+                        "Lr1: First register (lhs)",
+                        "Lr2: Second register (rhs)",
+                        "label: Branch target",
+                    ],
+                    operation="if (Lr1 < Lr2) goto label",
+                    example="blt lr0 lr1 smaller;;",
+                ),
+            ),
+            "bnz": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Branch if Not Zero",
+                    summary="Branch when the test register is not equal to the baseline (often zero).",
+                    syntax="bnz LrTest LrBase label",
+                    operands=[
+                        "LrTest: Register to test",
+                        "LrBase: Baseline register (commonly a zero register)",
+                        "label: Branch target",
+                    ],
+                    operation="if (LrTest != LrBase) goto label",
+                    example="bnz lr3 lr0 main_loop;;",
+                ),
+            ),
+            "bz": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Branch if Zero",
+                    summary="Branch when the test register equals the baseline (often zero).",
+                    syntax="bz LrTest LrBase label",
+                    operands=[
+                        "LrTest: Register to test",
+                        "LrBase: Baseline register (commonly a zero register)",
+                        "label: Branch target",
+                    ],
+                    operation="if (LrTest == LrBase) goto label",
+                    example="bz lr0 lr1 zero;;",
+                ),
+            ),
+            "b": InstructionFormat(
+                operands=[ipu_token.LabelToken],
+                doc=InstructionDoc(
+                    title="Unconditional Branch",
+                    summary="Always branch to a label (relative or absolute).",
+                    syntax="b label",
+                    operands=["label: Branch target"],
+                    operation="goto label",
+                    example="b start;;",
+                ),
+            ),
+            "br": InstructionFormat(
+                operands=[reg.LrRegField],
+                doc=InstructionDoc(
+                    title="Branch to Register",
+                    summary="Branch to the address held in a loop register.",
+                    syntax="br Lr",
+                    operands=["Lr: Register containing target address"],
+                    operation="goto address_in(Lr)",
+                    example="br lr0;;",
+                ),
+            ),
+            "bkpt": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="Breakpoint",
+                    summary="Halt execution (debug breakpoint).",
+                    syntax="bkpt",
+                    operands=[],
+                    operation="halt",
+                    example="bkpt",
+                ),
+            ),
         }
 
     @classmethod
@@ -474,126 +622,7 @@ class CondInst(Inst):
 
     @classmethod
     def description(cls) -> str:
-        return """
-## Conditional Branch Instructions
-
-Control flow instructions for branching based on conditions or unconditionally.
-
-### beq - Branch if Equal
-Branches to a label if two registers are equal.
-
-**Syntax:** `beq Lr1 Lr2 label`
-
-**Operands:**
-
-- `Lr1`: First register to compare
-- `Lr2`: Second register to compare
-- `label`: Branch target label
-
-**Operation:** `if (Lr1 == Lr2) goto label`
-
-**Example:**
-```asm
-loop:
-    incr lr0 1;
-    beq lr0 lr1 end;;  # Branch to 'end' if lr0 == lr1
-    b loop;;
-end:
-```
-
-### bne - Branch if Not Equal
-Branches to a label if two registers are not equal.
-
-**Syntax:** `bne Lr1 Lr2 label`
-
-**Operation:** `if (Lr1 != Lr2) goto label`
-
-**Example:**
-```asm
-bne lr0 lr1 different;;  # Branch if lr0 != lr1
-```
-
-### blt - Branch if Less Than
-Branches to a label if first register is less than second.
-
-**Syntax:** `blt Lr1 Lr2 label`
-
-**Operation:** `if (Lr1 < Lr2) goto label`
-
-**Example:**
-```asm
-blt lr0 lr1 smaller;;  # Branch if lr0 < lr1
-```
-
-### bnz - Branch if Not Zero
-Branches to a label if comparison result is not zero.
-
-**Syntax:** `bnz Lr1 label`
-
-**Operation:** `if (Lr1 != 0) goto label`
-
-**Example:**
-```asm
-bnz lr0 nonzero;;  # Branch if lr0 != 0
-```
-
-### bz - Branch if Zero
-Branches to a label if comparison result is zero.
-
-**Syntax:** `bz Lr1 label`
-
-**Operation:** `if (Lr1 == 0) goto label`
-**Example:**
-```asm
-bz lr0 zero;;  # Branch if lr0 == 0
-```
-
-### b - Unconditional Branch
-Always branches to the specified label.
-
-**Syntax:** `b label`
-
-**Operands:**
-
-- `label`: Branch target label
-
-**Operation:** `goto label`
-
-**Example:**
-```asm
-b start;;        # Jump to 'start' label
-b +5;;           # Jump forward 5 instructions
-b -3;;           # Jump backward 3 instructions
-```
-
-### br - Branch to Register
-Branches to the address stored in a register.
-
-**Syntax:** `br Lr`
-
-**Operands:**
-
-- `Lr`: Register containing branch target address
-
-**Operation:** `goto address_in(Lr)`
-
-**Example:**
-```asm
-set lr0 0x100;
-br lr0         # Jump to address 0x100
-```
-
-### bkpt - Breakpoint
-Halts execution (breakpoint for debugging).
-
-**Syntax:** `bkpt`
-
-**Operands:** None
-
-**Operation:** Halt execution
-
-**Example:**
-```asm
-bkpt           # Stop here for debugging
-```
-"""
+        return cls._render_instruction_docs(
+            heading="Conditional Branch Instructions",
+            intro="Control flow instructions for branching based on conditions or unconditionally.",
+        )
