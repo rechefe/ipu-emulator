@@ -2,6 +2,7 @@
 #define FP_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "xmem/xmem.h"
 
 typedef union
@@ -64,6 +65,12 @@ float fp__fp8_e4m3_to_fp32(fp__fp8_e4m3_t a);
 float fp__fp8_e5m2_to_fp32(fp__fp8_e5m2_t a);
 float fp__fp4_to_fp32(fp__fp4_t a);
 float fp__fp16_to_fp32(fp__fp16_t a);
+
+// Conversion functions from fp32
+fp__fp8_e4m3_t fp__fp32_to_fp8_e4m3(float a);
+fp__fp8_e5m2_t fp__fp32_to_fp8_e5m2(float a);
+fp__fp4_t fp__fp32_to_fp4(float a);
+fp__fp16_t fp__fp32_to_fp16(float a);
 
 // Multiplication functions - return fp32
 float fp__fp8_e4m3_mult(fp__fp8_e4m3_t a, fp__fp8_e4m3_t b);

@@ -1,5 +1,7 @@
 #include "emulator.h"
+#include "fp/fp.h"
 #include <string.h>
+#include <stdlib.h>
 
 /**
  * @brief Run the IPU until execution completes
@@ -229,4 +231,85 @@ int emulator__dump_xmem_to_binary(
              chunks_written, chunk_size, base_addr);
 
     return chunks_written;
+}
+/**
+ * @brief Load FP32 binary file and convert to FP8 E4M3, then store in XMEM
+ *
+ * Reads a binary file containing float32 values, converts each to FP8 E4M3 format,
+ * and stores the converted bytes into XMEM.
+ *
+ * @param xmem External memory object
+ * @param file_path Path to binary file containing FP32 values
+ * @param base_addr Starting address in XMEM to write converted data
+ * @return Number of FP32 values converted and loaded, or -1 on error
+ */
+int emulator__load_fp32_as_fp8_e4m3_to_xmem(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr)
+{
+    LOG_INFO("Loading FP32 binary file and converting to FP8 E4M3: %s", file_path);
+    
+    FILE *fp = fopen(file_path, "rb");
+    if (!fp)
+    {
+        LOG_ERROR("Failed to open file: %s", file_path);
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    int num_fp32_values = file_size / sizeof(float);
+    if (file_size % sizeof(float) != 0)
+    {
+        LOG_WARN("File size %ld is not a multiple of sizeof(float), will read %d values", 
+                 file_size, num_fp32_values);
+    }
+
+    float *fp32_buffer = (float *)malloc(file_size);
+    if (!fp32_buffer)
+    {
+        LOG_ERROR("Failed to allocate buffer of size %ld for FP32 values", file_size);
+        fclose(fp);
+        return -1;
+    }
+
+    size_t bytes_read = fread(fp32_buffer, 1, file_size, fp);
+    fclose(fp);
+
+    if (bytes_read != (size_t)file_size)
+    {
+        LOG_ERROR("Failed to read complete file. Expected %ld bytes, got %zu", 
+                  file_size, bytes_read);
+        free(fp32_buffer);
+        return -1;
+    }
+
+    fp__fp8_e4m3_t *fp8_buffer = (fp__fp8_e4m3_t *)malloc(num_fp32_values * sizeof(fp__fp8_e4m3_t));
+    if (!fp8_buffer)
+    {
+        LOG_ERROR("Failed to allocate buffer for FP8 E4M3 values");
+        free(fp32_buffer);
+        return -1;
+    }
+
+    for (int i = 0; i < num_fp32_values; i++)
+    {
+        fp8_buffer[i] = fp__fp32_to_fp8_e4m3(fp32_buffer[i]);
+    }
+    LOG_INFO("Converted %d FP32 values to FP8 E4M3", num_fp32_values);
+
+    uint8_t *fp8_bytes = (uint8_t *)fp8_buffer;
+    size_t fp8_size = num_fp32_values * sizeof(fp__fp8_e4m3_t);
+    xmem__write_address(xmem, base_addr, fp8_bytes, fp8_size);
+    
+    LOG_INFO("Loaded %d FP8 E4M3 values to XMEM starting at 0x%08X", 
+             num_fp32_values, base_addr);
+
+    free(fp32_buffer);
+    free(fp8_buffer);
+
+    return num_fp32_values;
 }

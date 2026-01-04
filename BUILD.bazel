@@ -108,6 +108,9 @@ cc_library(
     srcs = ["src/lib/fp/fp.c"],
     hdrs = ["src/lib/fp/fp.h"],
     includes = ["src/lib"],
+    deps = [
+        ":xmem",
+    ],
 )
 
 cc_library(

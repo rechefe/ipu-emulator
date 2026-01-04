@@ -1,4 +1,5 @@
-#include "fp/fp.h"
+#include "fp/fp.h"  
+#include "xmem/xmem.h"
 #include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +39,8 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
     uint32_t fp32_man = in.raw & 0x7FFFFF;
 
     // Handle zero and denormalized numbers
-    if (fp32_exp == 0 && fp32_man == 0) {
+    if (fp32_exp == 0 && fp32_man == 0)
+    {
         return 0;
     }
 
@@ -53,10 +55,13 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
     int max_exp = (1 << exp_bits) - 1;
 
     // Handle underflow/overflow
-    if (exp <= 0) {
+    if (exp <= 0)
+    {
         exp = 0;
-        return 0;  // Underflow to zero
-    } else if (exp >= max_exp) {
+        return 0; // Underflow to zero
+    }
+    else if (exp >= max_exp)
+    {
         exp = max_exp;
         // Return infinity or max value (all mantissa bits set)
         return (sign << (exp_bits + man_bits)) | (exp << man_bits) | ((1 << man_bits) - 1);
@@ -182,14 +187,16 @@ int fp__load_fp32_file_to_xmem(
     size_t chunk_size,
     size_t num_chunks)
 {
-    if (!xmem || !file_path) {
+    if (!xmem || !file_path)
+    {
         printf("Error: NULL pointer passed to fp__load_fp32_file_to_xmem\n");
         return -1;
     }
 
     // Open file
     FILE *file = fopen(file_path, "rb");
-    if (!file) {
+    if (!file)
+    {
         printf("Error: Cannot open file '%s'\n", file_path);
         return -1;
     }
@@ -201,32 +208,36 @@ int fp__load_fp32_file_to_xmem(
 
     // Calculate number of fp32 values
     int num_fp32_values = file_size / sizeof(float);
-    if (file_size % sizeof(float) != 0) {
+    if (file_size % sizeof(float) != 0)
+    {
         printf("Warning: File size (%ld) is not a multiple of 4 bytes\n", file_size);
     }
 
     // Determine output element size based on format
     int output_element_size;
-    switch (format) {
-        case 0: // fp8_e4m3
-        case 1: // fp8_e5m2
-        case 3: // fp4
-            output_element_size = 1;
-            break;
-        case 2: // fp16
-            output_element_size = 2;
-            break;
-        default:
-            printf("Error: Unknown format %d\n", format);
-            fclose(file);
-            return -1;
+    switch (format)
+    {
+    case 0: // fp8_e4m3
+    case 1: // fp8_e5m2
+    case 3: // fp4
+        output_element_size = 1;
+        break;
+    case 2: // fp16
+        output_element_size = 2;
+        break;
+    default:
+        printf("Error: Unknown format %d\n", format);
+        fclose(file);
+        return -1;
     }
 
     // Determine how many values to process
     size_t values_to_process = num_fp32_values;
-    if (num_chunks > 0) {
+    if (num_chunks > 0)
+    {
         values_to_process = (chunk_size / sizeof(float)) * num_chunks;
-        if (values_to_process > num_fp32_values) {
+        if (values_to_process > num_fp32_values)
+        {
             values_to_process = num_fp32_values;
         }
     }
@@ -235,7 +246,8 @@ int fp__load_fp32_file_to_xmem(
     float *fp32_buffer = (float *)malloc(values_to_process * sizeof(float));
     uint8_t *converted_buffer = (uint8_t *)malloc(values_to_process * output_element_size);
 
-    if (!fp32_buffer || !converted_buffer) {
+    if (!fp32_buffer || !converted_buffer)
+    {
         printf("Error: Memory allocation failed\n");
         fclose(file);
         free(fp32_buffer);
@@ -245,40 +257,43 @@ int fp__load_fp32_file_to_xmem(
 
     // Read fp32 values from file
     size_t read_count = fread(fp32_buffer, sizeof(float), values_to_process, file);
-    if (read_count != values_to_process) {
+    if (read_count != values_to_process)
+    {
         printf("Warning: Read %zu values, expected %zu\n", read_count, values_to_process);
     }
     fclose(file);
 
     // Convert fp32 values to target format
     int converted_count = 0;
-    for (size_t i = 0; i < read_count; i++) {
-        switch (format) {
-            case 0: // fp8_e4m3
-            {
-                fp__fp8_e4m3_t val = fp__fp32_to_fp8_e4m3(fp32_buffer[i]);
-                converted_buffer[i] = val.w;
-                break;
-            }
-            case 1: // fp8_e5m2
-            {
-                fp__fp8_e5m2_t val = fp__fp32_to_fp8_e5m2(fp32_buffer[i]);
-                converted_buffer[i] = val.w;
-                break;
-            }
-            case 2: // fp16
-            {
-                fp__fp16_t val = fp__fp32_to_fp16(fp32_buffer[i]);
-                uint16_t *ptr = (uint16_t *)converted_buffer;
-                ptr[i] = val.w;
-                break;
-            }
-            case 3: // fp4
-            {
-                fp__fp4_t val = fp__fp32_to_fp4(fp32_buffer[i]);
-                converted_buffer[i] = val.w;
-                break;
-            }
+    for (size_t i = 0; i < read_count; i++)
+    {
+        switch (format)
+        {
+        case 0: // fp8_e4m3
+        {
+            fp__fp8_e4m3_t val = fp__fp32_to_fp8_e4m3(fp32_buffer[i]);
+            converted_buffer[i] = val.w;
+            break;
+        }
+        case 1: // fp8_e5m2
+        {
+            fp__fp8_e5m2_t val = fp__fp32_to_fp8_e5m2(fp32_buffer[i]);
+            converted_buffer[i] = val.w;
+            break;
+        }
+        case 2: // fp16
+        {
+            fp__fp16_t val = fp__fp32_to_fp16(fp32_buffer[i]);
+            uint16_t *ptr = (uint16_t *)converted_buffer;
+            ptr[i] = val.w;
+            break;
+        }
+        case 3: // fp4
+        {
+            fp__fp4_t val = fp__fp32_to_fp4(fp32_buffer[i]);
+            converted_buffer[i] = val.w;
+            break;
+        }
         }
         converted_count++;
     }

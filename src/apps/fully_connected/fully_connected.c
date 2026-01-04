@@ -37,9 +37,9 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
         ipu__clear_rq_reg(ipu, i);
     }
 
-    // Load input activations from file
-    int inputs_loaded = emulator__load_binary_to_xmem(
-        ipu->xmem, inputs_file, INPUT_BASE_ADDR, IPU__R_REG_SIZE_BYTES, SAMPLES_NUM);
+    // Load input activations from file (FP32 converted to FP8 E4M3)
+    int inputs_loaded = emulator__load_fp32_as_fp8_e4m3_to_xmem(
+        ipu->xmem, inputs_file, INPUT_BASE_ADDR);
     
     if (inputs_loaded < 0)
     {
@@ -47,9 +47,9 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
         return;
     }
 
-    // Load weights from file
-    int weights_loaded = emulator__load_binary_to_xmem(
-        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR, IPU__R_REG_SIZE_BYTES, OUTPUT_NEURONS);
+    // Load weights from file (FP32 converted to FP8 E4M3)
+    int weights_loaded = emulator__load_fp32_as_fp8_e4m3_to_xmem(
+        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR);
     
     if (weights_loaded < 0)
     {

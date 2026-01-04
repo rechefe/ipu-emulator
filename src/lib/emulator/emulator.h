@@ -59,7 +59,21 @@ int emulator__load_binary_to_xmem(
     uint32_t base_addr,
     size_t chunk_size,
     size_t max_chunks);
-
+/**
+ * @brief Load FP32 binary file and convert to FP8 E4M3, then store in XMEM
+ *
+ * Reads a binary file containing float32 values, converts each to FP8 E4M3 format,
+ * and stores the converted bytes into XMEM.
+ *
+ * @param xmem External memory object
+ * @param file_path Path to binary file containing FP32 values
+ * @param base_addr Starting address in XMEM to write converted data
+ * @return Number of FP32 values converted and loaded, or -1 on error
+ */
+int emulator__load_fp32_as_fp8_e4m3_to_xmem(
+    xmem__obj_t *xmem,
+    const char *file_path,
+    uint32_t base_addr);
 /**
  * @brief Dump XMEM contents to binary file in chunks
  *
