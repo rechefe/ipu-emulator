@@ -71,8 +71,8 @@ cc_library(
     includes = ["src/lib"],
     deps = [
         ":ipu_base",
-        ":ipu_regfile",
         ":ipu_math",
+        ":ipu_regfile",
         ":logger",
     ],
 )
@@ -95,11 +95,11 @@ cc_library(
     includes = ["src/lib"],
     deps = [
         ":ipu_base",
-        ":ipu_regfile",
-        ":ipu_xmem_inst",
+        ":ipu_cond_inst",
         ":ipu_lr_inst",
         ":ipu_mac_inst",
-        ":ipu_cond_inst",
+        ":ipu_regfile",
+        ":ipu_xmem_inst",
     ],
 )
 
@@ -163,6 +163,17 @@ cc_test(
     deps = [
         ":ipu",
         ":logger",
+        ":xmem",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "fp_tests",
+    size = "small",
+    srcs = ["test/test_fp.cpp"],
+    deps = [
+        ":fp",
         ":xmem",
         "@googletest//:gtest_main",
     ],
