@@ -1,4 +1,4 @@
-#include "fp/fp.h"  
+#include "fp/fp.h"
 #include "xmem/xmem.h"
 #include <float.h>
 #include <stdio.h>
@@ -8,18 +8,33 @@
 float fp__convert_to_fp32(uint8_t sign, uint32_t exp, uint32_t man,
                           int exp_bits, int man_bits)
 {
+    // Handle zero: exp=0, man=0 always represents zero in IEEE754 style
     if (exp == 0 && man == 0)
-        return 0.0f; // Zero
+        return 0.0f;
 
     // Calculate bias: 2^(exp_bits-1) - 1
     int exp_bias = (1 << (exp_bits - 1)) - 1;
     int fp32_bias = 127;
 
     // Convert exponent
-    int converted_exp = (int)exp - exp_bias + fp32_bias;
+    int converted_exp = (int)exp - exp_bias + fp32_bias; // Normal number path
 
-    // Convert mantissa - shift to occupy 23 bits
-    uint32_t converted_man = man << (23 - man_bits);
+    // For true subnormal numbers (when encoding had exp < 0, forced to 0),
+    // the mantissa was extracted with one extra bit shift during encoding
+    uint32_t converted_man;
+    if (exp == 0 && man != 0)
+    {
+        // Subnormal: regular mantissa shift
+        // Subnormal handling: value = (-1)^sign * (man / 2^{man_bits}) * 2^{1-exp_bias}
+        float frac = (float)man / (float)(1 << man_bits);
+        float val = ldexpf(frac, 1 - exp_bias); // scale by 2^{1-bias}
+        return sign ? -val : val;
+    }
+    else
+    {
+        // Normal: regular shift
+        converted_man = man << (23 - man_bits);
+    }
 
     // Build fp32
     fp__fp32_t result;
@@ -54,17 +69,24 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
     // Calculate max exponent value (all bits set)
     int max_exp = (1 << exp_bits) - 1;
 
-    // Handle underflow/overflow
-    if (exp <= 0)
-    {
-        exp = 0;
-        return 0; // Underflow to zero
-    }
-    else if (exp >= max_exp)
+    // Handle overflow
+    if (exp >= max_exp)
     {
         exp = max_exp;
         // Return infinity or max value (all mantissa bits set)
         return (sign << (exp_bits + man_bits)) | (exp << man_bits) | ((1 << man_bits) - 1);
+    }
+
+    // Handle underflow - when exp goes negative or equals 0, clamp to 0 (subnormal)
+    // For true subnormals (exp <= 0), adjust mantissa extraction
+    if (exp <= 0)
+    {
+        // Subnormal: clamp exponent to 0, extract mantissa normally
+        uint32_t man = fp32_man | (1 << 23);
+        man >>= (23 - man_bits);
+        man = (man >> (1 - exp)) & ((1 << man_bits) - 1);
+        uint32_t result = (sign << (exp_bits + man_bits)) | (0 << man_bits) | man;
+        return result;
     }
 
     // Extract top bits of mantissa
@@ -137,7 +159,9 @@ float fp__fp16_to_fp32(fp__fp16_t a)
 
 float fp__fp8_e4m3_mult(fp__fp8_e4m3_t a, fp__fp8_e4m3_t b)
 {
-    float res = fp__fp8_e4m3_to_fp32(a) * fp__fp8_e4m3_to_fp32(b);
+    float a32 = fp__fp8_e4m3_to_fp32(a);
+    float b32 = fp__fp8_e4m3_to_fp32(b);
+    float res = a32 * b32;
     return res;
 }
 

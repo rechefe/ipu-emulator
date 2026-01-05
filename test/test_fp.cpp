@@ -27,7 +27,7 @@ class FP4Test : public ::testing::Test
 class FileLoadingTest : public ::testing::Test
 {
 };
-class ExplicitFP8E4m3Test : public ::testing::Test
+class ExplicitTest : public ::testing::Test
 {
 };
 
@@ -180,6 +180,24 @@ TEST_F(FP8E4M3Test, Addition)
     fp__fp8_e4m3_t b = fp__fp32_to_fp8_e4m3(3.0f);
     float result = fp__fp8_e4m3_add(a, b);
     EXPECT_NEAR(result, 5.0f, 1.0f);
+}
+
+TEST_F(FP8E4M3Test, RoundTripSpecificValue)
+{
+    // Test roundtrip conversion for the specific value 0.0078125 (2^-7)
+    // This is the minimum normal exponent value in FP8_E4M3
+    // It encodes as exp=0, man=0 (subnormal with no mantissa bits)
+    float test_value = 0.0078125;
+
+    fp__fp8_e4m3_t fp8_val = fp__fp32_to_fp8_e4m3(test_value);
+
+    EXPECT_EQ(fp8_val.w, 0x04)
+        << "FP8_E4M3 representation incorrect for specific value " << test_value;
+
+    float result = fp__fp8_e4m3_to_fp32(fp8_val);
+
+    EXPECT_EQ(result, 0.0078125f)
+        << "Round-trip conversion should preserve value " << test_value;
 }
 
 TEST_F(FP8E5M2Test, ZeroConversion)
@@ -500,7 +518,7 @@ TEST_F(FileLoadingTest, LoadFP32File)
     remove(test_file);
 }
 
-TEST_F(ExplicitFP8E4m3Test, SampleTest)
+TEST_F(ExplicitTest, SampleTest)
 {
     float f1 = 3.5f;
     float f2 = 2.25f;
