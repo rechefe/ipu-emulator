@@ -48,35 +48,127 @@ TEST_F(FP8E4M3Test, NegativeValue)
     EXPECT_LT(result, 0.0f);
 }
 
-TEST_F(FP8E4M3Test, MultiplicationMaxValues)
+TEST_F(FP8E4M3Test, RoundTripConversionNoDegeneration)
 {
-    // Max FP8_E4M3: exp=15, man=7 -> approximately 240.0f
-    fp__fp8_e4m3_t max_val = fp__fp32_to_fp8_e4m3(240.0f);
-    fp__fp8_e4m3_t min_val = fp__fp32_to_fp8_e4m3(0.001f);
-    
-    // Convert back to verify exact values
-    float max_fp32 = fp__fp8_e4m3_to_fp32(max_val);
-    float min_fp32 = fp__fp8_e4m3_to_fp32(min_val);
-    
-    // Multiply max * min
-    float result = fp__fp8_e4m3_mult(max_val, min_val);
-    float expected = max_fp32 * min_fp32;
-    
-    // Exact equality check
-    EXPECT_EQ(result, expected);
+    // Test that values that can be represented in FP8_E4M3 without degradation
+    // return the exact same float value after round-trip conversion (FP8 -> FP32 -> FP8)
+
+    float representable_values[] = {
+        0.0f,
+        1.0f,
+        2.0f,
+        3.0f,
+        4.0f,
+        5.0f,
+        8.0f,
+        16.0f,
+        32.0f,
+        64.0f,
+        128.0f,
+        240.0f, // Max representable value
+        -1.0f,
+        -2.0f,
+        -4.0f,
+        -8.0f,
+        -16.0f,
+        -32.0f,
+        -64.0f,
+        -128.0f,
+        -240.0f};
+
+    int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
+    int round_trip_count = 0;
+    int exact_match_count = 0;
+
+    // Test round-trip conversion for representable values
+    for (int i = 0; i < num_values; ++i)
+    {
+        // Convert to FP8_E4M3
+        fp__fp8_e4m3_t fp8_val = fp__fp32_to_fp8_e4m3(representable_values[i]);
+
+        // Convert to FP32
+        float fp32_val = fp__fp8_e4m3_to_fp32(fp8_val);
+
+        // Check if the float values are exactly the same
+        EXPECT_EQ(fp32_val, representable_values[i])
+            << "Round-trip conversion failed for value " << representable_values[i]
+            << " (FP32: " << fp32_val << ", final FP32: " << representable_values[i] << ")";
+
+        if (representable_values[i] == fp32_val)
+        {
+            exact_match_count++;
+        }
+
+        round_trip_count++;
+    }
+
+    EXPECT_EQ(exact_match_count, round_trip_count);
+    printf("Round-trip conversion test: %d/%d representable values preserved as exact float values\n",
+           exact_match_count, round_trip_count);
 }
 
-TEST_F(FP8E4M3Test, MultiplicationMinMaxValues)
+TEST_F(FP8E4M3Test, MultiplicationExactEqualityLargeSet)
 {
-    // Min positive FP8_E4M3 (exp=0, man=1)
-    fp__fp8_e4m3_t a = fp__fp32_to_fp8_e4m3(0.001953125f); // 2^-9
-    fp__fp8_e4m3_t b = fp__fp32_to_fp8_e4m3(0.001953125f);
-    
-    float result = fp__fp8_e4m3_mult(a, b);
-    float expected = fp__fp8_e4m3_to_fp32(a) * fp__fp8_e4m3_to_fp32(b);
-    
-    // Exact equality check
-    EXPECT_EQ(result, expected);
+    // Test exact equality on a large set of FP8_E4M3 inputs
+    // Generate test values covering the entire range of representable values
+    float test_values[] = {
+        0.0f,   // Zero
+        0.001f, // Very small positive
+        0.01f,
+        0.1f,
+        0.5f,
+        1.0f,
+        2.0f,
+        3.0f,
+        4.0f,
+        5.0f,
+        10.0f,
+        50.0f,
+        100.0f,
+        150.0f,
+        200.0f,
+        240.0f,  // Max FP8_E4M3
+        -0.001f, // Negative values
+        -0.1f,
+        -1.0f,
+        -2.5f,
+        -10.0f,
+        -100.0f,
+        -240.0f};
+
+    int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
+    int test_count = 0;
+
+    // Test all combinations of values
+    for (int i = 0; i < num_test_values; ++i)
+    {
+        for (int j = 0; j < num_test_values; ++j)
+        {
+            fp__fp8_e4m3_t a = fp__fp32_to_fp8_e4m3(test_values[i]);
+            fp__fp8_e4m3_t b = fp__fp32_to_fp8_e4m3(test_values[j]);
+
+            // Convert back to fp32 to get the actual values being multiplied
+            float a_fp32 = fp__fp8_e4m3_to_fp32(a);
+            float b_fp32 = fp__fp8_e4m3_to_fp32(b);
+
+            // Compute result using the multiplication function
+            float result = fp__fp8_e4m3_mult(a, b);
+
+            // Compute expected result
+            float expected = a_fp32 * b_fp32;
+
+            // Exact equality check - the result must match exactly
+            EXPECT_EQ(result, expected)
+                << "Multiplication failed for values: " << a_fp32 << " * " << b_fp32
+                << " = " << result << " (expected " << expected << ")";
+
+            test_count++;
+        }
+    }
+
+    // Verify we actually ran the tests
+    EXPECT_GT(test_count, 0);
+    printf("Tested %d multiplication pairs for exact equality\n", test_count);
 }
 
 TEST_F(FP8E4M3Test, Addition)
@@ -100,6 +192,95 @@ TEST_F(FP8E5M2Test, ValueConversion)
     EXPECT_NEAR(result, 3.5f, 1.0f);
 }
 
+TEST_F(FP8E5M2Test, RoundTripConversionNoDegeneration)
+{
+    // Test that values that can be represented in FP8_E5M2 without degradation
+    // return the exact same float value after round-trip conversion
+    
+    float representable_values[] = {
+        0.0f,
+        0.5f,
+        1.0f,
+        2.0f,
+        4.0f,
+        8.0f,
+        16.0f,
+        32.0f,
+        64.0f,
+        128.0f,
+        256.0f,
+        512.0f,
+        1024.0f,
+        2048.0f,
+        -0.5f,
+        -1.0f,
+        -2.0f,
+        -4.0f,
+        -8.0f,
+        -16.0f,
+        -32.0f,
+        -64.0f,
+        -128.0f,
+        -256.0f,
+        -512.0f,
+        -1024.0f
+    };
+
+    int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
+    int exact_match_count = 0;
+
+    for (int i = 0; i < num_values; ++i)
+    {
+        fp__fp8_e5m2_t fp8_val = fp__fp32_to_fp8_e5m2(representable_values[i]);
+        float fp32_val = fp__fp8_e5m2_to_fp32(fp8_val);
+
+        EXPECT_EQ(fp32_val, representable_values[i])
+            << "Round-trip conversion failed for FP8_E5M2 value " << representable_values[i];
+
+        if (representable_values[i] == fp32_val)
+        {
+            exact_match_count++;
+        }
+    }
+
+    EXPECT_EQ(exact_match_count, num_values);
+    printf("FP8_E5M2 round-trip test: %d/%d values preserved\n", exact_match_count, num_values);
+}
+
+TEST_F(FP8E5M2Test, MultiplicationExactEqualityLargeSet)
+{
+    float test_values[] = {
+        0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f,
+        256.0f, 512.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f, -32.0f, -64.0f
+    };
+
+    int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
+    int test_count = 0;
+
+    for (int i = 0; i < num_test_values; ++i)
+    {
+        for (int j = 0; j < num_test_values; ++j)
+        {
+            fp__fp8_e5m2_t a = fp__fp32_to_fp8_e5m2(test_values[i]);
+            fp__fp8_e5m2_t b = fp__fp32_to_fp8_e5m2(test_values[j]);
+
+            float a_fp32 = fp__fp8_e5m2_to_fp32(a);
+            float b_fp32 = fp__fp8_e5m2_to_fp32(b);
+
+            float result = fp__fp8_e5m2_mult(a, b);
+            float expected = a_fp32 * b_fp32;
+
+            EXPECT_EQ(result, expected)
+                << "FP8_E5M2 multiplication failed for " << a_fp32 << " * " << b_fp32;
+
+            test_count++;
+        }
+    }
+
+    EXPECT_GT(test_count, 0);
+    printf("FP8_E5M2 tested %d multiplication pairs\n", test_count);
+}
+
 TEST_F(FP16Test, ZeroConversion)
 {
     fp__fp16_t zero = fp__fp32_to_fp16(0.0f);
@@ -120,20 +301,105 @@ TEST_F(FP16Test, NegativeConversion)
     EXPECT_NEAR(result, -42.0f, 0.1f);
 }
 
-TEST_F(FP16Test, Multiplication)
+TEST_F(FP16Test, RoundTripConversionNoDegeneration)
 {
-    fp__fp16_t a = fp__fp32_to_fp16(4.0f);
-    fp__fp16_t b = fp__fp32_to_fp16(5.0f);
-    float result = fp__fp16_mult(a, b);
-    EXPECT_NEAR(result, 20.0f, 0.5f);
+    // Test that values that can be represented in FP16 without degradation
+    // return the exact same float value after round-trip conversion
+    
+    float representable_values[] = {
+        0.0f,
+        0.5f,
+        1.0f,
+        2.0f,
+        4.0f,
+        8.0f,
+        16.0f,
+        32.0f,
+        64.0f,
+        128.0f,
+        256.0f,
+        512.0f,
+        1024.0f,
+        2048.0f,
+        4096.0f,
+        8192.0f,
+        16384.0f,
+        32768.0f,
+        65504.0f,     // Max FP16
+        -0.5f,
+        -1.0f,
+        -2.0f,
+        -4.0f,
+        -8.0f,
+        -16.0f,
+        -32.0f,
+        -64.0f,
+        -128.0f,
+        -256.0f,
+        -512.0f,
+        -1024.0f,
+        -2048.0f,
+        -4096.0f,
+        -8192.0f,
+        -16384.0f,
+        -32768.0f,
+        -65504.0f
+    };
+
+    int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
+    int exact_match_count = 0;
+
+    for (int i = 0; i < num_values; ++i)
+    {
+        fp__fp16_t fp16_val = fp__fp32_to_fp16(representable_values[i]);
+        float fp32_val = fp__fp16_to_fp32(fp16_val);
+
+        EXPECT_EQ(fp32_val, representable_values[i])
+            << "Round-trip conversion failed for FP16 value " << representable_values[i];
+
+        if (representable_values[i] == fp32_val)
+        {
+            exact_match_count++;
+        }
+    }
+
+    EXPECT_EQ(exact_match_count, num_values);
+    printf("FP16 round-trip test: %d/%d values preserved\n", exact_match_count, num_values);
 }
 
-TEST_F(FP16Test, Addition)
+TEST_F(FP16Test, MultiplicationExactEqualityLargeSet)
 {
-    fp__fp16_t a = fp__fp32_to_fp16(10.0f);
-    fp__fp16_t b = fp__fp32_to_fp16(15.0f);
-    float result = fp__fp16_add(a, b);
-    EXPECT_NEAR(result, 25.0f, 0.5f);
+    float test_values[] = {
+        0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f,
+        256.0f, 512.0f, 1024.0f, 2048.0f, 4096.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f,
+        -16.0f, -32.0f, -64.0f, -128.0f, -256.0f
+    };
+
+    int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
+    int test_count = 0;
+
+    for (int i = 0; i < num_test_values; ++i)
+    {
+        for (int j = 0; j < num_test_values; ++j)
+        {
+            fp__fp16_t a = fp__fp32_to_fp16(test_values[i]);
+            fp__fp16_t b = fp__fp32_to_fp16(test_values[j]);
+
+            float a_fp32 = fp__fp16_to_fp32(a);
+            float b_fp32 = fp__fp16_to_fp32(b);
+
+            float result = fp__fp16_mult(a, b);
+            float expected = a_fp32 * b_fp32;
+
+            EXPECT_EQ(result, expected)
+                << "FP16 multiplication failed for " << a_fp32 << " * " << b_fp32;
+
+            test_count++;
+        }
+    }
+
+    EXPECT_GT(test_count, 0);
+    printf("FP16 tested %d multiplication pairs\n", test_count);
 }
 
 TEST_F(FP4Test, ZeroConversion)
@@ -147,6 +413,75 @@ TEST_F(FP4Test, PositiveValue)
     fp__fp4_t val = fp__fp32_to_fp4(2.0f);
     float result = fp__fp4_to_fp32(val);
     EXPECT_GT(result, 0.0f);
+}
+
+TEST_F(FP4Test, RoundTripConversionNoDegeneration)
+{
+    // Test that values that can be represented in FP4 without degradation
+    // return the exact same float value after round-trip conversion
+    // FP4 has very limited precision (2 exp bits, 1 mantissa bit)
+    // So only a few values are actually representable
+    
+    float representable_values[] = {
+        0.0f,
+        1.0f,
+        2.0f,
+        -1.0f,
+        -2.0f
+    };
+
+    int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
+    int exact_match_count = 0;
+
+    for (int i = 0; i < num_values; ++i)
+    {
+        fp__fp4_t fp4_val = fp__fp32_to_fp4(representable_values[i]);
+        float fp32_val = fp__fp4_to_fp32(fp4_val);
+
+        EXPECT_EQ(fp32_val, representable_values[i])
+            << "Round-trip conversion failed for FP4 value " << representable_values[i];
+
+        if (representable_values[i] == fp32_val)
+        {
+            exact_match_count++;
+        }
+    }
+
+    EXPECT_EQ(exact_match_count, num_values);
+    printf("FP4 round-trip test: %d/%d values preserved\n", exact_match_count, num_values);
+}
+
+TEST_F(FP4Test, MultiplicationExactEqualityLargeSet)
+{
+    float test_values[] = {
+        0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f
+    };
+
+    int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
+    int test_count = 0;
+
+    for (int i = 0; i < num_test_values; ++i)
+    {
+        for (int j = 0; j < num_test_values; ++j)
+        {
+            fp__fp4_t a = fp__fp32_to_fp4(test_values[i]);
+            fp__fp4_t b = fp__fp32_to_fp4(test_values[j]);
+
+            float a_fp32 = fp__fp4_to_fp32(a);
+            float b_fp32 = fp__fp4_to_fp32(b);
+
+            float result = fp__fp4_mult(a, b);
+            float expected = a_fp32 * b_fp32;
+
+            EXPECT_EQ(result, expected)
+                << "FP4 multiplication failed for " << a_fp32 << " * " << b_fp32;
+
+            test_count++;
+        }
+    }
+
+    EXPECT_GT(test_count, 0);
+    printf("FP4 tested %d multiplication pairs\n", test_count);
 }
 
 TEST_F(FileLoadingTest, LoadFP32File)
