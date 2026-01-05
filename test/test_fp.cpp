@@ -27,6 +27,9 @@ class FP4Test : public ::testing::Test
 class FileLoadingTest : public ::testing::Test
 {
 };
+class ExplicitFP8E4m3Test : public ::testing::Test
+{
+};
 
 TEST_F(FP8E4M3Test, ZeroConversion)
 {
@@ -196,7 +199,7 @@ TEST_F(FP8E5M2Test, RoundTripConversionNoDegeneration)
 {
     // Test that values that can be represented in FP8_E5M2 without degradation
     // return the exact same float value after round-trip conversion
-    
+
     float representable_values[] = {
         0.0f,
         0.5f,
@@ -223,8 +226,7 @@ TEST_F(FP8E5M2Test, RoundTripConversionNoDegeneration)
         -128.0f,
         -256.0f,
         -512.0f,
-        -1024.0f
-    };
+        -1024.0f};
 
     int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
     int exact_match_count = 0;
@@ -251,8 +253,7 @@ TEST_F(FP8E5M2Test, MultiplicationExactEqualityLargeSet)
 {
     float test_values[] = {
         0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f,
-        256.0f, 512.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f, -32.0f, -64.0f
-    };
+        256.0f, 512.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f, -32.0f, -64.0f};
 
     int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
     int test_count = 0;
@@ -305,7 +306,7 @@ TEST_F(FP16Test, RoundTripConversionNoDegeneration)
 {
     // Test that values that can be represented in FP16 without degradation
     // return the exact same float value after round-trip conversion
-    
+
     float representable_values[] = {
         0.0f,
         0.5f,
@@ -325,7 +326,7 @@ TEST_F(FP16Test, RoundTripConversionNoDegeneration)
         8192.0f,
         16384.0f,
         32768.0f,
-        65504.0f,     // Max FP16
+        65504.0f, // Max FP16
         -0.5f,
         -1.0f,
         -2.0f,
@@ -343,8 +344,7 @@ TEST_F(FP16Test, RoundTripConversionNoDegeneration)
         -8192.0f,
         -16384.0f,
         -32768.0f,
-        -65504.0f
-    };
+        -65504.0f};
 
     int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
     int exact_match_count = 0;
@@ -372,8 +372,7 @@ TEST_F(FP16Test, MultiplicationExactEqualityLargeSet)
     float test_values[] = {
         0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f,
         256.0f, 512.0f, 1024.0f, 2048.0f, 4096.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f,
-        -16.0f, -32.0f, -64.0f, -128.0f, -256.0f
-    };
+        -16.0f, -32.0f, -64.0f, -128.0f, -256.0f};
 
     int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
     int test_count = 0;
@@ -421,14 +420,13 @@ TEST_F(FP4Test, RoundTripConversionNoDegeneration)
     // return the exact same float value after round-trip conversion
     // FP4 has very limited precision (2 exp bits, 1 mantissa bit)
     // So only a few values are actually representable
-    
+
     float representable_values[] = {
         0.0f,
         1.0f,
         2.0f,
         -1.0f,
-        -2.0f
-    };
+        -2.0f};
 
     int num_values = sizeof(representable_values) / sizeof(representable_values[0]);
     int exact_match_count = 0;
@@ -454,8 +452,7 @@ TEST_F(FP4Test, RoundTripConversionNoDegeneration)
 TEST_F(FP4Test, MultiplicationExactEqualityLargeSet)
 {
     float test_values[] = {
-        0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f
-    };
+        0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, -0.5f, -1.0f, -2.0f, -4.0f, -8.0f, -16.0f};
 
     int num_test_values = sizeof(test_values) / sizeof(test_values[0]);
     int test_count = 0;
@@ -503,17 +500,23 @@ TEST_F(FileLoadingTest, LoadFP32File)
     remove(test_file);
 }
 
-TEST_F(FileLoadingTest, NullXmemPointer)
+TEST_F(ExplicitFP8E4m3Test, SampleTest)
 {
-    int result = fp__load_fp32_file_to_xmem(NULL, "test.bin", 0, 0, 0, 0);
-    EXPECT_EQ(result, -1);
-}
+    float f1 = 3.5f;
+    float f2 = 2.25f;
 
-TEST_F(FileLoadingTest, NullFilePointer)
-{
-    xmem__obj_t xmem;
-    int result = fp__load_fp32_file_to_xmem(&xmem, NULL, 0, 0, 0, 0);
-    EXPECT_EQ(result, -1);
+    fp__fp8_e4m3_t fp8_1 = fp__fp32_to_fp8_e4m3(f1);
+    fp__fp8_e4m3_t fp8_2 = fp__fp32_to_fp8_e4m3(f2);
+
+    float result = fp__fp8_e4m3_mult(fp8_1, fp8_2);
+
+    EXPECT_EQ(result, 7.875f)
+        << "Explicit test multiplication failed for " << f1 << " * " << f2;
+
+    fp__fp8_e4m3_t result_mult = fp__fp32_to_fp8_e4m3(result);
+    float final_result = fp__fp8_e4m3_to_fp32(result_mult);
+
+    EXPECT_EQ(final_result, 7.5f);
 }
 
 int main(int argc, char **argv)

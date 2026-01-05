@@ -6,3 +6,4 @@ coverage.info
 bazel-bin/
 bazel-out/
 bazel-testlogs/
+/playground/
