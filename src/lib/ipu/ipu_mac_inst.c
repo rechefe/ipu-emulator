@@ -5,8 +5,6 @@
 #include <assert.h>
 #include <string.h>
 
-#define IPU_MAC_INST_DEFAULT_DTYPE IPU_MATH__DTYPE_FP8_E4M3
-
 static inline void ipu__mac_accumulate(ipu__obj_t *ipu, int i,
                                        uint8_t a, uint8_t b,
                                        ipu_math__dtype_t data_type,
@@ -82,8 +80,8 @@ static void ipu__execute_mac_ee(ipu__obj_t *ipu, inst_parser__inst_t inst, const
 
     int r_source_0 = ipu__get_r_from_r_enum(inst.mac_inst_token_2_rx_reg_field);
     int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
-    // TODO: data_type should come from instruction or be configurable
-    ipu_math__dtype_t data_type = IPU_MAC_INST_DEFAULT_DTYPE;
+    // Read data_type from CR[IPU__CR_DTYPE_REG]
+    ipu_math__dtype_t data_type = ipu__get_cr_dtype(regfile_snapshot);
     ipu__mac_element_element(ipu, r_source_0, r_source_1, data_type, regfile_snapshot, &ipu->regfile.rx_regfile.rq_regs[rq_dest]);
 }
 
@@ -96,7 +94,8 @@ static void ipu__execute_mac_ev(ipu__obj_t *ipu, inst_parser__inst_t inst, const
     int r_source_1 = ipu__get_r_from_r_enum(inst.mac_inst_token_3_rx_reg_field);
     int lr_idx = inst.mac_inst_token_4_lr_reg_field;
 
-    ipu_math__dtype_t data_type = IPU_MAC_INST_DEFAULT_DTYPE;
+    // Read data_type from CR[IPU__CR_DTYPE_REG]
+    ipu_math__dtype_t data_type = ipu__get_cr_dtype(regfile_snapshot);
     ipu__mac_element_vector(ipu, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot, &ipu->regfile.rx_regfile.rq_regs[rq_dest]);
 }
 
@@ -109,11 +108,14 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
 
     int lr_idx = inst.mac_inst_token_4_lr_reg_field;
 
+    // Read data_type from CR[IPU__CR_DTYPE_REG]
+    ipu_math__dtype_t data_type = ipu__get_cr_dtype(regfile_snapshot);
+
     ipu__rq_reg_t r_mult_result;
     memset(&r_mult_result, 0, sizeof(ipu__rq_reg_t));
 
     // Multiply R source registers element-wise
-    ipu__mac_element_element(ipu, r_source_0, r_source_1, IPU_MAC_INST_DEFAULT_DTYPE, regfile_snapshot, (ipu__rq_reg_t *)&r_mult_result);
+    ipu__mac_element_element(ipu, r_source_0, r_source_1, data_type, regfile_snapshot, (ipu__rq_reg_t *)&r_mult_result);
 
     int32_t sum = 0;
 
@@ -121,7 +123,7 @@ static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, cons
     {
         int32_t add_result;
         int32_t word_val = (int32_t)r_mult_result.words[i];
-        ipu_math__add(&sum, &word_val, &add_result, IPU_MAC_INST_DEFAULT_DTYPE);
+        ipu_math__add(&sum, &word_val, &add_result, data_type);
         sum = add_result;
     }
 

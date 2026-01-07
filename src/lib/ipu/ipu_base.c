@@ -1,5 +1,6 @@
 #include "ipu_base.h"
 #include "xmem/xmem.h"
+#include "logging/logger.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -41,4 +42,22 @@ int ipu__get_ro_from_r_enum(int r_enum_val)
 {
     assert(r_enum_val == INST_PARSER__RX_REG_FIELD_RO0);
     return r_enum_val - INST_PARSER__RX_REG_FIELD_RO0;
+}
+
+void ipu__set_cr_dtype(ipu__obj_t *ipu, ipu_math__dtype_t dtype)
+{
+    // Validate that only supported data types are used
+    if (dtype != IPU_MATH__DTYPE_INT8 && 
+        dtype != IPU_MATH__DTYPE_FP8_E4M3 && 
+        dtype != IPU_MATH__DTYPE_FP8_E5M2)
+    {
+        LOG_ERROR("Unsupported data type %d. Only INT8, FP8_E4M3, and FP8_E5M2 are supported.", dtype);
+        assert(0 && "Unsupported data type for CR DTYPE register");
+    }
+    ipu->regfile.cr_regfile.cr[IPU__CR_DTYPE_REG] = (uint32_t)dtype;
+}
+
+ipu_math__dtype_t ipu__get_cr_dtype(const ipu__regfile_t *regfile)
+{
+    return (ipu_math__dtype_t)regfile->cr_regfile.cr[IPU__CR_DTYPE_REG];
 }

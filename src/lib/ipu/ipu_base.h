@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "xmem/xmem.h"
+#include "ipu_math/ipu_math.h"
 #include "src/tools/ipu-as-py/inst_parser.h"
 
 // IPU register and memory size definitions
@@ -20,6 +21,9 @@
 
 #define IPU__LR_REGS_NUM 16
 #define IPU__CR_REGS_NUM 16
+
+// CR Register indices
+#define IPU__CR_DTYPE_REG 15  // CR[15] holds the data type for MAC operations
 
 #define IPU__RD_REG_SIZE_BYTES (IPU__R_REG_SIZE_BYTES * IPU__RD_SIZE_IN_R_REGS)
 #define IPU__RD_REG_SIZE_WORDS (IPU__RD_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
@@ -101,6 +105,10 @@ int ipu__get_r_from_r_enum(int r_enum_val);
 int ipu__get_rd_from_r_enum(int r_enum_val);
 int ipu__get_rq_from_r_enum(int r_enum_val);
 int ipu__get_ro_from_r_enum(int r_enum_val);
+
+// CR register accessors
+void ipu__set_cr_dtype(ipu__obj_t *ipu, ipu_math__dtype_t dtype);
+ipu_math__dtype_t ipu__get_cr_dtype(const ipu__regfile_t *regfile);
 
 // IPU initialization
 ipu__obj_t *ipu__init_ipu();
