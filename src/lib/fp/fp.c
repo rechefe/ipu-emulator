@@ -14,7 +14,7 @@ float fp__convert_to_fp32(uint8_t sign, uint32_t exp, uint32_t man,
 
     // Calculate bias: 2^(exp_bits-1) - 1
     int exp_bias = (1 << (exp_bits - 1)) - 1;
-    int fp32_bias = 127;
+    int fp32_bias = FP__FP32_BIAS;
 
     // Convert exponent
     int converted_exp = (int)exp - exp_bias + fp32_bias; // Normal number path
@@ -33,12 +33,14 @@ float fp__convert_to_fp32(uint8_t sign, uint32_t exp, uint32_t man,
     else
     {
         // Normal: regular shift
-        converted_man = man << (23 - man_bits);
+        converted_man = man << (FP__FP32_MAN_WIDTH - man_bits);
     }
 
     // Build fp32
     fp__fp32_t result;
-    result.raw = ((uint32_t)sign << 31) | ((uint32_t)converted_exp << 23) | converted_man;
+    result.f.sign = sign;
+    result.f.exp = converted_exp;
+    result.f.man = converted_man;
     return result.fp;
 }
 
@@ -49,9 +51,9 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
     fp__fp32_t in;
     in.fp = value;
 
-    uint8_t sign = (in.raw >> 31) & 0x1;
-    uint8_t fp32_exp = (in.raw >> 23) & 0xFF;
-    uint32_t fp32_man = in.raw & 0x7FFFFF;
+    uint8_t sign = in.f.sign;
+    uint8_t fp32_exp = in.f.exp;
+    uint32_t fp32_man = in.f.man;
 
     // Handle zero and denormalized numbers
     if (fp32_exp == 0 && fp32_man == 0)
@@ -61,7 +63,7 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
 
     // Calculate bias for target format: 2^(exp_bits-1) - 1
     int target_exp_bias = (1 << (exp_bits - 1)) - 1;
-    int fp32_exp_bias = 127;
+    int fp32_exp_bias = FP__FP32_BIAS;
 
     // Convert exponent
     int32_t exp = (int32_t)fp32_exp - fp32_exp_bias + target_exp_bias;
@@ -82,8 +84,8 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
     if (exp <= 0)
     {
         // Subnormal: clamp exponent to 0, extract mantissa normally
-        uint32_t man = fp32_man | (1 << 23);
-        man >>= (23 - man_bits);
+        uint32_t man = fp32_man | (1 << FP__FP32_MAN_WIDTH);
+        man >>= (FP__FP32_MAN_WIDTH - man_bits);
         man = (man >> (1 - exp)) & ((1 << man_bits) - 1);
         uint32_t result = (sign << (exp_bits + man_bits)) | (0 << man_bits) | man;
         return result;
@@ -91,7 +93,7 @@ uint32_t fp__convert_from_fp32(float value, int exp_bits, int man_bits)
 
     // Extract top bits of mantissa
     // fp32 mantissa is 23 bits, we need man_bits bits
-    uint32_t man = (fp32_man >> (23 - man_bits)) & ((1 << man_bits) - 1);
+    uint32_t man = (fp32_man >> (FP__FP32_MAN_WIDTH - man_bits)) & ((1 << man_bits) - 1);
 
     // Build result: sign | exponent | mantissa
     uint32_t result = (sign << (exp_bits + man_bits)) | (exp << man_bits) | man;

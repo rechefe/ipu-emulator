@@ -50,8 +50,17 @@ typedef union
     uint16_t w;
 } fp__fp16_t;
 
+#define FP__FP32_EXP_WIDTH 8
+#define FP__FP32_MAN_WIDTH 23
+#define FP__FP32_BIAS ((1 << (FP__FP32_EXP_WIDTH - 1)) - 1)
 typedef union
 {
+    struct
+    {
+        uint32_t man : FP__FP32_MAN_WIDTH;
+        uint32_t exp : FP__FP32_EXP_WIDTH;
+        uint32_t sign : 1;
+    } f;
     float fp;
     uint32_t raw;
 } fp__fp32_t;
