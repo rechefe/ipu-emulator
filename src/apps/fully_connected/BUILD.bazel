@@ -18,39 +18,66 @@ assemble_asm(
 )
 
 sh_test(
-    name = "fully_connected_test",
+    name = "fully_connected_test_int8",
     size = "medium",
     srcs = ["test_fully_connected.sh"],
     args = [
         "$(location :fully_connected)",
         "$(location :assemble_fully_connected.bin)",
-        "$(location inputs_10x128_int8.bin)",
-        "$(location weights_64x128_int8.bin)",
-        "output_10x64_int32.bin",  # Just the filename, will be written to test outputs
+        "$(location test_data_format/int8/inputs_int8.bin)",
+        "$(location test_data_format/int8/weights_int8.bin)",
+        "output_int8_acc_int32.bin",
+        "INT8",
+        "$(location test_data_format/int8/out_int8_acc_int32.bin)",
     ],
     data = [
-        "inputs_10x128_int8.bin",
-        "output_10x64_int32.bin",
-        "weights_64x128_int8.bin",
+        "test_data_format/int8/inputs_int8.bin",
+        "test_data_format/int8/out_int8_acc_int32.bin",
+        "test_data_format/int8/weights_int8.bin",
         ":assemble_fully_connected.bin",
         ":fully_connected",
     ],
 )
 
 sh_test(
-    name = "fully_connected_test_fpu",
+    name = "fully_connected_test_fp8_e4m3",
     size = "medium",
     srcs = ["test_fully_connected.sh"],
     args = [
         "$(location :fully_connected)",
         "$(location :assemble_fully_connected.bin)",
-        "$(location test_data_format/fp8_e4m3/inputs_fp8_e4m3_deq_fp32.bin)",
-        "$(location test_data_format/fp8_e4m3/weights_fp8_e4m3_deq_fp32.bin)",
-        "output_fp8_e4m3_acc_fp32.bin",  # Just the filename, will be written to test outputs
+        "$(location test_data_format/fp8_e4m3/inputs_fp8_e4m3.bin)",
+        "$(location test_data_format/fp8_e4m3/weights_fp8_e4m3.bin)",
+        "output_fp8_e4m3_acc_fp32.bin",
+        "FP8_E4M3",
+        "$(location test_data_format/fp8_e4m3/out_fp8_e4m3_acc_fp32.bin)",
     ],
     data = [
-        "test_data_format/fp8_e4m3/inputs_fp8_e4m3_deq_fp32.bin",
-        "test_data_format/fp8_e4m3/weights_fp8_e4m3_deq_fp32.bin",
+        "test_data_format/fp8_e4m3/inputs_fp8_e4m3.bin",
+        "test_data_format/fp8_e4m3/out_fp8_e4m3_acc_fp32.bin",
+        "test_data_format/fp8_e4m3/weights_fp8_e4m3.bin",
+        ":assemble_fully_connected.bin",
+        ":fully_connected",
+    ],
+)
+
+sh_test(
+    name = "fully_connected_test_fp8_e5m2",
+    size = "medium",
+    srcs = ["test_fully_connected.sh"],
+    args = [
+        "$(location :fully_connected)",
+        "$(location :assemble_fully_connected.bin)",
+        "$(location test_data_format/fp8_e5m2/inputs_fp8_e5m2.bin)",
+        "$(location test_data_format/fp8_e5m2/weights_fp8_e5m2.bin)",
+        "output_fp8_e5m2_acc_fp32.bin",
+        "FP8_E5M2",
+        "$(location test_data_format/fp8_e5m2/out_fp8_e5m2_acc_fp32.bin)",
+    ],
+    data = [
+        "test_data_format/fp8_e5m2/inputs_fp8_e5m2.bin",
+        "test_data_format/fp8_e5m2/out_fp8_e5m2_acc_fp32.bin",
+        "test_data_format/fp8_e5m2/weights_fp8_e5m2.bin",
         ":assemble_fully_connected.bin",
         ":fully_connected",
     ],

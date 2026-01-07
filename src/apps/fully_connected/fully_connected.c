@@ -16,19 +16,49 @@
 #define OUTPUT_NEURONS 64
 
 /**
+ * @brief Parse dtype from command line argument
+ */
+ipu_math__dtype_t parse_dtype(const char *dtype_str)
+{
+    if (strcmp(dtype_str, "INT8") == 0 || strcmp(dtype_str, "int8") == 0)
+    {
+        return IPU_MATH__DTYPE_INT8;
+    }
+    else if (strcmp(dtype_str, "FP8_E4M3") == 0 || strcmp(dtype_str, "fp8_e4m3") == 0)
+    {
+        return IPU_MATH__DTYPE_FP8_E4M3;
+    }
+    else if (strcmp(dtype_str, "FP8_E5M2") == 0 || strcmp(dtype_str, "fp8_e5m2") == 0)
+    {
+        return IPU_MATH__DTYPE_FP8_E5M2;
+    }
+    else
+    {
+        LOG_ERROR("Invalid dtype '%s'. Supported: INT8, FP8_E4M3, FP8_E5M2", dtype_str);
+        exit(-1);
+    }
+}
+
+/**
  * @brief Setup function to initialize IPU state for fully connected layer
  */
 void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
 {
-    if (argc < 4)
+    if (argc < 6)
     {
-        LOG_ERROR("Setup requires: <inst_file> <inputs.bin> <weights.bin> <outputs.bin>");
+        LOG_ERROR("Usage: %s <inst_file> <inputs.bin> <weights.bin> <outputs.bin> <dtype>", argv[0]);
+        LOG_ERROR("  dtype: INT8, FP8_E4M3, or FP8_E5M2");
         return;
     }
 
     const char *inputs_file = argv[2];
     const char *weights_file = argv[3];
-    LOG_INFO("Setting up IPU for fully connected layer...");
+    const char *dtype_str = argv[5];
+    
+    // Parse and set data type
+    ipu_math__dtype_t dtype = parse_dtype(dtype_str);
+    ipu__set_cr_dtype(ipu, dtype);
+    LOG_INFO("Setting up IPU for fully connected layer with dtype: %s", dtype_str);
 
     // TODO - this must be done via the IPU itself
     // Clear accumulator registers
@@ -37,25 +67,29 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
         ipu__clear_rq_reg(ipu, i);
     }
 
-    // Load input activations from file (FP32 converted to FP8 E4M3)
-    int inputs_loaded = emulator__load_fp32_as_fp8_e4m3_to_xmem(
-        ipu->xmem, inputs_file, INPUT_BASE_ADDR);
+    // Load input activations from file (raw 8-bit data)
+    int inputs_loaded = emulator__load_binary_to_xmem(
+        ipu->xmem, inputs_file, INPUT_BASE_ADDR, IPU__R_REG_SIZE_BYTES, SAMPLES_NUM);
     
     if (inputs_loaded < 0)
     {
         LOG_ERROR("Failed to load inputs");
         return;
     }
+    LOG_INFO("Loaded %d input samples", inputs_loaded);
 
-    // Load weights from file (FP32 converted to FP8 E4M3)
-    int weights_loaded = emulator__load_fp32_as_fp8_e4m3_to_xmem(
-        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR);
+    // Load weights from file (raw 8-bit data)
+    // Each output neuron has INPUT_NEURONS weights, and we have OUTPUT_NEURONS outputs
+    size_t weights_chunk_size = INPUT_NEURONS;
+    int weights_loaded = emulator__load_binary_to_xmem(
+        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR, weights_chunk_size, OUTPUT_NEURONS);
     
     if (weights_loaded < 0)
     {
         LOG_ERROR("Failed to load weights");
         return;
     }
+    LOG_INFO("Loaded %d weight chunks", weights_loaded);
 
     // Set control register addresses
     ipu->regfile.cr_regfile.cr[0] = INPUT_BASE_ADDR;   // Input base address
@@ -70,7 +104,7 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
  */
 void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 {
-    if (argc < 5)
+    if (argc < 6)
     {
         LOG_ERROR("Teardown requires output filename");
         free(ipu->xmem);

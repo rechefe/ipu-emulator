@@ -1,4 +1,5 @@
 #include "ipu_mac_inst.h"
+#include "ipu_base.h"
 #include "ipu_regfile.h"
 #include "logging/logger.h"
 #include "ipu_math/ipu_math.h"

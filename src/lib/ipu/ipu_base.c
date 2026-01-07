@@ -1,6 +1,7 @@
 #include "ipu_base.h"
 #include "xmem/xmem.h"
 #include "logging/logger.h"
+#include "ipu_math/ipu_math.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>

@@ -25,6 +25,8 @@ cc_library(
     includes = ["src/lib"],
     deps = [
         ":xmem",
+        ":ipu_math",
+        ":logger",
         "//src/tools/ipu-as-py:inst_parser",
     ],
 )
