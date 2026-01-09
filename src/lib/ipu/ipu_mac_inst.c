@@ -100,6 +100,12 @@ static void ipu__execute_mac_ev(ipu__obj_t *ipu, inst_parser__inst_t inst, const
     ipu__mac_element_vector(ipu, r_source_0, r_source_1, lr_idx, data_type, regfile_snapshot, &ipu->regfile.rx_regfile.rq_regs[rq_dest]);
 }
 
+static void ipu__execute_zero_rq(ipu__obj_t *ipu, inst_parser__inst_t inst)
+{
+    int rq_idx = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
+    ipu__clear_rq_reg(ipu, rq_idx);
+}
+
 static void ipu__execute_mac_agg(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     int rq_dest = ipu__get_rq_from_r_enum(inst.mac_inst_token_1_rx_reg_field);
@@ -146,6 +152,9 @@ void ipu__execute_mac_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, con
         break;
     case INST_PARSER__MAC_INST_OPCODE_MAC_AGG:
         ipu__execute_mac_agg(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__MAC_INST_OPCODE_ZERO_RQ:
+        ipu__execute_zero_rq(ipu, inst);
         break;
     case INST_PARSER__MAC_INST_OPCODE_MAC_NOP:
         // No operation for MAC
