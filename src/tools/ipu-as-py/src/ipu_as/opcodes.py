@@ -39,6 +39,7 @@ class MacInstOpcode(Opcode):
             "mac.ee",
             "mac.ev",
             "mac.agg",
+            "zero_rq",
             "mac_nop",
         ]
 
