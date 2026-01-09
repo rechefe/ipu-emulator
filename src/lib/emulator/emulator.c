@@ -1,5 +1,6 @@
 #include "emulator.h"
 #include "fp/fp.h"
+#include "ipu/ipu.h"
 #include <string.h>
 #include <stdlib.h>
 
