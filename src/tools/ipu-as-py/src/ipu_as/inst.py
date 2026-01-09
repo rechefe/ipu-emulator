@@ -374,6 +374,19 @@ class MacInst(Inst):
                     example="# Reduction operation\nmac.agg rq4 r0 r1 lr0;;",
                 ),
             ),
+            "zero_rq": InstructionFormat(
+                operands=[reg.RxRegField],
+                doc=InstructionDoc(
+                    title="Zero RQ register",
+                    summary="Set all elements of the specified RQ register to zero.",
+                    syntax="zero_rq Rd",
+                    operands=[
+                        "Rd: Destination accumulator (RQ register) to zero",
+                    ],
+                    operation="Rd = 0",
+                    example="zero_rq rq0;;",
+                ),
+            ),
             "mac_nop": InstructionFormat(
                 operands=[],
                 doc=InstructionDoc(
