@@ -91,6 +91,30 @@ int main(int argc, char **argv) {
 }
 ```
 
+### Choosing Data Type
+
+To choose the data type you can use the following function:
+
+```c
+ipu__set_cr_dtype(ipu, dtype);
+```
+
+Where `dtype` is an enum from an `ipu_math__dtype_t` type.
+`ipu_math` module must be included:
+
+```c
+#include "ipu_math/ipu_math.h"
+```
+
+Valid options are:
+
+- `IPU_MATH__DTYPE_INT8`
+- `IPU_MATH__DTYPE_FP8_E4M3`
+- `IPU_MATH__DTYPE_FP8_E5M2`
+
+> [!WARNING] 
+> Choosing a data type is done via writing to the `CR15` register - notice not to override it with anything else and only access it with the data type function above.
+
 ## Step 3: Create the BUILD Configuration
 
 Create `BUILD.bazel`:
