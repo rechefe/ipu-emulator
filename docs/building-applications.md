@@ -112,8 +112,8 @@ Valid options are:
 - `IPU_MATH__DTYPE_FP8_E4M3`
 - `IPU_MATH__DTYPE_FP8_E5M2`
 
-> [!WARNING] 
-> Choosing a data type is done via writing to the `CR15` register - notice not to override it with anything else and only access it with the data type function above.
+!!! warning "CR15 Usage" 
+    Choosing a data type is done via writing to the `CR15` register - notice not to override it with anything else and only access it with the data type function above.
 
 ## Step 3: Create the BUILD Configuration
 
