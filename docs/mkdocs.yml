@@ -49,10 +49,11 @@ nav:
   - Getting Started:
       - Setup: setup.md
       - Building Applications: building-applications.md
+  - Contributing:
+      - Adding Instructions: adding-instruction.md
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
       - Instruction Reference: instructions.md
-
 markdown_extensions:
   - admonition
   - pymdownx.details
