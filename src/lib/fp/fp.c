@@ -2,6 +2,7 @@
 #include "xmem/xmem.h"
 #include <float.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 
 // Generic conversion function that handles all floating-point types
