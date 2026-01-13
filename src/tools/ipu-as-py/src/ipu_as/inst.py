@@ -302,109 +302,69 @@ class XmemInst(Inst):
         )
 
 
+
+
 @validate_inst_structure
-class MacInst(Inst):
+class MultInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.RxRegField, reg.RxRegField, reg.RxRegField, reg.LrRegField]
-
+        return [reg.RxRegField, reg.RxRegField, reg.LrRegField, reg.LrRegField]
+    
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.MacInstOpcode
-
+        return opcodes.MultInstOpcode
+    
     @classmethod
     def struct_by_opcode_table(
         cls,
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "mac.ee": InstructionFormat(
-                operands=[reg.RxRegField, reg.RxRegField, reg.RxRegField],
+            "mult.ee": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField],
                 doc=InstructionDoc(
-                    title="Element-wise Multiply-Accumulate",
-                    summary="Multiply and accumulate element by element.",
-                    syntax="mac.ee Rd Ra Rb",
+                    title="Element-wise Multiply",
+                    summary="Multiply elements of two registers element by element.",
+                    syntax="mult.ee Ra  Lr1",
                     operands=[
-                        "Rd: Destination accumulator (RQ register)",
                         "Ra: First source register (R register)",
-                        "Rb: Second source register (R register)",
+                        "Lr1: offset for Ra from RC ",
                     ],
-                    operation="for i in [0, 127]: Rd[i] = Rd[i] + (Ra[i] * Rb[i])",
-                    example="# Vector dot product step\nmac.ee rq0 r4 r5;;",
+                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[i+Lr1]",
+                    example="# Element-wise multiplication\nmult.ee r4 lr0;;",
                 ),
             ),
-            "mac.ev": InstructionFormat(
-                operands=[
-                    reg.RxRegField,
-                    reg.RxRegField,
-                    reg.RxRegField,
-                    reg.LrRegField,
-                ],
+            "mult.ev": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField, reg.LrRegField],
                 doc=InstructionDoc(
-                    title="Element-Vector Multiply-Accumulate",
-                    summary="Multiply a vector by a loop-indexed element and accumulate.",
-                    syntax="mac.ev Rd Ra Rb Lr",
+                    title="Element-Vector Multiply",
+                    summary="Multiply a vector by a loop-indexed element.",
+                    syntax="mult.ev Ra Lr1 Lr2",
                     operands=[
-                        "Rd: Destination accumulator (RQ register)",
-                        "Ra: First source register (R register)",
-                        "Rb: Second source register (R register)",
-                        "Lr: Loop register selecting the element of Rb",
+                        "Ra: First source register (R register) Ra inside(R4,R5)",
+                        "Lr1: offset for Ra from RC ",
+                        "Lr2: element index from Ra",
                     ],
-                    operation="for i in [0, 127]: Rd[i] = Rd[i] + (Ra[i] * Rb[Lr])",
-                    example="set lr0 0;;\nmac.ev rq0 r7 r9 lr0;;",
+                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[Lr2 + i + Lr1]",
+                    example="set lr0 0;;\nmult.ev r7 lr0 lr1;;",
                 ),
             ),
-            "mac.agg": InstructionFormat(
-                operands=[
-                    reg.RxRegField,
-                    reg.RxRegField,
-                    reg.RxRegField,
-                    reg.LrRegField,
-                ],
-                doc=InstructionDoc(
-                    title="Aggregate Multiply-Accumulate",
-                    summary="Accumulate a reduction of element-wise products into a selected lane.",
-                    syntax="mac.agg Rd Ra Rb Lr",
-                    operands=[
-                        "Rd: Destination accumulator (RQ register)",
-                        "Ra: First source register (R register)",
-                        "Rb: Second source register (R register)",
-                        "Lr: Loop register selecting which element of Rd to update",
-                    ],
-                    operation="Rd[Lr] += sum(Ra[i] * Rb[i]) for i in [0, 127]",
-                    example="# Reduction operation\nmac.agg rq4 r0 r1 lr0;;",
-                ),
-            ),
-            "zero_rq": InstructionFormat(
-                operands=[reg.RxRegField],
-                doc=InstructionDoc(
-                    title="Zero RQ register",
-                    summary="Set all elements of the specified RQ register to zero.",
-                    syntax="zero_rq Rd",
-                    operands=[
-                        "Rd: Destination accumulator (RQ register) to zero",
-                    ],
-                    operation="Rd = 0",
-                    example="zero_rq rq0;;",
-                ),
-            ),
-            "mac_nop": InstructionFormat(
+            "mult_nop": InstructionFormat(
                 operands=[],
                 doc=InstructionDoc(
                     title="No Operation",
-                    summary="No operation for the MAC pipeline.",
-                    syntax="mac_nop",
+                    summary="No operation for the MULT pipeline.",
+                    syntax="mult_nop",
                     operands=[],
-                    example="mac_nop;;",
+                    example="mult_nop;;",
                 ),
             ),
         }
-
     @classmethod
     def nop_inst(cls, addr: int) -> str:
-        return MacInst(
+        return MultInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "mac_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "mult_nop", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -414,8 +374,145 @@ class MacInst(Inst):
     @classmethod
     def description(cls) -> str:
         return cls._render_instruction_docs(
-            heading="MAC Instructions",
-            intro="Multiply-accumulate instructions for vector and scalar operations.",
+            heading="MULT Instructions",
+            intro="Multiplication instructions for element-wise and element-vector operations.",
+            
+        )
+
+@validate_inst_structure
+class MultInst(Inst):
+    @classmethod
+    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
+        return [reg.RxRegField, reg.RxRegField, reg.LrRegField, reg.LrRegField]
+    
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.MultInstOpcode
+    
+    @classmethod
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
+        return {
+            "mult.ee": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField],
+                doc=InstructionDoc(
+                    title="Element-wise Multiply",
+                    summary="Multiply elements of two registers element by element.",
+                    syntax="mult.ee Ra  Lr1",
+                    operands=[
+                        "Ra: First source register (R register)",
+                        "Lr1: offset for Ra from RC ",
+                    ],
+                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[i+Lr1]",
+                    example="# Element-wise multiplication\nmult.ee r4 lr0;;",
+                ),
+            ),
+            "mult.ev": InstructionFormat(
+                operands=[reg.RxRegField, reg.LrRegField, reg.LrRegField],
+                doc=InstructionDoc(
+                    title="Element-Vector Multiply",
+                    summary="Multiply a vector by a loop-indexed element.",
+                    syntax="mult.ev Ra Lr1 Lr2",
+                    operands=[
+                        "Ra: First source register (R register) Ra inside(R4,R5)",
+                        "Lr1: offset for Ra from RC ",
+                        "Lr2: element index from Ra",
+                    ],
+                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[Lr2 + i + Lr1]",
+                    example="set lr0 0;;\nmult.ev r7 lr0 lr1;;",
+                ),
+            ),
+            "mult_nop": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="No Operation",
+                    summary="No operation for the MULT pipeline.",
+                    syntax="mult_nop",
+                    operands=[],
+                    example="mult_nop;;",
+                ),
+            ),
+        }
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return MultInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "mult_nop", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="MULT Instructions",
+            intro="Multiplication instructions for element-wise and element-vector operations.",
+            
+        )
+
+@validate_inst_structure
+class AccInst(Inst):
+    @classmethod
+    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
+        return [reg.RxRegField, reg.LrRegField]
+    
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.AccInstOpcode
+    
+    @classmethod
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
+        return {
+            "acc": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, reg.LrRegField,reg.LrRegField],
+                doc=InstructionDoc(
+                    title="Accumulate",
+                    summary="Accumulate values from a register into an accumulator.",
+                    syntax="acc Lr1 Lr2 Lr3 Lr4",
+                    operands=[
+                        "Lr1: Index to select one of 8 masks from RM (mask register)",
+                        "Lr2: Offset for the accumulator (valid range: -3 to 3)",
+                        "Lr3: Shift amount applied within each partition without crossing partition boundaries. Example: with 2 partitions and shift=1, data [a0,a1,...,a63,b0,b1,...,b63] becomes [0,a0,a1,...,a62,0,b0,b1,...,b62]",
+                        "Lr4: When set to 1, shifts the upper half of RT (RT[128:255]) to the lower half (RT[0:127]) before accumulation",
+                    ],
+                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)",                    
+                    example="# Accumulate with mask and shift\nacc lr0 lr1 lr2 lr3;;",
+                ),
+            ),
+            "acc_nop": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="No Operation",
+                    summary="No operation for the ACC pipeline.",
+                    syntax="acc_nop",
+                    operands=[],
+                    example="acc_nop;;",
+                ),
+            ),
+        }
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return AccInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "acc_nop", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="ACC Instructions",
+            intro="Accumulation instructions for combining values with optional masking and shifting.",
+            
         )
 
 

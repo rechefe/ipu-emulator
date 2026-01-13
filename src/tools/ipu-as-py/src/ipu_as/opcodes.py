@@ -32,6 +32,22 @@ class LrInstOpcode(Opcode):
         ]
 
 
+class MultInstOpcode(Opcode):
+    @classmethod
+    def enum_array(cls):
+        return [
+            "mult.ee",
+            "mult.ev",
+            "mult_nop",
+        ]
+class AccInstOpcode(Opcode):
+    @classmethod
+    def enum_array(cls):
+        return [
+            "acc",
+            "acc_nop",
+        ]
+
 class MacInstOpcode(Opcode):
     @classmethod
     def enum_array(cls):
