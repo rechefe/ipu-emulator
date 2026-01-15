@@ -396,14 +396,16 @@ class AccInst(Inst):
                 doc=InstructionDoc(
                     title="Accumulate",
                     summary="Accumulate values from a register into an accumulator.",
-                    syntax="acc Lr1 Lr2 Lr3 Lr4",
+                    syntax="acc Ra Lr1 Lr2 Lr3 Lr4",
                     operands=[
+                        "Ra : Source data register where Ra is RT register, 128 - Element of fp32 or RQ4/RQ8 128- Element of Tfp32 ",
                         "Lr1: Index to select one of 8 masks from RM (mask register)",
-                        "Lr2: Offset for the accumulator (valid range: -3 to 3)",
+                        "Lr2: Offset for the accumulator (valid range: -3  to 3)",
                         "Lr3: Shift amount applied within each partition without crossing partition boundaries. Example: with 2 partitions and shift=1, data [a0,a1,...,a63,b0,b1,...,b63] becomes [0,a0,a1,...,a62,0,b0,b1,...,b62]",
-                        "Lr4: When set to 1, shifts the upper half of RT (RT[128:255]) to the lower half (RT[0:127]) before accumulation",
+                        "Lr4: When set to 1, Store RQ4 and shifts RQ8 to RQ4.",
                     ],
-                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)",                    
+                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)" \
+                    "For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i] then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0",                    
                     example="# Accumulate with mask and shift\nacc lr0 lr1 lr2 lr3;;",
                 ),
             ),
