@@ -380,7 +380,7 @@ class MultInst(Inst):
 class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.RxRegField, reg.LrRegField]
+        return [reg.RxRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField]
     
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -392,7 +392,7 @@ class AccInst(Inst):
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "acc": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, reg.LrRegField,reg.LrRegField],
+                operands=[reg.RxRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Accumulate",
                     summary="Accumulate values from a register into an accumulator.",

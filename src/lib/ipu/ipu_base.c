@@ -17,39 +17,11 @@ ipu__obj_t *ipu__init_ipu()
     return ipu;
 }
 
-int ipu__get_r_from_r_enum(int r_enum_val)
-{
-    assert((r_enum_val >= INST_PARSER__RX_REG_FIELD_R0 &&
-            r_enum_val <= INST_PARSER__RX_REG_FIELD_R11) ||
-           r_enum_val == INST_PARSER__RX_REG_FIELD_MEM_BYPASS);
-    return r_enum_val - INST_PARSER__RX_REG_FIELD_R0;
-}
-
-int ipu__get_rd_from_r_enum(int r_enum_val)
-{
-    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_RD0 &&
-           r_enum_val <= INST_PARSER__RX_REG_FIELD_RD10);
-    return (r_enum_val - INST_PARSER__RX_REG_FIELD_RD0);
-}
-
-int ipu__get_rq_from_r_enum(int r_enum_val)
-{
-    assert(r_enum_val >= INST_PARSER__RX_REG_FIELD_RQ0 &&
-           r_enum_val <= INST_PARSER__RX_REG_FIELD_RQ8);
-    return r_enum_val - INST_PARSER__RX_REG_FIELD_RQ0;
-}
-
-int ipu__get_ro_from_r_enum(int r_enum_val)
-{
-    assert(r_enum_val == INST_PARSER__RX_REG_FIELD_RO0);
-    return r_enum_val - INST_PARSER__RX_REG_FIELD_RO0;
-}
-
 void ipu__set_cr_dtype(ipu__obj_t *ipu, ipu_math__dtype_t dtype)
 {
     // Validate that only supported data types are used
-    if (dtype != IPU_MATH__DTYPE_INT8 && 
-        dtype != IPU_MATH__DTYPE_FP8_E4M3 && 
+    if (dtype != IPU_MATH__DTYPE_INT8 &&
+        dtype != IPU_MATH__DTYPE_FP8_E4M3 &&
         dtype != IPU_MATH__DTYPE_FP8_E5M2)
     {
         LOG_ERROR("Unsupported data type %d. Only INT8, FP8_E4M3, and FP8_E5M2 are supported.", dtype);
