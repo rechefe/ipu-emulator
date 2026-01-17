@@ -229,7 +229,13 @@ class Inst:
 class XmemInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.RxRegField, reg.LrRegField, reg.CrRegField]
+        return [
+            reg.MultStageRegRField,
+            reg.AccStageRegRField,
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.CrRegField,
+        ]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -240,34 +246,49 @@ class XmemInst(Inst):
         cls,
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
-            "ldr": InstructionFormat(
-                operands=[reg.RxRegField, reg.LrRegField, reg.CrRegField],
+            "ldr_mult_reg": InstructionFormat(
+                operands=[reg.MultStageRegRField, reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Load Register",
                     summary="Load data from memory into a register.",
-                    syntax="ldr Rx Lr Cr",
+                    syntax="ldr_mult_reg Rd LrOffset CrBase",
                     operands=[
-                        "Rx: Destination data register (R register, 128-byte)",
-                        "Lr: Base address register (holds memory address)",
-                        "Cr: Offset register added to the base address",
+                        "Rd: Multiplication stage register to load data into - r0, r1 or mem_bypass (bypass directly to mult operand)",
+                        "LrOffset: Offset register (holds memory address)",
+                        "CrBase: Base address register which is added to the offset",
                     ],
-                    operation="Rx = Memory[Lr + Cr]",
-                    example="set lr0 0x1000;;\nldr r0 lr0 cr0;;",
+                    operation="Rd = Memory[LrOffset + CrBase]",
+                    example="set lr0 0x1000;;\nldr_mult_reg r0 lr0 cr0;;",
                 ),
             ),
-            "str": InstructionFormat(
-                operands=[reg.RxRegField, reg.LrRegField, reg.CrRegField],
+            "ldr_cyclic_mult_reg": InstructionFormat(
+                operands=[reg.LrRegField, reg.LrRegField, reg.CrRegField],
+                doc=InstructionDoc(
+                    title="Load Cyclic Register",
+                    summary="Load data from memory into a multiplication stage register with cyclic addressing.",
+                    syntax="ldr_cyclic_mult_reg LrIdx LrOffset CrBase",
+                    operands=[
+                        "LrIdx: Index inside Rc (cyclic reg to load data into) - an LR register",
+                        "LrOffset: Offset register (holds memory address)",
+                        "CrBase: Base address register added to the offset",
+                    ],
+                    operation="Rc[LrIdx % 512+:128] = Memory[LrOffset + CrBase]",
+                    example="set lr0 0x1000;;\nset lr1 0x10;;\nldr_cyclic_mult_reg lr1 lr0 cr1;;",
+                ),
+            ),
+            "str_acc_reg": InstructionFormat(
+                operands=[reg.AccStageRegRField, reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Store Register",
                     summary="Store data from a register into memory.",
-                    syntax="str Rx Lr Cr",
+                    syntax="str_acc_reg Rs LrOffset CrBase",
                     operands=[
-                        "Rx: Source data register (R register, 128-byte)",
-                        "Lr: Base address register (holds memory address)",
-                        "Cr: Offset register added to the base address",
+                        "Rs: Source data register - Accumulator register file register (either rt_tf32_high, rt_tf32_low, or rt_fp32) - tf32 register is 304 bytes, fp32 register is 512 bytes",
+                        "LrOffset: Offset register (holds memory address)",
+                        "CrBase: Base address register added to the offset",
                     ],
-                    operation="Memory[Lr + Cr] = Rx",
-                    example="set lr1 0x2000;;\nstr r1 lr1 cr1;;",
+                    operation="Memory[LrOffset + CrBase] = Rs",
+                    example="set lr1 0x2000;;\nstr rt_tf32_high lr1 cr1;;",
                 ),
             ),
             "xmem_nop": InstructionFormat(
@@ -301,48 +322,49 @@ class XmemInst(Inst):
             intro="Memory access instructions for loading and storing data between registers and memory.",
         )
 
+
 @validate_inst_structure
 class MultInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.RxRegField, reg.RxRegField, reg.LrRegField, reg.LrRegField]
-    
+        return [reg.MultStageRegRField, reg.LrRegField, reg.LrRegField]
+
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
         return opcodes.MultInstOpcode
-    
+
     @classmethod
     def struct_by_opcode_table(
         cls,
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "mult.ee": InstructionFormat(
-                operands=[reg.RxRegField, reg.LrRegField],
+                operands=[reg.MultStageRegRField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Element-wise Multiply",
                     summary="Multiply elements of two registers element by element.",
-                    syntax="mult.ee Ra  Lr1",
+                    syntax="mult.ee Ra Lr1",
                     operands=[
-                        "Ra: First source register (R register)",
-                        "Lr1: offset for Ra from RC ",
+                        "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
+                        "Lr1: base offset for multiplier from RC (cyclic register)",
                     ],
-                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[i+Lr1]",
+                    operation="for i in [0, 127]: mult_result[i] = Ra[i] * RC[(i+Lr1) % 512]",
                     example="# Element-wise multiplication\nmult.ee r4 lr0;;",
                 ),
             ),
             "mult.ev": InstructionFormat(
-                operands=[reg.RxRegField, reg.LrRegField, reg.LrRegField],
+                operands=[reg.MultStageRegRField, reg.LrRegField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Element-Vector Multiply",
                     summary="Multiply a vector by a loop-indexed element.",
                     syntax="mult.ev Ra Lr1 Lr2",
                     operands=[
-                        "Ra: First source register (R register) Ra inside(R4,R5)",
-                        "Lr1: offset for Ra from RC ",
+                        "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
+                        "Lr1: base offset for multiplier from RC (cyclic register)",
                         "Lr2: element index from Ra",
                     ],
-                    operation="for i in [0, 127]: result[i] = Ra[i] * RC[Lr2 + i + Lr1]",
-                    example="set lr0 0;;\nmult.ev r7 lr0 lr1;;",
+                    operation="for i in [0, 127]: mult_result[i] = Ra[Lr2 % 128] * RC[(Lr1 + i) % 512]",
+                    example="set lr0 0;;\nmult.ev r0 lr0 lr1;;",
                 ),
             ),
             "mult_nop": InstructionFormat(
@@ -356,6 +378,7 @@ class MultInst(Inst):
                 ),
             ),
         }
+
     @classmethod
     def nop_inst(cls, addr: int) -> str:
         return MultInst(
@@ -372,27 +395,41 @@ class MultInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="MULT Instructions",
-            intro="Multiplication instructions for element-wise and element-vector operations.",
-            
+            intro="""Multiplication instructions for element-wise and element-vector operations.
+The multiplication result (`mult_result`) is forwarded to the ACC stage in the CPU and not stored in any register in the way.
+""",
         )
+
 
 @validate_inst_structure
 class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.RxRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField]
-    
+        return [
+            reg.AccStageRegRField,
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.LrRegField,
+        ]
+
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
         return opcodes.AccInstOpcode
-    
+
     @classmethod
     def struct_by_opcode_table(
         cls,
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "acc": InstructionFormat(
-                operands=[reg.RxRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField, reg.LrRegField],
+                operands=[
+                    reg.AccStageRegRField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                ],
                 doc=InstructionDoc(
                     title="Accumulate",
                     summary="Accumulate values from a register into an accumulator.",
@@ -404,8 +441,8 @@ class AccInst(Inst):
                         "Lr3: Shift amount applied within each partition without crossing partition boundaries. Example: with 2 partitions and shift=1, data [a0,a1,...,a63,b0,b1,...,b63] becomes [0,a0,a1,...,a62,0,b0,b1,...,b62]",
                         "Lr4: When set to 1, Store RQ4 and shifts RQ8 to RQ4.",
                     ],
-                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)" \
-                    "For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i] then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0",                    
+                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)"
+                    "For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i] then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0",
                     example="# Accumulate with mask and shift\nacc lr0 lr1 lr2 lr3;;",
                 ),
             ),
@@ -420,6 +457,7 @@ class AccInst(Inst):
                 ),
             ),
         }
+
     @classmethod
     def nop_inst(cls, addr: int) -> str:
         return AccInst(
@@ -431,12 +469,12 @@ class AccInst(Inst):
                 "operands": [],
             }
         )
+
     @classmethod
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="ACC Instructions",
             intro="Accumulation instructions for combining values with optional masking and shifting.",
-            
         )
 
 

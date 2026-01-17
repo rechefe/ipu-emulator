@@ -17,8 +17,9 @@ class XmemInstOpcode(Opcode):
     @classmethod
     def enum_array(cls):
         return [
-            "str",
-            "ldr",
+            "str_acc_reg",
+            "ldr_mult_reg",
+            "ldr_cyclic_mult_reg",
             "xmem_nop",
         ]
 

@@ -61,7 +61,8 @@ class CompoundInst:
         # Order matters for encoding/decoding
         return [
             inst.XmemInst,
-            inst.MacInst,
+            inst.MultInst,
+            inst.AccInst,
             inst.LrInst,
             inst.LrInst,  # Second LrInst slot
             inst.CondInst,

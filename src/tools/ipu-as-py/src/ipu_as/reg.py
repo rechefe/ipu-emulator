@@ -1,28 +1,25 @@
 import ipu_as.ipu_token as ipu_token
 
+IPU_MULT_STAGE_REG_R_NUM = 2
 
-IPU_R_REG_NUM = 12
-
-IPU_RD_REG_NUM = IPU_R_REG_NUM // 2
-IPU_RD_TO_R_RATIO = IPU_R_REG_NUM // IPU_RD_REG_NUM
-IPU_RQ_REG_NUM = IPU_RQ_REG_NUM = IPU_RD_REG_NUM // 2
-IPU_RQ_TO_R_RATIO = IPU_R_REG_NUM // IPU_RQ_REG_NUM
-IPU_RO_REG_NUM = IPU_RO_REG_NUM = IPU_RQ_REG_NUM // 2
-IPU_RO_TO_R_RATIO = IPU_R_REG_NUM // IPU_RO_REG_NUM
-
-RX_REG_FIELDS = (
-    [f"r{i}" for i in range(IPU_R_REG_NUM)]
-    + [f"rd{i * IPU_RD_TO_R_RATIO}" for i in range(IPU_RD_REG_NUM)]
-    + [f"rq{i * IPU_RQ_TO_R_RATIO}" for i in range(IPU_RQ_REG_NUM)]
-    + [f"ro{i * IPU_RO_TO_R_RATIO}" for i in range(IPU_RO_REG_NUM)]
-    + ["mem_bypass"]
-)
+MULT_STAGE_REG_R_FIELDS = [f"r{i}" for i in range(IPU_MULT_STAGE_REG_R_NUM)] + [
+    "mem_bypass"
+]
 
 
-class RxRegField(ipu_token.EnumToken):
+class MultStageRegRField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
-        return RX_REG_FIELDS
+        return MULT_STAGE_REG_R_FIELDS
+
+
+IPU_ACC_STAGE_REG_R_FIELDS = ["rt_tf32_high", "rt_tf32_low", "rt_fp32"]
+
+
+class AccStageRegRField(ipu_token.EnumToken):
+    @classmethod
+    def enum_array(cls):
+        return IPU_ACC_STAGE_REG_R_FIELDS
 
 
 IPU_LR_REG_NUM = 16
