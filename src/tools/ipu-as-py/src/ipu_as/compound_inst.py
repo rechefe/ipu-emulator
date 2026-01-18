@@ -158,9 +158,11 @@ class CompoundInst:
         fields_with_positions = []
         current_bit = 0
         
-        for inst_type in inst_types_list:
+        # Iterate through instructions in reverse order (to match encoding: last inst at LSB)
+        for inst_type in reversed(inst_types_list):
             all_tokens = inst_type.all_tokens()
-            for token_type in all_tokens:
+            # Iterate through tokens in reverse order (to match encoding: opcode at MSB of instruction)
+            for token_type in reversed(all_tokens):
                 token_bits = token_type.bits()
                 token_name = utils.camel_case_to_snake_case(token_type.__name__)
                 display_name = _smart_abbreviate_field_name(token_name, 0)
