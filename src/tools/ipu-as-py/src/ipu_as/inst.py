@@ -230,8 +230,8 @@ class XmemInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
-            reg.MultStageRegRField,
-            reg.AccStageRegRField,
+            reg.MultStageRegField,
+            reg.AccStageRegField,
             reg.LrRegField,
             reg.LrRegField,
             reg.CrRegField,
@@ -247,7 +247,7 @@ class XmemInst(Inst):
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "ldr_mult_reg": InstructionFormat(
-                operands=[reg.MultStageRegRField, reg.LrRegField, reg.CrRegField],
+                operands=[reg.MultStageRegField, reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Load Register",
                     summary="Load data from memory into a register.",
@@ -277,7 +277,7 @@ class XmemInst(Inst):
                 ),
             ),
             "str_acc_reg": InstructionFormat(
-                operands=[reg.AccStageRegRField, reg.LrRegField, reg.CrRegField],
+                operands=[reg.AccStageRegField, reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Store Register",
                     summary="Store data from a register into memory.",
@@ -327,7 +327,7 @@ class XmemInst(Inst):
 class MultInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.MultStageRegRField, reg.LrRegField, reg.LrRegField]
+        return [reg.MultStageRegField, reg.LrRegField, reg.LrRegField]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -339,7 +339,7 @@ class MultInst(Inst):
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "mult.ee": InstructionFormat(
-                operands=[reg.MultStageRegRField, reg.LrRegField],
+                operands=[reg.MultStageRegField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Element-wise Multiply",
                     summary="Multiply elements of two registers element by element.",
@@ -353,7 +353,7 @@ class MultInst(Inst):
                 ),
             ),
             "mult.ev": InstructionFormat(
-                operands=[reg.MultStageRegRField, reg.LrRegField, reg.LrRegField],
+                operands=[reg.MultStageRegField, reg.LrRegField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Element-Vector Multiply",
                     summary="Multiply a vector by a loop-indexed element.",
@@ -406,7 +406,7 @@ class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
-            reg.AccStageRegRField,
+            reg.AccStageRegField,
             reg.LrRegField,
             reg.LrRegField,
             reg.LrRegField,
@@ -424,7 +424,7 @@ class AccInst(Inst):
         return {
             "acc": InstructionFormat(
                 operands=[
-                    reg.AccStageRegRField,
+                    reg.AccStageRegField,
                     reg.LrRegField,
                     reg.LrRegField,
                     reg.LrRegField,
