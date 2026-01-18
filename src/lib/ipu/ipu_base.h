@@ -98,7 +98,7 @@ typedef struct
 
 typedef struct
 {
-    // Placeholder for new regfile
+    ipu__acc_stage_regfile_t acc_stage_regfile;
     ipu__mult_stage_regfile_t mult_stage_regfile;
     ipu__lr_regfile_t lr_regfile;
     ipu__cr_regfile_t cr_regfile;
@@ -106,6 +106,7 @@ typedef struct
 
 typedef struct
 {
+    ipu__r_reg_t mem_bypass_r_reg;
 } ipu__misc_t;
 
 typedef struct

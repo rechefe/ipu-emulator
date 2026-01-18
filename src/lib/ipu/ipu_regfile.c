@@ -159,3 +159,28 @@ void ipu__set_rt_in_r_acc(ipu__r_acc_reg_t acc_reg, ipu__rt_from_r_acc_t *in_rt_
     uint8_t *target_vec_bytes = acc_reg.bytes;
     memcpy(target_vec_bytes, in_rt_from_r_acc->bytes, IPU__RT_FROM_R_ACC_SIZE_BYTES);
 }
+
+void ipu__get_acc_reg_by_enum(
+    ipu__r_acc_reg_t acc_reg,
+    inst_parser__acc_stage_reg_field_t acc_stage_reg_field,
+    uint8_t **out_acc_reg,
+    uint32_t *out_acc_reg_size)
+{
+    switch (acc_stage_reg_field)
+    {
+    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_TF32_HIGH:
+        *out_acc_reg= &acc_reg.tf32_vecs[1];
+        *out_acc_reg_size= IPU__R_ACC_TF32_VEC_SIZE_BYTES;
+        break;
+    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_TF32_LOW:
+        *out_acc_reg= &acc_reg.tf32_vecs[0];
+        *out_acc_reg_size= IPU__R_ACC_TF32_VEC_SIZE_BYTES;
+        break;
+    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_FP32:
+        *out_acc_reg= &acc_reg.words[0];
+        *out_acc_reg_size= IPU__RT_FROM_R_ACC_SIZE_BYTES;
+        break;
+    default:
+        assert(0 && "Invalid ACC stage register field");
+    }
+}
