@@ -5,7 +5,8 @@
 #include "ipu_regfile.h"
 #include "ipu_xmem_inst.h"
 #include "ipu_lr_inst.h"
-#include "ipu_mac_inst.h"
+#include "ipu_mult_inst.h"
+#include "ipu_acc_inst.h"
 #include "ipu_cond_inst.h"
 #include <stdio.h>
 

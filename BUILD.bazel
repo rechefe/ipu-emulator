@@ -67,9 +67,22 @@ cc_library(
 )
 
 cc_library(
-    name = "ipu_mac_inst",
-    srcs = ["src/lib/ipu/ipu_mac_inst.c"],
-    hdrs = ["src/lib/ipu/ipu_mac_inst.h"],
+    name = "ipu_mult_inst",
+    srcs = ["src/lib/ipu/ipu_mult_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_mult_inst.h"],
+    includes = ["src/lib"],
+    deps = [
+        ":ipu_base",
+        ":ipu_math",
+        ":ipu_regfile",
+        ":logger",
+    ],
+)
+
+cc_library(
+    name = "ipu_acc_inst",
+    srcs = ["src/lib/ipu/ipu_acc_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_acc_inst.h"],
     includes = ["src/lib"],
     deps = [
         ":ipu_base",
@@ -99,7 +112,8 @@ cc_library(
         ":ipu_base",
         ":ipu_cond_inst",
         ":ipu_lr_inst",
-        ":ipu_mac_inst",
+        ":ipu_mult_inst",
+        ":ipu_acc_inst",
         ":ipu_regfile",
         ":ipu_xmem_inst",
     ],
