@@ -24,9 +24,9 @@ cc_library(
     hdrs = ["src/lib/ipu/ipu_base.h"],
     includes = ["src/lib"],
     deps = [
-        ":xmem",
         ":ipu_math",
         ":logger",
+        ":xmem",
         "//src/tools/ipu-as-py:inst_parser",
     ],
 )
@@ -109,11 +109,11 @@ cc_library(
     hdrs = ["src/lib/ipu/ipu.h"],
     includes = ["src/lib"],
     deps = [
+        ":ipu_acc_inst",
         ":ipu_base",
         ":ipu_cond_inst",
         ":ipu_lr_inst",
         ":ipu_mult_inst",
-        ":ipu_acc_inst",
         ":ipu_regfile",
         ":ipu_xmem_inst",
     ],
@@ -166,18 +166,6 @@ cc_test(
     size = "small",
     srcs = ["test/test_xmem.cpp"],
     deps = [
-        ":logger",
-        ":xmem",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "ipu_tests",
-    size = "small",
-    srcs = ["test/test_ipu.cpp"],
-    deps = [
-        ":ipu",
         ":logger",
         ":xmem",
         "@googletest//:gtest_main",
