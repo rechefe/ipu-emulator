@@ -213,8 +213,10 @@ class Inst:
             lines.append("")
 
         if doc.operation:
-            lines.append(f"**Operation:** `{doc.operation}`")
-            lines.append("")
+            lines.append("**Operation:**")
+            lines.append("```")
+            lines.append(f"{doc.operation}")
+            lines.append("```")
 
         if doc.example:
             lines.append("**Example:**")
@@ -231,7 +233,6 @@ class XmemInst(Inst):
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
             reg.MultStageRegField,
-            reg.AccStageRegField,
             reg.LrRegField,
             reg.LrRegField,
             reg.CrRegField,
@@ -266,29 +267,46 @@ class XmemInst(Inst):
                 doc=InstructionDoc(
                     title="Load Cyclic Register",
                     summary="Load data from memory into a multiplication stage register with cyclic addressing.",
-                    syntax="ldr_cyclic_mult_reg LrIdx LrOffset CrBase",
+                    syntax="ldr_cyclic_mult_reg LrOffset CrBase LrIdx",
                     operands=[
+                        "LrOffset: Offset register (holds memory address)",
+                        "CrBase: Base address register added to the offset",
                         "LrIdx: Index inside Rc (cyclic reg to load data into) - an LR register",
+                    ],
+                    operation="Rc[LrIdx % 512+:128] = Memory[LrOffset + CrBase]",
+                    example="""set lr0 0x1000;;
+set lr1 0x10;;
+ldr_cyclic_mult_reg lr1 lr0 cr1;;""",
+                ),
+            ),
+            "ldr_acc_mask_reg": InstructionFormat(
+                operands=[reg.LrRegField, reg.CrRegField],
+                doc=InstructionDoc(
+                    title="Load Mask Register",
+                    summary="Load mask data from memory into the accumulator mask register.",
+                    syntax="ldr_acc_mask_reg LrOffset CrBase",
+                    operands=[
                         "LrOffset: Offset register (holds memory address)",
                         "CrBase: Base address register added to the offset",
                     ],
-                    operation="Rc[LrIdx % 512+:128] = Memory[LrOffset + CrBase]",
-                    example="set lr0 0x1000;;\nset lr1 0x10;;\nldr_cyclic_mult_reg lr1 lr0 cr1;;",
+                    operation="RMask = Memory[LrOffset + CrBase]",
+                    example="set lr2 0x3000;;\nldr_acc_mask_reg lr2 cr2;;",
                 ),
             ),
             "str_acc_reg": InstructionFormat(
-                operands=[reg.AccStageRegField, reg.LrRegField, reg.CrRegField],
+                operands=[reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Store Register",
                     summary="Store data from a register into memory.",
-                    syntax="str_acc_reg Rs LrOffset CrBase",
+                    syntax="str_acc_reg LrOffset CrBase",
                     operands=[
-                        "Rs: Source data register - Accumulator register file register (either rt_tf32_high, rt_tf32_low, or rt_fp32) - tf32 register is 304 bytes, fp32 register is 512 bytes",
                         "LrOffset: Offset register (holds memory address)",
                         "CrBase: Base address register added to the offset",
                     ],
-                    operation="Memory[LrOffset + CrBase] = Rs",
-                    example="set lr1 0x2000;;\nstr rt_tf32_high lr1 cr1;;",
+                    operation="Memory[LrOffset + CrBase] = acc_reg",
+                    example="""set lr1 0x2000;;
+str_acc_reg lr1 cr1;;
+""",
                 ),
             ),
             "xmem_nop": InstructionFormat(
@@ -406,7 +424,6 @@ class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
-            reg.AccStageRegField,
             reg.LrRegField,
             reg.LrRegField,
             reg.LrRegField,
@@ -424,7 +441,6 @@ class AccInst(Inst):
         return {
             "acc": InstructionFormat(
                 operands=[
-                    reg.AccStageRegField,
                     reg.LrRegField,
                     reg.LrRegField,
                     reg.LrRegField,
@@ -433,16 +449,21 @@ class AccInst(Inst):
                 doc=InstructionDoc(
                     title="Accumulate",
                     summary="Accumulate values from a register into an accumulator.",
-                    syntax="acc Ra Lr1 Lr2 Lr3 Lr4",
+                    syntax="acc Lr1 Lr2 Lr3 Lr4",
                     operands=[
-                        "Ra : Source data register where Ra is RT register, 128 - Element of fp32 or RQ4/RQ8 128- Element of Tfp32 ",
                         "Lr1: Index to select one of 8 masks from RM (mask register)",
                         "Lr2: Offset for the accumulator (valid range: -3  to 3)",
                         "Lr3: Shift amount applied within each partition without crossing partition boundaries. Example: with 2 partitions and shift=1, data [a0,a1,...,a63,b0,b1,...,b63] becomes [0,a0,a1,...,a62,0,b0,b1,...,b62]",
                         "Lr4: When set to 1, Store RQ4 and shifts RQ8 to RQ4.",
                     ],
-                    operation="for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0  (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)"
-                    "For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i] then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0",
+                    operation="""
+for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] 
+if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1)
+else 0 (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)
+For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i]
+then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] 
+if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0,
+""",
                     example="# Accumulate with mask and shift\nacc lr0 lr1 lr2 lr3;;",
                 ),
             ),

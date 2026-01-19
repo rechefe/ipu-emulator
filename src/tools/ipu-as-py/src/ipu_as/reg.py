@@ -6,19 +6,11 @@ MULT_STAGE_REG_R_FIELDS = [f"r{i}" for i in range(IPU_MULT_STAGE_REG_R_NUM)] + [
     "mem_bypass"
 ]
 
+
 class MultStageRegField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
         return MULT_STAGE_REG_R_FIELDS
-
-
-IPU_ACC_STAGE_REG_R_FIELDS = ["rt_tf32_high", "rt_tf32_low", "rt_fp32"]
-
-
-class AccStageRegField(ipu_token.EnumToken):
-    @classmethod
-    def enum_array(cls):
-        return IPU_ACC_STAGE_REG_R_FIELDS
 
 
 IPU_LR_REG_NUM = 16

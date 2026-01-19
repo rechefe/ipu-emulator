@@ -20,6 +20,7 @@ class XmemInstOpcode(Opcode):
             "str_acc_reg",
             "ldr_mult_reg",
             "ldr_cyclic_mult_reg",
+            "ldr_acc_mask_reg",
             "xmem_nop",
         ]
 
