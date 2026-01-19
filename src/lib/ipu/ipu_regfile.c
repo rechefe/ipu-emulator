@@ -34,6 +34,8 @@ void ipu__set_cr(ipu__obj_t *ipu, int cr_idx, uint32_t imm)
     ipu->regfile.cr_regfile.cr[cr_idx] = imm;
 }
 
+
+
 void ipu__get_r_cyclic_at_idx(ipu__obj_t *ipu, int start_idx, ipu__r_reg_t *out_r_cyclic_reg)
 {
     int start_idx_after_mod = start_idx % IPU__R_CYCLIC_REG_SIZE_BYTES;
@@ -80,6 +82,7 @@ void ipu__set_r_cyclic_at_idx(ipu__obj_t *ipu, int start_idx, ipu__r_reg_t *in_r
     }
 }
 
+// Legacy function - kept for compatibility
 void ipu__pack_tf32_array(uint8_t *out_bytes, fp__tf32_t *in_fp32_array, size_t num_elements)
 {
     int bits_in_out_bytes = 0;
@@ -107,6 +110,7 @@ void ipu__pack_tf32_array(uint8_t *out_bytes, fp__tf32_t *in_fp32_array, size_t 
     }
 }
 
+// Legacy function - kept for compatibility
 void ipu__unpack_into_tf32_array(fp__tf32_t *out_fp32_array, const uint8_t *in_bytes, size_t num_elements)
 {
     int bits_in_in_bytes = 0;
@@ -134,53 +138,18 @@ void ipu__unpack_into_tf32_array(fp__tf32_t *out_fp32_array, const uint8_t *in_b
     }
 }
 
-void ipu__set_tf32_reg_in_r_acc(ipu__r_acc_reg_t acc_reg, int r_acc_idx, fp__tf32_t *tf32_value)
+ipu__r_reg_t * ipu__get_mult_stage_r_reg(ipu__obj_t *ipu, inst_parser__mult_stage_reg_field_t mult_stage_idx)
 {
-    assert(r_acc_idx >= 0 && r_acc_idx < IPU__R_ACC_TF32_VEC_NUM);
-    uint8_t *target_vec_bytes = acc_reg.tf32_vecs[r_acc_idx];
-    ipu__pack_tf32_array(target_vec_bytes, tf32_value, (IPU__R_ACC_TF32_VEC_SIZE_BYTES * 8) / FP__TF32_WIDTH);
-}
-
-void ipu__get_tf32_reg_from_r_acc(ipu__r_acc_reg_t acc_reg, int r_acc_idx, fp__tf32_t *out_tf32_value)
-{
-    assert(r_acc_idx >= 0 && r_acc_idx < IPU__R_ACC_TF32_VEC_NUM);
-    const uint8_t *source_vec_bytes = acc_reg.tf32_vecs[r_acc_idx];
-    ipu__unpack_into_tf32_array(out_tf32_value, source_vec_bytes, (IPU__R_ACC_TF32_VEC_SIZE_BYTES * 8) / FP__TF32_WIDTH);
-}
-
-void ipu__get_rt_from_r_acc(ipu__r_acc_reg_t acc_reg, ipu__rt_from_r_acc_t *out_rt_from_r_acc)
-{
-    const uint8_t *source_vec_bytes = acc_reg.bytes;
-    memcpy(out_rt_from_r_acc->bytes, source_vec_bytes, IPU__RT_FROM_R_ACC_SIZE_BYTES);
-}
-
-void ipu__set_rt_in_r_acc(ipu__r_acc_reg_t acc_reg, ipu__rt_from_r_acc_t *in_rt_from_r_acc)
-{
-    uint8_t *target_vec_bytes = acc_reg.bytes;
-    memcpy(target_vec_bytes, in_rt_from_r_acc->bytes, IPU__RT_FROM_R_ACC_SIZE_BYTES);
-}
-
-void ipu__get_acc_reg_by_enum(
-    ipu__r_acc_reg_t acc_reg,
-    inst_parser__acc_stage_reg_field_t acc_stage_reg_field,
-    uint8_t **out_acc_reg,
-    uint32_t *out_acc_reg_size)
-{
-    switch (acc_stage_reg_field)
+    switch (mult_stage_idx)
     {
-    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_TF32_HIGH:
-        *out_acc_reg= &acc_reg.tf32_vecs[1];
-        *out_acc_reg_size= IPU__R_ACC_TF32_VEC_SIZE_BYTES;
-        break;
-    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_TF32_LOW:
-        *out_acc_reg= &acc_reg.tf32_vecs[0];
-        *out_acc_reg_size= IPU__R_ACC_TF32_VEC_SIZE_BYTES;
-        break;
-    case INST_PARSER__ACC_STAGE_REG_FIELD_RT_FP32:
-        *out_acc_reg= &acc_reg.words[0];
-        *out_acc_reg_size= IPU__RT_FROM_R_ACC_SIZE_BYTES;
-        break;
+    case INST_PARSER__MULT_STAGE_REG_FIELD_R0:
+        return &ipu->regfile.mult_stage_regfile.r_regs[0];
+    case INST_PARSER__MULT_STAGE_REG_FIELD_R1:
+        return &ipu->regfile.mult_stage_regfile.r_regs[1];
+    case INST_PARSER__MULT_STAGE_REG_FIELD_MEM_BYPASS:
+        return &ipu->misc.mem_bypass_r_reg;
     default:
-        assert(0 && "Invalid ACC stage register field");
+        assert(0 && "Invalid mult stage reg field");
+        return NULL;
     }
 }

@@ -30,4 +30,6 @@ void ipu__get_tf32_reg_from_r_acc(ipu__r_acc_reg_t acc_reg, int r_acc_idx, fp__t
 void ipu__get_rt_from_r_acc(ipu__r_acc_reg_t acc_reg, ipu__rt_from_r_acc_t *out_rt_from_r_acc);
 void ipu__set_rt_in_r_acc(ipu__r_acc_reg_t acc_reg, ipu__rt_from_r_acc_t *in_rt_from_r_acc);
 
+ipu__r_reg_t *ipu__get_mult_stage_r_reg(ipu__obj_t *ipu, inst_parser__mult_stage_reg_field_t mult_stage_idx);
+
 #endif // IPU_REGFILE_H

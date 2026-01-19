@@ -14,10 +14,7 @@
 #define IPU__R_CYCLIC_REG_SIZE_BYTES 512
 
 // Accumulator regfile size definitions
-#define IPU__R_ACC_TF32_VEC_SIZE_BYTES 304
-#define IPU__R_ACC_TF32_VEC_NUM 2
-#define IPU__R_ACC_REG_SIZE_BYTES (IPU__R_ACC_TF32_VEC_SIZE_BYTES * IPU__R_ACC_TF32_VEC_NUM)
-#define IPU__RT_FROM_R_ACC_SIZE_BYTES 512
+#define IPU__R_ACC_REG_SIZE_BYTES 512
 
 #define IPU__LR_REGS_NUM 16
 #define IPU__CR_REGS_NUM 16
@@ -64,20 +61,14 @@ typedef struct
 
 typedef struct
 {
-    uint8_t bytes[IPU__R_ACC_TF32_VEC_SIZE_BYTES];
-} ipu__r_acc_tf32_vec_t;
-
-typedef struct
-{
-    uint8_t bytes[IPU__RT_FROM_R_ACC_SIZE_BYTES];
-    uint32_t words[IPU__RT_FROM_R_ACC_SIZE_BYTES / 4];
+    uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
+    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / 4];
 } ipu__rt_from_r_acc_t;
 
 typedef union
 {
     uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
     uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / 4];
-    uint8_t tf32_vecs[IPU__R_ACC_TF32_VEC_NUM][IPU__R_ACC_TF32_VEC_SIZE_BYTES];
 } ipu__r_acc_reg_t;
 
 typedef struct
@@ -106,6 +97,7 @@ typedef struct
 
 typedef struct
 {
+    ipu__r_acc_reg_t mult_res; 
     ipu__r_reg_t mem_bypass_r_reg;
 } ipu__misc_t;
 
