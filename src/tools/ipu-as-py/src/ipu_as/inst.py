@@ -279,18 +279,18 @@ set lr1 0x10;;
 ldr_cyclic_mult_reg lr1 lr0 cr1;;""",
                 ),
             ),
-            "ldr_acc_mask_reg": InstructionFormat(
+            "ldr_mult_mask_reg": InstructionFormat(
                 operands=[reg.LrRegField, reg.CrRegField],
                 doc=InstructionDoc(
                     title="Load Mask Register",
-                    summary="Load mask data from memory into the accumulator mask register.",
-                    syntax="ldr_acc_mask_reg LrOffset CrBase",
+                    summary="Load mask data from memory into the multiplication mask register.",
+                    syntax="ldr_mult_mask_reg LrOffset CrBase",
                     operands=[
                         "LrOffset: Offset register (holds memory address)",
                         "CrBase: Base address register added to the offset",
                     ],
                     operation="RMask = Memory[LrOffset + CrBase]",
-                    example="set lr2 0x3000;;\nldr_acc_mask_reg lr2 cr2;;",
+                    example="set lr2 0x3000;;\nldr_mult_mask_reg lr2 cr2;;",
                 ),
             ),
             "str_acc_reg": InstructionFormat(
@@ -345,7 +345,13 @@ str_acc_reg lr1 cr1;;
 class MultInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.MultStageRegField, reg.LrRegField, reg.LrRegField]
+        return [
+            reg.MultStageRegField,
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.LrRegField,
+        ]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -357,32 +363,59 @@ class MultInst(Inst):
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "mult.ee": InstructionFormat(
-                operands=[reg.MultStageRegField, reg.LrRegField],
+                operands=[
+                    reg.MultStageRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                ],
                 doc=InstructionDoc(
                     title="Element-wise Multiply",
                     summary="Multiply elements of two registers element by element.",
-                    syntax="mult.ee Ra Lr1",
+                    syntax="mult.ee Ra LrCyclicOffset LrMaskOffset LrMaskShift",
                     operands=[
                         "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
-                        "Lr1: base offset for multiplier from RC (cyclic register)",
+                        "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
+                        "LrMaskOffset: offset to select mask from RM (mask register)",
+                        "LrMaskShift: shift applied to the mask register",
                     ],
-                    operation="for i in [0, 127]: mult_result[i] = Ra[i] * RC[(i+Lr1) % 512]",
+                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
+for i in [0, 127]: 
+    if shifted_mask[i]:
+        mult_result[i] = Ra[i] * RC[(i+LrCyclicOffset) % 512]
+    else
+        mult_result[i] = 0
+""",
                     example="# Element-wise multiplication\nmult.ee r4 lr0;;",
                 ),
             ),
             "mult.ev": InstructionFormat(
-                operands=[reg.MultStageRegField, reg.LrRegField, reg.LrRegField],
+                operands=[
+                    reg.MultStageRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                ],
                 doc=InstructionDoc(
-                    title="Element-Vector Multiply",
-                    summary="Multiply a vector by a loop-indexed element.",
-                    syntax="mult.ev Ra Lr1 Lr2",
+                    title="Element-wise Multiply",
+                    summary="Multiply elements of two registers element by element.",
+                    syntax="mult.ee Ra LrCyclicOffset LrMaskOffset LrMaskShift LrFixedRaIdx",
                     operands=[
                         "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
-                        "Lr1: base offset for multiplier from RC (cyclic register)",
-                        "Lr2: element index from Ra",
+                        "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
+                        "LrMaskOffset: offset to select mask from RM (mask register)",
+                        "LrMaskShift: shift applied to the mask register",
+                        "LrFixedRaIdx: fixed index for multiplication from Ra register",
                     ],
-                    operation="for i in [0, 127]: mult_result[i] = Ra[Lr2 % 128] * RC[(Lr1 + i) % 512]",
-                    example="set lr0 0;;\nmult.ev r0 lr0 lr1;;",
+                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
+for i in [0, 127]: 
+    if shifted_mask[i]:
+        mult_result[i] = Ra[LrFixedRaIdx % 128] * RC[(i+LrCyclicOffset) % 512]
+    else
+        mult_result[i] = 0
+""",
+                    example="# Element-wise multiplication\nmult.ee r4 lr0;;",
                 ),
             ),
             "mult_nop": InstructionFormat(
@@ -423,12 +456,7 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            reg.LrRegField,
-            reg.LrRegField,
-            reg.LrRegField,
-            reg.LrRegField,
-        ]
+        return []
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -440,31 +468,16 @@ class AccInst(Inst):
     ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
         return {
             "acc": InstructionFormat(
-                operands=[
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                ],
+                operands=[],
                 doc=InstructionDoc(
                     title="Accumulate",
-                    summary="Accumulate values from a register into an accumulator.",
-                    syntax="acc Lr1 Lr2 Lr3 Lr4",
-                    operands=[
-                        "Lr1: Index to select one of 8 masks from RM (mask register)",
-                        "Lr2: Offset for the accumulator (valid range: -3  to 3)",
-                        "Lr3: Shift amount applied within each partition without crossing partition boundaries. Example: with 2 partitions and shift=1, data [a0,a1,...,a63,b0,b1,...,b63] becomes [0,a0,a1,...,a62,0,b0,b1,...,b62]",
-                        "Lr4: When set to 1, Store RQ4 and shifts RQ8 to RQ4.",
-                    ],
-                    operation="""
-for i in [0, 127]: RT[Lr2 + i] += RP_shifted[i] 
-if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1)
-else 0 (where RP is data from previous pipeline stage, RP_shifted applies Lr3 shift within partitions, RM_shifted applies Lr3 shift to the mask)
-For RQ4 accumulation with Lr4=1: RQ4[i] = RQ8[i]
-then for i in [0, 127]: RQ4[Lr2 + i] =+ RP_shifted[i] 
-if (RM[Lr1*128 + i] == 1 AND RM_shifted[i] == 1) else 0,
+                    summary="Accumulate the multiplication result into the accumulator register.",
+                    syntax="acc",
+                    operands=[],
+                    operation="""for i in [0, 127]:
+    acc_reg[i] += mult_result[i]
 """,
-                    example="# Accumulate with mask and shift\nacc lr0 lr1 lr2 lr3;;",
+                    example="acc;;",
                 ),
             ),
             "acc_nop": InstructionFormat(
