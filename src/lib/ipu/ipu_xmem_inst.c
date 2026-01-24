@@ -45,7 +45,7 @@ static void ipu__execute_xmem_ldr_mult_reg(ipu__obj_t *ipu, inst_parser__inst_t 
     xmem__read_address(ipu->xmem, source_address, r_reg_to_load_to->bytes, IPU__R_REG_SIZE_BYTES);
 }
 
-static void ipu__execute_xmem_ldr_acc_mask_reg(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
+static void ipu__execute_xmem_ldr_mult_mask_reg(ipu__obj_t *ipu, inst_parser__inst_t inst, const ipu__regfile_t *regfile_snapshot)
 {
     int lr_idx = inst.xmem_inst_token_2_lr_reg_field;
     int cr_idx = inst.xmem_inst_token_4_cr_reg_field;
@@ -55,7 +55,7 @@ static void ipu__execute_xmem_ldr_acc_mask_reg(ipu__obj_t *ipu, inst_parser__ins
     uint32_t source_address = lr_value + cr_value;
 
     xmem__read_address(ipu->xmem, source_address,
-                       ipu->regfile.acc_stage_regfile.r_mask.bytes,
+                       ipu->regfile.mult_stage_regfile.r_mask.bytes,
                        IPU__R_REG_SIZE_BYTES);
 }
 
@@ -92,8 +92,8 @@ void ipu__execute_xmem_instruction(ipu__obj_t *ipu, inst_parser__inst_t inst, co
     case INST_PARSER__XMEM_INST_OPCODE_LDR_CYCLIC_MULT_REG:
         ipu__execute_xmem_ldr_cyclic_mult_reg(ipu, inst, regfile_snapshot);
         break;
-    case INST_PARSER__XMEM_INST_OPCODE_LDR_ACC_MASK_REG:
-        ipu__execute_xmem_ldr_acc_mask_reg(ipu, inst, regfile_snapshot);
+    case INST_PARSER__XMEM_INST_OPCODE_LDR_MULT_MASK_REG:
+        ipu__execute_xmem_ldr_mult_mask_reg(ipu, inst, regfile_snapshot);
         break;
     case INST_PARSER__XMEM_INST_OPCODE_XMEM_NOP:
         // No operation for XMEM

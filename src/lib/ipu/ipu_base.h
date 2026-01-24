@@ -2,6 +2,12 @@
 #define IPU_BASE_H
 
 #include <stdint.h>
+#include <stdbool.h>
+
+// Ensure compiler/target supports 128-bit integers
+#if !defined(__SIZEOF_INT128__)
+#error "__uint128_t not supported by this compiler/target"
+#endif
 #include "xmem/xmem.h"
 #include "ipu_math/ipu_math.h"
 #include "src/tools/ipu-as-py/inst_parser.h"
@@ -53,27 +59,36 @@ typedef struct
     uint8_t bytes[IPU__R_CYCLIC_REG_SIZE_BYTES];
 } ipu__r_cyclic_reg_t;
 
+
+typedef __uint128_t ipu__mask_t; 
+typedef union 
+{
+    ipu__mask_t masks[IPU__R_REG_SIZE_BYTES / sizeof(ipu__mask_t)];
+    uint8_t bytes[IPU__R_REG_SIZE_BYTES];
+} ipu__r_mask_reg_t;
+
+
 typedef struct
 {
     ipu__r_reg_t r_regs[IPU__MULT_STAGES_REGFILE_NUM_OF_R_REGS];
     ipu__r_cyclic_reg_t r_cyclic_reg;
+    ipu__r_mask_reg_t r_mask;
 } ipu__mult_stage_regfile_t;
 
 typedef struct
 {
     uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
-    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / 4];
+    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t)];
 } ipu__rt_from_r_acc_t;
 
 typedef union
 {
     uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
-    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / 4];
+    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t)];
 } ipu__r_acc_reg_t;
 
 typedef struct
 {
-    ipu__r_reg_t r_mask;
     ipu__r_acc_reg_t r_acc;
 } ipu__acc_stage_regfile_t;
 
