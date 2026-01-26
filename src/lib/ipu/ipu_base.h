@@ -21,6 +21,7 @@
 
 // Accumulator regfile size definitions
 #define IPU__R_ACC_REG_SIZE_BYTES 512
+#define IPU__R_ACC_REG_SIZE_WORDS (IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t))
 
 #define IPU__LR_REGS_NUM 16
 #define IPU__CR_REGS_NUM 16

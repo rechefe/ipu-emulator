@@ -24,7 +24,7 @@ void ipu__mult_instruction_mask_and_shift(
 
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
-        if ((mask & 1) == 0)
+        if ((mask & 1) != 0)
         {
             ipu->misc.mult_res.words[i] = 0;
         }
@@ -58,6 +58,8 @@ void ipu__execute_mult_ev_instruction(ipu__obj_t *ipu,
             &ipu->misc.mult_res.words[i],
             ipu__get_cr_dtype(&ipu->regfile));
     }
+
+    ipu__mult_instruction_mask_and_shift(ipu, inst, regfile_snapshot);
 }
 
 void ipu__execute_mult_ee_instruction(ipu__obj_t *ipu,
@@ -83,6 +85,8 @@ void ipu__execute_mult_ee_instruction(ipu__obj_t *ipu,
             &ipu->misc.mult_res.words[i],
             ipu__get_cr_dtype(&ipu->regfile));
     }
+
+    ipu__mult_instruction_mask_and_shift(ipu, inst, regfile_snapshot);
 }
 
 void ipu__execute_mult_instruction(ipu__obj_t *ipu,

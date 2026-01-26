@@ -47,6 +47,7 @@ class AccInstOpcode(Opcode):
     def enum_array(cls):
         return [
             "acc",
+            "reset_acc",
             "acc_nop",
         ]
 

@@ -191,3 +191,33 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_library(
+    name = "ipu_test_helper",
+    hdrs = ["test/ipu_test_helper.h"],
+    includes = ["test"],
+    deps = [
+        ":emulator",
+        ":fp",
+        ":ipu",
+        ":logger",
+        ":xmem",
+        "@googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "ipu_emulator_tests",
+    size = "medium",
+    srcs = ["test/test_ipu_emulator.cpp"],
+    data = [
+        "//src/tools/ipu-as-py:ipu-as",
+    ],
+    env = {
+        "IPU_ASSEMBLER": "$(location //src/tools/ipu-as-py:ipu-as)",
+    },
+    deps = [
+        ":ipu_test_helper",
+        "@googletest//:gtest_main",
+    ],
+)

@@ -263,7 +263,7 @@ class XmemInst(Inst):
                 ),
             ),
             "ldr_cyclic_mult_reg": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, reg.CrRegField],
+                operands=[reg.LrRegField, reg.CrRegField, reg.LrRegField],
                 doc=InstructionDoc(
                     title="Load Cyclic Register",
                     summary="Load data from memory into a multiplication stage register with cyclic addressing.",
@@ -478,6 +478,17 @@ class AccInst(Inst):
     acc_reg[i] += mult_result[i]
 """,
                     example="acc;;",
+                ),
+            ),
+            "reset_acc": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="Reset Accumulator",
+                    summary="Reset the accumulator register to zero.",
+                    syntax="reset_acc",
+                    operands=[],
+                    operation="acc_reg = 0",
+                    example="reset_acc;;",
                 ),
             ),
             "acc_nop": InstructionFormat(
