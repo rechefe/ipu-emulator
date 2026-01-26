@@ -54,23 +54,16 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
     const char *inputs_file = argv[2];
     const char *weights_file = argv[3];
     const char *dtype_str = argv[5];
-    
+
     // Parse and set data type
     ipu_math__dtype_t dtype = parse_dtype(dtype_str);
     ipu__set_cr_dtype(ipu, dtype);
     LOG_INFO("Setting up IPU for fully connected layer with dtype: %s", dtype_str);
 
-    // TODO - this must be done via the IPU itself
-    // Clear accumulator registers
-    for (int i = 0; i < IPU__RQ_REGS_NUM; i++)
-    {
-        ipu__clear_rq_reg(ipu, i);
-    }
-
     // Load input activations from file (raw 8-bit data)
     int inputs_loaded = emulator__load_binary_to_xmem(
         ipu->xmem, inputs_file, INPUT_BASE_ADDR, IPU__R_REG_SIZE_BYTES, SAMPLES_NUM);
-    
+
     if (inputs_loaded < 0)
     {
         LOG_ERROR("Failed to load inputs");
@@ -78,18 +71,47 @@ void ipu_setup(ipu__obj_t *ipu, int argc, char **argv)
     }
     LOG_INFO("Loaded %d input samples", inputs_loaded);
 
-    // Load weights from file (raw 8-bit data)
-    // Each output neuron has INPUT_NEURONS weights, and we have OUTPUT_NEURONS outputs
-    size_t weights_chunk_size = INPUT_NEURONS;
-    int weights_loaded = emulator__load_binary_to_xmem(
-        ipu->xmem, weights_file, WEIGHTS_BASE_ADDR, weights_chunk_size, OUTPUT_NEURONS);
-    
-    if (weights_loaded < 0)
+    // Load and transpose weights from file
+    // Original format: 64 vectors of 128 bytes (64x128)
+    // New format: 128 vectors of 128 bytes with first 64 bytes from transposed data, rest padded with zeros
+    FILE *weights_fp = fopen(weights_file, "rb");
+    if (!weights_fp)
     {
-        LOG_ERROR("Failed to load weights");
+        LOG_ERROR("Failed to open weights file: %s", weights_file);
         return;
     }
-    LOG_INFO("Loaded %d weight chunks", weights_loaded);
+
+    // Read original weights (64 vectors of 128 bytes)
+    uint8_t original_weights[OUTPUT_NEURONS][INPUT_NEURONS];
+    size_t read_count = fread(original_weights, 1, OUTPUT_NEURONS * INPUT_NEURONS, weights_fp);
+    fclose(weights_fp);
+
+    if (read_count != OUTPUT_NEURONS * INPUT_NEURONS)
+    {
+        LOG_ERROR("Failed to read weights file (expected %zu bytes, got %zu)", 
+                  OUTPUT_NEURONS * INPUT_NEURONS, read_count);
+        return;
+    }
+
+    // Transpose and pad: Create 128 vectors of 128 bytes
+    // Each new vector contains one element from each of the 64 original vectors, padded with zeros
+    for (int i = 0; i < INPUT_NEURONS; i++)
+    {
+        uint8_t transposed_vector[INPUT_NEURONS];
+        memset(transposed_vector, 0, INPUT_NEURONS); // Initialize with zeros
+
+        // Copy the i-th element from each of the 64 original vectors
+        for (int j = 0; j < OUTPUT_NEURONS; j++)
+        {
+            transposed_vector[j] = original_weights[j][i];
+        }
+
+        // Write to xmem at appropriate offset
+        uint32_t offset = WEIGHTS_BASE_ADDR + (i * INPUT_NEURONS);
+        xmem__write_address(ipu->xmem, offset, transposed_vector, INPUT_NEURONS);
+    }
+
+    LOG_INFO("Loaded and transposed %d weight vectors (128 vectors of 128 bytes)", INPUT_NEURONS);
 
     // Set control register addresses
     ipu->regfile.cr_regfile.cr[0] = INPUT_BASE_ADDR;   // Input base address
@@ -121,8 +143,8 @@ void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 
     // Save output activations to file
     int outputs_saved = emulator__dump_xmem_to_binary(
-        ipu->xmem, outputs_file, OUTPUT_BASE_ADDR, IPU__RD_REG_SIZE_BYTES, SAMPLES_NUM);
-    
+        ipu->xmem, outputs_file, OUTPUT_BASE_ADDR, OUTPUT_NEURONS * sizeof(uint32_t), SAMPLES_NUM);
+
     if (outputs_saved < 0)
     {
         LOG_ERROR("Failed to save outputs");
@@ -142,8 +164,7 @@ int main(int argc, char **argv)
         .max_cycles = 1000000,
         .progress_interval = 100,
         .setup = ipu_setup,
-        .teardown = ipu_teardown
-    };
-    
+        .teardown = ipu_teardown};
+
     return emulator__run_test(argc, argv, &config);
 }

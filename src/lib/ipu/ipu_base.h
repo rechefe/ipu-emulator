@@ -2,34 +2,32 @@
 #define IPU_BASE_H
 
 #include <stdint.h>
+#include <stdbool.h>
+
+// Ensure compiler/target supports 128-bit integers
+#if !defined(__SIZEOF_INT128__)
+#error "__uint128_t not supported by this compiler/target"
+#endif
 #include "xmem/xmem.h"
 #include "ipu_math/ipu_math.h"
 #include "src/tools/ipu-as-py/inst_parser.h"
 
 // IPU register and memory size definitions
 #define IPU__R_REG_SIZE_BYTES 128
-#define IPU__WORD_SIZE_BYTES 4
-#define IPU__R_REG_SIZE_WORDS (IPU__R_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
 
-#define IPU__R_REGS_NUM 12
+// Mult regfile size definitions
+#define IPU__MULT_STAGES_REGFILE_NUM_OF_R_REGS 2
+#define IPU__R_CYCLIC_REG_SIZE_BYTES 512
 
-#define IPU__RD_SIZE_IN_R_REGS 2
-#define IPU__RD_REGS_NUM (IPU__R_REGS_NUM / IPU__RD_SIZE_IN_R_REGS) 
-
-#define IPU__RQ_SIZE_IN_R_REGS 4
-#define IPU__RQ_REGS_NUM (IPU__R_REGS_NUM / IPU__RQ_SIZE_IN_R_REGS)
+// Accumulator regfile size definitions
+#define IPU__R_ACC_REG_SIZE_BYTES 512
+#define IPU__R_ACC_REG_SIZE_WORDS (IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t))
 
 #define IPU__LR_REGS_NUM 16
 #define IPU__CR_REGS_NUM 16
 
 // CR Register indices
-#define IPU__CR_DTYPE_REG 15  // CR[15] holds the data type for MAC operations
-
-#define IPU__RD_REG_SIZE_BYTES (IPU__R_REG_SIZE_BYTES * IPU__RD_SIZE_IN_R_REGS)
-#define IPU__RD_REG_SIZE_WORDS (IPU__RD_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
-
-#define IPU__RQ_REG_SIZE_BYTES (IPU__R_REG_SIZE_BYTES * IPU__RQ_SIZE_IN_R_REGS)
-#define IPU__RQ_REG_SIZE_WORDS (IPU__RQ_REG_SIZE_BYTES / IPU__WORD_SIZE_BYTES)
+#define IPU__CR_DTYPE_REG 15 // CR[15] holds the data type for MAC operations
 
 // Data type parameters
 #define IPU__UINT4T_BITS 4
@@ -50,24 +48,50 @@ typedef union
 } ipu__uint8_t_as_uint4_t_t;
 
 // Register types
-typedef union
+// IPU register file
+
+typedef struct
 {
     uint8_t bytes[IPU__R_REG_SIZE_BYTES];
-    uint32_t words[IPU__R_REG_SIZE_WORDS];
 } ipu__r_reg_t;
 
-typedef union
+typedef struct
 {
-    uint8_t bytes[IPU__RQ_REG_SIZE_BYTES];
-    uint32_t words[IPU__RQ_REG_SIZE_WORDS];
-} ipu__rq_reg_t;
+    uint8_t bytes[IPU__R_CYCLIC_REG_SIZE_BYTES];
+} ipu__r_cyclic_reg_t;
 
-// IPU register file
+
+typedef __uint128_t ipu__mask_t; 
+typedef union 
+{
+    ipu__mask_t masks[IPU__R_REG_SIZE_BYTES / sizeof(ipu__mask_t)];
+    uint8_t bytes[IPU__R_REG_SIZE_BYTES];
+} ipu__r_mask_reg_t;
+
+
+typedef struct
+{
+    ipu__r_reg_t r_regs[IPU__MULT_STAGES_REGFILE_NUM_OF_R_REGS];
+    ipu__r_cyclic_reg_t r_cyclic_reg;
+    ipu__r_mask_reg_t r_mask;
+} ipu__mult_stage_regfile_t;
+
+typedef struct
+{
+    uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
+    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t)];
+} ipu__rt_from_r_acc_t;
+
 typedef union
 {
-    ipu__r_reg_t r_regs[IPU__R_REGS_NUM];
-    ipu__rq_reg_t rq_regs[IPU__RQ_REGS_NUM];
-} ipu__rx_regfile_t;
+    uint8_t bytes[IPU__R_ACC_REG_SIZE_BYTES];
+    uint32_t words[IPU__R_ACC_REG_SIZE_BYTES / sizeof(uint32_t)];
+} ipu__r_acc_reg_t;
+
+typedef struct
+{
+    ipu__r_acc_reg_t r_acc;
+} ipu__acc_stage_regfile_t;
 
 typedef struct
 {
@@ -81,14 +105,16 @@ typedef struct
 
 typedef struct
 {
-    ipu__rx_regfile_t rx_regfile;
+    ipu__acc_stage_regfile_t acc_stage_regfile;
+    ipu__mult_stage_regfile_t mult_stage_regfile;
     ipu__lr_regfile_t lr_regfile;
     ipu__cr_regfile_t cr_regfile;
 } ipu__regfile_t;
 
 typedef struct
 {
-    ipu__r_reg_t mem_bypass_reg;
+    ipu__r_acc_reg_t mult_res; 
+    ipu__r_reg_t mem_bypass_r_reg;
 } ipu__misc_t;
 
 typedef struct

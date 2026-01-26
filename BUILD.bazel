@@ -23,10 +23,11 @@ cc_library(
     srcs = ["src/lib/ipu/ipu_base.c"],
     hdrs = ["src/lib/ipu/ipu_base.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
-        ":xmem",
         ":ipu_math",
         ":logger",
+        ":xmem",
         "//src/tools/ipu-as-py:inst_parser",
     ],
 )
@@ -36,6 +37,7 @@ cc_library(
     srcs = ["src/lib/ipu/ipu_regfile.c"],
     hdrs = ["src/lib/ipu/ipu_regfile.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu_base",
         ":xmem",
@@ -47,6 +49,7 @@ cc_library(
     srcs = ["src/lib/ipu/ipu_xmem_inst.c"],
     hdrs = ["src/lib/ipu/ipu_xmem_inst.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu_base",
         ":ipu_regfile",
@@ -59,6 +62,7 @@ cc_library(
     srcs = ["src/lib/ipu/ipu_lr_inst.c"],
     hdrs = ["src/lib/ipu/ipu_lr_inst.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu_base",
         ":ipu_regfile",
@@ -67,10 +71,25 @@ cc_library(
 )
 
 cc_library(
-    name = "ipu_mac_inst",
-    srcs = ["src/lib/ipu/ipu_mac_inst.c"],
-    hdrs = ["src/lib/ipu/ipu_mac_inst.h"],
+    name = "ipu_mult_inst",
+    srcs = ["src/lib/ipu/ipu_mult_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_mult_inst.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
+    deps = [
+        ":ipu_base",
+        ":ipu_math",
+        ":ipu_regfile",
+        ":logger",
+    ],
+)
+
+cc_library(
+    name = "ipu_acc_inst",
+    srcs = ["src/lib/ipu/ipu_acc_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_acc_inst.h"],
+    includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu_base",
         ":ipu_math",
@@ -84,6 +103,7 @@ cc_library(
     srcs = ["src/lib/ipu/ipu_cond_inst.c"],
     hdrs = ["src/lib/ipu/ipu_cond_inst.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu_base",
         ":logger",
@@ -95,11 +115,13 @@ cc_library(
     srcs = ["src/lib/ipu/ipu.c"],
     hdrs = ["src/lib/ipu/ipu.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
+        ":ipu_acc_inst",
         ":ipu_base",
         ":ipu_cond_inst",
         ":ipu_lr_inst",
-        ":ipu_mac_inst",
+        ":ipu_mult_inst",
         ":ipu_regfile",
         ":ipu_xmem_inst",
     ],
@@ -130,6 +152,7 @@ cc_library(
     srcs = ["src/lib/emulator/emulator.c"],
     hdrs = ["src/lib/emulator/emulator.h"],
     includes = ["src/lib"],
+    copts = ["-std=gnu17"],
     deps = [
         ":ipu",
         ":logger",
@@ -159,24 +182,42 @@ cc_test(
 )
 
 cc_test(
-    name = "ipu_tests",
-    size = "small",
-    srcs = ["test/test_ipu.cpp"],
-    deps = [
-        ":ipu",
-        ":logger",
-        ":xmem",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
     name = "fp_tests",
     size = "small",
     srcs = ["test/test_fp.cpp"],
     deps = [
         ":fp",
         ":xmem",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "ipu_test_helper",
+    hdrs = ["test/ipu_test_helper.h"],
+    includes = ["test"],
+    deps = [
+        ":emulator",
+        ":fp",
+        ":ipu",
+        ":logger",
+        ":xmem",
+        "@googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "ipu_emulator_tests",
+    size = "medium",
+    srcs = ["test/test_ipu_emulator.cpp"],
+    data = [
+        "//src/tools/ipu-as-py:ipu-as",
+    ],
+    env = {
+        "IPU_ASSEMBLER": "$(location //src/tools/ipu-as-py:ipu-as)",
+    },
+    deps = [
+        ":ipu_test_helper",
         "@googletest//:gtest_main",
     ],
 )

@@ -17,8 +17,10 @@ class XmemInstOpcode(Opcode):
     @classmethod
     def enum_array(cls):
         return [
-            "str",
-            "ldr",
+            "str_acc_reg",
+            "ldr_mult_reg",
+            "ldr_cyclic_mult_reg",
+            "ldr_mult_mask_reg",
             "xmem_nop",
         ]
 
@@ -31,6 +33,23 @@ class LrInstOpcode(Opcode):
             "set",
         ]
 
+
+class MultInstOpcode(Opcode):
+    @classmethod
+    def enum_array(cls):
+        return [
+            "mult.ee",
+            "mult.ev",
+            "mult_nop",
+        ]
+class AccInstOpcode(Opcode):
+    @classmethod
+    def enum_array(cls):
+        return [
+            "acc",
+            "reset_acc",
+            "acc_nop",
+        ]
 
 class MacInstOpcode(Opcode):
     @classmethod

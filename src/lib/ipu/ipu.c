@@ -1,8 +1,4 @@
 #include "ipu.h"
-#include "ipu_xmem_inst.h"
-#include "ipu_lr_inst.h"
-#include "ipu_mac_inst.h"
-#include "ipu_cond_inst.h"
 #include <string.h>
 #include <assert.h>
 
@@ -23,7 +19,8 @@ void ipu__execute_next_instruction(ipu__obj_t *ipu)
     // Execute all subinstructions in parallel using the snapshot and fetched instruction
     ipu__execute_xmem_instruction(ipu, inst, &regfile_snapshot);
     ipu__execute_lr_instruction(ipu, inst, &regfile_snapshot);
-    ipu__execute_mac_instruction(ipu, inst, &regfile_snapshot);
+    ipu__execute_mult_instruction(ipu, inst, &regfile_snapshot);
+    ipu__execute_acc_instruction(ipu, inst, &regfile_snapshot);
     ipu__execute_cond_instruction(ipu, inst, &regfile_snapshot);
 }
 

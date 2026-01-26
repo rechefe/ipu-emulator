@@ -11,13 +11,9 @@
 // Data type enumeration
 typedef enum
 {
-    IPU_MATH__DTYPE_INT4_LOWER, // INT4 in lower nibble
-    IPU_MATH__DTYPE_INT4_UPPER, // INT4 in upper nibble
     IPU_MATH__DTYPE_INT8,
-    IPU_MATH__DTYPE_FP4,
     IPU_MATH__DTYPE_FP8_E4M3,
-    IPU_MATH__DTYPE_FP8_E5M2,
-    IPU_MATH__DTYPE_FP16
+    IPU_MATH__DTYPE_FP8_E5M2
 } ipu_math__dtype_t;
 
 // Generic operations - work on any data type

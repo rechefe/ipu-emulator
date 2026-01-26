@@ -9,9 +9,16 @@ def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
     # Import here to avoid circular dependencies
     from ipu_as.inst import Inst
+    from ipu_as.compound_inst import CompoundInst
     
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append("This document describes all available IPU assembly instructions.\n")
+    
+    # Add compound instruction layout visualization
+    content.append("## Compound Instruction Layout\n")
+    svg_content = CompoundInst.generate_fields_svg()
+    content.append(svg_content)
+    content.append("\n---\n\n")
     
     for inst_class in Inst.get_all_instruction_classes():
         content.append(inst_class.description())
