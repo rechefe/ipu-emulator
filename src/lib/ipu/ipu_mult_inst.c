@@ -1,5 +1,6 @@
 #include "ipu_mult_inst.h"
 #include "ipu_regfile.h"
+#include "logging/logger.h"
 
 void ipu__mult_instruction_mask_and_shift(
     ipu__obj_t *ipu,
@@ -53,8 +54,8 @@ void ipu__execute_mult_ev_instruction(ipu__obj_t *ipu,
     for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
     {
         ipu_math__mult(
-            &ra_reg_ptr->bytes[lr2_val % IPU__R_REG_SIZE_BYTES],
-            &rb_reg.bytes[i],
+            &ra_reg_ptr->bytes[i],
+            &rb_reg.bytes[lr2_val % IPU__R_REG_SIZE_BYTES],
             &ipu->misc.mult_res.words[i],
             ipu__get_cr_dtype(&ipu->regfile));
     }
