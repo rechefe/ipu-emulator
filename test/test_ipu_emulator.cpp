@@ -206,6 +206,204 @@ bkpt;;
     }
 }
 
+/**
+ * @brief Test mask register load
+ */
+TEST_F(IpuEmulatorTest, Memory_MaskRegisterLoad)
+{
+    // Prepare mask data
+    std::vector<uint8_t> mask_data(IPU__R_REG_SIZE_BYTES);
+    for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
+    {
+        mask_data[i] = (i + 1) & 0xFF; // Pattern: 1, 2, 3, ... 127, 0
+    }
+    helper.WriteXmem(0x6000, mask_data);
+
+    std::string asm_code = R"(
+set lr0 0x6000;;  # Base address
+ldr_mult_mask_reg lr0 cr0;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    // Verify instruction executed
+    EXPECT_EQ(helper.GetLr(0), 0x6000);
+
+    // Verify mask register loaded correctly
+    std::vector<uint8_t> loaded_mask = helper.GetMaskBytes(0, IPU__R_REG_SIZE_BYTES);
+    for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++)
+    {
+        EXPECT_EQ(loaded_mask[i], mask_data[i])
+            << "Mask register byte " << i << " should match loaded data";
+    }
+}
+
+/**
+ * @brief Test that mask register affects multiplication accumulation
+ */
+TEST_F(IpuEmulatorTest, Memory_MaskAffectsMultiplication)
+{
+    // Prepare data: r0 = all 2s, cyclic = all 3s
+    std::vector<uint8_t> r0_data(IPU__R_REG_SIZE_BYTES, 2);
+    std::vector<uint8_t> cyclic_data(IPU__R_CYCLIC_REG_SIZE_BYTES, 3);
+    
+    // Generate a mask - 64 bits of 1 and 64 bits of 0 out of the 
+    // first 128 bits (which are the first mask register bytes)
+    // Meaning that first 64 bytes will be masked out (set to 0)
+    std::vector<uint8_t> mask_data(IPU__R_REG_SIZE_BYTES, 0);
+    for (int i = 0; i < 8; i++)
+    {
+        mask_data[i] = 0xFF;
+    }
+
+    helper.WriteXmem(0x1000, r0_data);
+    helper.WriteXmem(0x2000, cyclic_data);
+    helper.WriteXmem(0x3000, mask_data);
+
+    std::string asm_code = R"(
+# Load r0 with data (all 2s)
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+
+# Load cyclic register (all 3s)
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+
+# Load mask register
+set lr3 0x3000;;
+ldr_mult_mask_reg lr3 cr0;;
+
+# Reset accumulator
+reset_acc;;
+
+# Perform element-wise multiplication with mask
+set lr4 0;;      # Mask index (use mask 0)
+set lr5 0;;      # Shift amount
+set lr6 0;;      # Cyclic register base index
+mult.ee r0 lr6 lr4 lr5;
+acc;;
+
+# Store result
+set lr9 0x4000;;
+str_acc_reg lr9 cr0;;
+
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    // Read back the stored accumulator data
+    auto acc_result_bytes = helper.ReadXmem(0x4000, IPU__R_ACC_REG_SIZE_BYTES);
+    auto* acc_result_words = reinterpret_cast<uint32_t*>(acc_result_bytes.data());
+
+    // First 64 bytes (words 0-63) should be 0 because they were masked out
+    for (size_t i = 0; i < 64; i++)
+    {
+        EXPECT_EQ(acc_result_words[i], 0)
+            << "Accumulator word " << i << " should be 0 (masked out)";
+    }
+
+    // Last 64 bytes (words 64-127) should be 6 (2 * 3) because they were not masked
+    for (size_t i = 64; i < 128; i++)
+    {
+        EXPECT_EQ(acc_result_words[i], 6)
+            << "Accumulator word " << i << " should be 6 (not masked)";
+    }
+}
+
+/**
+ * @brief Test mask register with shift and different mask index
+ */
+TEST_F(IpuEmulatorTest, Memory_MaskWithShift)
+{
+    // Prepare data: r0 = all 5s, cyclic = all 4s
+    std::vector<uint8_t> r0_data(IPU__R_REG_SIZE_BYTES, 5);
+    std::vector<uint8_t> cyclic_data(IPU__R_CYCLIC_REG_SIZE_BYTES, 4);
+    
+    // Create mask data with multiple masks
+    // Mask register is 128 bytes = 8 masks of 16 bytes (128 bits) each
+    // We'll use mask index 1 (bytes 16-31)
+    std::vector<uint8_t> mask_data(IPU__R_REG_SIZE_BYTES, 0);
+    
+    // Set mask 1 (bytes 16-31): pattern of 0xFF in first 4 bytes
+    // This creates a 32-bit pattern of all 1s at the start
+    for (int i = 16; i < 20; i++)
+    {
+        mask_data[i] = 0xFF;
+    }
+
+    helper.WriteXmem(0x1000, r0_data);
+    helper.WriteXmem(0x2000, cyclic_data);
+    helper.WriteXmem(0x3000, mask_data);
+
+    std::string asm_code = R"(
+# Load r0 with data (all 5s)
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+
+# Load cyclic register (all 4s)
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+
+# Load mask register
+set lr3 0x3000;;
+ldr_mult_mask_reg lr3 cr0;;
+
+# Reset accumulator
+reset_acc;;
+
+# Perform element-wise multiplication with mask index 1, shift left by 16 bits
+set lr4 1;;      # Mask index (use mask 1, which is at bytes 16-31)
+set lr5 16;;     # Shift amount (shift left by 16 bits)
+set lr6 0;;      # Cyclic register base index
+mult.ee r0 lr6 lr4 lr5;
+acc;;
+
+# Store result
+set lr9 0x4000;;
+str_acc_reg lr9 cr0;;
+
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    // Read back the stored accumulator data
+    auto acc_result_bytes = helper.ReadXmem(0x4000, IPU__R_ACC_REG_SIZE_BYTES);
+    auto* acc_result_words = reinterpret_cast<uint32_t*>(acc_result_bytes.data());
+
+    // With the mask pattern 0xFFFFFFFF (32 bits) shifted left by 16 bits,
+    // bits 16-47 will be set, meaning words 16-47 should be masked (0)
+    // and the rest should be 20 (5 * 4)
+    
+    // Words 0-15: not masked, should be 20
+    for (size_t i = 0; i < 16; i++)
+    {
+        EXPECT_EQ(acc_result_words[i], 20)
+            << "Accumulator word " << i << " should be 20 (not masked)";
+    }
+
+    // Words 16-47: masked out, should be 0
+    for (size_t i = 16; i < 48; i++)
+    {
+        EXPECT_EQ(acc_result_words[i], 0)
+            << "Accumulator word " << i << " should be 0 (masked out)";
+    }
+
+    // Words 48-127: not masked, should be 20
+    for (size_t i = 48; i < 128; i++)
+    {
+        EXPECT_EQ(acc_result_words[i], 20)
+            << "Accumulator word " << i << " should be 20 (not masked)";
+    }
+}
+
 // ============================================================================
 // Control Flow Tests
 // ============================================================================

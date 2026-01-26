@@ -490,6 +490,65 @@ public:
         }
     }
 
+    // ========== Mask Register (r_mask) ==========
+
+    /**
+     * @brief Get byte value from mask register
+     * @param byte_idx Index into register (0-127)
+     */
+    uint8_t GetMaskByte(int byte_idx)
+    {
+        EXPECT_GE(byte_idx, 0);
+        EXPECT_LT(byte_idx, IPU__R_REG_SIZE_BYTES);
+        return ipu_->regfile.mult_stage_regfile.r_mask.bytes[byte_idx];
+    }
+
+    /**
+     * @brief Get multiple bytes from mask register as a vector
+     * @param offset Starting byte offset
+     * @param count Number of bytes to read
+     */
+    std::vector<uint8_t> GetMaskBytes(int offset, int count)
+    {
+        EXPECT_GE(offset, 0);
+        EXPECT_LE(offset + count, IPU__R_REG_SIZE_BYTES);
+        
+        std::vector<uint8_t> result(count);
+        for (int i = 0; i < count; i++)
+        {
+            result[i] = ipu_->regfile.mult_stage_regfile.r_mask.bytes[offset + i];
+        }
+        return result;
+    }
+
+    /**
+     * @brief Set byte value in mask register
+     * @param byte_idx Index into register (0-127)
+     * @param value Value to set
+     */
+    void SetMaskByte(int byte_idx, uint8_t value)
+    {
+        EXPECT_GE(byte_idx, 0);
+        EXPECT_LT(byte_idx, IPU__R_REG_SIZE_BYTES);
+        ipu_->regfile.mult_stage_regfile.r_mask.bytes[byte_idx] = value;
+    }
+
+    /**
+     * @brief Set multiple bytes in mask register from a vector
+     * @param offset Starting byte offset
+     * @param data Vector of bytes to write
+     */
+    void SetMaskBytes(int offset, const std::vector<uint8_t> &data)
+    {
+        EXPECT_GE(offset, 0);
+        EXPECT_LE(offset + data.size(), IPU__R_REG_SIZE_BYTES);
+        
+        for (size_t i = 0; i < data.size(); i++)
+        {
+            ipu_->regfile.mult_stage_regfile.r_mask.bytes[offset + i] = data[i];
+        }
+    }
+
 private:
     ipu__obj_t *ipu_;
     uint32_t max_cycles_;
