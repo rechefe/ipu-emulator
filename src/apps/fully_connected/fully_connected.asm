@@ -17,8 +17,7 @@ element_loop:
     incr                lr5 1;
     mult.ev             mem_bypass lr5 lr15 lr15;
     acc;
-    blt                 lr5 lr6 element_loop;
-    break.ifeq lr5 0;;
+    blt                 lr5 lr6 element_loop;;
 
     str_acc_reg         lr7 cr2;
     incr                lr7 256;
