@@ -111,6 +111,18 @@ cc_library(
 )
 
 cc_library(
+    name = "ipu_break_inst",
+    srcs = ["src/lib/ipu/ipu_break_inst.c"],
+    hdrs = ["src/lib/ipu/ipu_break_inst.h"],
+    includes = ["src/lib"],
+    copts = ["-std=gnu17"],
+    deps = [
+        ":ipu_base",
+        ":logger",
+    ],
+)
+
+cc_library(
     name = "ipu",
     srcs = ["src/lib/ipu/ipu.c"],
     hdrs = ["src/lib/ipu/ipu.h"],
@@ -119,6 +131,7 @@ cc_library(
     deps = [
         ":ipu_acc_inst",
         ":ipu_base",
+        ":ipu_break_inst",
         ":ipu_cond_inst",
         ":ipu_lr_inst",
         ":ipu_mult_inst",
@@ -155,8 +168,27 @@ cc_library(
     copts = ["-std=gnu17"],
     deps = [
         ":ipu",
+        ":ipu_debug",
         ":logger",
         ":xmem",
+    ],
+)
+
+cc_library(
+    name = "ipu_debug",
+    srcs = ["src/lib/debug/ipu_debug.cpp"],
+    hdrs = ["src/lib/debug/ipu_debug.h"],
+    includes = ["src/lib"],
+    copts = ["-std=c++17"],
+    deps = [
+        ":ipu",
+        ":ipu_acc_inst",
+        ":ipu_cond_inst",
+        ":ipu_lr_inst",
+        ":ipu_mult_inst",
+        ":ipu_xmem_inst",
+        ":logger",
+        "//src/tools/ipu-as-py:inst_parser",
     ],
 )
 

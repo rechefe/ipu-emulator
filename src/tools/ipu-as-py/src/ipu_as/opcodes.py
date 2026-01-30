@@ -81,6 +81,16 @@ class CondInstOpcode(Opcode):
         ]
 
 
+class BreakInstOpcode(Opcode):
+    @classmethod
+    def enum_array(cls):
+        return [
+            "break",
+            "break.ifeq",
+            "break_nop",
+        ]
+
+
 def validate_unique_opcodes():
     opcodes_subclasses = Opcode.__subclasses__()
     opcode_to_class = {}

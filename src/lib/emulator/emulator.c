@@ -1,4 +1,5 @@
 #include "emulator.h"
+#include "debug/ipu_debug.h"
 #include "fp/fp.h"
 #include "ipu/ipu.h"
 #include <string.h>
@@ -26,7 +27,92 @@ int emulator__run_until_complete(ipu__obj_t *ipu, uint32_t max_cycles, uint32_t 
             break;
         }
 
-        ipu__execute_next_instruction(ipu);
+        ipu__break_result_t result = ipu__execute_next_instruction(ipu);
+        (void)result; // Ignore break result in non-debug mode
+        cycle_count++;
+
+        if (cycle_count % cycles_to_print_progress == 0)
+        {
+            LOG_INFO("Executed %u cycles, PC=%u", cycle_count, ipu->program_counter);
+        }
+    }
+
+    if (cycle_count >= max_cycles)
+    {
+        LOG_WARN("Execution stopped: Maximum cycle limit (%u) reached", max_cycles);
+        return -1;
+    }
+
+    LOG_INFO("IPU execution finished after %u cycles", cycle_count);
+    return cycle_count;
+}
+
+/**
+ * @brief Run the IPU with debug support
+ */
+int emulator__run_with_debug(
+    ipu__obj_t *ipu,
+    uint32_t max_cycles,
+    uint32_t cycles_to_print_progress,
+    emulator__debug_config_t *debug_config)
+{
+    LOG_INFO("Starting IPU execution with debug mode...");
+
+    uint32_t cycle_count = 0;
+    bool step_mode = false;  // When true, break after each instruction
+
+    while (cycle_count < max_cycles)
+    {
+        // Check if PC is out of bounds (indicates end of program)
+        if (ipu->program_counter >= IPU__INST_MEM_SIZE)
+        {
+            LOG_INFO("Execution complete: PC out of bounds (halted)");
+            break;
+        }
+
+        ipu__break_result_t result = ipu__execute_next_instruction(ipu);
+        
+        // Check for break or step mode
+        if ((result == IPU_BREAK_RESULT_BREAK || step_mode) && debug_config->enabled)
+        {
+            if (result == IPU_BREAK_RESULT_BREAK)
+            {
+                LOG_INFO("Break triggered at PC=%u, entering debug prompt...", ipu->program_counter);
+            }
+            else
+            {
+                LOG_INFO("Step complete at PC=%u", ipu->program_counter);
+            }
+            
+            ipu_debug__action_t action = ipu_debug__enter_prompt(ipu, debug_config->level);
+            
+            switch (action)
+            {
+                case IPU_DEBUG_ACTION_CONTINUE:
+                    step_mode = false;
+                    if (result == IPU_BREAK_RESULT_BREAK)
+                    {
+                        // We hit a break and didn't execute the rest of the instruction
+                        // Execute it now, skipping the break check
+                        ipu__execute_instruction_skip_break(ipu);
+                    }
+                    break;
+                    
+                case IPU_DEBUG_ACTION_STEP:
+                    step_mode = true;
+                    if (result == IPU_BREAK_RESULT_BREAK)
+                    {
+                        // Execute current instruction (skipping break)
+                        ipu__execute_instruction_skip_break(ipu);
+                    }
+                    break;
+                    
+                case IPU_DEBUG_ACTION_QUIT:
+                    LOG_INFO("Debug quit - halting execution");
+                    return cycle_count;
+            }
+        }
+        
         cycle_count++;
 
         if (cycle_count % cycles_to_print_progress == 0)
@@ -93,8 +179,17 @@ int emulator__run_test(int argc, char **argv, emulator__test_config_t *config)
         config->setup(ipu, argc, argv);
     }
 
-    // Run the IPU until completion
-    int cycles = emulator__run_until_complete(ipu, config->max_cycles, config->progress_interval);
+    // Run the IPU until completion (with debug if enabled)
+    int cycles;
+    if (config->debug_config.enabled)
+    {
+        emulator__debug_config_t debug_cfg = config->debug_config;
+        cycles = emulator__run_with_debug(ipu, config->max_cycles, config->progress_interval, &debug_cfg);
+    }
+    else
+    {
+        cycles = emulator__run_until_complete(ipu, config->max_cycles, config->progress_interval);
+    }
 
     if (cycles < 0)
     {

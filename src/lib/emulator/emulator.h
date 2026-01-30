@@ -1,19 +1,48 @@
+#ifndef EMULATOR_H
+#define EMULATOR_H
+
 #include "ipu/ipu.h"
+#include "debug/ipu_debug.h"
 #include "logging/logger.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+
+/**
+ * @brief Debug configuration for the emulator
+ */
+typedef struct {
+    bool enabled;                   // Whether debug mode is enabled
+    ipu_debug__level_t level;       // Debug level (0-2)
+} emulator__debug_config_t;
 
 /**
  * @brief Run the IPU until execution completes
  *
  * @param ipu The IPU object to execute
  * @param max_cycles Maximum number of cycles to execute (safety limit)
+ * @param cycles_to_print_progress Print progress every N cycles
  * @return Number of cycles executed, or -1 on error
  */
 int emulator__run_until_complete(
     ipu__obj_t *ipu,
     uint32_t max_cycles,
     uint32_t cycles_to_print_progress);
+
+/**
+ * @brief Run the IPU with debug support
+ *
+ * @param ipu The IPU object to execute
+ * @param max_cycles Maximum number of cycles to execute (safety limit)
+ * @param cycles_to_print_progress Print progress every N cycles
+ * @param debug_config Debug configuration
+ * @return Number of cycles executed, or -1 on error
+ */
+int emulator__run_with_debug(
+    ipu__obj_t *ipu,
+    uint32_t max_cycles,
+    uint32_t cycles_to_print_progress,
+    emulator__debug_config_t *debug_config);
 
 /**
  * @brief Configuration for a generic IPU test
@@ -24,6 +53,7 @@ typedef struct {
     uint32_t progress_interval;          // How often to print progress
     void (*setup)(ipu__obj_t *ipu, int argc, char **argv);   // Custom setup function
     void (*teardown)(ipu__obj_t *ipu, int argc, char **argv); // Custom teardown function
+    emulator__debug_config_t debug_config; // Debug configuration
 } emulator__test_config_t;
 
 /**
@@ -90,3 +120,5 @@ int emulator__dump_xmem_to_binary(
     uint32_t base_addr,
     size_t chunk_size,
     size_t num_chunks);
+
+#endif // EMULATOR_H
