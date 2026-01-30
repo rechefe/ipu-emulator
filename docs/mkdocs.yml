@@ -49,6 +49,7 @@ nav:
   - Getting Started:
       - Setup: setup.md
       - Building Applications: building-applications.md
+      - Debugging: debugging.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:

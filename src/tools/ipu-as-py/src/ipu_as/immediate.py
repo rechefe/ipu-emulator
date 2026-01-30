@@ -5,3 +5,10 @@ class LrImmediateType(ipu_token.NumberToken):
     @classmethod
     def bits(cls) -> int:
         return 16
+
+
+class BreakImmediateType(ipu_token.NumberToken):
+    """Immediate value for break.ifeq condition comparison."""
+    @classmethod
+    def bits(cls) -> int:
+        return 16

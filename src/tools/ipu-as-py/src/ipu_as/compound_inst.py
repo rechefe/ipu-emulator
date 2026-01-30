@@ -59,7 +59,9 @@ class CompoundInst:
     def instruction_types(cls) -> list[type[inst.Inst]]:
         # Define the instruction slots in order (with duplicates for multiple instances)
         # Order matters for encoding/decoding
+        # BreakInst is first to ensure it runs before any side effects
         return [
+            inst.BreakInst,
             inst.XmemInst,
             inst.MultInst,
             inst.AccInst,
@@ -145,6 +147,7 @@ class CompoundInst:
         """
         # Define colors for each instruction type
         color_map = {
+            inst.BreakInst: "#FFD93D",    # Yellow - debug/warning color
             inst.XmemInst: "#FF6B6B",     # Red
             inst.MultInst: "#4ECDC4",     # Teal
             inst.AccInst: "#45B7D1",      # Blue

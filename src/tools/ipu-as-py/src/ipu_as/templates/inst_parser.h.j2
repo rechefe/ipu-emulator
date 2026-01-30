@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 {% for enum in enums -%}
 typedef enum 
 {
@@ -12,6 +16,9 @@ typedef enum
     {%- endfor %}
 } inst_parser__{{ enum }}_t;
 
+{% for value, name in enums[enum] -%}
+#define INST_PARSER__{{ enum | upper }}_{{ name | upper }}_STR "{{ name | lower }}"
+{% endfor %}
 {% endfor -%}
 
 typedef struct __attribute__((packed)) 
@@ -23,5 +30,21 @@ typedef struct __attribute__((packed))
 
 void inst_parser__print_inst(inst_parser__inst_t* inst);
 void inst_parser__read_inst_from_file(FILE* file, inst_parser__inst_t* inst);
+
+/**
+ * @brief Disassemble an instruction to a human-readable string
+ * 
+ * Returns a single-line string representation of the instruction.
+ * The returned string is statically allocated and will be overwritten
+ * on the next call.
+ * 
+ * @param inst Pointer to the instruction to disassemble
+ * @return Null-terminated string with disassembled instruction
+ */
+const char* inst_parser__disassemble(inst_parser__inst_t* inst);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

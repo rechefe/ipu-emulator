@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define SAMPLES_NUM 10
 
@@ -159,12 +160,30 @@ void ipu_teardown(ipu__obj_t *ipu, int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+    // Check for --debug flag
+    bool debug_enabled = false;
+    int debug_level = 1;  // Default to level 1 (with disassembly)
+    
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--debug") == 0) {
+            debug_enabled = true;
+        } else if (strncmp(argv[i], "--debug-level=", 14) == 0) {
+            debug_level = atoi(argv[i] + 14);
+            debug_enabled = true;
+        }
+    }
+
     emulator__test_config_t config = {
         .test_name = "IPU Fully Connected Layer Example",
         .max_cycles = 1000000,
         .progress_interval = 100,
         .setup = ipu_setup,
-        .teardown = ipu_teardown};
+        .teardown = ipu_teardown,
+        .debug_config = {
+            .enabled = debug_enabled,
+            .level = (ipu_debug__level_t)debug_level
+        }
+    };
 
     return emulator__run_test(argc, argv, &config);
 }

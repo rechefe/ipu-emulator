@@ -800,3 +800,75 @@ class CondInst(Inst):
             heading="Conditional Branch Instructions",
             intro="Control flow instructions for branching based on conditions or unconditionally.",
         )
+
+
+@validate_inst_structure
+class BreakInst(Inst):
+    @classmethod
+    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
+        return [reg.LrRegField, immediate.BreakImmediateType]
+
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.BreakInstOpcode
+
+    @classmethod
+    def struct_by_opcode_table(
+        cls,
+    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
+        return {
+            "break": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="Unconditional Break",
+                    summary="Unconditionally halt execution and enter debug mode.",
+                    syntax="break",
+                    operands=[],
+                    operation="halt; enter debug prompt",
+                    example="break;;",
+                ),
+            ),
+            "break.ifeq": InstructionFormat(
+                operands=[reg.LrRegField, immediate.BreakImmediateType],
+                doc=InstructionDoc(
+                    title="Conditional Break if Equal",
+                    summary="Halt execution and enter debug mode if LR register equals immediate value.",
+                    syntax="break.ifeq Lr imm",
+                    operands=[
+                        "Lr: Loop register to compare",
+                        "imm: Immediate value to compare against",
+                    ],
+                    operation="if (Lr == imm) halt; enter debug prompt",
+                    example="break.ifeq lr0 5;;",
+                ),
+            ),
+            "break_nop": InstructionFormat(
+                operands=[],
+                doc=InstructionDoc(
+                    title="No Operation",
+                    summary="No operation for the break slot.",
+                    syntax="break_nop",
+                    operands=[],
+                    example="break_nop;;",
+                ),
+            ),
+        }
+
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return BreakInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "break_nop", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="Break Instructions",
+            intro="Debug break instructions for halting execution and entering debug mode.",
+        )

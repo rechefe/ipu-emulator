@@ -1,4 +1,17 @@
 #include "inst_parser.h"
+#include <string.h>
+
+// Static buffer for disassembly output
+static char disasm_buffer[1024];
+
+// Opcode name lookup tables
+{% for enum in enums -%}
+static const char* {{ enum }}_names[] = {
+    {%- for value, name in enums[enum] %}
+    "{{ name | lower }}"{% if not loop.last %},{% endif %}
+    {%- endfor %}
+};
+{% endfor %}
 
 void inst_parser__print_inst(inst_parser__inst_t* inst) {
     printf("Instruction Fields:\n");
@@ -9,4 +22,88 @@ void inst_parser__print_inst(inst_parser__inst_t* inst) {
 
 void inst_parser__read_inst_from_file(FILE* file, inst_parser__inst_t* inst) {
     fread(inst, sizeof(inst_parser__inst_t), 1, file);
+}
+
+const char* inst_parser__disassemble(inst_parser__inst_t* inst) {
+    char* ptr = disasm_buffer;
+    int remaining = sizeof(disasm_buffer);
+    int written;
+    int first_slot = 1;
+    
+{% for slot in slots %}
+    // Disassemble {{ slot.name }} slot
+    {
+        uint32_t opcode = inst->{{ slot.opcode_field }};
+        const char* opcode_name = {{ slot.opcode_enum }}_names[opcode];
+        
+        // Skip NOP instructions in disassembly output
+        if (strstr(opcode_name, "nop") == NULL) {
+            if (!first_slot) {
+                written = snprintf(ptr, remaining, "; ");
+                ptr += written;
+                remaining -= written;
+            }
+            first_slot = 0;
+            
+            written = snprintf(ptr, remaining, "%s", opcode_name);
+            ptr += written;
+            remaining -= written;
+            
+            // Add operands
+{% for operand in slot.operand_fields %}
+{% if 'lr_reg_field' in operand.type %}
+            written = snprintf(ptr, remaining, " lr%u", inst->{{ operand.name }});
+            ptr += written;
+            remaining -= written;
+{% elif 'cr_reg_field' in operand.type %}
+            written = snprintf(ptr, remaining, " cr%u", inst->{{ operand.name }});
+            ptr += written;
+            remaining -= written;
+{% elif 'lcr_reg_field' in operand.type %}
+            // LCR can be either LR or CR based on high bit
+            if (inst->{{ operand.name }} & 0x10) {
+                written = snprintf(ptr, remaining, " cr%u", inst->{{ operand.name }} & 0xF);
+            } else {
+                written = snprintf(ptr, remaining, " lr%u", inst->{{ operand.name }});
+            }
+            ptr += written;
+            remaining -= written;
+{% elif 'immediate' in operand.type %}
+            written = snprintf(ptr, remaining, " %u", inst->{{ operand.name }});
+            ptr += written;
+            remaining -= written;
+{% elif 'label_token' in operand.type %}
+            written = snprintf(ptr, remaining, " @%u", inst->{{ operand.name }});
+            ptr += written;
+            remaining -= written;
+{% elif 'mult_stage_reg_field' in operand.type %}
+            {
+                static const char* mult_reg_names[] = {"r0", "r1", "mem_bypass"};
+                uint32_t idx = inst->{{ operand.name }};
+                if (idx < 3) {
+                    written = snprintf(ptr, remaining, " %s", mult_reg_names[idx]);
+                } else {
+                    written = snprintf(ptr, remaining, " r?%u", idx);
+                }
+                ptr += written;
+                remaining -= written;
+            }
+{% else %}
+            written = snprintf(ptr, remaining, " %u", inst->{{ operand.name }});
+            ptr += written;
+            remaining -= written;
+{% endif %}
+{% endfor %}
+        }
+    }
+{% endfor %}
+    
+    // Add terminator
+    if (first_slot) {
+        snprintf(ptr, remaining, "(nop)");
+    } else {
+        snprintf(ptr, remaining, ";;");
+    }
+    
+    return disasm_buffer;
 }
