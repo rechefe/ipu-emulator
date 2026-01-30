@@ -40,6 +40,7 @@ class MultInstOpcode(Opcode):
         return [
             "mult.ee",
             "mult.ev",
+            "mult.ve",
             "mult_nop",
         ]
 class AccInstOpcode(Opcode):

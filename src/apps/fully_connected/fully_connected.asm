@@ -15,7 +15,7 @@ element_loop:
     ldr_mult_reg        mem_bypass lr4 cr1;
     incr                lr4 128;
     incr                lr5 1;
-    mult.ev             mem_bypass lr15 lr15 lr15 lr5;
+    mult.ev             mem_bypass lr5 lr15 lr15;
     acc;
     blt                 lr5 lr6 element_loop;;
 

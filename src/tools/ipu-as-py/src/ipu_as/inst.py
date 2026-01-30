@@ -374,7 +374,7 @@ class MultInst(Inst):
                     summary="Multiply elements of two registers element by element.",
                     syntax="mult.ee Ra LrCyclicOffset LrMaskOffset LrMaskShift",
                     operands=[
-                        "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
+                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
                         "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
                         "LrMaskOffset: offset to select mask from RM (mask register)",
                         "LrMaskShift: shift applied to the mask register",
@@ -386,7 +386,7 @@ for i in [0, 127]:
     else
         mult_result[i] = 0
 """,
-                    example="# Element-wise multiplication\nmult.ee r4 lr0;;",
+                    example="# Element-wise multiplication\nmult.ee r4 lr0 lr1 lr2;;",
                 ),
             ),
             "mult.ev": InstructionFormat(
@@ -395,18 +395,45 @@ for i in [0, 127]:
                     reg.LrRegField,
                     reg.LrRegField,
                     reg.LrRegField,
+                ],
+                doc=InstructionDoc(
+                    title="Element-Cyclic Multiply (Ra element, Cyclic fixed)",
+                    summary="Multiply Ra elements against a fixed element from cyclic register.",
+                    syntax="mult.ev Ra LrFixedCyclicIdx LrMaskOffset LrMaskShift",
+                    operands=[
+                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
+                        "LrFixedCyclicIdx: fixed index for element selection from cyclic register",
+                        "LrMaskOffset: offset to select mask from RM (mask register)",
+                        "LrMaskShift: shift applied to the mask register",
+                    ],
+                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
+for i in [0, 127]: 
+    if shifted_mask[i]:
+        mult_result[i] = Ra[i] * RC[LrFixedCyclicIdx % 512]
+    else
+        mult_result[i] = 0
+""",
+                    example="# Element multiply with fixed cyclic element\nmult.ev r4 lr0 lr1 lr2;;",
+                ),
+            ),
+            "mult.ve": InstructionFormat(
+                operands=[
+                    reg.MultStageRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
+                    reg.LrRegField,
                     reg.LrRegField,
                 ],
                 doc=InstructionDoc(
-                    title="Element-wise Multiply",
-                    summary="Multiply elements of two registers element by element.",
-                    syntax="mult.ee Ra LrCyclicOffset LrMaskOffset LrMaskShift LrFixedRaIdx",
+                    title="Vector-Element Multiply (Ra fixed, Cyclic element)",
+                    summary="Multiply a fixed element from Ra register against cyclic register elements.",
+                    syntax="mult.ve Ra LrCyclicOffset LrMaskOffset LrMaskShift LrFixedRaIdx",
                     operands=[
-                        "Ra: Multiplicand register - R multiplier register (r0, r1 or mem_bypass)",
+                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
                         "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
                         "LrMaskOffset: offset to select mask from RM (mask register)",
                         "LrMaskShift: shift applied to the mask register",
-                        "LrFixedRaIdx: fixed index for multiplication from Ra register",
+                        "LrFixedRaIdx: fixed index for element selection from Ra register",
                     ],
                     operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
 for i in [0, 127]: 
@@ -415,7 +442,7 @@ for i in [0, 127]:
     else
         mult_result[i] = 0
 """,
-                    example="# Element-wise multiplication\nmult.ee r4 lr0;;",
+                    example="# Fixed Ra element multiply with cyclic elements\nmult.ve r4 lr0 lr1 lr2 lr3;;",
                 ),
             ),
             "mult_nop": InstructionFormat(
