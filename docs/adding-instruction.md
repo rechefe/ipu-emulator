@@ -70,4 +70,95 @@ Notice -
 
 ## Emulator - Adding Instruction
 
-TODO - @eyal
+Once you've added the instruction to the assembler, you need to implement the actual instruction execution logic in the emulator.
+
+The emulator source code can be found under `src/lib/ipu`. Depending on the instruction type, you'll need to modify the appropriate file:
+
+- `ipu_acc_inst.c/h` - for accumulator-related instructions
+- `ipu_cond_inst.c/h` - for conditional instructions
+- `ipu_lr_inst.c/h` - for load/register instructions
+- `ipu_mult_inst.c/h` - for multiplication-related instructions
+- `ipu_xmem_inst.c/h` - for external memory instructions
+
+### Step 1: Create Instruction Handler Functions
+
+Add handler functions in the appropriate instruction file. Each specific instruction gets its own handler that performs the operation:
+
+```c
+void ipu__execute_your_instruction_name(ipu__obj_t *ipu,
+                                        inst_parser__inst_t inst,
+                                        const ipu__regfile_t *regfile_snapshot)
+{
+    // Extract operand fields from inst struct
+    inst_parser__mult_stage_reg_field_t ra_idx = 
+        (inst_parser__mult_stage_reg_field_t)inst.mult_inst_token_1_mult_stage_reg_field;
+    
+    // Access register data
+    ipu__r_reg_t *ra_reg_ptr = ipu__get_mult_stage_r_reg(ipu, ra_idx);
+    
+    // Perform operation - use ipu_math functions for arithmetic
+    for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++) 
+    {
+        ipu_math__mult(&ra_reg_ptr->bytes[i],
+                       &rb_reg.bytes[i],
+                       &ipu->misc.mult_res.words[i],
+                       ipu__get_cr_dtype(&ipu->regfile));
+    }
+}
+```
+
+### Step 2: Register the Instruction in the Dispatcher
+
+Add a dispatch function (e.g., `ipu__execute_mult_instruction`) that routes to your handler based on opcode:
+
+```c
+void ipu__execute_mult_instruction(ipu__obj_t *ipu,
+                                   inst_parser__inst_t inst,
+                                   const ipu__regfile_t *regfile_snapshot)
+{
+    switch (inst.mult_inst_token_0_mult_inst_opcode)
+    {
+    case INST_PARSER__MULT_INST_OPCODE_YOUR_INSTRUCTION:
+        ipu__execute_your_instruction_name(ipu, inst, regfile_snapshot);
+        break;
+    case INST_PARSER__MULT_INST_OPCODE_ANOTHER_INSTRUCTION:
+        ipu__execute_another_instruction(ipu, inst, regfile_snapshot);
+        break;
+    default:
+        assert(false && "Invalid MULT instruction type");
+        break;
+    }
+}
+```
+
+### Step 3: Key Data Types and Helpers
+
+Use these key types and helper functions:
+
+**Instruction representation:**
+- `inst_parser__inst_t` - the parsed instruction from the assembler
+
+**Register types:**
+- `ipu__r_reg_t` - standard R register (128 bytes)
+- `ipu__r_acc_reg_t` - accumulator register (512 bytes)
+- `ipu__regfile_t` - full register file with all stage registers
+
+**State:**
+- `ipu__obj_t` - the IPU state object containing regfile, memory, PC, etc.
+- `ipu__regfile_t *regfile_snapshot` - snapshot of registers at instruction fetch time
+
+**Helper functions:**
+- `ipu__get_mult_stage_r_reg()` - get pointer to mult stage R register
+- `ipu__get_cr_dtype()` - get data type from CR register
+- `ipu_math__add()`, `ipu_math__mult()` - arithmetic operations on data elements
+
+### Step 4: Add Tests
+
+Add unit tests in `test/` directory to verify your instruction works correctly. Run tests using:
+
+```bash
+bazel test //test:all -c dbg
+```
+
+!!! important "Consistency"
+    Ensure your emulator implementation matches the pseudo-code in the instruction's `operation` field defined in the assembler. Operands must be extracted from the `inst_parser__inst_t` struct fields matching your instruction format.

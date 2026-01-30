@@ -31,6 +31,8 @@ class LrInstOpcode(Opcode):
         return [
             "incr",
             "set",
+            "add",
+            "sub",
         ]
 
 

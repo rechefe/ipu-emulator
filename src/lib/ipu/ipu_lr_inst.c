@@ -11,10 +11,30 @@ typedef struct
     inst_parser__lr_inst_opcode_t opcode;
     int lr_idx;
     uint32_t immediate;
+    int lcr_a_idx;  // First source register index (for add/sub)
+    int lcr_b_idx;  // Second source register index (for add/sub)
 } ipu__lr_inst_info_t;
 
 // Maximum number of LR instructions supported per cycle
 #define IPU__MAX_LR_INSTS_PER_CYCLE 2
+
+// Helper function to read value from LCR (LR or CR) register
+// If index < 16, it's an LR register, otherwise it's a CR register (index - 16)
+static inline uint32_t ipu__read_lcr_reg(const ipu__regfile_t *regfile, int lcr_idx)
+{
+    if (lcr_idx < IPU__LR_REGS_NUM)
+    {
+        // LR register
+        return regfile->lr_regfile.lr[lcr_idx];
+    }
+    else
+    {
+        // CR register
+        int cr_idx = lcr_idx - IPU__LR_REGS_NUM;
+        assert(cr_idx >= 0 && cr_idx < IPU__CR_REGS_NUM);
+        return regfile->cr_regfile.cr[cr_idx];
+    }
+}
 
 // Check if an LR instruction is valid (performs an actual register write)
 static inline bool ipu__is_lr_inst_valid(inst_parser__lr_inst_opcode_t opcode, uint32_t immediate)
@@ -35,14 +55,42 @@ static int ipu__extract_lr_instructions(inst_parser__inst_t inst, ipu__lr_inst_i
     // LR instruction 0
     lr_insts[0].opcode = inst.lr_inst_0_token_0_lr_inst_opcode;
     lr_insts[0].lr_idx = inst.lr_inst_0_token_1_lr_reg_field;
-    lr_insts[0].immediate = inst.lr_inst_0_token_2_lr_immediate_type;
+    
+    // For add/sub instructions, token_2 and token_3 are lcr registers
+    // For set/incr instructions, token_4 is immediate
+    if (lr_insts[0].opcode == INST_PARSER__LR_INST_OPCODE_ADD ||
+        lr_insts[0].opcode == INST_PARSER__LR_INST_OPCODE_SUB)
+    {
+        lr_insts[0].lcr_a_idx = inst.lr_inst_0_token_2_lcr_reg_field;
+        lr_insts[0].lcr_b_idx = inst.lr_inst_0_token_3_lcr_reg_field;
+        lr_insts[0].immediate = 0;
+    }
+    else
+    {
+        lr_insts[0].immediate = inst.lr_inst_0_token_4_lr_immediate_type;
+        lr_insts[0].lcr_a_idx = 0;
+        lr_insts[0].lcr_b_idx = 0;
+    }
     lr_insts[0].valid = ipu__is_lr_inst_valid(lr_insts[0].opcode, lr_insts[0].immediate);
     count++;
 
     // LR instruction 1
     lr_insts[1].opcode = inst.lr_inst_1_token_0_lr_inst_opcode;
     lr_insts[1].lr_idx = inst.lr_inst_1_token_1_lr_reg_field;
-    lr_insts[1].immediate = inst.lr_inst_1_token_2_lr_immediate_type;
+    
+    if (lr_insts[1].opcode == INST_PARSER__LR_INST_OPCODE_ADD ||
+        lr_insts[1].opcode == INST_PARSER__LR_INST_OPCODE_SUB)
+    {
+        lr_insts[1].lcr_a_idx = inst.lr_inst_1_token_2_lcr_reg_field;
+        lr_insts[1].lcr_b_idx = inst.lr_inst_1_token_3_lcr_reg_field;
+        lr_insts[1].immediate = 0;
+    }
+    else
+    {
+        lr_insts[1].immediate = inst.lr_inst_1_token_4_lr_immediate_type;
+        lr_insts[1].lcr_a_idx = 0;
+        lr_insts[1].lcr_b_idx = 0;
+    }
     lr_insts[1].valid = ipu__is_lr_inst_valid(lr_insts[1].opcode, lr_insts[1].immediate);
     count++;
 
@@ -94,6 +142,22 @@ static void ipu__execute_single_lr_inst(ipu__obj_t *ipu,
         {
             uint32_t lr_value = regfile_snapshot->lr_regfile.lr[lr_inst->lr_idx];
             ipu->regfile.lr_regfile.lr[lr_inst->lr_idx] = lr_value + lr_inst->immediate;
+        }
+        break;
+    case INST_PARSER__LR_INST_OPCODE_ADD:
+        // ADD LRd, LCRa, LCRb
+        {
+            uint32_t val_a = ipu__read_lcr_reg(regfile_snapshot, lr_inst->lcr_a_idx);
+            uint32_t val_b = ipu__read_lcr_reg(regfile_snapshot, lr_inst->lcr_b_idx);
+            ipu->regfile.lr_regfile.lr[lr_inst->lr_idx] = val_a + val_b;
+        }
+        break;
+    case INST_PARSER__LR_INST_OPCODE_SUB:
+        // SUB LRd, LCRa, LCRb
+        {
+            uint32_t val_a = ipu__read_lcr_reg(regfile_snapshot, lr_inst->lcr_a_idx);
+            uint32_t val_b = ipu__read_lcr_reg(regfile_snapshot, lr_inst->lcr_b_idx);
+            ipu->regfile.lr_regfile.lr[lr_inst->lr_idx] = val_a - val_b;
         }
         break;
     default:

@@ -47,7 +47,7 @@ class NumberToken(IpuToken):
 
     @classmethod
     def default(cls) -> "IpuToken":
-        return cls.__init__(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+        return cls(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
     @classmethod
     def bits(self) -> int:
