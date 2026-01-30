@@ -554,7 +554,7 @@ class AccInst(Inst):
 class LrInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, immediate.LrImmediateType]
+        return [reg.LrRegField, reg.LcrRegField, reg.LcrRegField, immediate.LrImmediateType]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -591,6 +591,36 @@ class LrInst(Inst):
                     ],
                     operation="Lr = imm",
                     example="set lr0 0x1000;;\nset lr1 100;;\nset lr2 -5;;",
+                ),
+            ),
+            "add": InstructionFormat(
+                operands=[reg.LrRegField, reg.LcrRegField, reg.LcrRegField],
+                doc=InstructionDoc(
+                    title="Add",
+                    summary="Add two registers and store the result in a destination register.",
+                    syntax="add LRd LCRa LCRb",
+                    operands=[
+                        "LRd: Destination loop register",
+                        "LCRa: First source register (LR or CR)",
+                        "LCRb: Second source register (LR or CR)",
+                    ],
+                    operation="LRd = LCRa + LCRb",
+                    example="add lr0 lr1 lr2;;\nadd lr3 cr0 lr4;;\nadd lr5 lr6 cr1;;",
+                ),
+            ),
+            "sub": InstructionFormat(
+                operands=[reg.LrRegField, reg.LcrRegField, reg.LcrRegField],
+                doc=InstructionDoc(
+                    title="Subtract",
+                    summary="Subtract two registers and store the result in a destination register.",
+                    syntax="sub LRd LCRa LCRb",
+                    operands=[
+                        "LRd: Destination loop register",
+                        "LCRa: First source register (LR or CR)",
+                        "LCRb: Second source register (LR or CR)",
+                    ],
+                    operation="LRd = LCRa - LCRb",
+                    example="sub lr0 lr1 lr2;;\nsub lr3 cr0 lr4;;\nsub lr5 lr6 cr1;;",
                 ),
             ),
         }

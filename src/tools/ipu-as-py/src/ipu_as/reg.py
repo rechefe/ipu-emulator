@@ -31,3 +31,13 @@ class CrRegField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls):
         return CR_REG_FIELDS
+
+
+# Combined LR/CR register field for instructions that can use either
+LCR_REG_FIELDS = LR_REG_FIELDS + CR_REG_FIELDS
+
+
+class LcrRegField(ipu_token.EnumToken):
+    @classmethod
+    def enum_array(cls):
+        return LCR_REG_FIELDS

@@ -8,4 +8,3 @@
 - Implement quantization
 - Add preprocessing CLI options (overriding parameters inside the `asm`)
 - Add "Metadata" to registers and XMEM
-- Add basic add and sub instruction (should support source register which can be both LR and CR registers)

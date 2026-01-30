@@ -58,6 +58,128 @@ TEST_F(IpuEmulatorTest, RegisterOperations_DirectAccess)
     EXPECT_EQ(helper.GetCr(0), 0xABCDEF00);
 }
 
+/**
+ * @brief Test ADD instruction with LR registers
+ */
+TEST_F(IpuEmulatorTest, RegisterOperations_AddLrLr)
+{
+    std::string asm_code = R"(
+set lr1 100;;
+set lr2 50;;
+add lr3 lr1 lr2;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    EXPECT_EQ(helper.GetLr(1), 100);
+    EXPECT_EQ(helper.GetLr(2), 50);
+    EXPECT_EQ(helper.GetLr(3), 150); // 100 + 50
+}
+
+/**
+ * @brief Test ADD instruction with LR and CR registers
+ */
+TEST_F(IpuEmulatorTest, RegisterOperations_AddLrCr)
+{
+    std::string asm_code = R"(
+set lr1 200;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    
+    // Set CR register directly
+    helper.SetCr(5, 75);
+    
+    // Load second program
+    asm_code = R"(
+set lr1 200;;
+add lr4 lr1 cr5;;
+bkpt;;
+)";
+    
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    EXPECT_EQ(helper.GetLr(1), 200);
+    EXPECT_EQ(helper.GetCr(5), 75);
+    EXPECT_EQ(helper.GetLr(4), 275); // 200 + 75
+}
+
+/**
+ * @brief Test SUB instruction with LR registers
+ */
+TEST_F(IpuEmulatorTest, RegisterOperations_SubLrLr)
+{
+    std::string asm_code = R"(
+set lr1 100;;
+set lr2 30;;
+sub lr3 lr1 lr2;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    EXPECT_EQ(helper.GetLr(1), 100);
+    EXPECT_EQ(helper.GetLr(2), 30);
+    EXPECT_EQ(helper.GetLr(3), 70); // 100 - 30
+}
+
+/**
+ * @brief Test SUB instruction with LR and CR registers
+ */
+TEST_F(IpuEmulatorTest, RegisterOperations_SubCrLr)
+{
+    std::string asm_code = R"(
+set lr2 45;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    
+    // Set CR register directly
+    helper.SetCr(3, 200);
+    
+    // Load second program
+    asm_code = R"(
+set lr2 45;;
+sub lr5 cr3 lr2;;
+bkpt;;
+)";
+    
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    EXPECT_EQ(helper.GetCr(3), 200);
+    EXPECT_EQ(helper.GetLr(2), 45);
+    EXPECT_EQ(helper.GetLr(5), 155); // 200 - 45
+}
+
+/**
+ * @brief Test ADD and SUB with overflow behavior
+ */
+TEST_F(IpuEmulatorTest, RegisterOperations_AddSubOverflow)
+{
+    std::string asm_code = R"(
+set lr1 0xFFFF;;
+set lr2 1;;
+add lr3 lr1 lr2;;
+set lr4 0;;
+set lr5 1;;
+sub lr6 lr4 lr5;;
+bkpt;;
+)";
+
+    ASSERT_TRUE(helper.LoadProgramFromAssembly(asm_code));
+    helper.Run();
+
+    EXPECT_EQ(helper.GetLr(3), 0x10000); // 0xFFFF + 1 = 0x10000
+    EXPECT_EQ(helper.GetLr(6), 0xFFFFFFFF); // Underflow: 0 - 1 = 0xFFFFFFFF (32-bit underflow)
+}
+
 // ============================================================================
 // Memory Operations Tests
 // ============================================================================
