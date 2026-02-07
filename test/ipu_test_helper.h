@@ -1,3 +1,8 @@
+/* DEPRECATED — The Python emulator (ipu_emu) is now the primary test
+ * path.  See src/tools/ipu-emu-py/test/test_parity.py for the 1:1
+ * Python ports of every test that uses this helper.  This C++ helper
+ * is kept for regression / reference only. */
+
 #ifndef IPU_TEST_HELPER_H
 #define IPU_TEST_HELPER_H
 

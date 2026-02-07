@@ -1,3 +1,7 @@
+/* DEPRECATED — use the Python emulator instead:
+ *   from ipu_emu.apps.fully_connected import run_fully_connected
+ * This C driver is kept for reference only. */
+
 #include "logging/logger.h"
 #include "emulator/emulator.h"
 #include "ipu/ipu.h"

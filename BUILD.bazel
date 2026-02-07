@@ -166,6 +166,7 @@ cc_library(
     hdrs = ["src/lib/emulator/emulator.h"],
     includes = ["src/lib"],
     copts = ["-std=gnu17"],
+    tags = ["deprecated"],
     deps = [
         ":ipu",
         ":ipu_debug",
@@ -228,6 +229,7 @@ cc_library(
     name = "ipu_test_helper",
     hdrs = ["test/ipu_test_helper.h"],
     includes = ["test"],
+    tags = ["deprecated"],
     deps = [
         ":emulator",
         ":fp",
@@ -248,6 +250,7 @@ cc_test(
     env = {
         "IPU_ASSEMBLER": "$(location //src/tools/ipu-as-py:ipu-as)",
     },
+    tags = ["deprecated"],
     deps = [
         ":ipu_test_helper",
         "@googletest//:gtest_main",

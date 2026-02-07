@@ -1,0 +1,71 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//:asm_rules.bzl", "assemble_asm")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+py_library(
+    name = "ipu_emu_lib",
+    srcs = glob([
+        "src/ipu_emu/*.py",
+        "src/ipu_emu/apps/*.py",
+    ]),
+    imports = ["src"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+    ],
+)
+
+py_test(
+    name = "test_xmem",
+    srcs = ["test/test_xmem.py"],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)
+
+py_test(
+    name = "test_regfile",
+    srcs = ["test/test_regfile.py"],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)
+
+py_test(
+    name = "test_execute",
+    srcs = ["test/test_execute.py"],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)
+
+py_test(
+    name = "test_debug_cli",
+    srcs = ["test/test_debug_cli.py"],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)
+
+py_test(
+    name = "test_parity",
+    srcs = ["test/test_parity.py"],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)
+
+assemble_asm(
+    name = "assemble_fully_connected",
+    src = "//src/apps/fully_connected:fully_connected.asm",
+)
+
+py_test(
+    name = "test_emulator_e2e",
+    srcs = ["test/test_emulator_e2e.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        "//src/apps/fully_connected:test_data",
+    ],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
+)

@@ -1,3 +1,7 @@
+/* DEPRECATED — see src/tools/ipu-emu-py (ipu_emu) for the actively
+ * maintained Python emulator.  This C implementation is kept for
+ * reference only and will be removed in a future release. */
+
 #include "emulator.h"
 #include "debug/ipu_debug.h"
 #include "fp/fp.h"

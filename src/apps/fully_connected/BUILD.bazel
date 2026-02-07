@@ -1,6 +1,16 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("//:asm_rules.bzl", "assemble_asm")
 
+exports_files([
+    "fully_connected.asm",
+])
+
+filegroup(
+    name = "test_data",
+    srcs = glob(["test_data_format/**/*.bin"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_binary(
     name = "fully_connected",
     srcs = ["fully_connected.c"],

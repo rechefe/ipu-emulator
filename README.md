@@ -7,6 +7,29 @@ IPU Development
 
 Small C project that emulates simple IPU and XMEM behavior. Includes a sample `fully_connected` app and unit tests using GoogleTest.
 
+> **Note:** The C emulator is deprecated.  The actively maintained
+> implementation is the **Python emulator** at `src/tools/ipu-emu-py/`
+> (package `ipu_emu`).  See [PLAN.md](PLAN.md) for migration details.
+
+Python Emulator
+---------------
+The Python emulator (`ipu_emu`) provides full behavioural parity with
+the C implementation plus additional features (descriptor-driven debug
+CLI, FP8 dtype support via `ml_dtypes`, integrated assembler).
+
+```bash
+# Run all Python emulator tests (172 tests)
+cd src/tools/ipu-emu-py
+uv run pytest
+
+# Run the fully_connected app
+uv run python -m ipu_emu.apps.fully_connected \
+    path/to/instructions.bin \
+    path/to/inputs.bin \
+    path/to/weights.bin \
+    output.bin INT8
+```
+
 Build
 -----
 This project uses Bazel for building and managing dependencies.

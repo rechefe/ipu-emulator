@@ -1,3 +1,10 @@
+/**
+ * @deprecated This C emulator is deprecated in favour of the Python
+ * emulator at src/tools/ipu-emu-py (package `ipu_emu`).  The Python
+ * implementation has full behavioural parity (verified via
+ * test_parity.py) and is now the primary development path.
+ */
+
 #ifndef EMULATOR_H
 #define EMULATOR_H
 
