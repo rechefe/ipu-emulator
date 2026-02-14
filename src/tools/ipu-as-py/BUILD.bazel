@@ -21,7 +21,9 @@ py_library(
         "src/ipu_as/**/*.j2",
     ]),
     imports = ["src"],
-    deps = get_requirements(requirement),
+    deps = [
+        "//src/tools/ipu-common:ipu_common_lib",
+    ] + get_requirements(requirement),
 )
 
 py_binary(

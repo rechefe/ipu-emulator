@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load("//:asm_rules.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
@@ -15,6 +15,7 @@ py_library(
     ]),
     imports = ["src"],
     deps = [
+        "//src/tools/ipu-common:ipu_common_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
     ],
 )
@@ -57,6 +58,17 @@ py_test(
 assemble_asm(
     name = "assemble_fully_connected",
     src = "//src/apps/fully_connected:fully_connected.asm",
+)
+
+py_binary(
+    name = "run_fc_debug",
+    srcs = ["run_fc_debug.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        "//src/apps/fully_connected:test_data",
+    ],
+    imports = ["src"],
+    deps = [":ipu_emu_lib"],
 )
 
 py_test(

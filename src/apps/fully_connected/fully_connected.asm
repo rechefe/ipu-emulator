@@ -12,6 +12,7 @@ input_loop:
     set                 lr6 127;;
 
 element_loop:
+    break.ifeq          lr5 0;
     ldr_mult_reg        mem_bypass lr4 cr1;
     incr                lr4 128;
     incr                lr5 1;

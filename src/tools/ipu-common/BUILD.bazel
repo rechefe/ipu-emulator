@@ -1,0 +1,15 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+py_library(
+    name = "ipu_common_lib",
+    srcs = glob([
+        "src/ipu_common/*.py",
+    ]),
+    imports = ["src"],
+)
