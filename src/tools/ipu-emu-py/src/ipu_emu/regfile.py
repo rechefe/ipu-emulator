@@ -7,6 +7,10 @@ Provides:
 - Word-view (uint32) access for ``r_acc`` and ``mult_res``.
 - Deep-copy snapshot for VLIW read-before-write semantics.
 - JSON serialisation driven by descriptors.
+
+DESIGN NOTE: Accessor methods (get_r, set_r_acc_bytes, etc.) are generated
+from REGFILE_SCHEMA to eliminate duplication between REGISTER_DEFINITIONS
+and hand-coded methods. See _attach_dynamic_accessors() below.
 """
 
 from __future__ import annotations
@@ -43,6 +47,10 @@ class RegFile:
             # register aliases
             for alias in desc.debug_aliases:
                 self._alias_map[alias] = desc.name
+        
+        # Attach dynamically generated accessor methods
+        # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods)
+        _attach_dynamic_accessors(self)
 
     # -- helpers ------------------------------------------------------------
 
@@ -267,3 +275,138 @@ class RegFile:
     def __repr__(self) -> str:
         parts = [f"{d.name}({d.size_bytes}B×{d.count})" for d in self._schema]
         return f"RegFile([{', '.join(parts)}])"
+
+
+# ===========================================================================
+# Dynamic Accessor Generation
+# ===========================================================================
+# Instead of hard-coding get_r(), set_r_acc_bytes() for every register,
+# we generate them from REGFILE_SCHEMA at runtime. This eliminates duplication
+# while keeping backward compatibility.
+# ===========================================================================
+
+def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
+    """Generate get_* and set_* methods for all registers in the schema.
+    
+    Returns a dict of method names → method objects that can be attached to
+    RegFile instances. This eliminates duplication between REGISTER_DEFINITIONS
+    and hand-coded accessor methods.
+    
+    For each register, generates appropriate accessors based on dtype and properties:
+    - Scalar (UINT32/INT32): get_{name}(idx) / set_{name}(idx, value)
+    - Vector (other dtype): get_{name}_bytes() / set_{name}_bytes()
+    """
+    methods = {}
+    
+    for desc in schema:
+        reg_name = desc.name
+        is_scalar = desc.dtype in (RegDtype.UINT32, RegDtype.INT32)
+        
+        if is_scalar:
+            # For scalar registers like LR/CR: generate get(idx)/set(idx, value)
+            def make_get_scalar(desc=desc, reg_name=reg_name):
+                def get_scalar(self, index: int) -> int:
+                    """Get scalar register value at index."""
+                    return self.get_scalar(reg_name, index)
+                get_scalar.__doc__ = f"Get {reg_name}[index]."
+                get_scalar.__name__ = f"get_{reg_name}"
+                return get_scalar
+            
+            def make_set_scalar(desc=desc, reg_name=reg_name):
+                def set_scalar(self, index: int, value: int) -> None:
+                    """Set scalar register value at index."""
+                    self.set_scalar(reg_name, index, value)
+                set_scalar.__doc__ = f"Set {reg_name}[index] = value."
+                set_scalar.__name__ = f"set_{reg_name}"
+                return set_scalar
+            
+            methods[f"get_{reg_name}"] = make_get_scalar()
+            methods[f"set_{reg_name}"] = make_set_scalar()
+        else:
+            # For vector registers: generate get_bytes() / set_bytes()
+            def make_get_bytes(desc=desc, reg_name=reg_name):
+                def get_bytes(self) -> bytearray:
+                    """Return raw bytes for register."""
+                    return self.get_register_bytes(reg_name, 0)
+                get_bytes.__doc__ = f"Return raw bytes from {reg_name}."
+                get_bytes.__name__ = f"get_{reg_name}_bytes"
+                return get_bytes
+            
+            def make_set_bytes(desc=desc, reg_name=reg_name):
+                def set_bytes(self, data: bytes | bytearray) -> None:
+                    """Set raw bytes for register."""
+                    self.set_register_bytes(reg_name, 0, data)
+                set_bytes.__doc__ = f"Set raw bytes in {reg_name}."
+                set_bytes.__name__ = f"set_{reg_name}_bytes"
+                return set_bytes
+            
+            methods[f"get_{reg_name}_bytes"] = make_get_bytes()
+            methods[f"set_{reg_name}_bytes"] = make_set_bytes()
+            
+            # For multi-element vector registers, generate get/set with index
+            if desc.count > 1:
+                def make_get_indexed(desc=desc, reg_name=reg_name):
+                    def get_indexed(self, index: int) -> bytearray:
+                        """Get register element at index."""
+                        return self.get_register_bytes(reg_name, index)
+                    get_indexed.__doc__ = f"Get {reg_name}[index] ({desc.count} elements)."
+                    get_indexed.__name__ = f"get_{reg_name}"
+                    return get_indexed
+                
+                def make_set_indexed(desc=desc, reg_name=reg_name):
+                    def set_indexed(self, index: int, data: bytes | bytearray) -> None:
+                        """Set register element at index."""
+                        self.set_register_bytes(reg_name, index, data)
+                    set_indexed.__doc__ = f"Set {reg_name}[index] ({desc.count} elements)."
+                    set_indexed.__name__ = f"set_{reg_name}"
+                    return set_indexed
+                
+                methods[f"get_{reg_name}"] = make_get_indexed()
+                methods[f"set_{reg_name}"] = make_set_indexed()
+            
+            # For word_view registers, generate word accessors
+            if desc.word_view:
+                def make_get_words(desc=desc, reg_name=reg_name):
+                    def get_words(self) -> np.ndarray:
+                        """Return register as uint32 words."""
+                        return np.frombuffer(self._storage[reg_name], dtype=np.uint32)
+                    get_words.__doc__ = f"View {reg_name} as uint32 words."
+                    get_words.__name__ = f"get_{reg_name}_words"
+                    return get_words
+                
+                def make_get_word(desc=desc, reg_name=reg_name):
+                    def get_word(self, index: int) -> int:
+                        """Get one word from register."""
+                        return struct.unpack_from(
+                            "<I", self._storage[reg_name], index * 4
+                        )[0]
+                    get_word.__doc__ = f"Get one uint32 word from {reg_name}."
+                    get_word.__name__ = f"get_{reg_name}_word"
+                    return get_word
+                
+                def make_set_word(desc=desc, reg_name=reg_name):
+                    def set_word(self, index: int, value: int) -> None:
+                        """Set one word in register."""
+                        struct.pack_into(
+                            "<I", self._storage[reg_name], index * 4, value & 0xFFFFFFFF
+                        )
+                    set_word.__doc__ = f"Set one uint32 word in {reg_name}."
+                    set_word.__name__ = f"set_{reg_name}_word"
+                    return set_word
+                
+                methods[f"get_{reg_name}_words"] = make_get_words()
+                methods[f"get_{reg_name}_word"] = make_get_word()
+                methods[f"set_{reg_name}_word"] = make_set_word()
+    
+    return methods
+
+
+def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
+    """Attach dynamically generated accessor methods to a RegFile instance.
+    
+    This is called in __init__ to ensure every RegFile has convenience methods
+    for each register without repeating them in code.
+    """
+    methods = _create_accessor_methods(regfile_instance._schema)
+    for method_name, method in methods.items():
+        setattr(regfile_instance, method_name, method.__get__(regfile_instance, type(regfile_instance)))

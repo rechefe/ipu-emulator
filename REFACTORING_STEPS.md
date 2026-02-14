@@ -135,40 +135,31 @@ opcodes = extract_opcodes(INSTRUCTION_SPEC)
 - [x] Update BUILD.bazel files to add ipu-common dependency
 - [x] Verify all existing tests pass
 
-### Step 3: Create Master Instruction Specification
-- [ ] Create `ipu_common/instruction_spec.py` with `INSTRUCTION_SPEC` dict
-  ```python
-  INSTRUCTION_SPEC = {
-      "xmem_slot": {
-          "str_acc_reg": {"opcode": 0, "operands": [...], "execute": execute_str_acc_reg},
-          "ldr_mult_reg": {"opcode": 1, "operands": [...], "execute": execute_ldr_mult_reg},
-          ...
-      },
-      "lr_slot": {
-          "incr": {"opcode": 0, "operands": [...], "execute": execute_lr_incr},
-          ...
-      },
-      ...
-  }
-  ```
-- [ ] Each instruction defined once with all metadata (assembler + emulator)
-- [ ] Include operand types, format info, doc strings, execution handlers
+### Step 3: Create Master Instruction Specification ✅ COMPLETE
+- [x] Create `ipu_common/instruction_spec.py` with `INSTRUCTION_SPEC` dict
+- [x] Each instruction defined once with all metadata (assembler + emulator)
+- [x] Include operand types, format info, doc strings, execution handler refs
+- [x] Implement factory functions: `extract_opcodes()`, `get_instruction()`, `get_instruction_by_opcode()`
+- [x] Validate instruction spec structure on module import
+- [x] Verify extracted opcodes match original definitions exactly
 
 ### Step 4: Auto-generate Opcodes from Instructions
 - [ ] Create `ipu_common/codegen.py` with:
-  - `extract_opcodes(spec)` → returns `{"xmem": ["str_acc_reg", ...], "lr": [...]}`
-  - `create_assembler_opcodes(spec)` → generates Opcode subclasses dynamically
-  - `create_emulator_opcode_constants(spec)` → generates `XMEM_OP_STR_ACC_REG = 0`, etc.
+  - `create_assembler_opcodes()` → generates Opcode subclasses dynamically from instruction_spec
+  - `create_emulator_opcode_constants()` → generates `XMEM_OP_*` constants from instruction_spec
 - [ ] All functions derived from `INSTRUCTION_SPEC` — **never manual duplication**
-- [ ] Add tests: verify opcode indices match instruction definitions
+- [ ] Note: `extract_opcodes()` already exists in instruction_spec.py
+- [ ] Add tests: verify generated opcodes match original definitions
 
-### Step 5: Update ipu-as-py
-- [ ] Update `ipu-as-py/opcodes.py` to import generated classes from ipu-common
-- [ ] Update `ipu-as-py/inst.py` to reference instruction metadata from ipu-common
-- [ ] Remove manual opcode definitions
+### Step 5: Update ipu-as-py to use generated opcodes
+- [ ] Modify `ipu-as-py/opcodes.py` to use generated Opcode classes from codegen
+- [ ] Update `ipu-as-py/inst.py` to optionally reference instruction_spec for documentation
+- [ ] Remove hardcoded opcode definitions
+- [ ] Maintain full backward compatibility
 - [ ] Run tests: should pass unchanged
 
-### Step 6: Update ipu-emu-py  
+### Step 6: Update ipu-emu-py to use generated constants
+
 - [ ] Update `ipu-emu-py/execute.py` to import opcode constants from ipu-common
 - [ ] Update instruction dispatch to use `INSTRUCTION_SPEC` handlers
 - [ ] Remove hardcoded opcode constants (`XMEM_OP_*`, etc.)
