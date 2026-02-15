@@ -72,14 +72,11 @@ class RegDescriptor:
     word_view: bool = False
     debug_aliases: tuple[str, ...] = field(default_factory=tuple)
 
+    @property
+    def is_vector(self) -> bool:
+        """True for byte-blob registers, False for scalar integer registers.
 
-# Register sizes (used throughout the emulator)
-register_sizes = {
-    "r": 128,           # bytes, per element
-    "r_cyclic": 512,    # bytes
-    "r_acc": 512,       # bytes
-    "mult_res": 512,    # bytes
-    "lr": 4,            # bytes, per element
-    "cr": 4,            # bytes, per element
-    "r_mask": 128,      # bytes
-}
+        Scalar registers (LR, CR) store integer values accessed by index.
+        Vector registers (R, R_ACC, etc.) store byte blobs.
+        """
+        return self.dtype not in (RegDtype.UINT32, RegDtype.INT32)

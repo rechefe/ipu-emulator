@@ -15,6 +15,11 @@ KEY DESIGN PRINCIPLES:
    
 3. STRUCTURED OPERANDS: Each operand has a meaningful name and type.
    Types are string names resolved to actual classes by ipu_as.
+   Operands with a ``"read"`` field are source registers whose values
+   are auto-resolved by the emulator dispatcher before calling handlers.
+   The value controls which register file is used:
+     - ``"snapshot"`` → read from the VLIW snapshot (pre-write state)
+     - ``"live"``     → read from the current (post-write) register file
 
 OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "MultStageReg": r0, r1, or mem_bypass (MultStageRegField)
@@ -36,7 +41,8 @@ Structure:
         "slot_type": {
             "instruction_name": {
                 "operands": [
-                    {"name": "operand_name", "type": "OperandType"},
+                    {"name": "src", "type": "LrIdx", "read": "snapshot"},
+                    {"name": "dest", "type": "LrIdx"},
                     ...
                 ],
                 "doc": InstructionDoc(...),
@@ -47,10 +53,16 @@ Structure:
         ...
     }
 
-Usage:
-    from ipu_common.instruction_spec import (
-        INSTRUCTION_SPEC,
-        extract_opcodes,
+    Operand "read" flag:
+        - ``"read": "snapshot"`` → source register resolved from the VLIW
+          snapshot (read-before-write). The emulator dispatcher reads the
+          register value from the snapshot captured at cycle start.
+        - ``"read": "live"`` → source register resolved from the current
+          register file (sees writes from earlier slots in the same cycle).
+        - Absent → destination/index operand; the raw index is passed
+          through so the handler can write to it.
+        - Immediates and Labels have no "read" flag (literal values always
+          passed as-is).
         create_assembler_opcodes,
         create_emulator_constants,
     )
@@ -85,6 +97,7 @@ __all__ = [
     "InstructionDoc",
     "INSTRUCTION_SPEC",
     "SLOT_BINARY_LAYOUT",
+    "SLOT_COUNT",
     "extract_opcodes",
     "get_instruction",
     "get_instruction_by_opcode",
@@ -130,6 +143,17 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "break": ["LrIdx", "BreakImmediate"],
 }
 
+# How many times each slot appears in the VLIW instruction word.
+# Most slots appear once; LR appears twice (two independent sub-instructions).
+SLOT_COUNT: dict[str, int] = {
+    "break": 1,
+    "xmem": 1,
+    "mult": 1,
+    "acc": 1,
+    "lr": 2,
+    "cond": 1,
+}
+
 
 # ===========================================================================
 # MASTER INSTRUCTION SPECIFICATION
@@ -146,8 +170,8 @@ INSTRUCTION_SPEC = {
     "xmem": {
         "str_acc_reg": {
             "operands": [
-                {"name": "offset", "type": "LrIdx"},
-                {"name": "base", "type": "CrIdx"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Store Accumulator",
@@ -165,8 +189,8 @@ INSTRUCTION_SPEC = {
         "ldr_mult_reg": {
             "operands": [
                 {"name": "dest", "type": "MultStageReg"},
-                {"name": "offset", "type": "LrIdx"},
-                {"name": "base", "type": "CrIdx"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Load Register",
@@ -184,9 +208,9 @@ INSTRUCTION_SPEC = {
         },
         "ldr_cyclic_mult_reg": {
             "operands": [
-                {"name": "offset", "type": "LrIdx"},
-                {"name": "base", "type": "CrIdx"},
-                {"name": "index", "type": "LrIdx"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
+                {"name": "index", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Load Cyclic Register",
@@ -203,8 +227,8 @@ INSTRUCTION_SPEC = {
         },
         "ldr_mult_mask_reg": {
             "operands": [
-                {"name": "offset", "type": "LrIdx"},
-                {"name": "base", "type": "CrIdx"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Load Mask Register",
@@ -275,8 +299,8 @@ INSTRUCTION_SPEC = {
         "add": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx"},
-                {"name": "src_b", "type": "LcrIdx"},
+                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Add Registers",
@@ -295,8 +319,8 @@ INSTRUCTION_SPEC = {
         "sub": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx"},
-                {"name": "src_b", "type": "LcrIdx"},
+                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Subtract Registers",
@@ -321,10 +345,10 @@ INSTRUCTION_SPEC = {
     "mult": {
         "mult.ee": {
             "operands": [
-                {"name": "ra", "type": "MultStageReg"},
-                {"name": "cyclic_offset", "type": "LrIdx"},
-                {"name": "mask_offset", "type": "LrIdx"},
-                {"name": "mask_shift", "type": "LrIdx"},
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Element-wise Multiply",
@@ -343,10 +367,10 @@ INSTRUCTION_SPEC = {
         },
         "mult.ev": {
             "operands": [
-                {"name": "ra", "type": "MultStageReg"},
-                {"name": "fixed_cyclic_idx", "type": "LrIdx"},
-                {"name": "mask_offset", "type": "LrIdx"},
-                {"name": "mask_shift", "type": "LrIdx"},
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "fixed_cyclic_idx", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Element-Cyclic Multiply",
@@ -365,11 +389,11 @@ INSTRUCTION_SPEC = {
         },
         "mult.ve": {
             "operands": [
-                {"name": "ra", "type": "MultStageReg"},
-                {"name": "cyclic_offset", "type": "LrIdx"},
-                {"name": "mask_offset", "type": "LrIdx"},
-                {"name": "mask_shift", "type": "LrIdx"},
-                {"name": "fixed_ra_idx", "type": "LrIdx"},
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "fixed_ra_idx", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Vector-Element Multiply",
@@ -445,8 +469,8 @@ INSTRUCTION_SPEC = {
     "cond": {
         "beq": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx"},
-                {"name": "reg2", "type": "LrIdx"},
+                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -465,8 +489,8 @@ INSTRUCTION_SPEC = {
         },
         "bne": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx"},
-                {"name": "reg2", "type": "LrIdx"},
+                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -485,8 +509,8 @@ INSTRUCTION_SPEC = {
         },
         "blt": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx"},
-                {"name": "reg2", "type": "LrIdx"},
+                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -505,8 +529,8 @@ INSTRUCTION_SPEC = {
         },
         "bnz": {
             "operands": [
-                {"name": "test_reg", "type": "LrIdx"},
-                {"name": "base_reg", "type": "LrIdx"},
+                {"name": "test_reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "base_reg", "type": "LrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -525,8 +549,8 @@ INSTRUCTION_SPEC = {
         },
         "bz": {
             "operands": [
-                {"name": "test_reg", "type": "LrIdx"},
-                {"name": "base_reg", "type": "LrIdx"},
+                {"name": "test_reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "base_reg", "type": "LrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -559,7 +583,7 @@ INSTRUCTION_SPEC = {
         },
         "br": {
             "operands": [
-                {"name": "reg", "type": "LrIdx"},
+                {"name": "reg", "type": "LrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Branch Register",
@@ -601,7 +625,7 @@ INSTRUCTION_SPEC = {
         },
         "break.ifeq": {
             "operands": [
-                {"name": "reg", "type": "LrIdx"},
+                {"name": "reg", "type": "LrIdx", "read": "snapshot"},
                 {"name": "value", "type": "BreakImmediate"},
             ],
             "doc": InstructionDoc(
@@ -835,6 +859,7 @@ def validate_instruction_spec() -> None:
         "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", 
         "Immediate", "BreakImmediate", "Label"
     }
+    valid_read_sources = {"snapshot", "live"}
     
     for slot_type, instructions in INSTRUCTION_SPEC.items():
         if not isinstance(instructions, dict):
@@ -881,6 +906,16 @@ def validate_instruction_spec() -> None:
                         f"has invalid type '{op_type}'. Must be one of: "
                         f"{valid_operand_types}"
                     )
+                
+                # Validate 'read' field if present
+                if "read" in operand:
+                    read_val = operand["read"]
+                    if read_val not in valid_read_sources:
+                        raise ValueError(
+                            f"{slot_type}.{inst_name}: operand '{operand['name']}' "
+                            f"has invalid 'read' value '{read_val}'. "
+                            f"Must be one of: {valid_read_sources}"
+                        )
             
             # Validate doc is InstructionDoc
             if not isinstance(inst_def["doc"], InstructionDoc):

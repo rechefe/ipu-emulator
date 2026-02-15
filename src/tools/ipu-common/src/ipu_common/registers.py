@@ -40,6 +40,7 @@ REGISTER_DEFINITIONS = {
     # -----------------------------------------------------------------------
     "r": {
         "kind": RegKind.MULT,
+        "vector": True,
         "size_bytes": 128,
         "count": 2,
         "dtype": RegDtype.UINT8,
@@ -49,14 +50,16 @@ REGISTER_DEFINITIONS = {
     },
     "r_cyclic": {
         "kind": RegKind.MULT,
+        "vector": True,
+        "cyclic": True,
         "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
-        "cyclic": True,
         "debug_aliases": ("rcyclic",),
     },
     "r_mask": {
         "kind": RegKind.MULT,
+        "vector": True,
         "size_bytes": 128,
         "count": 1,
         "dtype": RegDtype.UINT128,
@@ -67,10 +70,11 @@ REGISTER_DEFINITIONS = {
     # -----------------------------------------------------------------------
     "r_acc": {
         "kind": RegKind.ACC,
+        "vector": True,
+        "word_view": True,
         "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
-        "word_view": True,
         "debug_aliases": ("acc",),
     },
     # -----------------------------------------------------------------------
@@ -78,6 +82,7 @@ REGISTER_DEFINITIONS = {
     # -----------------------------------------------------------------------
     "lr": {
         "kind": RegKind.LR,
+        "vector": False,
         "size_bytes": 4,
         "count": 16,
         "dtype": RegDtype.UINT32,
@@ -86,6 +91,7 @@ REGISTER_DEFINITIONS = {
     },
     "cr": {
         "kind": RegKind.CR,
+        "vector": False,
         "size_bytes": 4,
         "count": 16,
         "dtype": RegDtype.UINT32,
@@ -97,13 +103,15 @@ REGISTER_DEFINITIONS = {
     # -----------------------------------------------------------------------
     "mult_res": {
         "kind": RegKind.MISC,
+        "vector": True,
+        "word_view": True,
         "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
-        "word_view": True,
     },
     "mem_bypass": {
         "kind": RegKind.MISC,
+        "vector": True,
         "size_bytes": 128,
         "count": 1,
         "dtype": RegDtype.UINT8,
@@ -115,6 +123,61 @@ REGISTER_DEFINITIONS = {
 # ===========================================================================
 # Factory Functions
 # ===========================================================================
+
+
+def get_register_sizes() -> dict[str, dict[str, int | bool]]:
+    """Return metadata for each register from master definitions.
+
+    Returns a dict keyed by register name with the keys:
+        size_bytes: size of one element in bytes
+        count:      number of elements
+        vector:     True for byte-blob registers, False for scalar integers
+        cyclic:     True if the register wraps around
+        word_view:  True if the register supports uint32 word-level access
+
+    This is the single source of truth for register dimensions used by
+    both assembler and emulator.
+    """
+    result = {}
+    for name, meta in REGISTER_DEFINITIONS.items():
+        result[name] = {
+            "size_bytes": meta["size_bytes"],
+            "count": meta.get("count", 1),
+            "vector": meta["vector"],
+            "cyclic": meta.get("cyclic", False),
+            "word_view": meta.get("word_view", False),
+        }
+    return result
+
+
+def get_mult_stage_map() -> list[tuple[str, int]]:
+    """Return the MultStageRegField encoding as a list of (register, element_index).
+
+    Index in the returned list == the encoded integer value in the VLIW word.
+    Each entry maps to a (canonical_register_name, element_index) pair in the
+    register file.
+
+    Derived from ``REGISTER_DEFINITIONS["r"]["assembler_values"]``.
+
+    Example::
+
+        [("r", 0), ("r", 1), ("mem_bypass", 0)]
+        #  0→r0     1→r1     2→mem_bypass
+    """
+    r_def = REGISTER_DEFINITIONS["r"]
+    aliases = r_def["debug_aliases"]  # ("r0", "r1")
+    result: list[tuple[str, int]] = []
+    for val in r_def["assembler_values"]:
+        if val in aliases:
+            # e.g. "r0" → ("r", 0), "r1" → ("r", 1)
+            idx = aliases.index(val)
+            result.append(("r", idx))
+        elif val in REGISTER_DEFINITIONS:
+            # e.g. "mem_bypass" is its own register
+            result.append((val, 0))
+        else:
+            raise ValueError(f"Unknown mult-stage value: {val}")
+    return result
 
 
 def create_regfile_schema() -> list[RegDescriptor]:

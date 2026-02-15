@@ -26,28 +26,28 @@ from ipu_emu.ipu_math import ipu_mult, ipu_add, DType
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
+    SLOT_COUNT,
     get_instruction_by_opcode,
     create_emulator_constants,
 )
+from ipu_common.registers import get_register_sizes, get_mult_stage_map
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants — derived from the single source of truth in ipu-common
 # ---------------------------------------------------------------------------
 
 _emu_constants = create_emulator_constants()
+_reg_sizes = get_register_sizes()
 
-# MultStageRegField: ["r0", "r1", "mem_bypass"]
-MULT_REG_R0 = 0
-MULT_REG_R1 = 1
-MULT_REG_MEM_BYPASS = 2
+# MultStageRegField: index → (register_name, element_index)
+# e.g. [("r", 0), ("r", 1), ("mem_bypass", 0)]
+_MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
 
-# Number of scalar (LR) registers — LCR indices >= 16 refer to CR registers.
-LR_REG_COUNT = 16
-
-# R register size in bytes
-R_REG_SIZE = 128
-R_CYCLIC_SIZE = 512
-R_ACC_SIZE = 512
+# Register dimensions — from REGISTER_DEFINITIONS via get_register_sizes()
+LR_REG_COUNT = _reg_sizes["lr"]["count"]
+R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
+R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
+R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +118,10 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
                 prefix, layout, inst_def["operands"]
             )
 
-    # LR has two sub-slots with different field prefixes
+    # LR has multiple sub-slots with different field prefixes
     lr_layout = SLOT_BINARY_LAYOUT["lr"]
     for inst_name, inst_def in INSTRUCTION_SPEC["lr"].items():
-        for slot_idx in range(2):
+        for slot_idx in range(SLOT_COUNT["lr"]):
             prefix = f"lr_inst_{slot_idx}"
             result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction(
                 prefix, lr_layout, inst_def["operands"]
@@ -132,6 +132,28 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
 
 # Precomputed at import time — no per-call overhead
 _INSTRUCTION_FIELD_MAP = _build_all_instruction_field_maps()
+
+
+def _build_read_operand_types() -> dict[tuple[str, str], dict[str, tuple[str, str]]]:
+    """Precompute which operands need auto-resolution for each instruction.
+
+    Returns dict keyed by (slot_type, inst_name) → {operand_name: (operand_type, source)}
+    for operands with a ``"read"`` field (``"snapshot"`` or ``"live"``) in instruction_spec.
+    """
+    result: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
+    for slot_type, instructions in INSTRUCTION_SPEC.items():
+        for inst_name, inst_def in instructions.items():
+            read_ops = {
+                op["name"]: (op["type"], op["read"])
+                for op in inst_def["operands"]
+                if "read" in op
+            }
+            if read_ops:
+                result[(slot_type, inst_name)] = read_ops
+    return result
+
+
+_INSTRUCTION_READ_TYPES = _build_read_operand_types()
 
 
 class BreakResult(IntEnum):
@@ -173,51 +195,63 @@ class Ipu:
     # Helper Methods
     # -----------------------------------------------------------------------
 
-    def _read_lcr(self, idx: int) -> int:
-        """Read from LCR register (LR if idx < 16, CR otherwise)."""
-        if idx < LR_REG_COUNT:
-            return self.snapshot.get_lr(idx)
-        else:
-            return self.snapshot.get_cr(idx - LR_REG_COUNT)
+    def _resolve_operand(self, op_type: str, raw_value: int,
+                         source: RegFile) -> int | bytearray:
+        """Resolve a 'read' operand to its register value.
 
-    def _get_mult_stage_reg(self, mult_stage_idx: int) -> bytearray:
-        """Return 128 bytes of the selected mult-stage register."""
-        if mult_stage_idx == MULT_REG_R0:
-            return self.state.regfile.get_r(0)
-        elif mult_stage_idx == MULT_REG_R1:
-            return self.state.regfile.get_r(1)
-        elif mult_stage_idx == MULT_REG_MEM_BYPASS:
-            return self.state.regfile.get_mem_bypass()
-        else:
-            raise ValueError(f"Invalid mult_stage_idx: {mult_stage_idx}")
+        Called by dispatch for operands with a ``"read"`` field in instruction_spec.
+        The operand type determines how the raw index is resolved:
 
-    def _mult_mask_and_shift(self, mask_offset: int, mask_shift: int) -> None:
+        - LrIdx → source.get_lr(idx) → uint32 value
+        - CrIdx → source.get_cr(idx) → uint32 value
+        - LcrIdx → LR if idx < LR_REG_COUNT, else CR → uint32 value
+        - MultStageReg → register bytes via _MULT_STAGE_MAP → bytearray
+
+        Args:
+            op_type: Operand type string from instruction_spec.
+            raw_value: Raw encoded index from the instruction word.
+            source: Register file to read from (snapshot or live regfile).
+        """
+        if op_type == "LrIdx":
+            return source.get_lr(raw_value)
+        elif op_type == "CrIdx":
+            return source.get_cr(raw_value)
+        elif op_type == "LcrIdx":
+            if raw_value < LR_REG_COUNT:
+                return source.get_lr(raw_value)
+            else:
+                return source.get_cr(raw_value - LR_REG_COUNT)
+        elif op_type == "MultStageReg":
+            reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
+            return source.get_register_bytes(reg_name, elem_idx)
+        else:
+            return raw_value
+
+    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
         """Apply mask-and-shift to mult_res, zeroing masked-out positions.
 
         Args:
-            mask_offset: LR register index holding the mask slot selector
-            mask_shift: LR register index holding the shift amount
+            mask_idx: Mask slot selector value (already resolved from LR)
+            shift: Shift amount value (already resolved from LR)
         """
-        lr_mask_idx = self.snapshot.get_lr(mask_offset)
-        lr_shift = self.snapshot.get_lr(mask_shift)
-        # Interpret lr_shift as signed int32
-        if lr_shift >= 0x80000000:
-            lr_shift = lr_shift - 0x100000000
+        # Interpret shift as signed int32
+        if shift >= 0x80000000:
+            shift = shift - 0x100000000
 
         # The mask register is 128 bytes = 1024 bits.
         # It is accessed as an array of __uint128_t masks (8 masks of 128 bits each).
-        # lr_mask_idx selects which 128-bit mask to use.
+        # mask_idx selects which 128-bit mask to use.
         mask_bytes = self.state.regfile.get_r_mask()
-        mask_slot = lr_mask_idx % (R_REG_SIZE // 16)  # 128/16 = 8 slots of 128-bit
+        mask_slot = mask_idx % (R_REG_SIZE // 16)  # 128/16 = 8 slots of 128-bit
         # Extract 128-bit mask from the mask register
         offset = mask_slot * 16
         mask_int = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little")
 
         # Apply shift
-        if lr_shift > 0:
-            mask_int <<= lr_shift
-        elif lr_shift < 0:
-            mask_int >>= -lr_shift
+        if shift > 0:
+            mask_int <<= shift
+        elif shift < 0:
+            mask_int >>= -shift
 
         # Zero out mult_res where mask bit is set
         mult_res = self.state.regfile.raw("mult_res")
@@ -236,48 +270,31 @@ class Ipu:
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
         """Execute str_acc_reg: Store accumulator to memory."""
-        lr_val = self.snapshot.get_lr(offset)
-        cr_val = self.snapshot.get_cr(base)
-        addr = lr_val + cr_val
-
+        addr = offset + base
         acc_data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, acc_data)
 
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute ldr_mult_reg: Load data from memory into a mult stage register."""
-        lr_val = self.snapshot.get_lr(offset)
-        cr_val = self.snapshot.get_cr(base)
-        addr = lr_val + cr_val
-
+        addr = offset + base
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
 
-        if dest == MULT_REG_R0:
-            self.state.regfile.set_r(0, data)
-        elif dest == MULT_REG_R1:
-            self.state.regfile.set_r(1, data)
-        elif dest == MULT_REG_MEM_BYPASS:
-            self.state.regfile.set_mem_bypass(data)
+        reg_name, elem_idx = _MULT_STAGE_MAP[dest]
+        self.state.regfile.set_register_bytes(reg_name, elem_idx, data)
 
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
         """Execute ldr_cyclic_mult_reg: Load with cyclic addressing into r_cyclic."""
-        lr_val = self.snapshot.get_lr(offset)
-        cr_val = self.snapshot.get_cr(base)
-        addr = lr_val + cr_val
-
+        addr = offset + base
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
-        lr_idx_val = self.snapshot.get_lr(index)
 
-        assert lr_idx_val % R_REG_SIZE == 0, (
-            f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {lr_idx_val}"
+        assert index % R_REG_SIZE == 0, (
+            f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {index}"
         )
-        self.state.regfile.set_r_cyclic_at(lr_idx_val, data)
+        self.state.regfile.set_r_cyclic_at(index, data)
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
         """Execute ldr_mult_mask_reg: Load mask data from memory."""
-        lr_val = self.snapshot.get_lr(offset)
-        cr_val = self.snapshot.get_cr(base)
-        addr = lr_val + cr_val
-
+        addr = offset + base
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
         self.state.regfile.set_r_mask(data)
 
@@ -285,10 +302,9 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    def execute_lr_incr(self, *, reg: int, value: int) -> None:
+    def execute_lr_incr(self, *, reg: int, reg_idx: int, value: int) -> None:
         """Execute incr: Increment a loop register by an immediate value."""
-        old = self.snapshot.get_lr(reg)
-        self.state.regfile.set_lr(reg, (old + value) & 0xFFFFFFFF)
+        self.state.regfile.set_lr(reg_idx, (reg + value) & 0xFFFFFFFF)
 
     def execute_lr_set(self, *, reg: int, value: int) -> None:
         """Execute set: Set a loop register to an immediate value."""
@@ -296,26 +312,22 @@ class Ipu:
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute add: Add two LCR registers."""
-        val_a = self._read_lcr(src_a)
-        val_b = self._read_lcr(src_b)
-        self.state.regfile.set_lr(dest, (val_a + val_b) & 0xFFFFFFFF)
+        self.state.regfile.set_lr(dest, (src_a + src_b) & 0xFFFFFFFF)
 
     def execute_lr_sub(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute sub: Subtract two LCR registers."""
-        val_a = self._read_lcr(src_a)
-        val_b = self._read_lcr(src_b)
-        self.state.regfile.set_lr(dest, (val_a - val_b) & 0xFFFFFFFF)
+        self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
 
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
         """Dispatch both LR sub-slots with conflict detection.
 
         LR is special: the VLIW word contains TWO LR sub-instructions
         (lr_inst_0 and lr_inst_1). Each is dispatched independently
-        with named operands.
+        with named operands. Read operands are auto-resolved to values.
         """
         pending: list[tuple[str, str, dict[str, int]]] = []
 
-        for slot_idx in range(2):
+        for slot_idx in range(SLOT_COUNT["lr"]):
             prefix = f"lr_inst_{slot_idx}"
             opcode_field = f"{prefix}_token_0_lr_inst_opcode"
             opcode = inst[opcode_field]
@@ -327,6 +339,12 @@ class Ipu:
             # incr by 0 is a NOP — skip
             if inst_name == "incr" and kwargs.get("value", 0) == 0:
                 continue
+
+            # Auto-resolve 'read' operands to register values.
+            read_types = _INSTRUCTION_READ_TYPES.get(("lr", inst_name), {})
+            for name, (op_type, source) in read_types.items():
+                regfile = self.snapshot if source == "snapshot" else self.state.regfile
+                kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
 
             pending.append((inst_name, spec["execute_fn"], kwargs))
 
@@ -349,50 +367,40 @@ class Ipu:
         """Execute mult_nop: No operation."""
         pass
 
-    def execute_mult_ee(self, *, ra: int, cyclic_offset: int,
+    def execute_mult_ee(self, *, ra: bytearray, cyclic_offset: int,
                         mask_offset: int, mask_shift: int) -> None:
         """Execute mult_ee: Element-wise multiplication."""
-        ra_data = self._get_mult_stage_reg(ra)
-        lr_cyclic_val = self.snapshot.get_lr(cyclic_offset)
-
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(lr_cyclic_val, R_REG_SIZE)
+        rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
 
         for i in range(R_REG_SIZE):
-            result = ipu_mult(ra_data[i], rb[i], dtype)
+            result = ipu_mult(ra[i], rb[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ev(self, *, ra: int, fixed_cyclic_idx: int,
+    def execute_mult_ev(self, *, ra: bytearray, fixed_cyclic_idx: int,
                         mask_offset: int, mask_shift: int) -> None:
         """Execute mult_ev: Element x fixed cyclic multiplication."""
-        ra_data = self._get_mult_stage_reg(ra)
-        lr_cyclic_val = self.snapshot.get_lr(fixed_cyclic_idx)
-
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(lr_cyclic_val, R_REG_SIZE)
+        rb = self.state.regfile.get_r_cyclic_at(fixed_cyclic_idx, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
 
         for i in range(R_REG_SIZE):
-            result = ipu_mult(ra_data[i], rb[0], dtype)
+            result = ipu_mult(ra[i], rb[0], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ve(self, *, ra: int, cyclic_offset: int,
+    def execute_mult_ve(self, *, ra: bytearray, cyclic_offset: int,
                         mask_offset: int, mask_shift: int, fixed_ra_idx: int) -> None:
         """Execute mult_ve: Fixed Ra x cyclic element multiplication."""
-        ra_data = self._get_mult_stage_reg(ra)
-        lr_cyclic_val = self.snapshot.get_lr(cyclic_offset)
-
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(lr_cyclic_val, R_REG_SIZE)
+        rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
 
-        lr_fixed_ra_val = self.snapshot.get_lr(fixed_ra_idx)
-        ra_fixed = ra_data[lr_fixed_ra_val % R_REG_SIZE]
+        ra_fixed = ra[fixed_ra_idx % R_REG_SIZE]
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra_fixed, rb[i], dtype)
@@ -432,31 +440,23 @@ class Ipu:
 
     def execute_beq(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute beq: Branch if equal."""
-        lr1 = self.snapshot.get_lr(reg1)
-        lr2 = self.snapshot.get_lr(reg2)
-        self.state.program_counter = label if lr1 == lr2 else self.state.program_counter + 1
+        self.state.program_counter = label if reg1 == reg2 else self.state.program_counter + 1
 
     def execute_bne(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute bne: Branch if not equal."""
-        lr1 = self.snapshot.get_lr(reg1)
-        lr2 = self.snapshot.get_lr(reg2)
-        self.state.program_counter = label if lr1 != lr2 else self.state.program_counter + 1
+        self.state.program_counter = label if reg1 != reg2 else self.state.program_counter + 1
 
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute blt: Branch if less than."""
-        lr1 = self.snapshot.get_lr(reg1)
-        lr2 = self.snapshot.get_lr(reg2)
-        self.state.program_counter = label if lr1 < lr2 else self.state.program_counter + 1
+        self.state.program_counter = label if reg1 < reg2 else self.state.program_counter + 1
 
     def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
         """Execute bnz: Branch if not zero."""
-        lr1 = self.snapshot.get_lr(test_reg)
-        self.state.program_counter = label if lr1 != 0 else self.state.program_counter + 1
+        self.state.program_counter = label if test_reg != 0 else self.state.program_counter + 1
 
     def execute_bz(self, *, test_reg: int, base_reg: int, label: int) -> None:
         """Execute bz: Branch if zero."""
-        lr1 = self.snapshot.get_lr(test_reg)
-        self.state.program_counter = label if lr1 == 0 else self.state.program_counter + 1
+        self.state.program_counter = label if test_reg == 0 else self.state.program_counter + 1
 
     def execute_b(self, *, label: int) -> None:
         """Execute b: Unconditional branch."""
@@ -464,8 +464,7 @@ class Ipu:
 
     def execute_br(self, *, reg: int) -> None:
         """Execute br: Branch to register value."""
-        lr1 = self.snapshot.get_lr(reg)
-        self.state.program_counter = lr1
+        self.state.program_counter = reg
 
     def execute_bkpt(self) -> None:
         """Execute bkpt: Breakpoint (halt execution)."""
@@ -485,8 +484,7 @@ class Ipu:
 
     def execute_break_ifeq(self, *, reg: int, value: int) -> BreakResult:
         """Execute break_ifeq: Break if LR register equals immediate."""
-        lr_val = self.snapshot.get_lr(reg)
-        if lr_val == value:
+        if reg == value:
             return BreakResult.BREAK
         return BreakResult.CONTINUE
 
@@ -500,7 +498,8 @@ class Ipu:
         1. Reads the opcode from the instruction word
         2. Looks up the instruction spec (operand names, execute_fn)
         3. Extracts operand values from inst using precomputed field mappings
-        4. Calls the handler with named keyword arguments
+        4. Auto-resolves 'read' operands to register values
+        5. Calls the handler with named keyword arguments
 
         Args:
             slot_type: Slot type ("xmem", "mult", "acc", "cond", "break")
@@ -520,6 +519,12 @@ class Ipu:
         # Extract named operand values
         field_map = _INSTRUCTION_FIELD_MAP[(slot_type, instruction_name)]
         kwargs = {name: inst[field_key] for name, field_key in field_map.items()}
+
+        # Auto-resolve 'read' operands to register values.
+        read_types = _INSTRUCTION_READ_TYPES.get((slot_type, instruction_name), {})
+        for name, (op_type, source) in read_types.items():
+            regfile = self.snapshot if source == "snapshot" else self.state.regfile
+            kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
 
         # Call handler with named arguments
         method = getattr(self, execute_fn_name)
