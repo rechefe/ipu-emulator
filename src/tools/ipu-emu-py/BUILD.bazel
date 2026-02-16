@@ -1,4 +1,5 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_emu_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//:asm_rules.bzl", "assemble_asm")
@@ -16,7 +17,7 @@ py_library(
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-common:ipu_common_lib",
-    ],
+    ] + get_requirements(requirement),
 )
 
 py_pytest_test(

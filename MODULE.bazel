@@ -19,12 +19,27 @@ parse_pyproject_deps = use_repo_rule("//:tools/pyproject_deps.bzl", "parse_pypro
 
 generate_requirements(
     name = "ipu_as_requirements",
-    pyproject_toml = "//src/tools/ipu-as-py:pyproject.toml",
+    pyproject_tomls = [
+        "//src/tools/ipu-as-py:pyproject.toml",
+        "//src/tools/ipu-emu-py:pyproject.toml",
+        "//src/tools/ipu-apps:pyproject.toml",
+        "//src/tools/ipu-common:pyproject.toml",
+    ],
 )
 
 parse_pyproject_deps(
     name = "ipu_as_pyproject",
     pyproject_toml = "//src/tools/ipu-as-py:pyproject.toml",
+)
+
+parse_pyproject_deps(
+    name = "ipu_emu_pyproject",
+    pyproject_toml = "//src/tools/ipu-emu-py:pyproject.toml",
+)
+
+parse_pyproject_deps(
+    name = "ipu_apps_pyproject",
+    pyproject_toml = "//src/tools/ipu-apps:pyproject.toml",
 )
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
