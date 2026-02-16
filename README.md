@@ -19,18 +19,7 @@ Python Packages
 Quick Start
 -----------
 
-```bash
-# Run all Python emulator tests
-cd src/tools/ipu-emu-py
-uv run pytest
 
-# Run the fully_connected app
-uv run python -m ipu_emu.apps.fully_connected \
-    path/to/instructions.bin \
-    path/to/inputs.bin \
-    path/to/weights.bin \
-    output.bin INT8
-```
 
 Build (Bazel)
 -------------
@@ -43,11 +32,11 @@ bazel build //...
 bazel test //...
 
 # Assemble an IPU program
-bazel build //src/apps/fully_connected:assemble_fully_connected
+bazel build //src/tools/ipu-apps:assemble_fully_connected
 ```
 
 Notes
 -----
 - The assembler and emulator share a single source of truth via `ipu_common` (instruction spec, register schema).
-- Assembly files (`.asm`) live in `src/apps/` alongside test data.
+- Applications live in `src/tools/ipu-apps/` — each app is a subpackage under `ipu_apps/` with its assembly, test data, and Python harness together.
 - Bazel uses hermetic builds with automatic caching and parallelization.

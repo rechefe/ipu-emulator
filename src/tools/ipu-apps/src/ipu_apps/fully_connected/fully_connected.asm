@@ -24,6 +24,8 @@ element_loop:
     incr                lr7 256;
     incr                lr0 128;;
 
+    break;;
+
     blt                 lr0 lr1 input_loop;;
 
 end:

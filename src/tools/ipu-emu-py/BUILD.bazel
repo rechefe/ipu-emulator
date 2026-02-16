@@ -11,10 +11,7 @@ exports_files([
 
 py_library(
     name = "ipu_emu_lib",
-    srcs = glob([
-        "src/ipu_emu/*.py",
-        "src/ipu_emu/apps/*.py",
-    ]),
+    srcs = glob(["src/ipu_emu/*.py"]),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -62,29 +59,9 @@ py_pytest_test(
     ],
 )
 
-assemble_asm(
-    name = "assemble_fully_connected",
-    src = "//src/apps/fully_connected:fully_connected.asm",
-)
-
-py_binary(
-    name = "run_fc_debug",
-    srcs = ["run_fc_debug.py"],
-    data = [
-        ":assemble_fully_connected.bin",
-        "//src/apps/fully_connected:test_data",
-    ],
-    imports = ["src"],
-    deps = [":ipu_emu_lib"],
-)
-
 py_pytest_test(
     name = "test_emulator_e2e",
     srcs = ["test/test_emulator_e2e.py"],
-    data = [
-        ":assemble_fully_connected.bin",
-        "//src/apps/fully_connected:test_data",
-    ],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
