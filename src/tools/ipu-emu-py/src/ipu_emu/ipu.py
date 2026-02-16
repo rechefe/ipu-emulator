@@ -302,9 +302,10 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    def execute_lr_incr(self, *, reg: int, reg_idx: int, value: int) -> None:
+    def execute_lr_incr(self, *, reg: int, value: int) -> None:
         """Execute incr: Increment a loop register by an immediate value."""
-        self.state.regfile.set_lr(reg_idx, (reg + value) & 0xFFFFFFFF)
+        current = self.state.regfile.get_lr(reg)
+        self.state.regfile.set_lr(reg, (current + value) & 0xFFFFFFFF)
 
     def execute_lr_set(self, *, reg: int, value: int) -> None:
         """Execute set: Set a loop register to an immediate value."""
@@ -559,8 +560,8 @@ class Ipu:
             return BreakResult.BREAK
 
         # Execute all other slots using the snapshot
-        self.dispatch_instruction("xmem", inst)
         self._dispatch_lr_slots(inst)  # LR has dual sub-slots
+        self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("cond", inst)

@@ -1,8 +1,10 @@
 """Interactive GDB-like debug CLI for the IPU emulator.
 
 All register display/get/set commands are **auto-generated** from
-``REGFILE_SCHEMA`` — adding a new register descriptor automatically
-creates the corresponding debug commands.
+the single source of truth in ``ipu_common.registers`` — adding a new
+register descriptor automatically creates the corresponding debug commands.
+
+Built on Python's ``cmd.Cmd`` for readline support, history, and ``?`` help.
 
 Usage from Python::
 
@@ -18,25 +20,33 @@ Or as a callback for :func:`emulator.run_with_debug`::
 
 from __future__ import annotations
 
+import cmd
 import json
 import struct
 import sys
-from enum import Enum, auto
+import types
 from io import StringIO
 from pathlib import Path
 from typing import Any, TextIO
 
-from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+# Single source of truth — import register types/schema from ipu_common
+from ipu_common.types import RegDescriptor, RegDtype, RegKind
+from ipu_common.registers import create_regfile_schema
+
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
 
 # Re-export so callers only need this module
 __all__ = ["debug_prompt", "DebugAction", "format_register", "DebugCLI"]
 
+# Build the schema once at import time
+REGFILE_SCHEMA: list[RegDescriptor] = create_regfile_schema()
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _hex32(val: int) -> str:
     return f"0x{val:08x}"
@@ -64,9 +74,14 @@ def _format_words(data: bytes | bytearray, word_offset: int = 0, count: int = 4)
     return f"words[{word_offset}..{end - 1}]: {' '.join(vals)}"
 
 
-def format_register(state: IpuState, desc: RegDescriptor,
-                    index: int = 0, offset: int = 0, count: int | None = None,
-                    as_words: bool = False) -> str:
+def format_register(
+    state: IpuState,
+    desc: RegDescriptor,
+    index: int = 0,
+    offset: int = 0,
+    count: int | None = None,
+    as_words: bool = False,
+) -> str:
     """Format a register value for display.
 
     Parameters
@@ -98,6 +113,7 @@ def format_register(state: IpuState, desc: RegDescriptor,
 # Register summary printers (mirror the C print_* functions)
 # ---------------------------------------------------------------------------
 
+
 def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
     desc = state.regfile._desc(name)
     header = f"=== {name.upper()} Registers ==="
@@ -107,8 +123,9 @@ def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
         out.write(f"  {name}{i:>2d} = {val:>10d} ({_hex32(val)})\n")
 
 
-def _print_byte_register(state: IpuState, name: str, out: TextIO,
-                          preview_bytes: int = 16) -> None:
+def _print_byte_register(
+    state: IpuState, name: str, out: TextIO, preview_bytes: int = 16
+) -> None:
     desc = state.regfile._desc(name)
     data = state.regfile.raw(name)
     if desc.count == 1:
@@ -121,7 +138,7 @@ def _print_byte_register(state: IpuState, name: str, out: TextIO,
         out.write(header + "\n")
         for idx in range(desc.count):
             start = idx * desc.size_bytes
-            hexes = " ".join(f"{b:02x}" for b in data[start:start + preview_bytes])
+            hexes = " ".join(f"{b:02x}" for b in data[start : start + preview_bytes])
             out.write(f"  {name}{idx}: {hexes} ...\n")
 
 
@@ -148,6 +165,7 @@ def print_all_registers(state: IpuState, out: TextIO | None = None) -> str:
 # ---------------------------------------------------------------------------
 # JSON export (matches C save_registers_to_json output)
 # ---------------------------------------------------------------------------
+
 
 def state_to_json_dict(state: IpuState) -> dict[str, Any]:
     """Serialise all IPU state to a JSON-compatible dict.
@@ -183,10 +201,10 @@ def save_state_json(state: IpuState, path: str | Path) -> None:
 # Disassembly
 # ---------------------------------------------------------------------------
 
+
 def disassemble_current(state: IpuState) -> str:
     """Disassemble the instruction at the current PC."""
     from ipu_as.compound_inst import CompoundInst
-    from ipu_as.lark_tree import assemble  # noqa: F401 — only for type ref
 
     pc = state.program_counter
     if pc >= INST_MEM_SIZE:
@@ -208,8 +226,9 @@ def disassemble_current(state: IpuState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Command parsing — auto-generated from REGFILE_SCHEMA
+# Register resolution helper
 # ---------------------------------------------------------------------------
+
 
 def _resolve_register(name: str) -> tuple[RegDescriptor | None, int]:
     """Resolve a register name (e.g. "lr5", "r0", "acc") to (descriptor, index).
@@ -223,9 +242,7 @@ def _resolve_register(name: str) -> tuple[RegDescriptor | None, int]:
         # Check debug aliases
         for alias in desc.debug_aliases:
             if name == alias:
-                # If alias looks like "r0" → extract index
                 if desc.count > 1:
-                    # Try to get index from alias suffix
                     for i in range(desc.count):
                         if alias == f"{desc.name}{i}":
                             return desc, i
@@ -235,7 +252,7 @@ def _resolve_register(name: str) -> tuple[RegDescriptor | None, int]:
     for desc in REGFILE_SCHEMA:
         if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
             if name.startswith(desc.name):
-                suffix = name[len(desc.name):]
+                suffix = name[len(desc.name) :]
                 try:
                     idx = int(suffix)
                     if 0 <= idx < desc.count:
@@ -247,7 +264,7 @@ def _resolve_register(name: str) -> tuple[RegDescriptor | None, int]:
     for desc in REGFILE_SCHEMA:
         if desc.count > 1 and desc.dtype not in (RegDtype.UINT32, RegDtype.INT32):
             if name.startswith(desc.name):
-                suffix = name[len(desc.name):]
+                suffix = name[len(desc.name) :]
                 try:
                     idx = int(suffix)
                     if 0 <= idx < desc.count:
@@ -267,100 +284,109 @@ def _parse_int(s: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# The Debug CLI class
+# The Debug CLI class — built on cmd.Cmd
 # ---------------------------------------------------------------------------
 
-class DebugCLI:
-    """Interactive debug CLI — instantiated per breakpoint entry."""
 
-    def __init__(self, state: IpuState, out: TextIO = sys.stdout,
-                 inp: TextIO = sys.stdin):
+class DebugCLI(cmd.Cmd):
+    """Interactive debug CLI — instantiated per breakpoint entry.
+
+    Uses Python's ``cmd.Cmd`` for readline, history, and ``help_*`` support.
+    Register group commands (``do_lr``, ``do_acc``, etc.) are auto-generated
+    from ``REGFILE_SCHEMA`` (sourced from ``ipu_common``).
+    """
+
+    prompt = "debug >>> "
+    intro = ""  # We print our own banner in run()
+
+    def __init__(
+        self, state: IpuState, out: TextIO = sys.stdout, inp: TextIO = sys.stdin
+    ):
+        super().__init__(stdin=inp, stdout=out)
         self.state = state
         self.out = out
         self.inp = inp
-        self._build_commands()
+        self.use_rawinput = False
+        self._result: DebugAction = DebugAction.QUIT
+        self._generate_register_commands()
 
-    def _build_commands(self) -> None:
-        """Build the command dispatch table.
-
-        Static commands (help, step, continue, etc.) plus auto-generated
-        register group commands from REGFILE_SCHEMA.
-        """
-        self.commands: dict[str, Any] = {
-            "help": self._cmd_help,
-            "regs": self._cmd_regs,
-            "pc": self._cmd_pc,
-            "get": self._cmd_get,
-            "getw": self._cmd_getw,
-            "set": self._cmd_set,
-            "disasm": self._cmd_disasm,
-            "save": self._cmd_save,
-        }
-
-        # Auto-generate shortcut commands for each register group
+    def _generate_register_commands(self) -> None:
+        """Auto-generate ``do_<name>`` methods for each register group."""
         for desc in REGFILE_SCHEMA:
-            name = desc.name
-            # Register the canonical name as a shortcut (like "lr", "cr", "acc")
-            # and all its aliases
-            all_names = [name] + list(desc.debug_aliases)
+            all_names = [desc.name] + list(desc.debug_aliases)
             for cmd_name in all_names:
-                if cmd_name not in self.commands:
-                    self.commands[cmd_name] = self._make_reg_printer(desc)
+                if not hasattr(self, f"do_{cmd_name}"):
 
-    def _make_reg_printer(self, desc: RegDescriptor):
-        """Return a command handler that prints a register group."""
-        def handler(args: list[str]) -> None:
-            if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
-                _print_scalar_group(self.state, desc.name, self.out)
-            else:
-                _print_byte_register(self.state, desc.name, self.out)
-        return handler
+                    def _make_handler(d: RegDescriptor):
+                        def handler(self_inner, args: str) -> None:
+                            if d.dtype in (RegDtype.UINT32, RegDtype.INT32):
+                                _print_scalar_group(
+                                    self_inner.state, d.name, self_inner.out
+                                )
+                            else:
+                                _print_byte_register(
+                                    self_inner.state, d.name, self_inner.out
+                                )
 
-    # -- static commands ----------------------------------------------------
+                        handler.__doc__ = f"Print {d.name} register(s)"
+                        return handler
 
-    def _cmd_help(self, args: list[str]) -> None:
-        lines = [
-            "Available commands:",
-            "  help              - Show this help message",
-            "  regs              - Print all registers",
-        ]
-        # Auto-generate register commands
-        for desc in REGFILE_SCHEMA:
-            aliases = ", ".join(desc.debug_aliases) if desc.debug_aliases else ""
-            alias_str = f" ({aliases})" if aliases else ""
-            lines.append(f"  {desc.name:<18s} - Print {desc.name} register{alias_str}")
-        lines += [
-            "  pc                - Print program counter",
-            "",
-            "  get <reg> [off] [cnt] - Get bytes from register",
-            "  getw <reg> [off] [cnt] - Get words from register",
-            "  get lr<N>         - Get value of LR register N",
-            "  get cr<N>         - Get value of CR register N",
-            "",
-            "  set lr<N> <val>   - Set LR register N to value",
-            "  set cr<N> <val>   - Set CR register N to value",
-            "  set pc <val>      - Set program counter to value",
-            "  disasm            - Disassemble current instruction",
-            "  save [filename]   - Save registers to JSON file",
-            "  step              - Execute one instruction and break again",
-            "  continue / c      - Continue execution",
-            "  quit / q          - Quit debugger and halt execution",
-        ]
-        self.out.write("\n".join(lines) + "\n")
+                    setattr(
+                        self,
+                        f"do_{cmd_name}",
+                        types.MethodType(_make_handler(desc), self),
+                    )
 
-    def _cmd_regs(self, args: list[str]) -> None:
+    # -- Exit commands ------------------------------------------------------
+
+    def do_continue(self, args: str) -> bool:
+        """Continue execution."""
+        self.out.write("Continuing execution...\n")
+        self._result = DebugAction.CONTINUE
+        return True
+
+    def do_c(self, args: str) -> bool:
+        """Continue execution (shortcut)."""
+        return self.do_continue(args)
+
+    def do_quit(self, args: str) -> bool:
+        """Quit debugger and halt execution."""
+        self.out.write("Halting execution.\n")
+        self.state.program_counter = INST_MEM_SIZE
+        self._result = DebugAction.QUIT
+        return True
+
+    def do_q(self, args: str) -> bool:
+        """Quit debugger (shortcut)."""
+        return self.do_quit(args)
+
+    def do_step(self, args: str) -> bool:
+        """Execute one instruction and break again."""
+        self.out.write("Stepping one instruction...\n")
+        self._result = DebugAction.STEP
+        return True
+
+    # -- Register commands --------------------------------------------------
+
+    def do_regs(self, args: str) -> None:
+        """Print all registers."""
         print_all_registers(self.state, self.out)
 
-    def _cmd_pc(self, args: list[str]) -> None:
-        self.out.write(f"=== Program Counter ===\n  PC = {self.state.program_counter}\n")
+    def do_pc(self, args: str) -> None:
+        """Print program counter."""
+        self.out.write(
+            f"=== Program Counter ===\n  PC = {self.state.program_counter}\n"
+        )
 
-    def _cmd_get(self, args: list[str]) -> None:
-        if len(args) < 2:
+    def do_get(self, args: str) -> None:
+        """Get register value.  Usage: get <register> [offset] [count]"""
+        parts = args.split()
+        if not parts:
             self.out.write("Usage: get <register> [offset] [count]\n")
             return
-        reg_name = args[1]
-        offset = _parse_int(args[2]) if len(args) >= 3 else 0
-        count = _parse_int(args[3]) if len(args) >= 4 else None
+        reg_name = parts[0]
+        offset = _parse_int(parts[1]) if len(parts) >= 2 else 0
+        count = _parse_int(parts[2]) if len(parts) >= 3 else None
 
         if reg_name == "pc":
             self.out.write(f"pc = {self.state.program_counter}\n")
@@ -375,16 +401,20 @@ class DebugCLI:
             self.out.write("Invalid offset\n")
             return
 
-        text = format_register(self.state, desc, idx, offset or 0, count, as_words=False)
+        text = format_register(
+            self.state, desc, idx, offset or 0, count, as_words=False
+        )
         self.out.write(f"{reg_name} {text}\n")
 
-    def _cmd_getw(self, args: list[str]) -> None:
-        if len(args) < 2:
+    def do_getw(self, args: str) -> None:
+        """Get register words.  Usage: getw <register> [word_offset] [count]"""
+        parts = args.split()
+        if not parts:
             self.out.write("Usage: getw <register> [word_offset] [count]\n")
             return
-        reg_name = args[1]
-        offset = _parse_int(args[2]) if len(args) >= 3 else 0
-        count = _parse_int(args[3]) if len(args) >= 4 else None
+        reg_name = parts[0]
+        offset = _parse_int(parts[1]) if len(parts) >= 2 else 0
+        count = _parse_int(parts[2]) if len(parts) >= 3 else None
 
         desc, idx = _resolve_register(reg_name)
         if desc is None:
@@ -401,14 +431,16 @@ class DebugCLI:
         text = format_register(self.state, desc, idx, offset or 0, count, as_words=True)
         self.out.write(f"{reg_name} {text}\n")
 
-    def _cmd_set(self, args: list[str]) -> None:
-        if len(args) < 3:
+    def do_set(self, args: str) -> None:
+        """Set register value.  Usage: set <register> <value>"""
+        parts = args.split()
+        if len(parts) < 2:
             self.out.write("Usage: set <register> <value>\n")
             return
-        reg_name = args[1]
-        value = _parse_int(args[2])
+        reg_name = parts[0]
+        value = _parse_int(parts[1])
         if value is None:
-            self.out.write(f"Invalid value: {args[2]}\n")
+            self.out.write(f"Invalid value: {parts[1]}\n")
             return
 
         if reg_name == "pc":
@@ -425,17 +457,27 @@ class DebugCLI:
             self.state.regfile.set_scalar(desc.name, idx, value)
             self.out.write(f"Set {reg_name} = {value}\n")
         else:
-            self.out.write(f"Cannot set byte-array register '{reg_name}' with a scalar value\n")
+            self.out.write(
+                f"Cannot set byte-array register '{reg_name}' with a scalar value\n"
+            )
 
-    def _cmd_disasm(self, args: list[str]) -> None:
+    def do_disasm(self, args: str) -> None:
+        """Disassemble current instruction."""
         self.out.write(disassemble_current(self.state) + "\n")
 
-    def _cmd_save(self, args: list[str]) -> None:
-        filename = args[1] if len(args) >= 2 else "ipu_debug_dump.json"
+    def do_save(self, args: str) -> None:
+        """Save registers to JSON.  Usage: save [filename]"""
+        filename = args.strip() if args.strip() else "ipu_debug_dump.json"
         save_state_json(self.state, filename)
         self.out.write(f"Registers saved to {filename}\n")
 
-    # -- REPL loop ----------------------------------------------------------
+    def default(self, line: str) -> None:
+        """Handle unknown commands."""
+        self.out.write(
+            f"Unknown command: {line}. Type 'help' for available commands.\n"
+        )
+
+    # -- REPL entry point ---------------------------------------------------
 
     def run(self, level: int = 0) -> DebugAction:
         """Enter the interactive debug prompt and return the chosen action."""
@@ -445,7 +487,7 @@ class DebugCLI:
 
         # Level 0: print registers
         if level >= 0:
-            self._cmd_pc([])
+            self.do_pc("")
             _print_scalar_group(self.state, "lr", self.out)
 
         # Level 1: disassemble
@@ -459,56 +501,27 @@ class DebugCLI:
             save_state_json(self.state, filename)
             self.out.write(f"Registers saved to {filename}\n")
 
-        self.out.write("\nType 'help' for available commands, "
-                       "'continue' or 'c' to resume execution.\n\n")
+        self.out.write(
+            "\nType 'help' for available commands, "
+            "'continue' or 'c' to resume execution.\n\n"
+        )
 
-        while True:
-            self.out.write("debug >>> ")
-            self.out.flush()
-
-            try:
-                line = self.inp.readline()
-            except EOFError:
-                line = ""
-
-            if not line:
-                self.out.write("\nEOF received, halting execution.\n")
-                self.state.program_counter = INST_MEM_SIZE
-                return DebugAction.QUIT
-
-            tokens = line.strip().split()
-            if not tokens:
-                continue
-
-            cmd = tokens[0]
-
-            # Exit commands
-            if cmd in ("continue", "c"):
-                self.out.write("Continuing execution...\n")
-                return DebugAction.CONTINUE
-            if cmd in ("quit", "q"):
-                self.out.write("Halting execution.\n")
-                self.state.program_counter = INST_MEM_SIZE
-                return DebugAction.QUIT
-            if cmd == "step":
-                self.out.write("Stepping one instruction...\n")
-                return DebugAction.STEP
-
-            handler = self.commands.get(cmd)
-            if handler is not None:
-                handler(tokens)
-            else:
-                self.out.write(
-                    f"Unknown command: {cmd}. Type 'help' for available commands.\n"
-                )
+        self.cmdloop(intro="")
+        return self._result
 
 
 # ---------------------------------------------------------------------------
 # Convenience entry point
 # ---------------------------------------------------------------------------
 
-def debug_prompt(state: IpuState, cycle: int = 0, level: int = 0,
-                 out: TextIO = sys.stdout, inp: TextIO = sys.stdin) -> DebugAction:
+
+def debug_prompt(
+    state: IpuState,
+    cycle: int = 0,
+    level: int = 0,
+    out: TextIO = sys.stdout,
+    inp: TextIO = sys.stdin,
+) -> DebugAction:
     """Enter the interactive debug prompt.
 
     Suitable as a callback for :func:`emulator.run_with_debug`::
