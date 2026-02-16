@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipu-apps"
+version = "0.1.0"
+description = "IPU application test harnesses"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "ipu-emu-py",
+    "ipu-as-py",
+    "ipu-common",
+]
+
+[tool.uv.sources]
+ipu-emu-py = { path = "../ipu-emu-py", editable = true }
+ipu-as-py = { path = "../ipu-as-py", editable = true }
+ipu-common = { path = "../ipu-common", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.package-data]
+ipu_apps = ["**/*.asm", "**/*.bin"]
+
+[tool.uv]
+package = true

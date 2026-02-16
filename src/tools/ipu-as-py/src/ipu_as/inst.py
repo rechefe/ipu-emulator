@@ -5,16 +5,43 @@ import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
+from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc
 
 
-@dataclass
-class InstructionDoc:
-    title: str
-    summary: str
-    syntax: str
-    operands: list[str]
-    operation: str | None = None
-    example: str | None = None
+# ===========================================================================
+# Operand Type Resolution
+# ===========================================================================
+# Maps string type names from instruction_spec → actual token classes.
+# This is the ONLY place where type names are resolved to Python classes.
+# ===========================================================================
+
+OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
+    "MultStageReg": reg.MultStageRegField,
+    "LrIdx": reg.LrRegField,
+    "CrIdx": reg.CrRegField,
+    "LcrIdx": reg.LcrRegField,
+    "Immediate": immediate.LrImmediateType,
+    "BreakImmediate": immediate.BreakImmediateType,
+    "Label": ipu_token.LabelToken,
+}
+
+
+def _build_struct_table(slot_type: str) -> dict[str, "InstructionFormat"]:
+    """Build struct_by_opcode_table from INSTRUCTION_SPEC for a given slot.
+
+    Resolves string operand type names to actual token classes using
+    OPERAND_TYPE_MAP, and wraps each instruction in an InstructionFormat.
+    """
+    slot_spec = INSTRUCTION_SPEC[slot_type]
+    result = {}
+    for inst_name, inst_def in slot_spec.items():
+        operand_classes = [
+            OPERAND_TYPE_MAP[op["type"]] for op in inst_def["operands"]
+        ]
+        result[inst_name] = InstructionFormat(
+            operands=operand_classes, doc=inst_def["doc"]
+        )
+    return result
 
 
 @dataclass
@@ -243,83 +270,8 @@ class XmemInst(Inst):
         return opcodes.XmemInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "ldr_mult_reg": InstructionFormat(
-                operands=[reg.MultStageRegField, reg.LrRegField, reg.CrRegField],
-                doc=InstructionDoc(
-                    title="Load Register",
-                    summary="Load data from memory into a register.",
-                    syntax="ldr_mult_reg Rd LrOffset CrBase",
-                    operands=[
-                        "Rd: Multiplication stage register to load data into - r0, r1 or mem_bypass (bypass directly to mult operand)",
-                        "LrOffset: Offset register (holds memory address)",
-                        "CrBase: Base address register which is added to the offset",
-                    ],
-                    operation="Rd = Memory[LrOffset + CrBase]",
-                    example="set lr0 0x1000;;\nldr_mult_reg r0 lr0 cr0;;",
-                ),
-            ),
-            "ldr_cyclic_mult_reg": InstructionFormat(
-                operands=[reg.LrRegField, reg.CrRegField, reg.LrRegField],
-                doc=InstructionDoc(
-                    title="Load Cyclic Register",
-                    summary="Load data from memory into a multiplication stage register with cyclic addressing.",
-                    syntax="ldr_cyclic_mult_reg LrOffset CrBase LrIdx",
-                    operands=[
-                        "LrOffset: Offset register (holds memory address)",
-                        "CrBase: Base address register added to the offset",
-                        "LrIdx: Index inside Rc (cyclic reg to load data into) - an LR register",
-                    ],
-                    operation="Rc[LrIdx % 512+:128] = Memory[LrOffset + CrBase]",
-                    example="""set lr0 0x1000;;
-set lr1 0x10;;
-ldr_cyclic_mult_reg lr1 lr0 cr1;;""",
-                ),
-            ),
-            "ldr_mult_mask_reg": InstructionFormat(
-                operands=[reg.LrRegField, reg.CrRegField],
-                doc=InstructionDoc(
-                    title="Load Mask Register",
-                    summary="Load mask data from memory into the multiplication mask register.",
-                    syntax="ldr_mult_mask_reg LrOffset CrBase",
-                    operands=[
-                        "LrOffset: Offset register (holds memory address)",
-                        "CrBase: Base address register added to the offset",
-                    ],
-                    operation="RMask = Memory[LrOffset + CrBase]",
-                    example="set lr2 0x3000;;\nldr_mult_mask_reg lr2 cr2;;",
-                ),
-            ),
-            "str_acc_reg": InstructionFormat(
-                operands=[reg.LrRegField, reg.CrRegField],
-                doc=InstructionDoc(
-                    title="Store Register",
-                    summary="Store data from a register into memory.",
-                    syntax="str_acc_reg LrOffset CrBase",
-                    operands=[
-                        "LrOffset: Offset register (holds memory address)",
-                        "CrBase: Base address register added to the offset",
-                    ],
-                    operation="Memory[LrOffset + CrBase] = acc_reg",
-                    example="""set lr1 0x2000;;
-str_acc_reg lr1 cr1;;
-""",
-                ),
-            ),
-            "xmem_nop": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="No Operation",
-                    summary="No operation for the XMEM pipeline.",
-                    syntax="xmem_nop",
-                    operands=[],
-                    example="xmem_nop;;",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("xmem")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
@@ -358,104 +310,8 @@ class MultInst(Inst):
         return opcodes.MultInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "mult.ee": InstructionFormat(
-                operands=[
-                    reg.MultStageRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                ],
-                doc=InstructionDoc(
-                    title="Element-wise Multiply",
-                    summary="Multiply elements of two registers element by element.",
-                    syntax="mult.ee Ra LrCyclicOffset LrMaskOffset LrMaskShift",
-                    operands=[
-                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
-                        "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
-                        "LrMaskOffset: offset to select mask from RM (mask register)",
-                        "LrMaskShift: shift applied to the mask register",
-                    ],
-                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
-for i in [0, 127]: 
-    if shifted_mask[i]:
-        mult_result[i] = Ra[i] * RC[(i+LrCyclicOffset) % 512]
-    else
-        mult_result[i] = 0
-""",
-                    example="# Element-wise multiplication\nmult.ee r4 lr0 lr1 lr2;;",
-                ),
-            ),
-            "mult.ev": InstructionFormat(
-                operands=[
-                    reg.MultStageRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                ],
-                doc=InstructionDoc(
-                    title="Element-Cyclic Multiply (Ra element, Cyclic fixed)",
-                    summary="Multiply Ra elements against a fixed element from cyclic register.",
-                    syntax="mult.ev Ra LrFixedCyclicIdx LrMaskOffset LrMaskShift",
-                    operands=[
-                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
-                        "LrFixedCyclicIdx: fixed index for element selection from cyclic register",
-                        "LrMaskOffset: offset to select mask from RM (mask register)",
-                        "LrMaskShift: shift applied to the mask register",
-                    ],
-                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
-for i in [0, 127]: 
-    if shifted_mask[i]:
-        mult_result[i] = Ra[i] * RC[LrFixedCyclicIdx % 512]
-    else
-        mult_result[i] = 0
-""",
-                    example="# Element multiply with fixed cyclic element\nmult.ev r4 lr0 lr1 lr2;;",
-                ),
-            ),
-            "mult.ve": InstructionFormat(
-                operands=[
-                    reg.MultStageRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                    reg.LrRegField,
-                ],
-                doc=InstructionDoc(
-                    title="Vector-Element Multiply (Ra fixed, Cyclic element)",
-                    summary="Multiply a fixed element from Ra register against cyclic register elements.",
-                    syntax="mult.ve Ra LrCyclicOffset LrMaskOffset LrMaskShift LrFixedRaIdx",
-                    operands=[
-                        "Ra: Multiplicand register - R register (r0, r1 or mem_bypass)",
-                        "LrCyclicOffset: base offset for multiplier from RC (cyclic register)",
-                        "LrMaskOffset: offset to select mask from RM (mask register)",
-                        "LrMaskShift: shift applied to the mask register",
-                        "LrFixedRaIdx: fixed index for element selection from Ra register",
-                    ],
-                    operation="""shifted_mask = RMask[LrMaskOffset % 8] << LrMaskShift
-for i in [0, 127]: 
-    if shifted_mask[i]:
-        mult_result[i] = Ra[LrFixedRaIdx % 128] * RC[(i+LrCyclicOffset) % 512]
-    else
-        mult_result[i] = 0
-""",
-                    example="# Fixed Ra element multiply with cyclic elements\nmult.ve r4 lr0 lr1 lr2 lr3;;",
-                ),
-            ),
-            "mult_nop": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="No Operation",
-                    summary="No operation for the MULT pipeline.",
-                    syntax="mult_nop",
-                    operands=[],
-                    example="mult_nop;;",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("mult")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
@@ -490,45 +346,8 @@ class AccInst(Inst):
         return opcodes.AccInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "acc": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="Accumulate",
-                    summary="Accumulate the multiplication result into the accumulator register.",
-                    syntax="acc",
-                    operands=[],
-                    operation="""for i in [0, 127]:
-    acc_reg[i] += mult_result[i]
-""",
-                    example="acc;;",
-                ),
-            ),
-            "reset_acc": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="Reset Accumulator",
-                    summary="Reset the accumulator register to zero.",
-                    syntax="reset_acc",
-                    operands=[],
-                    operation="acc_reg = 0",
-                    example="reset_acc;;",
-                ),
-            ),
-            "acc_nop": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="No Operation",
-                    summary="No operation for the ACC pipeline.",
-                    syntax="acc_nop",
-                    operands=[],
-                    example="acc_nop;;",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("acc")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
@@ -561,69 +380,8 @@ class LrInst(Inst):
         return opcodes.LrInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "incr": InstructionFormat(
-                operands=[reg.LrRegField, immediate.LrImmediateType],
-                doc=InstructionDoc(
-                    title="Increment Register",
-                    summary="Increment a loop register by an immediate value.",
-                    syntax="incr Lr imm",
-                    operands=[
-                        "Lr: Loop/address register to increment",
-                        "imm: Immediate value to add",
-                    ],
-                    operation="Lr = Lr + imm",
-                    example="set lr0 10;;\nincr lr0 1;;\nincr lr0 5;;",
-                ),
-            ),
-            "set": InstructionFormat(
-                operands=[reg.LrRegField, immediate.LrImmediateType],
-                doc=InstructionDoc(
-                    title="Set Register",
-                    summary="Assign an immediate value to a loop register.",
-                    syntax="set Lr imm",
-                    operands=[
-                        "Lr: Loop/address register to set",
-                        "imm: Immediate value to assign",
-                    ],
-                    operation="Lr = imm",
-                    example="set lr0 0x1000;;\nset lr1 100;;\nset lr2 -5;;",
-                ),
-            ),
-            "add": InstructionFormat(
-                operands=[reg.LrRegField, reg.LcrRegField, reg.LcrRegField],
-                doc=InstructionDoc(
-                    title="Add",
-                    summary="Add two registers and store the result in a destination register.",
-                    syntax="add LRd LCRa LCRb",
-                    operands=[
-                        "LRd: Destination loop register",
-                        "LCRa: First source register (LR or CR)",
-                        "LCRb: Second source register (LR or CR)",
-                    ],
-                    operation="LRd = LCRa + LCRb",
-                    example="add lr0 lr1 lr2;;\nadd lr3 cr0 lr4;;\nadd lr5 lr6 cr1;;",
-                ),
-            ),
-            "sub": InstructionFormat(
-                operands=[reg.LrRegField, reg.LcrRegField, reg.LcrRegField],
-                doc=InstructionDoc(
-                    title="Subtract",
-                    summary="Subtract two registers and store the result in a destination register.",
-                    syntax="sub LRd LCRa LCRb",
-                    operands=[
-                        "LRd: Destination loop register",
-                        "LCRa: First source register (LR or CR)",
-                        "LCRb: Second source register (LR or CR)",
-                    ],
-                    operation="LRd = LCRa - LCRb",
-                    example="sub lr0 lr1 lr2;;\nsub lr3 cr0 lr4;;\nsub lr5 lr6 cr1;;",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("lr")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
@@ -665,119 +423,8 @@ class CondInst(Inst):
         return opcodes.CondInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "beq": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Branch if Equal",
-                    summary="Branch when two registers are equal.",
-                    syntax="beq Lr1 Lr2 label",
-                    operands=[
-                        "Lr1: First register to compare",
-                        "Lr2: Second register to compare",
-                        "label: Branch target",
-                    ],
-                    operation="if (Lr1 == Lr2) goto label",
-                    example="beq lr0 lr1 end;;",
-                ),
-            ),
-            "bne": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Branch if Not Equal",
-                    summary="Branch when two registers differ.",
-                    syntax="bne Lr1 Lr2 label",
-                    operands=[
-                        "Lr1: First register to compare",
-                        "Lr2: Second register to compare",
-                        "label: Branch target",
-                    ],
-                    operation="if (Lr1 != Lr2) goto label",
-                    example="bne lr0 lr1 different;;",
-                ),
-            ),
-            "blt": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Branch if Less Than",
-                    summary="Branch when the first register is less than the second.",
-                    syntax="blt Lr1 Lr2 label",
-                    operands=[
-                        "Lr1: First register (lhs)",
-                        "Lr2: Second register (rhs)",
-                        "label: Branch target",
-                    ],
-                    operation="if (Lr1 < Lr2) goto label",
-                    example="blt lr0 lr1 smaller;;",
-                ),
-            ),
-            "bnz": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Branch if Not Zero",
-                    summary="Branch when the test register is not equal to the baseline (often zero).",
-                    syntax="bnz LrTest LrBase label",
-                    operands=[
-                        "LrTest: Register to test",
-                        "LrBase: Baseline register (commonly a zero register)",
-                        "label: Branch target",
-                    ],
-                    operation="if (LrTest != LrBase) goto label",
-                    example="bnz lr3 lr0 main_loop;;",
-                ),
-            ),
-            "bz": InstructionFormat(
-                operands=[reg.LrRegField, reg.LrRegField, ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Branch if Zero",
-                    summary="Branch when the test register equals the baseline (often zero).",
-                    syntax="bz LrTest LrBase label",
-                    operands=[
-                        "LrTest: Register to test",
-                        "LrBase: Baseline register (commonly a zero register)",
-                        "label: Branch target",
-                    ],
-                    operation="if (LrTest == LrBase) goto label",
-                    example="bz lr0 lr1 zero;;",
-                ),
-            ),
-            "b": InstructionFormat(
-                operands=[ipu_token.LabelToken],
-                doc=InstructionDoc(
-                    title="Unconditional Branch",
-                    summary="Always branch to a label (relative or absolute).",
-                    syntax="b label",
-                    operands=["label: Branch target"],
-                    operation="goto label",
-                    example="b start;;",
-                ),
-            ),
-            "br": InstructionFormat(
-                operands=[reg.LrRegField],
-                doc=InstructionDoc(
-                    title="Branch to Register",
-                    summary="Branch to the address held in a loop register.",
-                    syntax="br Lr",
-                    operands=["Lr: Register containing target address"],
-                    operation="goto address_in(Lr)",
-                    example="br lr0;;",
-                ),
-            ),
-            "bkpt": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="Breakpoint",
-                    summary="Halt execution (debug breakpoint).",
-                    syntax="bkpt",
-                    operands=[],
-                    operation="halt",
-                    example="bkpt",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("cond")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
@@ -813,46 +460,8 @@ class BreakInst(Inst):
         return opcodes.BreakInstOpcode
 
     @classmethod
-    def struct_by_opcode_table(
-        cls,
-    ) -> dict[str, InstructionFormat | list[type[ipu_token.IpuToken]]]:
-        return {
-            "break": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="Unconditional Break",
-                    summary="Unconditionally halt execution and enter debug mode.",
-                    syntax="break",
-                    operands=[],
-                    operation="halt; enter debug prompt",
-                    example="break;;",
-                ),
-            ),
-            "break.ifeq": InstructionFormat(
-                operands=[reg.LrRegField, immediate.BreakImmediateType],
-                doc=InstructionDoc(
-                    title="Conditional Break if Equal",
-                    summary="Halt execution and enter debug mode if LR register equals immediate value.",
-                    syntax="break.ifeq Lr imm",
-                    operands=[
-                        "Lr: Loop register to compare",
-                        "imm: Immediate value to compare against",
-                    ],
-                    operation="if (Lr == imm) halt; enter debug prompt",
-                    example="break.ifeq lr0 5;;",
-                ),
-            ),
-            "break_nop": InstructionFormat(
-                operands=[],
-                doc=InstructionDoc(
-                    title="No Operation",
-                    summary="No operation for the break slot.",
-                    syntax="break_nop",
-                    operands=[],
-                    example="break_nop;;",
-                ),
-            ),
-        }
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("break")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:

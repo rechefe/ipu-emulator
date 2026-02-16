@@ -1,0 +1,72 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//:asm_rules.bzl", "assemble_asm")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+py_library(
+    name = "ipu_apps_lib",
+    srcs = glob(["src/ipu_apps/**/*.py"]),
+    imports = ["src"],
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-common:ipu_common_lib",
+    ] + get_requirements(requirement),
+)
+
+# -- Fully-connected app ---------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/fully_connected/fully_connected.asm",
+])
+
+filegroup(
+    name = "fc_test_data",
+    srcs = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_fully_connected",
+    src = "src/ipu_apps/fully_connected/fully_connected.asm",
+)
+
+py_binary(
+    name = "fully_connected",
+    srcs = ["src/ipu_apps/fully_connected/__main__.py"],
+    main = "src/ipu_apps/fully_connected/__main__.py",
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_fully_connected",
+    srcs = ["test/test_fully_connected.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)

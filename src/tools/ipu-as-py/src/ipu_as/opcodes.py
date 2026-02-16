@@ -1,97 +1,37 @@
+"""Opcode definitions for IPU assembler — auto-generated from instruction_spec.
+
+This module re-exports Opcode classes created from ipu_common.instruction_spec
+at runtime. No manual opcode definitions here — everything flows from the
+single source of truth (INSTRUCTION_SPEC).
+
+All opcode values are AUTOMATICALLY DERIVED from instruction position.
+When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
+automatically without touching this file.
+"""
+
 import lark
-import ipu_as.ipu_token as ipu_token
+from ipu_common.instruction_spec import create_assembler_opcodes
+
+# Create Opcode classes at runtime from instruction_spec
+_opcode_classes = create_assembler_opcodes()
+
+# Export classes with their original names
+XmemInstOpcode = _opcode_classes["XmemInstOpcode"]
+LrInstOpcode = _opcode_classes["LrInstOpcode"]
+MultInstOpcode = _opcode_classes["MultInstOpcode"]
+AccInstOpcode = _opcode_classes["AccInstOpcode"]
+CondInstOpcode = _opcode_classes["CondInstOpcode"]
+BreakInstOpcode = _opcode_classes["BreakInstOpcode"]
+
+# Export base Opcode class (parent of all the above)
+Opcode = XmemInstOpcode.__bases__[0]
 
 
-class Opcode(ipu_token.EnumToken):
-    @classmethod
-    def find_opcode_class(cls, opcode: lark.Token) -> type["Opcode"]:
-        for subclass in cls.__subclasses__():
-            if opcode.value in subclass.enum_array():
-                return subclass
-        raise ValueError(
-            f"Opcode '{opcode.value}' declared in Line {opcode.line} and Column {opcode.column} not found in any Opcode subclass."
-        )
-
-
-class XmemInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "str_acc_reg",
-            "ldr_mult_reg",
-            "ldr_cyclic_mult_reg",
-            "ldr_mult_mask_reg",
-            "xmem_nop",
-        ]
-
-
-class LrInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "incr",
-            "set",
-            "add",
-            "sub",
-        ]
-
-
-class MultInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "mult.ee",
-            "mult.ev",
-            "mult.ve",
-            "mult_nop",
-        ]
-class AccInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "acc",
-            "reset_acc",
-            "acc_nop",
-        ]
-
-class MacInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "mac.ee",
-            "mac.ev",
-            "mac.agg",
-            "zero_rq",
-            "mac_nop",
-        ]
-
-
-class CondInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "beq",
-            "bne",
-            "blt",
-            "bnz",
-            "bz",
-            "b",
-            "br",
-            "bkpt",
-        ]
-
-
-class BreakInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "break",
-            "break.ifeq",
-            "break_nop",
-        ]
-
-
-def validate_unique_opcodes():
+def validate_unique_opcodes() -> None:
+    """Validate that all opcodes are unique across all Opcode subclasses.
+    
+    This is a sanity check to ensure INSTRUCTION_SPEC has no duplicates.
+    """
     opcodes_subclasses = Opcode.__subclasses__()
     opcode_to_class = {}
 
@@ -99,13 +39,12 @@ def validate_unique_opcodes():
         for opcode in cls.enum_array():
             if opcode in opcode_to_class:
                 existing_class = opcode_to_class[opcode]
-                error_msg = (
+                raise AssertionError(
                     f"Duplicate opcode '{opcode}' found in classes "
                     f"'{existing_class.__name__}' and '{cls.__name__}'"
                 )
-                raise AssertionError(error_msg)
             opcode_to_class[opcode] = cls
 
 
-# Call it to validate on module load
+# Validate on module load
 validate_unique_opcodes()

@@ -1,164 +1,243 @@
 # Adding Instructions
 
-This is a guide on how to add a new instruction to the IPU emulator.
+This guide shows how to add a new instruction to the IPU assembler and emulator.
 
-## Assembler - Adding Instruction
-First we'll have to add the instruction in the assembler.
+## Overview
 
-The assembler source code can be found under `src/tools/ipu-as-py`
+The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py`.
 
-There you can find two files:
+Adding an instruction is a 3-step process:
 
-- `src/ipu_as/inst.py`
-- `src/ipu_as/opcodes.py`
+1. **Add to instruction_spec** — define the instruction with operands and documentation
+2. **Implement execution handler** — write the Python method in the emulator's `Ipu` class  
+3. **Add tests** — verify the instruction works correctly
 
-You'll first have to add the opcode in the corresponding opcode class in `opcodes.py`, for example:
+No manual opcode management needed — opcodes are automatically derived from instruction position.
 
-```py
-class MacInstOpcode(Opcode):
-    @classmethod
-    def enum_array(cls):
-        return [
-            "mac.ee",
-            "mac.ev",
-            "mac.agg",
-            "zero_rq",
-            "new_instruction" # <--------- Here is my new instruction opcode :)
-            "mac_nop",
-        ]
-```
+## Step 1: Add Instruction to `instruction_spec.py`
 
-Now we can continue to add the instruction description in `inst.py`, You'll have to find the corresponding instruction class, in this case it will be `MacInst`.
+Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"xmem"`, `"lr"`, `"cond"`, `"break"`).
 
-We'll find a method under this class called `struct_by_opcode_table`, such method should be implemented under each class which implements an instruction.
+Add your instruction to the slot's dictionary:
 
-The `struct_by_opcode_table` returns a dictionary with the instruction opcode (added before) as the key and an `InstructionFormat` class instance as the value.
-
-For example:
-
-```py
-"mac.ee": InstructionFormat(
-                operands=[reg.RxRegField, reg.RxRegField, reg.RxRegField],
-                doc=InstructionDoc(
-                    title="Element-wise Multiply-Accumulate",
-                    summary="Multiply and accumulate element by element.",
-                    syntax="mac.ee Rd Ra Rb",
-                    operands=[
-                        "Rd: Destination accumulator (RQ register)",
-                        "Ra: First source register (R register)",
-                        "Rb: Second source register (R register)",
-                    ],
-                    operation="for i in [0, 127]: Rd[i] = Rd[i] + (Ra[i] * Rb[i])",
-                    example="# Vector dot product step\nmac.ee rq0 r4 r5;;",
+```python
+INSTRUCTION_SPEC = {
+    "mult": {
+        # ... existing mult instructions ...
+        
+        "my_new_instruction": {
+            "operands": [
+                {"name": "dest", "type": "MultStageReg"},
+                {"name": "src_a", "type": "MultStageReg", "read": "snapshot"},
+                {"name": "src_b", "type": "MultStageReg", "read": "snapshot"},
+            ],
+            "doc": InstructionDoc(
+                title="My New Operation",
+                summary="Performs a custom operation on two source registers.",
+                syntax="my_new_instruction Rd Ra Rb",
+                operands=[
+                    "Rd: Destination mult stage register (r0, r1, or mem_bypass)",
+                    "Ra: First source mult stage register",
+                    "Rb: Second source mult stage register",
+                ],
+                operation=(
+                    "for i in [0, R_REG_SIZE):\n"
+                    "    Rd[i] = custom_operation(Ra[i], Rb[i])"
                 ),
+                example="my_new_instruction r0 r1 mem_bypass;;",
             ),
-```
-
-Notice - 
-- `operands` - should include the list of operands that the instruction will be composed of (registers, immediates, etc.).
-
-- `doc` - an `InstructionDoc` class instance with the following information:
-    - `title` - meaningful name for the instruction.
-    - `summary` - more elaborate word explanation of the instruction.
-    - `syntax` - syntax of the instruction.
-    - `operands` - small description of each operand meaning (state its type RQ/R/LR/Whatever).
-    - `operation` - pseudo-code for what does this instruction do.
-    - `example` - simple example for usage of this instruction.
-
-!!! note "Instruction documentation" 
-    The `InstructionDoc` field is later used to generate documentation for the IPU assembler and emulator operation for everybody to use. Please think and review your explanations so that everybody could easily use it.
-
-## Emulator - Adding Instruction
-
-Once you've added the instruction to the assembler, you need to implement the actual instruction execution logic in the emulator.
-
-The emulator source code can be found under `src/lib/ipu`. Depending on the instruction type, you'll need to modify the appropriate file:
-
-- `ipu_acc_inst.c/h` - for accumulator-related instructions
-- `ipu_cond_inst.c/h` - for conditional instructions
-- `ipu_lr_inst.c/h` - for load/register instructions
-- `ipu_mult_inst.c/h` - for multiplication-related instructions
-- `ipu_xmem_inst.c/h` - for external memory instructions
-
-### Step 1: Create Instruction Handler Functions
-
-Add handler functions in the appropriate instruction file. Each specific instruction gets its own handler that performs the operation:
-
-```c
-void ipu__execute_your_instruction_name(ipu__obj_t *ipu,
-                                        inst_parser__inst_t inst,
-                                        const ipu__regfile_t *regfile_snapshot)
-{
-    // Extract operand fields from inst struct
-    inst_parser__mult_stage_reg_field_t ra_idx = 
-        (inst_parser__mult_stage_reg_field_t)inst.mult_inst_token_1_mult_stage_reg_field;
-    
-    // Access register data
-    ipu__r_reg_t *ra_reg_ptr = ipu__get_mult_stage_r_reg(ipu, ra_idx);
-    
-    // Perform operation - use ipu_math functions for arithmetic
-    for (int i = 0; i < IPU__R_REG_SIZE_BYTES; i++) 
-    {
-        ipu_math__mult(&ra_reg_ptr->bytes[i],
-                       &rb_reg.bytes[i],
-                       &ipu->misc.mult_res.words[i],
-                       ipu__get_cr_dtype(&ipu->regfile));
-    }
+            "execute_fn": "execute_my_new_instruction",
+        },
+    },
+    # ... other slot types ...
 }
 ```
 
-### Step 2: Register the Instruction in the Dispatcher
+**Key fields:**
 
-Add a dispatch function (e.g., `ipu__execute_mult_instruction`) that routes to your handler based on opcode:
+- **`operands`**: List of operand definitions, each with:
+  - `name`: Meaningful name for the operand (used in handler signature)
+  - `type`: Operand type — one of:
+    - `"MultStageReg"` — r0, r1, or mem_bypass
+    - `"LrIdx"` — lr0-lr15
+    - `"CrIdx"` — cr0-cr15
+    - `"LcrIdx"` — lr0-lr15 or cr0-cr15
+    - `"Immediate"` — 32-bit signed integer
+    - `"BreakImmediate"` — 16-bit break condition
+    - `"Label"` — branch target label
+  - `read` (optional): `"snapshot"` or `"live"` — marks source registers whose values are auto-resolved:
+    - `"snapshot"` — read from the VLIW snapshot (pre-write state, for read-before-write semantics)
+    - `"live"` — read from current register file (sees writes from earlier slots)
+    - Omit for destination registers or indices passed as raw values
 
-```c
-void ipu__execute_mult_instruction(ipu__obj_t *ipu,
-                                   inst_parser__inst_t inst,
-                                   const ipu__regfile_t *regfile_snapshot)
-{
-    switch (inst.mult_inst_token_0_mult_inst_opcode)
-    {
-    case INST_PARSER__MULT_INST_OPCODE_YOUR_INSTRUCTION:
-        ipu__execute_your_instruction_name(ipu, inst, regfile_snapshot);
-        break;
-    case INST_PARSER__MULT_INST_OPCODE_ANOTHER_INSTRUCTION:
-        ipu__execute_another_instruction(ipu, inst, regfile_snapshot);
-        break;
-    default:
-        assert(false && "Invalid MULT instruction type");
-        break;
-    }
-}
+- **`doc`**: `InstructionDoc` with:
+  - `title` — Short human-readable name
+  - `summary` — What the instruction does
+  - `syntax` — Assembly syntax example
+  - `operands` — Description of each operand (type and meaning)
+  - `operation` — Pseudo-code showing the operation
+  - `example` — Code example
+
+- **`execute_fn`**: Name of the Python method in the `Ipu` class that executes this instruction (e.g., `"execute_my_new_instruction"`)
+
+**Opcode assignment:**
+
+Opcodes are **automatically derived from position** within the slot's instruction list. The first instruction gets opcode 0, the second gets opcode 1, etc. If you want to preserve existing opcodes, append new instructions to the end. To change opcodes, reorder instructions (both assembler and emulator will update automatically).
+
+## Step 2: Implement Execution Handler
+
+Open `src/tools/ipu-emu-py/src/ipu_emu/ipu.py` and find the section with handlers for your slot type (look for comments like `# MULT Instruction Handlers`).
+
+Add your execution method to the `Ipu` class:
+
+```python
+class Ipu:
+    # ... existing methods ...
+    
+    # -----------------------------------------------------------------------
+    # MULT Instruction Handlers
+    # -----------------------------------------------------------------------
+    
+    # ... existing mult handlers ...
+    
+    def execute_my_new_instruction(self, *, dest: int, src_a: bytearray,
+                                    src_b: bytearray) -> None:
+        """Execute my_new_instruction: performs custom operation.
+        
+        Args:
+            dest: Destination register index (raw MultStageRegField value)
+            src_a: Source A register bytes (auto-resolved from snapshot)
+            src_b: Source B register bytes (auto-resolved from snapshot)
+        """
+        result = bytearray(R_REG_SIZE)
+        dtype = DType(self.state.get_cr_dtype())
+        
+        for i in range(R_REG_SIZE):
+            # Perform your custom operation
+            result[i] = (src_a[i] + src_b[i]) & 0xFF  # Example: element-wise add
+        
+        # Write result to destination register
+        reg_name, elem_idx = _MULT_STAGE_MAP[dest]
+        self.state.regfile.set_register_bytes(reg_name, elem_idx, result)
 ```
 
-### Step 3: Key Data Types and Helpers
+**Key points:**
 
-Use these key types and helper functions:
+- **Method signature**: `def execute_<instruction_name>(self, *, <operand_names>) -> None:`
+  - Use **keyword-only arguments** (note the `*` before operand names)
+  - Parameter names **must match** the `name` fields in `instruction_spec`
+  - Parameter order doesn't matter (they're passed as kwargs)
 
-**Instruction representation:**
-- `inst_parser__inst_t` - the parsed instruction from the assembler
+- **Auto-resolved operands** (those with `"read"` field):
+  - Register operands with `"read": "snapshot"` receive `bytearray` values (register contents)
+  - LR/CR operands with `"read"` receive `int` values (32-bit register value)
+  - The dispatcher automatically extracts these from the snapshot or live regfile
 
-**Register types:**
-- `ipu__r_reg_t` - standard R register (128 bytes)
-- `ipu__r_acc_reg_t` - accumulator register (512 bytes)
-- `ipu__regfile_t` - full register file with all stage registers
+- **Raw operands** (no `"read"` field):
+  - Destination registers receive the raw index as `int`
+  - Immediates receive the literal value as `int`
+  - Labels receive the resolved address as `int`
 
-**State:**
-- `ipu__obj_t` - the IPU state object containing regfile, memory, PC, etc.
-- `ipu__regfile_t *regfile_snapshot` - snapshot of registers at instruction fetch time
+- **Common patterns**:
+  - Use `_MULT_STAGE_MAP[dest]` to get `(reg_name, elem_idx)` from a MultStageReg index
+  - Use `self.state.regfile.set_register_bytes()` to write to a register
+  - Use `DType(self.state.get_cr_dtype())` to get the current data type
+  - Use `ipu_mult()`, `ipu_add()` from `ipu_emu.ipu_math` for typed arithmetic
 
-**Helper functions:**
-- `ipu__get_mult_stage_r_reg()` - get pointer to mult stage R register
-- `ipu__get_cr_dtype()` - get data type from CR register
-- `ipu_math__add()`, `ipu_math__mult()` - arithmetic operations on data elements
+**Available helpers:**
 
-### Step 4: Add Tests
+```python
+# Register access (via self.state.regfile)
+self.state.regfile.get_lr(idx) -> int          # Read LR register
+self.state.regfile.set_lr(idx, value: int)     # Write LR register
+self.state.regfile.get_r_acc_bytes() -> bytearray  # Read accumulator
+self.state.regfile.set_r_acc_bytes(data: bytearray)  # Write accumulator
 
-Add unit tests in `test/` directory to verify your instruction works correctly. Run tests using:
+# Register metadata
+reg_name, elem_idx = _MULT_STAGE_MAP[idx]      # Resolve MultStageReg index
+R_REG_SIZE                                      # Register size in bytes (128)
+R_ACC_SIZE                                      # Accumulator size (512)
+
+# State access
+self.state.xmem.read_address(addr, size) -> bytearray
+self.state.xmem.write_address(addr, data: bytearray)
+self.state.get_cr_dtype() -> int               # Get dtype from CR register
+self.snapshot                                   # Pre-VLIW register snapshot
+
+# Math operations
+from ipu_emu.ipu_math import ipu_mult, ipu_add, DType
+ipu_mult(a: int, b: int, dtype: DType) -> int
+ipu_add(a: int, b: int, dtype: DType) -> int
+```
+
+## Step 3: Add Tests
+
+Create tests in `src/tools/ipu-emu-py/test/test_<slot>_instructions.py` (or create a new file if needed):
+
+```python
+"""Tests for MULT instruction execution."""
+
+import pytest
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu import Ipu
+
+def test_my_new_instruction():
+    """Test my_new_instruction performs custom operation correctly."""
+    state = IpuState()
+    ipu = Ipu(state)
+    
+    # Set up initial register values
+    state.regfile.set_register_bytes("r", 0, bytearray(range(128)))
+    state.regfile.set_register_bytes("r", 1, bytearray([1] * 128))
+    
+    # Create instruction word (see existing tests for encoding examples)
+    inst = {
+        "mult_inst_token_0_mult_inst_opcode": <opcode_value>,
+        "mult_inst_token_1_mult_stage_reg_field": 0,  # dest = r0
+        "mult_inst_token_2_mult_stage_reg_field": 0,  # src_a = r0
+        "mult_inst_token_3_mult_stage_reg_field": 1,  # src_b = r1
+        # ... other fields set to NOP opcodes ...
+    }
+    
+    # Execute instruction
+    state.inst_mem = [inst]
+    state.regfile.set_pc(0)
+    ipu.execute_vliw_cycle()
+    
+    # Verify result
+    result = state.regfile.get_register_bytes("r", 0)
+    expected = bytearray((i + 1) & 0xFF for i in range(128))
+    assert result == expected
+```
+
+Run tests:
 
 ```bash
-bazel test //test:all -c dbg
+bazel test //src/tools/ipu-emu-py:test_execute
 ```
 
-!!! important "Consistency"
-    Ensure your emulator implementation matches the pseudo-code in the instruction's `operation` field defined in the assembler. Operands must be extracted from the `inst_parser__inst_t` struct fields matching your instruction format.
+## Step 4: Verify Integration
+
+After adding your instruction, verify it works in both assembler and emulator:
+
+```bash
+# Verify assembler accepts the instruction
+echo "my_new_instruction r0 r1 mem_bypass;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
+
+# Run all tests
+bazel test //...
+```
+
+## Summary
+
+1. **Add to `instruction_spec.py`** — define operands, docs, and `execute_fn`
+2. **Implement `execute_<name>` in `Ipu` class** — write the execution logic
+3. **Add tests** — verify correctness with unit tests
+4. **No opcode management** — opcodes are derived from position automatically
+
+The instruction will automatically work in:
+- Assembler (syntax highlighting, parsing, binary encoding)
+- Emulator (execution, operand resolution, register updates)
+- Documentation generation (help text, reference docs)
+
+All from the single source of truth in `instruction_spec.py`.

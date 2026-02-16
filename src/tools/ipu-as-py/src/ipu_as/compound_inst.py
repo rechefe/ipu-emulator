@@ -1,5 +1,6 @@
 import ipu_as.inst as inst
 import ipu_as.utils as utils
+from ipu_common.instruction_spec import SLOT_COUNT
 
 
 INST_SEPARATOR = ";"
@@ -60,15 +61,21 @@ class CompoundInst:
         # Define the instruction slots in order (with duplicates for multiple instances)
         # Order matters for encoding/decoding
         # BreakInst is first to ensure it runs before any side effects
-        return [
-            inst.BreakInst,
-            inst.XmemInst,
-            inst.MultInst,
-            inst.AccInst,
-            inst.LrInst,
-            inst.LrInst,  # Second LrInst slot
-            inst.CondInst,
-        ]
+        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth)
+        _slot_to_inst = {
+            "break": inst.BreakInst,
+            "xmem": inst.XmemInst,
+            "mult": inst.MultInst,
+            "acc": inst.AccInst,
+            "lr": inst.LrInst,
+            "cond": inst.CondInst,
+        }
+        # Order defines bit layout: break, xmem, mult, acc, lr(×N), cond
+        _slot_order = ["break", "xmem", "mult", "acc", "lr", "cond"]
+        result = []
+        for slot in _slot_order:
+            result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
+        return result
 
     @classmethod
     def bits(cls) -> int:
