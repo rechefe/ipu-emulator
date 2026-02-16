@@ -15,36 +15,28 @@ main_loop:
     ldr_cyclic_mult_reg lr0 cr0 lr15;;
 ```
 
-### 2. Enable Debug Mode in Your Host Code
+### 2. Enable Debug Mode
 
-In your C application, set `debug_config.enabled = true` in the emulator config:
+Use `run_with_debug` or pass a debug callback when running the emulator:
 
-```c
-emulator__test_config_t config = {
-    .test_name = "My IPU Application",
-    .max_cycles = 1000000,
-    .progress_interval = 100,
-    .setup = my_setup,
-    .teardown = my_teardown,
-    .debug_config = {
-        .enabled = true,           // Enable debug mode
-        .level = IPU_DEBUG_LEVEL_1 // Show disassembly
-    }
-};
+```python
+from ipu_emu.emulator import run_with_debug
+from ipu_emu.debug_cli import debug_prompt
 
-return emulator__run_test(argc, argv, &config);
+# Run with interactive debug CLI
+run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1))
 ```
 
-### 3. Run with `bazel run` (Not `bazel test`)
-
-Debug mode requires interactive terminal access:
+Or use the fully_connected debug runner:
 
 ```bash
-bazel run //src/apps/myapp:myapp -- <program.bin> [args...]
+cd src/tools/ipu-emu-py
+uv run python run_fc_debug.py --dtype INT8
 ```
 
-!!! warning
-    `bazel test` runs in a sandbox without terminal access. Always use `bazel run` for interactive debugging.
+### 3. Interactive Terminal Required
+
+Debug mode requires interactive terminal access — run directly, not via `bazel test`.
 
 When the break triggers, you'll enter an interactive debug prompt:
 
@@ -188,83 +180,44 @@ The JSON file contains all register values:
 
 ## Enabling Debug in Your Application
 
-To add debug support to your IPU application, configure the `debug_config` in your emulator test config:
+To add debug support to your IPU application, use `run_with_debug` with a debug callback:
 
-```c
-#include "emulator/emulator.h"
+```python
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.emulator import run_with_debug
+from ipu_emu.debug_cli import debug_prompt
 
-int main(int argc, char **argv) {
-    emulator__test_config_t config = {
-        .test_name = "My IPU Application",
-        .max_cycles = 1000000,
-        .progress_interval = 100,
-        .setup = my_setup,
-        .teardown = my_teardown,
-        .debug_config = {
-            .enabled = true,            // Set to true to enable
-            .level = IPU_DEBUG_LEVEL_1  // Debug verbosity level
-        }
-    };
+state = IpuState()
+state.load_program("program.bin")
+# ... set up registers and memory ...
 
-    return emulator__run_test(argc, argv, &config);
-}
+# Run with debug CLI (level 0-2 controls verbosity)
+run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1))
 ```
 
-### Optional: Command-Line Flag
+### Debug Levels
 
-You can add a command-line flag to toggle debug mode at runtime:
+Pass the `level` parameter to `debug_prompt`:
 
-```c
-#include "emulator/emulator.h"
-#include <stdbool.h>
-#include <string.h>
-#include <stdlib.h>
+```python
+# Level 0: LR registers only
+debug_prompt(state, cycle, level=0)
 
-int main(int argc, char **argv) {
-    // Parse --debug flag
-    bool debug_enabled = false;
-    int debug_level = 1;
-    
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--debug") == 0) {
-            debug_enabled = true;
-        } else if (strncmp(argv[i], "--debug-level=", 14) == 0) {
-            debug_level = atoi(argv[i] + 14);
-            debug_enabled = true;
-        }
-    }
+# Level 1: Also disassemble current instruction (default)
+debug_prompt(state, cycle, level=1)
 
-    emulator__test_config_t config = {
-        .test_name = "My IPU Application",
-        .max_cycles = 1000000,
-        .progress_interval = 100,
-        .setup = my_setup,
-        .teardown = my_teardown,
-        .debug_config = {
-            .enabled = debug_enabled,
-            .level = (ipu_debug__level_t)debug_level
-        }
-    };
-
-    return emulator__run_test(argc, argv, &config);
-}
-```
-
-Then run with:
-```bash
-bazel run //src/apps/myapp:myapp -- program.bin --debug
-bazel run //src/apps/myapp:myapp -- program.bin --debug-level=2
+# Level 2: Auto-save registers to JSON
+debug_prompt(state, cycle, level=2)
 ```
 ```
 
 ## Example Debug Session
 
 ```
-$ bazel run //src/apps/myapp:myapp -- program.bin data.bin
+$ cd src/tools/ipu-emu-py
+$ uv run python run_fc_debug.py --dtype INT8
 
-INFO: My IPU Application Started
-INFO: Starting IPU execution with debug mode...
-INFO: Break triggered at PC=3, entering debug prompt...
+Running fully_connected (INT8) with debug CLI
 
 ========================================
 IPU Debug - Break at PC=3
@@ -296,7 +249,7 @@ Set lr0 = 256
 debug >>> continue
 Continuing execution...
 
-INFO: IPU execution finished after 12847 cycles
+IPU execution finished after 12847 cycles
 ```
 
 ## Tips
@@ -325,4 +278,4 @@ INFO: IPU execution finished after 12847 cycles
    debug >>> getw acc 0 16   # First 16 accumulator words
    ```
 
-5. **Remember**: `bazel test` runs in a sandbox without terminal access. Use `bazel run` for interactive debugging.
+5. **Remember**: Debug mode requires an interactive terminal. Run directly with `uv run` or `python`, not via `bazel test`.

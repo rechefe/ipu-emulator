@@ -5,7 +5,6 @@ Assumptions:
 - Input is a raw binary of little-endian float32 values.
 - Output stores one FP4 value per byte (lower nibble carries the value; upper nibble is zero).
 - FP4 layout used here is sign:1 | exp:2 | mantissa:1 (often called e2m1) with bias=1.
-  This matches the bitfield in src/lib/fp/fp.h (man:1, exp:2, sign:1 in the low nibble).
 - Values are assumed representable by FP8 E4M3 (range is small), but we saturate to FP4 range.
 
 If you actually need a different FP4 variant (e.g., different bias or packing two values
