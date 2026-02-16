@@ -21,9 +21,19 @@ def _generate_requirements_impl(repository_ctx):
     
     if result.return_code != 0:
         fail("Failed to compile requirements from pyproject.toml: " + result.stderr)
-    
+
+    # Drop local editable paths emitted from tool.uv.sources; Bazel wires those deps directly.
+    filtered_lines = []
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-e ") or stripped.startswith("--editable"):
+            continue
+        if "../ipu-" in stripped or stripped.startswith("../") and "ipu-" in stripped:
+            continue
+        filtered_lines.append(line)
+
     # Write the requirements.txt
-    repository_ctx.file("requirements.txt", result.stdout)
+    repository_ctx.file("requirements.txt", "\n".join(filtered_lines) + "\n")
     
     # Create a minimal BUILD file
     repository_ctx.file("BUILD.bazel", """

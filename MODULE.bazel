@@ -35,11 +35,20 @@ parse_pyproject_deps(
 parse_pyproject_deps(
     name = "ipu_emu_pyproject",
     pyproject_toml = "//src/tools/ipu-emu-py:pyproject.toml",
+    exclude_deps = [
+        "ipu-as-py",
+        "ipu-common",
+    ],
 )
 
 parse_pyproject_deps(
     name = "ipu_apps_pyproject",
     pyproject_toml = "//src/tools/ipu-apps:pyproject.toml",
+    exclude_deps = [
+        "ipu-as-py",
+        "ipu-emu-py",
+        "ipu-common",
+    ],
 )
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
