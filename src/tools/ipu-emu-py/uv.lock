@@ -72,11 +72,17 @@ requires-dist = [
 provides-extras = ["dev", "docs"]
 
 [[package]]
+name = "ipu-common"
+version = "0.1.0"
+source = { editable = "../ipu-common" }
+
+[[package]]
 name = "ipu-emu-py"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ipu-as-py" },
+    { name = "ipu-common" },
     { name = "ml-dtypes" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -90,6 +96,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ipu-as-py", editable = "../ipu-as-py" },
+    { name = "ipu-common", editable = "../ipu-common" },
     { name = "ml-dtypes", specifier = ">=0.2.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1" },

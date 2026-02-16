@@ -7,7 +7,7 @@ def _parse_pyproject_deps_impl(repository_ctx):
     # Simple parser for [project] dependencies array and docs optional dependencies
     deps = []
     in_deps = False
-    in_docs_deps = False
+    in_optional_deps = False
     bracket_count = 0
     
     for line in pyproject.split("\n"):
@@ -15,18 +15,18 @@ def _parse_pyproject_deps_impl(repository_ctx):
         if line == "dependencies = [":
             in_deps = True
             continue
-        if line == "docs = [":
-            in_docs_deps = True
+        if line == "docs = [" or line == "dev = [":
+            in_optional_deps = True
             bracket_count = 1
             continue
-        if in_docs_deps and "[" in line and not line.startswith("#"):
+        if in_optional_deps and "[" in line and not line.startswith("#"):
             bracket_count += line.count("[")
-        if in_docs_deps and "]" in line:
+        if in_optional_deps and "]" in line:
             bracket_count -= line.count("]")
             if bracket_count == 0:
-                in_docs_deps = False
+                in_optional_deps = False
                 continue
-        if in_deps or in_docs_deps:
+        if in_deps or in_optional_deps:
             if in_deps and line == "]":
                 in_deps = False
                 continue

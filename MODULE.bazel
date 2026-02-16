@@ -5,6 +5,7 @@ module(
 
 # Rules for Python
 bazel_dep(name = "rules_python", version = "0.40.0")
+bazel_dep(name = "caseyduquettesc_rules_python_pytest", version = "1.1.1", repo_name = "rules_python_pytest")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(

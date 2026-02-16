@@ -302,14 +302,22 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
+    @staticmethod
+    def _sign_extend_16(value: int) -> int:
+        """Sign-extend a 16-bit value to a 32-bit signed integer."""
+        if value & 0x8000:
+            return value | 0xFFFF0000
+        return value
+
     def execute_lr_incr(self, *, reg: int, value: int) -> None:
         """Execute incr: Increment a loop register by an immediate value."""
         current = self.state.regfile.get_lr(reg)
-        self.state.regfile.set_lr(reg, (current + value) & 0xFFFFFFFF)
+        signed_value = self._sign_extend_16(value)
+        self.state.regfile.set_lr(reg, (current + signed_value) & 0xFFFFFFFF)
 
     def execute_lr_set(self, *, reg: int, value: int) -> None:
         """Execute set: Set a loop register to an immediate value."""
-        self.state.regfile.set_lr(reg, value)
+        self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute add: Add two LCR registers."""
@@ -447,9 +455,18 @@ class Ipu:
         """Execute bne: Branch if not equal."""
         self.state.program_counter = label if reg1 != reg2 else self.state.program_counter + 1
 
+    @staticmethod
+    def _to_signed_32(value: int) -> int:
+        """Interpret an unsigned 32-bit value as signed."""
+        if value >= 0x80000000:
+            return value - 0x100000000
+        return value
+
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute blt: Branch if less than."""
-        self.state.program_counter = label if reg1 < reg2 else self.state.program_counter + 1
+        """Execute blt: Branch if less than (signed comparison)."""
+        s1 = self._to_signed_32(reg1)
+        s2 = self._to_signed_32(reg2)
+        self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
     def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
         """Execute bnz: Branch if not zero."""
@@ -581,8 +598,8 @@ class Ipu:
         self.snapshot = self.state.regfile.snapshot()
 
         # Execute all slots except break
-        self.dispatch_instruction("xmem", inst)
         self._dispatch_lr_slots(inst)
+        self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("cond", inst)

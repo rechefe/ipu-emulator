@@ -42,8 +42,10 @@ class NumberToken(IpuToken):
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (0 <= self.int < (1 << self.bits())):
-            self._raise_error(f"Value {self.int} out of range for {self.bits()} bits")
+        min_val = -(1 << (self.bits() - 1))
+        max_val = (1 << self.bits()) - 1
+        if not (min_val <= self.int <= max_val):
+            self._raise_error(f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits")
 
     @classmethod
     def default(cls) -> "IpuToken":
@@ -54,6 +56,8 @@ class NumberToken(IpuToken):
         raise NotImplementedError("bits property must be implemented by subclasses")
 
     def encode(self) -> int:
+        if self.int < 0:
+            return self.int + (1 << self.bits())
         return self.int
 
     @classmethod

@@ -6,7 +6,7 @@ def _generate_requirements_impl(repository_ctx):
     
     # Run uv pip compile to generate requirements including optional dependencies
     result = repository_ctx.execute(
-        ["uv", "pip", "compile", str(pyproject), "--extra=docs", "--generate-hashes"],
+        ["uv", "pip", "compile", str(pyproject), "--extra=docs", "--extra=dev", "--python-version=3.10", "--generate-hashes"],
         quiet = False,
     )
     

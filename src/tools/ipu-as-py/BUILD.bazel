@@ -1,6 +1,7 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@ipu_as_pyproject//:deps.bzl", "get_requirements")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -32,9 +33,12 @@ py_binary(
     deps = [":ipu_as_lib"],
 )
 
-py_test(
+py_pytest_test(
     name = "test_assemble",
     srcs = ["test/test_assemble.py"],
     imports = ["src"],
-    deps = [":ipu_as_lib"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
 )

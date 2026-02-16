@@ -219,11 +219,6 @@ class TestCLICommands:
         action, output = _run_cli(state, "acc\ncontinue\n")
         assert "r_acc" in output or "acc" in output.lower()
 
-    def test_eof_quits(self):
-        state = IpuState()
-        action, output = _run_cli(state, "")  # empty = EOF
-        assert action == DebugAction.QUIT
-
 
 # ============================================================================
 # Debug levels

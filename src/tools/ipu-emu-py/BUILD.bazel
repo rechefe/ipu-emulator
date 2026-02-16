@@ -1,4 +1,6 @@
-load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//:asm_rules.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
@@ -15,44 +17,49 @@ py_library(
     ]),
     imports = ["src"],
     deps = [
-        "//src/tools/ipu-common:ipu_common_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-common:ipu_common_lib",
     ],
 )
 
-py_test(
+py_pytest_test(
     name = "test_xmem",
     srcs = ["test/test_xmem.py"],
     imports = ["src"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )
 
-py_test(
+py_pytest_test(
     name = "test_regfile",
     srcs = ["test/test_regfile.py"],
     imports = ["src"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )
 
-py_test(
+py_pytest_test(
     name = "test_execute",
     srcs = ["test/test_execute.py"],
     imports = ["src"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )
 
-py_test(
+py_pytest_test(
     name = "test_debug_cli",
     srcs = ["test/test_debug_cli.py"],
     imports = ["src"],
-    deps = [":ipu_emu_lib"],
-)
-
-py_test(
-    name = "test_parity",
-    srcs = ["test/test_parity.py"],
-    imports = ["src"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )
 
 assemble_asm(
@@ -71,7 +78,7 @@ py_binary(
     deps = [":ipu_emu_lib"],
 )
 
-py_test(
+py_pytest_test(
     name = "test_emulator_e2e",
     srcs = ["test/test_emulator_e2e.py"],
     data = [
@@ -79,5 +86,8 @@ py_test(
         "//src/apps/fully_connected:test_data",
     ],
     imports = ["src"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
 )

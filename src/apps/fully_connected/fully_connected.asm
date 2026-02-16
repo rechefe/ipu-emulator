@@ -7,12 +7,12 @@ input_loop:
 
     ldr_cyclic_mult_reg lr0 cr0 lr15;;
 
-    set                 lr4 0;;
-    set                 lr5 0;;
+    set                 lr4 -128;;
+    set                 lr5 -1;;
     set                 lr6 127;;
 
+
 element_loop:
-    break.ifeq          lr5 0;
     ldr_mult_reg        mem_bypass lr4 cr1;
     incr                lr4 128;
     incr                lr5 1;
@@ -20,7 +20,7 @@ element_loop:
     acc;
     blt                 lr5 lr6 element_loop;;
 
-    str_acc_reg         lr7 cr2;
+    str_acc_reg         lr7 cr2;;
     incr                lr7 256;
     incr                lr0 128;;
 
