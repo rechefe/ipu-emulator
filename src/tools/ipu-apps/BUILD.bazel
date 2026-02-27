@@ -128,3 +128,119 @@ py_binary(
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
+
+# -- 2-channel convolution app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/conv2ch/conv2ch.asm",
+])
+
+filegroup(
+    name = "conv2ch_test_data",
+    srcs = glob(["src/ipu_apps/conv2ch/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_conv2ch",
+    src = "src/ipu_apps/conv2ch/conv2ch.asm",
+)
+
+py_binary(
+    name = "conv2ch",
+    srcs = ["src/ipu_apps/conv2ch/__main__.py"],
+    main = "src/ipu_apps/conv2ch/__main__.py",
+    data = [
+        ":assemble_conv2ch.bin",
+        ":conv2ch_test_data",
+    ],
+    env = {
+        "CONV2CH_INST_BIN": "$(rootpath :assemble_conv2ch.bin)",
+        "CONV2CH_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv2ch/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_conv2ch",
+    srcs = ["test/test_conv2ch.py"],
+    data = [
+        ":assemble_conv2ch.bin",
+        ":conv2ch_test_data",
+    ],
+    env = {
+        "CONV2CH_INST_BIN": "$(rootpath :assemble_conv2ch.bin)",
+        "CONV2CH_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv2ch/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_conv2ch_test_data",
+    srcs = ["src/ipu_apps/conv2ch/gen_test_data.py"],
+    main = "src/ipu_apps/conv2ch/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# -- 2-channel to 2-channel convolution app ----------------------------------
+
+exports_files([
+    "src/ipu_apps/conv2ch2ch/conv2ch2ch.asm",
+])
+
+filegroup(
+    name = "conv2ch2ch_test_data",
+    srcs = glob(["src/ipu_apps/conv2ch2ch/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_conv2ch2ch",
+    src = "src/ipu_apps/conv2ch2ch/conv2ch2ch.asm",
+)
+
+py_binary(
+    name = "conv2ch2ch",
+    srcs = ["src/ipu_apps/conv2ch2ch/__main__.py"],
+    main = "src/ipu_apps/conv2ch2ch/__main__.py",
+    data = [
+        ":assemble_conv2ch2ch.bin",
+        ":conv2ch2ch_test_data",
+    ],
+    env = {
+        "CONV2CH2CH_INST_BIN": "$(rootpath :assemble_conv2ch2ch.bin)",
+        "CONV2CH2CH_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv2ch2ch/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_conv2ch2ch",
+    srcs = ["test/test_conv2ch2ch.py"],
+    data = [
+        ":assemble_conv2ch2ch.bin",
+        ":conv2ch2ch_test_data",
+    ],
+    env = {
+        "CONV2CH2CH_INST_BIN": "$(rootpath :assemble_conv2ch2ch.bin)",
+        "CONV2CH2CH_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv2ch2ch/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_conv2ch2ch_test_data",
+    srcs = ["src/ipu_apps/conv2ch2ch/gen_test_data.py"],
+    main = "src/ipu_apps/conv2ch2ch/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
