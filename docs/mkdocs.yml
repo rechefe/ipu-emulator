@@ -48,8 +48,9 @@ nav:
   - Home: index.md
   - Getting Started:
       - Setup: setup.md
-      - Building Applications: building-applications.md
       - Debugging: debugging.md
+  - Programming the IPU:
+      - Building Applications: building-applications.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:
