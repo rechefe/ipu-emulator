@@ -418,3 +418,235 @@ py_binary(
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
+
+# -- Depthwise convolution 64x64x1 app --------------------------------------
+
+exports_files([
+    "src/ipu_apps/depthwise_conv_64x64x1/depthwise_conv_64x64x1.asm",
+])
+
+filegroup(
+    name = "dconv64_test_data",
+    srcs = glob(["src/ipu_apps/depthwise_conv_64x64x1/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_depthwise_conv_64x64x1",
+    src = "src/ipu_apps/depthwise_conv_64x64x1/depthwise_conv_64x64x1.asm",
+)
+
+py_binary(
+    name = "depthwise_conv_64x64x1",
+    srcs = ["src/ipu_apps/depthwise_conv_64x64x1/__main__.py"],
+    main = "src/ipu_apps/depthwise_conv_64x64x1/__main__.py",
+    data = [
+        ":assemble_depthwise_conv_64x64x1.bin",
+        ":dconv64_test_data",
+    ],
+    env = {
+        "DCONV64_INST_BIN": "$(rootpath :assemble_depthwise_conv_64x64x1.bin)",
+        "DCONV64_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/depthwise_conv_64x64x1/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_64x64x1",
+    srcs = ["test/test_depthwise_conv_64x64x1.py"],
+    data = [
+        ":assemble_depthwise_conv_64x64x1.bin",
+        ":dconv64_test_data",
+    ],
+    env = {
+        "DCONV64_INST_BIN": "$(rootpath :assemble_depthwise_conv_64x64x1.bin)",
+        "DCONV64_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/depthwise_conv_64x64x1/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_depthwise_conv_64x64x1_test_data",
+    srcs = ["src/ipu_apps/depthwise_conv_64x64x1/gen_test_data.py"],
+    main = "src/ipu_apps/depthwise_conv_64x64x1/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# -- Depthwise convolution 128x128x8 app -------------------------------------
+
+exports_files([
+    "src/ipu_apps/depthwise_conv_128x128x8/depthwise_conv_128x128x8.asm",
+])
+
+filegroup(
+    name = "dconv8ch_test_data",
+    srcs = glob(["src/ipu_apps/depthwise_conv_128x128x8/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_depthwise_conv_128x128x8",
+    src = "src/ipu_apps/depthwise_conv_128x128x8/depthwise_conv_128x128x8.asm",
+)
+
+py_binary(
+    name = "depthwise_conv_128x128x8",
+    srcs = ["src/ipu_apps/depthwise_conv_128x128x8/__main__.py"],
+    main = "src/ipu_apps/depthwise_conv_128x128x8/__main__.py",
+    data = [
+        ":assemble_depthwise_conv_128x128x8.bin",
+        ":dconv8ch_test_data",
+    ],
+    env = {
+        "DCONV8_INST_BIN": "$(rootpath :assemble_depthwise_conv_128x128x8.bin)",
+        "DCONV8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/depthwise_conv_128x128x8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_128x128x8",
+    srcs = ["test/test_depthwise_conv_128x128x8.py"],
+    data = [
+        ":assemble_depthwise_conv_128x128x8.bin",
+        ":dconv8ch_test_data",
+    ],
+    env = {
+        "DCONV8_INST_BIN": "$(rootpath :assemble_depthwise_conv_128x128x8.bin)",
+        "DCONV8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/depthwise_conv_128x128x8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_depthwise_conv_128x128x8_test_data",
+    srcs = ["src/ipu_apps/depthwise_conv_128x128x8/gen_test_data.py"],
+    main = "src/ipu_apps/depthwise_conv_128x128x8/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# -- Standard convolution 128x128 1->8 app -----------------------------------
+
+exports_files([
+    "src/ipu_apps/conv_128x128_1to8/conv_128x128_1to8.asm",
+])
+
+filegroup(
+    name = "conv1to8_test_data",
+    srcs = glob(["src/ipu_apps/conv_128x128_1to8/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_conv_128x128_1to8",
+    src = "src/ipu_apps/conv_128x128_1to8/conv_128x128_1to8.asm",
+)
+
+py_binary(
+    name = "conv_128x128_1to8",
+    srcs = ["src/ipu_apps/conv_128x128_1to8/__main__.py"],
+    main = "src/ipu_apps/conv_128x128_1to8/__main__.py",
+    data = [
+        ":assemble_conv_128x128_1to8.bin",
+        ":conv1to8_test_data",
+    ],
+    env = {
+        "CONV1TO8_INST_BIN": "$(rootpath :assemble_conv_128x128_1to8.bin)",
+        "CONV1TO8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv_128x128_1to8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_conv_128x128_1to8",
+    srcs = ["test/test_conv_128x128_1to8.py"],
+    data = [
+        ":assemble_conv_128x128_1to8.bin",
+        ":conv1to8_test_data",
+    ],
+    env = {
+        "CONV1TO8_INST_BIN": "$(rootpath :assemble_conv_128x128_1to8.bin)",
+        "CONV1TO8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv_128x128_1to8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_conv_128x128_1to8_test_data",
+    srcs = ["src/ipu_apps/conv_128x128_1to8/gen_test_data.py"],
+    main = "src/ipu_apps/conv_128x128_1to8/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# -- Standard convolution 128x128 4->8 app -----------------------------------
+
+exports_files([
+    "src/ipu_apps/conv_128x128_4to8/conv_128x128_4to8.asm",
+])
+
+filegroup(
+    name = "conv4to8_test_data",
+    srcs = glob(["src/ipu_apps/conv_128x128_4to8/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_conv_128x128_4to8",
+    src = "src/ipu_apps/conv_128x128_4to8/conv_128x128_4to8.asm",
+)
+
+py_binary(
+    name = "conv_128x128_4to8",
+    srcs = ["src/ipu_apps/conv_128x128_4to8/__main__.py"],
+    main = "src/ipu_apps/conv_128x128_4to8/__main__.py",
+    data = [
+        ":assemble_conv_128x128_4to8.bin",
+        ":conv4to8_test_data",
+    ],
+    env = {
+        "CONV4TO8_INST_BIN": "$(rootpath :assemble_conv_128x128_4to8.bin)",
+        "CONV4TO8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv_128x128_4to8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_conv_128x128_4to8",
+    srcs = ["test/test_conv_128x128_4to8.py"],
+    data = [
+        ":assemble_conv_128x128_4to8.bin",
+        ":conv4to8_test_data",
+    ],
+    env = {
+        "CONV4TO8_INST_BIN": "$(rootpath :assemble_conv_128x128_4to8.bin)",
+        "CONV4TO8_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/conv_128x128_4to8/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_conv_128x128_4to8_test_data",
+    srcs = ["src/ipu_apps/conv_128x128_4to8/gen_test_data.py"],
+    main = "src/ipu_apps/conv_128x128_4to8/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
