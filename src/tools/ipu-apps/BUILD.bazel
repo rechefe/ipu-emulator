@@ -302,3 +302,119 @@ py_binary(
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
+
+# -- Pointwise convolution 32x32x16 app -------------------------------------
+
+exports_files([
+    "src/ipu_apps/pointwise_conv_32x32x16/pointwise_conv_32x32x16.asm",
+])
+
+filegroup(
+    name = "pconv16_test_data",
+    srcs = glob(["src/ipu_apps/pointwise_conv_32x32x16/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_pointwise_conv_32x32x16",
+    src = "src/ipu_apps/pointwise_conv_32x32x16/pointwise_conv_32x32x16.asm",
+)
+
+py_binary(
+    name = "pointwise_conv_32x32x16",
+    srcs = ["src/ipu_apps/pointwise_conv_32x32x16/__main__.py"],
+    main = "src/ipu_apps/pointwise_conv_32x32x16/__main__.py",
+    data = [
+        ":assemble_pointwise_conv_32x32x16.bin",
+        ":pconv16_test_data",
+    ],
+    env = {
+        "PCONV16_INST_BIN": "$(rootpath :assemble_pointwise_conv_32x32x16.bin)",
+        "PCONV16_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/pointwise_conv_32x32x16/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_pointwise_conv_32x32x16",
+    srcs = ["test/test_pointwise_conv_32x32x16.py"],
+    data = [
+        ":assemble_pointwise_conv_32x32x16.bin",
+        ":pconv16_test_data",
+    ],
+    env = {
+        "PCONV16_INST_BIN": "$(rootpath :assemble_pointwise_conv_32x32x16.bin)",
+        "PCONV16_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/pointwise_conv_32x32x16/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_pointwise_conv_32x32x16_test_data",
+    srcs = ["src/ipu_apps/pointwise_conv_32x32x16/gen_test_data.py"],
+    main = "src/ipu_apps/pointwise_conv_32x32x16/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+# -- Pointwise convolution 32x32x32 app -------------------------------------
+
+exports_files([
+    "src/ipu_apps/pointwise_conv_32x32x32/pointwise_conv_32x32x32.asm",
+])
+
+filegroup(
+    name = "pconv32_test_data",
+    srcs = glob(["src/ipu_apps/pointwise_conv_32x32x32/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_pointwise_conv_32x32x32",
+    src = "src/ipu_apps/pointwise_conv_32x32x32/pointwise_conv_32x32x32.asm",
+)
+
+py_binary(
+    name = "pointwise_conv_32x32x32",
+    srcs = ["src/ipu_apps/pointwise_conv_32x32x32/__main__.py"],
+    main = "src/ipu_apps/pointwise_conv_32x32x32/__main__.py",
+    data = [
+        ":assemble_pointwise_conv_32x32x32.bin",
+        ":pconv32_test_data",
+    ],
+    env = {
+        "PCONV32_INST_BIN": "$(rootpath :assemble_pointwise_conv_32x32x32.bin)",
+        "PCONV32_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/pointwise_conv_32x32x32/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_pointwise_conv_32x32x32",
+    srcs = ["test/test_pointwise_conv_32x32x32.py"],
+    data = [
+        ":assemble_pointwise_conv_32x32x32.bin",
+        ":pconv32_test_data",
+    ],
+    env = {
+        "PCONV32_INST_BIN": "$(rootpath :assemble_pointwise_conv_32x32x32.bin)",
+        "PCONV32_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/pointwise_conv_32x32x32/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_binary(
+    name = "gen_pointwise_conv_32x32x32_test_data",
+    srcs = ["src/ipu_apps/pointwise_conv_32x32x32/gen_test_data.py"],
+    main = "src/ipu_apps/pointwise_conv_32x32x32/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
