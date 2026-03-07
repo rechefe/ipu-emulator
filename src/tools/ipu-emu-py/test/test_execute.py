@@ -494,6 +494,77 @@ bkpt;;
         for i in range(128):
             w = state.regfile.get_r_acc_word(i)
             assert w == 13, f"word {i}: expected 13 (3+10), got {w}"
+
+    def test_acc_stride_no_stride(self):
+        """acc.stride with both strides off copies all 128 mult_res words to r_acc from start 0."""
+        state = _make_state(
+            """\
+set lr0 0;;
+acc.stride 8 off off lr0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, i)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == i, f"word {i}: expected {i}, got {w}"
+
+    def test_acc_stride_horizontal_no_expand(self):
+        """acc.stride with horizontal on, no expand: take every 2nd column → 64 elements at r_acc[0:64]."""
+        state = _make_state(
+            """\
+set lr0 0;;
+acc.stride 8 on off lr0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, i)
+        run_until_complete(state)
+        # Rows of 8: even columns 0,2,4,6 → indices 0,2,4,6, 8,10,12,14, ...
+        for out_i in range(64):
+            row = out_i // 4
+            col = (out_i % 4) * 2
+            expected = row * 8 + col
+            w = state.regfile.get_r_acc_word(out_i)
+            assert w == expected, f"out[{out_i}]: expected {expected}, got {w}"
+
+    def test_acc_stride_offset(self):
+        """acc.stride with offset: (lr0 % 4)*32 is start index; 64 elements written at r_acc[32:96]."""
+        state = _make_state(
+            """\
+set lr0 1;;
+acc.stride 8 on off lr0;;
+bkpt;;
+"""
+        )
+        # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on, no expand → 64 elements.
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 0)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 100 + i)
+        run_until_complete(state)
+        for i in range(32):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 0, f"word {i} (before start): expected 0, got {w}"
+        for out_i in range(64):
+            row = out_i // 4
+            col = (out_i % 4) * 2
+            expected_src = row * 8 + col
+            w = state.regfile.get_r_acc_word(32 + out_i)
+            assert w == 100 + expected_src, f"word {32 + out_i}: expected {100 + expected_src}, got {w}"
+        for i in range(96, 128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 0, f"word {i} (after segment): expected 0, got {w}"
+
 # ============================================================================
 
 

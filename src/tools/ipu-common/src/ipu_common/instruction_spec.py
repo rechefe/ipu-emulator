@@ -137,7 +137,7 @@ class InstructionDoc:
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
     "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx"],
-    "acc": ["AaqRegIdx"],
+    "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
     "cond": ["LrIdx", "LrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
@@ -509,6 +509,31 @@ INSTRUCTION_SPEC = {
                 example="acc.add_aaq.first aaq0;;",
             ),
             "execute_fn": "execute_acc_add_aaq_first",
+        },
+        "acc.stride": {
+            "operands": [
+                {"name": "elements_in_row", "type": "ElementsInRow"},
+                {"name": "horizontal_stride", "type": "HorizontalStride"},
+                {"name": "vertical_stride", "type": "VerticalStride"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Stride",
+                summary="Reorder the multiplication result into r_acc using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
+                syntax="acc.stride elements_in_row horizontal_stride vertical_stride offset",
+                operands=[
+                    "elements_in_row: Elements per row (8, 16, 32, or 64)",
+                    "horizontal_stride: Horizontal stride mode (enabled, inverted, expand)",
+                    "vertical_stride: Vertical stride mode (enabled, inverted)",
+                    "offset: LR register; value % 4 gives start index in RACC (0, 32, 64, or 96)",
+                ],
+                operation=(
+                    "Decimate mult_res as rows×cols; apply horizontal stride (take every 2nd column, optional expand); "
+                    "then vertical stride (take every 2nd row). Write result into r_acc[start:start+N] where start = (offset%4)*32, N = 32|64|128."
+                ),
+                example="acc.stride 8 off off lr0;;",
+            ),
+            "execute_fn": "execute_acc_stride",
         },
     },
 
@@ -907,6 +932,7 @@ def validate_instruction_spec() -> None:
     """
     valid_operand_types = {
         "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
+        "ElementsInRow", "HorizontalStride", "VerticalStride",
         "Immediate", "BreakImmediate", "Label"
     }
     valid_read_sources = {"snapshot", "live"}

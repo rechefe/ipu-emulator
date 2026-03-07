@@ -30,6 +30,11 @@ from ipu_common.instruction_spec import (
     get_instruction_by_opcode,
     create_emulator_constants,
 )
+from ipu_common.acc_stride_enums import (
+    get_elements_per_row,
+    get_horizontal_stride_bits,
+    get_vertical_stride_bits,
+)
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 
 # ---------------------------------------------------------------------------
@@ -62,6 +67,9 @@ _TYPE_FIELD_SUFFIX = {
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
     "AaqRegIdx": "aaq_reg_field",
+    "ElementsInRow": "elements_in_row_field",
+    "HorizontalStride": "horizontal_stride_field",
+    "VerticalStride": "vertical_stride_field",
     "Immediate": "lr_immediate_type",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
@@ -482,6 +490,68 @@ class Ipu:
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             result = ipu_add(mult_val, aaq_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_stride(
+        self,
+        *,
+        elements_in_row: int,
+        horizontal_stride: int,
+        vertical_stride: int,
+        offset: int,
+    ) -> None:
+        """Execute acc.stride: Decimate mult_res by horizontal/vertical stride and write into r_acc.
+
+        Operand semantics from ipu_common.acc_stride_enums (single source of truth).
+        offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
+        """
+        elements_per_row = get_elements_per_row(elements_in_row)
+        num_rows = R_REG_SIZE // elements_per_row
+
+        h_enabled, h_inverted, h_expand = get_horizontal_stride_bits(horizontal_stride)
+        v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
+
+        # Build list of source indices (0..127) or -1 for zero padding
+        after_h: list[int] = []
+        if not h_enabled:
+            after_h = list(range(R_REG_SIZE))
+            effective_row_len = elements_per_row
+        else:
+            half = elements_per_row // 2
+            for row in range(num_rows):
+                base = row * elements_per_row
+                if h_inverted:
+                    indices_in_row = [base + 1 + 2 * j for j in range(half)]
+                else:
+                    indices_in_row = [base + 2 * j for j in range(half)]
+                if h_expand:
+                    after_h.extend(indices_in_row)
+                    after_h.extend([-1] * (elements_per_row - half))
+                else:
+                    after_h.extend(indices_in_row)
+            effective_row_len = elements_per_row if h_expand else half
+
+        num_rows_after_h = len(after_h) // effective_row_len
+        if not v_enabled:
+            out_indices = after_h
+        else:
+            out_indices = []
+            row_sel = range(1, num_rows_after_h, 2) if v_inverted else range(0, num_rows_after_h, 2)
+            for r in row_sel:
+                start = r * effective_row_len
+                out_indices.extend(after_h[start : start + effective_row_len])
+
+        base = (offset % 4) * 32
+        dtype = self.state.get_cr_dtype()
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+
+        for i, idx in enumerate(out_indices):
+            if idx >= 0:
+                val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
+            else:
+                val = 0
+            struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
