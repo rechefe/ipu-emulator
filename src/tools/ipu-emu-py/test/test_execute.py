@@ -455,6 +455,45 @@ bkpt;;
         for i in range(128):
             w = state.regfile.get_r_acc_word(i)
             assert w == 102, f"word {i}: expected 102, got {w}"
+
+    def test_acc_first(self):
+        """acc.first sets r_acc to mult_res without adding previous r_acc."""
+        state = _make_state(
+            """\
+acc.first;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        # Pre-fill acc with garbage; acc.first should ignore it
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 7)
+        run_until_complete(state)
+        for i in range(128):
+            assert state.regfile.get_r_acc_word(i) == 7, f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
+
+    def test_acc_add_aaq_first(self):
+        """acc.add_aaq.first sets r_acc to mult_res + aaq (no previous sum)."""
+        state = _make_state(
+            """\
+acc.add_aaq.first aaq2;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 3)
+        state.regfile.set_aaq(2, 10)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 13, f"word {i}: expected 13 (3+10), got {w}"
 # ============================================================================
 
 

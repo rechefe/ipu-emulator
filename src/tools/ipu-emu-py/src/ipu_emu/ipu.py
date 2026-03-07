@@ -444,6 +444,17 @@ class Ipu:
             result = ipu_add(acc_val, mult_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
+    def execute_acc_first(self) -> None:
+        """Execute acc.first: Set r_acc to multiply result (no previous sum)."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
     def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
         """Execute acc.add_aaq: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
         dtype = self.state.get_cr_dtype()
@@ -457,6 +468,19 @@ class Ipu:
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.add_aaq.first: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = ipu_add(mult_val, aaq_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     # -----------------------------------------------------------------------
