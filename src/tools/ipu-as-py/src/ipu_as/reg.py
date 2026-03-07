@@ -28,6 +28,7 @@ MultStageRegField = _generated_classes.get("MultStageRegField")
 LrRegField = _generated_classes.get("LrRegField")
 CrRegField = _generated_classes.get("CrRegField")
 LcrRegField = _generated_classes.get("LcrRegField")
+AaqRegField = _generated_classes.get("AaqRegField")
 
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()
@@ -35,6 +36,7 @@ MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
 LR_REG_FIELDS = _enums.get("LrRegField", [])
 CR_REG_FIELDS = _enums.get("CrRegField", [])
 LCR_REG_FIELDS = _enums.get("LcrRegField", [])
+AAQ_REG_FIELDS = _enums.get("AaqRegField", [])
 
 # Clean up internal state
 del _generated_classes, _enums
@@ -49,9 +51,11 @@ __all__ = [
     "LrRegField",
     "CrRegField",
     "LcrRegField",
+    "AaqRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",
     "LR_REG_FIELDS",
     "CR_REG_FIELDS",
     "LCR_REG_FIELDS",
+    "AAQ_REG_FIELDS",
 ]

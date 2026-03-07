@@ -20,6 +20,7 @@ XmemInstOpcode = _opcode_classes["XmemInstOpcode"]
 LrInstOpcode = _opcode_classes["LrInstOpcode"]
 MultInstOpcode = _opcode_classes["MultInstOpcode"]
 AccInstOpcode = _opcode_classes["AccInstOpcode"]
+AaqInstOpcode = _opcode_classes["AaqInstOpcode"]
 CondInstOpcode = _opcode_classes["CondInstOpcode"]
 BreakInstOpcode = _opcode_classes["BreakInstOpcode"]
 
