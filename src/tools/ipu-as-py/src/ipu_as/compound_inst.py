@@ -335,7 +335,7 @@ class CompoundInst:
             ("#FF6B6B", "XmemInst (Extended Memory)"),
             ("#4ECDC4", "MultInst (Multiply)"),
             ("#45B7D1", "AccInst (Accumulator)"),
-            ("#9B59B6", "AaqInst (Activation & Quantization)"),
+            ("#9B59B6", "AaqInst (Activation and Quantization)"),
             ("#FFA07A", "LrInst (Link Register)"),
             ("#98D8C8", "CondInst (Conditional)"),
         ]
