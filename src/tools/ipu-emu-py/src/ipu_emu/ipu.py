@@ -491,6 +491,44 @@ class Ipu:
             result = ipu_add(mult_val, aaq_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
+    def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.max: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
+
+        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
+        """
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(acc_val, mult_val, aaq_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_max_first(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.max.first: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
+
+        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
+        """
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(mult_val, aaq_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
     def execute_acc_stride(
         self,
         *,

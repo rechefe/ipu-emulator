@@ -495,6 +495,69 @@ bkpt;;
             w = state.regfile.get_r_acc_word(i)
             assert w == 13, f"word {i}: expected 13 (3+10), got {w}"
 
+    def test_acc_max(self):
+        """acc.max sets r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg)."""
+        state = _make_state(
+            """\
+acc.max aaq1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        # r_acc: 1, mult_res: 2, aaq1: 3 → max(1,2,3)=3
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 1)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 2)
+        state.regfile.set_aaq(1, 3)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 3, f"word {i}: expected max(1,2,3)=3, got {w}"
+
+    def test_acc_max_signed(self):
+        """acc.max treats register values as signed int32; negative values compare correctly."""
+        state = _make_state(
+            """\
+acc.max aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        # r_acc: -10, mult_res: 2, aaq0: 5 → max(-10, 2, 5) = 5 (signed comparison)
+        acc_buf = state.regfile.raw("r_acc")
+        for i in range(128):
+            struct.pack_into("<i", acc_buf, i * 4, -10)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 2)
+        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 5))[0])
+        run_until_complete(state)
+        for i in range(128):
+            val = struct.unpack_from("<i", state.regfile.raw("r_acc"), i * 4)[0]
+            assert val == 5, f"word {i}: expected max(-10, 2, 5)=5 (signed), got {val}"
+
+    def test_acc_max_first(self):
+        """acc.max.first sets r_acc[i] = max(mult_res[i], aaq_reg); previous r_acc ignored."""
+        state = _make_state(
+            """\
+acc.max.first aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 5)
+        state.regfile.set_aaq(0, 10)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 10, f"word {i}: expected max(5,10)=10, got {w}"
+
     def test_acc_stride_no_stride(self):
         """acc.stride with both strides off copies all 128 mult_res words to r_acc from start 0."""
         state = _make_state(

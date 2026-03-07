@@ -425,7 +425,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: acc=0, acc.first=1, reset_acc=2, acc_nop=3, acc.add_aaq=4, acc.add_aaq.first=5
+    # Opcode = position: acc=0, acc.first=1, reset_acc=2, acc_nop=3, acc.add_aaq=4, acc.add_aaq.first=5, acc.max=6, acc.max.first=7
     # =========================================================================
     "acc": {
         "acc": {
@@ -509,6 +509,42 @@ INSTRUCTION_SPEC = {
                 example="acc.add_aaq.first aaq0;;",
             ),
             "execute_fn": "execute_acc_add_aaq_first",
+        },
+        "acc.max": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Max",
+                summary="For each element, set r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).",
+                syntax="acc.max aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "for i in [0, 128): r_acc[i] = max(r_acc[i], mult_res[i], aaq_regs[aaq_rf_idx])"
+                ),
+                example="acc.max aaq0;;",
+            ),
+            "execute_fn": "execute_acc_max",
+        },
+        "acc.max.first": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Max (First)",
+                summary="For each element, set r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc is ignored (treated as 0).",
+                syntax="acc.max.first aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "for i in [0, 128): r_acc[i] = max(mult_res[i], aaq_regs[aaq_rf_idx])"
+                ),
+                example="acc.max.first aaq0;;",
+            ),
+            "execute_fn": "execute_acc_max_first",
         },
         "acc.stride": {
             "operands": [
