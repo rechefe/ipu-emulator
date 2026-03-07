@@ -20,6 +20,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "AaqRegIdx": reg.AaqRegField,
     "Immediate": immediate.LrImmediateType,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
@@ -339,7 +340,7 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return []
+        return [reg.AaqRegField]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:

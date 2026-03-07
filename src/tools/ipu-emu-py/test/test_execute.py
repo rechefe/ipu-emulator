@@ -431,9 +431,30 @@ class TestAccumulator:
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 0
 
-
-# ============================================================================
-# Program counter
+    def test_acc_add_aaq(self):
+        """acc.add_aaq adds the selected AAQ register (32-bit) to each of the 128 accumulator words."""
+        state = _make_state(
+            """\
+reset_acc;;
+acc.add_aaq aaq1;;
+bkpt;;
+"""
+        )
+        # INT8 dtype (cr15 = 0)
+        state.regfile.set_cr(15, DType.INT8)
+        # mult_res = 2 in each word; acc starts at 0
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 0)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 2)
+        # aaq1 = 100 (added to every word)
+        state.regfile.set_aaq(1, 100)
+        run_until_complete(state)
+        # Each word should be 0 + 2 + 100 = 102
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 102, f"word {i}: expected 102, got {w}"
 # ============================================================================
 
 

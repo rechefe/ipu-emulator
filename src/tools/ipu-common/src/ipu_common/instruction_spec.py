@@ -137,7 +137,7 @@ class InstructionDoc:
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
     "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx"],
-    "acc": [],
+    "acc": ["AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
     "cond": ["LrIdx", "LrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
@@ -425,7 +425,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: acc=0, reset_acc=1, acc_nop=2
+    # Opcode = position: acc=0, reset_acc=1, acc_nop=2, acc.add_aaq=3
     # =========================================================================
     "acc": {
         "acc": {
@@ -459,6 +459,25 @@ INSTRUCTION_SPEC = {
                 operands=[],
             ),
             "execute_fn": "execute_acc_nop",
+        },
+        "acc.add_aaq": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulate and Add AAQ",
+                summary="Accumulate multiply result, then add the selected AAQ register (32-bit) to each of the 128 accumulator words.",
+                syntax="acc.add_aaq aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "r_acc += multiply_result;\n"
+                    "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
+                ),
+                example="acc.add_aaq aaq0;;",
+            ),
+            "execute_fn": "execute_acc_add_aaq",
         },
     },
 
@@ -856,7 +875,7 @@ def validate_instruction_spec() -> None:
     Raises ValueError if validation fails.
     """
     valid_operand_types = {
-        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", 
+        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
         "Immediate", "BreakImmediate", "Label"
     }
     valid_read_sources = {"snapshot", "live"}

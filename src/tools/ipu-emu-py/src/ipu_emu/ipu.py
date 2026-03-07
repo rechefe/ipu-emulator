@@ -61,6 +61,7 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
+    "AaqRegIdx": "aaq_reg_field",
     "Immediate": "lr_immediate_type",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
@@ -441,6 +442,21 @@ class Ipu:
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             result = ipu_add(acc_val, mult_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.add_aaq: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     # -----------------------------------------------------------------------
