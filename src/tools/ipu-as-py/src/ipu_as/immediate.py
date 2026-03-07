@@ -4,6 +4,7 @@ from ipu_common.acc_stride_enums import (
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
+from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 
 
 class LrImmediateType(ipu_token.NumberToken):
@@ -43,3 +44,22 @@ class VerticalStrideField(ipu_token.EnumToken):
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(VERTICAL_STRIDE_NAMES)
+
+
+# ---------------------------------------------------------------------------
+# acc.agg operand enums (instruction-specific)
+# Single source of truth: ipu_common.acc_agg_enums
+# ---------------------------------------------------------------------------
+
+class AggModeField(ipu_token.EnumToken):
+    """Aggregation mode: sum or max."""
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(AGG_MODE_NAMES)
+
+
+class PostFnField(ipu_token.EnumToken):
+    """Post function: value, value_cr, inv, inv_sqrt."""
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(POST_FN_NAMES)

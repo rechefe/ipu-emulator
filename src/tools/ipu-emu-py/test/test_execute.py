@@ -628,6 +628,85 @@ bkpt;;
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
 
+    def test_acc_agg_sum_value(self):
+        """agg sum value: sum of 128 r_acc words, identity post fn, store to aaq0."""
+        import struct
+
+        state = _make_state(
+            """\
+agg sum value cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        # r_acc: set each word to 1, so sum = 128
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        state.regfile.set_aaq(0, 0)
+
+        run_until_complete(state)
+        # Sum of 128 ones = 128
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 128))[0]
+
+    def test_acc_agg_max_value(self):
+        """agg max value: max of 128 r_acc words and current aaq, store to aaq1."""
+        import struct
+
+        state = _make_state(
+            """\
+agg max value cr0 aaq1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
+        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 20))[0])  # 20 > 14
+
+        run_until_complete(state)
+        # Max of r_acc is 14, but aaq1 was 20, so max(..., 20) = 20
+        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 20))[0]
+
+    def test_acc_agg_max_value_updates_when_larger(self):
+        """agg max value: when r_acc has a value larger than aaq, aaq is updated."""
+        import struct
+
+        state = _make_state(
+            """\
+agg max value cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
+        state.regfile.set_r_acc_word(10, struct.unpack("<I", struct.pack("<i", 100))[0])
+        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
+
+        run_until_complete(state)
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
+
+    def test_acc_agg_sum_value_cr(self):
+        """agg sum value_cr: result = sum(r_acc) * cr[cr_idx]."""
+        import struct
+
+        state = _make_state(
+            """\
+agg sum value_cr cr1 aaq2;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        state.regfile.set_cr(1, struct.unpack("<I", struct.pack("<i", 3))[0])
+        state.regfile.set_aaq(2, 0)
+
+        run_until_complete(state)
+        # sum = 128, 128 * 3 = 384
+        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 384))[0]
+
+
 # ============================================================================
 
 

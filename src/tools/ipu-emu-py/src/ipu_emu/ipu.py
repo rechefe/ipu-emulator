@@ -35,6 +35,16 @@ from ipu_common.acc_stride_enums import (
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
 )
+from ipu_common.acc_agg_enums import (
+    AGG_MODE_SUM,
+    AGG_MODE_MAX,
+    POST_FN_VALUE,
+    POST_FN_VALUE_CR,
+    POST_FN_INV,
+    POST_FN_INV_SQRT,
+    get_agg_mode,
+    get_post_fn,
+)
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 
 # ---------------------------------------------------------------------------
@@ -70,6 +80,8 @@ _TYPE_FIELD_SUFFIX = {
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
     "VerticalStride": "vertical_stride_field",
+    "AggMode": "agg_mode_field",
+    "PostFn": "post_fn_field",
     "Immediate": "lr_immediate_type",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
@@ -80,6 +92,7 @@ _SLOT_FIELD_PREFIX = {
     "xmem": "xmem_inst",
     "mult": "mult_inst",
     "acc": "acc_inst",
+    "aaq": "aaq_inst",
     "cond": "cond_inst",
     "break": "break_inst",
     # LR is special: "lr_inst_0" and "lr_inst_1"
@@ -591,6 +604,75 @@ class Ipu:
                 val = 0
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
+    def execute_aaq_nop(self) -> None:
+        """Execute aaq_nop: No operation for AAQ slot."""
+        pass
+
+    def execute_agg(
+        self,
+        *,
+        agg_mode: int,
+        post_fn: int,
+        cr_idx: int,
+        aaq_rf_idx: int,
+    ) -> None:
+        """Execute acc.agg: Collapse 128 r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
+
+        For MAX, the current value of the target AAQ register is included in the max (no update if already max).
+        """
+        dtype = self.state.get_cr_dtype()
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        acc_buf = self.state.regfile.raw("r_acc")
+        n_words = R_ACC_SIZE // 4  # 128
+
+        # Collect all 128 words as scalar values
+        values = []
+        for i in range(n_words):
+            val = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            values.append(val)
+
+        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
+            raw_result = sum(values)
+        else:
+            # MAX: include current AAQ value in the comparison
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            current_aaq = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+            raw_result = max(values + [current_aaq])
+
+        # Apply post function
+        fn = get_post_fn(post_fn)
+        if fn == POST_FN_VALUE:
+            result_val = raw_result
+        elif fn == POST_FN_VALUE_CR:
+            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
+            cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
+            result_val = raw_result * cr_scalar
+        elif fn == POST_FN_INV:
+            if dtype == DType.INT8:
+                # Integer path: avoid div by zero; use float then store as float bits
+                f = float(raw_result)
+                result_val = 1.0 / f if f != 0 else 0.0
+                # Store as float32 bit pattern
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / raw_result if raw_result != 0 else 0.0
+        elif fn == POST_FN_INV_SQRT:
+            if dtype == DType.INT8:
+                f = float(raw_result)
+                result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
+        else:
+            result_val = raw_result
+
+        out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
+        self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
     # -----------------------------------------------------------------------
@@ -729,6 +811,7 @@ class Ipu:
         self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
+        self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("cond", inst)
 
         return BreakResult.CONTINUE
@@ -750,4 +833,5 @@ class Ipu:
         self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
+        self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("cond", inst)
