@@ -239,7 +239,6 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
-                    "mask_idx: Mask index register (cr0-cr15)",
                 ],
                 operation="r_mask = Memory[offset + base]",
             ),
