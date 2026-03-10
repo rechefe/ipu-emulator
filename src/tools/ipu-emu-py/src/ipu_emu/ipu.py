@@ -30,6 +30,21 @@ from ipu_common.instruction_spec import (
     get_instruction_by_opcode,
     create_emulator_constants,
 )
+from ipu_common.acc_stride_enums import (
+    get_elements_per_row,
+    get_horizontal_stride_bits,
+    get_vertical_stride_bits,
+)
+from ipu_common.acc_agg_enums import (
+    AGG_MODE_SUM,
+    AGG_MODE_MAX,
+    POST_FN_VALUE,
+    POST_FN_VALUE_CR,
+    POST_FN_INV,
+    POST_FN_INV_SQRT,
+    get_agg_mode,
+    get_post_fn,
+)
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 
 # ---------------------------------------------------------------------------
@@ -61,6 +76,12 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
+    "AaqRegIdx": "aaq_reg_field",
+    "ElementsInRow": "elements_in_row_field",
+    "HorizontalStride": "horizontal_stride_field",
+    "VerticalStride": "vertical_stride_field",
+    "AggMode": "agg_mode_field",
+    "PostFn": "post_fn_field",
     "Immediate": "lr_immediate_type",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
@@ -71,6 +92,7 @@ _SLOT_FIELD_PREFIX = {
     "xmem": "xmem_inst",
     "mult": "mult_inst",
     "acc": "acc_inst",
+    "aaq": "aaq_inst",
     "cond": "cond_inst",
     "break": "break_inst",
     # LR is special: "lr_inst_0" and "lr_inst_1"
@@ -443,6 +465,214 @@ class Ipu:
             result = ipu_add(acc_val, mult_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
+    def execute_acc_first(self) -> None:
+        """Execute acc.first: Set r_acc to multiply result (no previous sum)."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
+    def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.add_aaq: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.add_aaq.first: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = ipu_add(mult_val, aaq_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.max: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
+
+        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
+        """
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(acc_val, mult_val, aaq_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_max_first(self, *, aaq_rf_idx: int) -> None:
+        """Execute acc.max.first: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
+
+        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
+        """
+        dtype = self.state.get_cr_dtype()
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(mult_val, aaq_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_stride(
+        self,
+        *,
+        elements_in_row: int,
+        horizontal_stride: int,
+        vertical_stride: int,
+        offset: int,
+    ) -> None:
+        """Execute acc.stride: Decimate mult_res by horizontal/vertical stride and write into r_acc.
+
+        Operand semantics from ipu_common.acc_stride_enums (single source of truth).
+        offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
+        """
+        elements_per_row = get_elements_per_row(elements_in_row)
+        num_rows = R_REG_SIZE // elements_per_row
+
+        h_enabled, h_inverted, h_expand = get_horizontal_stride_bits(horizontal_stride)
+        v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
+
+        # Build list of source indices (0..127) or -1 for zero padding
+        after_h: list[int] = []
+        if not h_enabled:
+            after_h = list(range(R_REG_SIZE))
+            effective_row_len = elements_per_row
+        else:
+            half = elements_per_row // 2
+            for row in range(num_rows):
+                base = row * elements_per_row
+                if h_inverted:
+                    indices_in_row = [base + 1 + 2 * j for j in range(half)]
+                else:
+                    indices_in_row = [base + 2 * j for j in range(half)]
+                if h_expand:
+                    after_h.extend(indices_in_row)
+                    after_h.extend([-1] * (elements_per_row - half))
+                else:
+                    after_h.extend(indices_in_row)
+            effective_row_len = elements_per_row if h_expand else half
+
+        num_rows_after_h = len(after_h) // effective_row_len
+        if not v_enabled:
+            out_indices = after_h
+        else:
+            out_indices = []
+            row_sel = range(1, num_rows_after_h, 2) if v_inverted else range(0, num_rows_after_h, 2)
+            for r in row_sel:
+                start = r * effective_row_len
+                out_indices.extend(after_h[start : start + effective_row_len])
+
+        base = (offset % 4) * 32
+        dtype = self.state.get_cr_dtype()
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+
+        for i, idx in enumerate(out_indices):
+            if idx >= 0:
+                val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
+            else:
+                val = 0
+            struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+
+    def execute_aaq_nop(self) -> None:
+        """Execute aaq_nop: No operation for AAQ slot."""
+        pass
+
+    def execute_agg(
+        self,
+        *,
+        agg_mode: int,
+        post_fn: int,
+        cr_idx: int,
+        aaq_rf_idx: int,
+    ) -> None:
+        """Execute acc.agg: Collapse 128 r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
+
+        For MAX, the current value of the target AAQ register is included in the max (no update if already max).
+        """
+        dtype = self.state.get_cr_dtype()
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        acc_buf = self.state.regfile.raw("r_acc")
+        n_words = R_ACC_SIZE // 4  # 128
+
+        # Collect all 128 words as scalar values
+        values = []
+        for i in range(n_words):
+            val = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            values.append(val)
+
+        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
+            raw_result = sum(values)
+        else:
+            # MAX: include current AAQ value in the comparison
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            current_aaq = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+            raw_result = max(values + [current_aaq])
+
+        # Apply post function
+        fn = get_post_fn(post_fn)
+        if fn == POST_FN_VALUE:
+            result_val = raw_result
+        elif fn == POST_FN_VALUE_CR:
+            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
+            cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
+            result_val = raw_result * cr_scalar
+        elif fn == POST_FN_INV:
+            if dtype == DType.INT8:
+                # Integer path: avoid div by zero; use float then store as float bits
+                f = float(raw_result)
+                result_val = 1.0 / f if f != 0 else 0.0
+                # Store as float32 bit pattern
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / raw_result if raw_result != 0 else 0.0
+        elif fn == POST_FN_INV_SQRT:
+            if dtype == DType.INT8:
+                f = float(raw_result)
+                result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
+        else:
+            result_val = raw_result
+
+        out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
+        self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
     # -----------------------------------------------------------------------
@@ -581,6 +811,7 @@ class Ipu:
         self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
+        self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("cond", inst)
 
         return BreakResult.CONTINUE
@@ -602,4 +833,5 @@ class Ipu:
         self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
+        self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("cond", inst)
