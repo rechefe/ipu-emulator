@@ -273,6 +273,208 @@ Run tests:
 bazel test //src/tools/ipu-apps:test_my_app
 ```
 
+## Example Application: Fully Connected Layer
+
+This section walks through a complete real-world implementation: a fully-connected neural network layer that processes multiple samples, each with 128 input neurons and produces 64 output neurons.
+
+### Assembly Program
+
+The IPU assembly implements the core computation: for each input sample, compute the dot product of the input vector with each weight row (after transposition for efficiency):
+
+```asm
+set                 lr0 0 ;;
+set                 lr1 1280 ;;
+set                 lr2 0 ;;
+
+input_loop:
+    reset_acc;;
+
+    ldr_cyclic_mult_reg lr0 cr0 lr15;;
+
+    set                 lr4 -128;;
+    set                 lr5 -1;;
+    set                 lr6 127;;
+
+element_loop:
+    ldr_mult_reg        mem_bypass lr4 cr1;
+    incr                lr4 128;
+    incr                lr5 1;
+    mult.ev             mem_bypass lr5 lr15 lr15;
+    acc;
+    blt                 lr5 lr6 element_loop;;
+
+    str_acc_reg         lr7 cr2;;
+    incr                lr7 256;
+    incr                lr0 128;;
+
+    break;;
+
+    blt                 lr0 lr1 input_loop;;
+
+end:
+    bkpt;;
+```
+
+### Python Application Class
+
+The `FullyConnectedApp` class handles data setup and result collection:
+
+```python
+"""Fully-connected layer test harness — Python port of fully_connected.c."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ipu_emu.ipu_math import DType
+from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
+
+from ipu_apps.base import IpuApp
+
+if TYPE_CHECKING:
+    from ipu_emu.ipu_state import IpuState
+
+# Constants
+SAMPLES_NUM = 10
+INPUT_BASE_ADDR = 0x0000
+INPUT_NEURONS = 128
+WEIGHTS_BASE_ADDR = 0x20000
+OUTPUT_BASE_ADDR = 0x40000
+OUTPUT_NEURONS = 64
+
+def parse_dtype(dtype_str: str) -> DType:
+    """Parse a dtype string into a DType enum value."""
+    dtype_map = {
+        "INT8": DType.INT8,
+        "FP8_E4M3": DType.FP8_E4M3,
+        "FP8_E5M2": DType.FP8_E5M2,
+    }
+    dt = dtype_map.get(dtype_str)
+    if dt is None:
+        raise ValueError(
+            f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2"
+        )
+    return dt
+
+def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
+    """Load weights from file and transpose into XMEM.
+
+    Original: (OUTPUT_NEURONS × INPUT_NEURONS).
+    Transposed: (INPUT_NEURONS × INPUT_NEURONS), zero-padded.
+    """
+    raw = Path(weights_path).read_bytes()
+    expected = OUTPUT_NEURONS * INPUT_NEURONS
+    if len(raw) < expected:
+        raise ValueError(
+            f"Weights file too small: {len(raw)} bytes, expected {expected}"
+        )
+
+    original: list[bytes] = []
+    for j in range(OUTPUT_NEURONS):
+        row_start = j * INPUT_NEURONS
+        original.append(raw[row_start : row_start + INPUT_NEURONS])
+
+    for i in range(INPUT_NEURONS):
+        transposed_vector = bytearray(INPUT_NEURONS)
+        for j in range(OUTPUT_NEURONS):
+            transposed_vector[j] = original[j][i]
+        state.xmem.write_address(WEIGHTS_BASE_ADDR + i * INPUT_NEURONS, transposed_vector)
+
+
+class FullyConnectedApp(IpuApp):
+    """Fully-connected layer application harness.
+
+    Args:
+        inst_path:    Path to assembled instruction binary.
+        inputs_path:  Path to input activations binary.
+        weights_path: Path to weights binary.
+        output_path:  Optional path to write output.
+        dtype:        Data type string or DType.
+    """
+
+    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.inputs_path = Path(self.inputs_path)
+        self.weights_path = Path(self.weights_path)
+        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
+
+    def setup(self, state: "IpuState") -> None:
+        """Load inputs and weights, set control registers."""
+        state.set_cr_dtype(int(self.dtype))
+        load_binary_to_xmem(
+            state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
+        )
+        _load_and_transpose_weights(state, self.weights_path)
+        state.regfile.set_cr(0, INPUT_BASE_ADDR)
+        state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
+        state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+
+    def teardown(self, state: "IpuState") -> None:
+        """Dump output activations from XMEM."""
+        if self.output_path is not None:
+            dump_xmem_to_binary(
+                state, self.output_path,
+                OUTPUT_BASE_ADDR, OUTPUT_NEURONS * 4, SAMPLES_NUM,
+            )
+```
+
+### Interactive Debug Runner
+
+The `__main__.py` provides an interactive CLI for development:
+
+```python
+"""Debug runner for the fully-connected app.
+
+Usage::
+
+    bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8
+"""
+
+import argparse
+import os
+from pathlib import Path
+
+from ipu_emu.debug_cli import debug_prompt
+
+from ipu_apps.fully_connected import FullyConnectedApp
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run fully-connected with debug CLI")
+    parser.add_argument("--dtype", default="INT8", choices=["INT8", "FP8_E4M3", "FP8_E5M2"])
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--max-cycles", type=int, default=2_000_000)
+    args = parser.parse_args()
+
+    # Bazel sets these via env vars (see BUILD.bazel)
+    inst_path = Path(os.environ["FC_INST_BIN"])
+    data_dir = Path(os.environ["FC_DATA_DIR"])
+
+    app = FullyConnectedApp(
+        inst_path=inst_path,
+        inputs_path=data_dir / args.dtype.lower() / f"inputs_{args.dtype.lower()}.bin",
+        weights_path=data_dir / args.dtype.lower() / f"weights_{args.dtype.lower()}.bin",
+        output_path=args.output,
+        dtype=args.dtype,
+    )
+    state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
+    print(f"Finished in {cycles} cycles")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**Key observations:**
+- The `setup()` method transcodes weights (transpose for cache efficiency) and loads both inputs and weights into XMEM
+- Control registers point the assembly code to the base addresses: `CR0=inputs`, `CR1=weights_transposed`, `CR2=outputs`
+- The dtype is configurable (INT8, FP8_E4M3, FP8_E5M2) and passed to the IPU state
+- The assembly program is written to operate on transposed weights for better performance
+- All paths are resolved by Bazel and passed via environment variables
+
+See [src/tools/ipu-apps/src/ipu_apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/fully_connected) for the complete working code including tests and Bazel build targets.
+
 ## Summary: The Two Usage Patterns
 
 ### Pattern 1: Interactive Debugging

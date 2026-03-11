@@ -1,7 +1,5 @@
 # IPU TODOs
 
-- Add debug CLI option
-- Implement multiple condition instructions (with prioritizing) - currently irrelevant 
 - Write basic kernel for softmax - pseudocode
 - Write basic kernel for CNN
 - Implement quantization

@@ -67,11 +67,12 @@ class CompoundInst:
             "xmem": inst.XmemInst,
             "mult": inst.MultInst,
             "acc": inst.AccInst,
+            "aaq": inst.AaqInst,
             "lr": inst.LrInst,
             "cond": inst.CondInst,
         }
-        # Order defines bit layout: break, xmem, mult, acc, lr(×N), cond
-        _slot_order = ["break", "xmem", "mult", "acc", "lr", "cond"]
+        # Order defines bit layout: break, xmem, mult, acc, aaq, lr(×N), cond
+        _slot_order = ["break", "xmem", "mult", "acc", "aaq", "lr", "cond"]
         result = []
         for slot in _slot_order:
             result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
@@ -158,8 +159,9 @@ class CompoundInst:
             inst.XmemInst: "#FF6B6B",     # Red
             inst.MultInst: "#4ECDC4",     # Teal
             inst.AccInst: "#45B7D1",      # Blue
+            inst.AaqInst: "#9B59B6",      # Purple - AAQ
             inst.LrInst: "#FFA07A",       # Light Salmon
-            inst.CondInst: "#98D8C8",     # Mint
+            inst.CondInst: "#98D8C8",    # Mint
         }
 
         inst_types_list = cls.instruction_types()
@@ -333,6 +335,7 @@ class CompoundInst:
             ("#FF6B6B", "XmemInst (Extended Memory)"),
             ("#4ECDC4", "MultInst (Multiply)"),
             ("#45B7D1", "AccInst (Accumulator)"),
+            ("#9B59B6", "AaqInst (Activation and Quantization)"),
             ("#FFA07A", "LrInst (Link Register)"),
             ("#98D8C8", "CondInst (Conditional)"),
         ]

@@ -137,7 +137,8 @@ class InstructionDoc:
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
     "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx"],
-    "acc": [],
+    "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
+    "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
     "cond": ["LrIdx", "LrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
@@ -150,6 +151,7 @@ SLOT_COUNT: dict[str, int] = {
     "xmem": 1,
     "mult": 1,
     "acc": 1,
+    "aaq": 1,
     "lr": 2,
     "cond": 1,
 }
@@ -237,7 +239,6 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
-                    "mask_idx: Mask index register (cr0-cr15)",
                 ],
                 operation="r_mask = Memory[offset + base]",
             ),
@@ -425,7 +426,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: acc=0, reset_acc=1, acc_nop=2
+    # Opcode = position: acc=0, acc.first=1, reset_acc=2, acc_nop=3, acc.add_aaq=4, acc.add_aaq.first=5, acc.max=6, acc.max.first=7, acc.stride=8
     # =========================================================================
     "acc": {
         "acc": {
@@ -438,6 +439,18 @@ INSTRUCTION_SPEC = {
                 operation="r_acc += multiply_result",
             ),
             "execute_fn": "execute_acc",
+        },
+        "acc.first": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate First",
+                summary="Set accumulator to multiply result (do not add to previous r_acc).",
+                syntax="acc.first",
+                operands=[],
+                operation="r_acc = multiply_result",
+                example="acc.first;;",
+            ),
+            "execute_fn": "execute_acc_first",
         },
         "reset_acc": {
             "operands": [],
@@ -459,6 +472,149 @@ INSTRUCTION_SPEC = {
                 operands=[],
             ),
             "execute_fn": "execute_acc_nop",
+        },
+        "acc.add_aaq": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulate and Add AAQ",
+                summary="Accumulate multiply result, then add the selected AAQ register (32-bit) to each of the 128 accumulator words.",
+                syntax="acc.add_aaq aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "r_acc += multiply_result;\n"
+                    "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
+                ),
+                example="acc.add_aaq aaq0;;",
+            ),
+            "execute_fn": "execute_acc_add_aaq",
+        },
+        "acc.add_aaq.first": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulate and Add AAQ (First)",
+                summary="Set accumulator to multiply result plus selected AAQ register (do not add to previous r_acc).",
+                syntax="acc.add_aaq.first aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "r_acc = multiply_result;\n"
+                    "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
+                ),
+                example="acc.add_aaq.first aaq0;;",
+            ),
+            "execute_fn": "execute_acc_add_aaq_first",
+        },
+        "acc.max": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Max",
+                summary="For each element, set r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).",
+                syntax="acc.max aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "for i in [0, 128): r_acc[i] = max(r_acc[i], mult_res[i], aaq_regs[aaq_rf_idx])"
+                ),
+                example="acc.max aaq0;;",
+            ),
+            "execute_fn": "execute_acc_max",
+        },
+        "acc.max.first": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Max (First)",
+                summary="For each element, set r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc is ignored (treated as 0).",
+                syntax="acc.max.first aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
+                ],
+                operation=(
+                    "for i in [0, 128): r_acc[i] = max(mult_res[i], aaq_regs[aaq_rf_idx])"
+                ),
+                example="acc.max.first aaq0;;",
+            ),
+            "execute_fn": "execute_acc_max_first",
+        },
+        "acc.stride": {
+            "operands": [
+                {"name": "elements_in_row", "type": "ElementsInRow"},
+                {"name": "horizontal_stride", "type": "HorizontalStride"},
+                {"name": "vertical_stride", "type": "VerticalStride"},
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Stride",
+                summary="Reorder the multiplication result into r_acc using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
+                syntax="acc.stride elements_in_row horizontal_stride vertical_stride offset",
+                operands=[
+                    "elements_in_row: Elements per row (8, 16, 32, or 64)",
+                    "horizontal_stride: Horizontal stride mode (enabled, inverted, expand)",
+                    "vertical_stride: Vertical stride mode (enabled, inverted)",
+                    "offset: LR register; value % 4 gives start index in RACC (0, 32, 64, or 96)",
+                ],
+                operation=(
+                    "Decimate mult_res as rows×cols; apply horizontal stride (take every 2nd column, optional expand); "
+                    "then vertical stride (take every 2nd row). Write result into r_acc[start:start+N] where start = (offset%4)*32, N = 32|64|128."
+                ),
+                example="acc.stride 8 off off lr0;;",
+            ),
+            "execute_fn": "execute_acc_stride",
+        },
+    },
+
+    # =========================================================================
+    # AAQ Slot (Activation and Quantization)
+    # Opcode = position: aaq_nop=0, agg=1
+    # =========================================================================
+    "aaq": {
+        "aaq_nop": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation (AAQ)",
+                summary="No operation for AAQ slot.",
+                syntax="aaq_nop",
+                operands=[],
+            ),
+            "execute_fn": "execute_aaq_nop",
+        },
+        "agg": {
+            "operands": [
+                {"name": "agg_mode", "type": "AggMode"},
+                {"name": "post_fn", "type": "PostFn"},
+                {"name": "cr_idx", "type": "CrIdx"},
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Aggregate",
+                summary="Collapse 128 r_acc words into one value (SUM or MAX), apply post function, store to selected AAQ register.",
+                syntax="agg agg_mode post_fn cr_idx aaq_rf_idx",
+                operands=[
+                    "agg_mode: sum or max",
+                    "post_fn: value, value_cr, inv, or inv_sqrt",
+                    "cr_idx: CR register for value_cr post function (cr0-cr15)",
+                    "aaq_rf_idx: AAQ register to store result (aaq0-aaq3)",
+                ],
+                operation=(
+                    "If sum: v = sum(r_acc[0..127]). "
+                    "If max: v = max(r_acc[0..127], aaq[aaq_rf_idx]). "
+                    "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
+                    "aaq[aaq_rf_idx] = result."
+                ),
+                example="agg sum value cr0 aaq0;;",
+            ),
+            "execute_fn": "execute_agg",
         },
     },
 
@@ -780,6 +936,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
         "lr": "LrInstOpcode",
         "mult": "MultInstOpcode",
         "acc": "AccInstOpcode",
+        "aaq": "AaqInstOpcode",
         "cond": "CondInstOpcode",
         "break": "BreakInstOpcode",
     }
@@ -819,6 +976,7 @@ def create_emulator_constants() -> Dict[str, int]:
         "lr": "LR_OP",
         "mult": "MULT_OP",
         "acc": "ACC_OP",
+        "aaq": "AAQ_OP",
         "cond": "COND_OP",
         "break": "BREAK_OP",
     }
@@ -856,7 +1014,9 @@ def validate_instruction_spec() -> None:
     Raises ValueError if validation fails.
     """
     valid_operand_types = {
-        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", 
+        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
+        "ElementsInRow", "HorizontalStride", "VerticalStride",
+        "AggMode", "PostFn",
         "Immediate", "BreakImmediate", "Label"
     }
     valid_read_sources = {"snapshot", "live"}

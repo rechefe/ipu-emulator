@@ -20,6 +20,12 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "AaqRegIdx": reg.AaqRegField,
+    "ElementsInRow": immediate.ElementsInRowField,
+    "HorizontalStride": immediate.HorizontalStrideField,
+    "VerticalStride": immediate.VerticalStrideField,
+    "AggMode": immediate.AggModeField,
+    "PostFn": immediate.PostFnField,
     "Immediate": immediate.LrImmediateType,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
@@ -339,7 +345,13 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 class AccInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return []
+        return [
+            reg.AaqRegField,
+            immediate.ElementsInRowField,
+            immediate.HorizontalStrideField,
+            immediate.VerticalStrideField,
+            reg.LrRegField,
+        ]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -366,6 +378,45 @@ class AccInst(Inst):
         return cls._render_instruction_docs(
             heading="ACC Instructions",
             intro="Accumulation instructions for combining values with optional masking and shifting.",
+        )
+
+
+@validate_inst_structure
+class AaqInst(Inst):
+    @classmethod
+    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
+        return [
+            immediate.AggModeField,
+            immediate.PostFnField,
+            reg.CrRegField,
+            reg.AaqRegField,
+        ]
+
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.AaqInstOpcode
+
+    @classmethod
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("aaq")
+
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return AaqInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "aaq_nop", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="AAQ Instructions",
+            intro="Activation and quantization: aggregate r_acc into AAQ registers.",
         )
 
 

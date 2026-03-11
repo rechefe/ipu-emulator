@@ -27,15 +27,17 @@ class RegDtype(Enum):
 
 class RegKind(Enum):
     """Which pipeline stage / functional group the register belongs to.
-    
+
     MULT:  Multiply-stage registers (r0, r1, r_cyclic, r_mask)
     ACC:   Accumulator-stage registers (r_acc, mult_res)
+    AAQ:   Activation & quantization registers (aaq0-aaq3)
     LR:    Long-register file (lr0-lr15)
     CR:    Control-register file (cr0-cr15)
     MISC:  Miscellaneous registers
     """
     MULT = "mult"
     ACC = "acc"
+    AAQ = "aaq"
     LR = "lr"
     CR = "cr"
     MISC = "misc"

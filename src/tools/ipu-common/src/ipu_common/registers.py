@@ -78,6 +78,18 @@ REGISTER_DEFINITIONS = {
         "debug_aliases": ("acc",),
     },
     # -----------------------------------------------------------------------
+    # Activation & Quantization (AAQ) stage — 4 × 32-bit general-purpose regs
+    # -----------------------------------------------------------------------
+    "aaq": {
+        "kind": RegKind.AAQ,
+        "vector": False,
+        "size_bytes": 4,
+        "count": 4,
+        "dtype": RegDtype.UINT32,
+        "assembler_values": [f"aaq{i}" for i in range(4)],
+        "encoding_class": "AaqRegField",
+    },
+    # -----------------------------------------------------------------------
     # LR / CR scalar registers
     # -----------------------------------------------------------------------
     "lr": {
