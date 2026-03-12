@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes
+from ipu_emu.ipu_math import DType, ipu_mult, fp32_to_fp8_bytes
 
 # -- Dimensions -------------------------------------------------------------
 
@@ -77,18 +77,15 @@ def _reference_unfold(input_bytes: bytes, dtype: DType) -> bytes:
     """
     ones_byte = _ONES_BYTE[dtype]
     fmt = "<i" if dtype == DType.INT8 else "<f"
-    zero: int | float = 0 if dtype == DType.INT8 else 0.0
     n_rows = N_STREAMS * C * N_TG                # 1152 rows
     output = bytearray(n_rows * 512)
 
     for ch in range(C):
         for stream_idx, (h_stride, v_stride) in enumerate(_STREAMS):
             for tg in range(N_TG):
-                # Accumulate 4 stripes → 128 accumulator elements.
+                # acc.stride writes 4 stripes → 128 accumulator elements.
                 # Each stripe writes into a separate 32-element slot (stripe_offset * 32).
-                # Each element is: ipu_add(0, mult_val, dtype), matching the emulator's
-                # acc.stride semantics (accumulate into reset_acc'd 0 accumulator).
-                # Note: ipu_add(0.0, -0.0, fp8) = +0.0, not -0.0.
+                # acc.stride writes mult_res values directly (no accumulation/addition).
                 acc_128: list[int | float] = []
                 for stripe_offset in range(4):
                     stripe   = tg * 4 + stripe_offset
@@ -98,11 +95,8 @@ def _reference_unfold(input_bytes: bytes, dtype: DType) -> bytes:
                     # mult.ev: broadcast ones_byte × each of 128 input bytes
                     mult_res = [ipu_mult(b, ones_byte, dtype) for b in row_data]
 
-                    # acc.stride: decimate mult_res; accumulate onto zero (ipu_add semantics)
-                    acc_128.extend(
-                        ipu_add(zero, val, dtype)
-                        for val in _apply_stride(mult_res, h_stride, v_stride)
-                    )
+                    # acc.stride: decimate mult_res and write directly to acc slot
+                    acc_128.extend(_apply_stride(mult_res, h_stride, v_stride))
 
                 # Write 128 FP32/INT32 words to the output buffer
                 out_row = stream_idx * C * N_TG + ch * N_TG + tg

@@ -81,69 +81,69 @@ ch_loop:
     # -----------------------------------------------------------------------
     # tg=0: stripes 0..3 with cr0..cr3
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr3;;
     str_acc_reg         lr8 cr9;;           # TL tg=0 → DST_TL + ch×1024
 
     # tg=1: stripes 4..7 with cr4..cr7
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled enabled lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr3;;
     str_acc_reg         lr9 cr9;;           # TL tg=1 → DST_TL + ch×1024 + 512
 
     # -----------------------------------------------------------------------
     # Stream TR  (h=inverted=odd cols,  v=enabled=even rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr3;;
     str_acc_reg         lr8 cr10;;          # TR tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted enabled lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr3;;
     str_acc_reg         lr9 cr10;;          # TR tg=1
 
     # -----------------------------------------------------------------------
     # Stream BL  (h=enabled=even cols,  v=inverted=odd rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr3;;
     str_acc_reg         lr8 cr11;;          # BL tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 enabled inverted lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr3;;
     str_acc_reg         lr9 cr11;;          # BL tg=1
 
     # -----------------------------------------------------------------------
     # Stream BR  (h=inverted=odd cols,  v=inverted=odd rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr3;;
     str_acc_reg         lr8 cr12;;          # BR tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 inverted inverted lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr3;;
     str_acc_reg         lr9 cr12;;          # BR tg=1
 
     # -----------------------------------------------------------------------
