@@ -15,7 +15,17 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_state import IpuState
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
+from ipu_emu.ipu_math import (
+    DType,
+    fp32_to_fp8_bytes,
+    fp8_bytes_to_fp32,
+    fp32_to_fp8_generic,
+    fp8_to_fp32_generic,
+    make_fp8_dtype,
+    get_fp8_exp_bits,
+    get_fp8_man_bits,
+    is_fp8_dtype,
+)
 from ipu_emu.emulator import (
     load_binary_to_xmem,
     dump_xmem_to_binary,
@@ -154,6 +164,135 @@ class TestFP32ToFP8Loading:
         fp32 = np.array([1.0], dtype=np.float32)
         with pytest.raises(ValueError, match="FP8"):
             fp32_to_fp8_bytes(fp32, DType.INT8)
+
+
+# ---------------------------------------------------------------------------
+# Tests for configurable FP8 dtype helpers and generic converters
+# ---------------------------------------------------------------------------
+
+
+class TestMakeFp8Dtype:
+    """Tests for :func:`make_fp8_dtype` and the dtype encoding helpers."""
+
+    def test_encoding_e4m3(self) -> None:
+        assert make_fp8_dtype(4, 3) == DType.FP8_E4M3
+
+    def test_encoding_e5m2(self) -> None:
+        assert make_fp8_dtype(5, 2) == DType.FP8_E5M2
+
+    def test_encoding_round_trip(self) -> None:
+        """get_fp8_exp_bits / get_fp8_man_bits recover what make_fp8_dtype stored."""
+        for exp in range(0, 8):
+            for man in range(0, 8):
+                if exp == 0 and man == 0:
+                    continue  # invalid — both zero
+                dtype = make_fp8_dtype(exp, man)
+                assert get_fp8_exp_bits(dtype) == exp
+                assert get_fp8_man_bits(dtype) == man
+
+    def test_is_fp8_dtype(self) -> None:
+        assert not is_fp8_dtype(DType.INT8)
+        assert is_fp8_dtype(DType.FP8_E4M3)
+        assert is_fp8_dtype(DType.FP8_E5M2)
+        assert is_fp8_dtype(make_fp8_dtype(3, 4))
+
+    def test_invalid_exp_bits(self) -> None:
+        with pytest.raises(ValueError):
+            make_fp8_dtype(8, 0)
+
+    def test_invalid_man_bits(self) -> None:
+        with pytest.raises(ValueError):
+            make_fp8_dtype(0, 8)
+
+    def test_both_zero_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            make_fp8_dtype(0, 0)
+
+
+class TestGenericFp8Converter:
+    """Tests for :func:`fp8_to_fp32_generic` and :func:`fp32_to_fp8_generic`."""
+
+    # ------------------------------------------------------------------
+    # Zero
+    # ------------------------------------------------------------------
+
+    def test_zero_round_trip(self) -> None:
+        """0.0 must encode and decode as 0.0 for all (exp, man) combinations."""
+        for exp in range(1, 8):
+            for man in range(0, 8):
+                raw = fp32_to_fp8_generic(0.0, exp, man)
+                back = fp8_to_fp32_generic(raw, exp, man)
+                assert back == 0.0, f"e{exp}m{man}: expected 0.0, got {back}"
+
+    # ------------------------------------------------------------------
+    # Normal values: 1.0 and 2.0
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("exp,man", [(2, 5), (3, 4), (4, 3), (5, 2), (6, 1)])
+    def test_one_round_trip(self, exp: int, man: int) -> None:
+        """1.0 should survive a round-trip for standard (exp, man) pairs."""
+        raw = fp32_to_fp8_generic(1.0, exp, man)
+        back = fp8_to_fp32_generic(raw, exp, man)
+        assert abs(back - 1.0) < 0.05, f"e{exp}m{man}: 1.0 → {raw} → {back}"
+
+    @pytest.mark.parametrize("exp,man", [(2, 5), (3, 4), (4, 3), (5, 2), (6, 1)])
+    def test_two_round_trip(self, exp: int, man: int) -> None:
+        """2.0 should survive a round-trip for standard (exp, man) pairs."""
+        raw = fp32_to_fp8_generic(2.0, exp, man)
+        back = fp8_to_fp32_generic(raw, exp, man)
+        assert abs(back - 2.0) < 0.05, f"e{exp}m{man}: 2.0 → {raw} → {back}"
+
+    # ------------------------------------------------------------------
+    # Sign
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("exp,man", [(3, 4), (4, 3), (5, 2)])
+    def test_negative_round_trip(self, exp: int, man: int) -> None:
+        """-1.0 must round-trip with correct sign."""
+        raw = fp32_to_fp8_generic(-1.0, exp, man)
+        back = fp8_to_fp32_generic(raw, exp, man)
+        assert back < 0 and abs(back + 1.0) < 0.05, f"e{exp}m{man}: -1.0 → {back}"
+
+    # ------------------------------------------------------------------
+    # fp32_to_fp8_bytes / fp8_bytes_to_fp32 via custom dtype
+    # ------------------------------------------------------------------
+
+    def test_custom_dtype_e3m4_round_trip(self) -> None:
+        """FP8 E3M4 (3 exp, 4 man) round-trip via high-level helpers."""
+        dtype = make_fp8_dtype(3, 4)
+        fp32 = np.array([0.0, 1.0, -1.0, 0.5, 2.0], dtype=np.float32)
+        raw = fp32_to_fp8_bytes(fp32, dtype)
+        assert len(raw) == 5
+        back = fp8_bytes_to_fp32(raw, dtype)
+        np.testing.assert_allclose(back, fp32, rtol=0.15, atol=0.15)
+
+    def test_custom_dtype_e2m5_round_trip(self) -> None:
+        """FP8 E2M5 (2 exp, 5 man) round-trip via high-level helpers."""
+        dtype = make_fp8_dtype(2, 5)
+        fp32 = np.array([0.0, 1.0, -1.0, 0.5], dtype=np.float32)
+        raw = fp32_to_fp8_bytes(fp32, dtype)
+        assert len(raw) == 4
+        back = fp8_bytes_to_fp32(raw, dtype)
+        np.testing.assert_allclose(back, fp32, rtol=0.15, atol=0.15)
+
+    def test_custom_dtype_e6m1_round_trip(self) -> None:
+        """FP8 E6M1 (6 exp, 1 man) round-trip via high-level helpers."""
+        dtype = make_fp8_dtype(6, 1)
+        fp32 = np.array([0.0, 1.0, -1.0, 2.0], dtype=np.float32)
+        raw = fp32_to_fp8_bytes(fp32, dtype)
+        assert len(raw) == 4
+        back = fp8_bytes_to_fp32(raw, dtype)
+        np.testing.assert_allclose(back, fp32, rtol=0.5, atol=0.5)
+
+    def test_custom_int8_rejected_by_fp32_to_fp8_bytes(self) -> None:
+        """make_fp8_dtype result is not INT8; INT8 is still rejected."""
+        fp32 = np.array([1.0], dtype=np.float32)
+        with pytest.raises(ValueError, match="FP8"):
+            fp32_to_fp8_bytes(fp32, DType.INT8)
+
+    def test_custom_int8_rejected_by_fp8_bytes_to_fp32(self) -> None:
+        with pytest.raises(ValueError, match="FP8"):
+            fp8_bytes_to_fp32(b"\x00", DType.INT8)
 
 
 # ---------------------------------------------------------------------------

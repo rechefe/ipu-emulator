@@ -20,7 +20,7 @@ from ipu_emu.emulator import (
     DebugAction,
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_math import DType, make_fp8_dtype, fp32_to_fp8_generic
 
 from ipu_as.lark_tree import assemble
 
@@ -869,3 +869,77 @@ bkpt;;
         for i in range(128):
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"
+
+    def test_custom_fp8_e3m4_mult_ee(self):
+        """Custom FP8 E3M4: 1.0 × 2.0 → 2.0 for every element."""
+        exp, man = 3, 4
+        dtype = make_fp8_dtype(exp, man)
+
+        fp_one_byte = fp32_to_fp8_generic(1.0, exp, man)
+        fp_two_byte = fp32_to_fp8_generic(2.0, exp, man)
+
+        r0_data = bytes([fp_one_byte] * 128)
+        cyclic_data = bytes([fp_two_byte] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+set lr4 0;;
+set lr5 0;;
+set lr6 0;;
+mult.ee r0 lr6 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.set_cr_dtype(dtype)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 2.0) < 0.1, f"acc word {i}: expected ~2.0, got {val}"
+
+    def test_custom_fp8_e2m5_mult_ee(self):
+        """Custom FP8 E2M5: 1.0 × 2.0 → 2.0 for every element."""
+        exp, man = 2, 5
+        dtype = make_fp8_dtype(exp, man)
+
+        fp_one_byte = fp32_to_fp8_generic(1.0, exp, man)
+        fp_two_byte = fp32_to_fp8_generic(2.0, exp, man)
+
+        r0_data = bytes([fp_one_byte] * 128)
+        cyclic_data = bytes([fp_two_byte] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+set lr4 0;;
+set lr5 0;;
+set lr6 0;;
+mult.ee r0 lr6 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.set_cr_dtype(dtype)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 2.0) < 0.1, f"acc word {i}: expected ~2.0, got {val}"
