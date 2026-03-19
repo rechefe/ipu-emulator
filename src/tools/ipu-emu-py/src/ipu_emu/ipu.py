@@ -22,7 +22,7 @@ from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_math import ipu_mult, ipu_add, DType
+from ipu_emu.ipu_math import ipu_mult, ipu_add, DType, dtype_one_byte
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -411,30 +411,77 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ev(self, *, ra: bytearray, fixed_cyclic_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
-        """Execute mult_ev: Element x fixed cyclic multiplication."""
+    def _get_cyclic_with_one_padding(self, cyclic_offset: int) -> bytearray:
+        """Return 128 bytes from the cyclic register starting at *cyclic_offset*.
+
+        For positions where ``cyclic_offset + i >= R_CYCLIC_SIZE`` the element
+        is replaced by the dtype-specific multiplicative identity (1), so that
+        out-of-bounds accesses do not wrap but multiply-by-one instead.
+        """
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(fixed_cyclic_idx, R_REG_SIZE)
-        mult_res = self.state.regfile.raw("mult_res")
-
+        one = dtype_one_byte(dtype)
+        buf = self.state.regfile.raw("r_cyclic")
+        result = bytearray(R_REG_SIZE)
         for i in range(R_REG_SIZE):
-            result = ipu_mult(ra[i], rb[0], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+            pos = cyclic_offset + i
+            result[i] = buf[pos] if pos < R_CYCLIC_SIZE else one
+        return result
 
     def execute_mult_ve(self, *, ra: bytearray, cyclic_offset: int,
                         mask_offset: int, mask_shift: int, fixed_ra_idx: int) -> None:
-        """Execute mult_ve: Fixed Ra x cyclic element multiplication."""
+        """Execute mult_ve: Fixed Ra x cyclic element multiplication.
+
+        Out-of-bounds cyclic accesses (cyclic_offset + i >= R_CYCLIC_SIZE) are
+        padded with the dtype-specific constant 1 instead of wrapping.
+        """
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
+        rb = self._get_cyclic_with_one_padding(cyclic_offset)
         mult_res = self.state.regfile.raw("mult_res")
 
         ra_fixed = ra[fixed_ra_idx % R_REG_SIZE]
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra_fixed, rb[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve_cr(self, *, cyclic_offset: int,
+                           mask_offset: int, mask_shift: int, cr_val: int) -> None:
+        """Execute mult_ve_cr: CR scalar x cyclic element multiplication.
+
+        Multiplies each element of RC[cyclic_offset:cyclic_offset+128] by the
+        low byte of the given CR register value.  Out-of-bounds cyclic accesses
+        are padded with the dtype-specific constant 1.
+        """
+        dtype = self.state.get_cr_dtype()
+        rb = self._get_cyclic_with_one_padding(cyclic_offset)
+        mult_res = self.state.regfile.raw("mult_res")
+
+        scalar = cr_val & 0xFF
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(scalar, rb[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve_aaq(self, *, cyclic_offset: int,
+                            mask_offset: int, mask_shift: int, aaq_rf_idx: int) -> None:
+        """Execute mult_ve_aaq: AAQ scalar x cyclic element multiplication.
+
+        Multiplies each element of RC[cyclic_offset:cyclic_offset+128] by the
+        low byte of the given AAQ register value.  Out-of-bounds cyclic accesses
+        are padded with the dtype-specific constant 1.
+        """
+        dtype = self.state.get_cr_dtype()
+        rb = self._get_cyclic_with_one_padding(cyclic_offset)
+        mult_res = self.state.regfile.raw("mult_res")
+
+        scalar = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFF
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(scalar, rb[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
