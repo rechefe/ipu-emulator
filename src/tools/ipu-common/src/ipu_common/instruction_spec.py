@@ -136,7 +136,7 @@ class InstructionDoc:
 
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
-    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx"],
+    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
@@ -341,7 +341,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: mult.ee=0, mult.ev=1, mult.ve=2, mult_nop=3
+    # Opcode = position: mult.ee=0, mult.ve=1, mult.ve.cr=2, mult.ve.aaq=3, mult_nop=4
     # =========================================================================
     "mult": {
         "mult.ee": {
@@ -366,28 +366,6 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_mult_ee",
         },
-        "mult.ev": {
-            "operands": [
-                {"name": "ra", "type": "MultStageReg", "read": "live"},
-                {"name": "fixed_cyclic_idx", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-            ],
-            "doc": InstructionDoc(
-                title="Element-Cyclic Multiply",
-                summary="Multiply Ra elements against a fixed element from cyclic register.",
-                syntax="mult.ev ra fixed_cyclic_idx mask_offset mask_shift",
-                operands=[
-                    "ra: Multiplicand register (r0, r1, or mem_bypass)",
-                    "fixed_cyclic_idx: Fixed index for element selection from cyclic register",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
-                ],
-                operation="Multiply each Ra element by fixed cyclic element with masking",
-                example="mult.ev r0 lr0 lr1 lr2;;",
-            ),
-            "execute_fn": "execute_mult_ev",
-        },
         "mult.ve": {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
@@ -407,10 +385,66 @@ INSTRUCTION_SPEC = {
                     "mask_shift: Shift applied to the mask register",
                     "fixed_ra_idx: Fixed index for element selection from Ra register",
                 ],
-                operation="Multiply fixed Ra element by cyclic elements with masking",
+                operation=(
+                    "For each i: result[i] = RA[fixed_ra_idx] * RC[cyclic_offset + i].\n"
+                    "If cyclic_offset + i >= R_CYCLIC_SIZE, the cyclic element is replaced by\n"
+                    "the dtype-specific constant 1 (int8: 1, f8e4m3: 0x38, f8e5m2: 0x3C)."
+                ),
                 example="mult.ve r0 lr0 lr1 lr2 lr3;;",
             ),
             "execute_fn": "execute_mult_ve",
+        },
+        "mult.ve.cr": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "CrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-CR Multiply",
+                summary="Multiply cyclic register elements against a CR register scalar.",
+                syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
+                operands=[
+                    "cyclic_offset: Base offset for multiplier from RC (cyclic register)",
+                    "mask_offset: Offset to select mask from RM (mask register)",
+                    "mask_shift: Shift applied to the mask register",
+                    "cr_idx: CR register whose low byte is used as the scalar multiplicand",
+                ],
+                operation=(
+                    "For each i: result[i] = (CR[cr_idx] & 0xFF) * RC[cyclic_offset + i].\n"
+                    "If cyclic_offset + i >= R_CYCLIC_SIZE, the cyclic element is replaced by\n"
+                    "the dtype-specific constant 1 (int8: 1, f8e4m3: 0x38, f8e5m2: 0x3C)."
+                ),
+                example="mult.ve.cr lr0 lr1 lr2 cr3;;",
+            ),
+            "execute_fn": "execute_mult_ve_cr",
+        },
+        "mult.ve.aaq": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-AAQ Multiply",
+                summary="Multiply cyclic register elements against an AAQ register scalar.",
+                syntax="mult.ve.aaq cyclic_offset mask_offset mask_shift aaq_rf_idx",
+                operands=[
+                    "cyclic_offset: Base offset for multiplier from RC (cyclic register)",
+                    "mask_offset: Offset to select mask from RM (mask register)",
+                    "mask_shift: Shift applied to the mask register",
+                    "aaq_rf_idx: AAQ register index whose low byte is used as the scalar multiplicand",
+                ],
+                operation=(
+                    "For each i: result[i] = (AAQ[aaq_rf_idx] & 0xFF) * RC[cyclic_offset + i].\n"
+                    "If cyclic_offset + i >= R_CYCLIC_SIZE, the cyclic element is replaced by\n"
+                    "the dtype-specific constant 1 (int8: 1, f8e4m3: 0x38, f8e5m2: 0x3C)."
+                ),
+                example="mult.ve.aaq lr0 lr1 lr2 aaq0;;",
+            ),
+            "execute_fn": "execute_mult_ve_aaq",
         },
         "mult_nop": {
             "operands": [],

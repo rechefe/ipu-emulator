@@ -869,3 +869,190 @@ bkpt;;
         for i in range(128):
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"
+
+
+# ============================================================================
+# mult.ve.* — new forms and out-of-bounds cyclic padding
+# ============================================================================
+
+
+class TestMultVeForms:
+    """Tests for the mult.ve.cr, mult.ve.aaq instructions, and cyclic out-of-bounds."""
+
+    def test_mult_ve_cr_int8(self):
+        """INT8: mult.ve.cr multiplies each cyclic element by the low byte of a CR register."""
+        # cyclic register filled with 3; CR register holds scalar 4 → product 12
+        cyclic_data = bytes([3] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr0 0;;
+set lr1 0;;
+set lr2 0;;
+mult.ve.cr lr0 lr1 lr2 cr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.xmem.write_address(0x1000, cyclic_data)
+        # Set CR register 5 to scalar value 4
+        state.regfile.set_cr(5, 4)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 12, f"acc word {i}: expected 12, got {val}"
+
+    def test_mult_ve_aaq_int8(self):
+        """INT8: mult.ve.aaq multiplies each cyclic element by the low byte of an AAQ register."""
+        # cyclic register filled with 5; AAQ register holds scalar 6 → product 30
+        cyclic_data = bytes([5] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr0 0;;
+set lr1 0;;
+set lr2 0;;
+mult.ve.aaq lr0 lr1 lr2 aaq0;
+acc;;
+bkpt;;
+"""
+        )
+        state.xmem.write_address(0x1000, cyclic_data)
+        # Set AAQ register 0 to hold scalar value 6
+        state.regfile.set_aaq(0, 6)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 30, f"acc word {i}: expected 30, got {val}"
+
+    def test_mult_ve_cyclic_out_of_bounds_int8(self):
+        """INT8 mult.ve: cyclic elements beyond R_CYCLIC_SIZE (512) use constant 1."""
+        from ipu_emu.ipu import R_CYCLIC_SIZE, R_REG_SIZE
+
+        # cyclic_offset = 512 - 64 → first 64 elements in-bounds (value 7),
+        # last 64 out-of-bounds (padded with constant 1)
+        # Load all 4 chunks (4 × 128 = 512 bytes) of the cyclic register
+        cyclic_data = bytes([7] * 512)
+        r0_data = bytes([2] * 128)  # RA fixed element at index 0 = 2
+
+        offset = R_CYCLIC_SIZE - R_REG_SIZE // 2  # 512 - 64 = 448
+
+        state = _make_state(
+            f"""\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+set lr2 128;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+set lr2 256;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+set lr2 384;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+set lr0 {offset};;
+set lr1 0;;
+set lr2 0;;
+set lr3 0;;
+mult.ve r0 lr0 lr1 lr2 lr3;
+acc;;
+bkpt;;
+"""
+        )
+        # Each cyclic load reads 128 bytes from address 0x2000; all chunks have value 7
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        # First 64 elements: cyclic value 7 × RA[0]=2 = 14
+        for i in range(64):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 14, f"acc word {i}: expected 14, got {val}"
+        # Last 64 elements: out-of-bounds → cyclic padded with 1; 1 × 2 = 2
+        for i in range(64, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 2, f"acc word {i}: expected 2 (out-of-bounds padding), got {val}"
+
+    def test_mult_ve_cr_out_of_bounds_int8(self):
+        """INT8 mult.ve.cr: out-of-bounds cyclic elements are treated as constant 1."""
+        from ipu_emu.ipu import R_CYCLIC_SIZE
+
+        cyclic_data = bytes([9] * 512)
+        offset = R_CYCLIC_SIZE  # 512 → all 128 elements are out-of-bounds
+
+        state = _make_state(
+            f"""\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr0 {offset};;
+set lr1 0;;
+set lr2 0;;
+mult.ve.cr lr0 lr1 lr2 cr7;
+acc;;
+bkpt;;
+"""
+        )
+        state.xmem.write_address(0x1000, cyclic_data)
+        # Set CR register 7 to scalar value 3
+        state.regfile.set_cr(7, 3)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        # All elements out-of-bounds → cyclic padded with int8 1; 1 × 3 = 3
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 3, f"acc word {i}: expected 3 (all out-of-bounds), got {val}"
+
+    def test_mult_ve_aaq_fp8_e4m3(self):
+        """FP8 E4M3: mult.ve.aaq uses AAQ scalar and multiplies against cyclic elements."""
+        from ml_dtypes import float8_e4m3fn
+
+        fp_one_byte = int(
+            np.array(1.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8).item()
+        )
+        fp_two_byte = int(
+            np.array(2.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8).item()
+        )
+
+        cyclic_data = bytes([fp_two_byte] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr0 0;;
+set lr1 0;;
+set lr2 0;;
+mult.ve.aaq lr0 lr1 lr2 aaq0;
+acc;;
+bkpt;;
+"""
+        )
+        state.set_cr_dtype(DType.FP8_E4M3)
+        state.xmem.write_address(0x1000, cyclic_data)
+        # Store fp_one_byte (1.0 in f8e4m3fn) into AAQ register 0
+        state.regfile.set_aaq(0, fp_one_byte)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"

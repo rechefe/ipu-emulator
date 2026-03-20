@@ -87,3 +87,32 @@ def ipu_add(a_word: int | float, b_word: int | float, dtype: int) -> int | float
     else:
         # FP8 variants: accumulator is float
         return a_word + b_word
+
+
+# Raw byte value of the multiplicative identity "1" for each dtype.
+# Used when a cyclic-register offset is out of bounds.
+_DTYPE_ONE_BYTE: dict[int, int] = {
+    DType.INT8: 0x01,    # signed int8: 1
+    DType.FP8_E4M3: 0x38,  # float8_e4m3fn: 1.0  (0 0111 000)
+    DType.FP8_E5M2: 0x3C,  # float8_e5m2:   1.0  (0 01111 00)
+}
+
+
+def dtype_one_byte(dtype: int) -> int:
+    """Return the raw byte representing the multiplicative identity (1) for *dtype*.
+
+    Used to pad out-of-bounds cyclic register accesses in mult.ve* instructions.
+
+    Args:
+        dtype: Data type (DType.INT8, DType.FP8_E4M3, or DType.FP8_E5M2).
+
+    Returns:
+        Raw uint8 byte value equal to 1 in the given dtype.
+
+    Raises:
+        ValueError: If *dtype* is not a supported data type.
+    """
+    try:
+        return _DTYPE_ONE_BYTE[dtype]
+    except KeyError:
+        raise ValueError(f"Unsupported dtype: {dtype}")
