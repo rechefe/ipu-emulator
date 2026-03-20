@@ -447,7 +447,7 @@ class Ipu:
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
     def execute_mult_ve_cr(self, *, cyclic_offset: int,
-                           mask_offset: int, mask_shift: int, cr_val: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute mult_ve_cr: CR scalar x cyclic element multiplication.
 
         Multiplies each element of RC[cyclic_offset:cyclic_offset+128] by the
@@ -458,7 +458,7 @@ class Ipu:
         rb = self._get_cyclic_with_one_padding(cyclic_offset)
         mult_res = self.state.regfile.raw("mult_res")
 
-        scalar = cr_val & 0xFF
+        scalar = cr_idx & 0xFF
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(scalar, rb[i], dtype)

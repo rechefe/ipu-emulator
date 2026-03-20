@@ -399,20 +399,20 @@ INSTRUCTION_SPEC = {
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-                {"name": "cr_val", "type": "CrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
                 title="Vector-CR Multiply",
                 summary="Multiply cyclic register elements against a CR register scalar.",
-                syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_val",
+                syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
                 operands=[
                     "cyclic_offset: Base offset for multiplier from RC (cyclic register)",
                     "mask_offset: Offset to select mask from RM (mask register)",
                     "mask_shift: Shift applied to the mask register",
-                    "cr_val: CR register whose low byte is used as the scalar multiplicand",
+                    "cr_idx: CR register whose low byte is used as the scalar multiplicand",
                 ],
                 operation=(
-                    "For each i: result[i] = (CR[cr_val] & 0xFF) * RC[cyclic_offset + i].\n"
+                    "For each i: result[i] = (CR[cr_idx] & 0xFF) * RC[cyclic_offset + i].\n"
                     "If cyclic_offset + i >= R_CYCLIC_SIZE, the cyclic element is replaced by\n"
                     "the dtype-specific constant 1 (int8: 1, f8e4m3: 0x38, f8e5m2: 0x3C)."
                 ),
