@@ -869,3 +869,325 @@ bkpt;;
         for i in range(128):
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"
+
+
+# ============================================================================
+# mult.ve.cr and mult.ve.aaq
+# ============================================================================
+
+
+class TestMultVeCrAaq:
+    """Tests for mult.ve.cr and mult.ve.aaq instructions."""
+
+    # ------------------------------------------------------------------
+    # mult.ve.cr
+    # ------------------------------------------------------------------
+
+    def test_mult_ve_cr_int8(self):
+        """mult.ve.cr INT8: scalar from CR × RC elements."""
+        # CR scalar byte = 3, RC elements = all 2 → each result = 3*2 = 6
+        cyclic_data = bytes([2] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr2 0;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.cr lr2 lr3 lr4 cr1;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(1, 3)  # scalar = low byte = 3
+        state.xmem.write_address(0x1000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 6, f"acc word {i}: expected 6, got {val}"
+
+    def test_mult_ve_cr_negative_int8(self):
+        """mult.ve.cr INT8: signed negative scalar × positive RC elements."""
+        # CR scalar byte = 0xFE = -2 (signed int8), RC elements = 5 → result = -10
+        cyclic_data = bytes([5] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr2 0;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.cr lr2 lr3 lr4 cr2;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
+        state.xmem.write_address(0x1000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == -10, f"acc word {i}: expected -10, got {val}"
+
+    def test_mult_ve_cr_boundary_padding(self):
+        """mult.ve.cr: elements beyond RC boundary (512 bytes) are padded with int8 1."""
+        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
+        rc_fill = 4  # RC filled with 4
+        scalar = 7
+        pad_start = 62  # 512 - 450 = 62 elements in bounds
+
+        state = _make_state(
+            """\
+reset_acc;;
+set lr2 450;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.cr lr2 lr3 lr4 cr3;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(3, scalar)
+        # Fill the full 512-byte cyclic register directly
+        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(pad_start):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+        for i in range(pad_start, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
+
+    def test_mult_ve_cr_fp8e4m3(self):
+        """mult.ve.cr FP8_E4M3: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
+        import numpy as np
+        from ml_dtypes import float8_e4m3fn
+
+        one_fp8 = int(np.array(1.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8))
+        cyclic_data = bytes([one_fp8] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr2 0;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.cr lr2 lr3 lr4 cr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.FP8_E4M3)
+        state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in FP8_E4M3
+        state.xmem.write_address(0x1000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 1.0) < 0.01, f"acc word {i}: expected 1.0, got {val}"
+
+    def test_mult_ve_cr_boundary_padding_fp8e5m2(self):
+        """mult.ve.cr FP8_E5M2: boundary elements padded with FP8 1.0."""
+        import numpy as np
+        from ml_dtypes import float8_e5m2
+
+        two_fp8 = int(np.array(2.0, dtype=np.float32).astype(float8_e5m2).view(np.uint8))
+        scalar_fp8 = int(np.array(3.0, dtype=np.float32).astype(float8_e5m2).view(np.uint8))
+
+        state = _make_state(
+            """\
+reset_acc;;
+set lr2 500;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.cr lr2 lr3 lr4 cr6;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.FP8_E5M2)
+        state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
+        # Fill the full 512-byte cyclic register directly with 2.0 in FP8_E5M2
+        state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(12):  # in-bounds (500..511): 3.0 * 2.0 = 6.0
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 6.0) < 0.1, f"word {i}: expected 6.0, got {val}"
+        for i in range(12, 128):  # padded (>=512): 3.0 * 1.0 = 3.0
+            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
+            assert abs(val - 3.0) < 0.1, f"word {i} (padded): expected 3.0, got {val}"
+
+    # ------------------------------------------------------------------
+    # mult.ve.aaq
+    # ------------------------------------------------------------------
+
+    def test_mult_ve_aaq_int8(self):
+        """mult.ve.aaq INT8: scalar from AAQ × RC elements."""
+        # AAQ scalar byte = 5, RC elements = all 3 → each result = 15
+        cyclic_data = bytes([3] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr2 0;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.aaq lr2 lr3 lr4 aaq0;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_aaq(0, 5)  # low byte = 5
+        state.xmem.write_address(0x1000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 15, f"acc word {i}: expected 15, got {val}"
+
+    def test_mult_ve_aaq_boundary_padding(self):
+        """mult.ve.aaq: elements beyond RC boundary are padded with int8 1."""
+        scalar = 2
+        in_bounds = 112  # offset=400, 512-400=112 in bounds, 16 padded
+
+        state = _make_state(
+            """\
+reset_acc;;
+set lr2 400;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.aaq lr2 lr3 lr4 aaq1;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_aaq(1, scalar)
+        # Fill the full 512-byte cyclic register directly
+        state.regfile.set_r_cyclic_at(0, bytes([10] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(in_bounds):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * 10, f"word {i}: expected {scalar * 10}, got {val}"
+        for i in range(in_bounds, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
+
+    def test_mult_ve_aaq_no_boundary(self):
+        """mult.ve.aaq: when cyclic_offset+128 <= 512, no padding applied."""
+        cyclic_data = bytes([7] * 512)
+        scalar = 3
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+reset_acc;;
+set lr2 0;;
+set lr3 0;;
+set lr4 0;;
+mult.ve.aaq lr2 lr3 lr4 aaq2;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_aaq(2, scalar)
+        state.xmem.write_address(0x1000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * 7, f"acc word {i}: expected {scalar * 7}, got {val}"
+
+    # ------------------------------------------------------------------
+    # Backward compatibility: existing instructions unaffected
+    # ------------------------------------------------------------------
+
+    def test_backward_compat_mult_ee(self):
+        """mult.ee still works correctly after adding new mult variants."""
+        r0_data = bytes([4] * 128)
+        cyclic_data = bytes([5] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+mult.ee r0 lr2 lr2 lr2;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 20, f"acc word {i}: expected 20, got {val}"
+
+    def test_backward_compat_mult_ve(self):
+        """mult.ve still works correctly after adding new mult variants."""
+        cyclic_data = bytes([6] * 512)
+        r0_data = bytes([0] * 128)
+        r0_data = bytearray(r0_data)
+        r0_data[0] = 3  # fixed_ra_idx=0 → scalar = 3
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+mult.ve r0 lr2 lr2 lr2 lr2;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 18, f"acc word {i}: expected 18, got {val}"
