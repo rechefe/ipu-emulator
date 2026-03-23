@@ -136,7 +136,7 @@ class InstructionDoc:
 
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
-    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx"],
+    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
@@ -341,7 +341,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: mult.ee=0, mult.ev=1, mult.ve=2, mult_nop=3
+    # Opcode = position: mult.ee=0, mult.ev=1 (deprecated), mult.ve=2, mult_nop=3, mult.ve.cr=4, mult.ve.aaq=5
     # =========================================================================
     "mult": {
         "mult.ee": {
@@ -374,8 +374,8 @@ INSTRUCTION_SPEC = {
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Element-Cyclic Multiply",
-                summary="Multiply Ra elements against a fixed element from cyclic register.",
+                title="Element-Cyclic Multiply (Deprecated)",
+                summary="[DEPRECATED: use mult.ve.cr or mult.ve.aaq] Multiply Ra elements against a fixed element from cyclic register.",
                 syntax="mult.ev ra fixed_cyclic_idx mask_offset mask_shift",
                 operands=[
                     "ra: Multiplicand register (r0, r1, or mem_bypass)",
@@ -421,6 +421,50 @@ INSTRUCTION_SPEC = {
                 operands=[],
             ),
             "execute_fn": "execute_mult_nop",
+        },
+        "mult.ve.cr": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "CrIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-Element Multiply (CR scalar)",
+                summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from a CR register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
+                syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
+                operands=[
+                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
+                    "mask_offset: Offset to select mask from RM (mask register)",
+                    "mask_shift: Shift applied to the mask register",
+                    "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (cr0-cr15)",
+                ],
+                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = CR[cr_idx][0] * rb",
+                example="mult.ve.cr lr0 lr15 lr15 cr3;;",
+            ),
+            "execute_fn": "execute_mult_ve_cr",
+        },
+        "mult.ve.aaq": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-Element Multiply (AAQ scalar)",
+                summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from an AAQ register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
+                syntax="mult.ve.aaq cyclic_offset mask_offset mask_shift aaq_rf_idx",
+                operands=[
+                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
+                    "mask_offset: Offset to select mask from RM (mask register)",
+                    "mask_shift: Shift applied to the mask register",
+                    "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (aaq0-aaq3)",
+                ],
+                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = AAQ[aaq_rf_idx][0] * rb",
+                example="mult.ve.aaq lr0 lr15 lr15 aaq1;;",
+            ),
+            "execute_fn": "execute_mult_ve_aaq",
         },
     },
 

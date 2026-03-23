@@ -60,6 +60,17 @@ def fp8_bytes_to_fp32(raw: bytes, dtype: DType) -> np.ndarray:
     return arr.astype(np.float32)
 
 
+def dtype_one_byte(dtype: DType) -> int:
+    """Return the raw uint8 encoding of the value 1 for the given dtype.
+
+    Used to pad out-of-bounds RC elements in mult.ve.cr / mult.ve.aaq.
+    """
+    if dtype == DType.INT8:
+        return 0x01
+    np_dtype = _FP8_NUMPY_DTYPE[dtype]
+    return int(np.array(1.0, dtype=np.float32).astype(np_dtype).view(np.uint8))
+
+
 def ipu_mult(a_byte: int, b_byte: int, dtype: int) -> int | float:
     """Multiply two bytes according to *dtype*, returning int32 or float.
 

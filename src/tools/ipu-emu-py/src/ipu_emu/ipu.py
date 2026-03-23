@@ -22,7 +22,7 @@ from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_math import ipu_mult, ipu_add, DType
+from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -436,6 +436,54 @@ class Ipu:
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra_fixed, rb[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
+                           mask_shift: int, cr_idx: int) -> None:
+        """Execute mult.ve.cr: CR scalar x RC elements with boundary padding.
+
+        Multiplies the low byte of CR[cr_idx] against each byte of
+        RC[cyclic_offset : cyclic_offset+128]. Unlike mult.ve, this is
+        non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
+        padded with the dtype-specific encoding of 1 instead of wrapping.
+        """
+        dtype = self.state.get_cr_dtype()
+        scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
+        rc_buf = self.state.regfile.raw("r_cyclic")
+        one_byte = dtype_one_byte(dtype)
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            pos = cyclic_offset + i
+            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
+            result = ipu_mult(scalar_byte, rb_byte, dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve_aaq(self, *, cyclic_offset: int, mask_offset: int,
+                            mask_shift: int, aaq_rf_idx: int) -> None:
+        """Execute mult.ve.aaq: AAQ scalar x RC elements with boundary padding.
+
+        Multiplies the low byte of AAQ[aaq_rf_idx] against each byte of
+        RC[cyclic_offset : cyclic_offset+128]. Non-cyclic: elements where
+        cyclic_offset+i >= R_CYCLIC_SIZE are padded with the dtype-specific
+        encoding of 1 instead of wrapping.
+        """
+        dtype = self.state.get_cr_dtype()
+        scalar_byte = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFF
+        rc_buf = self.state.regfile.raw("r_cyclic")
+        one_byte = dtype_one_byte(dtype)
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            pos = cyclic_offset + i
+            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
+            result = ipu_mult(scalar_byte, rb_byte, dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
