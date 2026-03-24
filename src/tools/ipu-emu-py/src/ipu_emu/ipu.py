@@ -17,6 +17,7 @@ Key Design:
 from __future__ import annotations
 
 import struct
+import warnings
 from enum import IntEnum
 from typing import Any
 
@@ -46,6 +47,14 @@ from ipu_common.acc_agg_enums import (
     get_post_fn,
 )
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+class EmulatorError(RuntimeError):
+    """Raised when the emulator detects an invalid operation."""
+
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-common
@@ -291,7 +300,12 @@ class Ipu:
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
-        """Execute str_acc_reg: Store accumulator to memory."""
+        """Execute str_acc_reg: Store accumulator to memory (debug only)."""
+        warnings.warn(
+            "[DEBUG ONLY] str_acc_reg is not a hardware instruction and is available "
+            "for emulator debugging purposes only",
+            stacklevel=2,
+        )
         addr = offset + base
         acc_data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, acc_data)
@@ -720,6 +734,32 @@ class Ipu:
 
         out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
         self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+
+    def execute_aaq(self) -> None:
+        """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+
+        Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
+        arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
+        a signed byte in the aaq_result register.
+        """
+        dtype = self.state.get_cr_dtype()
+        if dtype != DType.INT8:
+            raise EmulatorError("AAQ instruction requires INT8 mode")
+
+        acc_buf = self.state.regfile.raw("r_acc")
+        result = bytearray(128)
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+            truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
+            clamped = max(-128, min(127, truncated))
+            result[i] = clamped & 0xFF
+        self.state.regfile.set_aaq_result(result)
+
+    def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
+        """Execute xmem.store_aaq_result: Write 128-byte aaq_result to xmem."""
+        addr = offset + base
+        data = self.state.regfile.get_aaq_result()
+        self.state.xmem.write_address(addr, data)
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers

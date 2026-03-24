@@ -254,6 +254,24 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_xmem_nop",
         },
+        "xmem.store_aaq_result": {
+            "operands": [
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Store AAQ Result",
+                summary="Write the 128-byte AAQ quantization result register to external memory.",
+                syntax="xmem.store_aaq_result offset base",
+                operands=[
+                    "offset: Offset register (lr0-lr15)",
+                    "base: Base address register (cr0-cr15)",
+                ],
+                operation="Memory[offset + base] = aaq_result  # 128 bytes",
+                example="xmem.store_aaq_result lr0 cr0;;",
+            ),
+            "execute_fn": "execute_xmem_store_aaq_result",
+        },
     },
     
     # =========================================================================
@@ -659,6 +677,21 @@ INSTRUCTION_SPEC = {
                 example="agg sum value cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg",
+        },
+        "aaq": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="AAQ Quantize",
+                summary="Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the aaq_result register. Requires INT8 mode.",
+                syntax="aaq",
+                operands=[],
+                operation=(
+                    "Requires INT8 mode (cr15 == DType.INT8). "
+                    "For i in [0, 128): aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)"
+                ),
+                example="aaq;;",
+            ),
+            "execute_fn": "execute_aaq",
         },
     },
 
