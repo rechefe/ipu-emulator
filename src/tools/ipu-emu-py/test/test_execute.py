@@ -829,15 +829,11 @@ class TestDecodeRoundtrip:
 
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
-        """FP8 E4M3: 1.0 × 2.0 → 2.0 for every element."""
-        from ml_dtypes import float8_e4m3fn
+        """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
+        from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
-        fp_one_byte = int(
-            np.array(1.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8).item()
-        )
-        fp_two_byte = int(
-            np.array(2.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8).item()
-        )
+        fp_one_byte = _float32_to_fp8_scalar(1.0, 4)
+        fp_two_byte = _float32_to_fp8_scalar(2.0, 4)
 
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
@@ -858,8 +854,8 @@ acc;;
 bkpt;;
 """
         )
-        # Set dtype to FP8_E4M3
-        state.set_cr_dtype(DType.FP8_E4M3)
+        # Set dtype to E4 (fp8_e4)
+        state.set_cr_dtype(DType.E4)
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -974,11 +970,10 @@ bkpt;;
             assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
 
     def test_mult_ve_cr_fp8e4m3(self):
-        """mult.ve.cr FP8_E4M3: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        import numpy as np
-        from ml_dtypes import float8_e4m3fn
+        """mult.ve.cr fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
+        from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
-        one_fp8 = int(np.array(1.0, dtype=np.float32).astype(float8_e4m3fn).view(np.uint8))
+        one_fp8 = _float32_to_fp8_scalar(1.0, 4)
         cyclic_data = bytes([one_fp8] * 512)
 
         state = _make_state(
@@ -995,8 +990,8 @@ acc;;
 bkpt;;
 """
         )
-        state.regfile.set_cr(15, DType.FP8_E4M3)
-        state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in FP8_E4M3
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
@@ -1006,12 +1001,11 @@ bkpt;;
             assert abs(val - 1.0) < 0.01, f"acc word {i}: expected 1.0, got {val}"
 
     def test_mult_ve_cr_boundary_padding_fp8e5m2(self):
-        """mult.ve.cr FP8_E5M2: boundary elements padded with FP8 1.0."""
-        import numpy as np
-        from ml_dtypes import float8_e5m2
+        """mult.ve.cr fp8_e5: boundary elements padded with FP8 1.0."""
+        from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
-        two_fp8 = int(np.array(2.0, dtype=np.float32).astype(float8_e5m2).view(np.uint8))
-        scalar_fp8 = int(np.array(3.0, dtype=np.float32).astype(float8_e5m2).view(np.uint8))
+        two_fp8 = _float32_to_fp8_scalar(2.0, 5)
+        scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
 
         state = _make_state(
             """\
@@ -1024,9 +1018,9 @@ acc;;
 bkpt;;
 """
         )
-        state.regfile.set_cr(15, DType.FP8_E5M2)
+        state.regfile.set_cr(15, DType.E5)
         state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
-        # Fill the full 512-byte cyclic register directly with 2.0 in FP8_E5M2
+        # Fill the full 512-byte cyclic register directly with 2.0 in fp8_e5
         state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
         run_until_complete(state)
 
@@ -1285,7 +1279,7 @@ class TestAaqQuantize:
         """aaq raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
         state = _make_state("aaq;;\nbkpt;;")
-        state.set_cr_dtype(DType.FP8_E4M3)
+        state.set_cr_dtype(DType.E4)
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
