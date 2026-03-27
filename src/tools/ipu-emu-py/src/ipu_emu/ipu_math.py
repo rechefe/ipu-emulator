@@ -38,7 +38,14 @@ def _int8_to_signed(val: int) -> int:
 
 
 def _fp8_max_finite(exp_bits: int, man_bits: int) -> int:
-    """Return the unsigned byte encoding of the largest finite FP8 value (positive)."""
+    """Return the unsigned byte encoding of the largest finite FP8 value (positive).
+
+    Note: E1 (exp_bits=1) is degenerate — bias=0, so the only non-subnormal
+    exponent (exp_raw=1) is also the NaN exponent, meaning every finite value
+    is a subnormal.  E7 (exp_bits=7, man_bits=0) has no mantissa bits; the
+    only representable magnitudes are exact powers of two.  Practical formats
+    are E2–E6.
+    """
     max_exp_raw = (1 << exp_bits) - 1  # all-ones = NaN, so largest normal is max_exp_raw-1
     return ((max_exp_raw - 1) << man_bits) | ((1 << man_bits) - 1)
 
@@ -93,9 +100,11 @@ def _fp8_encode_normal(frac: float, fp8_exp: int, exp_bits: int, man_bits: int, 
     """Encode a normal FP8 value given the biased exponent and frexp fraction."""
     max_exp_raw = (1 << exp_bits) - 1
     max_man = (1 << man_bits) - 1
+    # For E7 (man_bits=0): (2*frac-1) is in [0,1), so round() gives 0 and no
+    # carry ever fires.  For all other formats man_int is in [0, 2^man_bits].
     man_int = round((2 * frac - 1) * (1 << man_bits))
     if man_int > max_man:
-        # Rounding carried into exponent
+        # Rounding carried into exponent; man_int reset to 0, then check for overflow.
         man_int = 0
         fp8_exp += 1
     if fp8_exp >= max_exp_raw:
@@ -119,6 +128,9 @@ def _float32_to_fp8_scalar(val: float, exp_bits: int) -> int:
         sign = 1
         val = abs(val)
 
+    # After the block above val is always non-negative.
+    # Negative zero was caught by copysign, set sign=1, and abs(-0.0)==0.0,
+    # so the check below correctly returns 0x80 (negative zero encoding).
     if val == 0.0:
         return sign << 7
 
@@ -145,6 +157,7 @@ def fp32_to_fp8_bytes(fp32_values: np.ndarray, dtype: DType) -> bytes:
         raise ValueError(f"fp32_to_fp8_bytes only supports FP8 dtypes, got {dtype!r}")
     exp_bits = int(dtype)
     arr = fp32_values.astype(np.float32)
+    # NOTE: scalar Python loop — adequate for emulator use but not vectorized.
     return bytes(_float32_to_fp8_scalar(float(v), exp_bits) for v in arr)
 
 
@@ -175,6 +188,8 @@ def ipu_mult(a_byte: int, b_byte: int, dtype: int) -> int | float:
     """
     if dtype == DType.INT8:
         return _int8_to_signed(a_byte) * _int8_to_signed(b_byte)
+    if not 1 <= dtype <= 7:
+        raise ValueError(f"Unsupported dtype: {dtype!r}")
     exp_bits = int(dtype)
     return _fp8_to_float32_scalar(a_byte, exp_bits) * _fp8_to_float32_scalar(b_byte, exp_bits)
 

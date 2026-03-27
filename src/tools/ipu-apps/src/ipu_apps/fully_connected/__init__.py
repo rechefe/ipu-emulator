@@ -51,9 +51,11 @@ OUTPUT_NEURONS = 64
 def parse_dtype(dtype_str: str) -> DType:
     """Parse a dtype string into a :class:`DType` enum value.
 
-    Accepted formats:
-    - ``'int8'`` or ``'fp8_e0'`` → INT8 (integer mode)
-    - ``'fp8_eX'`` where X is 1–7 → FP8 with X exponent bits
+    Accepted formats (case-insensitive):
+
+    - ``'int8'`` → :attr:`DType.INT8` (integer mode)
+    - ``'fp8_e0'`` → :attr:`DType.INT8` (alias; treated as integer mode, not a float format)
+    - ``'fp8_eX'`` where X is 1–7 → FP8 with X exponent bits (e.g. ``'fp8_e4'``)
     """
     s = dtype_str.lower().strip()
     if s in ("int8", "fp8_e0"):
