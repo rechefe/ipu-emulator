@@ -23,6 +23,7 @@ Usage::
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -46,24 +47,25 @@ WEIGHTS_BASE_ADDR = 0x20000
 OUTPUT_BASE_ADDR = 0x40000
 OUTPUT_NEURONS = 64
 
-_DTYPE_MAP = {
-    "INT8": DType.INT8,
-    "int8": DType.INT8,
-    "FP8_E4M3": DType.FP8_E4M3,
-    "fp8_e4m3": DType.FP8_E4M3,
-    "FP8_E5M2": DType.FP8_E5M2,
-    "fp8_e5m2": DType.FP8_E5M2,
-}
-
 
 def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value."""
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(
-            f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2"
-        )
-    return dt
+    """Parse a dtype string into a :class:`DType` enum value.
+
+    Accepted formats (case-insensitive):
+
+    - ``'int8'`` → :attr:`DType.INT8` (integer mode)
+    - ``'fp8_e0'`` → :attr:`DType.INT8` (alias; treated as integer mode, not a float format)
+    - ``'fp8_eX'`` where X is 1–7 → FP8 with X exponent bits (e.g. ``'fp8_e4'``)
+    """
+    s = dtype_str.lower().strip()
+    if s in ("int8", "fp8_e0"):
+        return DType.INT8
+    m = re.fullmatch(r"fp8_e([1-7])", s)
+    if m:
+        return DType(int(m.group(1)))
+    raise ValueError(
+        f"Invalid dtype '{dtype_str}'. Use 'int8' or 'fp8_eX' where X is 0–7."
+    )
 
 
 def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
