@@ -56,6 +56,13 @@ nav:
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
       - Instruction Reference: instructions.md
+  - Hardware Units:
+      - Overview: hardware-units/overview.md
+      - Control Unit: hardware-units/control-unit.md
+      - Multiplication Unit: hardware-units/mult-unit.md
+      - Accumulation Unit: hardware-units/accum-unit.md
+      - Vector Unit: hardware-units/vector-unit.md
+      - Cache Unit: hardware-units/cache-unit.md
 markdown_extensions:
   - admonition
   - pymdownx.details
