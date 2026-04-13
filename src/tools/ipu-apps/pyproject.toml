@@ -25,10 +25,6 @@ dev = [
     "pytest>=9.0.2",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0.1",
-]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
