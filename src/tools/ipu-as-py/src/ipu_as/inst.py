@@ -309,6 +309,8 @@ class MultInst(Inst):
             reg.LrRegField,
             reg.LrRegField,
             reg.LrRegField,
+            reg.CrRegField,
+            reg.AaqRegField,
         ]
 
     @classmethod

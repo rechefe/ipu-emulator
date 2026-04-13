@@ -201,7 +201,7 @@ def load_fp32_as_fp8_to_xmem(
     state: IpuState,
     path: str | Path,
     base_addr: int,
-    dtype: DType = DType.FP8_E4M3,
+    dtype: DType = DType.E4,
 ) -> int:
     """Load a FP32 binary file, convert to FP8, and store in XMEM.
 

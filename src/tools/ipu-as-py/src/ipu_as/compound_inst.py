@@ -153,16 +153,17 @@ class CompoundInst:
         Shows bits from bottom to top: Row 0 (31:0), Row 1 (63:32), Row 2 (95:64), Row 3 (127:96)
         Each instruction type gets a unique color.
         """
-        # Define colors for each instruction type
-        color_map = {
-            inst.BreakInst: "#FFD93D",    # Yellow - debug/warning color
-            inst.XmemInst: "#FF6B6B",     # Red
-            inst.MultInst: "#4ECDC4",     # Teal
-            inst.AccInst: "#45B7D1",      # Blue
-            inst.AaqInst: "#9B59B6",      # Purple - AAQ
-            inst.LrInst: "#FFA07A",       # Light Salmon
-            inst.CondInst: "#98D8C8",    # Mint
-        }
+        # Single source of truth: instruction type → (color, display label)
+        legend_entries = [
+            (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
+            (inst.XmemInst, "#FF6B6B", "XmemInst (Extended Memory)"),
+            (inst.MultInst, "#4ECDC4", "MultInst (Multiply)"),
+            (inst.AccInst, "#45B7D1", "AccInst (Accumulator)"),
+            (inst.AaqInst, "#9B59B6", "AaqInst (Activation and Quantization)"),
+            (inst.LrInst, "#FFA07A", "LrInst (Link Register)"),
+            (inst.CondInst, "#98D8C8", "CondInst (Conditional)"),
+        ]
+        color_map = {inst_type: color for inst_type, color, _ in legend_entries}
 
         inst_types_list = cls.instruction_types()
         
@@ -202,7 +203,7 @@ class CompoundInst:
         num_rows = (total_bits + 31) // 32  # Round up to nearest 32
         
         # Calculate height with space for color legend
-        legend_height = 100  # Space for color legend below
+        legend_height = 20 + len(legend_entries) * 15  # header line + one row per legend entry
         svg_width = row_width + padding * 2 + 80  # Extra space for bit labels
         svg_height = (num_rows * row_height) + font_size_title * 4 + padding * 3 + legend_height
 
@@ -330,21 +331,11 @@ class CompoundInst:
         legend_y = padding + font_size_title * 2.5 + (num_rows * row_height) + 20
         svg_lines.append(f'  <text x="{padding + 60}" y="{legend_y}" class="inst-label" style="font-weight: bold;">Instruction Type Colors:</text>')
         
-        # Color legend items
-        color_legend = [
-            ("#FF6B6B", "XmemInst (Extended Memory)"),
-            ("#4ECDC4", "MultInst (Multiply)"),
-            ("#45B7D1", "AccInst (Accumulator)"),
-            ("#9B59B6", "AaqInst (Activation and Quantization)"),
-            ("#FFA07A", "LrInst (Link Register)"),
-            ("#98D8C8", "CondInst (Conditional)"),
-        ]
-        
         legend_item_y = legend_y + 15
         legend_item_height = 15
         color_box_size = 12
         
-        for i, (color, label) in enumerate(color_legend):
+        for i, (_, color, label) in enumerate(legend_entries):
             x_pos = padding + 60
             y_pos = legend_item_y + (i * legend_item_height)
             

@@ -119,18 +119,18 @@ class TestFP32ToFP8Loading:
     """Tests for FP32→FP8 conversion and loading."""
 
     def test_fp32_to_fp8_e4m3_round_trip(self) -> None:
-        """Convert FP32 → FP8 → FP32, check values are close."""
+        """Convert FP32 → fp8_e4 → FP32, check values are close."""
         fp32 = np.array([0.0, 1.0, -1.0, 0.5, 2.0], dtype=np.float32)
-        raw = fp32_to_fp8_bytes(fp32, DType.FP8_E4M3)
+        raw = fp32_to_fp8_bytes(fp32, DType.E4)
         assert len(raw) == 5
-        back = fp8_bytes_to_fp32(raw, DType.FP8_E4M3)
+        back = fp8_bytes_to_fp32(raw, DType.E4)
         np.testing.assert_allclose(back, fp32, rtol=0.1, atol=0.1)
 
     def test_fp32_to_fp8_e5m2_round_trip(self) -> None:
         fp32 = np.array([0.0, 1.0, -1.0, 0.25], dtype=np.float32)
-        raw = fp32_to_fp8_bytes(fp32, DType.FP8_E5M2)
+        raw = fp32_to_fp8_bytes(fp32, DType.E5)
         assert len(raw) == 4
-        back = fp8_bytes_to_fp32(raw, DType.FP8_E5M2)
+        back = fp8_bytes_to_fp32(raw, DType.E5)
         np.testing.assert_allclose(back, fp32, rtol=0.2, atol=0.1)
 
     def test_load_fp32_as_fp8_to_xmem(self, tmp_path: Path) -> None:
@@ -140,13 +140,13 @@ class TestFP32ToFP8Loading:
         f.write_bytes(fp32.tobytes())
 
         state = IpuState()
-        count = load_fp32_as_fp8_to_xmem(state, f, 0x5000, DType.FP8_E4M3)
+        count = load_fp32_as_fp8_to_xmem(state, f, 0x5000, DType.E4)
         assert count == 128
 
         # Read back and verify
         raw = state.xmem.read_address(0x5000, 128)
-        back = fp8_bytes_to_fp32(bytes(raw), DType.FP8_E4M3)
-        # FP8 E4M3 saturates above ~448, so check representable range
+        back = fp8_bytes_to_fp32(bytes(raw), DType.E4)
+        # fp8_e4 saturates above ~448, so check representable range
         np.testing.assert_allclose(back[:10], fp32[:10], rtol=0.1, atol=0.5)
 
     def test_int8_dtype_rejected(self) -> None:

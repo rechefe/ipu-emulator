@@ -6,8 +6,12 @@ Used by:
 
 Encoding convention:
 - elements_in_row: index 0..3 → 8, 16, 32, 64 elements per row.
-- horizontal_stride: 3 bits → (enabled, inverted, expand) = (bit0, bit1, bit2).
-- vertical_stride: 2 bits → (enabled, inverted) = (bit0, bit1).
+- horizontal_stride: semantic enum 0..4 → (enabled, inverted, expand) via lookup table.
+- vertical_stride: semantic enum 0..2 → (enabled, inverted) via lookup table.
+
+Note: horizontal/vertical stride values are NOT a packed bit-field; they are a
+sequential enum. Decoding is done via explicit lookup tables to avoid silent
+mis-decoding (e.g. treating encoded=2 as enabled=False because bit0 is clear).
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ def get_elements_per_row(encoded: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Horizontal stride (enabled=bit0, inverted=bit1, expand=bit2)
+# Horizontal stride (semantic enum: 0=off, 1=on, 2=on_inv, 3=on_expand, 4=on_inv_expand)
 # ---------------------------------------------------------------------------
 
 HORIZONTAL_STRIDE_NAMES: tuple[str, ...] = (
@@ -41,17 +45,22 @@ HORIZONTAL_STRIDE_NAMES: tuple[str, ...] = (
 )
 
 
+_HORIZONTAL_STRIDE_DECODE: dict[int, tuple[bool, bool, bool]] = {
+    0: (False, False, False),  # off
+    1: (True,  False, False),  # on
+    2: (True,  True,  False),  # on_inv
+    3: (True,  False, True),   # on_expand
+    4: (True,  True,  True),   # on_inv_expand
+}
+
+
 def get_horizontal_stride_bits(encoded: int) -> tuple[bool, bool, bool]:
-    """Return (enabled, inverted, expand) for encoded horizontal stride 0..7."""
-    return (
-        bool(encoded & 1),
-        bool(encoded & 2),
-        bool(encoded & 4),
-    )
+    """Return (enabled, inverted, expand) for encoded horizontal stride 0..4."""
+    return _HORIZONTAL_STRIDE_DECODE[encoded]
 
 
 # ---------------------------------------------------------------------------
-# Vertical stride (enabled=bit0, inverted=bit1)
+# Vertical stride (semantic enum: 0=off, 1=on, 2=on_inv)
 # ---------------------------------------------------------------------------
 
 VERTICAL_STRIDE_NAMES: tuple[str, ...] = (
@@ -62,9 +71,13 @@ VERTICAL_STRIDE_NAMES: tuple[str, ...] = (
 )
 
 
+_VERTICAL_STRIDE_DECODE: dict[int, tuple[bool, bool]] = {
+    0: (False, False),  # off
+    1: (True,  False),  # on
+    2: (True,  True),   # on_inv
+}
+
+
 def get_vertical_stride_bits(encoded: int) -> tuple[bool, bool]:
-    """Return (enabled, inverted) for encoded vertical stride 0..3."""
-    return (
-        bool(encoded & 1),
-        bool(encoded & 2),
-    )
+    """Return (enabled, inverted) for encoded vertical stride 0..2."""
+    return _VERTICAL_STRIDE_DECODE[encoded]
