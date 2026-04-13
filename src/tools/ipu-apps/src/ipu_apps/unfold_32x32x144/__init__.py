@@ -52,8 +52,8 @@ OUTPUT_ROW_BYTES = 512   # FP32: 128 words × 4 bytes
 # pass data unchanged through the MULT stage into the accumulator.
 _ONES_BYTE: dict[DType, int] = {
     DType.INT8:     0x01,   # signed int8: 1
-    DType.FP8_E4M3: 0x38,   # E4M3: sign=0 exp=0111(=7, bias 7 → 2^0=1) mant=000
-    DType.FP8_E5M2: 0x3C,   # E5M2: sign=0 exp=01111(=15, bias 15 → 2^0=1) mant=00
+    DType.E4: 0x38,   # E4M3: sign=0 exp=0111(=7, bias 7 → 2^0=1) mant=000
+    DType.E5: 0x3C,   # E5M2: sign=0 exp=01111(=15, bias 15 → 2^0=1) mant=00
 }
 
 # -- Dtype helpers -----------------------------------------------------------
@@ -61,17 +61,17 @@ _ONES_BYTE: dict[DType, int] = {
 _DTYPE_MAP = {
     "INT8":     DType.INT8,
     "int8":     DType.INT8,
-    "FP8_E4M3": DType.FP8_E4M3,
-    "fp8_e4m3": DType.FP8_E4M3,
-    "FP8_E5M2": DType.FP8_E5M2,
-    "fp8_e5m2": DType.FP8_E5M2,
+    "E4": DType.E4,
+    "fp8_e4": DType.E4,
+    "E5": DType.E5,
+    "fp8_e5": DType.E5,
 }
 
 
 def parse_dtype(dtype_str: str) -> DType:
     dt = _DTYPE_MAP.get(dtype_str)
     if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2")
+        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
     return dt
 
 

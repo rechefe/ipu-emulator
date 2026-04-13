@@ -16,7 +16,7 @@ from ipu_apps.matmul_128x64x64 import MatMul128x64x64App
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run matmul_128x64x64 with debug CLI")
-    parser.add_argument("--dtype", default="INT8", choices=["INT8", "FP8_E4M3", "FP8_E5M2"])
+    parser.add_argument("--dtype", default="INT8", choices=["INT8", "E4", "E5"])
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--max-cycles", type=int, default=2_000_000)
     args = parser.parse_args()

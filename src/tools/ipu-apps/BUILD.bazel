@@ -592,3 +592,61 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- residual_add_256x144 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/residual_add_256x144/residual_add_256x144.asm",
+])
+
+filegroup(
+    name = "residual_add_256x144_test_data",
+    srcs = glob(["src/ipu_apps/residual_add_256x144/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_residual_add_256x144",
+    src = "src/ipu_apps/residual_add_256x144/residual_add_256x144.asm",
+)
+
+py_binary(
+    name = "residual_add_256x144",
+    srcs = ["src/ipu_apps/residual_add_256x144/__main__.py"],
+    main = "src/ipu_apps/residual_add_256x144/__main__.py",
+    data = [
+        ":assemble_residual_add_256x144.bin",
+        ":residual_add_256x144_test_data",
+    ],
+    env = {
+        "RESIDUAL_ADD_256X144_INST_BIN": "$(rootpath :assemble_residual_add_256x144.bin)",
+        "RESIDUAL_ADD_256X144_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_add_256x144/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_residual_add_256x144_test_data",
+    srcs = ["src/ipu_apps/residual_add_256x144/gen_test_data.py"],
+    main = "src/ipu_apps/residual_add_256x144/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_residual_add_256x144",
+    srcs = ["test/test_residual_add_256x144.py"],
+    data = [
+        ":assemble_residual_add_256x144.bin",
+        ":residual_add_256x144_test_data",
+    ],
+    env = {
+        "RESIDUAL_ADD_256X144_INST_BIN": "$(rootpath :assemble_residual_add_256x144.bin)",
+        "RESIDUAL_ADD_256X144_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_add_256x144/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)

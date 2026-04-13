@@ -38,8 +38,8 @@ def _run(tmp_path: Path, dtype_dir: str, dtype_str: str) -> tuple[bytes, int]:
 
 @pytest.mark.parametrize("dtype_dir,dtype_str,golden_name", [
     ("int8",     "INT8",     "out_int8_acc_int32.bin"),
-    ("fp8_e4m3", "FP8_E4M3", "out_fp8_e4m3_acc_fp32.bin"),
-    ("fp8_e5m2", "FP8_E5M2", "out_fp8_e5m2_acc_fp32.bin"),
+    ("fp8_e4m3", "fp8_e4", "out_fp8_e4m3_acc_fp32.bin"),
+    ("fp8_e5m2", "fp8_e5", "out_fp8_e5m2_acc_fp32.bin"),
 ])
 def test_matmul_432x144_x128(
     tmp_path: Path, dtype_dir: str, dtype_str: str, golden_name: str

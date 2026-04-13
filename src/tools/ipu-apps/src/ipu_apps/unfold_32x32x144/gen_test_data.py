@@ -30,8 +30,8 @@ N_TOK     = 128   # tokens per (stream, channel, tg) = 16×8 even-row/col pairs
 # dtype 1.0 byte encodings (see __init__.py for derivation)
 _ONES_BYTE: dict[DType, int] = {
     DType.INT8:     0x01,
-    DType.FP8_E4M3: 0x38,
-    DType.FP8_E5M2: 0x3C,
+    DType.E4: 0x38,
+    DType.E5: 0x3C,
 }
 
 # Stream configs: (h_stride, v_stride)
@@ -151,8 +151,8 @@ def main() -> None:
     out_dir = Path(__file__).parent / "test_data_format"
     print("Generating unfold_32x32x144 test data...")
     _generate_for_dtype(out_dir, DType.INT8,     "int8")
-    _generate_for_dtype(out_dir, DType.FP8_E4M3, "fp8_e4m3")
-    _generate_for_dtype(out_dir, DType.FP8_E5M2, "fp8_e5m2")
+    _generate_for_dtype(out_dir, DType.E4, "fp8_e4")
+    _generate_for_dtype(out_dir, DType.E5, "fp8_e5")
     print("Done.")
 
 

@@ -54,17 +54,17 @@ OUTPUT_ROW_BYTES = 512   # bytes per (out_ch, tg) row  = N_TOK × 4
 _DTYPE_MAP = {
     "INT8":     DType.INT8,
     "int8":     DType.INT8,
-    "FP8_E4M3": DType.FP8_E4M3,
-    "fp8_e4m3": DType.FP8_E4M3,
-    "FP8_E5M2": DType.FP8_E5M2,
-    "fp8_e5m2": DType.FP8_E5M2,
+    "E4": DType.E4,
+    "fp8_e4": DType.E4,
+    "E5": DType.E5,
+    "fp8_e5": DType.E5,
 }
 
 
 def parse_dtype(dtype_str: str) -> DType:
     dt = _DTYPE_MAP.get(dtype_str)
     if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2")
+        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
     return dt
 
 

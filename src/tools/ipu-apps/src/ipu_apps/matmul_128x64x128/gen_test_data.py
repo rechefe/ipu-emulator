@@ -85,8 +85,8 @@ def main() -> None:
     out_dir = Path(__file__).parent / "test_data_format"
     print("Generating matmul_128x64x128 test data...")
     _generate_for_dtype(out_dir, DType.INT8,     "int8")
-    _generate_for_dtype(out_dir, DType.FP8_E4M3, "fp8_e4m3")
-    _generate_for_dtype(out_dir, DType.FP8_E5M2, "fp8_e5m2")
+    _generate_for_dtype(out_dir, DType.E4, "fp8_e4")
+    _generate_for_dtype(out_dir, DType.E5, "fp8_e5")
     print("Done.")
 
 
