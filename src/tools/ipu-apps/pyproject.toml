@@ -20,9 +20,9 @@ ipu-emu-py = { path = "../ipu-emu-py", editable = true }
 ipu-as-py = { path = "../ipu-as-py", editable = true }
 ipu-common = { path = "../ipu-common", editable = true }
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.0.1",
 ]
 
 
