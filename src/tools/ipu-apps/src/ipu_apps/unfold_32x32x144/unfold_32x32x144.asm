@@ -7,7 +7,7 @@
 #   8 stripes × 144 channels; each row = 4 spatial_rows × 32 cols = 128 bytes.
 #   Row (stripe, ch) at SRC_BASE + (stripe × 144 + ch) × 128.
 #
-# Output (channel-major FP32):
+# Output (interleaved channel-major FP32):
 #   4 streams × 288 rows × 512 bytes (128 FP32 words per row).
 #   Stream s, ch c, tg t: at DST_s + (c×2 + t) × 512.
 #
@@ -43,8 +43,8 @@
 #   lr2  = 2   (const: acc.stride r_acc slot 2 → [64..95])
 #   lr3  = 3   (const: acc.stride r_acc slot 3 → [96..127])
 #   lr4  = ch × 128   (src byte offset within each stripe; starts 0, +128 per ch)
-#   lr8  = tg=0 dst byte offset = ch × 1024          (starts 0, +1024 per ch)
-#   lr9  = tg=1 dst byte offset = ch × 1024 + 512    (starts 512, +1024 per ch)
+#   lr8  = tg=0 dst byte offset = ch × 1024            (starts 0, +1024 per ch)
+#   lr9  = tg=1 dst byte offset = ch×1024 + 512       (starts 512, +1024 per ch)
 #   lr10 = ch counter (0..143)
 #   lr11 = 144 (loop limit)
 #
@@ -67,7 +67,8 @@
 
     set lr1 1; set lr2 2;;
     set lr3 3; set lr4 0;;
-    set lr8 0; set lr9 512;;
+    set lr8 0;;
+    set lr9 512;;                                       # lr9 = 512 = tg=1 row offset within ch=0
     set lr10 0; set lr11 144;;
 
 # ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ ch_loop:
     ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr1;;
     ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr2;;
     ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on lr3;;
-    str_acc_reg         lr8 cr9;;           # TL tg=0 → DST_TL + ch×1024
+    str_acc_reg         lr8 cr9;;           # TL tg=0 → DST_TL + ch×2×512
 
     # tg=1: stripes 4..7 with cr4..cr7
     reset_acc;;
@@ -150,7 +151,7 @@ ch_loop:
     # Advance pointers; loop
     # -----------------------------------------------------------------------
     incr                lr4 128;;            # src offset: next channel within each stripe
-    incr                lr8 1024; incr lr9 1024;;   # dst offsets: skip 2 rows × 512 B
+    incr                lr8 1024; incr lr9 1024;;    # dst offsets: +1024 per channel (2 rows × 512B)
     incr                lr10 1;;
     blt                 lr10 lr11 ch_loop;;  # loop while ch < 144
 

@@ -71,8 +71,8 @@ def _reference_unfold(input_bytes: bytes, dtype: DType) -> bytes:
       For each (ch, stream, tg): process 4 stripes with acc.stride,
       each contributing 32 elements to a 128-element accumulator slot.
 
-    Output layout (matching teardown dump order):
-      (N_STREAMS × N_OUT × N_TG) rows of 512 bytes (128 FP32/INT32 words).
+    Output layout (interleaved channel-major, matching teardown dump order):
+      (N_STREAMS × N_TG × C) rows of 512 bytes (128 FP32/INT32 words).
       Row index = stream × 288 + ch × 2 + tg.
     """
     ones_byte = _ONES_BYTE[dtype]

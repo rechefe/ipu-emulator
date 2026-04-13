@@ -80,7 +80,8 @@ class MatMul144x144x128App(IpuApp):
         state.regfile.set_cr(0, DATA_BASE)
         state.regfile.set_cr(1, WEIGHTS_BASE)
         state.regfile.set_cr(2, WEIGHTS_BASE + 128)
-        state.regfile.set_cr(3, OUTPUT_BASE)
+        state.regfile.set_cr(3, OUTPUT_BASE)                    # tg=0 output
+        state.regfile.set_cr(4, OUTPUT_BASE + N_OUT * 512)      # tg=1 output
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

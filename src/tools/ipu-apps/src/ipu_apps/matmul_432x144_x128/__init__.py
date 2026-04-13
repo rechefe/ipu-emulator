@@ -2,7 +2,7 @@
 
 Computes C[j, t] = sum_k W[j, k] * D[k, t]  for all j in [0, 432), t in [0, 256).
 
-  D: channel-major [144, 256] input  — K channels × 256 tokens (2 token groups × 128)
+  D: grouped channel-major [2, 144, 128] input  — K channels × 256 tokens (2 token groups × 128)
   W: output-major  [432, 144] weights — N_OUT rows × K cols, stored verbatim (no transpose)
   C: channel-major [432, 256] output  — N_OUT channels × 256 tokens (FP32 accumulators)
 
@@ -42,7 +42,7 @@ N_TOK = 128   # tokens per group
 
 # -- Memory map -------------------------------------------------------------
 
-DATA_BASE    = 0x00000   # D: K × N_TG × N_TOK bytes  = 36,864 B
+DATA_BASE    = 0x00000   # D: N_TG × K × N_TOK bytes  = 36,864 B (grouped)
 WEIGHTS_BASE = 0x10000   # W: N_OUT × 256 bytes        = 110,592 B  (padded to 2×128 per out_ch)
 OUTPUT_BASE  = 0x30000   # C: N_OUT × N_TG × 512 bytes = 442,368 B
 
@@ -69,9 +69,10 @@ def parse_dtype(dtype_str: str) -> DType:
 
 
 def _load_data(state: "IpuState", data_path: str | Path) -> None:
-    """Load channel-major input directly into XMEM.
+    """Load grouped channel-major input directly into XMEM.
 
-    File layout: K channels × 256 bytes each (tg0: bytes 0-127, tg1: bytes 128-255).
+    File layout: 2 tg blocks × K channels × 128 bytes each.
+    tg=0 block at offset 0, tg=1 block at offset K*128.
     """
     raw = Path(data_path).read_bytes()
     state.xmem.write_address(DATA_BASE, bytearray(raw))
@@ -120,7 +121,8 @@ class MatMul432x144x128App(IpuApp):
         state.regfile.set_cr(0, DATA_BASE)
         state.regfile.set_cr(1, WEIGHTS_BASE)
         state.regfile.set_cr(2, WEIGHTS_BASE + 128)
-        state.regfile.set_cr(3, OUTPUT_BASE)
+        state.regfile.set_cr(3, OUTPUT_BASE)                    # tg=0 output
+        state.regfile.set_cr(4, OUTPUT_BASE + N_OUT * 512)      # tg=1 output
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

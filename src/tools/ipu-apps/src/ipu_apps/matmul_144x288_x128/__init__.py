@@ -50,9 +50,9 @@ def parse_dtype(dtype_str: str) -> DType:
 
 
 def _load_data(state: "IpuState", data_path: str | Path) -> None:
-    """Load channel-major input directly into XMEM.
+    """Load interleaved channel-major input directly into XMEM.
 
-    File layout: K=288 channels × 256 bytes each.
+    File layout: K=288 channels × 2 tg × 128 bytes each.
     """
     raw = Path(data_path).read_bytes()
     state.xmem.write_address(DATA_BASE, bytearray(raw))
@@ -90,11 +90,12 @@ class MatMul144x288x128App(IpuApp):
         state.set_cr_dtype(int(self.dtype))
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
-        state.regfile.set_cr(0, DATA_BASE)
+        state.regfile.set_cr(0, DATA_BASE)                      # both tgs (interleaved)
         state.regfile.set_cr(1, WEIGHTS_BASE)
         state.regfile.set_cr(2, WEIGHTS_BASE + 128)
         state.regfile.set_cr(3, WEIGHTS_BASE + 256)
-        state.regfile.set_cr(4, OUTPUT_BASE)
+        state.regfile.set_cr(4, OUTPUT_BASE)                     # tg=0 output
+        state.regfile.set_cr(5, OUTPUT_BASE + N_OUT * 512)       # tg=1 output
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

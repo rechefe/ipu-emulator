@@ -12,22 +12,28 @@ from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes
 K     = 288
 N_OUT = 144
 N_TOK = 256
+N_TG  = 2
+N_TPG = 128
 
 
 def _reference_matmul(data_bytes: bytes, weights_bytes: bytes, dtype: DType) -> bytes:
+    """Data layout (interleaved): D[k][tg][tok] at byte (k*N_TG + tg)*N_TPG + tok.
+    Output layout (grouped): C[j][tg][tok] at word tg*N_OUT*N_TPG + j*N_TPG + tok."""
     fmt = "<i" if dtype == DType.INT8 else "<f"
     output = bytearray(N_OUT * N_TOK * 4)
     for j in range(N_OUT):
         for t in range(N_TOK):
+            tg = t // N_TPG
+            tok = t % N_TPG
             acc: int | float = 0
             for k in range(K):
-                d = data_bytes[k * N_TOK + t]
+                d = data_bytes[(k * N_TG + tg) * N_TPG + tok]
                 w = weights_bytes[j * K + k]
                 prod = ipu_mult(d, w, dtype)
                 acc = ipu_add(acc, prod, dtype)
                 if dtype != DType.INT8:
                     acc = float(np.float32(acc))
-            struct.pack_into(fmt, output, (j * N_TOK + t) * 4, acc)
+            struct.pack_into(fmt, output, (tg * N_OUT * N_TPG + j * N_TPG + tok) * 4, acc)
     return bytes(output)
 
 
@@ -37,14 +43,15 @@ def _generate_for_dtype(out_dir: Path, dtype: DType, dtype_name: str) -> None:
     dtype_dir.mkdir(parents=True, exist_ok=True)
 
     if dtype == DType.INT8:
-        data_arr = rng.randint(-128, 128, size=K * N_TOK, dtype=np.int8)
-        data_bytes = data_arr.view(np.uint8).tobytes()
+        # Generate as [K, N_TG, N_TPG], store as [N_TG, K, N_TPG] (grouped)
+        data_arr = rng.randint(-128, 128, size=(K, N_TG, N_TPG), dtype=np.int8)
+        data_bytes = data_arr.reshape(-1).view(np.uint8).tobytes()
         weights_arr = rng.randint(-128, 128, size=N_OUT * K, dtype=np.int8)
         weights_bytes = weights_arr.view(np.uint8).tobytes()
         golden_name = f"out_{dtype_name}_acc_int32.bin"
     else:
-        data_fp32 = rng.uniform(-1.0, 1.0, size=K * N_TOK).astype(np.float32)
-        data_bytes = fp32_to_fp8_bytes(data_fp32, dtype)
+        data_fp32 = rng.uniform(-1.0, 1.0, size=(K, N_TG, N_TPG)).astype(np.float32)
+        data_bytes = fp32_to_fp8_bytes(data_fp32.reshape(-1), dtype)
         weights_fp32 = rng.uniform(-1.0, 1.0, size=N_OUT * K).astype(np.float32)
         weights_bytes = fp32_to_fp8_bytes(weights_fp32, dtype)
         golden_name = f"out_{dtype_name}_acc_fp32.bin"
