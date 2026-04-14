@@ -13,10 +13,10 @@
 #
 # Stream definitions (acc.stride mode with elements_in_row=32):
 #   128 elements from one stripe = 4 rows × 32 cols
-#   TL (stream 0): h=enabled  (even cols, rows 0/2),  v=enabled  (even rows)
-#   TR (stream 1): h=inverted (odd  cols, rows 0/2),  v=enabled  (even rows)
-#   BL (stream 2): h=enabled  (even cols, rows 1/3),  v=inverted (odd  rows)
-#   BR (stream 3): h=inverted (odd  cols, rows 1/3),  v=inverted (odd  rows)
+#   TL (stream 0): acc.stride 32 on     on     → even cols, even rows
+#   TR (stream 1): acc.stride 32 on_inv on     → odd  cols, even rows
+#   BL (stream 2): acc.stride 32 on     on_inv → even cols, odd  rows
+#   BR (stream 3): acc.stride 32 on_inv on_inv → odd  cols, odd  rows
 #
 # Each acc.stride call selects 32 of 128 mult_result elements (2 rows × 16 cols)
 # and accumulates them into one 32-element r_acc slot (slot 0..3).
@@ -100,51 +100,51 @@ ch_loop:
     # Stream TR  (h=inverted=odd cols,  v=enabled=even rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr3;;
     str_acc_reg         lr8 cr10;;          # TR tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand on lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on lr3;;
     str_acc_reg         lr9 cr10;;          # TR tg=1
 
     # -----------------------------------------------------------------------
     # Stream BL  (h=enabled=even cols,  v=inverted=odd rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr3;;
     str_acc_reg         lr8 cr11;;          # BL tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on reserved3 lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on on_inv lr3;;
     str_acc_reg         lr9 cr11;;          # BL tg=1
 
     # -----------------------------------------------------------------------
     # Stream BR  (h=inverted=odd cols,  v=inverted=odd rows)
     # -----------------------------------------------------------------------
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr0;;
-    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr1;;
-    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr2;;
-    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr3;;
+    ldr_mult_reg mem_bypass lr4 cr0; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr0;;
+    ldr_mult_reg mem_bypass lr4 cr1; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr1;;
+    ldr_mult_reg mem_bypass lr4 cr2; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr2;;
+    ldr_mult_reg mem_bypass lr4 cr3; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr3;;
     str_acc_reg         lr8 cr12;;          # BR tg=0
 
     reset_acc;;
-    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr0;;
-    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr1;;
-    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr2;;
-    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_expand reserved3 lr3;;
+    ldr_mult_reg mem_bypass lr4 cr4; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr0;;
+    ldr_mult_reg mem_bypass lr4 cr5; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr1;;
+    ldr_mult_reg mem_bypass lr4 cr6; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr2;;
+    ldr_mult_reg mem_bypass lr4 cr7; mult.ev mem_bypass lr0 lr0 lr0; acc.stride 32 on_inv on_inv lr3;;
     str_acc_reg         lr9 cr12;;          # BR tg=1
 
     # -----------------------------------------------------------------------

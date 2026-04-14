@@ -345,6 +345,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_432x144_x128",
+    size = "large",
     srcs = ["test/test_matmul_432x144_x128.py"],
     data = [
         ":assemble_matmul_432x144_x128.bin",
@@ -403,6 +404,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_144x144_x128",
+    size = "large",
     srcs = ["test/test_matmul_144x144_x128.py"],
     data = [
         ":assemble_matmul_144x144_x128.bin",
@@ -461,6 +463,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_288x144_x128",
+    size = "large",
     srcs = ["test/test_matmul_288x144_x128.py"],
     data = [
         ":assemble_matmul_288x144_x128.bin",
@@ -519,6 +522,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_144x288_x128",
+    size = "large",
     srcs = ["test/test_matmul_144x288_x128.py"],
     data = [
         ":assemble_matmul_144x288_x128.bin",
@@ -577,6 +581,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_unfold_32x32x144",
+    size = "large",
     srcs = ["test/test_unfold_32x32x144.py"],
     data = [
         ":assemble_unfold_32x32x144.bin",
@@ -635,6 +640,7 @@ py_binary(
 
 py_pytest_test(
     name = "test_residual_add_256x144",
+    size = "large",
     srcs = ["test/test_residual_add_256x144.py"],
     data = [
         ":assemble_residual_add_256x144.bin",
