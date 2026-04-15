@@ -29,14 +29,14 @@
 #   cr5 = num_chunks (= rows * cols / 128)
 #   cr6 = group_stride (= channels * 128)
 #   cr7 = 1024 (channel group size = 8 * 128, constant)
+#   cr8 = zero region address (128 bytes of zeros for S2 in last chunk)
 #
 # Mask slots (precomputed by harness, depend on cols):
 #   slot 0: all zeros          -> no masking (kc=0)
 #   slot 1: left border        -> zero col 0 of each packed row (kc=-1)
 #   slot 2: right border       -> zero last col of each packed row (kc=+1)
-#   slot 3: bottom row         -> zero last spatial row in chunk (last chunk, kr=+1, kc=0)
-#   slot 4: left + bottom      -> union of slot 1 and slot 3 (last chunk, kr=+1, kc=-1)
-#   slot 5: right + bottom     -> union of slot 2 and slot 3 (last chunk, kr=+1, kc=+1)
+#   Only 3 masks needed. Bottom border is handled by loading zeros
+#   into S2 for the last chunk instead of using dedicated masks.
 #
 # LR register allocation:
 #   lr0  = 0     (zero constant, mask slot 0, mask_shift, S0 cyclic index)
@@ -271,8 +271,8 @@ ch_loop:
 
 # ===========================================================================
 # Section 3: Last chunk (bottom border)
-# Load S0 and S1 only (skip S2). Use mask slots 3/4/5 for kr=+1 taps
-# to zero the last spatial row's contribution from stale S2 data.
+# Load S0 and S1 normally. Load S2 from zero region (cr8) so that
+# kr=+1 taps read zeros — standard masks 1/0/2 suffice.
 # ===========================================================================
 
     set                 lr10 0;
@@ -293,12 +293,14 @@ gN_ch_loop:
     ldr_cyclic_mult_reg lr15 cr0 lr0;;
 
     # Load S1 (current chunk) at cyclic index 128
-    ldr_cyclic_mult_reg lr14 cr0 lr4;;
+    ldr_cyclic_mult_reg lr14 cr0 lr4;
+    add                 lr15 lr4 lr4;;
 
-    # (skip S2 — stale data will be masked by slots 3/4/5)
+    # Load S2 from zero region at cyclic index 256
+    ldr_cyclic_mult_reg lr0 cr8 lr15;
     reset_acc;;
 
-    # --- kr=-1: cyclic base lr3 (128-cols), normal masks 1/0/2 ---
+    # --- kr=-1: cyclic base lr3 (128-cols), masks 1/0/2 ---
     sub                 lr14 lr3 lr1;
     mult.ve             r0 lr14 lr1 lr0 lr6;
     acc;;
@@ -312,7 +314,7 @@ gN_ch_loop:
     mult.ve             r0 lr14 lr2 lr0 lr6;
     acc;;
 
-    # --- kr=0: cyclic base lr4 (128), normal masks 1/0/2 ---
+    # --- kr=0: cyclic base lr4 (128), masks 1/0/2 ---
     incr                lr6 1;
     sub                 lr14 lr4 lr1;
     mult.ve             r0 lr14 lr1 lr0 lr6;
@@ -327,25 +329,20 @@ gN_ch_loop:
     mult.ve             r0 lr14 lr2 lr0 lr6;
     acc;;
 
-    # --- kr=+1: cyclic base lr5 (128+cols), BOTTOM BORDER masks 4/3/5 ---
+    # --- kr=+1: cyclic base lr5 (128+cols), masks 1/0/2 ---
+    # S2 is zeros, so these taps contribute nothing.
     incr                lr6 1;
-    sub                 lr14 lr5 lr1;;
-
-    set                 lr15 4;
-    mult.ve             r0 lr14 lr15 lr0 lr6;
+    sub                 lr14 lr5 lr1;
+    mult.ve             r0 lr14 lr1 lr0 lr6;
     acc;;
 
     incr                lr6 1;
-    set                 lr15 3;;
-
-    mult.ve             r0 lr5 lr15 lr0 lr6;
+    mult.ve             r0 lr5 lr0 lr0 lr6;
     acc;;
 
     incr                lr6 1;
-    add                 lr14 lr5 lr1;;
-
-    set                 lr15 5;
-    mult.ve             r0 lr14 lr15 lr0 lr6;
+    add                 lr14 lr5 lr1;
+    mult.ve             r0 lr14 lr2 lr0 lr6;
     acc;;
 
     # Store and advance

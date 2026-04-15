@@ -1,22 +1,27 @@
-"""Universal depthwise 3x3 convolution harness.
+"""Stride-2 depthwise 3x3 convolution for small spatial sizes (cols <= 64).
 
-A single parameterized harness that works for ANY valid depthwise convolution
-configuration (spatial >= 16x16, channels multiple of 8).
+Input:  rows x cols x channels (INT8, cols in {32, 64})
+Output: (rows/2) x (cols/2) x channels (INT8, quantized)
 
-Dimensions are passed at construction time; the harness computes all derived
-constants, builds the correct masks for the spatial size, and sets CR4-CR7.
+Output is stored in the same interleaved chunk format as input, so it
+can be consumed directly by a subsequent convolution layer.
+
+The assembly is a Jinja template parameterized by ``cols``.  The harness
+injects ``{% set cols = XX %}`` before passing the source to the assembler.
 
 Usage::
 
-    from ipu_apps.convolutions_universal.depthwise_conv_universal import DepthwiseConvUniversalApp
+    from ipu_apps.convolutions_universal.depthwise_conv_stride2_small import (
+        DepthwiseConvStride2SmallApp,
+    )
 
-    app = DepthwiseConvUniversalApp(
-        inst_path="depthwise_conv_universal.bin",
+    app = DepthwiseConvStride2SmallApp(
+        inst_path="stride2_small.bin",
         input_path="input.bin",
         kernel_path="kernel.bin",
         output_path="output.bin",
         dtype="INT8",
-        rows=64, cols=64, channels=256,
+        rows=64, cols=64, channels=16,
     )
     state, cycles = app.run()
 """
@@ -27,8 +32,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.base import IpuApp
 
 if TYPE_CHECKING:
@@ -39,43 +42,30 @@ if TYPE_CHECKING:
 INPUT_BASE_ADDR = 0x000000
 KERNEL_BASE_ADDR = 0x110000
 MASK_BASE_ADDR = 0x120000
-ZERO_BASE_ADDR = 0x120080  # 128 bytes of zeros (right after mask data)
+TEMP_BASE_ADDR = 0x120080  # 512 bytes for 4 intermediate conv results (4 x 128)
+ZERO_BASE_ADDR = 0x120280  # 128 bytes of zeros for bottom-border S2
 OUTPUT_BASE_ADDR = 0x130000
-
-OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
 
 _DTYPE_MAP = {
     "INT8": DType.INT8,
     "int8": DType.INT8,
-    "FP8_E4M3": DType.FP8_E4M3,
-    "fp8_e4m3": DType.FP8_E4M3,
-    "FP8_E5M2": DType.FP8_E5M2,
-    "fp8_e5m2": DType.FP8_E5M2,
 }
 
 
 def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value."""
     dt = _DTYPE_MAP.get(dtype_str)
     if dt is None:
-        raise ValueError(
-            f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2"
-        )
+        raise ValueError(f"Invalid dtype '{dtype_str}'. Currently only INT8 supported.")
     return dt
 
 
 def _build_mask_data(cols: int) -> bytes:
-    """Build the 128-byte mask register data for a given spatial width.
+    """Build 128-byte mask register data for a given spatial width.
 
-    Only 3 mask slots are needed.  Bottom-border handling is done by
-    loading zeros into the S2 cyclic slot for the last chunk instead
-    of using dedicated bottom-row masks.
-
-    Layout (8 slots of 16 bytes = 128 bits each):
-      slot 0: all zeros         -> no masking (kc=0)
-      slot 1: left border       -> zero col 0 of each packed row (kc=-1)
-      slot 2: right border      -> zero last col of each packed row (kc=+1)
-      slots 3-7: unused (zeros)
+    Slots:
+      0: all zeros      (no masking, kc=0)
+      1: left border    (zero col 0 of each packed row, kc=-1)
+      2: right border   (zero last col of each packed row, kc=+1)
     """
     rows_per_chunk = 128 // cols
     mask = bytearray(128)
@@ -84,11 +74,8 @@ def _build_mask_data(cols: int) -> bytes:
         byte_idx = slot * 16 + bit // 8
         mask[byte_idx] |= 1 << (bit % 8)
 
-    # Slot 1: left border — zero col 0 of each packed row
     for r in range(rows_per_chunk):
         set_bit(1, r * cols)
-
-    # Slot 2: right border — zero last col of each packed row
     for r in range(rows_per_chunk):
         set_bit(2, r * cols + cols - 1)
 
@@ -96,33 +83,32 @@ def _build_mask_data(cols: int) -> bytes:
 
 
 def _build_kernel_data(kernel_raw: bytes, channels: int) -> bytes:
-    """Pack kernel into groups of 128 bytes (8 channels per group, padded).
-
-    Input: channels * 9 bytes (contiguous, 9 taps per channel).
-    Output: (channels/8) groups of 128 bytes each.
-    """
+    """Pack kernel into groups of 128 bytes (8 channels per group, padded)."""
     kernel_groups = channels // 8
     kernel_padded = bytearray(kernel_groups * 128)
     for g in range(kernel_groups):
-        src_offset = g * 8 * 9  # 72 bytes per group
+        src_offset = g * 8 * 9
         dst_offset = g * 128
         kernel_padded[dst_offset:dst_offset + 72] = kernel_raw[src_offset:src_offset + 72]
     return bytes(kernel_padded)
 
 
-class DepthwiseConvUniversalApp(IpuApp):
-    """Universal depthwise 3x3 convolution application harness.
+class DepthwiseConvStride2SmallApp(IpuApp):
+    """Stride-2 depthwise 3x3 convolution for cols <= 64.
 
     Args:
-        inst_path:    Path to assembled universal binary.
+        inst_path:    Path to assembled binary.
         input_path:   Path to input image binary.
         kernel_path:  Path to kernel binary.
         output_path:  Optional path to write output.
-        dtype:        Data type string or :class:`DType`.
-        rows:         Spatial height.
-        cols:         Spatial width (power of 2, 16-128).
+        dtype:        Data type string or DType (INT8 only for now).
+        rows:         Spatial height of input.
+        cols:         Spatial width of input (32 or 64).
         channels:     Number of channels (must be multiple of 8).
     """
+
+    # Path to the Jinja assembly template (sibling file)
+    ASM_TEMPLATE_PATH = Path(__file__).resolve().parent / "depthwise_conv_stride2_small.asm"
 
     def __init__(
         self,
@@ -139,63 +125,72 @@ class DepthwiseConvUniversalApp(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
         # Validate
-        valid_cols = {16, 32, 64, 128}
+        valid_cols = {32, 64}
         if cols not in valid_cols:
             raise ValueError(f"cols must be in {valid_cols}, got {cols}")
+        if rows % 2 != 0:
+            raise ValueError(f"rows must be even (got {rows})")
+        if channels % 8 != 0 or channels < 8:
+            raise ValueError(f"channels must be a multiple of 8 and >= 8 (got {channels})")
+
         num_chunks = (rows * cols) // 128
-        if num_chunks < 2:
+        num_groups = num_chunks // 4
+        if num_groups < 2:
             raise ValueError(
-                f"Need at least 2 chunks (rows*cols >= 256), got {rows}*{cols}={rows*cols}"
+                f"Need at least 2 groups of 4 chunks (rows*cols >= 1024), "
+                f"got {rows}*{cols}={rows*cols} ({num_chunks} chunks, {num_groups} groups)"
             )
-        if channels % 8 != 0:
-            raise ValueError(f"channels ({channels}) must be a multiple of 8")
-        if channels < 8:
-            raise ValueError(f"channels ({channels}) must be >= 8")
 
         self.rows = rows
         self.cols = cols
         self.channels = channels
         self.num_chunks = num_chunks
+        self.num_groups = num_groups
+        self.out_rows = rows // 2
+        self.out_cols = cols // 2
         self.group_stride = channels * 128
         self.kernel_groups = channels // 8
 
+    def get_asm_source(self) -> str:
+        """Return the Jinja-rendered assembly source for the configured cols."""
+        template_src = self.ASM_TEMPLATE_PATH.read_text()
+        return f"{{% set cols = {self.cols} %}}\n" + template_src
+
     def setup(self, state: "IpuState") -> None:
-        # Set data type
         state.set_cr_dtype(int(self.dtype))
 
         # Load input
         input_data = self.input_path.read_bytes()
         state.xmem.write_address(INPUT_BASE_ADDR, input_data)
 
-        # Load kernel (packed into groups of 128 bytes)
+        # Load kernel (packed)
         kernel_raw = self.kernel_path.read_bytes()
         kernel_padded = _build_kernel_data(kernel_raw, self.channels)
         state.xmem.write_address(KERNEL_BASE_ADDR, kernel_padded)
 
-        # Load mask data (computed from cols)
+        # Load mask data
         mask_data = _build_mask_data(self.cols)
         state.xmem.write_address(MASK_BASE_ADDR, mask_data)
 
-        # Write 128 bytes of zeros for S2 zero-loading in last chunk
+        # Write zeros for bottom-border S2 loading
         state.xmem.write_address(ZERO_BASE_ADDR, bytes(128))
 
-        # Set base-address CR registers
+        # CR registers
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, KERNEL_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, MASK_BASE_ADDR)
-
-        # Set parameter CR registers
         state.regfile.set_cr(4, self.cols)
         state.regfile.set_cr(5, self.num_chunks)
         state.regfile.set_cr(6, self.group_stride)
         state.regfile.set_cr(7, 1024)  # channel group size = 8 * 128
-        state.regfile.set_cr(8, ZERO_BASE_ADDR)  # zero region for S2 in last chunk
+        state.regfile.set_cr(8, TEMP_BASE_ADDR)
+        state.regfile.set_cr(9, 1)  # identity scalar for mult.ve.cr
+        state.regfile.set_cr(10, ZERO_BASE_ADDR)
+        state.regfile.set_cr(11, self.num_groups - 1)  # last group index
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            total_outputs = self.num_chunks * self.channels
-            dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, total_outputs,
-            )
+            total_out_bytes = self.num_groups * self.channels * 128
+            data = state.xmem.read_address(OUTPUT_BASE_ADDR, total_out_bytes)
+            Path(self.output_path).write_bytes(data)

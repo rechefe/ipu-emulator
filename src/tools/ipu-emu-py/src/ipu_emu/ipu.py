@@ -748,9 +748,8 @@ class Ipu:
     def execute_aaq(self) -> None:
         """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
 
-        Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
-        arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the aaq_result register.
+        Requires INT8 mode. Each 32-bit accumulator word is clamped to
+        [-128, 127] and stored as a signed byte in the aaq_result register.
         """
         dtype = self.state.get_cr_dtype()
         if dtype != DType.INT8:
@@ -760,8 +759,7 @@ class Ipu:
         result = bytearray(128)
         for i in range(128):
             val = struct.unpack_from("<i", acc_buf, i * 4)[0]
-            truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
-            clamped = max(-128, min(127, truncated))
+            clamped = max(-128, min(127, val))
             result[i] = clamped & 0xFF
         self.state.regfile.set_aaq_result(result)
 

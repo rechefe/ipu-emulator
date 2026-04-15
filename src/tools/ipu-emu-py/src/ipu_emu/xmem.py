@@ -6,7 +6,7 @@ Supports 128-byte word alignment helpers and bulk load utilities.
 
 from __future__ import annotations
 
-XMEM_SIZE_BYTES = 1 << 21        # 2 MB
+XMEM_SIZE_BYTES = 1 << 23     # 8 MB
 XMEM_WIDTH_BYTES = 128           # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 

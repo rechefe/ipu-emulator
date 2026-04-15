@@ -1359,11 +1359,11 @@ class TestAaqQuantize:
         struct.pack_into("<128i", buf, 0, *values)
         state.regfile.set_r_acc_bytes(buf)
 
-    def test_aaq_basic_truncation(self):
-        """Values that fit in int8 after >> 24: e.g. 1 << 24 → byte 1."""
+    def test_aaq_basic_clamp(self):
+        """Small values that fit in int8 pass through unchanged."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        self._set_acc_words(state, [i << 24 for i in range(128)])
+        self._set_acc_words(state, list(range(128)))
 
         encoded = assemble("aaq;;\nbkpt;;")
         from ipu_emu.execute import decode_instruction_word
@@ -1374,8 +1374,7 @@ class TestAaqQuantize:
 
         result = state.regfile.get_aaq_result()
         for i in range(128):
-            expected = i if i < 128 else i - 256
-            assert result[i] == (expected & 0xFF), f"byte {i}: expected {expected & 0xFF}, got {result[i]}"
+            assert result[i] == i, f"byte {i}: expected {i}, got {result[i]}"
 
     def test_aaq_all_zeros(self):
         """All-zero accumulator quantizes to all-zero bytes."""
@@ -1393,12 +1392,10 @@ class TestAaqQuantize:
         assert state.regfile.get_aaq_result() == bytearray(128)
 
     def test_aaq_positive_clamp(self):
-        """Large positive values clamp to 127 after truncation."""
-        # 0x7FFFFFFF >> 24 = 127, which is already at the boundary — no clamp needed.
-        # Use 0x7F000000 (127 << 24) and 0x80000000 (-128 << 24 in signed) for boundary.
+        """Large positive values clamp to 127."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        values = [0x7F000000] * 64 + [0x7FFFFFFF] * 64
+        values = [200] * 64 + [10000] * 64
         self._set_acc_words(state, values)
 
         encoded = assemble("aaq;;\nbkpt;;")
@@ -1415,11 +1412,11 @@ class TestAaqQuantize:
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
 
     def test_aaq_negative_values(self):
-        """Negative accumulator values truncate correctly."""
-        # -1 << 24 = 0xFF000000 (signed int32: -16777216); >> 24 = -1 → 0xFF as byte
+        """Negative accumulator values clamp correctly."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        self._set_acc_words(state, [(-1) << 24] * 128)
+        # -1 fits in int8 → 0xFF; -200 clamps to -128 → 0x80
+        self._set_acc_words(state, [-1] * 64 + [-200] * 64)
 
         encoded = assemble("aaq;;\nbkpt;;")
         from ipu_emu.execute import decode_instruction_word
@@ -1429,8 +1426,10 @@ class TestAaqQuantize:
         run_until_complete(state)
 
         result = state.regfile.get_aaq_result()
-        for i in range(128):
+        for i in range(64):
             assert result[i] == 0xFF, f"byte {i}: expected 0xFF (-1), got {result[i]}"
+        for i in range(64, 128):
+            assert result[i] == 0x80, f"byte {i}: expected 0x80 (-128), got {result[i]}"
 
     def test_aaq_requires_int8_mode(self):
         """aaq raises EmulatorError when not in INT8 mode."""
@@ -1444,8 +1443,8 @@ class TestAaqQuantize:
         """xmem.store_aaq_result writes exactly 128 bytes to the given address."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        # Set r_acc: each word = i << 24 so byte i = i (for i < 128)
-        self._set_acc_words(state, [i << 24 for i in range(128)])
+        # Set r_acc: each word = i (fits in int8 for i < 128)
+        self._set_acc_words(state, list(range(128)))
 
         encoded = assemble(
             """\

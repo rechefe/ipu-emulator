@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 INPUT_BASE_ADDR = 0x000000
 KERNEL_BASE_ADDR = 0x200000
 MASK_BASE_ADDR = 0x600000
+ZERO_BASE_ADDR = 0x600080  # 128 bytes of zeros (right after mask data)
 OUTPUT_BASE_ADDR = 0x700000
 
 OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
@@ -67,17 +68,15 @@ def parse_dtype(dtype_str: str) -> DType:
 def _build_mask_data(cols: int) -> bytes:
     """Build the 128-byte mask register data for a given spatial width.
 
+    Only 3 mask slots are needed.  Bottom-border handling is done by
+    loading zeros into the S2 cyclic slot for the last chunk instead
+    of using dedicated bottom-row masks.
+
     Layout (8 slots of 16 bytes = 128 bits each):
       slot 0: all zeros         -> no masking (kc=0)
       slot 1: left border       -> zero col 0 of each packed row (kc=-1)
       slot 2: right border      -> zero last col of each packed row (kc=+1)
-      slot 3: bottom row only   -> zero last spatial row in chunk
-                                   (last chunk, kr=+1, kc=0)
-      slot 4: left + bottom     -> union of slot 1 and slot 3
-                                   (last chunk, kr=+1, kc=-1)
-      slot 5: right + bottom    -> union of slot 2 and slot 3
-                                   (last chunk, kr=+1, kc=+1)
-      slots 6-7: unused (zeros)
+      slots 3-7: unused (zeros)
     """
     rows_per_chunk = 128 // cols
     mask = bytearray(128)
@@ -86,10 +85,6 @@ def _build_mask_data(cols: int) -> bytes:
         byte_idx = slot * 16 + bit // 8
         mask[byte_idx] |= 1 << (bit % 8)
 
-    def set_bit_range(slot: int, lo: int, hi: int) -> None:
-        for b in range(lo, hi + 1):
-            set_bit(slot, b)
-
     # Slot 1: left border — zero col 0 of each packed row
     for r in range(rows_per_chunk):
         set_bit(1, r * cols)
@@ -97,20 +92,6 @@ def _build_mask_data(cols: int) -> bytes:
     # Slot 2: right border — zero last col of each packed row
     for r in range(rows_per_chunk):
         set_bit(2, r * cols + cols - 1)
-
-    # Slot 3: bottom row — zero last spatial row positions in chunk
-    last_row_start = (rows_per_chunk - 1) * cols
-    set_bit_range(3, last_row_start, 127)
-
-    # Slot 4: left border + bottom row
-    for r in range(rows_per_chunk):
-        set_bit(4, r * cols)
-    set_bit_range(4, last_row_start, 127)
-
-    # Slot 5: right border + bottom row
-    for r in range(rows_per_chunk):
-        set_bit(5, r * cols + cols - 1)
-    set_bit_range(5, last_row_start, 127)
 
     return bytes(mask)
 
@@ -219,6 +200,9 @@ class ConvUniversalApp(IpuApp):
         mask_data = _build_mask_data(self.cols)
         state.xmem.write_address(MASK_BASE_ADDR, mask_data)
 
+        # Write 128 bytes of zeros for S2 zero-loading in last chunk
+        state.xmem.write_address(ZERO_BASE_ADDR, bytes(128))
+
         # Set base-address CR registers
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, KERNEL_BASE_ADDR)
@@ -231,6 +215,7 @@ class ConvUniversalApp(IpuApp):
         state.regfile.set_cr(6, self.in_group_stride)
         state.regfile.set_cr(7, 1024)  # channel group size = 8 * 128
         state.regfile.set_cr(8, self.total_kernel_bytes)
+        state.regfile.set_cr(9, ZERO_BASE_ADDR)  # zero region for S2 in last chunk
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

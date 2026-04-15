@@ -687,7 +687,7 @@ INSTRUCTION_SPEC = {
                 operands=[],
                 operation=(
                     "Requires INT8 mode (cr15 == DType.INT8). "
-                    "For i in [0, 128): aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)"
+                    "For i in [0, 128): aaq_result[i] = clamp(r_acc[i], -128, 127)"
                 ),
                 example="aaq;;",
             ),
