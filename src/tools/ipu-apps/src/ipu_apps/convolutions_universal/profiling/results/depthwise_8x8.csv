@@ -1,0 +1,6 @@
+config,inputs,kernels,outputs,mask
+8x8_ch64,0,0,0,3
+8x8_ch128,0,0,0,3
+8x8_ch256,0,0,0,3
+8x8_ch384,0,0,0,3
+8x8_ch512,0,0,0,3

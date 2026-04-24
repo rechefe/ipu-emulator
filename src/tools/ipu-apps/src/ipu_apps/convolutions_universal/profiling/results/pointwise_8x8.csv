@@ -1,0 +1,5 @@
+config,inputs,kernels,outputs,mask
+8x8_ic512_oc160,255,0,0,0
+8x8_ic160_oc240,79,0,0,0
+8x8_ic240_oc160,119,0,0,0
+8x8_ic160_oc640,79,0,0,0

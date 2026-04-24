@@ -9,7 +9,7 @@ Output: INT32 accumulator, 512 bytes per OC pair (128 lanes x 4 bytes).
 
 Usage::
 
-    from ipu_apps.general_8x8_convs.pointwise_8x8 import Pointwise8x8App
+    from ipu_apps.convolutions_universal.pointwise_8x8 import Pointwise8x8App
 
     app = Pointwise8x8App(
         inst_path="pointwise_8x8.bin",

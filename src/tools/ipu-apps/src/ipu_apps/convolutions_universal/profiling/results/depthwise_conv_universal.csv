@@ -1,0 +1,4 @@
+config,inputs,kernels,outputs,mask
+128x128_ch64,127,7,0,0
+64x64_ch256_a,511,31,0,0
+64x64_ch256_b,511,31,0,0

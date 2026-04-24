@@ -57,10 +57,10 @@ OUTPUT_ROW_BYTES = 128 * 4  # 512 per output-channel per row-group
 _DTYPE_MAP = {
     "INT8": DType.INT8,
     "int8": DType.INT8,
-    "FP8_E4M3": DType.FP8_E4M3,
-    "fp8_e4m3": DType.FP8_E4M3,
-    "FP8_E5M2": DType.FP8_E5M2,
-    "fp8_e5m2": DType.FP8_E5M2,
+    "FP8_E4M3": DType.E4,
+    "fp8_e4m3": DType.E4,
+    "FP8_E5M2": DType.E5,
+    "fp8_e5m2": DType.E5,
 }
 
 

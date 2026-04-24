@@ -2,7 +2,7 @@
 #
 # Adds two INT8 tensors element-wise and stores the result as INT32.
 # Both inputs use the same paired-channel 128-byte chunk layout as the
-# other general_8x8_convs apps (2 channels per 128-byte chunk).
+# other convolutions_universal apps (2 channels per 128-byte chunk).
 #
 # Algorithm: use mult.ve.cr with scalar=1 (cr5) to sign-extend each
 # INT8 chunk to INT32 in mult_res, then accumulate both into r_acc.

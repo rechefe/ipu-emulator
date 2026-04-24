@@ -11,7 +11,7 @@ Output: INT32 accumulator, 512 bytes per filter pair (128 lanes x 4 bytes).
 
 Usage::
 
-    from ipu_apps.general_8x8_convs.conv_8x8 import Conv8x8App
+    from ipu_apps.convolutions_universal.conv_8x8 import Conv8x8App
 
     app = Conv8x8App(
         inst_path="conv_8x8.bin",

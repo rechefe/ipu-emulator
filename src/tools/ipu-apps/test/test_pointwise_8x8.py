@@ -14,7 +14,7 @@ import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.general_8x8_convs.pointwise_8x8 import (
+from ipu_apps.convolutions_universal.pointwise_8x8 import (
     Pointwise8x8App,
     OUTPUT_BASE_ADDR,
     ACC_CHUNK_BYTES,
@@ -30,7 +30,7 @@ ASM_PATH = (
     Path(__file__).resolve().parents[1]
     / "src"
     / "ipu_apps"
-    / "general_8x8_convs"
+    / "convolutions_universal"
     / "pointwise_8x8"
     / "pointwise_8x8.asm"
 )

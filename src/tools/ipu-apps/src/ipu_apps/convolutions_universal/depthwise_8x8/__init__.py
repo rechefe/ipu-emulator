@@ -10,7 +10,7 @@ Output: INT32 accumulator, 512 bytes per channel pair (128 lanes x 4 bytes).
 
 Usage::
 
-    from ipu_apps.general_8x8_convs.depthwise_8x8 import Depthwise8x8App
+    from ipu_apps.convolutions_universal.depthwise_8x8 import Depthwise8x8App
 
     app = Depthwise8x8App(
         inst_path="depthwise_8x8.bin",

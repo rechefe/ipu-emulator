@@ -2,13 +2,13 @@
 
 Adds two INT8 tensors element-wise and stores the result as INT32.
 Both tensors use the same paired-channel 128-byte chunk layout as the other
-general_8x8_convs apps (2 channels per 128-byte chunk, 64 bytes each for 8x8 spatial).
+convolutions_universal apps (2 channels per 128-byte chunk, 64 bytes each for 8x8 spatial).
 
 MobileViT S residual stages: 64x64x64, 32x32x96, 16x16x128, 8x8x160.
 
 Usage::
 
-    from ipu_apps.general_8x8_convs.residual_add import ResidualAddApp
+    from ipu_apps.convolutions_universal.residual_add import ResidualAddApp
 
     app = ResidualAddApp(
         inst_path="residual_add.bin",
