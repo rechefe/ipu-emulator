@@ -22,15 +22,14 @@ import json
 
 REPO = "rechefe/ipu-emulator"
 API_BASE = "https://api.github.com"
-OUTPUT_FILE = Path(__file__).parent / "release-log.md"
+_DEFAULT_OUTPUT = Path(__file__).parent / "release-log.md"
 
 HEADER = """\
 # Release Log
 
 This page lists every pull request that has been merged into `master`, newest
-first.  It is regenerated automatically by the
-[`release-log` workflow](https://github.com/{repo}/actions/workflows/release-log.yml)
-on every merge.
+first.  It is regenerated automatically as part of the docs build on every
+merge.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
@@ -109,6 +108,12 @@ def main() -> None:
         action="store_true",
         help="Fetch only the most-recently merged PR and rebuild the file (fast, for CI use).",
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=_DEFAULT_OUTPUT,
+        help="Path to write the generated release-log.md (default: docs/release-log.md).",
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -125,8 +130,8 @@ def main() -> None:
         sys.exit(0)
 
     content = build_content(prs)
-    OUTPUT_FILE.write_text(content, encoding="utf-8")
-    print(f"Written {len(prs)} PR(s) to {OUTPUT_FILE}")
+    args.output.write_text(content, encoding="utf-8")
+    print(f"Written {len(prs)} PR(s) to {args.output}")
 
 
 if __name__ == "__main__":

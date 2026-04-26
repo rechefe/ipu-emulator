@@ -17,3 +17,6 @@ coverage --instrument_test_targets
 # Test output
 test --test_output=errors
 test --test_summary=detailed
+
+# Forward GITHUB_TOKEN into genrules that need it (e.g. generate_release_log)
+build --action_env=GITHUB_TOKEN

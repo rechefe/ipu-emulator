@@ -1,10 +1,10 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
-# Automatically include all markdown files in docs/
+# Automatically include all markdown files in docs/ except the generated release log
 filegroup(
     name = "doc_sources",
-    srcs = glob(["*.md"]),
+    srcs = glob(["*.md"], exclude = ["release-log.md"]),
 )
 
 py_binary(
@@ -20,6 +20,21 @@ genrule(
     outs = ["instructions.md"],
     cmd = "$(location :gen_docs) $(@D)",
     tools = [":gen_docs"],
+)
+
+py_binary(
+    name = "update_release_log",
+    srcs = ["update_release_log.py"],
+    main = "update_release_log.py",
+    python_version = "PY3",
+)
+
+genrule(
+    name = "generate_release_log",
+    outs = ["release-log.md"],
+    cmd = "$(location :update_release_log) --output $@",
+    tags = ["no-sandbox"],
+    tools = [":update_release_log"],
 )
 
 py_binary(
@@ -39,6 +54,7 @@ genrule(
         "mkdocs.yml",
         ":doc_sources",
         ":generate_instruction_docs",
+        ":generate_release_log",
     ],
     outs = ["site.tar"],
     tags = ["docs"],
@@ -56,6 +72,9 @@ genrule(
         
         # Copy generated instruction docs
         cp $(location :generate_instruction_docs) $(@D)/docs_temp/docs/
+        
+        # Copy generated release log
+        cp $(location :generate_release_log) $(@D)/docs_temp/docs/
         
         # Build with mkdocs
         ORIGDIR=$$PWD

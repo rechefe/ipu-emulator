@@ -7,7 +7,7 @@ on:
     branches: [ "**" ]
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -26,12 +26,6 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      - name: Regenerate release log
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python docs/update_release_log.py --latest
 
       - name: Install uv
         run: |
@@ -54,15 +48,6 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
-
-      - name: Commit and push updated release log
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/release-log.md
-          git diff --cached --quiet || git commit -m "docs: update release log [skip ci]"
-          git push
 
   deploy:
     environment:
