@@ -708,3 +708,28 @@ py_binary(
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
+
+# -- conv_universal tests -----------------------------------------------------
+
+py_pytest_test(
+    name = "test_conv_universal",
+    srcs = ["test/test_conv_universal.py"],
+    data = ["src/ipu_apps/convolutions_universal/conv_universal/conv_universal.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Weight packing unit tests -----------------------------------------------
+
+py_pytest_test(
+    name = "test_weight_packing",
+    srcs = ["test/test_weight_packing.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
