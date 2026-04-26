@@ -56,6 +56,7 @@ nav:
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
       - Instruction Reference: instructions.md
+  - Release Log: release-log.md
 markdown_extensions:
   - admonition
   - pymdownx.details
