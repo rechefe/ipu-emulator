@@ -29,13 +29,21 @@ class IpuState:
         inst_mem:        Instruction memory (list of decoded instruction dicts).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, debug_32bit: bool = False, debug_quantize: bool = False) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
         # Instruction memory — each entry will be a decoded instruction dict
         # (populated when loading a binary or assembling).
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
+        # Debug mode: widen formerly-8-bit inputs to float32 (128 elements, 512 bytes each).
+        # debug_quantize re-enables INT8 clamping in execute_aaq for comparison runs.
+        self.debug_32bit: bool = debug_32bit
+        self.debug_quantize: bool = debug_quantize
+        # Debug-mode r0/r1 storage persists across VLIW cycles (Ipu is re-created each cycle).
+        # Keyed by MultStageReg element index (0=r0, 1=r1).
+        self._debug_r: dict[int, list[float]] = {}
+        self._debug_r_snap: dict[int, list[float]] = {}
 
     # -- CR dtype convenience (mirrors ipu__set_cr_dtype / ipu__get_cr_dtype) --
 

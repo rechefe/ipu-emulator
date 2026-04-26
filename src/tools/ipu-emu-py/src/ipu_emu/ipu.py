@@ -253,6 +253,9 @@ class Ipu:
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
         elif op_type == "MultStageReg":
+            if self.state.debug_32bit:
+                # Return raw index so mult handlers can look up _debug_r_snap.
+                return raw_value
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
         else:
@@ -265,6 +268,11 @@ class Ipu:
             mask_idx: Mask slot selector value (already resolved from LR)
             shift: Shift amount value (already resolved from LR)
         """
+        # Masks are disabled in debug mode: element byte-width changes, so the
+        # 128-bit mask slots do not map to 128 elements anymore.
+        if self.state.debug_32bit:
+            return
+
         # Interpret shift as signed int32
         if shift >= 0x80000000:
             shift = shift - 0x100000000
@@ -313,14 +321,28 @@ class Ipu:
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute ldr_mult_reg: Load data from memory into a mult stage register."""
         addr = offset + base
-        data = self.state.xmem.read_address(addr, R_REG_SIZE)
 
+        if self.state.debug_32bit:
+            # Load 512 bytes (128 × float32) from XMEM into the debug register.
+            data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
+            elem_idx = _MULT_STAGE_MAP[dest][1]
+            self.state._debug_r[elem_idx] = list(struct.unpack_from("<128f", data))
+            return
+
+        data = self.state.xmem.read_address(addr, R_REG_SIZE)
         reg_name, elem_idx = _MULT_STAGE_MAP[dest]
         self.state.regfile.set_register_bytes(reg_name, elem_idx, data)
 
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
         """Execute ldr_cyclic_mult_reg: Load with cyclic addressing into r_cyclic."""
         addr = offset + base
+
+        if self.state.debug_32bit:
+            # Load the full 512-byte cyclic buffer (128 × float32) in one shot.
+            data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
+            self.state.regfile.set_r_cyclic_at(0, data)
+            return
+
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
 
         assert index % R_REG_SIZE == 0, (
@@ -412,9 +434,27 @@ class Ipu:
         """Execute mult_nop: No operation."""
         pass
 
-    def execute_mult_ee(self, *, ra: bytearray, cyclic_offset: int,
+    def _debug_ra_vals(self, ra: int) -> list[float]:
+        """Return 128 float32 values for the given MultStageReg index from the snapshot."""
+        elem_idx = _MULT_STAGE_MAP[ra][1]
+        return self.state._debug_r_snap.get(elem_idx, [0.0] * R_REG_SIZE)
+
+    def _debug_rb_vals(self, cyclic_offset: int) -> tuple[float, ...]:
+        """Return 128 float32 values from r_cyclic starting at cyclic_offset."""
+        rb_bytes = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_CYCLIC_SIZE)
+        return struct.unpack_from("<128f", rb_bytes)
+
+    def execute_mult_ee(self, *, ra: bytearray | int, cyclic_offset: int,
                         mask_offset: int, mask_shift: int) -> None:
         """Execute mult_ee: Element-wise multiplication."""
+        if self.state.debug_32bit:
+            ra_vals = self._debug_ra_vals(ra)
+            rb_vals = self._debug_rb_vals(cyclic_offset)
+            mult_res = self.state.regfile.raw("mult_res")
+            for i in range(R_REG_SIZE):
+                struct.pack_into("<f", mult_res, i * 4, ra_vals[i] * rb_vals[i])
+            return
+
         dtype = self.state.get_cr_dtype()
         rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
@@ -425,9 +465,18 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ev(self, *, ra: bytearray, fixed_cyclic_idx: int,
+    def execute_mult_ev(self, *, ra: bytearray | int, fixed_cyclic_idx: int,
                         mask_offset: int, mask_shift: int) -> None:
         """Execute mult_ev: Element x fixed cyclic multiplication."""
+        if self.state.debug_32bit:
+            ra_vals = self._debug_ra_vals(ra)
+            rb_vals = self._debug_rb_vals(fixed_cyclic_idx)
+            rb_fixed = rb_vals[0]
+            mult_res = self.state.regfile.raw("mult_res")
+            for i in range(R_REG_SIZE):
+                struct.pack_into("<f", mult_res, i * 4, ra_vals[i] * rb_fixed)
+            return
+
         dtype = self.state.get_cr_dtype()
         rb = self.state.regfile.get_r_cyclic_at(fixed_cyclic_idx, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
@@ -438,9 +487,18 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ve(self, *, ra: bytearray, cyclic_offset: int,
+    def execute_mult_ve(self, *, ra: bytearray | int, cyclic_offset: int,
                         mask_offset: int, mask_shift: int, fixed_ra_idx: int) -> None:
         """Execute mult_ve: Fixed Ra x cyclic element multiplication."""
+        if self.state.debug_32bit:
+            ra_vals = self._debug_ra_vals(ra)
+            ra_fixed = ra_vals[fixed_ra_idx % R_REG_SIZE]
+            rb_vals = self._debug_rb_vals(cyclic_offset)
+            mult_res = self.state.regfile.raw("mult_res")
+            for i in range(R_REG_SIZE):
+                struct.pack_into("<f", mult_res, i * 4, ra_fixed * rb_vals[i])
+            return
+
         dtype = self.state.get_cr_dtype()
         rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
         mult_res = self.state.regfile.raw("mult_res")
@@ -461,12 +519,23 @@ class Ipu:
         RC[cyclic_offset : cyclic_offset+128]. Unlike mult.ve, this is
         non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
         padded with the dtype-specific encoding of 1 instead of wrapping.
+        CRs are excluded from widening in debug mode (issue spec).
         """
         dtype = self.state.get_cr_dtype()
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self.state.debug_32bit:
+            # CR scalar stays as its low signed byte (CRs are not widened).
+            cr_raw = self.state.regfile.get_cr(cr_idx) & 0xFF
+            scalar = float(cr_raw if cr_raw < 128 else cr_raw - 256)
+            rb_vals = self._debug_rb_vals(cyclic_offset)
+            for i in range(R_REG_SIZE):
+                struct.pack_into("<f", mult_res, i * 4, scalar * rb_vals[i])
+            return
+
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
         rc_buf = self.state.regfile.raw("r_cyclic")
         one_byte = dtype_one_byte(dtype)
-        mult_res = self.state.regfile.raw("mult_res")
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
@@ -485,12 +554,23 @@ class Ipu:
         RC[cyclic_offset : cyclic_offset+128]. Non-cyclic: elements where
         cyclic_offset+i >= R_CYCLIC_SIZE are padded with the dtype-specific
         encoding of 1 instead of wrapping.
+        In debug mode, AAQ is used as a full float32 scalar.
         """
         dtype = self.state.get_cr_dtype()
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self.state.debug_32bit:
+            # AAQ is already 32-bit; interpret its bit pattern as float32.
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            scalar = struct.unpack("<f", struct.pack("<I", aaq_raw))[0]
+            rb_vals = self._debug_rb_vals(cyclic_offset)
+            for i in range(R_REG_SIZE):
+                struct.pack_into("<f", mult_res, i * 4, scalar * rb_vals[i])
+            return
+
         scalar_byte = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFF
         rc_buf = self.state.regfile.raw("r_cyclic")
         one_byte = dtype_one_byte(dtype)
-        mult_res = self.state.regfile.raw("mult_res")
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
@@ -519,20 +599,24 @@ class Ipu:
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
 
         for i in range(R_REG_SIZE):
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = ipu_add(acc_val, mult_val, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
+            if self.state.debug_32bit:
+                result = acc_val + mult_val
+                struct.pack_into(fmt, acc_buf, i * 4, result)
+            else:
+                result = ipu_add(acc_val, mult_val, dtype)
+                struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_first(self) -> None:
         """Execute acc.first: Set r_acc to multiply result (no previous sum)."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
 
         for i in range(R_REG_SIZE):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
@@ -544,27 +628,42 @@ class Ipu:
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
-        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
 
-        for i in range(R_REG_SIZE):
-            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_val, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
+        if self.state.debug_32bit:
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            aaq_val = struct.unpack("<f", struct.pack("<I", aaq_raw))[0]
+            for i in range(R_REG_SIZE):
+                acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+                mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+                struct.pack_into(fmt, acc_buf, i * 4, acc_val + mult_val + aaq_val)
+        else:
+            aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+            for i in range(R_REG_SIZE):
+                acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+                mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+                result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_val, dtype)
+                struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
         """Execute acc.add_aaq.first: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
-        aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
 
-        for i in range(R_REG_SIZE):
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = ipu_add(mult_val, aaq_val, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
+        if self.state.debug_32bit:
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            aaq_val = struct.unpack("<f", struct.pack("<I", aaq_raw))[0]
+            for i in range(R_REG_SIZE):
+                mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+                struct.pack_into(fmt, acc_buf, i * 4, mult_val + aaq_val)
+        else:
+            aaq_val = self.state.regfile.get_aaq(aaq_rf_idx)
+            for i in range(R_REG_SIZE):
+                mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+                result = ipu_add(mult_val, aaq_val, dtype)
+                struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
         """Execute acc.max: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
@@ -576,8 +675,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
         aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
         aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
 
         for i in range(R_REG_SIZE):
@@ -595,8 +693,7 @@ class Ipu:
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        # Signed interpretation: "<i" = int32, "<f" = float32 (signed)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
         aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
 
         for i in range(R_REG_SIZE):
@@ -655,7 +752,7 @@ class Ipu:
 
         base = (offset % 4) * 32
         dtype = self.state.get_cr_dtype()
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -683,7 +780,7 @@ class Ipu:
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
         """
         dtype = self.state.get_cr_dtype()
-        fmt = "<i" if dtype == DType.INT8 else "<f"
+        fmt = "<f" if (self.state.debug_32bit or dtype != DType.INT8) else "<i"
         acc_buf = self.state.regfile.raw("r_acc")
         n_words = R_ACC_SIZE // 4  # 128
 
@@ -736,15 +833,33 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
 
     def execute_aaq(self) -> None:
-        """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+        """Execute aaq: Quantize r_acc → aaq_result (128 × INT8).
 
         Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
         arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
         a signed byte in the aaq_result register.
+
+        In debug mode (debug_32bit=True): a no-op unless debug_quantize is set,
+        in which case float32 accumulator values are clamped to [-128, 127] and
+        written to aaq_result for comparison with normal-mode output.
+        Use str_acc_reg to retrieve the full float32 accumulator in debug mode.
         """
         dtype = self.state.get_cr_dtype()
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
+
+        if self.state.debug_32bit:
+            if not self.state.debug_quantize:
+                return  # result lives in r_acc as float32; use str_acc_reg
+            # Re-quantize float32 acc → INT8 for comparison with normal mode.
+            acc_buf = self.state.regfile.raw("r_acc")
+            result = bytearray(128)
+            for i in range(128):
+                val = struct.unpack_from("<f", acc_buf, i * 4)[0]
+                clamped = max(-128, min(127, int(round(val))))
+                result[i] = clamped & 0xFF
+            self.state.regfile.set_aaq_result(result)
+            return
 
         acc_buf = self.state.regfile.raw("r_acc")
         result = bytearray(128)
@@ -888,6 +1003,8 @@ class Ipu:
             return BreakResult.CONTINUE
 
         self.snapshot = self.state.regfile.snapshot()
+        if self.state.debug_32bit:
+            self.state._debug_r_snap = {k: list(v) for k, v in self.state._debug_r.items()}
 
         # Break runs first — may halt before side effects
         result = self.dispatch_instruction("break", inst)
@@ -915,6 +1032,8 @@ class Ipu:
             return
 
         self.snapshot = self.state.regfile.snapshot()
+        if self.state.debug_32bit:
+            self.state._debug_r_snap = {k: list(v) for k, v in self.state._debug_r.items()}
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)
