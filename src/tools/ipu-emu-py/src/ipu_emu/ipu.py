@@ -440,16 +440,26 @@ class Ipu:
 
     def execute_mult_ve(self, *, ra: bytearray, cyclic_offset: int,
                         mask_offset: int, mask_shift: int, fixed_ra_idx: int) -> None:
-        """Execute mult_ve: Fixed Ra x cyclic element multiplication."""
+        """Execute mult.ve: Fixed Ra element x RC elements with boundary padding.
+
+        Multiplies ra[fixed_ra_idx] against each byte of
+        RC[cyclic_offset : cyclic_offset+128]. Non-cyclic: elements where
+        cyclic_offset+i >= R_CYCLIC_SIZE are padded with the dtype-specific
+        encoding of 1 instead of wrapping.
+        """
         dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
+        rc_buf = self.state.regfile.raw("r_cyclic")
+        one_byte = dtype_one_byte(dtype)
         mult_res = self.state.regfile.raw("mult_res")
+        fmt = "<i" if dtype == DType.INT8 else "<f"
 
         ra_fixed = ra[fixed_ra_idx % R_REG_SIZE]
 
         for i in range(R_REG_SIZE):
-            result = ipu_mult(ra_fixed, rb[i], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+            pos = cyclic_offset + i
+            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
+            result = ipu_mult(ra_fixed, rb_byte, dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 

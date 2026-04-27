@@ -1186,6 +1186,43 @@ bkpt;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
+    def test_mult_ve_boundary_padding(self):
+        """mult.ve: elements beyond RC boundary (512 bytes) are padded with int8 1."""
+        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
+        rc_fill = 4
+        scalar = 5
+        pad_start = 62  # 512 - 450 = 62 elements in bounds
+
+        r0_data = bytearray(128)
+        r0_data[0] = scalar  # fixed_ra_idx=0 → scalar = 5
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+reset_acc;;
+set lr2 450;;
+set lr3 0;;
+set lr4 0;;
+set lr5 0;;
+mult.ve r0 lr2 lr3 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(pad_start):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+        for i in range(pad_start, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
+
 
 # ============================================================================
 # AAQ Quantization (aaq instruction + xmem.store_aaq_result)
