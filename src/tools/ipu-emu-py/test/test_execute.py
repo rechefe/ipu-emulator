@@ -1281,7 +1281,7 @@ bkpt;;
         cyclic_data = bytes([6] * 512)
         r0_data = bytes([0] * 128)
         r0_data = bytearray(r0_data)
-        r0_data[0] = 3  # fixed_ra_idx=0 → scalar = 3
+        r0_data[0] = 3  # fixed_idx=0 → r0[0] = 3
 
         state = _make_state(
             """\
@@ -1291,7 +1291,7 @@ set lr1 0x2000;;
 set lr2 0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ve r0 lr2 lr2 lr2 lr2;
+mult.ve lr2 lr2 lr2 lr2;
 acc;;
 bkpt;;
 """
@@ -1314,7 +1314,7 @@ bkpt;;
         pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         r0_data = bytearray(128)
-        r0_data[0] = scalar  # fixed_ra_idx=0 → scalar = 5
+        r0_data[0] = scalar  # fixed_idx=0 → r0[0] = 5
 
         state = _make_state(
             """\
@@ -1325,7 +1325,7 @@ set lr2 450;;
 set lr3 0;;
 set lr4 0;;
 set lr5 0;;
-mult.ve r0 lr2 lr3 lr4 lr5;
+mult.ve lr2 lr3 lr4 lr5;
 acc;;
 bkpt;;
 """
@@ -1343,6 +1343,39 @@ bkpt;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
 
+    def test_mult_ve_r1_scalar(self):
+        """mult.ve: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
+        r0_data = bytearray(128)  # all zeros — must not be picked
+        r1_data = bytearray(128)
+        r1_data[0] = 7  # fixed_idx=128 → r1[0] = 7
+        cyclic_data = bytes([4] * 512)
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+set lr0 0x1100;;
+ldr_mult_reg r1 lr0 cr0;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+reset_acc;;
+set lr3 128;;
+mult.ve lr2 lr2 lr2 lr3;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.xmem.write_address(0x1100, bytes(r1_data))
+        state.xmem.write_address(0x2000, cyclic_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
 # ============================================================================
 # AAQ Quantization (aaq instruction + xmem.store_aaq_result)
