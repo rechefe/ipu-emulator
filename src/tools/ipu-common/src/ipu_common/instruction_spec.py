@@ -140,7 +140,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
-    "cond": ["LrIdx", "LrIdx", "Label"],
+    "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
 
@@ -702,8 +702,8 @@ INSTRUCTION_SPEC = {
     "cond": {
         "beq": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -711,8 +711,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are equal.",
                 syntax="beq reg1 reg2 label",
                 operands=[
-                    "reg1: First register to compare (lr0-lr15)",
-                    "reg2: Second register to compare (lr0-lr15)",
+                    "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
+                    "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
@@ -722,8 +722,8 @@ INSTRUCTION_SPEC = {
         },
         "bne": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -731,19 +731,19 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are not equal.",
                 syntax="bne reg1 reg2 label",
                 operands=[
-                    "reg1: First register to compare (lr0-lr15)",
-                    "reg2: Second register to compare (lr0-lr15)",
+                    "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
+                    "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
-                example="bne lr0 lr1 different;;",
+                example="bne lr0 cr0 loop;;",
             ),
             "execute_fn": "execute_bne",
         },
         "blt": {
             "operands": [
-                {"name": "reg1", "type": "LrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -751,19 +751,19 @@ INSTRUCTION_SPEC = {
                 summary="Branch if first register is less than second.",
                 syntax="blt reg1 reg2 label",
                 operands=[
-                    "reg1: First register to compare (lr0-lr15)",
-                    "reg2: Second register to compare (lr0-lr15)",
+                    "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
+                    "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 < reg2) PC = label",
-                example="blt lr0 lr1 smaller;;",
+                example="blt lr0 cr1 smaller;;",
             ),
             "execute_fn": "execute_blt",
         },
         "bnz": {
             "operands": [
-                {"name": "test_reg", "type": "LrIdx", "read": "snapshot"},
-                {"name": "base_reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -771,8 +771,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if test register not equal to base register.",
                 syntax="bnz test_reg base_reg label",
                 operands=[
-                    "test_reg: Register to test (lr0-lr15)",
-                    "base_reg: Base comparison register (lr0-lr15)",
+                    "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
+                    "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg != base_reg) PC = label",
@@ -782,8 +782,8 @@ INSTRUCTION_SPEC = {
         },
         "bz": {
             "operands": [
-                {"name": "test_reg", "type": "LrIdx", "read": "snapshot"},
-                {"name": "base_reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -791,8 +791,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if test register equals base register.",
                 syntax="bz test_reg base_reg label",
                 operands=[
-                    "test_reg: Register to test (lr0-lr15)",
-                    "base_reg: Base comparison register (lr0-lr15)",
+                    "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
+                    "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg == base_reg) PC = label",
@@ -816,13 +816,13 @@ INSTRUCTION_SPEC = {
         },
         "br": {
             "operands": [
-                {"name": "reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Branch Register",
                 summary="Branch to address in register.",
                 syntax="br reg",
-                operands=["reg: Register containing target address (lr0-lr15)"],
+                operands=["reg: Register containing target address (lr0-lr15 or cr0-cr15)"],
                 operation="PC = reg",
             ),
             "execute_fn": "execute_br",
