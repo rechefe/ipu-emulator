@@ -469,7 +469,7 @@ class LrInst(Inst):
 class CondInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken]
+        return [reg.LcrRegField, reg.LcrRegField, ipu_token.LabelToken]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:

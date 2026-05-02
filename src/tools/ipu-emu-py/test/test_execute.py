@@ -389,6 +389,106 @@ bkpt;;
         )
         assert state.regfile.get_lr(2) == 1
 
+    def test_bne_lr_cr(self):
+        """bne branches when LR does not equal a CR constant."""
+        state = _make_state(
+            """\
+set lr0 10;;
+bne lr0 cr1 bne_cr_branch;;
+set lr2 0;;
+bkpt;;
+bne_cr_branch:
+set lr2 1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(1, 20)
+        run_until_complete(state)
+        assert state.regfile.get_lr(2) == 1
+
+    def test_beq_lr_cr(self):
+        """beq branches when LR equals a CR constant."""
+        state = _make_state(
+            """\
+set lr0 42;;
+beq lr0 cr3 beq_cr_branch;;
+set lr2 0;;
+bkpt;;
+beq_cr_branch:
+set lr2 1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(3, 42)
+        run_until_complete(state)
+        assert state.regfile.get_lr(2) == 1
+
+    def test_blt_lr_cr(self):
+        """blt branches when LR is less than a CR constant."""
+        state = _make_state(
+            """\
+set lr0 5;;
+blt lr0 cr2 blt_cr_branch;;
+set lr2 0;;
+bkpt;;
+blt_cr_branch:
+set lr2 1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(2, 10)
+        run_until_complete(state)
+        assert state.regfile.get_lr(2) == 1
+
+    def test_bnz_lr_cr(self):
+        """bnz branches when test_reg is not zero (CR as base_reg)."""
+        state = _make_state(
+            """\
+set lr0 5;;
+bnz lr0 cr0 bnz_cr_branch;;
+set lr2 0;;
+bkpt;;
+bnz_cr_branch:
+set lr2 1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(0, 0)
+        run_until_complete(state)
+        assert state.regfile.get_lr(2) == 1
+
+    def test_bz_lr_cr(self):
+        """bz branches when test_reg is zero (CR as base_reg)."""
+        state = _make_state(
+            """\
+set lr0 0;;
+bz lr0 cr0 bz_cr_branch;;
+set lr2 0;;
+bkpt;;
+bz_cr_branch:
+set lr2 1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(0, 0)
+        run_until_complete(state)
+        assert state.regfile.get_lr(2) == 1
+
+    def test_loop_with_cr_limit(self):
+        """Loop using bne against a CR constant instead of an LR."""
+        state = _make_state(
+            """\
+set lr0 0;;
+cr_loop_start:
+incr lr0 1;;
+bne lr0 cr5 cr_loop_start;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(5, 10)
+        run_until_complete(state, max_cycles=1000)
+        assert state.regfile.get_lr(0) == 10
+
     def test_simple_loop(self):
         state = _run(
             """\
@@ -414,6 +514,26 @@ set lr0 0;;
         )
         # bkpt sets PC = INST_MEM_SIZE, so `set lr0 0` is never reached
         assert state.regfile.get_lr(0) == 99
+
+    def test_br_cr(self):
+        """br accepts a CR register as the branch target address."""
+        state = _make_state(
+            """\
+br cr0;;
+set lr0 0;;
+bkpt;;
+br_cr_target:
+set lr0 1;;
+bkpt;;
+"""
+        )
+        from ipu_as.label import ipu_labels
+        target_addr = ipu_labels.get_address(
+            type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
+        )
+        state.regfile.set_cr(0, target_addr)
+        run_until_complete(state)
+        assert state.regfile.get_lr(0) == 1
 
 
 # ============================================================================
