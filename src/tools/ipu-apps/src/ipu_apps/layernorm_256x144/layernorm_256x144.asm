@@ -31,11 +31,10 @@
 #   lr0  = 0     cyclic slot-0 index; mask_shift; const-zero for addressing
 #   lr1  = 2     tg loop limit
 #   lr2  = 8     tokens-per-batch limit
-#   lr3  = 128   γ/β row-1 offset; also γ/β boundary threshold (4A limit)
-#   lr4  = 16    4B limit (ch=128..143)
+#   lr3  = 128   γ/β row-1 offset; also sub-loop 4A limit
+#   lr4  = 16    sub-loop 4B limit (ch=128..143)
 #   lr5  = 256   data stride per channel
-#   lr6  = 143   (unused now, kept for consistency)
-#   lr7  = 144   inner loop limit (N_CH)
+#   lr7  = 144   step1/step2 loop limit (N_CH)
 #   lr8  = 1024  output stride per channel
 #
 # LR loop variables:
@@ -47,19 +46,16 @@
 #   lr14 = ch_idx         (channel index within γ/β row: 0..127 or 0..15)
 #   lr15 = out_ptr        (offset from OUTPUT_BASE)
 #
-# PIPELINE TIMING:
-#   Slot order in emulator: LR fires first, then XMEM/MULT/ACC/COND from snapshot.
-#   "snapshot" reads (XMEM offset, MULT operands, COND): value from start of cycle
-#     (before LR of same cycle).
-#   Startup: set ptr to first_addr; LR incr fires before XMEM reads snapshot → first
-#     XMEM read uses the pre-incr value = first_addr. ✓
+# PIPELINE TIMING (live LR semantics):
+#   Slot order: LR fires first, then XMEM/MULT/ACC/COND all read LIVE register values.
+#   All LrIdx operands in XMEM/MULT/COND instructions use the POST-incr value.
+#   Pattern: init ptr to (first_addr - stride); incr fires → live = first_addr on first use.
 #
 # OUTPUT LAYOUT (interleaved tg):
 #   Row (ch*2 + tg) at OUTPUT_BASE + (ch*2+tg) * 512 bytes.
-#   str_acc_reg uses snapshot of lr15:
-#     tg=0: ch=0→offset 0, ch=1→offset 1024, ..., ch=k→offset k*1024
-#     tg=1: ch=0→offset 512, ch=1→offset 1536, ..., ch=k→offset 512+k*1024
-#   Teardown reads contiguously at 512-byte stride → correct interleaved layout.
+#   str_acc_reg live lr15: init = out_start - 1024; incr 1024 fires → live = out_start on ch=0.
+#     tg=0: init=-1024, ch=k → live offset k*1024       → row 2k   ✓
+#     tg=1: init=-512,  ch=k → live offset 512+k*1024   → row 2k+1 ✓
 
 # ===========================================================================
 # ONE-TIME INITIALIZATION
@@ -71,7 +67,6 @@
     set lr3 128;;
     set lr4 16;;
     set lr5 256;;
-    set lr6 143;;
     set lr7 144;;
     set lr8 1024;;
 
@@ -94,22 +89,22 @@ batch_loop:
 token_loop:
 
     # =========================================================================
-    # STEP 1: Σx and mean
-    # Accumulate masked lane t of x[ch,t] × 1.0 for ch=0..143.
-    # r_cyclic[0..127] = ones throughout.
-    # lr13 = tg*128 (exact start for ch=0); snapshot used by XMEM.
-    # Counter lr14 (0..143); blt sees snapshot so runs 0..143 + 1 extra on 0
-    # read (harmless zero-read at ch=144).
+    # STEP 1: Σx across channels (masked to lane t)
+    #
+    # Live-LR pattern: init lr13 = tg_offset - 256.
+    # Each cycle: incr lr13 256 fires first → live lr13 = tg_offset + ch*256.
+    # Reads x[ch=0] on first iteration. ✓
     # =========================================================================
 
     reset_acc;;
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ONES
 
-    set lr13 0;;
+    # lr13 = tg_offset - 256  (live-LR startup: incr fires before XMEM read)
+    set lr13 -256;;
     bne lr9 lr0 step1_tg1;;
     b step1_go;;
 step1_tg1:
-    set lr13 128;;
+    set lr13 -128;;
 step1_go:
     set lr14 0;;
 
@@ -117,15 +112,17 @@ step1_loop:
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc;  incr lr14 1;  blt lr14 lr7 step1_loop;;
 
     agg sum value cr0 aaq0;;   # aaq0 = Σx (raw int32 sum)
-    agg sum value cr0 aaq1;;   # aaq1 = Σx (same value, used in step 4A)
+    agg sum value cr0 aaq1;;   # aaq1 = Σx (same value, used in step 4)
 
     # =========================================================================
-    # STEP 2: Σx² and E[x²]
-    # Two-cycle body per channel:
-    #   Cycle A: ldr_cyclic_mult_reg x[ch,tg] (lr13 = exact address, snapshot)
-    #   Cycle B: ldr_mult_reg x[ch,tg] (same snapshot addr) + mult.ee (x²) + acc
-    #            + incr lr13 256 + incr lr14 1 + blt
-    # lr13 reset to exact tg*128 (snapshot used by both cycles).
+    # STEP 2: Σx² across channels (masked to lane t)
+    #
+    # 3-cycle body per channel (no LR in cycles A or B):
+    #   Cycle A: ldr_cyclic_mult_reg lr13 → r_cyclic = x[ch]  (no incr → live = current lr13)
+    #   Cycle B: ldr_mult_reg r0 lr13     → r0       = x[ch]  (no incr → same live lr13)
+    #   Cycle C: mult.ee r0 (x[ch] × r_cyclic[x[ch]]) + acc + incr lr13 256 + blt
+    #
+    # Init lr13 = exact tg_offset (no startup offset since cycle A has no incr).
     # =========================================================================
 
     reset_acc;;
@@ -139,177 +136,170 @@ step2_go:
     set lr14 0;;
 
 step2_loop_A:
-    ldr_cyclic_mult_reg lr13 cr0 lr0;;  # r_cyclic = x[ch,tg] (snapshot lr13)
+    ldr_cyclic_mult_reg lr13 cr0 lr0;;   # Cycle A: r_cyclic = x[ch] (no LR incr)
 
-    ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc;  incr lr14 1;  blt lr14 lr7 step2_loop_A;;
+    ldr_mult_reg r0 lr13 cr0;;           # Cycle B: r0 = x[ch] (same lr13, no LR incr)
 
-    agg sum value cr0 aaq2;;   # aaq2 = Σx² (raw int32 sum)
+    mult.ee r0 lr0 lr12 lr0;  acc;  incr lr14 1;  incr lr13 256;  blt lr14 lr7 step2_loop_A;;   # Cycle C
+
+    agg sum value cr0 aaq2;;   # aaq2 = Σx²
 
     # =========================================================================
-    # STEP 3: variance = E[x²] - mean²,  inv_std = 1/sqrt(var)
+    # STEP 3: variance and inv_std
     #
-    # 3a: broadcast mean scalar to lane t → TEMP_BASE+0 (truncation #1)
-    # 3b: compute -mean = mean × (-1.0) → TEMP_BASE+128 (truncation #2)
-    # 3c: compute -mean² = mean × (-mean) → r_acc (masked, acc.first)
-    # 3d: add E[x²] via mult.ve.aaq aaq2 → var = E[x²] - mean²
-    #     agg sum inv_sqrt → aaq3 = inv_std
+    # All ldr_mult_reg here use lr0=0 with no incr in same cycle → no offset issue.
+    # xmem.store_aaq_result uses lr0=0 and lr3=128, both unchanged here.
     # =========================================================================
 
-    # 3a: mean → TEMP_BASE+0
+    # 3a: mean scalar → TEMP_BASE+0
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ones
     mult.ve.aaq lr0 lr12 lr0 aaq0;  acc.first;;
     # TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
     aaq;;
-    xmem.store_aaq_result lr0 cr5;;     # TEMP_BASE+0 = mean (INT8 garbage)
+    xmem.store_aaq_result lr0 cr5;;     # TEMP_BASE+0 = mean
 
     # 3b: -mean → TEMP_BASE+128
-    ldr_cyclic_mult_reg lr0 cr7 lr0;;   # r_cyclic = neg_ones (FP8 -1.0)
+    ldr_cyclic_mult_reg lr0 cr7 lr0;;   # r_cyclic = neg_ones
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ee mem_bypass lr0 lr12 lr0;  acc.first;;
     # TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
     aaq;;
-    xmem.store_aaq_result lr3 cr5;;     # TEMP_BASE+128 = -mean; lr3=128
+    xmem.store_aaq_result lr3 cr5;;     # TEMP_BASE+128 = -mean
 
-    # 3c: -mean² = mean × (-mean), masked to lane t
-    ldr_cyclic_mult_reg lr3 cr5 lr0;;   # r_cyclic = TEMP_BASE+128 (-mean); lr3=128
+    # 3c: mean × (-mean) → r_acc[t]
+    ldr_cyclic_mult_reg lr3 cr5 lr0;;   # r_cyclic = TEMP_BASE+128 (-mean)
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ee mem_bypass lr0 lr12 lr0;  acc.first;;
-    # r_acc[t] = -mean²  (garbage from INT8 truncation)
 
-    # 3d: + E[x²] → var; then inv_std
+    # 3d: + E[x²] → var; inv_std
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ones
     mult.ve.aaq lr0 lr12 lr0 aaq2;  acc;;
-    # r_acc[t] = E[x²] - mean²  (garbage at mean² term)
 
-    agg sum inv_sqrt cr0 aaq3;;         # aaq3 = inv_std (FP32 bits)
+    agg sum inv_sqrt cr0 aaq3;;         # aaq3 = inv_std (float32 bits)
 
     # =========================================================================
-    # STEP 4: Apply affine per channel
-    # out[ch,t] = γ[ch] × (x[ch,t]-mean) × inv_std + β[ch]
+    # STEP 4: per-channel affine  out[ch,t] = γ[ch]×(x[ch,t]-mean)/std + β[ch]
+    #
+    # Live-LR pattern:
+    #   lr13 init = tg_offset - 256  → first ldr_mult reads x[ch=0] after incr ✓
+    #   lr15 init = out_start - 1024 → first str_acc_reg writes to out_start after incr ✓
     #
     # Per channel (11 cycles):
     #  C1:  ldr x[ch]; incr lr13 256; mult.ee masked; acc.add_aaq.first aaq1
-    #       → r_acc[t] = x[ch,t] + aaq1  (= x - mean in truncated sense)
-    #  C2:  aaq  // TODO(fp8_aaq)
-    #  C3:  xmem.store_aaq_result → TEMP_BASE+0  (truncation #3)
-    #  C4:  ldr_cyclic TEMP_BASE; mult.ve.aaq aaq3; acc.first
-    #       → r_acc[t] = normalized (FP8(inv_std) × FP8(x-mean))
-    #  C5:  aaq  // TODO(fp8_aaq)
-    #  C6:  xmem.store_aaq_result → TEMP_BASE+0  (truncation #4)
+    #  C2:  aaq
+    #  C3:  xmem.store_aaq_result → TEMP_BASE+0  (x-mean, truncation #3)
+    #  C4:  ldr_cyclic TEMP_BASE+0; mult.ve.aaq aaq3 masked; acc.first
+    #  C5:  aaq
+    #  C6:  xmem.store_aaq_result → TEMP_BASE+0  (normalized, truncation #4)
     #  C7:  ldr_cyclic γ row
-    #  C8:  ldr TEMP_BASE; mult.ev γ[ch_idx]; acc.first
-    #       → r_acc[t] = normalized × γ[ch]
+    #  C8:  ldr TEMP_BASE+0; mult.ev γ[live lr14] masked; acc.first
     #  C9:  ldr_cyclic β row
-    # C10:  ldr ones; mult.ev β[ch_idx]; acc
-    #       → r_acc[t] += β[ch]
-    # C11:  incr lr14 1; incr lr15 lr8; str_acc_reg lr15 cr6; blt lr14 limit loop
-    #       str_acc_reg uses snapshot lr15 → writes correct row offset
-    #       blt uses snapshot lr14 → runs for snapshots 0..limit-1
+    # C10:  ldr ones; mult.ev β[live lr14] masked; acc
+    # C11:  incr lr14 1; incr lr15 1024; str_acc_reg (live lr15) cr6; blt lr14 limit
     #
-    # No dummy iteration: lr14=0, lr13=data_start, lr15=output_start (both tg variants).
-    # str_acc_reg snapshot for ch=k: lr15 = output_start + k*1024.
-    #   tg=0: start=0,     ch=k → offset k*1024 → row 2k   ✓
-    #   tg=1: start=512,   ch=k → offset 512+k*1024 → row 2k+1 ✓
-    # mult.ev uses snapshot lr14 = ch_idx = k ✓
+    # mult.ev uses live lr14. incr lr14 1 is ONLY in C11 (no LR in C8/C10) → live lr14
+    # in C8/C10 = current ch_idx (unchanged). ✓
     #
-    # Sub-loop 4A: ch=0..127, γ/β row 0 (cr1/cr2), limit lr3=128.
-    # Sub-loop 4B: ch=128..143, γ/β row 1 at offset lr3=128, limit lr4=16.
-    # lr13 and lr15 continue from 4A into 4B without reset.
+    # Sub-loop 4A: ch=0..127, γ/β row 0, limit lr3=128.
+    # Sub-loop 4B: ch=128..143, γ/β row 1 (offset lr3=128), limit lr4=16.
+    # lr13 and lr15 carry over from 4A into 4B.
     # =========================================================================
 
-    # Initialize data and output ptrs for step4
-    set lr13 0;;
+    # lr13: tg_offset - 256 (live-LR startup)
+    set lr13 -256;;
     bne lr9 lr0 step4_tg1;;
     b step4_go;;
 step4_tg1:
-    set lr13 128;;
+    set lr13 -128;;
 step4_go:
-    set lr15 0;;
+
+    # lr15: out_start - 1024 (live-LR startup)
+    set lr15 -1024;;
     bne lr9 lr0 step4_out_tg1;;
     b step4_out_go;;
 step4_out_tg1:
-    set lr15 512;;
+    set lr15 -512;;
 step4_out_go:
 
-    ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ones (for Phase A of first ch)
+    ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ones (for C1 of first ch)
 
     # ---- Sub-loop 4A: ch = 0..127 ----
     set lr14 0;;
 
 step4A_loop:
-    # C1: x[ch,t] + aaq1 (= x - mean)
+    # C1: x[ch,t] + aaq1
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc.add_aaq.first aaq1;;
-    # C2-C3: aaq → store (x-mean) // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
+    # C2-C3: aaq → TEMP_BASE+0
     aaq;;
     xmem.store_aaq_result lr0 cr5;;
 
-    # C4: × inv_std (scalar from aaq3 low byte)
+    # C4: × inv_std
     ldr_cyclic_mult_reg lr0 cr5 lr0;  mult.ve.aaq lr0 lr12 lr0 aaq3;  acc.first;;
-    # C5-C6: aaq → store normalized // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
+    # C5-C6: aaq → TEMP_BASE+0
     aaq;;
     xmem.store_aaq_result lr0 cr5;;
 
     # C7: load γ row 0
     ldr_cyclic_mult_reg lr0 cr1 lr0;;
 
-    # C8: normalized × γ[ch_idx]  (snapshot lr14 = ch_idx = k)
+    # C8: normalized × γ[ch]  (live lr14 = ch_idx; no LR in C8)
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ev mem_bypass lr14 lr12 lr0;  acc.first;;
 
     # C9: load β row 0
     ldr_cyclic_mult_reg lr0 cr2 lr0;;
 
-    # C10: ones × β[ch_idx]; acc
+    # C10: ones × β[ch]  (live lr14 = ch_idx; no LR in C10)
     ldr_mult_reg mem_bypass lr0 cr4;  mult.ev mem_bypass lr14 lr12 lr0;  acc;;
 
-    # C11: advance ptrs, store row, branch  (lr3=128: runs for snapshots 0..127)
+    # C11: advance ch_idx and out_ptr, store row, branch
     incr lr14 1;  incr lr15 1024;  str_acc_reg lr15 cr6;  blt lr14 lr3 step4A_loop;;
 
     # ---- Sub-loop 4B: ch = 128..143 ----
-    # lr13 and lr15 continue from 4A; reset ch_idx to 0 for row-1 indexing
+    # lr13 and lr15 carry over; reset ch_idx for row-1 indexing
     set lr14 0;;
 
 step4B_loop:
-    # C1: x[ch,t] + aaq1 (= x - mean)
+    # C1
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc.add_aaq.first aaq1;;
-    # C2-C3: aaq → store (x-mean) // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
+    # C2-C3
     aaq;;
     xmem.store_aaq_result lr0 cr5;;
 
-    # C4: × inv_std
+    # C4
     ldr_cyclic_mult_reg lr0 cr5 lr0;  mult.ve.aaq lr0 lr12 lr0 aaq3;  acc.first;;
-    # C5-C6: aaq → store normalized // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
+    # C5-C6
     aaq;;
     xmem.store_aaq_result lr0 cr5;;
 
-    # C7: load γ row 1 (GAMMA_BASE + 128)
-    ldr_cyclic_mult_reg lr3 cr1 lr0;;   # lr3=128
+    # C7: load γ row 1
+    ldr_cyclic_mult_reg lr3 cr1 lr0;;
 
-    # C8: normalized × γ[128+ch_idx]  (snapshot lr14 = row-1 ch_idx = 0..15)
+    # C8: normalized × γ[128+ch_idx]
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ev mem_bypass lr14 lr12 lr0;  acc.first;;
 
-    # C9: load β row 1 (BETA_BASE + 128)
-    ldr_cyclic_mult_reg lr3 cr2 lr0;;   # lr3=128
+    # C9: load β row 1
+    ldr_cyclic_mult_reg lr3 cr2 lr0;;
 
-    # C10: ones × β[128+ch_idx]; acc
+    # C10: ones × β[128+ch_idx]
     ldr_mult_reg mem_bypass lr0 cr4;  mult.ev mem_bypass lr14 lr12 lr0;  acc;;
 
-    # C11: advance, store, branch  (lr4=16: runs for snapshots 0..15)
+    # C11
     incr lr14 1;  incr lr15 1024;  str_acc_reg lr15 cr6;  blt lr14 lr4 step4B_loop;;
 
     # =======================================================================
-    # END OF TOKEN: advance tok counter; restore ones in r_cyclic for next token
+    # END OF TOKEN: advance tok; restore ones for next token's step1
     # =======================================================================
-    ldr_cyclic_mult_reg lr0 cr4 lr0;;   # restore ones in r_cyclic for next token step1
+    ldr_cyclic_mult_reg lr0 cr4 lr0;;
 
     incr lr12 1;;
-    blt lr12 lr2 token_loop;;       # lr2=8; runs for snapshots 0..7 (8 tokens/batch)
+    blt lr12 lr2 token_loop;;
 
-    # Advance batch: increment batch counter and mask block offset
+    # Advance batch
     incr lr10 1;  incr lr11 128;;
-    blt lr10 lr4 batch_loop;;       # lr4=16; runs for batches 0..15
+    blt lr10 lr4 batch_loop;;
 
-    # Advance tg: reset mask offset, increment tg counter
+    # Advance tg
     set lr11 0;;
     incr lr9 1;;
-    blt lr9 lr1 tg_loop;;           # lr1=2; runs for tg=0,1
+    blt lr9 lr1 tg_loop;;
 
 end:
     bkpt;;
