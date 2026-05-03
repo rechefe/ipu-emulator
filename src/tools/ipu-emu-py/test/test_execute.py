@@ -826,6 +826,64 @@ bkpt;;
         # sum = 128, 128 * 3 = 384
         assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 384))[0]
 
+    def test_agg_first_max_ignores_previous_aaq(self):
+        """agg.first max: ignores the previous (garbage) AAQ value, takes max of r_acc only."""
+        import struct
+
+        state = _make_state(
+            """\
+agg.first max value cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
+        # Set aaq0 to a large "garbage" value that would win against r_acc if included
+        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 9999))[0])
+
+        run_until_complete(state)
+        # Max of r_acc is 14; previous aaq (9999) must be ignored
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 14))[0]
+
+    def test_agg_first_max_selects_correct_max(self):
+        """agg.first max: correctly selects the max value from r_acc words."""
+        import struct
+
+        state = _make_state(
+            """\
+agg.first max value cr0 aaq1;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
+        state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
+        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 0))[0])
+
+        run_until_complete(state)
+        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 77))[0]
+
+    def test_agg_first_sum_same_as_agg_sum(self):
+        """agg.first sum: behaves identically to agg sum (previous aaq not involved in sum)."""
+        import struct
+
+        state = _make_state(
+            """\
+agg.first sum value cr0 aaq2;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 2))[0])
+        state.regfile.set_aaq(2, struct.unpack("<I", struct.pack("<i", 9999))[0])
+
+        run_until_complete(state)
+        # Sum of 128 twos = 256; previous aaq value irrelevant
+        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 256))[0]
+
 
 # ============================================================================
 

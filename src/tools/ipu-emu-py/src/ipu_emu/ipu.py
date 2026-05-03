@@ -747,6 +747,62 @@ class Ipu:
         out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
         self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
 
+    def execute_agg_first(
+        self,
+        *,
+        agg_mode: int,
+        post_fn: int,
+        cr_idx: int,
+        aaq_rf_idx: int,
+    ) -> None:
+        """Execute agg.first: like agg but for MAX mode ignores previous AAQ value."""
+        dtype = self.state.get_cr_dtype()
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+        acc_buf = self.state.regfile.raw("r_acc")
+        n_words = R_ACC_SIZE // 4  # 128
+
+        values = []
+        for i in range(n_words):
+            val = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            values.append(val)
+
+        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
+            raw_result = sum(values)
+        else:
+            # MAX: do NOT include previous AAQ value — this is the .first behaviour
+            raw_result = max(values)
+
+        fn = get_post_fn(post_fn)
+        if fn == POST_FN_VALUE:
+            result_val = raw_result
+        elif fn == POST_FN_VALUE_CR:
+            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
+            cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
+            result_val = raw_result * cr_scalar
+        elif fn == POST_FN_INV:
+            if dtype == DType.INT8:
+                f = float(raw_result)
+                result_val = 1.0 / f if f != 0 else 0.0
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / raw_result if raw_result != 0 else 0.0
+        elif fn == POST_FN_INV_SQRT:
+            if dtype == DType.INT8:
+                f = float(raw_result)
+                result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
+                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
+                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+                return
+            else:
+                result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
+        else:
+            result_val = raw_result
+
+        out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
+        self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+
     def execute_aaq(self) -> None:
         """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
 

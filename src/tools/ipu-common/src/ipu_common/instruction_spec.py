@@ -636,7 +636,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: aaq_nop=0, agg=1
+    # Opcode = position: aaq_nop=0, agg=1, agg.first=2
     # =========================================================================
     "aaq": {
         "aaq_nop": {
@@ -675,6 +675,33 @@ INSTRUCTION_SPEC = {
                 example="agg sum value cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg",
+        },
+        "agg.first": {
+            "operands": [
+                {"name": "agg_mode", "type": "AggMode"},
+                {"name": "post_fn", "type": "PostFn"},
+                {"name": "cr_idx", "type": "CrIdx"},
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Aggregate First",
+                summary="Like agg, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
+                syntax="agg.first agg_mode post_fn cr_idx aaq_rf_idx",
+                operands=[
+                    "agg_mode: sum or max",
+                    "post_fn: value, value_cr, inv, or inv_sqrt",
+                    "cr_idx: CR register for value_cr post function (cr0-cr15)",
+                    "aaq_rf_idx: AAQ register to store result (aaq0-aaq3)",
+                ],
+                operation=(
+                    "If sum: v = sum(r_acc[0..127]). "
+                    "If max: v = max(r_acc[0..127]) (previous aaq value is NOT included). "
+                    "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
+                    "aaq[aaq_rf_idx] = result."
+                ),
+                example="agg.first max value cr0 aaq0;;",
+            ),
+            "execute_fn": "execute_agg_first",
         },
         "aaq": {
             "operands": [],
