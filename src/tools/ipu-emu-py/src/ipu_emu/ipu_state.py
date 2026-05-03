@@ -6,7 +6,7 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from ipu_emu.regfile import RegFile
@@ -19,6 +19,17 @@ INST_MEM_SIZE = 1024
 CR_DTYPE_REG = 15
 
 
+class WideVectorArithmetic(str, Enum):
+    """How 128-lane wide-vector debug math is performed (emulator-only; issue #33).
+
+    FP32: each lane is IEEE float32 (default for “no quantization” FP analysis).
+    INT32: each lane is signed int32 with wrap semantics matching INT8-mode acc ops.
+    """
+
+    FP32 = "fp32"
+    INT32 = "int32"
+
+
 class IpuState:
     """Complete IPU processor state.
 
@@ -29,13 +40,31 @@ class IpuState:
         inst_mem:        Instruction memory (list of decoded instruction dicts).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        wide_vector_debug: bool = False,
+        wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
+        wide_vector_quantize_output: bool = False,
+    ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
         # Instruction memory — each entry will be a decoded instruction dict
         # (populated when loading a binary or assembling).
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
+
+        # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
+        # XMEM addresses and architectural byte counts are unchanged; r/r_cyclic
+        # operands are staged as 128×32-bit lanes while mult/acc use that width.
+        # LR/CR are not widened. Keys are MultStageReg *encoding indices* (0=r0,
+        # 1=r1, 2=mem_bypass), not r-array element indices, so r0 and mem_bypass
+        # do not collide.
+        self.wide_vector_debug: bool = wide_vector_debug
+        self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
+        self.wide_vector_quantize_output: bool = wide_vector_quantize_output
+        self._debug_mult_stage_vectors: dict[int, list[float | int]] = {}
+        self._debug_mult_stage_vectors_snap: dict[int, list[float | int]] = {}
 
     # -- CR dtype convenience (mirrors ipu__set_cr_dtype / ipu__get_cr_dtype) --
 

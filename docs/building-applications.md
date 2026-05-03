@@ -14,6 +14,10 @@ Each IPU application is a subpackage under `ipu_apps/` containing:
 
 Everything lives together in one directory.
 
+## Wide-vector debug mode (optional)
+
+The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `aaq` / `str_acc_reg` in that mode.
+
 ## Step 1: Write the Assembly Program
 
 Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing.

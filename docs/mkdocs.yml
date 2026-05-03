@@ -51,6 +51,7 @@ nav:
       - Debugging: debugging.md
   - Programming the IPU:
       - Building Applications: building-applications.md
+      - Wide-vector debug mode: wide-vector-debug-mode.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:
