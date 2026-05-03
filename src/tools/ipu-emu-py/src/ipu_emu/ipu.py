@@ -229,6 +229,24 @@ class Ipu:
     def _wide_vector_active(self) -> bool:
         return self.state.wide_vector_debug
 
+    def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
+        """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
+        if byte_off % 4 != 0:
+            raise EmulatorError(
+                f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}"
+            )
+
+    def _wide_pack_aaq_bits(self, fmt: str, result_val: float | int) -> int:
+        """Pack agg/aaq scalar result for ``set_aaq`` (uint32 bit pattern)."""
+        if fmt == "<f":
+            return struct.unpack("<I", struct.pack("<f", float(result_val)))[0]
+        if isinstance(result_val, float):
+            ri = int(round(result_val))
+        else:
+            ri = int(result_val)
+        ri = max(-0x80000000, min(0x7FFFFFFF, ri))
+        return ri & 0xFFFFFFFF
+
     def _wide_unpack_lane_tuple(self, buf: bytes | bytearray) -> tuple[float, ...] | tuple[int, ...]:
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             return struct.unpack_from("<128f", buf, 0)
@@ -262,6 +280,7 @@ class Ipu:
         return [0.0 if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * R_REG_SIZE
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
+        self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
         buf = source.get_r_cyclic_at(cyclic_offset, R_CYCLIC_SIZE)
         return self._wide_unpack_lane_tuple(buf)
 
@@ -390,8 +409,12 @@ class Ipu:
         """Execute ldr_cyclic_mult_reg: Load with cyclic addressing into r_cyclic."""
         addr = offset + base
         if self._wide_vector_active():
+            assert index % R_CYCLIC_SIZE == 0, (
+                f"Wide-vector debug: cyclic load index must be aligned to {R_CYCLIC_SIZE}, "
+                f"got {index}"
+            )
             data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
-            self.state.regfile.set_r_cyclic_at(0, data)
+            self.state.regfile.set_r_cyclic_at(index, data)
             return
 
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
@@ -490,6 +513,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
             ra_vals = self._debug_ra_lane_vals(ra)
             rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
@@ -518,6 +542,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("fixed_cyclic_idx", fixed_cyclic_idx)
             ra_vals = self._debug_ra_lane_vals(ra)
             rb_vals = self._debug_rb_lane_vals(fixed_cyclic_idx, self.state.regfile)
             rb0 = rb_vals[0]
@@ -554,6 +579,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
             r0_vals = self._debug_ra_lane_vals(0)
             r1_vals = self._debug_ra_lane_vals(1)
             rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
@@ -564,14 +590,14 @@ class Ipu:
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 one = 1.0
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = float(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into("<f", mult_res, i * 4, float(ra_fixed) * rb_lane)
             else:
                 one = 1
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = int(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_fixed), rb_lane)
                     )
@@ -607,20 +633,21 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
             rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 scalar_f = float(cr_scalar)
                 one = 1.0
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = float(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into("<f", mult_res, i * 4, scalar_f * rb_lane)
             else:
                 one = 1
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = int(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(cr_scalar, rb_lane)
                     )
@@ -653,19 +680,20 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
             aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
             rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 one = 1.0
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = float(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into("<f", mult_res, i * 4, float(aaq_lane) * rb_lane)
             else:
                 one = 1
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i
-                    rb_lane = int(rb_vals[i]) if pos < R_CYCLIC_SIZE else one
+                    pos = cyclic_offset + i * 4
+                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(aaq_lane), rb_lane)
                     )
@@ -905,7 +933,12 @@ class Ipu:
         elif fn == POST_FN_VALUE_CR:
             cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
             cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
-            result_val = raw_result * cr_scalar
+            if fmt == "<i":
+                result_val = int(raw_result) * int(cr_scalar)
+                p = result_val & 0xFFFFFFFF
+                result_val = p - 0x100000000 if p >= 0x80000000 else p
+            else:
+                result_val = raw_result * cr_scalar
         elif fn == POST_FN_INV:
             if dtype == DType.INT8 and not self._wide_vector_active():
                 # Integer path: avoid div by zero; use float then store as float bits
@@ -916,21 +949,30 @@ class Ipu:
                 self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
                 return
             else:
-                result_val = 1.0 / raw_result if raw_result != 0 else 0.0
+                if fmt == "<i":
+                    ri = int(raw_result)
+                    result_val = 0 if ri == 0 else int(round(1.0 / float(ri)))
+                else:
+                    result_val = 1.0 / raw_result if raw_result != 0 else 0.0
         elif fn == POST_FN_INV_SQRT:
-            if dtype == DType.INT8:
+            if dtype == DType.INT8 and not self._wide_vector_active():
                 f = float(raw_result)
                 result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
                 out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
                 self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
                 return
             else:
-                result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
+                if fmt == "<i":
+                    ri = int(raw_result)
+                    result_val = (
+                        int(round(1.0 / (float(ri) ** 0.5))) if ri > 0 else 0
+                    )
+                else:
+                    result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
         else:
             result_val = raw_result
 
-        out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
-        self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+        self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_agg_first(
         self,
@@ -963,7 +1005,12 @@ class Ipu:
         elif fn == POST_FN_VALUE_CR:
             cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
             cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
-            result_val = raw_result * cr_scalar
+            if fmt == "<i":
+                result_val = int(raw_result) * int(cr_scalar)
+                p = result_val & 0xFFFFFFFF
+                result_val = p - 0x100000000 if p >= 0x80000000 else p
+            else:
+                result_val = raw_result * cr_scalar
         elif fn == POST_FN_INV:
             if dtype == DType.INT8 and not self._wide_vector_active():
                 f = float(raw_result)
@@ -972,21 +1019,30 @@ class Ipu:
                 self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
                 return
             else:
-                result_val = 1.0 / raw_result if raw_result != 0 else 0.0
+                if fmt == "<i":
+                    ri = int(raw_result)
+                    result_val = 0 if ri == 0 else int(round(1.0 / float(ri)))
+                else:
+                    result_val = 1.0 / raw_result if raw_result != 0 else 0.0
         elif fn == POST_FN_INV_SQRT:
-            if dtype == DType.INT8:
+            if dtype == DType.INT8 and not self._wide_vector_active():
                 f = float(raw_result)
                 result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
                 out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
                 self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
                 return
             else:
-                result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
+                if fmt == "<i":
+                    ri = int(raw_result)
+                    result_val = (
+                        int(round(1.0 / (float(ri) ** 0.5))) if ri > 0 else 0
+                    )
+                else:
+                    result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
         else:
             result_val = raw_result
 
-        out_bits = struct.unpack("<I", struct.pack(fmt, result_val))[0]
-        self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
+        self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
         """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).

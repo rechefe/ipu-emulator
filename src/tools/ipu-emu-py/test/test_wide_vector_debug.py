@@ -13,6 +13,7 @@ import pytest
 
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu import EmulatorError
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -179,3 +180,110 @@ bkpt;;
 
         assert run_mult("r0") == pytest.approx(2.0)
         assert run_mult("mem_bypass") == pytest.approx(198.0)
+
+
+class TestWideVectorCyclicIndex:
+    """``ldr_cyclic_mult_reg`` must honour ``index`` in wide mode (512-byte chunk)."""
+
+    def test_ldr_cyclic_nonzero_index_fp32(self) -> None:
+        zeros = struct.pack("<128f", *([0.0] * 128))
+        nines = struct.pack("<128f", *([9.0] * 128))
+        twos = struct.pack("<128f", *([2.0] * 128))
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.xmem.write_address(0x2000, zeros)
+        st.xmem.write_address(0x2200, nines)
+        st.xmem.write_address(0x1000, twos)
+        asm = """\
+set lr0 0x2000;;
+set lr1 0;;
+ldr_cyclic_mult_reg lr0 cr0 lr1;;
+set lr2 0x2200;;
+set lr3 512;;
+ldr_cyclic_mult_reg lr2 cr0 lr3;;
+set lr4 0x1000;;
+ldr_mult_reg r0 lr4 cr0;;
+set lr5 512;;
+reset_acc;;
+mult.ee r0 lr5 lr5 lr5;;
+acc.first;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        acc = st.regfile.raw("r_acc")
+        for i in range(128):
+            assert struct.unpack_from("<f", acc, i * 4)[0] == pytest.approx(18.0), f"lane {i}"
+
+
+class TestWideVectorPadding:
+    """Lanes past the r_cyclic byte window use padding (×1) in wide FP32 mode."""
+
+    def test_mult_ve_cr_fp32_boundary_padding(self) -> None:
+        # cyclic_offset=384 (aligned): lane 31 ends at byte 508; lane 32 starts at 512 → pad.
+        buf = bytearray(512)
+        for k in range(32):
+            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.regfile.set_cr(1, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
+        st.regfile.set_r_cyclic_at(0, buf)
+        asm = """\
+set lr0 384;;
+set lr1 0;;
+set lr2 0;;
+mult.ve.cr lr0 lr1 lr2 cr1;;
+reset_acc;;
+acc.first;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        mult_res = st.regfile.raw("mult_res")
+        for i in range(32):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
+        for i in range(32, 128):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
+
+
+class TestWideVectorAggInt32:
+    def test_agg_sum_inv_int32_wide(self) -> None:
+        """agg sum inv with INT32 wide lanes: 128×4 = 512 → inv rounds to int32 bits."""
+        acc = bytearray(512)
+        struct.pack_into("<128i", acc, 0, *([4] * 128))
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.regfile.set_r_acc_bytes(acc)
+        asm = """\
+agg sum inv cr0 aaq0;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        assert st.regfile.get_aaq(0) == 0  # 1/512 rounds to 0 as int32
+
+
+class TestWideVectorAlignment:
+    def test_misaligned_cyclic_offset_raises(self) -> None:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
+        st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))
+        asm = """\
+set lr0 0x1000;;
+set lr1 0x2000;;
+set lr2 0;;
+ldr_mult_reg r0 lr0 cr0;;
+ldr_cyclic_mult_reg lr1 cr0 lr2;;
+set lr3 1;;
+reset_acc;;
+mult.ee r0 lr3 lr3 lr3;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        with pytest.raises(EmulatorError, match="4-byte aligned"):
+            run_until_complete(st)
