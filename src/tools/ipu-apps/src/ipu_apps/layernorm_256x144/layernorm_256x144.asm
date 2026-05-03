@@ -25,38 +25,41 @@
 #   cr5  = TEMP_BASE     = 0x0AB00
 #   cr6  = OUTPUT_BASE   = 0x0AC00
 #   cr7  = NEG_ONES_BASE = 0x0A280
-#   cr8  = (unused)
-#   cr9  = (unused)
 #   cr15 = DType (set by harness)
 #
 # LR constants (set once at init):
 #   lr0  = 0     cyclic slot-0 index; mask_shift; const-zero for addressing
 #   lr1  = 2     tg loop limit
 #   lr2  = 8     tokens-per-batch limit
-#   lr3  = 128   γ/β row-1 offset; also γ/β boundary threshold
-#   lr4  = 16    batch loop limit
+#   lr3  = 128   γ/β row-1 offset; also γ/β boundary threshold (4A limit)
+#   lr4  = 16    4B limit (ch=128..143)
 #   lr5  = 256   data stride per channel
-#   lr6  = 143   inner loop bound (K-1)
-#   lr7  = 144   inner loop limit
+#   lr6  = 143   (unused now, kept for consistency)
+#   lr7  = 144   inner loop limit (N_CH)
 #   lr8  = 1024  output stride per channel
 #
 # LR loop variables:
 #   lr9  = tg             (0..1)
 #   lr10 = batch          (0..15)
 #   lr11 = mask_blk_off   (batch*128, running offset into MASK_BASE)
-#   lr12 = tok / mask_offset  (0..7, reused as ch_idx in step4 inner loops)
-#   lr13 = data_ptr       (offset from DATA_BASE, reset per step)
+#   lr12 = tok            (0..7, within batch; also used as mask_offset)
+#   lr13 = data_ptr       (offset from DATA_BASE)
 #   lr14 = ch_idx         (channel index within γ/β row: 0..127 or 0..15)
-#   lr15 = out_ptr        (offset from OUTPUT_BASE, used in step4)
+#   lr15 = out_ptr        (offset from OUTPUT_BASE)
 #
 # PIPELINE TIMING:
-#   Slot order: BREAK → XMEM → MULT → ACC → LR → COND
-#   "live" reads (XMEM offset): LR fires in same cycle before XMEM reads → post-LR value.
-#   "snapshot" reads (MULT operands, COND): value from start of cycle (pre-LR of same cycle).
-#   Startup offset pattern: set ptr = first_addr - stride; incr+ldr in same cycle gives first_addr.
-#   Dummy iteration pattern (matmul-style): start ch_idx = -1; first iter is harmless dummy;
-#     blt sees pre-incr ch_idx; runs 1 dummy + N real iterations, exits at snapshot = N.
-#   str_acc_reg reads out_ptr live: incr lr15 + str_acc_reg in same cycle → writes to (ch*2+tg)*512.
+#   Slot order in emulator: LR fires first, then XMEM/MULT/ACC/COND from snapshot.
+#   "snapshot" reads (XMEM offset, MULT operands, COND): value from start of cycle
+#     (before LR of same cycle).
+#   Startup: set ptr to first_addr; LR incr fires before XMEM reads snapshot → first
+#     XMEM read uses the pre-incr value = first_addr. ✓
+#
+# OUTPUT LAYOUT (interleaved tg):
+#   Row (ch*2 + tg) at OUTPUT_BASE + (ch*2+tg) * 512 bytes.
+#   str_acc_reg uses snapshot of lr15:
+#     tg=0: ch=0→offset 0, ch=1→offset 1024, ..., ch=k→offset k*1024
+#     tg=1: ch=0→offset 512, ch=1→offset 1536, ..., ch=k→offset 512+k*1024
+#   Teardown reads contiguously at 512-byte stride → correct interleaved layout.
 
 # ===========================================================================
 # ONE-TIME INITIALIZATION
@@ -94,18 +97,19 @@ token_loop:
     # STEP 1: Σx and mean
     # Accumulate masked lane t of x[ch,t] × 1.0 for ch=0..143.
     # r_cyclic[0..127] = ones throughout.
-    # Startup data ptr: tg=0 → lr13=-256, tg=1 → lr13=-128.
-    # Counter lr14: 0..143, co-incremented with lr13, blt sees pre-incr.
+    # lr13 = tg*128 (exact start for ch=0); snapshot used by XMEM.
+    # Counter lr14 (0..143); blt sees snapshot so runs 0..143 + 1 extra on 0
+    # read (harmless zero-read at ch=144).
     # =========================================================================
 
     reset_acc;;
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ONES
 
-    set lr13 -256;;
+    set lr13 0;;
     bne lr9 lr0 step1_tg1;;
     b step1_go;;
 step1_tg1:
-    set lr13 -128;;
+    set lr13 128;;
 step1_go:
     set lr14 0;;
 
@@ -113,14 +117,15 @@ step1_loop:
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc;  incr lr14 1;  blt lr14 lr7 step1_loop;;
 
     agg sum value cr0 aaq0;;   # aaq0 = Σx (raw int32 sum)
-    agg sum value cr0 aaq1;;   # aaq1 = Σx (same; low byte used differently in step 3)
+    agg sum value cr0 aaq1;;   # aaq1 = Σx (same value, used in step 4A)
 
     # =========================================================================
     # STEP 2: Σx² and E[x²]
     # Two-cycle body per channel:
-    #   Cycle A: ldr_cyclic_mult_reg x[ch,tg] (no incr, lr13 = exact address)
-    #   Cycle B: ldr_mult_reg x[ch,tg] + mult.ee (x × x = x²) + acc + incr lr13 + incr lr14 + blt
-    # lr13 set to exact tg*128 (no startup offset): same address used in both cycles.
+    #   Cycle A: ldr_cyclic_mult_reg x[ch,tg] (lr13 = exact address, snapshot)
+    #   Cycle B: ldr_mult_reg x[ch,tg] (same snapshot addr) + mult.ee (x²) + acc
+    #            + incr lr13 256 + incr lr14 1 + blt
+    # lr13 reset to exact tg*128 (snapshot used by both cycles).
     # =========================================================================
 
     reset_acc;;
@@ -134,7 +139,7 @@ step2_go:
     set lr14 0;;
 
 step2_loop_A:
-    ldr_cyclic_mult_reg lr13 cr0 lr0;;  # r_cyclic = x[ch,tg]
+    ldr_cyclic_mult_reg lr13 cr0 lr0;;  # r_cyclic = x[ch,tg] (snapshot lr13)
 
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc;  incr lr14 1;  blt lr14 lr7 step2_loop_A;;
 
@@ -181,8 +186,8 @@ step2_loop_A:
     # out[ch,t] = γ[ch] × (x[ch,t]-mean) × inv_std + β[ch]
     #
     # Per channel (11 cycles):
-    #  C1:  ldr x[ch]; incr lr13; mult.ee masked; acc.add_aaq.first aaq1
-    #       → r_acc[t] = x[ch,t] - mean
+    #  C1:  ldr x[ch]; incr lr13 256; mult.ee masked; acc.add_aaq.first aaq1
+    #       → r_acc[t] = x[ch,t] + aaq1  (= x - mean in truncated sense)
     #  C2:  aaq  // TODO(fp8_aaq)
     #  C3:  xmem.store_aaq_result → TEMP_BASE+0  (truncation #3)
     #  C4:  ldr_cyclic TEMP_BASE; mult.ve.aaq aaq3; acc.first
@@ -195,40 +200,42 @@ step2_loop_A:
     #  C9:  ldr_cyclic β row
     # C10:  ldr ones; mult.ev β[ch_idx]; acc
     #       → r_acc[t] += β[ch]
-    # C11:  incr lr14 1; incr lr15 1024; str_acc_reg lr15 cr6; blt lr14 limit loop
-    #       str_acc_reg reads lr15 live (post-incr) → writes (ch*2+tg)*512 from OUTPUT_BASE
-    #       blt sees pre-incr lr14 → dummy+128 real for 4A, dummy+16 real for 4B
+    # C11:  incr lr14 1; incr lr15 lr8; str_acc_reg lr15 cr6; blt lr14 limit loop
+    #       str_acc_reg uses snapshot lr15 → writes correct row offset
+    #       blt uses snapshot lr14 → runs for snapshots 0..limit-1
     #
-    # Startup offset pattern: lr14=-1 (dummy ch_idx), 1 harmless dummy then N real iterations.
-    # Dummy: lr14=-1 → mult.ev reads r_cyclic[511]=0 (harmless); str_acc_reg to ch=-1 slot
-    #        (will be overwritten by real ch=0). lr13 reads zeros before DATA_BASE.
+    # No dummy iteration: lr14=0, lr13=data_start, lr15=output_start (both tg variants).
+    # str_acc_reg snapshot for ch=k: lr15 = output_start + k*1024.
+    #   tg=0: start=0,     ch=k → offset k*1024 → row 2k   ✓
+    #   tg=1: start=512,   ch=k → offset 512+k*1024 → row 2k+1 ✓
+    # mult.ev uses snapshot lr14 = ch_idx = k ✓
     #
     # Sub-loop 4A: ch=0..127, γ/β row 0 (cr1/cr2), limit lr3=128.
-    # Sub-loop 4B: ch=128..143, γ/β row 1 (cr1+lr3/cr2+lr3), limit lr4=16.
+    # Sub-loop 4B: ch=128..143, γ/β row 1 at offset lr3=128, limit lr4=16.
     # lr13 and lr15 continue from 4A into 4B without reset.
     # =========================================================================
 
     # Initialize data and output ptrs for step4
-    set lr13 -256;;
+    set lr13 0;;
     bne lr9 lr0 step4_tg1;;
     b step4_go;;
 step4_tg1:
-    set lr13 -128;;
+    set lr13 128;;
 step4_go:
-    set lr15 -1024;;
+    set lr15 0;;
     bne lr9 lr0 step4_out_tg1;;
     b step4_out_go;;
 step4_out_tg1:
-    set lr15 -512;;
+    set lr15 512;;
 step4_out_go:
 
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # r_cyclic = ones (for Phase A of first ch)
 
     # ---- Sub-loop 4A: ch = 0..127 ----
-    set lr14 -1;;   # dummy ch_idx startup
+    set lr14 0;;
 
 step4A_loop:
-    # C1: x[ch,t] - mean
+    # C1: x[ch,t] + aaq1 (= x - mean)
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc.add_aaq.first aaq1;;
     # C2-C3: aaq → store (x-mean) // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
     aaq;;
@@ -243,7 +250,7 @@ step4A_loop:
     # C7: load γ row 0
     ldr_cyclic_mult_reg lr0 cr1 lr0;;
 
-    # C8: normalized × γ[ch_idx]  (snapshot(lr14) = ch_idx)
+    # C8: normalized × γ[ch_idx]  (snapshot lr14 = ch_idx = k)
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ev mem_bypass lr14 lr12 lr0;  acc.first;;
 
     # C9: load β row 0
@@ -252,15 +259,15 @@ step4A_loop:
     # C10: ones × β[ch_idx]; acc
     ldr_mult_reg mem_bypass lr0 cr4;  mult.ev mem_bypass lr14 lr12 lr0;  acc;;
 
-    # C11: advance, store, branch  (lr3=128: dummy + 128 real iters = 129 total)
+    # C11: advance ptrs, store row, branch  (lr3=128: runs for snapshots 0..127)
     incr lr14 1;  incr lr15 1024;  str_acc_reg lr15 cr6;  blt lr14 lr3 step4A_loop;;
 
     # ---- Sub-loop 4B: ch = 128..143 ----
-    # lr13 and lr15 continue from 4A
-    set lr14 -1;;   # reset ch_idx for row-1
+    # lr13 and lr15 continue from 4A; reset ch_idx to 0 for row-1 indexing
+    set lr14 0;;
 
 step4B_loop:
-    # C1: x[ch,t] - mean
+    # C1: x[ch,t] + aaq1 (= x - mean)
     ldr_mult_reg mem_bypass lr13 cr0;  incr lr13 256;  mult.ee mem_bypass lr0 lr12 lr0;  acc.add_aaq.first aaq1;;
     # C2-C3: aaq → store (x-mean) // TODO(fp8_aaq): replace aaq with aaq fp8_e4m3
     aaq;;
@@ -272,32 +279,32 @@ step4B_loop:
     aaq;;
     xmem.store_aaq_result lr0 cr5;;
 
-    # C7: load γ row 1 (GAMMA_BASE+128)
+    # C7: load γ row 1 (GAMMA_BASE + 128)
     ldr_cyclic_mult_reg lr3 cr1 lr0;;   # lr3=128
 
-    # C8: normalized × γ[ch_idx]
+    # C8: normalized × γ[128+ch_idx]  (snapshot lr14 = row-1 ch_idx = 0..15)
     ldr_mult_reg mem_bypass lr0 cr5;  mult.ev mem_bypass lr14 lr12 lr0;  acc.first;;
 
-    # C9: load β row 1 (BETA_BASE+128)
+    # C9: load β row 1 (BETA_BASE + 128)
     ldr_cyclic_mult_reg lr3 cr2 lr0;;   # lr3=128
 
-    # C10: ones × β[ch_idx]; acc
+    # C10: ones × β[128+ch_idx]; acc
     ldr_mult_reg mem_bypass lr0 cr4;  mult.ev mem_bypass lr14 lr12 lr0;  acc;;
 
-    # C11: advance, store, branch  (lr4=16: dummy + 16 real iters = 17 total)
+    # C11: advance, store, branch  (lr4=16: runs for snapshots 0..15)
     incr lr14 1;  incr lr15 1024;  str_acc_reg lr15 cr6;  blt lr14 lr4 step4B_loop;;
 
     # =======================================================================
-    # END OF TOKEN: advance tok counter
+    # END OF TOKEN: advance tok counter; restore ones in r_cyclic for next token
     # =======================================================================
     ldr_cyclic_mult_reg lr0 cr4 lr0;;   # restore ones in r_cyclic for next token step1
 
     incr lr12 1;;
-    blt lr12 lr2 token_loop;;       # lr2=8; blt sees pre-incr tok; runs for tok=0..7
+    blt lr12 lr2 token_loop;;       # lr2=8; runs for snapshots 0..7 (8 tokens/batch)
 
     # Advance batch: increment batch counter and mask block offset
     incr lr10 1;  incr lr11 128;;
-    blt lr10 lr4 batch_loop;;       # lr4=16; runs for batch=0..15
+    blt lr10 lr4 batch_loop;;       # lr4=16; runs for batches 0..15
 
     # Advance tg: reset mask offset, increment tg counter
     set lr11 0;;
