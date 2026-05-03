@@ -408,6 +408,9 @@ class Ipu:
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
         """Execute ldr_cyclic_mult_reg: Load with cyclic addressing into r_cyclic."""
         addr = offset + base
+        assert index % R_REG_SIZE == 0, (
+            f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {index}"
+        )
         if self._wide_vector_active():
             assert index % R_CYCLIC_SIZE == 0, (
                 f"Wide-vector debug: cyclic load index must be aligned to {R_CYCLIC_SIZE}, "
@@ -418,9 +421,6 @@ class Ipu:
             return
 
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
-        assert index % R_REG_SIZE == 0, (
-            f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {index}"
-        )
         self.state.regfile.set_r_cyclic_at(index, data)
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
