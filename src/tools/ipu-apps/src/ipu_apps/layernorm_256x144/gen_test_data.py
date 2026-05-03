@@ -9,6 +9,10 @@ The 5 aaq truncation points are marked TODO(fp8_aaq).
 
 Output layout: (N_CH*N_TG) rows × N_TPG int32 words = 512 bytes/row.
   Row index for (ch, tg) = ch*2 + tg.
+  Only word 7 (lane 7) of each row is non-zero; all others are 0.
+  This matches assembly behavior: step4 runs inside the token loop and
+  str_acc_reg overwrites all 512 bytes each iteration, leaving only the
+  last token's lane (global_tok=127 → lr12=7 → lane=7) non-zero.
 """
 
 from __future__ import annotations
@@ -145,43 +149,46 @@ def _reference_layernorm(
             aaq3[t] = _agg_sum_inv_sqrt_int8([var_t if i == t else 0 for i in range(N_TPG)])
 
         # ----------------------------------------------------------------
-        # Step 4: per-channel affine, all N_TPG tokens in SIMD
-        # Dummy iteration (ch_idx=-1) writes to the ch=0 output row and is
-        # overwritten by the real ch=0 pass — skip it in the reference.
+        # Step 4: per-channel affine
+        #
+        # Assembly runs step4 INSIDE the token loop: for each token (batch, tok)
+        # it writes str_acc_reg (all 512 bytes) for every channel, with only
+        # SIMD lane=tok non-zero (mask in mult.ee/mult.ve.aaq/mult.ev).
+        # Each subsequent token overwrites all channel rows, so after all 128
+        # tokens only the last token's lane survives.
+        #
+        # Last token: batch=15, tok=7 → lr12=7 → lane 7 is non-zero everywhere.
+        # aaq1/aaq3 registers hold last token's values (no reset between tokens).
+        # Use aaq1[N_TPG-1] and aaq3[N_TPG-1]; write only at lane position 7.
         # ----------------------------------------------------------------
+        last_t    = N_TPG - 1          # global token 127 → lr12 = 7, SIMD lane = 7
+        lane      = last_t % 8         # = 7
+        last_aaq1 = aaq1[last_t]
+        last_aaq3 = aaq3[last_t]
+
         for ch in range(N_CH):
-            # Phase A: x[ch,t]-mean, per token t (mask isolates lane t)
+            # Phase A: x[ch, lane] − mean  (last token's mean scalar)
             # aaq truncation #3 // TODO(fp8_aaq)
-            temp_a = [0] * N_TPG
-            for t in range(N_TPG):
-                prod  = ipu_mult(x_at(ch, t), one, DTYPE)
-                # acc.add_aaq.first aaq1[t]: r_acc[t] = prod + aaq1[t] (raw uint32)
-                c1    = ipu_add(prod, aaq1[t], DTYPE)
-                temp_a[t] = _aaq_quantize(c1)
+            prod_a = ipu_mult(x_at(ch, lane), one, DTYPE)
+            c1     = ipu_add(prod_a, last_aaq1, DTYPE)
+            temp_a = _aaq_quantize(c1)
 
-            # Phase B: (x-mean) × inv_std, per token t
-            # mult.ve.aaq aaq3[t]: scalar=aaq3[t]&0xFF × r_cyclic[t]=temp_a[t]; mask → lane t
+            # Phase B: (x-mean) × inv_std  (last token's inv_std scalar)
             # aaq truncation #4 // TODO(fp8_aaq)
-            temp_b = [0] * N_TPG
-            for t in range(N_TPG):
-                prod   = _mult_ve_aaq(aaq3[t], temp_a[t])
-                temp_b[t] = _aaq_quantize(prod)
+            prod_b = _mult_ve_aaq(last_aaq3, temp_a)
+            temp_b = _aaq_quantize(prod_b)
 
-            # Phase C: normalized × γ[ch], per token t
-            # mult.ev: ra=TEMP_BASE(=temp_b), fixed_cyclic_idx=ch_idx → scalar=γ[ch_idx]=γ[ch]
-            # result[i] = ipu_mult(temp_b[i], γ[ch]); mask → only lane t survives
+            # Phase C: normalized × γ[ch]
             gam_ch = gamma_bytes[ch]
-            acc_c  = [ipu_mult(temp_b[t], gam_ch, DTYPE) for t in range(N_TPG)]
+            acc_c  = ipu_mult(temp_b, gam_ch, DTYPE)
 
-            # Phase D: ones × β[ch], per token t; acc
+            # Phase D: ones × β[ch]; acc
             bet_ch = beta_bytes[ch]
-            acc_d  = [ipu_add(acc_c[t], ipu_mult(one, bet_ch, DTYPE), DTYPE)
-                      for t in range(N_TPG)]
+            acc_d  = ipu_add(acc_c, ipu_mult(one, bet_ch, DTYPE), DTYPE)
 
-            # str_acc_reg stores all N_TPG int32 words for this (ch, tg) row
+            # str_acc_reg writes 512 bytes; only lane `lane` is non-zero.
             out_row = ch * 2 + tg
-            for t in range(N_TPG):
-                struct.pack_into("<i", output, (out_row * N_TPG + t) * 4, acc_d[t])
+            struct.pack_into("<i", output, (out_row * N_TPG + lane) * 4, acc_d)
 
     return bytes(output)
 
