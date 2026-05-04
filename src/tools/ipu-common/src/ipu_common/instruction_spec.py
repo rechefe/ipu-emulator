@@ -145,14 +145,14 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
 }
 
 # How many times each slot appears in the VLIW instruction word.
-# Most slots appear once; LR appears twice (two independent sub-instructions).
+# Most slots appear once; LR appears three times (three independent sub-instructions).
 SLOT_COUNT: dict[str, int] = {
     "break": 1,
     "xmem": 1,
     "mult": 1,
     "acc": 1,
     "aaq": 1,
-    "lr": 2,
+    "lr": 3,
     "cond": 1,
 }
 

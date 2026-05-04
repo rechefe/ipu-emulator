@@ -128,6 +128,46 @@ bkpt;;
 
 
 # ============================================================================
+# Three LR sub-slots per VLIW (SLOT_COUNT["lr"] == 3)
+# ============================================================================
+
+
+class TestThreeLrSlots:
+    def test_three_lr_instructions_parallel(self):
+        """Three independent LR ops may execute in the same cycle."""
+        state = _run(
+            """\
+set lr0 1; set lr1 2; set lr2 3;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(0) == 1
+        assert state.regfile.get_lr(1) == 2
+        assert state.regfile.get_lr(2) == 3
+
+    def test_fourth_lr_instruction_rejected(self):
+        from ipu_as.compound_inst import CompoundInst
+        from ipu_as.lark_tree import parse
+
+        ast = parse("set lr0 1; set lr1 2; set lr2 3; set lr3 4;;")
+        with pytest.raises(ValueError, match="Too many instructions of type LrInst"):
+            CompoundInst(ast[0])
+
+    def test_decode_three_lr_sub_slots(self):
+        """Assemble → decode exposes lr_inst_0, lr_inst_1, lr_inst_2."""
+        encoded = assemble("set lr4 10; set lr5 20; set lr6 30;;\nbkpt;;")
+        assert len(encoded) == 2
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        assert d["lr_inst_0_token_1_lr_reg_field"] == 4
+        assert d["lr_inst_0_token_4_lr_immediate_type"] == 10
+        assert d["lr_inst_1_token_1_lr_reg_field"] == 5
+        assert d["lr_inst_1_token_4_lr_immediate_type"] == 20
+        assert d["lr_inst_2_token_1_lr_reg_field"] == 6
+        assert d["lr_inst_2_token_4_lr_immediate_type"] == 30
+
+
+# ============================================================================
 # Memory Operations
 # ============================================================================
 

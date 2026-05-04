@@ -71,7 +71,7 @@ class CompoundInst:
             "lr": inst.LrInst,
             "cond": inst.CondInst,
         }
-        # Order defines bit layout: break, xmem, mult, acc, aaq, lr(×N), cond
+        # Order defines bit layout: break, xmem, mult, acc, aaq, lr(×N), cond (N = SLOT_COUNT["lr"])
         _slot_order = ["break", "xmem", "mult", "acc", "aaq", "lr", "cond"]
         result = []
         for slot in _slot_order:
