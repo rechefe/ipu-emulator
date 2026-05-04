@@ -104,7 +104,7 @@ _SLOT_FIELD_PREFIX = {
     "aaq": "aaq_inst",
     "cond": "cond_inst",
     "break": "break_inst",
-    # LR is special: "lr_inst_0" and "lr_inst_1"
+    # LR is special: "lr_inst_0", "lr_inst_1", ... (count from SLOT_COUNT["lr"])
 }
 
 
@@ -138,7 +138,7 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
 
     Returns a dict keyed by:
       (slot_type, inst_name)       — for non-LR slots
-      ("lr", inst_name, slot_idx)  — for LR sub-slots (0 and 1)
+      ("lr", inst_name, slot_idx)  — for LR sub-slots (0 .. SLOT_COUNT["lr"]-1)
     """
     result: dict[tuple, dict[str, str]] = {}
 
@@ -459,10 +459,10 @@ class Ipu:
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
 
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
-        """Dispatch both LR sub-slots with conflict detection.
+        """Dispatch all LR sub-slots with conflict detection.
 
-        LR is special: the VLIW word contains TWO LR sub-instructions
-        (lr_inst_0 and lr_inst_1). Each is dispatched independently
+        LR is special: the VLIW word contains multiple LR sub-instructions
+        (lr_inst_0, lr_inst_1, …). Each is dispatched independently
         with named operands. Read operands are auto-resolved to values.
         """
         pending: list[tuple[str, str, dict[str, int]]] = []
@@ -1232,7 +1232,7 @@ class Ipu:
             return BreakResult.BREAK
 
         # Execute all other slots using the snapshot
-        self._dispatch_lr_slots(inst)  # LR has dual sub-slots
+        self._dispatch_lr_slots(inst)  # LR has multiple sub-slots
         self.dispatch_instruction("xmem", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
