@@ -13,23 +13,28 @@ vector for output. It produces:
 
 ```mermaid
 flowchart LR
-    ACC(["r_acc\n128x32"]):::blue
-    OUT(["aaq_result\n128x8"]):::blue
+    mult_stage:::blue
+    acc_stage:::blue
+    ACC(["r_acc 128x32bit"]):::blue
+    OUT(["aaq_result 128x8bit||12bit metadata "]):::blue
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
-    RED["Reduce\nsum / max"]:::teal
-    AGG["Sum_acc\nX Max"]:::teal
+    RED["adder tree / max tree"]:::teal
     PFN["Post_func"]:::teal
-    RF["RF 4x32 bit\naaq0-aaq3\nshadow regs 17/18 bits"]:::teal
+    RF["RF regs 4x32bit aaq0-aaq3 with shadow regs 17/18 bits"]:::teal
 
     ACC -->|128x32| ACT
     ACC -->|128x32| RED
-    ACT --> QUANT
+    ACT -->|128x32| QUANT
+    ACT --> |128x32| RED
     QUANT -->|128x8| OUT
-    RED --> AGG
-    AGG --> PFN
+    mult_stage --> |128x32| acc_stage
+    acc_stage --> |128x32| ACC
+    RED --> PFN
     PFN -->|FP32| RF
-    RF -.->|feedback| AGG
+    RF -.->|feedback 32bit| RED
+    RF -.->|feedback 17/18 bit| mult_stage
+    RF -.->|feedback 32bit| acc_stage
 
     classDef blue fill:#4a80c4,stroke:#2a5090,color:#fff
     classDef teal fill:#2e9e8c,stroke:#1a7060,color:#fff
@@ -41,16 +46,15 @@ flowchart LR
 
 | Name | Type and Direction | Description |
 |------|--------------------|-------------|
-| `r_acc` | `input logic [TBD:0]` | 128-lane accumulator (128 × 32-bit). |
+| `r_acc` | `input logic [127:0][31:0]` | 128-lane accumulator (128 × 32-bit). |
 | `aaq_regs[0..3]` | `output logic [31:0]` | Scalar AAQ register writeback (`aaq0`–`aaq3`). |
-| `aaq_result` | `output logic [1023:0]` | Quantized 128-byte output vector (INT8 or FP8, per `aaq_dtype`). |
+| `aaq_result` | `output logic [1035:0]` | Quantized output: 128 × 8-bit lanes (1024 bits) plus 12 bits of metadata. Metadata encoding is TBD. |
 | `agg_mode` | `input logic [0:0]` | Aggregation select: 0 = sum, 1 = max. |
 | `post_fn` | `input logic [1:0]` | Post-function select (see §8). |
-| `cr_idx` | `input logic [TBD:0]` | CR register index used by `value_cr` post function. |
+| `cr_idx` | `input logic [3:0]` | CR register index used by `value_cr` post function. |
 | `aaq_rf_idx` | `input logic [1:0]` | AAQ register index (0–3). |
-| `op` | `input logic [TBD:0]` | AAQ slot opcode: `aaq_nop`=0, `agg`=1, `agg.first`=2, `aaq`=3. |
-| `aaq_dtype` | `input logic [2:0]` | Target 8-bit format for `aaq`: 0=INT8, 1–7=FP8 e(x)m(7-x). |
-| `cr15_dtype` | `input logic [2:0]` | Global data type from `cr15`; governs lane interpretation for `agg`/`agg.first`. |
+| `op` | `input logic [2:0]` | AAQ slot opcode: `aaq_nop`=0, `agg`=1, `agg.first`=2, `aaq`=3. |
+| `cr15_dtype` | `input logic [2:0]` | Global data type from `cr15`; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
 
 ## 4. Parameters
 
@@ -70,10 +74,10 @@ flowchart LR
   - FP8 modes: lanes are treated as float32 values.
 - `aaq0`–`aaq3` are 32-bit registers. They store int32 or float32 bit patterns
   depending on the active data type and the post function applied (see §8).
-- `aaq_result` is 128 bytes produced only by `aaq`. Each byte holds one
-  quantized value in the format selected by the `dtype` operand: INT8 signed
-  byte, or an FP8 byte (sign + exponent + mantissa fields). It is written to
-  XMEM via `xmem.store_aaq_result`.
+- `aaq_result` is produced only by `aaq`. It contains 128 × INT8 quantized
+  values (1024 bits) plus 12 bits of metadata appended by the Quantization
+  block. The algorithmic content and encoding of the metadata are TBD. It is
+  written to XMEM via `xmem.store_aaq_result`.
 
 ## 6. Pipeline / Timing Model
 
@@ -87,73 +91,83 @@ flowchart LR
 ### 7.1 Aggregate (`agg`)
 
 ```text
-// Collect 128 lane values (int32 in INT8 mode, float32 in FP8 modes)
-values = [r_acc[i] for i in 0..127]
+// Activation: interpret each lane (int32 in INT8 mode, float32 in FP8 modes)
+values = [activation(r_acc[i]) for i in 0..127]
 
+// Adder tree / max tree (feedback from RF included in max mode)
 if agg_mode == sum:
     raw = sum(values)
 else:  // max
-    raw = max(values + [aaq[aaq_rf_idx]])  // includes previous register
+    raw = max(values + [aaq[aaq_rf_idx]])  // includes previous register via RF feedback
 
 out = post_fn(raw, cr[cr_idx])
 aaq[aaq_rf_idx] = pack32(out)
 ```
 
 Notes:
-- In `max` mode the current value of the target AAQ register is included
-  in the comparison. Use `agg.first` to avoid contamination from an
-  uninitialised register.
+- Activation applies the lane-type interpretation shared with the `aaq` quantize path.
+- In `max` mode the current value of the target AAQ register is fed back from RF into
+  the adder/max tree. Use `agg.first` to avoid contamination from an uninitialised register.
 - `pack32` stores the result as a 32-bit bit pattern (int32 or float32
   depending on the post function and dtype — see §8).
 
+**ISA Interactions** — instructions in other slots that consume `aaqN` written by `agg`:
+
+| Instruction | Slot | Operation |
+|-------------|------|-----------|
+| `mult.ve.aaq aaq_rf_idx` | MULT | Uses the low byte of `aaqN` as a fixed scalar multiplier applied to every element of the input vector. |
+| `acc.add_aaq aaq_rf_idx` | ACC | Accumulates the mult result into `r_acc` and adds `aaqN` (broadcast) to all 128 lanes. |
+| `acc.add_aaq.first aaq_rf_idx` | ACC | Resets `r_acc` to the mult result plus `aaqN`, discarding the previous accumulation. |
+| `acc.max aaq_rf_idx` | ACC | Per-lane max of `r_acc`, `mult_res`, and `aaqN`. |
+| `acc.max.first aaq_rf_idx` | ACC | Per-lane max of `mult_res` and `aaqN`; `r_acc` is ignored (first-cycle reset). |
+
 ### 7.2 Aggregate First (`agg.first`)
 
-Identical to `agg` except that `max` mode ignores the previous AAQ value:
+Identical to `agg` except that `max` mode ignores the RF feedback value:
 
 ```text
+// Activation: interpret each lane
+values = [activation(r_acc[i]) for i in 0..127]
+
 if agg_mode == sum:
-    raw = sum(r_acc[0..127])
+    raw = sum(values)
 else:  // max
-    raw = max(r_acc[0..127])  // previous aaq value NOT included
+    raw = max(values)  // RF feedback NOT included
 ```
 
 Use `agg.first` at the start of a new accumulation sequence to avoid
 reading stale data from the target register.
 
-### 7.3 Quantize (`aaq dtype`)
+**ISA Interactions** — same as `agg`; `agg.first` writes `aaqN` through the same RF writeback path and the result is consumed identically by downstream MULT and ACC instructions (see table in §7.1).
 
-The `dtype` operand selects the target 8-bit format. The encoding matches `DType`:
-0 = INT8, 1–7 = FP8 e(x)m(7-x) where x is the number of exponent bits
-(e.g. 4 = FP8_E4M3, 5 = FP8_E5M2).
+### 7.3 Quantize (`aaq`)
 
-**INT8 path** (`dtype == 0`):
+Requires INT8 mode (`cr15 == DType.INT8`). Takes no operands. Reads `r_acc`
+lanes as signed int32, truncates to the top 8 bits, clamps, and writes the
+128-byte result to `aaq_result`.
 
 ```text
-// r_acc lanes are int32
+// cr15 must be DType.INT8
 for i in 0..127:
     val            = r_acc[i]        // signed int32
     truncated      = val >> 24       // arithmetic right shift: keeps top 8 bits
     aaq_result[i]  = clamp(truncated, -128, 127)
 ```
 
-**FP8 path** (`dtype == 1..7`, i.e. e(x)m(7-x)):
-
-```text
-// r_acc lanes are float32
-exp_bits = dtype                     // 1..7
-for i in 0..127:
-    val            = r_acc[i]        // float32
-    aaq_result[i]  = float32_to_fp8(val, exp_bits)
-```
-
-`float32_to_fp8` rounds-to-nearest and clamps to the format's finite range.
-Special values (±Inf, NaN) map to the format's maximum finite magnitude.
-
 Notes:
+- The Quantization block appends 12 bits of metadata to the 1024-bit data
+  payload to form the full 1036-bit `aaq_result`. The algorithmic content
+  of this metadata is TBD.
 - `aaq_result` must be flushed to XMEM with `xmem.store_aaq_result offset base`
   before the next `aaq` overwrites it.
 - In wide-vector debug mode `aaq` is a no-op unless
   `wide_vector_quantize_output` is explicitly set (debug feature only).
+
+**ISA Interactions** — instructions in other slots that consume `aaq_result` written by `aaq`:
+
+| Instruction | Slot | Operation |
+|-------------|------|-----------|
+| `xmem.store_aaq_result offset base` | XMEM | Writes the 128-byte `aaq_result` register to XMEM at address `offset + base`. Must be issued before the next `aaq` to avoid overwrite. |
 
 ## 8. Post-Function Details
 
@@ -172,25 +186,7 @@ Important INT8-mode subtleties:
   **float32 bit pattern** is stored in the AAQ register. Software reading `aaqN` after these
   functions must reinterpret it as float32.
 
-## 9. Timing Example
-
-```mermaid
-sequenceDiagram
-    participant MULT as MULT
-    participant ACC as ACC
-    participant AAQ as AAQ
-    participant RF as RegFile
-    participant XMEM as XMEM
-
-    MULT->>ACC: mult_res
-    ACC->>RF: update r_acc
-    AAQ->>RF: read r_acc
-    AAQ->>RF: write aaqN  (agg / agg.first)
-    AAQ->>RF: write aaq_result  (aaq)
-    XMEM->>XMEM: xmem.store_aaq_result → XMEM/DRAM
-```
-
-## 10. Control and ISA Mapping
+## 9. Control and ISA Mapping
 
 The AAQ stage is driven by the AAQ slot. Opcodes are assigned by position in `instruction_spec.py`.
 
@@ -199,19 +195,8 @@ The AAQ stage is driven by the AAQ slot. Opcodes are assigned by position in `in
 | 0 | `aaq_nop` | — | No operation. |
 | 1 | `agg` | `agg_mode post_fn cr_idx aaq_rf_idx` | Aggregate with current AAQ value (max) or sum; apply post function. |
 | 2 | `agg.first` | `agg_mode post_fn cr_idx aaq_rf_idx` | Like `agg` but ignores previous AAQ value in max mode. |
-| 3 | `aaq` | `dtype` | Quantize `r_acc` into `aaq_result` using the target 8-bit format. INT8: int32>>24 clamped. FP8 e(x)m(7-x): float32→FP8. |
+| 3 | `aaq` | — | Quantize `r_acc` (128 × int32) into `aaq_result` (128 × INT8). Requires INT8 mode. Each lane: `clamp(r_acc[i] >> 24, -128, 127)`. |
 
-Related instructions in other slots that read/write AAQ registers:
-
-| Instruction | Slot | Description |
-|-------------|------|-------------|
-| `mult.ve.aaq aaq_rf_idx` | MULT | Use low byte of `aaqN` as the fixed scalar multiplier. |
-| `acc.add_aaq aaq_rf_idx` | ACC | Accumulate mult result and add `aaqN` to all 128 lanes. |
-| `acc.add_aaq.first aaq_rf_idx` | ACC | Reset accumulator to mult result plus `aaqN`. |
-| `acc.max aaq_rf_idx` | ACC | Per-lane max of `r_acc`, `mult_res`, and `aaqN`. |
-| `acc.max.first aaq_rf_idx` | ACC | Per-lane max of `mult_res` and `aaqN` (ignores `r_acc`). |
-| `xmem.store_aaq_result offset base` | XMEM | Write 128-byte `aaq_result` to XMEM at `offset + base`. |
-
-Opcode and operand encodings are the single source of truth in
+ISA interactions for each operation are described in §7. Opcode and operand encodings are the single source of truth in
 `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and must stay in
 sync with the emulator and assembler.
