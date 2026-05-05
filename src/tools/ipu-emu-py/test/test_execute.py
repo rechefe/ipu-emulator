@@ -195,6 +195,12 @@ bkpt;;
         run_until_complete(state)
         assert state.regfile.get_lr(0) == (3 + 0xFFFFFFFE) & 7
 
+    def test_k_encoded_four_bits(self):
+        """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
+        encoded = assemble("incr_mod_pow2 lr0 lr1 9;; bkpt;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 8
+
     def test_assembler_rejects_k_out_of_range(self):
         with pytest.raises(ValueError, match=r"incr_mod_pow2 k operand"):
             CompoundInst(parse("incr_mod_pow2 lr0 lr1 0;;")[0])
@@ -236,13 +242,13 @@ bkpt;;
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 4
         assert d["lr_inst_0_token_4_lr_immediate_type"] == 10
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 1  # NOP default
+        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
         assert d["lr_inst_1_token_1_lr_reg_field"] == 5
         assert d["lr_inst_1_token_4_lr_immediate_type"] == 20
-        assert d["lr_inst_1_token_5_lr_mod_pow2_k_immediate"] == 1
+        assert d["lr_inst_1_token_5_lr_mod_pow2_k_immediate"] == 0
         assert d["lr_inst_2_token_1_lr_reg_field"] == 6
         assert d["lr_inst_2_token_4_lr_immediate_type"] == 30
-        assert d["lr_inst_2_token_5_lr_mod_pow2_k_immediate"] == 1
+        assert d["lr_inst_2_token_5_lr_mod_pow2_k_immediate"] == 0
 
 
 # ============================================================================
@@ -1116,7 +1122,7 @@ class TestDecodeRoundtrip:
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 13
         assert d["lr_inst_0_token_4_lr_immediate_type"] == 0x1000
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 1
+        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0
 
 
 # ============================================================================

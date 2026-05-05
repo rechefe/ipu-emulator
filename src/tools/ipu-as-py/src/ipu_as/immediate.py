@@ -1,16 +1,17 @@
 import lark
 
 import ipu_as.ipu_token as ipu_token
+from ipu_common.incr_mod_pow2_k import (
+    LR_MOD_POW2_K_FIELD_BITS,
+    LR_MOD_POW2_K_MAX,
+    LR_MOD_POW2_K_MIN,
+)
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
 from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
-
-# incr_mod_pow2 k operand — matches ISA (Issue #47)
-LR_MOD_POW2_K_MIN = 1
-LR_MOD_POW2_K_MAX = 9
 
 
 class LrImmediateType(ipu_token.NumberToken):
@@ -19,8 +20,12 @@ class LrImmediateType(ipu_token.NumberToken):
         return 16
 
 
-class LrModPow2KImmediate(LrImmediateType):
-    """Immediate k for incr_mod_pow2: must be in [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX] per ISA."""
+class LrModPow2KImmediate(ipu_token.IpuToken):
+    """Semantic k ∈ [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX]; encoded as (k−1) in LR_MOD_POW2_K_FIELD_BITS bits."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return LR_MOD_POW2_K_FIELD_BITS
 
     @classmethod
     def default(cls) -> "ipu_token.IpuToken":
@@ -32,11 +37,22 @@ class LrModPow2KImmediate(LrImmediateType):
 
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
         if not (LR_MOD_POW2_K_MIN <= self.int <= LR_MOD_POW2_K_MAX):
             self._raise_error(
                 f"Value {self.int} out of range [{LR_MOD_POW2_K_MIN}, {LR_MOD_POW2_K_MAX}] "
                 "for incr_mod_pow2 k operand"
             )
+
+    def encode(self) -> int:
+        return self.int - LR_MOD_POW2_K_MIN
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return str(value + LR_MOD_POW2_K_MIN)
 
 
 class BreakImmediateType(ipu_token.NumberToken):
