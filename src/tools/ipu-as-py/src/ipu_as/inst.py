@@ -27,6 +27,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "AggMode": immediate.AggModeField,
     "PostFn": immediate.PostFnField,
     "Immediate": immediate.LrImmediateType,
+    "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -426,7 +427,13 @@ class AaqInst(Inst):
 class LrInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, reg.LcrRegField, reg.LcrRegField, immediate.LrImmediateType]
+        return [
+            reg.LrRegField,
+            reg.LcrRegField,
+            reg.LcrRegField,
+            immediate.LrImmediateType,
+            immediate.LrModPow2KImmediate,
+        ]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:

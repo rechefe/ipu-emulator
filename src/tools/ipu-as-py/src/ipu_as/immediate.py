@@ -1,3 +1,5 @@
+import lark
+
 import ipu_as.ipu_token as ipu_token
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
@@ -11,6 +13,21 @@ class LrImmediateType(ipu_token.NumberToken):
     @classmethod
     def bits(cls) -> int:
         return 16
+
+
+class LrModPow2KImmediate(LrImmediateType):
+    """Immediate k for incr_mod_pow2: must be in [1, 9] per ISA."""
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "1"), 0))
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        if not (1 <= self.int <= 9):
+            self._raise_error(
+                f"Value {self.int} out of range [1, 9] for incr_mod_pow2 k operand"
+            )
 
 
 class BreakImmediateType(ipu_token.NumberToken):

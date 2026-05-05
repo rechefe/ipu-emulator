@@ -22,7 +22,9 @@ from ipu_emu.emulator import (
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.ipu_math import DType
 
-from ipu_as.lark_tree import assemble
+from ipu_as.lark_tree import assemble, parse
+
+from ipu_as.compound_inst import CompoundInst
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +130,79 @@ bkpt;;
 
 
 # ============================================================================
+# incr_mod_pow2 (Issue #47): dst <- (dst + step) mod 2^k
+# ============================================================================
+
+
+class TestIncrModPow2:
+    def test_basic_wrap_small_k(self):
+        """k=4 → mod 16; 15 + 1 wraps to 0."""
+        state = _run(
+            """\
+set lr0 15;;
+set lr1 1;;
+incr_mod_pow2 lr0 lr1 4;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(0) == 0
+
+    def test_k9_mask_511(self):
+        """k=9 → mask 511; largest legal k from spec."""
+        state = _run(
+            """\
+set lr0 500;;
+set lr1 20;;
+incr_mod_pow2 lr0 lr1 9;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(0) == (500 + 20) & 511
+
+    def test_read_before_write_same_register(self):
+        """dst and step both lr0: uses snapshot value of lr0 for the sum."""
+        state = _run(
+            """\
+set lr0 5;;
+incr_mod_pow2 lr0 lr0 3;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(0) == (5 + 5) & 7
+
+    def test_step_from_cr(self):
+        state = _make_state(
+            """\
+set lr0 2;;
+incr_mod_pow2 lr0 cr4 4;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(4, 10)
+        run_until_complete(state)
+        assert state.regfile.get_lr(0) == (2 + 10) & 15
+
+    def test_large_unsigned_step_reduces_mod_mask(self):
+        """Uint32 add before mask: step loaded from CR as full uint32."""
+        state = _make_state(
+            """\
+set lr0 3;;
+incr_mod_pow2 lr0 cr5 3;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(5, 0xFFFFFFFE)
+        run_until_complete(state)
+        assert state.regfile.get_lr(0) == (3 + 0xFFFFFFFE) & 7
+
+    def test_assembler_rejects_k_out_of_range(self):
+        with pytest.raises(ValueError, match=r"incr_mod_pow2 k operand"):
+            CompoundInst(parse("incr_mod_pow2 lr0 lr1 0;;")[0])
+        with pytest.raises(ValueError, match=r"incr_mod_pow2 k operand"):
+            CompoundInst(parse("incr_mod_pow2 lr0 lr1 10;;")[0])
+
+
+# ============================================================================
 # Three LR sub-slots per VLIW (SLOT_COUNT["lr"] == 3)
 # ============================================================================
 
@@ -161,10 +236,13 @@ bkpt;;
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 4
         assert d["lr_inst_0_token_4_lr_immediate_type"] == 10
+        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 1  # NOP default
         assert d["lr_inst_1_token_1_lr_reg_field"] == 5
         assert d["lr_inst_1_token_4_lr_immediate_type"] == 20
+        assert d["lr_inst_1_token_5_lr_mod_pow2_k_immediate"] == 1
         assert d["lr_inst_2_token_1_lr_reg_field"] == 6
         assert d["lr_inst_2_token_4_lr_immediate_type"] == 30
+        assert d["lr_inst_2_token_5_lr_mod_pow2_k_immediate"] == 1
 
 
 # ============================================================================
@@ -1038,6 +1116,7 @@ class TestDecodeRoundtrip:
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 13
         assert d["lr_inst_0_token_4_lr_immediate_type"] == 0x1000
+        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 1
 
 
 # ============================================================================

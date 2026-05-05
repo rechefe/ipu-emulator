@@ -26,7 +26,8 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIdx": lr0-lr15 (LrRegField)  
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
-  - "Immediate": 32-bit signed integer (LrImmediateType)
+  - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
+  - "LrModPow2KImmediate": k operand for incr_mod_pow2, range [1, 9]
   - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -139,7 +140,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
-    "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate"],
+    "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
@@ -276,7 +277,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: incr=0, set=1, add=2, sub=3
+    # Opcode = position: incr=0, set=1, add=2, sub=3, incr_mod_pow2=4
     # =========================================================================
     "lr": {
         "incr": {
@@ -354,6 +355,29 @@ INSTRUCTION_SPEC = {
                 example="sub lr0 lr1 lr2;;",
             ),
             "execute_fn": "execute_lr_sub",
+        },
+        "incr_mod_pow2": {
+            "operands": [
+                {"name": "dst", "type": "LrIdx"},
+                {"name": "step", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "k", "type": "LrModPow2KImmediate"},
+            ],
+            "doc": InstructionDoc(
+                title="Increment Loop Register Modulo Power of Two",
+                summary=(
+                    "Add a loop or configuration register into the destination loop "
+                    "register, then mask to k low bits (mod 2^k)."
+                ),
+                syntax="incr_mod_pow2 dst step k",
+                operands=[
+                    "dst: Destination loop register (lr0-lr15); read and written",
+                    "step: Signed 32-bit increment from lr0-lr15 or cr0-cr15",
+                    "k: Immediate in [1, 9]; mask = (1 << k) - 1",
+                ],
+                operation="dst <- (dst + step) & ((1 << k) - 1)",
+                example="incr_mod_pow2 lr2 lr3 4;;",
+            ),
+            "execute_fn": "execute_lr_incr_mod_pow2",
         },
     },
     
@@ -946,7 +970,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     Example:
         {
             "xmem": ["str_acc_reg", "ldr_mult_reg", ...],
-            "lr": ["incr", "set", "add", "sub"],
+            "lr": ["incr", "set", "add", "sub", "incr_mod_pow2"],
             ...
         }
     """
@@ -1119,7 +1143,7 @@ def validate_instruction_spec() -> None:
         "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
         "ElementsInRow", "HorizontalStride", "VerticalStride",
         "AggMode", "PostFn",
-        "Immediate", "BreakImmediate", "Label"
+        "Immediate", "LrModPow2KImmediate", "BreakImmediate", "Label"
     }
     valid_read_sources = {"snapshot", "live"}
     

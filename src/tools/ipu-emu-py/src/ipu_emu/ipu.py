@@ -92,6 +92,7 @@ _TYPE_FIELD_SUFFIX = {
     "AggMode": "agg_mode_field",
     "PostFn": "post_fn_field",
     "Immediate": "lr_immediate_type",
+    "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -457,6 +458,19 @@ class Ipu:
     def execute_lr_sub(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute sub: Subtract two LCR registers."""
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
+
+    def execute_lr_incr_mod_pow2(self, *, dst: int, step: int, k: int) -> None:
+        """incr_mod_pow2: dst <- (dst + step) mod 2^k.
+
+        Old dst is taken from the cycle-start snapshot (read-before-write). Step is
+        resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
+        k is validated at assemble time [1, 9].
+        """
+        assert self.snapshot is not None
+        cur = self.snapshot.get_lr(dst)
+        step_u = step & 0xFFFFFFFF
+        mask = (1 << k) - 1
+        self.state.regfile.set_lr(dst, ((cur + step_u) & 0xFFFFFFFF) & mask)
 
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
         """Dispatch all LR sub-slots with conflict detection.
