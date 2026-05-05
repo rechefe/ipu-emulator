@@ -8,6 +8,10 @@ from ipu_common.acc_stride_enums import (
 )
 from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 
+# incr_mod_pow2 k operand — matches ISA (Issue #47)
+LR_MOD_POW2_K_MIN = 1
+LR_MOD_POW2_K_MAX = 9
+
 
 class LrImmediateType(ipu_token.NumberToken):
     @classmethod
@@ -16,17 +20,22 @@ class LrImmediateType(ipu_token.NumberToken):
 
 
 class LrModPow2KImmediate(LrImmediateType):
-    """Immediate k for incr_mod_pow2: must be in [1, 9] per ISA."""
+    """Immediate k for incr_mod_pow2: must be in [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX] per ISA."""
 
     @classmethod
     def default(cls) -> "ipu_token.IpuToken":
-        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "1"), 0))
+        return cls(
+            ipu_token.AnnotatedToken(
+                lark.Token("NUMBER", str(LR_MOD_POW2_K_MIN)), 0
+            )
+        )
 
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
-        if not (1 <= self.int <= 9):
+        if not (LR_MOD_POW2_K_MIN <= self.int <= LR_MOD_POW2_K_MAX):
             self._raise_error(
-                f"Value {self.int} out of range [1, 9] for incr_mod_pow2 k operand"
+                f"Value {self.int} out of range [{LR_MOD_POW2_K_MIN}, {LR_MOD_POW2_K_MAX}] "
+                "for incr_mod_pow2 k operand"
             )
 
 
