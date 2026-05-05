@@ -46,6 +46,7 @@ from ipu_common.acc_agg_enums import (
     get_agg_mode,
     get_post_fn,
 )
+from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 
 # ---------------------------------------------------------------------------
@@ -464,12 +465,17 @@ class Ipu:
 
         Old dst is taken from the cycle-start snapshot (read-before-write). Step is
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
-        k is validated at assemble time [1, 9].
+        ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
         """
         assert self.snapshot is not None
+        if k > LR_MOD_POW2_K_ENCODED_MAX:
+            raise EmulatorError(
+                f"incr_mod_pow2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
+            )
+        k_exp = k + LR_MOD_POW2_K_MIN
         cur = self.snapshot.get_lr(dst)
         step_u = step & 0xFFFFFFFF
-        mask = (1 << k) - 1
+        mask = (1 << k_exp) - 1
         self.state.regfile.set_lr(dst, ((cur + step_u) & 0xFFFFFFFF) & mask)
 
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:

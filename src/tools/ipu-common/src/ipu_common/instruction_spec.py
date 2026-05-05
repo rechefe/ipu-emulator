@@ -27,7 +27,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
-  - "LrModPow2KImmediate": k operand for incr_mod_pow2, range [1, 9]
+  - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -372,7 +372,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "dst: Destination loop register (lr0-lr15); read and written",
                     "step: Signed 32-bit increment from lr0-lr15 or cr0-cr15",
-                    "k: Immediate in [1, 9]; mask = (1 << k) - 1",
+                    "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dst <- (dst + step) & ((1 << k) - 1)",
                 example="incr_mod_pow2 lr2 lr3 4;;",
