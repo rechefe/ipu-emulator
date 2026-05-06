@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {{ super() }}
+  {% if history_url is defined and history_url %}
+  <p class="md-typeset" style="margin-top: 2em;">
+    <a href="{{ history_url }}">View commit history for this page on GitHub</a>
+  </p>
+  {% endif %}
+  {% include "partials/giscus.html" %}
+{% endblock %}
