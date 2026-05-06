@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch merged pull requests from GitHub and update docs/release-log.md.
+"""Fetch merged pull requests from GitHub and update docs/content/release-log.md.
 
 Usage (one-time historical backfill or full refresh):
     python docs/update_release_log.py
@@ -22,7 +22,7 @@ import json
 
 REPO = "rechefe/ipu-emulator"
 API_BASE = "https://api.github.com"
-_DEFAULT_OUTPUT = Path(__file__).parent / "release-log.md"
+_DEFAULT_OUTPUT = Path(__file__).parent / "content" / "release-log.md"
 
 HEADER = """\
 # Release Log
@@ -112,7 +112,7 @@ def main() -> None:
         "--output",
         type=Path,
         default=_DEFAULT_OUTPUT,
-        help="Path to write the generated release-log.md (default: docs/release-log.md).",
+        help="Path to write the generated release-log.md (default: docs/content/release-log.md).",
     )
     args = parser.parse_args()
 

@@ -29,7 +29,8 @@ ipu-c-samples/
 │   ├── lib/                # Core libraries (ipu, xmem, emulator, fp, logging)
 │   └── tools/              # IPU assembler and emulator tools
 ├── test/                   # Unit tests
-├── docs/                   # Documentation (this site)
+├── docs/                   # MkDocs config, hooks, overrides
+│   └── content/            # Documentation page sources (MkDocs docs_dir)
 ├── BUILD.bazel             # Root build configuration
 ├── MODULE.bazel            # Bazel module dependencies
 └── README.md               # Project README

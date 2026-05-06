@@ -1,10 +1,10 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
-# All checked-in Markdown under docs/, preserving paths (e.g. specs/*.md).
+# All checked-in Markdown under docs/content/ (MkDocs docs_dir).
 filegroup(
     name = "doc_sources",
-    srcs = glob(["**/*.md"]),
+    srcs = glob(["content/**/*.md"]),
 )
 
 py_binary(
@@ -44,6 +44,7 @@ py_binary(
     deps = [
         requirement("mkdocs"),
         requirement("mkdocs-material"),
+        requirement("mkdocs-git-revision-date-localized-plugin"),
     ],
     python_version = "PY3",
 )
@@ -55,39 +56,51 @@ genrule(
         ":doc_sources",
         ":generate_instruction_docs",
         ":generate_release_log",
+        "hooks/giscus_env.py",
+        "hooks/history_link.py",
+        "overrides/main.html",
+        "overrides/partials/giscus.html",
     ],
     outs = ["site.tar"],
-    tags = ["docs"],
+    tags = ["docs", "no-sandbox"],
     cmd = """
-        # Create temp directory structure
-        mkdir -p $(@D)/docs_temp/docs
-        
-        # Copy mkdocs config
+        # Temp tree mirrors the repo: mkdocs.yml + hooks/ + overrides/ + content/ (MkDocs docs_dir).
+        mkdir -p $(@D)/docs_temp/content
+        mkdir -p $(@D)/docs_temp/hooks
+        mkdir -p $(@D)/docs_temp/overrides/partials
+
+        # Copy mkdocs config and theme overrides (symlinks would break hook imports)
         cp $(location mkdocs.yml) $(@D)/docs_temp/
-        
-        # Copy source markdown files, preserving subdirectories (nav paths may be nested).
+        cp $(location hooks/giscus_env.py) $(@D)/docs_temp/hooks/giscus_env.py
+        cp $(location hooks/history_link.py) $(@D)/docs_temp/hooks/history_link.py
+        cp $(location overrides/main.html) $(@D)/docs_temp/overrides/main.html
+        cp $(location overrides/partials/giscus.html) $(@D)/docs_temp/overrides/partials/giscus.html
+
+        # Symlink Markdown sources into content/ so git-based plugins resolve real repo paths.
+        ORIGDIR=$$PWD
         for src in $(locations :doc_sources); do
             case "$$src" in
-                */docs/*) rel="$${src#*/docs/}" ;;
-                docs/*) rel="$${src#docs/}" ;;
+                */docs/content/*) rel="$${src#*/docs/content/}" ;;
+                docs/content/*) rel="$${src#docs/content/}" ;;
                 *) rel="$$(basename "$$src")" ;;
             esac
-            mkdir -p "$$(dirname "$(@D)/docs_temp/docs/$$rel")"
-            cp "$$src" "$(@D)/docs_temp/docs/$$rel"
+            mkdir -p "$$(dirname "$(@D)/docs_temp/content/$$rel")"
+            case "$$src" in
+                /*) abssrc="$$src" ;;
+                *) abssrc="$$ORIGDIR/$$src" ;;
+            esac
+            ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
-        
-        # Copy generated instruction docs
-        cp $(location :generate_instruction_docs) $(@D)/docs_temp/docs/
-        
-        # Copy generated release log
-        cp $(location :generate_release_log) $(@D)/docs_temp/docs/
-        
-        # Build with mkdocs
-        ORIGDIR=$$PWD
+
+        # Generated pages live under the output tree only; link them into docs_dir.
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_docs)" "$(@D)/docs_temp/content/instructions.md"
+        ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
+
+        # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
         cd $(@D)/docs_temp
         $$ORIGDIR/$(location :mkdocs) build --site-dir $$ORIGDIR/$(@D)/site_output
         cd $$ORIGDIR
-        
+
         # Package output
         tar -cf $@ -C $(@D)/site_output .
     """,

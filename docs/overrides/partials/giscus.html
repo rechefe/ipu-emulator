@@ -1,0 +1,21 @@
+{% set g = (config.extra.get("giscus", {}) if config.extra is defined else {}) %}
+{% if g.get("repo") and g.get("repo_id") and g.get("category_id") %}
+<div class="giscus-container md-typeset" style="margin-top: 2rem;">
+  <h2 id="comments">Comments</h2>
+  <script src="https://giscus.app/client.js"
+          data-repo="{{ g.repo }}"
+          data-repo-id="{{ g.repo_id }}"
+          data-category="{{ g.category | default('Announcements') }}"
+          data-category-id="{{ g.category_id }}"
+          data-mapping="{{ g.mapping | default('pathname') }}"
+          data-strict="{{ g.strict | default('0') }}"
+          data-reactions-enabled="{{ g.reactions_enabled | default('1') }}"
+          data-emit-metadata="{{ g.emit_metadata | default('0') }}"
+          data-input-position="{{ g.input_position | default('bottom') }}"
+          data-theme="{{ g.theme | default('preferred_color_scheme') }}"
+          data-lang="{{ g.lang | default('en') }}"
+          crossorigin="anonymous"
+          async>
+  </script>
+</div>
+{% endif %}
