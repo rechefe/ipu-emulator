@@ -57,6 +57,9 @@ nav:
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
       - Instruction Reference: instructions.md
+  - Specs:
+      - Cache Unit Specification: specs/cache-unit.md
+      - IPU Specification: specs/Stage-aaq.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition
