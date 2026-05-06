@@ -56,6 +56,7 @@ genrule(
         ":doc_sources",
         ":generate_instruction_docs",
         ":generate_release_log",
+        "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
         "overrides/partials/giscus.html",
@@ -70,6 +71,7 @@ genrule(
 
         # Copy mkdocs config and theme overrides (symlinks would break hook imports)
         cp $(location mkdocs.yml) $(@D)/docs_temp/
+        cp $(location hooks/giscus_env.py) $(@D)/docs_temp/hooks/giscus_env.py
         cp $(location hooks/history_link.py) $(@D)/docs_temp/hooks/history_link.py
         cp $(location overrides/main.html) $(@D)/docs_temp/overrides/main.html
         cp $(location overrides/partials/giscus.html) $(@D)/docs_temp/overrides/partials/giscus.html

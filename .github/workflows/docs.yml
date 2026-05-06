@@ -41,6 +41,15 @@ jobs:
           sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
       
       - name: Build documentation with Bazel
+        env:
+          # From giscus.app — add as repository Secrets (Settings → Secrets and variables → Actions).
+          GISCUS_REPO_ID: ${{ secrets.GISCUS_REPO_ID }}
+          GISCUS_CATEGORY_ID: ${{ secrets.GISCUS_CATEGORY_ID }}
+          GISCUS_REPO: ${{ vars.GISCUS_REPO }}
+          GISCUS_CATEGORY: ${{ vars.GISCUS_CATEGORY }}
+          GISCUS_MAPPING: ${{ vars.GISCUS_MAPPING }}
+          GISCUS_THEME: ${{ vars.GISCUS_THEME }}
+          GISCUS_LANG: ${{ vars.GISCUS_LANG }}
         run: |
           bazel build //docs:build_docs
           mkdir -p site

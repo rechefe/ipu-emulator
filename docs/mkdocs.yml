@@ -8,6 +8,7 @@ repo_name: rechefe/ipu-emulator
 edit_uri: edit/master/docs/
 
 hooks:
+  - hooks/giscus_env.py
   - hooks/history_link.py
 
 plugins:
@@ -105,8 +106,9 @@ markdown_extensions:
 
 extra:
   docs_git_branch: master
-  # Inline comments via GitHub Discussions (https://giscus.app). Enable Discussions on the
-  # repo, run the giscus setup wizard, then paste repo_id and category_id below.
+  # giscus: set repo_id + category_id from https://giscus.app (Discussions must be on).
+  # CI: add repository secrets GISCUS_REPO_ID and GISCUS_CATEGORY_ID (optional: GISCUS_CATEGORY, …).
+  # Local: export the same env vars before `mkdocs build` or `bazel build //docs:build_docs`.
   giscus:
     repo: rechefe/ipu-emulator
     repo_id: ""
