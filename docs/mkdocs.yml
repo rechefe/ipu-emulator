@@ -1,15 +1,8 @@
 site_name: IPU Emulator
 site_description: Documentation for IPU emulator and assembly language
 site_author: IPU Development Team
-# Markdown and mkdocs.yml live in the same directory (local dev and Bazel build tree).
-docs_dir: .
-# Keep tooling and theme overrides out of the published site tree.
-exclude_docs: |
-  hooks/
-  overrides/
-  BUILD.bazel
-  *.py
-  mkdocs.yml
+# Markdown lives under content/ (MkDocs requires docs_dir to be a subdirectory of the project).
+docs_dir: content
 repo_url: https://github.com/rechefe/ipu-emulator
 repo_name: rechefe/ipu-emulator
 edit_uri: edit/master/docs/

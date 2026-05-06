@@ -37,7 +37,7 @@ src/tools/
 │   └── debug_cli.py              # Interactive debugger
 └── ipu-apps/src/ipu_apps/        # Sample applications
     └── fully_connected/          # FC neural network layer example
-docs/                             # MkDocs documentation
+docs/                             # MkDocs (config + content/ page sources)
 ```
 
 ---

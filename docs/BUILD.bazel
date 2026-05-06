@@ -1,10 +1,10 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
-# All checked-in Markdown under docs/, preserving paths (e.g. specs/*.md).
+# All checked-in Markdown under docs/content/ (MkDocs docs_dir).
 filegroup(
     name = "doc_sources",
-    srcs = glob(["**/*.md"]),
+    srcs = glob(["content/**/*.md"]),
 )
 
 py_binary(
@@ -63,7 +63,8 @@ genrule(
     outs = ["site.tar"],
     tags = ["docs", "no-sandbox"],
     cmd = """
-        # Create temp directory structure (flat tree: mkdocs.yml and docs_dir "." match repo layout).
+        # Temp tree mirrors the repo: mkdocs.yml + hooks/ + overrides/ + content/ (MkDocs docs_dir).
+        mkdir -p $(@D)/docs_temp/content
         mkdir -p $(@D)/docs_temp/hooks
         mkdir -p $(@D)/docs_temp/overrides/partials
 
@@ -73,25 +74,25 @@ genrule(
         cp $(location overrides/main.html) $(@D)/docs_temp/overrides/main.html
         cp $(location overrides/partials/giscus.html) $(@D)/docs_temp/overrides/partials/giscus.html
 
-        # Symlink Markdown sources into the build tree so git-based plugins resolve real paths.
+        # Symlink Markdown sources into content/ so git-based plugins resolve real repo paths.
         ORIGDIR=$$PWD
         for src in $(locations :doc_sources); do
             case "$$src" in
-                */docs/*) rel="$${src#*/docs/}" ;;
-                docs/*) rel="$${src#docs/}" ;;
+                */docs/content/*) rel="$${src#*/docs/content/}" ;;
+                docs/content/*) rel="$${src#docs/content/}" ;;
                 *) rel="$$(basename "$$src")" ;;
             esac
-            mkdir -p "$$(dirname "$(@D)/docs_temp/$$rel")"
+            mkdir -p "$$(dirname "$(@D)/docs_temp/content/$$rel")"
             case "$$src" in
                 /*) abssrc="$$src" ;;
                 *) abssrc="$$ORIGDIR/$$src" ;;
             esac
-            ln -sfn "$$abssrc" "$(@D)/docs_temp/$$rel"
+            ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages live under the output tree only; link them in.
-        ln -sfn "$$ORIGDIR/$(location :generate_instruction_docs)" "$(@D)/docs_temp/instructions.md"
-        ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/release-log.md"
+        # Generated pages live under the output tree only; link them into docs_dir.
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_docs)" "$(@D)/docs_temp/content/instructions.md"
+        ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
 
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
         cd $(@D)/docs_temp
