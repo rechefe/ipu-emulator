@@ -207,7 +207,7 @@ flowchart TD
 
 `post_fn` is applied to the aggregated FP32 scalar `raw` before writing to the AAQ register. All post functions take a single FP32 input and produce a float32 result.
 
-| Encoding | Name | Formula | Edge case |
+| Encoding | Name | Formula | Corner case |
 |----------|------|---------|-----------|
 | 0 | `identity` | `x` | — |
 | 1 | `value_cr` | `x * cr[cr_idx]` | — |
