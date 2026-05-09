@@ -389,13 +389,13 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_xmem_nop(self) -> None:
-        """Execute xmem_nop: No operation."""
+        """Execute XMEM_NOP: No operation."""
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
-        """Execute str_acc_reg: Store accumulator to memory (debug only)."""
+        """Execute STR_ACC_REG: Store accumulator to memory (debug only)."""
         warnings.warn(
-            "[DEBUG ONLY] str_acc_reg is not a hardware instruction and is available "
+            "[DEBUG ONLY] STR_ACC_REG is not a hardware instruction and is available "
             "for emulator debugging purposes only",
             stacklevel=2,
         )
@@ -404,10 +404,10 @@ class Ipu:
         self.state.xmem.write_address(addr, acc_data)
 
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
-        """Execute ldr_mult_reg: Load data from memory into a mult stage register."""
+        """Execute LDR_MULT_REG: Load data from memory into a mult stage register."""
         if dest not in (0, 1):
             raise EmulatorError(
-                f"ldr_mult_reg: dest must be 0 (r0) or 1 (r1); got {dest}"
+                f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}"
             )
         addr = offset + base
         if self._wide_vector_active():
@@ -427,7 +427,7 @@ class Ipu:
         self.state.regfile.set_register_bytes(reg_name, elem_idx, data)
 
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
-        """Execute ldr_cyclic_mult_reg: Load with cyclic addressing into r_cyclic."""
+        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic."""
         addr = offset + base
         assert index % R_REG_SIZE == 0, (
             f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {index}"
@@ -445,7 +445,7 @@ class Ipu:
         self.state.regfile.set_r_cyclic_at(index, data)
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
-        """Execute ldr_mult_mask_reg: Load mask data from memory."""
+        """Execute LDR_MULT_MASK_REG: Load mask data from memory."""
         addr = offset + base
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
         self.state.regfile.set_r_mask(data)
@@ -462,19 +462,19 @@ class Ipu:
         return value
 
     def execute_lr_set(self, *, reg: int, value: int) -> None:
-        """Execute set: Set a loop register to an immediate value."""
+        """Execute SET: Set a loop register to an immediate value."""
         self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute add: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
+        """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
         self.state.regfile.set_lr(dest, (src_a + src_b) & 0xFFFFFFFF)
 
     def execute_lr_sub(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute sub: uint32 ``dest = src_a - src_b`` (``src_b`` may be an immediate)."""
+        """Execute SUB: uint32 ``dest = src_a - src_b`` (``src_b`` may be an immediate)."""
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
 
     def execute_lr_incr_mod_pow2(self, *, dst: int, step: int, k: int) -> None:
-        """incr_mod_pow2: dst <- (dst + step) mod 2^k.
+        """INCR_MOD_POW2: dst <- (dst + step) mod 2^k.
 
         Old dst is taken from the cycle-start snapshot (read-before-write). Step is
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
@@ -483,7 +483,7 @@ class Ipu:
         assert self.snapshot is not None
         if k > LR_MOD_POW2_K_ENCODED_MAX:
             raise EmulatorError(
-                f"incr_mod_pow2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
+                f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
             )
         k_exp = k + LR_MOD_POW2_K_MIN
         cur = self.snapshot.get_lr(dst)
@@ -544,12 +544,12 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_mult_nop(self) -> None:
-        """Execute mult_nop: No operation."""
+        """Execute MULT_NOP: No operation."""
         pass
 
     def execute_mult_ee(self, *, ra: bytearray | int, cyclic_offset: int,
                         mask_offset: int, mask_shift: int) -> None:
-        """Execute mult_ee: Element-wise multiplication."""
+        """Execute MULT.EE: Element-wise multiplication."""
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -650,7 +650,7 @@ class Ipu:
 
     def execute_mult_ve_cyclic(self, *, cyclic_offset: int,
                                mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute mult.ve.cyclic: fixed R0/R1 element × RC row with cyclic addressing."""
+        """Execute MULT.VE.CYCLIC: fixed r0/r1 element × r_cyclic row with cyclic addressing."""
         self._execute_mult_ve_variant(
             pad_128_ones=False,
             cyclic_offset=cyclic_offset,
@@ -661,7 +661,7 @@ class Ipu:
 
     def execute_mult_ve_padded(self, *, cyclic_offset: int,
                                mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute mult.ve.padded: fixed R0/R1 element × RC row with boundary padding."""
+        """Execute MULT.VE.PADDED: fixed r0/r1 element × r_cyclic row with boundary padding."""
         self._execute_mult_ve_variant(
             pad_128_ones=True,
             cyclic_offset=cyclic_offset,
@@ -672,7 +672,7 @@ class Ipu:
 
     def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
                            mask_shift: int, cr_idx: int) -> None:
-        """Execute mult.ve.cr: CR scalar x RC elements with boundary padding.
+        """Execute MULT.VE.CR: CR scalar × r_cyclic elements with boundary padding.
 
         Multiplies the low byte of CR[cr_idx] against each byte of
         RC[cyclic_offset : cyclic_offset+128]. Like mult.ve.padded, this is
@@ -719,7 +719,7 @@ class Ipu:
 
     def execute_mult_ve_aaq(self, *, cyclic_offset: int, mask_offset: int,
                             mask_shift: int, aaq_rf_idx: int) -> None:
-        """Execute mult.ve.aaq: AAQ scalar x RC elements with boundary padding.
+        """Execute MULT.VE.AAQ: AAQ scalar × r_cyclic elements with boundary padding.
 
         Multiplies the low byte of AAQ[aaq_rf_idx] against each byte of
         RC[cyclic_offset : cyclic_offset+128]. Non-cyclic: elements where
@@ -768,15 +768,15 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_acc_nop(self) -> None:
-        """Execute acc_nop: No operation."""
+        """Execute ACC_NOP: No operation."""
         pass
 
     def execute_reset_acc(self) -> None:
-        """Execute reset_acc: Reset accumulator to zero."""
+        """Execute RESET_ACC: Reset accumulator to zero."""
         self.state.regfile.set_r_acc_bytes(bytearray(R_ACC_SIZE))
 
     def execute_acc(self) -> None:
-        """Execute acc: Accumulate mult_res into accumulator."""
+        """Execute ACC: Accumulate mult_res into accumulator."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -793,7 +793,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_first(self) -> None:
-        """Execute acc.first: Set r_acc to multiply result (no previous sum)."""
+        """Execute ACC.FIRST: Set r_acc to multiply result (no previous sum)."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -804,7 +804,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
     def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
-        """Execute acc.add_aaq: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
+        """Execute ACC.ADD_AAQ: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -825,7 +825,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute acc.add_aaq.first: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
+        """Execute ACC.ADD_AAQ.FIRST: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
         dtype = self.state.get_cr_dtype()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -844,7 +844,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
-        """Execute acc.max: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
+        """Execute ACC.MAX: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
 
         All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
         """
@@ -863,7 +863,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_max_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute acc.max.first: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
+        """Execute ACC.MAX.FIRST: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
 
         All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
         """
@@ -887,7 +887,7 @@ class Ipu:
         vertical_stride: int,
         offset: int,
     ) -> None:
-        """Execute acc.stride: Decimate mult_res by horizontal/vertical stride and write into r_acc.
+        """Execute ACC.STRIDE: Decimate mult_res by horizontal/vertical stride and write into r_acc.
 
         Operand semantics from ipu_common.acc_stride_enums (single source of truth).
         offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
@@ -942,7 +942,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
     def execute_aaq_nop(self) -> None:
-        """Execute aaq_nop: No operation for AAQ slot."""
+        """Execute AAQ_NOP: No operation for AAQ slot."""
         pass
 
     def _agg_active_lane_count(self, valid_elements: int) -> int:
@@ -994,7 +994,7 @@ class Ipu:
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
-        """Execute acc.agg: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
+        """Execute AGG: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
 
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
         Only the first ``valid_elements`` lanes (clamped to 128) participate in the tree.
@@ -1069,7 +1069,7 @@ class Ipu:
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
-        """Execute agg.first: like agg but for MAX mode ignores previous AAQ value."""
+        """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value."""
         dtype = self.state.get_cr_dtype()
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1129,14 +1129,14 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute aaq: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+        """Execute AAQ: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
 
         Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
         arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
         a signed byte in the aaq_result register.
 
         In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
-        ``r_acc`` as 32-bit lanes; use ``str_acc_reg`` to dump them). Set
+        ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
         ``state.wide_vector_quantize_output`` to re-run INT8-style quantization
         from wide lanes for comparison with the real path.
         """
@@ -1173,7 +1173,7 @@ class Ipu:
         self.state.regfile.set_aaq_result(result)
 
     def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
-        """Execute xmem.store_aaq_result: Write 128-byte aaq_result to xmem."""
+        """Execute XMEM.STORE_AAQ_RESULT: Write 128-byte aaq_result to xmem."""
         addr = offset + base
         data = self.state.regfile.get_aaq_result()
         self.state.xmem.write_address(addr, data)
@@ -1183,11 +1183,11 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_beq(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute beq: Branch if equal."""
+        """Execute BEQ: Branch if equal."""
         self.state.program_counter = label if reg1 == reg2 else self.state.program_counter + 1
 
     def execute_bne(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute bne: Branch if not equal."""
+        """Execute BNE: Branch if not equal."""
         self.state.program_counter = label if reg1 != reg2 else self.state.program_counter + 1
 
     @staticmethod
@@ -1198,29 +1198,29 @@ class Ipu:
         return value
 
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute blt: Branch if less than (signed comparison)."""
+        """Execute BLT: Branch if less than (signed comparison)."""
         s1 = self._to_signed_32(reg1)
         s2 = self._to_signed_32(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
     def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
-        """Execute bnz: Branch if not zero."""
+        """Execute BNZ: Branch if not zero."""
         self.state.program_counter = label if test_reg != 0 else self.state.program_counter + 1
 
     def execute_bz(self, *, test_reg: int, base_reg: int, label: int) -> None:
-        """Execute bz: Branch if zero."""
+        """Execute BZ: Branch if zero."""
         self.state.program_counter = label if test_reg == 0 else self.state.program_counter + 1
 
     def execute_b(self, *, label: int) -> None:
-        """Execute b: Unconditional branch."""
+        """Execute B: Unconditional branch."""
         self.state.program_counter = label
 
     def execute_br(self, *, reg: int) -> None:
-        """Execute br: Branch to register value."""
+        """Execute BR: Branch to register value."""
         self.state.program_counter = reg
 
     def execute_bkpt(self) -> None:
-        """Execute bkpt: Breakpoint (halt execution)."""
+        """Execute BKPT: Breakpoint (halt execution)."""
         self.state.program_counter = INST_MEM_SIZE  # halt
 
     # -----------------------------------------------------------------------
@@ -1228,15 +1228,15 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_break_nop(self) -> BreakResult:
-        """Execute break_nop: No operation."""
+        """Execute BREAK_NOP: No operation."""
         return BreakResult.CONTINUE
 
     def execute_break(self) -> BreakResult:
-        """Execute break: Unconditional break."""
+        """Execute BREAK: Unconditional break."""
         return BreakResult.BREAK
 
     def execute_break_ifeq(self, *, reg: int, value: int) -> BreakResult:
-        """Execute break_ifeq: Break if LR register equals immediate."""
+        """Execute BREAK.IFEQ: Break if LR register equals immediate."""
         if reg == value:
             return BreakResult.BREAK
         return BreakResult.CONTINUE

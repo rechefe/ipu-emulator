@@ -188,7 +188,7 @@ class TestCLICommands:
 
     def test_set_lr(self):
         state = IpuState()
-        action, output = _run_cli(state, "set lr7 0xFF\ncontinue\n")
+        action, output = _run_cli(state, "SET lr7 0xFF\ncontinue\n")
         assert state.regfile.get_lr(7) == 0xFF
         assert "Set lr7" in output
 
@@ -232,7 +232,7 @@ class TestDebugLevels:
         assert "42" in output
 
     def test_level1_shows_disasm(self):
-        state = _make_state_with_program("set lr0 100;;\nbkpt;;")
+        state = _make_state_with_program("SET lr0 100;;\nBKPT;;")
         action, output = _run_cli(state, "continue\n", level=1)
         assert "Current Instruction" in output
 
@@ -250,7 +250,7 @@ class TestDebugLevels:
 
 class TestDisassembly:
     def test_disasm_set_lr(self):
-        state = _make_state_with_program("set lr0 100;;\nbkpt;;")
+        state = _make_state_with_program("SET lr0 100;;\nBKPT;;")
         text = disassemble_current(state)
         assert "set" in text.lower()
         assert "lr0" in text.lower()

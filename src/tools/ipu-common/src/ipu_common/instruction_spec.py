@@ -26,11 +26,11 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIdx": lr0-lr15 (LrRegField)  
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
-  - "AddSubSrcB": second operand for add/sub — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
+  - "AddSubSrcB": second operand for ADD/SUB — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
-  - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
+  - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
-  - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
+  - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
 SINGLE SOURCE OF TRUTH:
@@ -84,7 +84,7 @@ __all__ = [
     "SLOT_BINARY_LAYOUT",
     "SLOT_COUNT",
     "VALID_OPERAND_TYPES",
-    "extract_opcodes",
+    "canonical_instruction_name",
     "get_instruction",
     "get_instruction_by_opcode",
     "create_assembler_opcodes",
@@ -153,10 +153,10 @@ SLOT_COUNT: dict[str, int] = {
 INSTRUCTION_SPEC = {
     # =========================================================================
     # XMEM Slot (Memory Load/Store Instructions)
-    # Opcode = position in list: str_acc_reg=0, ldr_mult_reg=1, etc.
+    # Opcode = position in list: STR_ACC_REG=0, LDR_MULT_REG=1, etc.
     # =========================================================================
     "xmem": {
-        "str_acc_reg": {
+        "STR_ACC_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
                 {"name": "base", "type": "CrIdx", "read": "live"},
@@ -164,17 +164,17 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Accumulator",
                 summary="Store accumulator to memory.",
-                syntax="str_acc_reg offset base",
+                syntax="STR_ACC_REG offset base",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
                 ],
                 operation="Memory[offset + base] = r_acc",
-                example="str_acc_reg cr0 cr1;;",
+                example="STR_ACC_REG cr0 cr1;;",
             ),
             "execute_fn": "execute_str_acc_reg",
         },
-        "ldr_mult_reg": {
+        "LDR_MULT_REG": {
             "operands": [
                 {"name": "dest", "type": "MultStageReg"},
                 {"name": "offset", "type": "LrIdx", "read": "live"},
@@ -183,18 +183,18 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Register",
                 summary="Load data from memory into a multiplication stage register.",
-                syntax="ldr_mult_reg dest offset base",
+                syntax="LDR_MULT_REG dest offset base",
                 operands=[
-                    "`DEST`: `R0` | `R1` — mult-stage register to load (2-bit field; only these encodings are valid).",
-                    "`OFFSET`: `LR0`..`LR15` — offset register.",
-                    "`BASE`: `CR0`..`CR15` — base address register.",
+                    "`dest`: **`r0`** | **`r1`** — mult-stage register to load (2-bit field; only these encodings are valid).",
+                    "`offset`: **`lr0`**…**`lr15`** — offset register.",
+                    "`base`: **`cr0`**…**`cr15`** — base address register.",
                 ],
-                operation="DEST = Memory[OFFSET + BASE]  # 128 bytes (512 in wide-vector debug mode)",
-                example="set lr0 0x1000;;\nldr_mult_reg r0 lr0 cr0;;",
+                operation="dest = Memory[offset + base]  # 128 bytes (512 in wide-vector debug mode)",
+                example="SET lr0 0x1000;;\nLDR_MULT_REG r0 lr0 cr0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
         },
-        "ldr_cyclic_mult_reg": {
+        "LDR_CYCLIC_MULT_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
                 {"name": "base", "type": "CrIdx", "read": "live"},
@@ -203,7 +203,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Cyclic Register",
                 summary="Load with cyclic addressing into r_cyclic.",
-                syntax="ldr_cyclic_mult_reg offset base index",
+                syntax="LDR_CYCLIC_MULT_REG offset base index",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
@@ -213,7 +213,7 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_ldr_cyclic_mult_reg",
         },
-        "ldr_mult_mask_reg": {
+        "LDR_MULT_MASK_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
                 {"name": "base", "type": "CrIdx", "read": "live"},
@@ -221,7 +221,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Mask Register",
                 summary="Load mask data from memory.",
-                syntax="ldr_mult_mask_reg offset base mask_idx",
+                syntax="LDR_MULT_MASK_REG offset base mask_idx",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
@@ -230,17 +230,17 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
-        "xmem_nop": {
+        "XMEM_NOP": {
             "operands": [],
             "doc": InstructionDoc(
                 title="No Operation (XMEM)",
                 summary="No operation for xmem slot.",
-                syntax="xmem_nop",
+                syntax="XMEM_NOP",
                 operands=[],
             ),
             "execute_fn": "execute_xmem_nop",
         },
-        "xmem.store_aaq_result": {
+        "XMEM.STORE_AAQ_RESULT": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
                 {"name": "base", "type": "CrIdx", "read": "live"},
@@ -248,13 +248,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store AAQ Result",
                 summary="Write the 128-byte AAQ quantization result register to external memory.",
-                syntax="xmem.store_aaq_result offset base",
+                syntax="XMEM.STORE_AAQ_RESULT offset base",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
                 ],
                 operation="Memory[offset + base] = aaq_result  # 128 bytes",
-                example="xmem.store_aaq_result lr0 cr0;;",
+                example="XMEM.STORE_AAQ_RESULT lr0 cr0;;",
             ),
             "execute_fn": "execute_xmem_store_aaq_result",
         },
@@ -262,10 +262,10 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: set=0, add=1, sub=2, incr_mod_pow2=3
+    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3
     # =========================================================================
     "lr": {
-        "set": {
+        "SET": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
                 {"name": "value", "type": "Immediate"},
@@ -273,17 +273,17 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Set Loop Register",
                 summary="Set a loop register to an immediate value.",
-                syntax="set reg value",
+                syntax="SET reg value",
                 operands=[
                     "reg: Loop register (lr0-lr15)",
                     "value: 32-bit immediate value",
                 ],
                 operation="reg = value",
-                example="set lr0 0x1000;;",
+                example="SET lr0 0x1000;;",
             ),
             "execute_fn": "execute_lr_set",
         },
-        "add": {
+        "ADD": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
                 {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
@@ -295,18 +295,18 @@ INSTRUCTION_SPEC = {
                     "Add two sources (second source may be an LR, CR, or 5-bit unsigned immediate) "
                     "and store the result in the destination LR."
                 ),
-                syntax="add dest src_a src_b",
+                syntax="ADD dest src_a src_b",
                 operands=[
                     "dest: Destination local register (lr0-lr15)",
                     "src_a: First source local register (lr0-lr15)",
                     "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a + src_b",
-                example="add lr0 lr1 lr2;;\nadd lr3 lr1 cr5;;\nadd lr4 lr1 7;;",
+                example="ADD lr0 lr1 lr2;;\nadd lr3 lr1 cr5;;\nadd lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_add",
         },
-        "sub": {
+        "SUB": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
                 {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
@@ -318,18 +318,18 @@ INSTRUCTION_SPEC = {
                     "Subtract the second source from the first (second source may be an LR, CR, "
                     "or 5-bit unsigned immediate) and store the result in the destination LR."
                 ),
-                syntax="sub dest src_a src_b",
+                syntax="SUB dest src_a src_b",
                 operands=[
                     "dest: Destination local register (lr0-lr15)",
                     "src_a: First source local register (lr0-lr15)",
                     "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a - src_b",
-                example="sub lr0 lr1 lr2;;\nsub lr3 lr1 cr5;;\nsub lr4 lr1 7;;",
+                example="SUB lr0 lr1 lr2;;\nsub lr3 lr1 cr5;;\nsub lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_sub",
         },
-        "incr_mod_pow2": {
+        "INCR_MOD_POW2": {
             "operands": [
                 {"name": "dst", "type": "LrIdx"},
                 {"name": "step", "type": "LcrIdx", "read": "snapshot"},
@@ -341,14 +341,14 @@ INSTRUCTION_SPEC = {
                     "Add a loop or configuration register into the destination loop "
                     "register, then mask to k low bits (mod 2^k)."
                 ),
-                syntax="incr_mod_pow2 dst step k",
+                syntax="INCR_MOD_POW2 dst step k",
                 operands=[
                     "dst: Destination loop register (lr0-lr15); read and written",
                     "step: Signed 32-bit increment from lr0-lr15 or cr0-cr15",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dst <- (dst + step) & ((1 << k) - 1)",
-                example="incr_mod_pow2 lr2 lr3 4;;",
+                example="INCR_MOD_POW2 lr2 lr3 4;;",
             ),
             "execute_fn": "execute_lr_incr_mod_pow2",
         },
@@ -356,11 +356,11 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: mult.ee=0, mult.ve.cyclic=1, mult.ve.padded=2, mult_nop=3,
-    #          mult.ve.cr=4, mult.ve.aaq=5
+    # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
+    #          MULT.VE.CR=4, MULT.VE.AAQ=5
     # =========================================================================
     "mult": {
-        "mult.ee": {
+        "MULT.EE": {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
@@ -370,19 +370,19 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Element-wise Multiply",
                 summary="Multiply elements of two registers element by element.",
-                syntax="MULT.EE RA CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT",
+                syntax="MULT.EE ra cyclic_offset mask_offset mask_shift",
                 operands=[
-                    "`RA`: `R0` | `R1` — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into `R0`/`R1` is allowed).",
-                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (cyclic register).",
-                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
-                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
+                    "`ra`: **`r0`** | **`r1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`r0`**/**`r1`** is allowed).",
+                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into **`r_cyclic`**.",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
+                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
                 ],
-                operation="For each lane i: MULT_RES[i] = IPU_MULT(RA[i], RC[CYCLIC_OFFSET + i]); then apply mask and shift.",
-                example="MULT.EE R0 LR0 0 LR2;;",
+                operation="For each lane i: mult_res[i] = ipu_mult(ra[i], r_cyclic[cyclic_offset + i]); then apply mask and shift.",
+                example="MULT.EE r0 lr0 0 lr2;;",
             ),
             "execute_fn": "execute_mult_ee",
         },
-        "mult.ve.cyclic": {
+        "MULT.VE.CYCLIC": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
@@ -392,23 +392,23 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (cyclic RC)",
                 summary=(
-                    "Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. "
-                    "`FIXED_IDX` 0..127 selects `R0[FIXED_IDX]`, 128..255 selects `R1[FIXED_IDX - 128]`. "
-                    "RC is addressed cyclically modulo 512 bytes (no padding with 1 past the boundary)."
+                    "Multiply a fixed element from r0 or r1 against r_cyclic[cyclic_offset:cyclic_offset+128]. "
+                    "`fixed_idx` 0..127 selects `r0[fixed_idx]`, 128..255 selects `r1[fixed_idx - 128]`. "
+                    "r_cyclic is addressed cyclically modulo 512 bytes (no padding with 1 past the boundary)."
                 ),
-                syntax="MULT.VE.CYCLIC CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
+                syntax="MULT.VE.CYCLIC cyclic_offset mask_offset mask_shift fixed_idx",
                 operands=[
-                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (reduced mod 512).",
-                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
-                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
-                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
+                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into **`r_cyclic`** (reduced mod 512).",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
+                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
+                    "`fixed_idx`: **`lr0`**…**`lr15`** (value read live) — scalar index into **`r0`**/**`r1`**.",
                 ],
-                operation="For i in [0, 128): RB = RC[(CYCLIC_OFFSET + i) mod 512]; SCALAR from R0/R1 via FIXED_IDX; MULT_RES[i] = SCALAR * RB (then mask/shift).",
-                example="MULT.VE.CYCLIC LR0 0 LR2 LR3;;",
+                operation="For i in [0, 128): rb = r_cyclic[(cyclic_offset + i) % 512]; scalar from r0/r1 via fixed_idx; mult_res[i] = scalar * rb (then mask/shift).",
+                example="MULT.VE.CYCLIC lr0 0 lr2 lr3;;",
             ),
             "execute_fn": "execute_mult_ve_cyclic",
         },
-        "mult.ve.padded": {
+        "MULT.VE.PADDED": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
@@ -418,32 +418,32 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (padded RC)",
                 summary=(
-                    "Same scalar × RC row as `mult.ve.cyclic`, but indices at or past the 512-byte RC "
+                    "Same scalar × RC row as `MULT.VE.CYCLIC`, but indices at or past the 512-byte RC "
                     "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
                 ),
-                syntax="MULT.VE.PADDED CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
+                syntax="MULT.VE.PADDED cyclic_offset mask_offset mask_shift fixed_idx",
                 operands=[
-                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC`; out-of-range lanes use dtype 1.",
-                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
-                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
-                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
+                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into `r_cyclic`; out-of-range lanes use dtype 1.",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in `r_mask`.",
+                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
+                    "`fixed_idx`: **`lr0`**…**`lr15`** (value read live) — scalar index into **`r0`**/**`r1`**.",
                 ],
-                operation="For i in [0, 128): RB = RC[CYCLIC_OFFSET + i] if in bounds else dtype_one; SCALAR from R0/R1; MULT_RES[i] = SCALAR * RB (then mask/shift).",
-                example="MULT.VE.PADDED LR0 0 LR2 LR3;;",
+                operation="For i in [0, 128): rb = r_cyclic[cyclic_offset + i] if in bounds else dtype_one; scalar from r0/r1; mult_res[i] = scalar * rb (then mask/shift).",
+                example="MULT.VE.PADDED lr0 0 lr2 lr3;;",
             ),
             "execute_fn": "execute_mult_ve_padded",
         },
-        "mult_nop": {
+        "MULT_NOP": {
             "operands": [],
             "doc": InstructionDoc(
                 title="No Operation (MULT)",
                 summary="No operation for multiply slot.",
-                syntax="mult_nop",
+                syntax="MULT_NOP",
                 operands=[],
             ),
             "execute_fn": "execute_mult_nop",
         },
-        "mult.ve.cr": {
+        "MULT.VE.CR": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
@@ -453,7 +453,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (CR scalar)",
                 summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from a CR register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
+                syntax="MULT.VE.CR cyclic_offset mask_offset mask_shift cr_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
                     "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
@@ -461,11 +461,11 @@ INSTRUCTION_SPEC = {
                     "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (cr0-cr15)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = CR[cr_idx][0] * rb",
-                example="mult.ve.cr lr0 0 lr15 cr3;;",
+                example="MULT.VE.CR lr0 0 lr15 cr3;;",
             ),
             "execute_fn": "execute_mult_ve_cr",
         },
-        "mult.ve.aaq": {
+        "MULT.VE.AAQ": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
@@ -475,7 +475,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (AAQ scalar)",
                 summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from an AAQ register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="mult.ve.aaq cyclic_offset mask_offset mask_shift aaq_rf_idx",
+                syntax="MULT.VE.AAQ cyclic_offset mask_offset mask_shift aaq_rf_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
                     "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
@@ -483,7 +483,7 @@ INSTRUCTION_SPEC = {
                     "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (aaq0-aaq3)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = AAQ[aaq_rf_idx][0] * rb",
-                example="mult.ve.aaq lr0 0 lr15 aaq1;;",
+                example="MULT.VE.AAQ lr0 0 lr15 aaq1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
         },
@@ -491,61 +491,61 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: acc=0, acc.first=1, reset_acc=2, acc_nop=3, acc.add_aaq=4, acc.add_aaq.first=5, acc.max=6, acc.max.first=7, acc.stride=8
+    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.ADD_AAQ=4, ACC.ADD_AAQ.FIRST=5, ACC.MAX=6, ACC.MAX.FIRST=7, ACC.STRIDE=8
     # =========================================================================
     "acc": {
-        "acc": {
+        "ACC": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate",
                 summary="Accumulate multiply result.",
-                syntax="acc",
+                syntax="ACC",
                 operands=[],
                 operation="r_acc += multiply_result",
             ),
             "execute_fn": "execute_acc",
         },
-        "acc.first": {
+        "ACC.FIRST": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate First",
-                summary="Set accumulator to multiply result (do not add to previous r_acc).",
-                syntax="acc.first",
+                summary="Set accumulator to multiply result (do not ADD to previous r_acc).",
+                syntax="ACC.FIRST",
                 operands=[],
                 operation="r_acc = multiply_result",
-                example="acc.first;;",
+                example="ACC.FIRST;;",
             ),
             "execute_fn": "execute_acc_first",
         },
-        "reset_acc": {
+        "RESET_ACC": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Reset Accumulator",
                 summary="Reset accumulator to zero.",
-                syntax="reset_acc",
+                syntax="RESET_ACC",
                 operands=[],
                 operation="r_acc = 0",
             ),
             "execute_fn": "execute_reset_acc",
         },
-        "acc_nop": {
+        "ACC_NOP": {
             "operands": [],
             "doc": InstructionDoc(
                 title="No Operation (ACC)",
                 summary="No operation for accumulator slot.",
-                syntax="acc_nop",
+                syntax="ACC_NOP",
                 operands=[],
             ),
             "execute_fn": "execute_acc_nop",
         },
-        "acc.add_aaq": {
+        "ACC.ADD_AAQ": {
             "operands": [
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulate and Add AAQ",
-                summary="Accumulate multiply result, then add the selected AAQ register (32-bit) to each of the 128 accumulator words.",
-                syntax="acc.add_aaq aaq_rf_idx",
+                summary="Accumulate multiply result, then ADD the selected AAQ register (32-bit) to each of the 128 accumulator words.",
+                syntax="ACC.ADD_AAQ aaq_rf_idx",
                 operands=[
                     "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
                 ],
@@ -553,18 +553,18 @@ INSTRUCTION_SPEC = {
                     "r_acc += multiply_result;\n"
                     "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
                 ),
-                example="acc.add_aaq aaq0;;",
+                example="ACC.ADD_AAQ aaq0;;",
             ),
             "execute_fn": "execute_acc_add_aaq",
         },
-        "acc.add_aaq.first": {
+        "ACC.ADD_AAQ.FIRST": {
             "operands": [
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulate and Add AAQ (First)",
-                summary="Set accumulator to multiply result plus selected AAQ register (do not add to previous r_acc).",
-                syntax="acc.add_aaq.first aaq_rf_idx",
+                summary="Set accumulator to multiply result plus selected AAQ register (do not ADD to previous r_acc).",
+                syntax="ACC.ADD_AAQ.FIRST aaq_rf_idx",
                 operands=[
                     "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
                 ],
@@ -572,47 +572,47 @@ INSTRUCTION_SPEC = {
                     "r_acc = multiply_result;\n"
                     "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
                 ),
-                example="acc.add_aaq.first aaq0;;",
+                example="ACC.ADD_AAQ.FIRST aaq0;;",
             ),
             "execute_fn": "execute_acc_add_aaq_first",
         },
-        "acc.max": {
+        "ACC.MAX": {
             "operands": [
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Max",
-                summary="For each element, set r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).",
-                syntax="acc.max aaq_rf_idx",
+                summary="For each element, SET r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).",
+                syntax="ACC.MAX aaq_rf_idx",
                 operands=[
                     "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
                 ],
                 operation=(
                     "for i in [0, 128): r_acc[i] = max(r_acc[i], mult_res[i], aaq_regs[aaq_rf_idx])"
                 ),
-                example="acc.max aaq0;;",
+                example="ACC.MAX aaq0;;",
             ),
             "execute_fn": "execute_acc_max",
         },
-        "acc.max.first": {
+        "ACC.MAX.FIRST": {
             "operands": [
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Max (First)",
-                summary="For each element, set r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc is ignored (treated as 0).",
-                syntax="acc.max.first aaq_rf_idx",
+                summary="For each element, SET r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc is ignored (treated as 0).",
+                syntax="ACC.MAX.FIRST aaq_rf_idx",
                 operands=[
                     "aaq_rf_idx: AAQ register index (aaq0-aaq3)",
                 ],
                 operation=(
                     "for i in [0, 128): r_acc[i] = max(mult_res[i], aaq_regs[aaq_rf_idx])"
                 ),
-                example="acc.max.first aaq0;;",
+                example="ACC.MAX.FIRST aaq0;;",
             ),
             "execute_fn": "execute_acc_max_first",
         },
-        "acc.stride": {
+        "ACC.STRIDE": {
             "operands": [
                 {"name": "elements_in_row", "type": "ElementsInRow"},
                 {"name": "horizontal_stride", "type": "HorizontalStride"},
@@ -622,7 +622,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Accumulator Stride",
                 summary="Reorder the multiplication result into r_acc using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
-                syntax="acc.stride elements_in_row horizontal_stride vertical_stride offset",
+                syntax="ACC.STRIDE elements_in_row horizontal_stride vertical_stride offset",
                 operands=[
                     "elements_in_row: Elements per row (8, 16, 32, or 64)",
                     "horizontal_stride: Horizontal stride mode (enabled, inverted, expand)",
@@ -633,7 +633,7 @@ INSTRUCTION_SPEC = {
                     "Decimate mult_res as rows×cols; apply horizontal stride (take every 2nd column, optional expand); "
                     "then vertical stride (take every 2nd row). Write result into r_acc[start:start+N] where start = (offset%4)*32, N = 32|64|128."
                 ),
-                example="acc.stride 8 off off lr0;;",
+                example="ACC.STRIDE 8 off off lr0;;",
             ),
             "execute_fn": "execute_acc_stride",
         },
@@ -641,20 +641,20 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: aaq_nop=0, agg=1, agg.first=2
+    # Opcode = position: AAQ_NOP=0, AGG=1, AGG.FIRST=2
     # =========================================================================
     "aaq": {
-        "aaq_nop": {
+        "AAQ_NOP": {
             "operands": [],
             "doc": InstructionDoc(
                 title="No Operation (AAQ)",
                 summary="No operation for AAQ slot.",
-                syntax="aaq_nop",
+                syntax="AAQ_NOP",
                 operands=[],
             ),
             "execute_fn": "execute_aaq_nop",
         },
-        "agg": {
+        "AGG": {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
@@ -672,7 +672,7 @@ INSTRUCTION_SPEC = {
                     "Collapse r_acc lanes into one value (SUM or MAX), using only the first "
                     "valid_elements words for the tree; apply post function; store to selected AAQ register."
                 ),
-                syntax="agg agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
+                syntax="AGG agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
@@ -684,15 +684,15 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = min(valid_elements, 128). "
                     "If sum: v = sum(r_acc[0..n-1]). "
-                    "If max: v = max(r_acc[0..n-1], aaq[aaq_rf_idx]). "
+                    "If max: v = max(r_acc[0..n-1], AAQ[aaq_rf_idx]). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
-                    "aaq[aaq_rf_idx] = result."
+                    "AAQ[aaq_rf_idx] = result."
                 ),
-                example="agg sum value lr0 cr0 aaq0;;",
+                example="AGG sum value lr0 cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg",
         },
-        "agg.first": {
+        "AGG.FIRST": {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
@@ -706,8 +706,8 @@ INSTRUCTION_SPEC = {
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate First",
-                summary="Like agg, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
-                syntax="agg.first agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
+                summary="Like AGG, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
+                syntax="AGG.FIRST agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
@@ -719,26 +719,26 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = min(valid_elements, 128). "
                     "If sum: v = sum(r_acc[0..n-1]). "
-                    "If max: v = max(r_acc[0..n-1]) (previous aaq value is NOT included). "
+                    "If max: v = max(r_acc[0..n-1]) (previous AAQ value is NOT included). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
-                    "aaq[aaq_rf_idx] = result."
+                    "AAQ[aaq_rf_idx] = result."
                 ),
-                example="agg.first max value lr0 cr0 aaq0;;",
+                example="AGG.FIRST max value lr0 cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg_first",
         },
-        "aaq": {
+        "AAQ": {
             "operands": [],
             "doc": InstructionDoc(
                 title="AAQ Quantize",
                 summary="Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the aaq_result register. Requires INT8 mode.",
-                syntax="aaq",
+                syntax="AAQ",
                 operands=[],
                 operation=(
                     "Requires INT8 mode (cr15 == DType.INT8). "
                     "For i in [0, 128): aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)"
                 ),
-                example="aaq;;",
+                example="AAQ;;",
             ),
             "execute_fn": "execute_aaq",
         },
@@ -746,10 +746,10 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
-    # Opcode = position: beq=0, bne=1, blt=2, bnz=3, bz=4, b=5, br=6, bkpt=7
+    # Opcode = position: BEQ=0, BNE=1, BLT=2, BNZ=3, BZ=4, B=5, BR=6, BKPT=7
     # =========================================================================
     "cond": {
-        "beq": {
+        "BEQ": {
             "operands": [
                 {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
@@ -758,18 +758,18 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Equal",
                 summary="Branch if two registers are equal.",
-                syntax="beq reg1 reg2 label",
+                syntax="BEQ reg1 reg2 label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
-                example="beq lr0 lr1 end;;",
+                example="BEQ lr0 lr1 end;;",
             ),
             "execute_fn": "execute_beq",
         },
-        "bne": {
+        "BNE": {
             "operands": [
                 {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
@@ -778,18 +778,18 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Not Equal",
                 summary="Branch if two registers are not equal.",
-                syntax="bne reg1 reg2 label",
+                syntax="BNE reg1 reg2 label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
-                example="bne lr0 cr0 loop;;",
+                example="BNE lr0 cr0 loop;;",
             ),
             "execute_fn": "execute_bne",
         },
-        "blt": {
+        "BLT": {
             "operands": [
                 {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
@@ -798,18 +798,18 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Less Than",
                 summary="Branch if first register is less than second.",
-                syntax="blt reg1 reg2 label",
+                syntax="BLT reg1 reg2 label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 < reg2) PC = label",
-                example="blt lr0 cr1 smaller;;",
+                example="BLT lr0 cr1 smaller;;",
             ),
             "execute_fn": "execute_blt",
         },
-        "bnz": {
+        "BNZ": {
             "operands": [
                 {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
@@ -818,18 +818,18 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Not Zero",
                 summary="Branch if test register not equal to base register.",
-                syntax="bnz test_reg base_reg label",
+                syntax="BNZ test_reg base_reg label",
                 operands=[
                     "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
                     "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg != base_reg) PC = label",
-                example="bnz lr3 lr0 loop;;",
+                example="BNZ lr3 lr0 loop;;",
             ),
             "execute_fn": "execute_bnz",
         },
-        "bz": {
+        "BZ": {
             "operands": [
                 {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
@@ -838,50 +838,50 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Zero",
                 summary="Branch if test register equals base register.",
-                syntax="bz test_reg base_reg label",
+                syntax="BZ test_reg base_reg label",
                 operands=[
                     "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
                     "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg == base_reg) PC = label",
-                example="bz lr0 lr1 zero;;",
+                example="BZ lr0 lr1 zero;;",
             ),
             "execute_fn": "execute_bz",
         },
-        "b": {
+        "B": {
             "operands": [
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
                 title="Unconditional Branch",
                 summary="Always branch to label.",
-                syntax="b label",
+                syntax="B label",
                 operands=["label: Branch target label"],
                 operation="PC = label",
-                example="b start;;",
+                example="B start;;",
             ),
             "execute_fn": "execute_b",
         },
-        "br": {
+        "BR": {
             "operands": [
                 {"name": "reg", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Branch Register",
                 summary="Branch to address in register.",
-                syntax="br reg",
+                syntax="BR reg",
                 operands=["reg: Register containing target address (lr0-lr15 or cr0-cr15)"],
                 operation="PC = reg",
             ),
             "execute_fn": "execute_br",
         },
-        "bkpt": {
+        "BKPT": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Breakpoint",
                 summary="Conditional breakpoint.",
-                syntax="bkpt",
+                syntax="BKPT",
                 operands=[],
                 operation="Halt execution (debugging)",
             ),
@@ -891,21 +891,21 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # BREAK Slot (Break Instructions)
-    # Opcode = position: break=0, break.ifeq=1, break_nop=2
+    # Opcode = position: BREAK=0, BREAK.IFEQ=1, BREAK_NOP=2
     # =========================================================================
     "break": {
-        "break": {
+        "BREAK": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Break",
                 summary="Unconditional break.",
-                syntax="break",
+                syntax="BREAK",
                 operands=[],
                 operation="Halt execution",
             ),
             "execute_fn": "execute_break",
         },
-        "break.ifeq": {
+        "BREAK.IFEQ": {
             "operands": [
                 {"name": "reg", "type": "LrIdx", "read": "snapshot"},
                 {"name": "value", "type": "BreakImmediate"},
@@ -913,22 +913,22 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Break if Equal",
                 summary="Break execution if register equals value.",
-                syntax="break.ifeq reg value",
+                syntax="BREAK.IFEQ reg value",
                 operands=[
                     "reg: Register to test (lr0-lr15)",
                     "value: Immediate value to compare against",
                 ],
                 operation="if (reg == value) BREAK",
-                example="break.ifeq lr0 10;;",
+                example="BREAK.IFEQ lr0 10;;",
             ),
             "execute_fn": "execute_break_ifeq",
         },
-        "break_nop": {
+        "BREAK_NOP": {
             "operands": [],
             "doc": InstructionDoc(
                 title="No Operation (BREAK)",
-                summary="No operation for break slot.",
-                syntax="break_nop",
+                summary="No operation for BREAK slot.",
+                syntax="BREAK_NOP",
                 operands=[],
             ),
             "execute_fn": "execute_break_nop",
@@ -941,12 +941,24 @@ INSTRUCTION_SPEC = {
 # Query Functions (position-based opcode derivation)
 # ===========================================================================
 
+def canonical_instruction_name(slot_type: str, instruction_name: str) -> str:
+    """Return the canonical instruction key for ``instruction_name`` (case-insensitive)."""
+    instructions = INSTRUCTION_SPEC[slot_type]
+    lowered = instruction_name.lower()
+    for name in instructions:
+        if name.lower() == lowered:
+            return name
+    raise KeyError(
+        f"Instruction {instruction_name!r} not found in slot {slot_type!r}"
+    )
+
+
 def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     """Get opcode index for an instruction (derived from its position).
     
     Args:
         slot_type: Slot type (e.g., "xmem", "lr", "mult")
-        instruction_name: Instruction name (e.g., "str_acc_reg")
+        instruction_name: Instruction name (e.g., "STR_ACC_REG")
     
     Returns:
         Opcode index (0-based position in slot's instruction list)
@@ -954,9 +966,10 @@ def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     Raises:
         KeyError if slot or instruction not found
     """
+    canon = canonical_instruction_name(slot_type, instruction_name)
     instructions = INSTRUCTION_SPEC[slot_type]
     for idx, name in enumerate(instructions.keys()):
-        if name == instruction_name:
+        if name == canon:
             return idx
     raise KeyError(f"Instruction '{instruction_name}' not found in slot '{slot_type}'")
 
@@ -969,8 +982,8 @@ def extract_opcodes() -> Dict[str, List[str]]:
     
     Example:
         {
-            "xmem": ["str_acc_reg", "ldr_mult_reg", ...],
-            "lr": ["set", "add", "sub", "incr_mod_pow2"],
+            "xmem": ["STR_ACC_REG", "LDR_MULT_REG", ...],
+            "lr": ["SET", "ADD", "SUB", "INCR_MOD_POW2"],
             ...
         }
     """
@@ -985,7 +998,7 @@ def get_instruction(slot_type: str, instruction_name: str) -> dict:
     
     Args:
         slot_type: Slot type (e.g., "xmem", "lr", "mult")
-        instruction_name: Instruction name (e.g., "str_acc_reg")
+        instruction_name: Instruction name (e.g., "STR_ACC_REG")
     
     Returns:
         The instruction definition dict with "operands", "doc", "execute_fn"
@@ -993,7 +1006,7 @@ def get_instruction(slot_type: str, instruction_name: str) -> dict:
     Raises:
         KeyError if instruction not found
     """
-    return INSTRUCTION_SPEC[slot_type][instruction_name]
+    return INSTRUCTION_SPEC[slot_type][canonical_instruction_name(slot_type, instruction_name)]
 
 
 def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, dict]:
@@ -1050,8 +1063,9 @@ def create_assembler_opcodes() -> Dict[str, Type]:
         """Base class for all opcode types."""
         @classmethod
         def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
+            tv = opcode_token.value.lower()
             for subclass in cls.__subclasses__():
-                if opcode_token.value in subclass.enum_array():
+                if any(tv == name.lower() for name in subclass.enum_array()):
                     return subclass
             raise ValueError(
                 f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
@@ -1114,7 +1128,7 @@ def create_emulator_constants() -> Dict[str, int]:
         
         # Add opcode constants for each instruction
         for opcode_idx, instruction_name in enumerate(instructions.keys()):
-            # Convert name to constant style: "str_acc_reg" → "STR_ACC_REG"
+            # Convert name to constant style: "STR_ACC_REG" → "STR_ACC_REG"
             const_name = instruction_name.upper().replace(".", "_").replace("-", "_")
             constants[f"{prefix}_{const_name}"] = opcode_idx
         

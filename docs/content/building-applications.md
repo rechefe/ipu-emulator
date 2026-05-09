@@ -283,41 +283,42 @@ This section walks through a complete real-world implementation: a fully-connect
 
 ### Assembly Program
 
-The IPU assembly implements the core computation: activations for the current sample live in **`R0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`RC`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`R0[LR5]`** (loop counter advanced via **`add`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
+The IPU assembly implements the core computation: activations for the current sample live in **`r0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`r_cyclic`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`r0[lr5]`** (loop counter advanced via **`ADD`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
 
 ```asm
-set                 lr0 0 ;;
-set                 lr1 1280 ;;
-set                 lr2 0 ;;
+    SET                 lr0 0 ;;
+    SET                 lr1 1280 ;;
+    SET                 lr2 0 ;;
 
 input_loop:
-    reset_acc;;
+    RESET_ACC;;
 
-    ldr_mult_reg        r0 lr0 cr0;;
+    LDR_MULT_REG        r0 lr0 cr0;;
 
-    set                 lr4 -128;;
-    set                 lr5 -1;;
-    set                 lr6 127;;
-    set                 lr15 0;;
+    SET                 lr4 -128;;
+    SET                 lr5 -1;;
+    SET                 lr6 127;;
+    SET                 lr15 0;;
+
 
 element_loop:
-    ldr_cyclic_mult_reg lr4 cr1 lr15;
-    add                 lr4 lr4 cr3;
-    add                 lr5 lr5 cr4;
-    mult.ve.cyclic      lr15 0 lr15 lr5;
-    acc;
-    blt                 lr5 lr6 element_loop;;
+    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    ADD                 lr4 lr4 cr3;
+    ADD                 lr5 lr5 cr4;
+    MULT.VE.CYCLIC      lr15 0 lr15 lr5;
+    ACC;
+    BLT                 lr5 lr6 element_loop;;
 
-    str_acc_reg         lr7 cr2;;
-    add                 lr7 lr7 cr5;
-    add                 lr0 lr0 cr3;;
+    STR_ACC_REG         lr7 cr2;;
+    ADD                 lr7 lr7 cr5;
+    ADD                 lr0 lr0 cr3;;
 
-    break;;
+    BREAK;;
 
-    blt                 lr0 lr1 input_loop;;
+    BLT                 lr0 lr1 input_loop;;
 
 end:
-    bkpt;;
+    BKPT;;
 ```
 
 ### Python Application Class
