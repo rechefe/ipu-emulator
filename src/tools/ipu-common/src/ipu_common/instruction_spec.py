@@ -29,6 +29,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "AddSubSrcB": second operand for add/sub — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
+  - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
   - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -121,7 +122,7 @@ class InstructionDoc:
 
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
-    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
+    "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
@@ -363,7 +364,7 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
@@ -373,18 +374,18 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "`RA`: `R0` | `R1` — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into `R0`/`R1` is allowed).",
                     "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (cyclic register).",
-                    "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM` (mask register).",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
                     "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
                 ],
                 operation="For each lane i: MULT_RES[i] = IPU_MULT(RA[i], RC[CYCLIC_OFFSET + i]); then apply mask and shift.",
-                example="MULT.EE R0 LR0 LR1 LR2;;",
+                example="MULT.EE R0 LR0 0 LR2;;",
             ),
             "execute_fn": "execute_mult_ee",
         },
         "mult.ve.cyclic": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
@@ -398,19 +399,19 @@ INSTRUCTION_SPEC = {
                 syntax="MULT.VE.CYCLIC CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
                 operands=[
                     "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (reduced mod 512).",
-                    "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM`.",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
                     "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
                     "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
                 ],
                 operation="For i in [0, 128): RB = RC[(CYCLIC_OFFSET + i) mod 512]; SCALAR from R0/R1 via FIXED_IDX; MULT_RES[i] = SCALAR * RB (then mask/shift).",
-                example="MULT.VE.CYCLIC LR0 LR1 LR2 LR3;;",
+                example="MULT.VE.CYCLIC LR0 0 LR2 LR3;;",
             ),
             "execute_fn": "execute_mult_ve_cyclic",
         },
         "mult.ve.padded": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
@@ -423,12 +424,12 @@ INSTRUCTION_SPEC = {
                 syntax="MULT.VE.PADDED CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
                 operands=[
                     "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC`; out-of-range lanes use dtype 1.",
-                    "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM`.",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
                     "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
                     "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
                 ],
                 operation="For i in [0, 128): RB = RC[CYCLIC_OFFSET + i] if in bounds else dtype_one; SCALAR from R0/R1; MULT_RES[i] = SCALAR * RB (then mask/shift).",
-                example="MULT.VE.PADDED LR0 LR1 LR2 LR3;;",
+                example="MULT.VE.PADDED LR0 0 LR2 LR3;;",
             ),
             "execute_fn": "execute_mult_ve_padded",
         },
@@ -445,7 +446,7 @@ INSTRUCTION_SPEC = {
         "mult.ve.cr": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "cr_idx", "type": "CrIdx"},
             ],
@@ -455,19 +456,19 @@ INSTRUCTION_SPEC = {
                 syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                     "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (cr0-cr15)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = CR[cr_idx][0] * rb",
-                example="mult.ve.cr lr0 lr15 lr15 cr3;;",
+                example="mult.ve.cr lr0 0 lr15 cr3;;",
             ),
             "execute_fn": "execute_mult_ve_cr",
         },
         "mult.ve.aaq": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
@@ -477,12 +478,12 @@ INSTRUCTION_SPEC = {
                 syntax="mult.ve.aaq cyclic_offset mask_offset mask_shift aaq_rf_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                     "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (aaq0-aaq3)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = AAQ[aaq_rf_idx][0] * rb",
-                example="mult.ve.aaq lr0 lr15 lr15 aaq1;;",
+                example="mult.ve.aaq lr0 0 lr15 aaq1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
         },
@@ -1122,6 +1123,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "PostFn",
         "Immediate",
         "LrModPow2KImmediate",
+        "MultMaskOffsetImmediate",
         "BreakImmediate",
         "Label",
         "AddSubSrcB",

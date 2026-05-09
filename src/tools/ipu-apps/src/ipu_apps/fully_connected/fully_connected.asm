@@ -17,7 +17,7 @@ element_loop:
     ldr_cyclic_mult_reg lr4 cr1 lr15;
     add                 lr4 lr4 cr3;
     add                 lr5 lr5 cr4;
-    mult.ve.cyclic      lr15 lr15 lr15 lr5;
+    mult.ve.cyclic      lr15 0 lr15 lr5;
     acc;
     blt                 lr5 lr6 element_loop;;
 

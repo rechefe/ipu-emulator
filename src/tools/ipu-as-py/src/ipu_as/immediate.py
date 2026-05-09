@@ -6,6 +6,10 @@ from ipu_common.incr_mod_pow2_k import (
     LR_MOD_POW2_K_MAX,
     LR_MOD_POW2_K_MIN,
 )
+from ipu_common.mult_mask_offset import (
+    MULT_MASK_OFFSET_FIELD_BITS,
+    MULT_MASK_SLOT_COUNT,
+)
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
@@ -60,6 +64,42 @@ class BreakImmediateType(ipu_token.NumberToken):
     @classmethod
     def bits(cls) -> int:
         return 16
+
+
+class MultMaskOffsetImmediate(ipu_token.IpuToken):
+    """Select one of eight 128-bit mask slots in ``r_mask`` (values 0 .. 7)."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return MULT_MASK_OFFSET_FIELD_BITS
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(
+            ipu_token.AnnotatedToken(
+                lark.Token("NUMBER", "0"),
+                0,
+            )
+        )
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        if not (0 <= self.int < MULT_MASK_SLOT_COUNT):
+            self._raise_error(
+                f"Value {self.int} out of range [0, {MULT_MASK_SLOT_COUNT - 1}] "
+                "for mult mask slot selector"
+            )
+
+    def encode(self) -> int:
+        return self.int
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return str(value)
 
 
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).

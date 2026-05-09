@@ -61,7 +61,7 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1 next;;
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 next;;
 ```
 
 - Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
@@ -97,7 +97,7 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `MultMaskOffsetImmediate`, `Label`
 
 ---
 

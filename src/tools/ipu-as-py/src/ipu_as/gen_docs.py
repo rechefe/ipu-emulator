@@ -63,6 +63,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "Four-bit immediate for **`incr_mod_pow2`**: encodes exponent **k** with semantic "
         "**k ∈ [1, 9]** as **(k − 1)** in the word."
     ),
+    "MultMaskOffsetImmediate": (
+        "Unsigned **3-bit** immediate on multiply instructions: **`mask_offset`** selects slot "
+        "**`0`**–**`7`**, each a **128-bit** region of **`r_mask`** (eight mask slots total). "
+        "**`mask_shift`** remains an **`LrIdx`**."
+    ),
     "BreakImmediate": "16-bit value for **`break`** / breakpoint slot conditions.",
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
@@ -133,7 +138,7 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 # Comments start with # or //
 label:                          # Labels end with a colon
     ldr_mult_reg r0 lr0 cr0;     # XMEM: load into mult stage R0
-    mult.ee r0 lr1 lr2 lr3;      # MULT: element-wise multiply
+    mult.ee r0 lr1 0 lr3;      # MULT: element-wise multiply
     acc;                         # ACC: accumulate
     add lr0 lr0 1;               # LR: bump address (increment via add)
     bne lr0 lr1 next;            # COND: branch
@@ -161,7 +166,7 @@ xmem_inst; mult_inst; acc_inst; aaq_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_
 **Example (parallel slots):**
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1 loop;;
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 loop;;
 ```
 
 ## Register names

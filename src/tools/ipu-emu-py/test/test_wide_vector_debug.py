@@ -55,7 +55,7 @@ set lr2 0;;
 ldr_mult_reg r0 lr0 cr0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ee r0 lr2 lr2 lr2;;
+mult.ee r0 lr2 0 lr2;;
 acc.first;;
 bkpt;;
 """
@@ -76,7 +76,7 @@ set lr2 0;;
 ldr_mult_reg r0 lr0 cr0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ee r0 lr2 lr2 lr2;;
+mult.ee r0 lr2 0 lr2;;
 acc.first;;
 aaq;;
 bkpt;;
@@ -103,7 +103,7 @@ set lr2 0;;
 ldr_mult_reg r0 lr0 cr0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ee r0 lr2 lr2 lr2;;
+mult.ee r0 lr2 0 lr2;;
 acc.first;;
 aaq;;
 bkpt;;
@@ -130,7 +130,7 @@ set lr2 0;;
 ldr_mult_reg r0 lr0 cr0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ee r0 lr2 lr2 lr2;;
+mult.ee r0 lr2 0 lr2;;
 acc.first;;
 bkpt;;
 """
@@ -169,7 +169,7 @@ ldr_mult_reg r0 lr0 cr0;;
 ldr_mult_reg r1 lr1 cr0;;
 ldr_cyclic_mult_reg lr2 cr0 lr3;;
 reset_acc;;
-mult.ee {which} lr3 lr3 lr3;;
+mult.ee {which} lr3 0 lr3;;
 acc.first;;
 bkpt;;
 """
@@ -205,7 +205,7 @@ set lr4 0x1000;;
 ldr_mult_reg r0 lr4 cr0;;
 set lr5 512;;
 reset_acc;;
-mult.ee r0 lr5 lr5 lr5;;
+mult.ee r0 lr5 0 lr5;;
 acc.first;;
 bkpt;;
 """
@@ -231,9 +231,8 @@ class TestWideVectorPadding:
         st.regfile.set_r_cyclic_at(0, buf)
         asm = """\
 set lr0 384;;
-set lr1 0;;
 set lr2 0;;
-mult.ve.cr lr0 lr1 lr2 cr1;;
+mult.ve.cr lr0 0 lr2 cr1;;
 reset_acc;;
 acc.first;;
 bkpt;;
@@ -263,10 +262,9 @@ bkpt;;
 set lr4 0x1000;;
 ldr_mult_reg r0 lr4 cr0;;
 set lr0 384;;
-set lr1 0;;
 set lr2 0;;
 set lr3 0;;
-mult.ve.cyclic lr0 lr1 lr2 lr3;;
+mult.ve.cyclic lr0 0 lr2 lr3;;
 reset_acc;;
 acc.first;;
 bkpt;;
@@ -296,10 +294,9 @@ bkpt;;
 set lr4 0x1000;;
 ldr_mult_reg r0 lr4 cr0;;
 set lr0 384;;
-set lr1 0;;
 set lr2 0;;
 set lr3 0;;
-mult.ve.padded lr0 lr1 lr2 lr3;;
+mult.ve.padded lr0 0 lr2 lr3;;
 reset_acc;;
 acc.first;;
 bkpt;;
@@ -346,7 +343,7 @@ ldr_mult_reg r0 lr0 cr0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 set lr3 1;;
 reset_acc;;
-mult.ee r0 lr3 lr3 lr3;;
+mult.ee r0 lr3 0 lr3;;
 bkpt;;
 """
         encoded = assemble(asm)
