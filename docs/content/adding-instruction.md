@@ -58,7 +58,8 @@ INSTRUCTION_SPEC = {
 - **`operands`**: List of operand definitions, each with:
   - `name`: Meaningful name for the operand (used in handler signature)
   - `type`: Operand type — one of:
-    - `"MultStageReg"` — r0, r1, or mem_bypass
+    - `"MultStageReg"` — `r0`, `r1`, or `mem_bypass` (e.g. `ldr_mult_reg` destination)
+    - `"MultStageRegR01"` — `r0` or `r1` only; same 2-bit encoding as `MultStageReg` (used by `mult.ee`)
     - `"LrIdx"` — lr0-lr15
     - `"CrIdx"` — cr0-cr15
     - `"LcrIdx"` — lr0-lr15 or cr0-cr15

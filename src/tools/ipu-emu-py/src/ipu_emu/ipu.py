@@ -83,6 +83,7 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # (derived from assembler token class names via camelCase→snake_case)
 _TYPE_FIELD_SUFFIX = {
     "MultStageReg": "mult_stage_reg_field",
+    "MultStageRegR01": "mult_stage_reg_field",
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
@@ -125,7 +126,7 @@ def _build_field_map_for_instruction(
     for op in operands:
         op_type = op["type"]
         for j, layout_type in enumerate(layout):
-            if layout_type == op_type and not used[j]:
+            if not used[j] and _layout_accepts_operand(layout_type, op_type):
                 used[j] = True
                 token_idx = j + 1  # +1 because token_0 is opcode
                 suffix = _TYPE_FIELD_SUFFIX[layout_type]
@@ -133,6 +134,12 @@ def _build_field_map_for_instruction(
                 break
 
     return field_map
+
+
+def _layout_accepts_operand(layout_type: str, op_type: str) -> bool:
+    if layout_type == op_type:
+        return True
+    return layout_type == "MultStageReg" and op_type == "MultStageRegR01"
 
 
 def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
@@ -323,11 +330,21 @@ class Ipu:
                 return source.get_lr(raw_value)
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
-        elif op_type == "MultStageReg":
+        elif op_type == "MultStageReg" or op_type == "MultStageRegR01":
             if self._wide_vector_active():
+                if op_type == "MultStageRegR01" and raw_value >= 2:
+                    raise EmulatorError(
+                        "mult.ee ra operand encoding must be 0 (R0) or 1 (R1); "
+                        f"got {raw_value}"
+                    )
                 # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
                 # keyed by MultStageReg encoding index (0=r0, 1=r1, 2=mem_bypass).
                 return raw_value
+            if op_type == "MultStageRegR01" and raw_value >= 2:
+                raise EmulatorError(
+                    "mult.ee ra operand encoding must be 0 (R0) or 1 (R1); "
+                    f"got {raw_value}"
+                )
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
         else:
@@ -552,36 +569,6 @@ class Ipu:
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], rb[i], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
-    def execute_mult_ev(self, *, ra: bytearray | int, fixed_cyclic_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
-        """Execute mult_ev: Element x fixed cyclic multiplication."""
-        mult_res = self.state.regfile.raw("mult_res")
-
-        if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("fixed_cyclic_idx", fixed_cyclic_idx)
-            ra_vals = self._debug_ra_lane_vals(ra)
-            rb_vals = self._debug_rb_lane_vals(fixed_cyclic_idx, self.state.regfile)
-            rb0 = rb_vals[0]
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into("<f", mult_res, i * 4, float(ra_vals[i]) * float(rb0))
-            else:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(int(ra_vals[i]), int(rb0))
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
-
-        dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(fixed_cyclic_idx, R_REG_SIZE)
-
-        for i in range(R_REG_SIZE):
-            result = ipu_mult(ra[i], rb[0], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)

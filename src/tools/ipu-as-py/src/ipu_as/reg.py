@@ -30,6 +30,21 @@ CrRegField = _generated_classes.get("CrRegField")
 LcrRegField = _generated_classes.get("LcrRegField")
 AaqRegField = _generated_classes.get("AaqRegField")
 
+
+class MultStageRegR01Field(MultStageRegField):
+    """Mult-stage operand for ``mult.ee``: same 2-bit encoding as ``MultStageRegField`` but ``mem_bypass`` is rejected."""
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        if token.token.value.lower() == "mem_bypass":
+            loc = f"Line {token.token.line}, Column {token.token.column}"
+            raise ValueError(
+                "Invalid token value - mem_bypass in token MultStageRegR01Field\n"
+                f"In {loc}\n"
+                "`mem_bypass` is not valid for `mult.ee`; use `r0` or `r1` "
+                "(load with `ldr_mult_reg` in the same compound if needed)."
+            )
+        super().__init__(token)
+
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()
 MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
@@ -48,6 +63,7 @@ __all__ = [
     "IPU_CR_REG_NUM",
     # Classes
     "MultStageRegField",
+    "MultStageRegR01Field",
     "LrRegField",
     "CrRegField",
     "LcrRegField",

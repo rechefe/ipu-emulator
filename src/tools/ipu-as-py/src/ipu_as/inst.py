@@ -17,6 +17,7 @@ from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc
 
 OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "MultStageReg": reg.MultStageRegField,
+    "MultStageRegR01": reg.MultStageRegR01Field,
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
@@ -31,6 +32,17 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
+
+
+def _mult_stage_tokens_compatible(
+    inst_token: type[ipu_token.IpuToken],
+    slot_token: type[ipu_token.IpuToken],
+) -> bool:
+    """MultInst slot uses MultStageRegField; mult.ee operands use MultStageRegR01Field."""
+    return (
+        slot_token is reg.MultStageRegField
+        and inst_token is reg.MultStageRegR01Field
+    )
 
 
 def _build_struct_table(slot_type: str) -> dict[str, "InstructionFormat"]:
@@ -119,7 +131,11 @@ class Inst:
         full_token_list = [False for _ in cls.operand_types()]
         for i, token in enumerate(operand_types):
             for j, token_type in enumerate(cls.operand_types()):
-                if token == token_type and not full_token_list[j]:
+                if full_token_list[j]:
+                    continue
+                if token == token_type or _mult_stage_tokens_compatible(
+                    token, token_type
+                ):
                     full_token_list[j] = True
                     inst_mapping[i] = j
                     break
@@ -237,7 +253,8 @@ class Inst:
 
     @staticmethod
     def _render_opcode_doc(opcode: str, doc: InstructionDoc) -> list[str]:
-        lines = [f"### {opcode} - {doc.title}", doc.summary, ""]
+        display_opcode = opcode.upper()
+        lines = [f"### `{display_opcode}` — {doc.title}", ""]
         lines.append(f"**Syntax:** `{doc.syntax}`")
         lines.append("")
 
@@ -246,14 +263,17 @@ class Inst:
             lines.extend([f"- {operand}" for operand in doc.operands])
             lines.append("")
 
+        lines.append("**General description:**")
+        lines.append(doc.summary)
+        lines.append("")
+
         if doc.operation:
-            lines.append("**Operation:**")
-            lines.append("```")
-            lines.append(f"{doc.operation}")
-            lines.append("```")
+            lines.append("**Pseudo code:**")
+            lines.append(f"`{doc.operation}`")
+            lines.append("")
 
         if doc.example:
-            lines.append("**Example:**")
+            lines.append("**Example of usage:**")
             lines.append("```asm")
             lines.append(doc.example)
             lines.append("```")

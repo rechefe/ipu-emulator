@@ -1,298 +1,101 @@
 # Assembly Language Syntax
 
-The IPU assembler is a Python-based tool that converts assembly language into binary instructions for the IPU emulator.
+The IPU assembler is a Python-based tool that turns assembly source into binary VLIW instructions for the emulator. Instruction names, operands, and encoding are driven by `instruction_spec.py` in `ipu_common`; the [Instruction Reference](instructions.md) is generated from that same specification.
 
 ## Features
 
-- **Jinja2 Preprocessing** - Use templates and macros to generate assembly
-- **Label Resolution** - Forward and backward label references
-- **Multiple Instruction Types** - XMEM, MAC, LR, and Conditional instructions
-- **C Code Generation** - Generate C header files from assembly
-- **Syntax Validation** - Lark-based parser with detailed error messages
+- **Jinja2 preprocessing** — templates and macros for generated assembly
+- **Label resolution** — forward and backward references
+- **VLIW compounds** — multiple pipeline slots per cycle (`XMEM`, `MULT`, `ACC`, `AAQ`, `LR`×3, `COND`, `BREAK`)
+- **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
 
-Assembly files use a simple, line-based syntax:
+Assembly is line-oriented. One **compound instruction** may contain several **slot** instructions separated by `;`, terminated by `;;`.
 
 ```asm
-# Comments start with #
-label:                      # Labels end with colon
-    ldr r0 lr0 cr0;       # Load from memory
-    mac.ee rq4 r2 r3;     # Multiply-accumulate
-    beq lr0 lr1 label;    # Branch if equal
+# Comments start with # or //
+label:                          # Labels end with a colon
+    ldr_mult_reg r0 lr0 cr0;     # XMEM: load into mult stage R0
+    mult.ee r0 lr1 lr2 lr3;      # MULT: element-wise multiply
+    acc;                         # ACC: accumulate
+    incr lr0 1;                  # LR: bump address
+    bne lr0 lr1 next;            # COND: branch
+    ;;
 ```
 
-## Instruction Separators
+Use **lower-case** mnemonics and register names in source (e.g. `mult.ee`, `lr0`, `r0`). Generated documentation uses **upper-case** for readability (e.g. `MULT.EE`, `LR0`, `R0`).
 
-The IPU supports two types of instruction separators for different execution models:
+## Compound instructions
 
-### Compound Instruction 
+A full IPU instruction is one **compound** word: several slots execute in parallel in a single cycle.
 
-An IPU instruction is a compound instruction, meaning its composed of few instructions running in parallel.
-
-**Syntax:**
-```asm
-xmem_inst; mac_inst; lr_inst; cond_inst;;
-```
-
-**Execution:** All instructions in the compound execute simultaneously.
-
-**Instruction Types:**
-
-1. **XMEM type** - Memory operations
-2. **MAC type** - Multiply-accumulate
-3. **LR type** - Loop register operations (2 of this type can be executed in parallel)
-4. **COND type** - Control flow 
-
-**Example:**
-```asm
-# All execute in parallel in one cycle
-ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next
-```
-
-**Important Rules:**
-
-- Each pipeline can only execute one instruction per compound
-- Missing pipelines use NOP (no operation)
-- Order doesn't matter within a compound instruction
-- Pipelines are independent and don't interfere
-
-**Complete Example:**
-```asm
-# Sequential execution (4 cycles)
-ldr r0 lr0 cr0;;
-mac.ee rq8 r2 r3;;
-incr lr0 1;;
-b next;;
-
-# Parallel execution (1 cycle)
-ldr rq0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
-```
-
-## Instruction Format
-
-Each instruction follows the pattern:
-
-```
-opcode operand1 operand2 operand3
-```
-
-**Register Types:**
-
-- `r0-r11` - Data registers (128-byte vectors)
-- `mem_bypass` - Equivalent to R register - used if loading R register and applying MAC using it is needed in the same instruction.
-- `rq0, rq4, rq8` - Aliases of `r0-r11` registers (512-byte vectors) - e.g. `rq = {r0, r1, r2, r3}`
-- `lr0-lr15` - General registers - IPU can read and write LRs
-- `cr0-cr15` - Configuration registers - IPU can only read CRs
-
-**Immediate Values:**
-
-- Decimal: `42`
-- Hexadecimal: `0x2A`
-- Binary: `0b00101010`
-- Negative: `-10`
-
-## Labels
-
-Labels mark positions in code for jumps and branches:
+**Pattern:**
 
 ```asm
-start:              # Label definition
-    set lr0 10
+xmem_inst; mult_inst; acc_inst; aaq_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
+```
+
+**Rules:**
+
+- Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
+- Slot order in the binary word is defined by the toolchain (`break`, `xmem`, `mult`, `acc`, `aaq`, then three `lr` sub-slots, then `cond`).
+- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **XMEM**, **MULT**, **ACC**, **AAQ**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`).
+
+**Example (parallel slots):**
+
+```asm
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 128; bne lr0 lr1 loop;;
+```
+
+## Register names
+
+| Kind | Assembler | Notes |
+|------|-----------|--------|
+| Mult stage | `r0`, `r1` | 128-byte vectors; operands for `MULT.EE` are **`r0`/`r1` only** (no `mem_bypass` on that opcode). |
+| Mult stage (loads) | `r0`, `r1`, `mem_bypass` | Destination of `ldr_mult_reg` only; `mem_bypass` is a load target, not an `MULT.EE` operand. |
+| Cyclic / mask | `RC`, `RM` | Documented as cyclic and mask register file in the instruction reference; addressed via offsets from `LR` operands. |
+| Loop / scalar | `lr0`–`lr15` | General-purpose; **read/write**. |
+| Constant | `cr0`–`cr15` | **Read-only** in assembly; values come from the emulator harness or reset state. **`cr0` is 0, `cr1` is 1** where used as constants. |
+| AAQ | `aaq0`–`aaq3` | Activation/quantization registers. |
+
+**Immediates (LR slot):** decimal, hex (`0x…`), binary (`0b…`); 16-bit signed range where applicable.
+
+## Labels and branches
+
+```asm
+start:
+    set lr0 0
 loop:
     incr lr0 1
-    bne lr0 lr1 loop    # Branch to label
-    b start             # Jump to label
-```
-
-**Label References:**
-
-- **Backward**: Reference to a label already defined
-- **Forward**: Reference to a label defined later
-- **Relative**: `+N` or `-N` (jump N instructions forward/backward)
-
-**Examples:**
-```asm
-b +5        # Jump 5 instructions forward
-b -2        # Jump 2 instructions backward
-b loop      # Jump to label 'loop'
-```
-
-## Jinja2 Preprocessing
-
-The assembler supports [Jinja2 templates](https://jinja.palletsprojects.com/) for powerful code generation:
-
-### Variables and Expressions
-
-```jinja2
-{% set loop_count = 10 %}
-{% set base_addr = 0x1000 %}
-
-set lr0 {{ base_addr }};
-set lr1 {{ loop_count }};
-```
-
-### Loops
-
-```jinja2
-{% for i in range(8) %}
-ldr r{{ i }} lr0 cr{{ i }};;
-{% endfor %}
-```
-
-### Macros
-
-```jinja2
-{% macro load_vector(reg_num, addr) %}
-set lr0 {{ addr }};
-ldr r{{ reg_num }} lr0 cr0;;
-{% endmacro %}
-
-{{ load_vector(0, 0x1000) }}
-{{ load_vector(1, 0x2000) }}
-```
-
-### Conditionals
-
-```jinja2
-{% set use_optimization = true %}
-
-{% if use_optimization %}
-    # Optimized code path - parallel execution
-    ldr r0 lr0 cr0; mac.agg rq0 r2 r3; incr lr0 128; b next;;
-{% else %}
-    # Standard code path - sequential
-    ldr rx0 lr0 cr0;;
-    mac.ee rx1 rx2 rx3;;
-    incr lr0 128;;
-    b next;;
-{% endif %}
-```
-
-### Include Files
-
-```jinja2
-{% include 'common_macros.j2' %}
-{% include 'constants.j2' %}
-```
-
-## Advanced Features
-
-### Loop Unrolling
-
-```jinja2
-{% macro unroll_loop(count) %}
-{% for i in range(count) %}
-    ldr r{{ i % 8 }} lr0 cr0; mac.ee rx0 rx{{ i % 8 }} rx7; incr lr0 128;;
-{% endfor %}
-{% endmacro %}
-
-{{ unroll_loop(16) }}
-```
-
-### Parametric Code Generation
-
-```jinja2
-{% set VECTOR_SIZE = 128 %}
-{% set NUM_LAYERS = 4 %}
-{% set ACTIVATION = 'relu' %}
-
-{% for layer in range(NUM_LAYERS) %}
-layer_{{ layer }}:
-    # Load weights for layer {{ layer }}
-    set lr0 {{ 0x1000 + layer * VECTOR_SIZE }};;
-    ldr rx1 lr0 cr0;;
-    
-    # Matrix multiply
-    mac.ev rx0 rx1 rx2 lr0;;
-    
-    {% if ACTIVATION == 'relu' %}
-    # ReLU activation
-    blt rx0 lr0 skip_relu_{{ layer }};;
-    set rx0 0;;
-skip_relu_{{ layer }}:
-    {% endif %}
-{% endfor %}
-```
-
-### Compound Instruction Generation
-
-```jinja2
-{% macro parallel_load_mac(rx_out, rx1, rx2, addr, offset) %}
-ldr {{ rx1 }} lr0 cr0; mac.ee {{ rx_out }} {{ rx1 }} {{ rx2 }}; incr lr0 {{ offset }};;
-{% endmacro %}
-
-# Generates efficient parallel instructions
-{{ parallel_load_mac('rx0', 'rx1', 'rx2', 0x1000, 128) }}
-```
-
-## Using the Assembler
-
-### Command Line
-
-```bash
-# Assemble to binary
-ipu-as input.asm -o output.bin
-
-# Generate C header
-ipu-as input.asm --c-gen --out-dir ./generated
-
-# With preprocessing
-ipu-as template.asm.j2 -o output.bin
-
-# Define variables
-ipu-as template.asm.j2 --define OPTIMIZE=true --define SIZE=256
-```
-
-### In Bazel
-
-```starlark
-load("//asm_rules:defs.bzl", "ipu_asm")
-
-ipu_asm(
-    name = "my_program",
-    src = "program.asm",
-)
-```
-
-### Preprocessing Context
-
-The assembler automatically provides these variables in templates:
-
-- `__file__` - Current file path
-- `__line__` - Current line number
-- Custom variables via command line: `--define VAR=value`
-
-## Complete Example
-
-```asm
-# Matrix-vector multiplication with loop unrolling
-{% set ROWS = 8 %}
-{% set COLS = 128 %}
-
-# Initialize base addresses
-set lr0 0x1000      ;; # Matrix base address
-set lr1 0x2000      ;; # Vector base address
-set lr2 0x3000      ;; # Result base address
-set lr3 {{ ROWS }}  ;; # Loop counter
-
-main_loop:
-    # Parallel load and MAC operations
-    {% for i in range(COLS // 16) %}
-    ldr r{{ i % 4 }} lr0 cr{{ i }}; mac.ev rq4 r{{ i % 4 }} r6 lr1; incr lr0, 16;;
-    {% endfor %}
-    
-    # Store result and update
-    str rx7 lr2 cr0; incr lr2, 128; incr lr3, 1;;
-    
-    # Loop condition
-    bnz lr3 lr0 main_loop;;
-
-end:
+    bne lr0 lr1 loop
     bkpt
 ```
 
-## Additional Resources
+Relative labels such as `b +5` / `b -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
 
-- [Jinja2 Template Documentation](https://jinja.palletsprojects.com/en/3.1.x/templates/)
-- [Instruction Reference](instructions.md) - Complete instruction set documentation
+## Jinja2 preprocessing
+
+The assembler runs Jinja2 on the source when `{{`, `{%`, or `{#` appear.
+
+```jinja2
+{% set base = 0x1000 %}
+set lr0 {{ base }};
+ldr_mult_reg r0 lr0 cr0;;
+```
+
+## Running the assembler
+
+**Command line (Bazel):**
+
+```bash
+bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
+```
+
+**In Bazel build rules:** use the project’s `ipu_asm` rule (see [Building Applications](building-applications.md)).
+
+## Further reading
+
+- [Instruction Reference](instructions.md) — auto-generated from `instruction_spec.py`
+- [Adding Instructions](adding-instruction.md)
+- [Building Applications](building-applications.md)
