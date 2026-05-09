@@ -38,9 +38,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
-from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import (
+    parse_dtype,
+    dump_outputs,
+)
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -53,25 +56,6 @@ MASK_BASE_ADDR = 0x120000
 OUTPUT_BASE_ADDR = 0x130000
 
 OUTPUT_ROW_BYTES = 128 * 4  # 512 per output-channel per row-group
-
-_DTYPE_MAP = {
-    "INT8": DType.INT8,
-    "int8": DType.INT8,
-    "FP8_E4M3": DType.E4,
-    "fp8_e4m3": DType.E4,
-    "FP8_E5M2": DType.E5,
-    "fp8_e5m2": DType.E5,
-}
-
-
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value."""
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(
-            f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2"
-        )
-    return dt
 
 
 def _compute_G(in_channels: int) -> int:
@@ -216,7 +200,9 @@ class PointwiseConvUniversalApp(IpuApp):
         # Load mask data (all zeros — no masking for pointwise)
         state.xmem.write_address(MASK_BASE_ADDR, bytes(128))
 
-        # Set base-address CR registers
+        # CR2/CR3 are swapped relative to conv_universal and depthwise_conv_universal:
+        # CR2 = MASK, CR3 = OUTPUT. The pointwise assembly expects this order;
+        # changing it would require an .asm edit.
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, KERNEL_BASE_ADDR)
         state.regfile.set_cr(2, MASK_BASE_ADDR)
@@ -239,10 +225,7 @@ class PointwiseConvUniversalApp(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_rows = self.row_groups * self.out_channels
-            dump_xmem_to_binary(
-                state,
-                self.output_path,
-                OUTPUT_BASE_ADDR,
-                OUTPUT_ROW_BYTES,
-                total_rows,
+            dump_outputs(
+                state, self.output_path,
+                OUTPUT_BASE_ADDR, OUTPUT_ROW_BYTES, total_rows,
             )

@@ -29,14 +29,24 @@
 #   cr4 = cols (spatial width)
 #   cr5 = num_chunks (= rows * cols / 128)
 #   cr6 = in_group_stride (= in_channels * 128)
-#   cr7 = 1792 (channel group size = 14 * 128, FPB=14 constant)
-#   cr8 = total_kernel_bytes (= out_channels * ceil(in_channels/14) * 128)
+#   cr7 = 3584 (channel group size = 28 * 128, FPB=28 constant)
+#   cr8 = total_kernel_bytes (= out_channels * ceil(in_channels/28) * 256)
 #   cr9 = zero region address (128 bytes of zeros for S2 in last chunk)
+#   cr11 = chunk-loop limit (= (num_chunks - 1) * in_group_stride)
 #
 # Partial-last-block clamp:
-#   Each block-entry clamps the inner-loop limit lr11 to
+#   Each super-block-entry clamps the inner-loop limit lr11 to
 #   min(lr10 + cr7, in_group_stride). This handles in_channels that are
-#   not a multiple of FPB=14 without per-block bookkeeping.
+#   not a multiple of FPB=28 without per-block bookkeeping.
+#
+# Kernel super-block layout (FPB=28):
+#   Each super-block is 256 bytes loaded as TWO ldr_mult_reg calls per
+#   super-block-entry: r0 <- [lr12..lr12+128) holds channels 0..13,
+#   r1 <- [lr12+128..lr12+256) holds channels 14..27. The mult.ve
+#   `fixed_idx` operand (0..255) addresses both halves with a shared
+#   index — fixed_idx 0..127 hits R0, 128..255 hits R1.
+#   lr6 sweeps 0..251 across the body (28 channels * 9 taps); lr12
+#   advances by 256 between super-blocks.
 #
 # Mask slots (precomputed by harness, depend on cols):
 #   slot 0: all zeros          -> no masking (kc=0)
@@ -46,40 +56,86 @@
 #   into S2 for the last chunk instead of using dedicated masks.
 #
 # LR register allocation:
-#   lr0  = 0     (zero constant, mask slot 0, mask_shift, S0 cyclic index)
-#   lr1  = 1     (mask slot 1 = left border, kc offset)
-#   lr2  = 2     (mask slot 2 = right border)
-#   lr3  = 128 - cols  (kr=-1 cyclic base)
-#   lr4  = 128   (kr=0 cyclic base, S1 cyclic index, channel stride)
-#   lr5  = 128 + cols  (kr=+1 cyclic base)
-#   lr6  = kernel byte index within r0 (0..125 per r0 load, FPB=14)
-#   lr7  = output pointer (global, continuous)
-#   lr8  = chunk base address (chunk_index * in_group_stride)
-#   lr9  = chunk counter
-#   lr10 = channel offset within chunk (0, 128, ..., in_group_stride-128)
-#   lr11 = channel group limit (lr10 + cr7, or lr10 + cr10 on last block)
-#   lr12 = kernel memory offset (0, 128, ...; reset to 0 per chunk section)
-#   lr13 = total_kernel_bytes (filter loop limit, copy of cr8)
-#   lr14 = temp / in_group_stride at block-entry clamp
-#   lr15 = temp / chunk loop limit / S0 base in ch_loop setup / cyclic-idx 256
+#   lr0  = 0  (permanent constant: zero value, mask slot 0 index, mask_shift,
+#              S0 cyclic index for ldr_cyclic_mult_reg)
+#   lr1  = 1  (permanent constant: mask slot 1 index = left border, kc=-1 offset)
+#   lr2  = 2  (permanent constant: mask slot 2 index = right border)
+#   lr3  = 128 - cols  (permanent constant: kr=-1 cyclic base)
+#   lr4  = 128  (permanent constant: kr=0 cyclic base, S1 cyclic slot index,
+#                channel stride for ldr_cyclic_mult_reg index argument)
+#   lr5  = 128 + cols  (permanent constant: kr=+1 cyclic base)
+#   lr6  = shared kernel byte index across R0/R1 (0..251 in a full super-block);
+#           incremented by 1 each tap (incr lr6 1);
+#           values 0..127 hit R0, 128..255 hit R1 via mult.ve fixed_idx;
+#           reset to 0 at each super-block entry (after both ldr_mult_reg loads)
+#   lr7  = output pointer (global, monotonically increasing);
+#           incremented by 512 after each filter's output is stored
+#   lr8  = chunk base address = chunk_index * in_group_stride;
+#           incremented by cr6 at chunk advance (main/gN);
+#           compared against cr11 for chunk-loop termination
+#   lr9  = 256  (permanent constant: cyclic slot-2 index for all
+#                ldr_cyclic_mult_reg ... lr9 calls across g0/mn/gN)
+#   lr10 = channel offset within current chunk (0, 128, ..., in_group_stride-128);
+#           incremented by 128 at tap 2 of each channel iteration;
+#           reset to 0 at filter_loop entry
+#   lr11 = channel group limit = min(lr10 + cr7, in_group_stride);
+#           set at block entry (filter_loop / reload);
+#           compared against lr10 at tap 9 blt for ch_loop_cont termination
+#   lr12 = kernel super-block offset within current filter (0, 256, 512, ...);
+#           incremented by 256 after each 28-channel group;
+#           reset to 0 at each section entry (g0/main/gN)
+#   lr13 = THIS.S1 base carrier (cross-channel in mn 9-cyc body):
+#           [g0/gN preamble cycle 1] = lr8 + lr10  (THIS.S1 base; load S1)
+#           [g0/gN tap 5]             = lr8 + lr10 (NEXT.S1 base; SNAPSHOT lr10=NEXT)
+#           [g0/gN tap 8]            -> used as input to lr14 = lr13 + cr6 (NEXT.S2 base addr)
+#           [mn preamble cycle 1]     = lr8 + lr10  (ch0.S1 base; load S1)
+#           [mn tap 1]               -> XMEM addr for NEW.S1 load (= this ch's S1 base)
+#           [mn tap 4]               -> input to lr14 = lr13 - cr6 (THIS.S0 base addr)
+#           [mn tap 5]                = lr8 + lr10 (NEXT.S1 base; overwrites THIS.S1)
+#           [mn tap 8]               -> input to lr14 = lr13 + cr6 (NEXT.S2 base addr)
+#           [gN tap 1]                = lr14 - cr6 (THIS.S0 base; XMEM addr; old 10-cyc role)
+#   lr14 = multi-role scratch (written and consumed within 1-2 cycles):
+#           [g0/gN ch_loop_cont] THIS.S1 base = lr8 + lr10 (XMEM addr same cycle)
+#           [mn preamble cy 2]   S0 base = lr13 - cr6 (XMEM addr)
+#           [mn preamble cy 3]   S2 base = lr13 + cr6 (XMEM addr)
+#           [mn tap 4]           THIS.S0 base = lr13 - cr6 (XMEM addr same cycle)
+#           [mn tap 8 / g0/gN tap 8] NEXT.S2 base = lr13 + cr6 (XMEM addr)
+#           [tap 1 LR2]    cyclic offset for kr=+1 kc=-1 = lr5 - lr1
+#           [tap 3 LR2]    cyclic offset for kr=+1 kc=+1 = lr5 + lr1
+#           [g0/gN tap 4]  cyclic offset for kr=0  kc=-1 = lr4 - lr1
+#                          (mn tap 4 uses lr15=127 directly instead)
+#           [tap 6 LR2]    cyclic offset for kr=0  kc=+1 = lr4 + lr1
+#           [tap 7 LR2]    cyclic offset for kr=-1 kc=-1 = lr3 - lr1
+#           [tap 9 LR2]    cyclic offset for kr=-1 kc=+1 = lr3 + lr1
+#   lr15 = 127  (permanent constant: kr=0 kc=-1 cyclic offset = lr4-lr1).
+#           Used at mn tap 4 to free the LR sub-slot that previously held
+#           `sub lr14 lr4 lr1`, enabling the 9 cyc/ch fold (S0 address compute
+#           occupies that freed sub-slot).
 #
-# Note: in_group_stride (cr6) is accessed directly via CR in add/sub ops.
-# The filter loop is: blt lr12 lr13 (where lr13 = cr8, set once per section).
+# Note: branches now accept CR operands directly (LcrIdx). We use:
+#   filter loop:        blt lr12 cr8
+#   chunk advance:      blt lr8  cr11
+#   reload check:       blt lr10 cr6
+#   clamp check:        blt cr6  lr11
 
 # ===========================================================================
 # Initialization
 # ===========================================================================
 
     set                 lr0 0;
+    set                 lr4 128;
     ldr_mult_mask_reg   lr0 cr3;;
 
-    set                 lr4 128;
+    set                 lr2 2;
     set                 lr1 1;;
 
-    set                 lr2 2;
+    sub                 lr15 lr4 lr1;     # lr15 = 127 (permanent: kr=0 kc=-1 cyclic offset)
     sub                 lr3 lr4 cr4;;
 
-    add                 lr5 lr4 cr4;;
+    add                 lr5 lr4 cr4;
+    add                 lr9 lr4 lr4;;              # lr9 = 256 (cyclic-2 index, permanent)
+
+
 
 # ===========================================================================
 # Section 1: Chunk 0 (top border)
@@ -90,8 +146,7 @@
     set                 lr8 0;
     set                 lr7 0;;
 
-    set                 lr12 0;
-    add                 lr13 cr8 lr0;;
+    set                 lr12 0;;
 
 g0_filter_loop:
     ldr_mult_reg        r0 lr12 cr1;
@@ -101,105 +156,111 @@ g0_filter_loop:
     reset_acc;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
-    # Clamps the last partial block when in_channels % 14 != 0.
+    # Clamps the last partial super-block when in_channels % 28 != 0.
+    # Same cycle: lr14 = lr12+128 (R1 kernel half offset); load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 g0_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 g0_clamp;;
     b                   g0_ch_loop;;
 g0_clamp:
-    add                 lr11 lr14 lr0;;
+    add                 lr11 lr0 cr6;;
 
 g0_ch_loop:
     # ===== Block preamble (2 cycles): load ch 0's S1 and S2 (S0 = zeros always). =====
-    # Cycle 1: lr15 = S1 base; load S1 → slot 1.
-    add                 lr15 lr8 lr10;
-    ldr_cyclic_mult_reg lr15 cr0 lr4;;
+    # 9 cyc/ch body: NO ch_loop_cont. Tap 1 loads NEW.S1 (same-cycle visibility).
+    # S0 stays zero throughout g0 (never loaded).
+    # lr13 carries NEXT.S1 base across channel boundary (set at tap 5).
+    #
+    # Cycle 1: lr13 = S1 base; load S1 → slot 1.
+    add                 lr13 lr8 lr10;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;;
 
-    # Cycle 2: lr15 = S2 base (SNAPSHOT lr15 = S1 base); lr14 = 256;
-    #          load S2 → slot 2. Jump into tap body (bypasses g0_ch_loop_cont).
-    add                 lr15 lr15 cr6;
-    add                 lr14 lr4 lr4;
-    ldr_cyclic_mult_reg lr15 cr0 lr14;
+    # Cycle 2: lr14 = S2 base (= lr13 + cr6); load S2 → slot 2; set lr6 = -1; branch.
+    set                 lr6 -1;
+    add                 lr14 lr13 cr6;
+    ldr_cyclic_mult_reg lr14 cr0 lr9;
     b                   g0_tap_body;;
 
-g0_ch_loop_cont:
-    # ===== Per-channel preamble (1 cycle): load CURRENT.S1 → slot 1; advance lr6. =====
-    add                 lr14 lr8 lr10;
-    incr                lr6 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr4;;
-
 g0_tap_body:
-    # --- tap 1: kr=-1 kc=-1.  Sub-slot 2: advance lr10 to NEXT ch. ---
-    sub                 lr14 lr3 lr1;
-    incr                lr10 128;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # ===== 9 cyc/ch body. lr15 = 127 permanent constant for tap 4 cyclic offset. =====
+    # Slot 0 = zeros (never loaded in g0), read at taps 7-9
+    # Slot 1 holds THIS.S1, read every tap; loaded at tap 1 (same-cycle, slot 1 frozen at fresh data)
+    # Slot 2 holds THIS.S2, read at taps 1-3; loaded at tap 8 (prev ch's body)
+    # lr13 (cross-channel): NEXT.S1 base. Set at prev ch's tap 5; preamble cy 1 (for ch0).
+
+    # --- tap 1: kr=+1 kc=-1.  XMEM loads NEW.S1 → slot 1 (lr13 LIVE = NEW.S1 base).
+    #     Same-cycle write/read of slot 1: MULT reads freshly-loaded NEW.S1 (correct). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr5 lr1;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 2: kr=-1 kc=0.  Sub-slot 2: NEXT.S1 base (SNAPSHOT lr10 = NEXT ch). ---
-    incr                lr6 1;
-    add                 lr15 lr8 lr10;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    # --- tap 2: kr=+1 kc=0.  Sub-slot 2: incr lr10 to NEXT ch. ---
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    # --- tap 3: kr=-1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    # --- tap 3: kr=+1 kc=+1. ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr5 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 4: kr=0 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # --- tap 4: kr=0 kc=-1.  Use lr15=127 as cyclic offset; sub-slot 2 free.
+    #     (S0 is always zero in g0 — no S0 load needed.) ---
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr15 1 lr0 lr6;
     acc;;
 
-    # --- tap 5: kr=0 kc=0.  S0 = zeros so slot 0 needs no reload; sub-slot 2 free. ---
-    incr                lr6 1;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    # --- tap 5: kr=0 kc=0.  Sub-slot 2: lr13 = NEXT.S1 base (SNAPSHOT lr10 = NEXT). ---
+    add                 lr6 lr6 1;
+    add                 lr13 lr8 lr10;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
     # --- tap 6: kr=0 kc=+1. ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 7: kr=+1 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # --- tap 7: kr=-1 kc=-1.  Slot 0 = zeros; reads zero. ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 8: kr=+1 kc=0. ---
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    # --- tap 8: kr=-1 kc=0.  Sub-slot 2: lr14 = NEXT.S2 base = lr13 + cr6.
+    #     XMEM: load NEXT.S2 → slot 2. Slot 2 dead since tap 4.
+    #     lr14 reused (tap 8 mult uses lr3 directly, not lr14). ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr13 cr6;
+    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    # --- tap 9: kr=+1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
-    acc;;
-
-    # --- Branch cycle: load NEXT.S2 → slot 2 (slots 1 & 2 dead after tap 9).
-    #     lr14 = NEXT.S2 base, lr15 = 256 (cyclic index for slot 2). ---
-    add                 lr14 lr15 cr6;
-    add                 lr15 lr4 lr4;
-    ldr_cyclic_mult_reg lr14 cr0 lr15;
-    blt                 lr10 lr11 g0_ch_loop_cont;;
+    # --- tap 9: kr=-1 kc=+1.  Branch DIRECTLY to tap 1 (no ch_loop_cont). ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
+    acc;
+    blt                 lr10 lr11 g0_tap_body;;
 
     # Advance kernel offset; check for more channel groups
-    incr                lr12 128;
-    add                 lr15 cr6 lr0;;
+    add                 lr12 lr12 cr13;
 
-    blt                 lr10 lr15 g0_reload;;
+    blt                 lr10 cr6 g0_reload;;
 
     # All input channels done -- store output and advance filter
     str_acc_reg         lr7 cr2;;
 
-    incr                lr7 512;;
+    add                 lr7 lr7 cr13;;
+    add                 lr7 lr7 cr13;
 
-    blt                 lr12 lr13 g0_filter_loop;;
+    blt                 lr12 cr8 g0_filter_loop;;
 
     b                   main_setup;;
 
@@ -208,13 +269,14 @@ g0_reload:
     set                 lr6 0;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
+    # Same cycle: lr14 = lr12+128; load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 g0_reload_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 g0_reload_clamp;;
     b                   g0_ch_loop;;
 g0_reload_clamp:
-    add                 lr11 lr14 lr0;;
-
+    add                 lr11 lr0 cr6;
     b                   g0_ch_loop;;
 
 # ===========================================================================
@@ -223,15 +285,11 @@ g0_reload_clamp:
 # ===========================================================================
 
 main_setup:
-    add                 lr8 cr6 lr0;
-    set                 lr9 1;;
-
-    sub                 lr15 cr5 lr1;;
-
-    # Guard: if no middle chunks (num_chunks <= 2, i.e. lr15 <= 1), skip main.
-    # lr9=1, lr15=cr5-1. When cr5=2: lr15=1, blt 1<1 false -> skip to gN.
-    # When cr5>2: lr15>1, blt 1<lr15 true -> fall through into row_loop.
-    blt                 lr9 lr15 row_loop;;
+    # Guard: if no middle chunks (num_chunks <= 2), skip main.
+    # cr11 = (cr5-1)*cr6 = chunk_limit. When cr5=2: cr11=cr6, blt lr8<cr11
+    # is blt cr6<cr6 = false -> skip to gN. When cr5>2: cr11 > cr6 -> enter row_loop.
+    add                 lr8 lr0 cr6;;
+    blt                 lr8 cr11 row_loop;;
 
     b                   gN_section;;
 
@@ -246,129 +304,127 @@ filter_loop:
     reset_acc;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
+    # Same cycle: lr14 = lr12+128; load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 mn_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 mn_clamp;;
     b                   ch_loop;;
 mn_clamp:
-    add                 lr11 lr14 lr0;;
+    add                 lr11 lr0 cr6;;
 
 ch_loop:
     # ===== Block preamble (3 cycles): load ch 0's S0/S1/S2 =====
-    # Cycle 1: lr15 = S1 base; load S1 → slot 1.
-    add                 lr15 lr8 lr10;
-    ldr_cyclic_mult_reg lr15 cr0 lr4;;
+    # 9 cyc/ch body: NO ch_loop_cont. Tap 1 loads NEW.S1, tap 4 loads THIS.S0,
+    # tap 8 loads NEXT.S2. lr13 carries NEXT.S1 base across channel boundary.
+    #
+    # Cycle 1: lr13 = S1 base; load S1 → slot 1.
+    add                 lr13 lr8 lr10;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;;
 
-    # Cycle 2: lr14 = S0 base, lr15 = S2 base (both read SNAPSHOT lr15 = S1 base);
-    #          load S0 → slot 0 (XMEM sees LIVE lr14 = S0 base).
-    sub                 lr14 lr15 cr6;
-    add                 lr15 lr15 cr6;
+    # Cycle 2: lr14 = S0 base (= lr13 - cr6); load S0 → slot 0.
+    sub                 lr14 lr13 cr6;
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    # Cycle 3: lr14 = 256 (cyclic index for slot 2);
-    #          load S2 → slot 2 (XMEM sees LIVE lr15 = S2 base, LIVE lr14 = 256).
-    # Jump directly to tap body (bypassing the per-channel preamble at mn_ch_loop_cont).
-    add                 lr14 lr4 lr4;
-    ldr_cyclic_mult_reg lr15 cr0 lr14;
+    # Cycle 3: lr14 = S2 base (= lr13 + cr6); load S2 → slot 2; branch into body.
+    # Also set lr6 = -1 so tap 1's `incr lr6 1` brings it to 0 for ch0's first byte.
+    set                 lr6 -1;
+    add                 lr14 lr13 cr6;
+    ldr_cyclic_mult_reg lr14 cr0 lr9;
     b                   mn_tap_body;;
 
-mn_ch_loop_cont:
-    # ===== Per-channel preamble (1 cycle): load CURRENT.S1 → slot 1; advance lr6. =====
-    # SNAPSHOT lr10 = CURRENT ch offset (advanced at tap 1).
-    # incr lr6 1: advances from tap-9 index of prev ch to tap-1 index of current ch.
-    # Falls through directly into mn_tap_body (no extra branch).
-    add                 lr14 lr8 lr10;
-    incr                lr6 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr4;;
-
 mn_tap_body:
-    # --- tap 1: kr=-1 kc=-1.  Sub-slot 2: advance lr10 to NEXT ch. ---
-    sub                 lr14 lr3 lr1;
-    incr                lr10 128;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # ===== 9 cyc/ch body. lr15 = 127 permanent constant for tap 4 cyclic offset. =====
+    # Slot 0 holds THIS.S0, read at taps 7-9 ; loaded at tap 4 (same-cycle visibility OK)
+    # Slot 1 holds THIS.S1, read every tap   ; loaded at tap 1 (same-cycle, slot 1 frozen at fresh data)
+    # Slot 2 holds THIS.S2, read at taps 1-3 ; loaded at tap 8 (prev channel's body)
+    # lr13 (cross-channel): NEXT.S1 base. Set at prev ch's tap 5; preamble's cycle 1
+    #                       (for ch0). Used at this ch's tap 1 (XMEM addr) and as the
+    #                       base for THIS.S0 (tap 4) and NEXT.S2 (tap 8).
+
+    # --- tap 1: kr=+1 kc=-1.  XMEM loads NEW.S1 → slot 1 (lr13 LIVE = NEW.S1 base).
+    #     Same-cycle write/read of slot 1: MULT reads freshly-loaded NEW.S1 (correct). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr5 lr1;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 2: kr=-1 kc=0.  Sub-slot 2: NEXT.S1 base (SNAPSHOT lr10 = NEXT ch offset). ---
-    incr                lr6 1;
-    add                 lr15 lr8 lr10;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    # --- tap 2: kr=+1 kc=0.  Sub-slot 2: incr lr10 to NEXT ch. ---
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    # --- tap 3: kr=-1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    # --- tap 3: kr=+1 kc=+1. ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr5 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 4: kr=0 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
-    acc;;
-
-    # --- tap 5: kr=0 kc=0.  Slot 0 dead after tap 4; load NEXT.S0 → slot 0.
-    #     lr14 = NEXT.S0 base (reads SNAPSHOT lr15 = NEXT.S1 base). ---
-    incr                lr6 1;
-    sub                 lr14 lr15 cr6;
+    # --- tap 4: kr=0 kc=-1. cyclic_offset = lr15 = 127 (permanent constant).
+    #     LR2 free → lr14 = THIS.S0 base = lr13 - cr6.
+    #     XMEM loads THIS.S0 → slot 0.
+    #     Same-cycle: MULT lane 0 reads slot 0 lane 127 = freshly-loaded THIS.S0
+    #     last byte (correct kc=-1 wrap value for kr=0). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr13 cr6;
     ldr_cyclic_mult_reg lr14 cr0 lr0;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    mult.ve.cyclic      lr15 1 lr0 lr6;
+    acc;;
+
+    # --- tap 5: kr=0 kc=0.  Sub-slot 2: lr13 = NEXT.S1 base (SNAPSHOT lr10 = NEXT).
+    #     This overwrites lr13 (was THIS.S1 base) → tap 8 uses lr13 = NEXT.S1 base. ---
+    add                 lr6 lr6 1;
+    add                 lr13 lr8 lr10;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
     # --- tap 6: kr=0 kc=+1. ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 7: kr=+1 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # --- tap 7: kr=-1 kc=-1.  Slot 0 = THIS.S0 (loaded at tap 4). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 8: kr=+1 kc=0. ---
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    # --- tap 8: kr=-1 kc=0.  Sub-slot 2: lr14 = NEXT.S2 base = lr13 + cr6.
+    #     XMEM: load NEXT.S2 → slot 2. Slot 2 dead since tap 4 — safe.
+    #     lr14 reused (mult uses lr3 directly, not lr14). ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr13 cr6;
+    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    # --- tap 9: kr=+1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
-    acc;;
-
-    # --- Branch cycle: slots 1 & 2 dead after tap 9; load NEXT.S2 → slot 2.
-    #     Sub-slot 1: lr14 = NEXT.S2 base (SNAPSHOT lr15 = NEXT.S1 base).
-    #     Sub-slot 2: lr15 = 256 (cyclic index for slot 2).
-    #     XMEM sees LIVE lr14 = S2 base, LIVE lr15 = 256.
-    #     Loop back to mn_ch_loop_cont (1-cycle preamble) for next channel. ---
-    add                 lr14 lr15 cr6;
-    add                 lr15 lr4 lr4;
-    ldr_cyclic_mult_reg lr14 cr0 lr15;
-    blt                 lr10 lr11 mn_ch_loop_cont;;
+    # --- tap 9: kr=-1 kc=+1.  Branch DIRECTLY to tap 1 (no ch_loop_cont). ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
+    acc;
+    blt                 lr10 lr11 mn_tap_body;;
 
 mn_after_block:
-    # Advance kernel offset; check for more channel groups (Stage 4 verbatim).
-    incr                lr12 128;
-    add                 lr15 cr6 lr0;;
-
-    blt                 lr10 lr15 reload;;
+    # Advance kernel offset; check for more channel groups.
+    add                 lr12 lr12 cr13;
+    blt                 lr10 cr6 reload;;
 
     # All input channels done -- store and advance output filter
     str_acc_reg         lr7 cr2;;
 
-    incr                lr7 512;;
+    add                 lr7 lr7 cr13;;
+    add                 lr7 lr7 cr13;
+    blt                 lr12 cr8 filter_loop;;
 
-    blt                 lr12 lr13 filter_loop;;
+    # All filters done for this chunk -- advance to next chunk.
+    # Compare lr8 (chunk base addr) directly against cr11 = (cr5-1)*cr6.
+    add                 lr8 lr8 cr6;;
 
-    # All filters done for this chunk -- advance to next chunk
-    add                 lr8 lr8 cr6;
-    incr                lr9 1;;
-
-    # Restore lr15 = chunk limit (trashed during S2 index computation)
-    sub                 lr15 cr5 lr1;;
-
-    blt                 lr9 lr15 row_loop;;
+    blt                 lr8 cr11 row_loop;;
 
     b                   gN_section;;
 
@@ -377,13 +433,14 @@ reload:
     set                 lr6 0;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
+    # Same cycle: lr14 = lr12+128; load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 mn_reload_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 mn_reload_clamp;;
     b                   ch_loop;;
 mn_reload_clamp:
-    add                 lr11 lr14 lr0;;
-
+    add                 lr11 lr0 cr6;
     b                   ch_loop;;
 
 # ===========================================================================
@@ -403,115 +460,111 @@ gN_filter_loop:
     reset_acc;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
+    # Same cycle: lr14 = lr12+128; load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 gN_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 gN_clamp;;
     b                   gN_ch_loop;;
 gN_clamp:
-    add                 lr11 lr14 lr0;;
+    add                 lr11 lr0 cr6;;
 
 gN_ch_loop:
     # ===== Block preamble (3 cycles): load ch 0's S0/S1/S2 =====
-    # S2 always loaded from cr9 (zero region) with base lr0 = 0.
-    # Cycle 1: lr15 = S1 base; load S1 → slot 1.
-    add                 lr15 lr8 lr10;
-    ldr_cyclic_mult_reg lr15 cr0 lr4;;
+    # 9 cyc/ch body: NO ch_loop_cont. Tap 1 loads NEW.S1, tap 4 loads THIS.S0,
+    # tap 8 loads zero-region S2. lr13 carries NEXT.S1 base across channel boundary.
+    # S2 always loaded from cr9 (zero region).
+    #
+    # Cycle 1: lr13 = S1 base; load S1 → slot 1.
+    add                 lr13 lr8 lr10;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;;
 
-    # Cycle 2: lr14 = S0 base, lr15 = S2 base (both read SNAPSHOT lr15 = S1 base);
-    #          load S0 → slot 0.
-    sub                 lr14 lr15 cr6;
-    add                 lr15 lr15 cr6;
+    # Cycle 2: lr14 = S0 base (= lr13 - cr6); load S0 → slot 0.
+    sub                 lr14 lr13 cr6;
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    # Cycle 3: lr14 = 256 (cyclic index for slot 2);
-    #          load S2 from zero region → slot 2. Jump to tap body.
-    add                 lr14 lr4 lr4;
-    ldr_cyclic_mult_reg lr0 cr9 lr14;
+    # Cycle 3: load S2 from zero region → slot 2. Set lr6=-1; branch.
+    set                 lr6 -1;
+    ldr_cyclic_mult_reg lr0 cr9 lr9;
     b                   gN_tap_body;;
 
-gN_ch_loop_cont:
-    # ===== Per-channel preamble (1 cycle): load CURRENT.S1 → slot 1; advance lr6. =====
-    add                 lr14 lr8 lr10;
-    incr                lr6 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr4;;
-
 gN_tap_body:
-    # --- tap 1: kr=-1 kc=-1.  Sub-slot 2: advance lr10 to NEXT ch. ---
-    sub                 lr14 lr3 lr1;
-    incr                lr10 128;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # ===== 9 cyc/ch body. lr15 = 127 permanent constant for tap 4 cyclic offset. =====
+    # Slot 0 holds THIS.S0 (real data), read at taps 7-9; loaded at tap 4 (same-cycle)
+    # Slot 1 holds THIS.S1, read every tap; loaded at tap 1 (same-cycle visibility)
+    # Slot 2 holds zeros (from cr9), read at taps 1-3; loaded at tap 8 (prev ch's body)
+    # lr13 (cross-channel): NEXT.S1 base. Set at prev ch's tap 5; preamble cy 1 (for ch0).
+
+    # --- tap 1: kr=+1 kc=-1.  XMEM loads NEW.S1 → slot 1 (lr13 LIVE = NEW.S1 base).
+    #     Same-cycle write/read of slot 1: MULT reads freshly-loaded NEW.S1 (correct). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr5 lr1;
+    ldr_cyclic_mult_reg lr13 cr0 lr4;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 2: kr=-1 kc=0.  Sub-slot 2: NEXT.S1 base. ---
-    incr                lr6 1;
-    add                 lr15 lr8 lr10;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    # --- tap 2: kr=+1 kc=0.  Sub-slot 2: incr lr10 to NEXT ch. ---
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    # --- tap 3: kr=-1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    # --- tap 3: kr=+1 kc=+1. ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr5 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 4: kr=0 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
-    acc;;
-
-    # --- tap 5: kr=0 kc=0.  Slot 0 dead after tap 4; load NEXT.S0 → slot 0. ---
-    incr                lr6 1;
-    sub                 lr14 lr15 cr6;
+    # --- tap 4: kr=0 kc=-1. cyclic_offset = lr15 = 127 (permanent constant).
+    #     LR2 free → lr14 = THIS.S0 base = lr13 - cr6.
+    #     XMEM loads THIS.S0 → slot 0 (same-cycle visibility OK). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr13 cr6;
     ldr_cyclic_mult_reg lr14 cr0 lr0;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    mult.ve.cyclic      lr15 1 lr0 lr6;
+    acc;;
+
+    # --- tap 5: kr=0 kc=0.  Sub-slot 2: lr13 = NEXT.S1 base (SNAPSHOT lr10 = NEXT). ---
+    add                 lr6 lr6 1;
+    add                 lr13 lr8 lr10;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
     # --- tap 6: kr=0 kc=+1. ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    # --- tap 7: kr=+1 kc=-1. ---
-    incr                lr6 1;
-    sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    # --- tap 7: kr=-1 kc=-1.  Slot 0 = THIS.S0 (loaded at tap 4). ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    # --- tap 8: kr=+1 kc=0. ---
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    # --- tap 8: kr=-1 kc=0.  XMEM: load zero region → slot 2 (lr0=0 base, lr9=256 idx). ---
+    add                 lr6 lr6 1;
+    ldr_cyclic_mult_reg lr0 cr9 lr9;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    # --- tap 9: kr=+1 kc=+1. ---
-    incr                lr6 1;
-    add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
-    acc;;
-
-    # --- Branch cycle: load NEXT.S2 from zero region → slot 2.
-    #     lr14 = 256 (cyclic index); base is always lr0 = 0 (zero region constant).
-    #     lr15 = 256 recomputed via add lr15 lr4 lr4 for the index operand.
-    #     But: we need both NEXT.S0-base (done at tap 5) and NEXT.S2-load here.
-    #     S2 base is always 0 (zero region), so: ldr_cyclic_mult_reg lr0 cr9 lr15
-    #     with lr15 = 256. Sub-slot 1 frees up since no S2 base compute needed. ---
-    add                 lr15 lr4 lr4;
-    ldr_cyclic_mult_reg lr0 cr9 lr15;
-    blt                 lr10 lr11 gN_ch_loop_cont;;
+    # --- tap 9: kr=-1 kc=+1.  Branch DIRECTLY to tap 1 (no ch_loop_cont). ---
+    add                 lr6 lr6 1;
+    add                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
+    acc;
+    blt                 lr10 lr11 gN_tap_body;;
 
     # Advance kernel offset; check for more channel groups
-    incr                lr12 128;
-    add                 lr15 cr6 lr0;;
-
-    blt                 lr10 lr15 gN_reload;;
+    add                 lr12 lr12 cr13;
+    blt                 lr10 cr6 gN_reload;;
 
     # All input channels done -- store and advance
     str_acc_reg         lr7 cr2;;
 
-    incr                lr7 512;;
-
-    blt                 lr12 lr13 gN_filter_loop;;
+    add                 lr7 lr7 cr13;;
+    add                 lr7 lr7 cr13;
+    blt                 lr12 cr8 gN_filter_loop;;
 
 end:
     bkpt;;
@@ -521,11 +574,12 @@ gN_reload:
     set                 lr6 0;;
 
     # Inner-loop limit: min(lr10+cr7, in_group_stride).
+    # Same cycle: lr14 = lr12+128; load R1.
+    add                 lr14 lr12 lr4;
     add                 lr11 lr10 cr7;
-    add                 lr14 cr6 lr0;;
-    blt                 lr14 lr11 gN_reload_clamp;;
+    ldr_mult_reg        r1 lr14 cr1;;
+    blt                 cr6 lr11 gN_reload_clamp;;
     b                   gN_ch_loop;;
 gN_reload_clamp:
-    add                 lr11 lr14 lr0;;
-
+    add                 lr11 lr0 cr6;
     b                   gN_ch_loop;;

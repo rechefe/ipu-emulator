@@ -5,7 +5,7 @@ Paired-channel processing: channels 2k and 2k+1 share one accumulator.
 Channel A (even) in lanes 0-63, channel B (odd) in lanes 64-127.
 
 Input layout: 2 channels per 128-byte chunk (ch_even bytes 0-63, ch_odd 64-127).
-Kernel layout: ceil(num_channels/8) groups of 128 bytes (8 ch x 9 taps + padding).
+Kernel layout: ceil(channels/8) groups of 128 bytes (8 ch x 9 taps + padding).
 Output: INT32 accumulator, 512 bytes per channel pair (128 lanes x 4 bytes).
 
 Usage::
@@ -17,7 +17,7 @@ Usage::
         input_path="input.bin",
         kernel_path="kernel.bin",
         output_path="output.bin",
-        num_channels=160,
+        channels=160,
     )
     state, cycles = app.run()
 """
@@ -25,11 +25,18 @@ Usage::
 from __future__ import annotations
 
 import math
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import (
+    parse_dtype,
+    pack_input_paired,
+    dump_outputs,
+    ACC_CHUNK_BYTES,
+)
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -47,9 +54,11 @@ KERNEL_BASE_ADDR = 0x80000
 MASK_BASE_ADDR = 0x200000
 OUTPUT_BASE_ADDR = 0x200300
 
-ACC_CHUNK_BYTES = 512  # 128 lanes x 4 bytes
 CHANNELS_PER_GROUP = 8
 KERNEL_SIZE = 9
+
+# Back-compat alias: benchmarks and profiling scripts import this name
+_build_input_data = pack_input_paired
 
 
 def _build_mask_data() -> bytes:
@@ -181,27 +190,6 @@ def _build_kernel_data(kernel_raw: bytes, num_channels: int) -> bytes:
     return bytes(packed)
 
 
-def _build_input_data(input_raw: bytes, num_channels: int) -> bytes:
-    """Pack input into paired-chunk layout.
-
-    Input: input_raw[ch * 64 + spatial_pos] (per-channel, 64 bytes each).
-
-    Output: num_channels/2 chunks of 128 bytes.
-      Chunk j: ch 2j in bytes 0-63, ch 2j+1 in bytes 64-127.
-    """
-    num_pairs = num_channels // 2
-    packed = bytearray(num_pairs * 128)
-
-    for j in range(num_pairs):
-        dst = j * 128
-        src_even = (2 * j) * SPATIAL
-        src_odd = (2 * j + 1) * SPATIAL
-        packed[dst:dst + 64] = input_raw[src_even:src_even + 64]
-        packed[dst + 64:dst + 128] = input_raw[src_odd:src_odd + 64]
-
-    return bytes(packed)
-
-
 class Depthwise8x8App(IpuApp):
     """Universal depthwise 3x3 convolution: 8x8 spatial, flexible channels.
 
@@ -210,7 +198,8 @@ class Depthwise8x8App(IpuApp):
         input_path:   Path to input binary (packed paired-chunk format).
         kernel_path:  Path to kernel binary (grouped 128-byte blocks).
         output_path:  Optional path to write output.
-        num_channels: Number of channels (must be multiple of 8, >= 8).
+        channels:     Number of channels (must be multiple of 8, >= 8).
+        dtype:        Data type string or :class:`DType` (default ``"INT8"``).
     """
 
     ASM_PATH = Path(__file__).resolve().parent / "depthwise_8x8.asm"
@@ -218,26 +207,43 @@ class Depthwise8x8App(IpuApp):
     def __init__(
         self,
         *,
-        num_channels: int,
+        channels: int | None = None,
+        dtype: str | DType = "INT8",
         **kwargs,
     ) -> None:
+        # Back-compat: accept legacy kwarg num_channels
+        if channels is None:
+            if "num_channels" in kwargs:
+                warnings.warn(
+                    "Depthwise8x8App: 'num_channels' is deprecated, use 'channels'",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                channels = kwargs.pop("num_channels")
+            else:
+                raise TypeError(
+                    "Depthwise8x8App() missing required keyword argument: 'channels'"
+                )
+
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
         self.kernel_path = Path(self.kernel_path)
+        self.dtype = parse_dtype(dtype)
 
-        if num_channels < 8 or num_channels % 8 != 0:
+        if channels < 8 or channels % 8 != 0:
             raise ValueError(
-                f"num_channels must be a multiple of 8 and >= 8, got {num_channels}"
+                f"channels must be a multiple of 8 and >= 8, got {channels}"
             )
 
-        self.num_channels = num_channels
-        self.num_pairs = num_channels // 2
-        self.num_kernel_groups = math.ceil(num_channels / CHANNELS_PER_GROUP)
+        self.channels = channels
+        self.num_channels = channels  # back-compat alias
+        self.num_pairs = channels // 2
+        self.num_kernel_groups = math.ceil(channels / CHANNELS_PER_GROUP)
         self.total_input_bytes = self.num_pairs * 128
         self.total_output_bytes = self.num_pairs * ACC_CHUNK_BYTES
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(DType.INT8))
+        state.set_cr_dtype(int(self.dtype))
 
         # Load input (paired chunks)
         input_data = self.input_path.read_bytes()
@@ -260,9 +266,4 @@ class Depthwise8x8App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            result = bytearray()
-            for pair in range(self.num_pairs):
-                addr = OUTPUT_BASE_ADDR + pair * ACC_CHUNK_BYTES
-                chunk = state.xmem.read_address(addr, ACC_CHUNK_BYTES)
-                result.extend(chunk)
-            Path(self.output_path).write_bytes(bytes(result))
+            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, ACC_CHUNK_BYTES, self.num_pairs)

@@ -27,9 +27,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
-from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import (
+    parse_dtype,
+    build_border_mask_data,
+    dump_outputs,
+)
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -43,56 +47,6 @@ ZERO_BASE_ADDR = 0x120080  # 128 bytes of zeros (right after mask data)
 OUTPUT_BASE_ADDR = 0x130000
 
 OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
-
-_DTYPE_MAP = {
-    "INT8": DType.INT8,
-    "int8": DType.INT8,
-    "FP8_E4M3": DType.E4,
-    "fp8_e4m3": DType.E4,
-    "FP8_E5M2": DType.E5,
-    "fp8_e5m2": DType.E5,
-}
-
-
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value."""
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(
-            f"Invalid dtype '{dtype_str}'. Supported: INT8, FP8_E4M3, FP8_E5M2"
-        )
-    return dt
-
-
-def _build_mask_data(cols: int) -> bytes:
-    """Build the 128-byte mask register data for a given spatial width.
-
-    Only 3 mask slots are needed.  Bottom-border handling is done by
-    loading zeros into the S2 cyclic slot for the last chunk instead
-    of using dedicated bottom-row masks.
-
-    Layout (8 slots of 16 bytes = 128 bits each):
-      slot 0: all zeros         -> no masking (kc=0)
-      slot 1: left border       -> zero col 0 of each packed row (kc=-1)
-      slot 2: right border      -> zero last col of each packed row (kc=+1)
-      slots 3-7: unused (zeros)
-    """
-    rows_per_chunk = 128 // cols
-    mask = bytearray(128)
-
-    def set_bit(slot: int, bit: int) -> None:
-        byte_idx = slot * 16 + bit // 8
-        mask[byte_idx] |= 1 << (bit % 8)
-
-    # Slot 1: left border — zero col 0 of each packed row
-    for r in range(rows_per_chunk):
-        set_bit(1, r * cols)
-
-    # Slot 2: right border — zero last col of each packed row
-    for r in range(rows_per_chunk):
-        set_bit(2, r * cols + cols - 1)
-
-    return bytes(mask)
 
 
 def _build_kernel_data(kernel_raw: bytes, channels: int) -> bytes:
@@ -173,7 +127,7 @@ class DepthwiseConvUniversalApp(IpuApp):
         state.xmem.write_address(KERNEL_BASE_ADDR, kernel_padded)
 
         # Load mask data (computed from cols)
-        mask_data = _build_mask_data(self.cols)
+        mask_data = build_border_mask_data(self.cols)
         state.xmem.write_address(MASK_BASE_ADDR, mask_data)
 
         # Write 128 bytes of zeros for S2 zero-loading in last chunk
@@ -195,7 +149,7 @@ class DepthwiseConvUniversalApp(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
-            dump_xmem_to_binary(
+            dump_outputs(
                 state, self.output_path,
                 OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, total_outputs,
             )

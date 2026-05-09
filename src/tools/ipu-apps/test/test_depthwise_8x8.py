@@ -136,7 +136,7 @@ class TestDepthwise8x8:
             input_path=input_file,
             kernel_path=kernel_file,
             output_path=None,
-            num_channels=num_ch,
+            channels=num_ch,
         )
 
         max_cyc = 500_000 * max(num_ch, 8) // 8

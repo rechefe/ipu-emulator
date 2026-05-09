@@ -29,6 +29,11 @@ from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import (
+    parse_dtype,
+    pack_input_paired,
+    dump_outputs,
+)
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -107,25 +112,8 @@ def _build_kernel_data(
     return bytes(packed)
 
 
-def _build_input_data(input_raw: bytes, in_channels: int) -> bytes:
-    """Pack input into paired-chunk layout.
-
-    Input: input_raw[ch * 64 + spatial_pos] (per-channel, 64 bytes each).
-
-    Output: IC_PAIRS chunks of 128 bytes.
-      Chunk j: IC 2j in bytes 0-63, IC 2j+1 in bytes 64-127.
-    """
-    ic_pairs = in_channels // 2
-    packed = bytearray(ic_pairs * 128)
-
-    for j in range(ic_pairs):
-        dst = j * 128
-        src_even = (2 * j) * SPATIAL
-        src_odd = (2 * j + 1) * SPATIAL
-        packed[dst:dst + 64] = input_raw[src_even:src_even + 64]
-        packed[dst + 64:dst + 128] = input_raw[src_odd:src_odd + 64]
-
-    return bytes(packed)
+# Back-compat alias: benchmarks and profiling scripts import this name
+_build_input_data = pack_input_paired
 
 
 class Pointwise8x8App(IpuApp):
@@ -147,11 +135,13 @@ class Pointwise8x8App(IpuApp):
         *,
         in_channels: int,
         out_channels: int,
+        dtype: str | DType = "INT8",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
         self.kernel_path = Path(self.kernel_path)
+        self.dtype = parse_dtype(dtype)
 
         if in_channels < 2 or in_channels % 2 != 0:
             raise ValueError(f"in_channels must be even and >= 2, got {in_channels}")
@@ -169,7 +159,7 @@ class Pointwise8x8App(IpuApp):
         self.total_output_bytes = self.oc_pairs * ACC_CHUNK_BYTES
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(DType.INT8))
+        state.set_cr_dtype(int(self.dtype))
 
         # Load input (packed paired chunks)
         input_data = self.input_path.read_bytes()
@@ -194,9 +184,4 @@ class Pointwise8x8App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            result = bytearray()
-            for pair in range(self.oc_pairs):
-                addr = OUTPUT_BASE_ADDR + pair * ACC_CHUNK_BYTES
-                chunk = state.xmem.read_address(addr, ACC_CHUNK_BYTES)
-                result.extend(chunk)
-            Path(self.output_path).write_bytes(bytes(result))
+            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, ACC_CHUNK_BYTES, self.oc_pairs)

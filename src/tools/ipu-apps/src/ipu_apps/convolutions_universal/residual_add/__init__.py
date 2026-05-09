@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import pack_input_paired
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -44,25 +45,8 @@ OUTPUT_BASE = 0x200000
 ACC_CHUNK_BYTES = 512  # 128 lanes x 4 bytes
 
 
-def _build_input_data(input_raw: bytes, num_channels: int) -> bytes:
-    """Pack input into paired-chunk layout.
-
-    Input: input_raw[ch * SPATIAL + pos] (per-channel, SPATIAL bytes each).
-
-    Output: num_channels/2 chunks of 128 bytes.
-      Chunk j: channel 2j in bytes 0-63, channel 2j+1 in bytes 64-127.
-    """
-    ch_pairs = num_channels // 2
-    packed = bytearray(ch_pairs * 128)
-
-    for j in range(ch_pairs):
-        dst = j * 128
-        src_even = (2 * j) * SPATIAL
-        src_odd = (2 * j + 1) * SPATIAL
-        packed[dst:dst + SPATIAL] = input_raw[src_even:src_even + SPATIAL]
-        packed[dst + SPATIAL:dst + 128] = input_raw[src_odd:src_odd + SPATIAL]
-
-    return bytes(packed)
+# Back-compat alias: test_residual_add_conv_universal.py imports this name
+_build_input_data = pack_input_paired
 
 
 class ResidualAddApp(IpuApp):

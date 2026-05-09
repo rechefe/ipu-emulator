@@ -7,12 +7,16 @@ Dimensions are passed at construction time; the harness computes all derived
 constants, builds the correct masks for the spatial size, packs kernels into
 dense FPB=14 blocks, and sets CR0-CR9.
 
-Kernel block layout (FPB=14):
-  One 128-byte block holds up to 14 input-channel slots of one output filter,
-  each slot 9 bytes (3x3 taps, row-major): 14 * 9 = 126 real bytes + 2 pad.
-  Per filter: ceil(in_channels / 14) blocks, contiguous. The last block
-  of each filter zero-pads any unused slots; the asm clamps the inner loop
-  to the real channel count on that block (min(lr10+cr7, in_group_stride)).
+Kernel super-block layout (FPB=28):
+  One 256-byte super-block holds up to 28 input-channel slots of one output
+  filter, packed as two 128-byte halves: channels 0..13 in the first half
+  (loaded into R0) and channels 14..27 in the second half (loaded into R1).
+  Each slot is 9 bytes (3x3 taps, row-major): 28 * 9 = 252 real bytes + 4 pad.
+  The asm uses the shared-index `mult.ve` (fixed_idx 0..255) to address all
+  28 channels with a single index. Per filter: ceil(in_channels / 28) super-
+  blocks, contiguous. The last super-block of each filter zero-pads any
+  unused slots; the asm clamps the inner loop to the real channel count on
+  that block (min(lr10+cr7, in_group_stride)).
 
 Usage::
 
@@ -46,7 +50,10 @@ from ipu_apps.convolutions_universal import (
     build_border_mask_data,
     dump_outputs,
 )
-from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
+from ipu_apps.convolutions_universal.weights import (  # noqa: F401
+    pack_conv_weights_dense,  # kept for API compat
+    _validate_and_cast_to_bytes,
+)
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -61,7 +68,48 @@ OUTPUT_BASE_ADDR = 0x700000
 
 OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
 
-FPB = 14  # channels per 128-byte kernel block (K=3 dense layout)
+FPB = 28  # channels per 256-byte super-block (K=3 dense, R0+R1 shared index)
+SUPER_BLOCK_BYTES = 256  # = 2 * 128 (R0 half + R1 half)
+HALF_FPB = 14            # channels per 128-byte half (R0 or R1)
+
+
+def _pack_conv_weights_fpb28(
+    weights_reordered: np.ndarray, dtype: DType
+) -> bytes:
+    """Pack [out_ch, in_ch, 9] (taps already reordered) into FPB=28 super-blocks.
+
+    Each super-block is 256 bytes laid out *linearly*: channel `s` occupies
+    bytes [s*9 .. s*9+9). The first 128 bytes are loaded into R0 and the
+    second 128 bytes into R1; the asm uses mult.ve with a shared fixed_idx
+    (0..255) that sweeps the entire super-block, so a channel whose weights
+    cross the 128-byte boundary (e.g. channel 14 starts at byte 126) is
+    served partly from R0 and partly from R1 transparently.
+
+    Per-filter byte stride: ceil(in_ch / 28) * 256.
+    """
+    out_ch, in_ch, k2 = weights_reordered.shape
+    if k2 != 9:
+        raise ValueError(f"expected last dim=9 (taps), got {k2}")
+    raw = _validate_and_cast_to_bytes(
+        weights_reordered.reshape(out_ch, in_ch, 3, 3), dtype
+    )
+    # raw indexing: byte for filter f, channel ic, tap t = raw[(f*in_ch+ic)*9 + t]
+
+    super_blocks_per_filter = math.ceil(in_ch / FPB)
+    total = out_ch * super_blocks_per_filter * SUPER_BLOCK_BYTES
+    packed = bytearray(total)
+
+    for f in range(out_ch):
+        for sb in range(super_blocks_per_filter):
+            sb_base = (f * super_blocks_per_filter + sb) * SUPER_BLOCK_BYTES
+            for s in range(FPB):
+                ic = sb * FPB + s
+                if ic >= in_ch:
+                    break
+                src = (f * in_ch + ic) * 9
+                dst = sb_base + s * 9   # linear layout: 0,9,18,...,243
+                packed[dst:dst + 9] = raw[src:src + 9]
+    return bytes(packed)
 
 
 class ConvUniversalApp(IpuApp):
@@ -129,7 +177,7 @@ class ConvUniversalApp(IpuApp):
         self.num_chunks = num_chunks
         self.in_group_stride = in_channels * 128
         self.blocks_per_filter = math.ceil(in_channels / FPB)
-        self.total_kernel_bytes = out_channels * self.blocks_per_filter * 128
+        self.total_kernel_bytes = out_channels * self.blocks_per_filter * SUPER_BLOCK_BYTES
 
     def _pack_kernel(self) -> bytes:
         if self._kernel_array is not None:
@@ -153,7 +201,13 @@ class ConvUniversalApp(IpuApp):
                 np.frombuffer(raw, dtype=np.int8)
                 .reshape(self.out_channels, self.in_channels, 3, 3)
             )
-        return pack_conv_weights_dense(weights, self.dtype, kernel_size=3)
+        # Reorder taps to match asm execution order: kr=+1, kr=0, kr=-1.
+        # Original row-major order: [0..8] = (kr=-1,kc=-1)..(kr=+1,kc=+1).
+        # New order bytes: [6,7,8, 3,4,5, 0,1,2].
+        TAP_ORDER = [6, 7, 8, 3, 4, 5, 0, 1, 2]
+        w9 = weights.reshape(self.out_channels, self.in_channels, 9)
+        w_reordered = w9[:, :, TAP_ORDER]
+        return _pack_conv_weights_fpb28(w_reordered, self.dtype)
 
     def setup(self, state: "IpuState") -> None:
         # Set data type
@@ -184,9 +238,18 @@ class ConvUniversalApp(IpuApp):
         state.regfile.set_cr(4, self.cols)
         state.regfile.set_cr(5, self.num_chunks)
         state.regfile.set_cr(6, self.in_group_stride)
-        state.regfile.set_cr(7, FPB * 128)  # channel group size = 14 * 128 = 1792
+        state.regfile.set_cr(7, FPB * 128)  # channel group size = 28 * 128 = 3584
         state.regfile.set_cr(8, self.total_kernel_bytes)
         state.regfile.set_cr(9, ZERO_BASE_ADDR)  # zero region for S2 in last chunk
+        # cr11 = chunk-loop limit = (num_chunks - 1) * in_group_stride
+        # Used by asm to compare lr8 (chunk base addr) against chunk limit,
+        # replacing the previous lr9 chunk counter.
+        state.regfile.set_cr(11, (self.num_chunks - 1) * self.in_group_stride)
+
+        # Constants used by the asm in place of `incr` (which the new ISA
+        # removed — `add` with AddSubSrcB caps the immediate at 5-bit unsigned).
+        state.regfile.set_cr(12, 128)
+        state.regfile.set_cr(13, 256)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
