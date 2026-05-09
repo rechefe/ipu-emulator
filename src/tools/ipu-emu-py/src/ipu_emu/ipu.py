@@ -509,8 +509,8 @@ class Ipu:
             field_map = _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)]
             kwargs = {name: inst[field_key] for name, field_key in field_map.items()}
 
-            # Unfilled LR slots encode ``add lrX lrX 0`` (IMM5 0 → encoding 32): identity, no write.
-            if inst_name == "add":
+            # Unfilled LR slots encode ``ADD lrX lrX 0`` (IMM5 0 → encoding 32): identity, no write.
+            if inst_name == "ADD":
                 sb = kwargs.get("src_b")
                 if (
                     kwargs.get("dest") == kwargs.get("src_a")
