@@ -28,6 +28,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
+  - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
   - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -137,7 +138,7 @@ class InstructionDoc:
 
 SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
-    "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
+    "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate", "LrModPow2KImmediate"],
@@ -390,7 +391,7 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
@@ -400,11 +401,11 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "ra: Multiplicand register (r0, r1, or mem_bypass)",
                     "cyclic_offset: Base offset for multiplier from RC (cyclic register)",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                 ],
                 operation="Element-wise multiply with masking",
-                example="mult.ee r0 lr0 lr1 lr2;;",
+                example="mult.ee r0 lr0 0 lr2;;",
             ),
             "execute_fn": "execute_mult_ee",
         },
@@ -412,7 +413,7 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "fixed_cyclic_idx", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
@@ -422,18 +423,18 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "ra: Multiplicand register (r0, r1, or mem_bypass)",
                     "fixed_cyclic_idx: Fixed index for element selection from cyclic register",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                 ],
                 operation="Multiply each Ra element by fixed cyclic element with masking",
-                example="mult.ev r0 lr0 lr1 lr2;;",
+                example="mult.ev r0 lr0 0 lr2;;",
             ),
             "execute_fn": "execute_mult_ev",
         },
         "mult.ve": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
@@ -443,12 +444,12 @@ INSTRUCTION_SPEC = {
                 syntax="mult.ve cyclic_offset mask_offset mask_shift fixed_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                     "fixed_idx: Shared index selecting a single element across R0 and R1 (0-127 → R0[fixed_idx], 128-255 → R1[fixed_idx-128])",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; scalar = R0[fixed_idx] if fixed_idx<128 else R1[fixed_idx-128]; mult_res[i] = scalar * rb",
-                example="mult.ve lr0 lr1 lr2 lr3;;",
+                example="mult.ve lr0 0 lr2 lr3;;",
             ),
             "execute_fn": "execute_mult_ve",
         },
@@ -465,7 +466,7 @@ INSTRUCTION_SPEC = {
         "mult.ve.cr": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "cr_idx", "type": "CrIdx"},
             ],
@@ -475,19 +476,19 @@ INSTRUCTION_SPEC = {
                 syntax="mult.ve.cr cyclic_offset mask_offset mask_shift cr_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                     "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (cr0-cr15)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = CR[cr_idx][0] * rb",
-                example="mult.ve.cr lr0 lr15 lr15 cr3;;",
+                example="mult.ve.cr lr0 0 lr15 cr3;;",
             ),
             "execute_fn": "execute_mult_ve_cr",
         },
         "mult.ve.aaq": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
@@ -497,12 +498,12 @@ INSTRUCTION_SPEC = {
                 syntax="mult.ve.aaq cyclic_offset mask_offset mask_shift aaq_rf_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Offset to select mask from RM (mask register)",
-                    "mask_shift: Shift applied to the mask register",
+                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
+                    "mask_shift: Shift applied to the mask (from LR)",
                     "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (aaq0-aaq3)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = AAQ[aaq_rf_idx][0] * rb",
-                example="mult.ve.aaq lr0 lr15 lr15 aaq1;;",
+                example="mult.ve.aaq lr0 0 lr15 aaq1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
         },
@@ -1143,7 +1144,8 @@ def validate_instruction_spec() -> None:
         "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
         "ElementsInRow", "HorizontalStride", "VerticalStride",
         "AggMode", "PostFn",
-        "Immediate", "LrModPow2KImmediate", "BreakImmediate", "Label"
+        "Immediate", "LrModPow2KImmediate", "MultMaskOffsetImmediate",
+        "BreakImmediate", "Label"
     }
     valid_read_sources = {"snapshot", "live"}
     

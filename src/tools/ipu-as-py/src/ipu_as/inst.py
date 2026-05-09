@@ -28,6 +28,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "PostFn": immediate.PostFnField,
     "Immediate": immediate.LrImmediateType,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
+    "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -307,7 +308,7 @@ class MultInst(Inst):
         return [
             reg.MultStageRegField,
             reg.LrRegField,
-            reg.LrRegField,
+            immediate.MultMaskOffsetImmediate,
             reg.LrRegField,
             reg.LrRegField,
             reg.CrRegField,

@@ -94,6 +94,7 @@ _TYPE_FIELD_SUFFIX = {
     "PostFn": "post_fn_field",
     "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
+    "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -337,7 +338,7 @@ class Ipu:
         """Apply mask-and-shift to mult_res, zeroing masked-out positions.
 
         Args:
-            mask_idx: Mask slot selector value (already resolved from LR)
+            mask_idx: Mask slot index 0–7 from instruction immediate (selects 128-bit slice of r_mask)
             shift: Shift amount value (already resolved from LR)
         """
         if self._wide_vector_active():
