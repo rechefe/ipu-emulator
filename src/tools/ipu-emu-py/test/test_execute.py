@@ -905,11 +905,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg sum value cr0 aaq0;;
+agg sum value lr1 cr0 aaq0;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         # r_acc: set each word to 1, so sum = 128
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -925,11 +926,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg max value cr0 aaq1;;
+agg max value lr1 cr0 aaq1;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
         state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 20))[0])  # 20 > 14
@@ -944,11 +946,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg max value cr0 aaq0;;
+agg max value lr1 cr0 aaq0;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
         state.regfile.set_r_acc_word(10, struct.unpack("<I", struct.pack("<i", 100))[0])
@@ -963,11 +966,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg sum value_cr cr1 aaq2;;
+agg sum value_cr lr1 cr1 aaq2;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         state.regfile.set_cr(1, struct.unpack("<I", struct.pack("<i", 3))[0])
@@ -983,11 +987,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg.first max value cr0 aaq0;;
+agg.first max value lr1 cr0 aaq0;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
         # Set aaq0 to a large "garbage" value that would win against r_acc if included
@@ -1003,11 +1008,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg.first max value cr0 aaq1;;
+agg.first max value lr1 cr0 aaq1;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
         state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
@@ -1022,11 +1028,12 @@ bkpt;;
 
         state = _make_state(
             """\
-agg.first sum value cr0 aaq2;;
+agg.first sum value lr1 cr0 aaq2;;
 bkpt;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 2))[0])
         state.regfile.set_aaq(2, struct.unpack("<I", struct.pack("<i", 9999))[0])
@@ -1034,6 +1041,82 @@ bkpt;;
         run_until_complete(state)
         # Sum of 128 twos = 256; previous aaq value irrelevant
         assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 256))[0]
+
+    def test_agg_sum_masks_inactive_lanes(self):
+        """agg sum: only first valid_elements r_acc words contribute (tail masked out)."""
+        import struct
+
+        state = _make_state(
+            """\
+agg sum value lr1 cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 3)
+        for i in range(128):
+            v = 10 if i < 3 else 1000
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_aaq(0, 0)
+        run_until_complete(state)
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 30))[0]
+
+    def test_agg_sum_valid_elements_from_cr(self):
+        """agg sum: valid_elements may be read from a CR register (LcrIdx encoding)."""
+        import struct
+
+        state = _make_state(
+            """\
+agg sum value cr2 cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(2, 100)
+        for i in range(128):
+            v = 1 if i < 100 else 500
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_aaq(0, 0)
+        run_until_complete(state)
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
+
+    def test_agg_max_masks_tail_large_values(self):
+        """agg max: masked-out lanes cannot beat AAQ; feedback still applies over active set."""
+        import struct
+
+        state = _make_state(
+            """\
+agg max value lr1 cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 100)
+        for i in range(128):
+            v = 5 if i < 100 else 9999
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 50))[0])
+        run_until_complete(state)
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 50))[0]
+
+    def test_agg_first_max_masks_tail(self):
+        """agg.first max: only active prefix participates; tail spikes ignored."""
+        import struct
+
+        state = _make_state(
+            """\
+agg.first max value lr1 cr0 aaq0;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(1, 50)
+        for i in range(128):
+            v = 3 if i < 50 else 200
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
+        run_until_complete(state)
+        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 3))[0]
 
 
 # ============================================================================

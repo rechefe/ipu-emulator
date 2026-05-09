@@ -433,6 +433,7 @@ class AaqInst(Inst):
         return [
             immediate.AggModeField,
             immediate.PostFnField,
+            reg.LcrRegField,
             reg.CrRegField,
             reg.AaqRegField,
         ]

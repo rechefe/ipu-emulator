@@ -945,36 +945,72 @@ class Ipu:
         """Execute aaq_nop: No operation for AAQ slot."""
         pass
 
+    def _agg_active_lane_count(self, valid_elements: int) -> int:
+        """Number of r_acc words included in agg / agg.first (clamped)."""
+        n_words = R_ACC_SIZE // 4
+        v = int(valid_elements) & 0xFFFFFFFF
+        return min(v, n_words)
+
+    def _agg_reduce_raw(
+        self,
+        *,
+        agg_mode: int,
+        fmt: str,
+        acc_buf: bytearray,
+        valid_elements: int,
+        aaq_rf_idx: int,
+        include_aaq_in_max: bool,
+    ) -> float | int:
+        """Reduce r_acc[0:active) with SUM or MAX; optional AAQ feedback in MAX mode."""
+        active = self._agg_active_lane_count(valid_elements)
+        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
+            total: float | int = 0 if fmt == "<i" else 0.0
+            for i in range(active):
+                total += struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            return total
+        if include_aaq_in_max:
+            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            best = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+            for i in range(active):
+                v = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+                if v > best:
+                    best = v
+            return best
+        if active == 0:
+            return -2147483648 if fmt == "<i" else float("-inf")
+        best = struct.unpack_from(fmt, acc_buf, 0)[0]
+        for i in range(1, active):
+            v = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            if v > best:
+                best = v
+        return best
+
     def execute_agg(
         self,
         *,
         agg_mode: int,
         post_fn: int,
+        valid_elements: int,
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
-        """Execute acc.agg: Collapse 128 r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
+        """Execute acc.agg: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
 
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
+        Only the first ``valid_elements`` lanes (clamped to 128) participate in the tree.
         """
         dtype = self.state.get_cr_dtype()
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
-        n_words = R_ACC_SIZE // 4  # 128
 
-        # Collect all 128 words as scalar values
-        values = []
-        for i in range(n_words):
-            val = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            values.append(val)
-
-        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
-            raw_result = sum(values)
-        else:
-            # MAX: include current AAQ value in the comparison
-            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-            current_aaq = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-            raw_result = max(values + [current_aaq])
+        raw_result = self._agg_reduce_raw(
+            agg_mode=agg_mode,
+            fmt=fmt,
+            acc_buf=acc_buf,
+            valid_elements=valid_elements,
+            aaq_rf_idx=aaq_rf_idx,
+            include_aaq_in_max=True,
+        )
 
         # Apply post function
         fn = get_post_fn(post_fn)
@@ -1029,6 +1065,7 @@ class Ipu:
         *,
         agg_mode: int,
         post_fn: int,
+        valid_elements: int,
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
@@ -1036,18 +1073,15 @@ class Ipu:
         dtype = self.state.get_cr_dtype()
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
-        n_words = R_ACC_SIZE // 4  # 128
 
-        values = []
-        for i in range(n_words):
-            val = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            values.append(val)
-
-        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
-            raw_result = sum(values)
-        else:
-            # MAX: do NOT include previous AAQ value — this is the .first behaviour
-            raw_result = max(values)
+        raw_result = self._agg_reduce_raw(
+            agg_mode=agg_mode,
+            fmt=fmt,
+            acc_buf=acc_buf,
+            valid_elements=valid_elements,
+            aaq_rf_idx=aaq_rf_idx,
+            include_aaq_in_max=False,
+        )
 
         fn = get_post_fn(post_fn)
         if fn == POST_FN_VALUE:
