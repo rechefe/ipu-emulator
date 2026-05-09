@@ -247,6 +247,72 @@ bkpt;;
         for i in range(32, 128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
+    def test_mult_ve_fp32_wide_cyclic_past_boundary(self) -> None:
+        """mult.ve (wide FP32): RC lanes wrap at 512 bytes when pad MSB is clear."""
+        buf = bytearray(512)
+        for k in range(32):
+            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+        for k in range(96):
+            struct.pack_into("<f", buf, k * 4, 5.0)
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.regfile.set_cr(0, 0)
+        st.regfile.set_r_cyclic_at(0, buf)
+        st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
+        asm = """\
+set lr4 0x1000;;
+ldr_mult_reg r0 lr4 cr0;;
+set lr0 384;;
+set lr1 0;;
+set lr2 0;;
+set lr3 0;;
+mult.ve lr0 lr1 lr2 lr3;;
+reset_acc;;
+acc.first;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        mult_res = st.regfile.raw("mult_res")
+        for i in range(32):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
+        for i in range(32, 128):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
+
+    def test_mult_ve_fp32_wide_pad_flag_past_boundary(self) -> None:
+        """mult.ve (wide FP32): MSB on cyclic_offset restores ×1 padding past byte 511."""
+        buf = bytearray(512)
+        for k in range(32):
+            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+        for k in range(96):
+            struct.pack_into("<f", buf, k * 4, 5.0)
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.regfile.set_cr(15, DType.INT8)
+        st.regfile.set_cr(0, 0)
+        st.regfile.set_r_cyclic_at(0, buf)
+        st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
+        asm = """\
+set lr4 0x1000;;
+ldr_mult_reg r0 lr4 cr0;;
+set lr0 896;;
+set lr1 0;;
+set lr2 0;;
+set lr3 0;;
+mult.ve lr0 lr1 lr2 lr3;;
+reset_acc;;
+acc.first;;
+bkpt;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        mult_res = st.regfile.raw("mult_res")
+        for i in range(32):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
+        for i in range(32, 128):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
+
 
 class TestWideVectorAggInt32:
     def test_agg_sum_inv_int32_wide(self) -> None:

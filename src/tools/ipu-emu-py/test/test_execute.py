@@ -1489,12 +1489,12 @@ bkpt;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
-    def test_mult_ve_boundary_padding(self):
-        """mult.ve: elements beyond RC boundary (512 bytes) are padded with int8 1."""
-        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
+    def test_mult_ve_cyclic_wrap_at_rc_boundary(self):
+        """mult.ve: RC indices wrap modulo 512 (cyclic) when the pad flag is clear."""
+        # cyclic_offset = 450, so without wrap we'd read past 512; with wrap, bytes
+        # 450..511 then 0..65 of RC are used — all rc_fill.
         rc_fill = 4
         scalar = 5
-        pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         r0_data = bytearray(128)
         r0_data[0] = scalar  # fixed_idx=0 → r0[0] = 5
@@ -1505,6 +1505,40 @@ set lr0 0x1000;;
 ldr_mult_reg r0 lr0 cr0;;
 reset_acc;;
 set lr2 450;;
+set lr3 0;;
+set lr4 0;;
+set lr5 0;;
+mult.ve lr2 lr3 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+
+    def test_mult_ve_pad_128_ones_flag_legacy_padding(self):
+        """mult.ve: MSB of cyclic_offset LR enables dtype-1 padding past byte 511."""
+        rc_fill = 4
+        scalar = 5
+        pad_start = 62  # 512 - 450 = 62 elements in bounds before padding
+
+        r0_data = bytearray(128)
+        r0_data[0] = scalar
+
+        # 450 | 0x200 = 962 — pad flag (bit 9) encodable with 16-bit LR immediate
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+reset_acc;;
+set lr2 962;;
 set lr3 0;;
 set lr4 0;;
 set lr5 0;;

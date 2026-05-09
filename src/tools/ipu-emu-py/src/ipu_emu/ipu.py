@@ -74,6 +74,12 @@ R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
+# mult.ve: enable legacy padding (dtype 1 past byte 511) if either MSB is set
+# (full 32-bit LR) or bit 9 is set (0x200 OR'd with offset — encodable via 16-bit
+# ``set`` / ``incr`` immediates). Effective RC base offset is always raw & 0x7FFFFFFF mod 512.
+MULT_VE_PAD_128_ONES_LR_MSB = 0x80000000
+MULT_VE_PAD_128_ONES_LR_EMBED = 0x200
+
 
 # ---------------------------------------------------------------------------
 # Operand extraction: maps instruction_spec operand names → inst dict field keys
@@ -588,14 +594,23 @@ class Ipu:
 
     def execute_mult_ve(self, *, cyclic_offset: int,
                         mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute mult.ve: Fixed element from R0/R1 x RC elements with boundary padding.
+        """Execute mult.ve: Fixed element from R0/R1 x RC elements.
 
         Uses fixed_idx to select the scalar multiplicand: indices 0-127 address
         R0[fixed_idx], indices 128-255 address R1[fixed_idx-128]. Multiplies that
-        scalar against each byte of RC[cyclic_offset : cyclic_offset+128]. Non-cyclic:
-        elements where cyclic_offset+i >= R_CYCLIC_SIZE are padded with the
-        dtype-specific encoding of 1 instead of wrapping.
+        scalar against each byte of RC[cyclic_offset : cyclic_offset+128].
+
+        By default RC is addressed cyclically modulo R_CYCLIC_SIZE. Legacy padding
+        (dtype-specific 1 for indices past byte 511 within the 128-element window)
+        is enabled if bit 31 (0x80000000) or bit 9 (0x200) is set in the cyclic_offset
+        LR value. The RC base offset is (raw & 0x7FFFFFFF) mod 512; OR the offset
+        with 0x200 to set the flag using a 16-bit ``set`` immediate.
         """
+        pad_128_ones = (cyclic_offset & MULT_VE_PAD_128_ONES_LR_MSB) != 0 or (
+            cyclic_offset & MULT_VE_PAD_128_ONES_LR_EMBED
+        ) != 0
+        cyclic_offset = (cyclic_offset & (MULT_VE_PAD_128_ONES_LR_MSB - 1)) % R_CYCLIC_SIZE
+
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -611,13 +626,19 @@ class Ipu:
                 one = 1.0
                 for i in range(R_REG_SIZE):
                     pos = cyclic_offset + i * 4
-                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
+                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
+                        rb_lane = one
+                    else:
+                        rb_lane = float(rb_vals[i])
                     struct.pack_into("<f", mult_res, i * 4, float(ra_fixed) * rb_lane)
             else:
                 one = 1
                 for i in range(R_REG_SIZE):
                     pos = cyclic_offset + i * 4
-                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
+                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
+                        rb_lane = one
+                    else:
+                        rb_lane = int(rb_vals[i])
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_fixed), rb_lane)
                     )
@@ -634,7 +655,10 @@ class Ipu:
 
         for i in range(R_REG_SIZE):
             pos = cyclic_offset + i
-            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
+            if pad_128_ones and pos >= R_CYCLIC_SIZE:
+                rb_byte = one_byte
+            else:
+                rb_byte = rc_buf[pos % R_CYCLIC_SIZE]
             result = ipu_mult(ra_fixed, rb_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 

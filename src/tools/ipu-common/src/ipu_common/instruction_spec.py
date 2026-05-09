@@ -439,15 +439,22 @@ INSTRUCTION_SPEC = {
             ],
             "doc": InstructionDoc(
                 title="Vector-Element Multiply",
-                summary="Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. fixed_idx 0-127 addresses R0[fixed_idx], 128-255 addresses R1[fixed_idx-128]. Elements beyond RC boundary are treated as 1 (dtype-specific).",
+                summary=(
+                    "Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. "
+                    "fixed_idx 0-127 addresses R0[fixed_idx], 128-255 addresses R1[fixed_idx-128]. "
+                    "RC is addressed cyclically modulo 512 bytes. Legacy padding (dtype 1 past byte 511 "
+                    "within the 128-element window) is selected if bit 31 (0x80000000) or bit 9 (0x200) "
+                    "is set in the cyclic_offset LR value; the base offset is (raw & 0x7FFFFFFF) mod 512. "
+                    "For assembly, OR the byte offset with 0x200 to enable padding without a 32-bit LR load."
+                ),
                 syntax="mult.ve cyclic_offset mask_offset mask_shift fixed_idx",
                 operands=[
-                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
+                    "cyclic_offset: Base offset into RC (mod 512 after clearing MSB); bit 31 or bit 9 enables legacy padding with 1 past byte 511",
                     "mask_offset: Offset to select mask from RM (mask register)",
                     "mask_shift: Shift applied to the mask register",
                     "fixed_idx: Shared index selecting a single element across R0 and R1 (0-127 → R0[fixed_idx], 128-255 → R1[fixed_idx-128])",
                 ],
-                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; scalar = R0[fixed_idx] if fixed_idx<128 else R1[fixed_idx-128]; mult_res[i] = scalar * rb",
+                operation="For i in [0,128): rb = RC[(base+i) mod 512] unless pad flag and base+i>=512 then dtype_one; base = (raw_offset & 0x7FFFFFFF) mod 512; pad if raw_offset & 0x80000000 or raw_offset & 0x200",
                 example="mult.ve lr0 lr1 lr2 lr3;;",
             ),
             "execute_fn": "execute_mult_ve",
