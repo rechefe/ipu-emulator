@@ -57,9 +57,7 @@ class IpuState:
         # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
         # XMEM addresses and architectural byte counts are unchanged; r/r_cyclic
         # operands are staged as 128×32-bit lanes while mult/acc use that width.
-        # LR/CR are not widened. Keys are MultStageReg *encoding indices* (0=r0,
-        # 1=r1, 2=mem_bypass), not r-array element indices, so r0 and mem_bypass
-        # do not collide.
+        # LR/CR are not widened. Keys are MultStageReg *encoding indices* (0=r0, 1=r1).
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
         self.wide_vector_quantize_output: bool = wide_vector_quantize_output

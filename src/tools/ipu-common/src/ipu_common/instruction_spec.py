@@ -22,10 +22,11 @@ KEY DESIGN PRINCIPLES:
      - ``"live"``     → read from the current (post-write) register file
 
 OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
-  - "MultStageReg": r0, r1, or mem_bypass (MultStageRegField)
+  - "MultStageReg": r0 or r1 (MultStageRegField); 2-bit encoding in the VLIW word
   - "LrIdx": lr0-lr15 (LrRegField)  
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
+  - "AddSubSrcB": second operand for add/sub — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
@@ -65,24 +66,6 @@ Structure:
           through so the handler can write to it.
         - Immediates and Labels have no "read" flag (literal values always
           passed as-is).
-        create_assembler_opcodes,
-        create_emulator_constants,
-    )
-    
-    # Get all instruction definitions
-    spec = INSTRUCTION_SPEC
-    
-    # Extract opcodes automatically (derived from position)
-    opcodes = extract_opcodes(spec)
-    # → {"xmem": ["str_acc_reg", "ldr_mult_reg", ...], ...}
-    
-    # Create Opcode classes at runtime (no file generation)
-    assembler_opcodes = create_assembler_opcodes()
-    # → {"XmemInstOpcode": <class>, "LrInstOpcode": <class>, ...}
-    
-    # Create emulator constants at runtime
-    constants = create_emulator_constants()
-    # → {"XMEM_OP_STR_ACC_REG": 0, "XMEM_OP_LDR_MULT_REG": 1, ...}
 """
 
 from __future__ import annotations
@@ -100,6 +83,7 @@ __all__ = [
     "INSTRUCTION_SPEC",
     "SLOT_BINARY_LAYOUT",
     "SLOT_COUNT",
+    "VALID_OPERAND_TYPES",
     "extract_opcodes",
     "get_instruction",
     "get_instruction_by_opcode",
@@ -141,7 +125,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
-    "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate", "LrModPow2KImmediate"],
+    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
@@ -201,11 +185,11 @@ INSTRUCTION_SPEC = {
                 summary="Load data from memory into a multiplication stage register.",
                 syntax="ldr_mult_reg dest offset base",
                 operands=[
-                    "dest: Mult stage register (r0, r1, or mem_bypass)",
-                    "offset: Offset register (lr0-lr15)",
-                    "base: Base address register (cr0-cr15)",
+                    "`DEST`: `R0` | `R1` — mult-stage register to load (2-bit field; only these encodings are valid).",
+                    "`OFFSET`: `LR0`..`LR15` — offset register.",
+                    "`BASE`: `CR0`..`CR15` — base address register.",
                 ],
-                operation="dest = Memory[offset + base]",
+                operation="DEST = Memory[OFFSET + BASE]  # 128 bytes (512 in wide-vector debug mode)",
                 example="set lr0 0x1000;;\nldr_mult_reg r0 lr0 cr0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
@@ -278,27 +262,9 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: incr=0, set=1, add=2, sub=3, incr_mod_pow2=4
+    # Opcode = position: set=0, add=1, sub=2, incr_mod_pow2=3
     # =========================================================================
     "lr": {
-        "incr": {
-            "operands": [
-                {"name": "reg", "type": "LrIdx"},
-                {"name": "value", "type": "Immediate"},
-            ],
-            "doc": InstructionDoc(
-                title="Increment Loop Register",
-                summary="Increment a loop register by an immediate value.",
-                syntax="incr reg value",
-                operands=[
-                    "reg: Loop register to increment (lr0-lr15)",
-                    "value: Immediate value to add",
-                ],
-                operation="reg += value",
-                example="incr lr0 1;;",
-            ),
-            "execute_fn": "execute_lr_incr",
-        },
         "set": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
@@ -320,40 +286,46 @@ INSTRUCTION_SPEC = {
         "add": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
-                title="Add Registers",
-                summary="Add two registers and store in destination.",
+                title="Add",
+                summary=(
+                    "Add two sources (second source may be an LR, CR, or 5-bit unsigned immediate) "
+                    "and store the result in the destination LR."
+                ),
                 syntax="add dest src_a src_b",
                 operands=[
-                    "dest: Destination loop register (lr0-lr15)",
-                    "src_a: First source register (lr0-lr15 or cr0-cr15)",
-                    "src_b: Second source register (lr0-lr15 or cr0-cr15)",
+                    "dest: Destination local register (lr0-lr15)",
+                    "src_a: First source local register (lr0-lr15)",
+                    "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a + src_b",
-                example="add lr0 lr1 lr2;;",
+                example="add lr0 lr1 lr2;;\nadd lr3 lr1 cr5;;\nadd lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_add",
         },
         "sub": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
-                title="Subtract Registers",
-                summary="Subtract two registers and store in destination.",
+                title="Subtract",
+                summary=(
+                    "Subtract the second source from the first (second source may be an LR, CR, "
+                    "or 5-bit unsigned immediate) and store the result in the destination LR."
+                ),
                 syntax="sub dest src_a src_b",
                 operands=[
-                    "dest: Destination loop register (lr0-lr15)",
-                    "src_a: First source register (lr0-lr15 or cr0-cr15)",
-                    "src_b: Second source register (lr0-lr15 or cr0-cr15)",
+                    "dest: Destination local register (lr0-lr15)",
+                    "src_a: First source local register (lr0-lr15)",
+                    "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a - src_b",
-                example="sub lr0 lr1 lr2;;",
+                example="sub lr0 lr1 lr2;;\nsub lr3 lr1 cr5;;\nsub lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_sub",
         },
@@ -384,7 +356,8 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: mult.ee=0, mult.ev=1 (deprecated), mult.ve=2, mult_nop=3, mult.ve.cr=4, mult.ve.aaq=5
+    # Opcode = position: mult.ee=0, mult.ve.cyclic=1, mult.ve.padded=2, mult_nop=3,
+    #          mult.ve.cr=4, mult.ve.aaq=5
     # =========================================================================
     "mult": {
         "mult.ee": {
@@ -397,41 +370,19 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Element-wise Multiply",
                 summary="Multiply elements of two registers element by element.",
-                syntax="mult.ee ra cyclic_offset mask_offset mask_shift",
+                syntax="MULT.EE RA CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT",
                 operands=[
-                    "ra: Multiplicand register (r0, r1, or mem_bypass)",
-                    "cyclic_offset: Base offset for multiplier from RC (cyclic register)",
-                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
-                    "mask_shift: Shift applied to the mask (from LR)",
+                    "`RA`: `R0` | `R1` — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into `R0`/`R1` is allowed).",
+                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (cyclic register).",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
+                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
                 ],
-                operation="Element-wise multiply with masking",
-                example="mult.ee r0 lr0 0 lr2;;",
+                operation="For each lane i: MULT_RES[i] = IPU_MULT(RA[i], RC[CYCLIC_OFFSET + i]); then apply mask and shift.",
+                example="MULT.EE R0 LR0 0 LR2;;",
             ),
             "execute_fn": "execute_mult_ee",
         },
-        "mult.ev": {
-            "operands": [
-                {"name": "ra", "type": "MultStageReg", "read": "live"},
-                {"name": "fixed_cyclic_idx", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-            ],
-            "doc": InstructionDoc(
-                title="Element-Cyclic Multiply (Deprecated)",
-                summary="[DEPRECATED: use mult.ve.cr or mult.ve.aaq] Multiply Ra elements against a fixed element from cyclic register.",
-                syntax="mult.ev ra fixed_cyclic_idx mask_offset mask_shift",
-                operands=[
-                    "ra: Multiplicand register (r0, r1, or mem_bypass)",
-                    "fixed_cyclic_idx: Fixed index for element selection from cyclic register",
-                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
-                    "mask_shift: Shift applied to the mask (from LR)",
-                ],
-                operation="Multiply each Ra element by fixed cyclic element with masking",
-                example="mult.ev r0 lr0 0 lr2;;",
-            ),
-            "execute_fn": "execute_mult_ev",
-        },
-        "mult.ve": {
+        "mult.ve.cyclic": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
@@ -439,19 +390,48 @@ INSTRUCTION_SPEC = {
                 {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Vector-Element Multiply",
-                summary="Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. fixed_idx 0-127 addresses R0[fixed_idx], 128-255 addresses R1[fixed_idx-128]. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="mult.ve cyclic_offset mask_offset mask_shift fixed_idx",
+                title="Vector-Element Multiply (cyclic RC)",
+                summary=(
+                    "Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. "
+                    "`FIXED_IDX` 0..127 selects `R0[FIXED_IDX]`, 128..255 selects `R1[FIXED_IDX - 128]`. "
+                    "RC is addressed cyclically modulo 512 bytes (no padding with 1 past the boundary)."
+                ),
+                syntax="MULT.VE.CYCLIC CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
                 operands=[
-                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
-                    "mask_shift: Shift applied to the mask (from LR)",
-                    "fixed_idx: Shared index selecting a single element across R0 and R1 (0-127 → R0[fixed_idx], 128-255 → R1[fixed_idx-128])",
+                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (reduced mod 512).",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
+                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
+                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
                 ],
-                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; scalar = R0[fixed_idx] if fixed_idx<128 else R1[fixed_idx-128]; mult_res[i] = scalar * rb",
-                example="mult.ve lr0 0 lr2 lr3;;",
+                operation="For i in [0, 128): RB = RC[(CYCLIC_OFFSET + i) mod 512]; SCALAR from R0/R1 via FIXED_IDX; MULT_RES[i] = SCALAR * RB (then mask/shift).",
+                example="MULT.VE.CYCLIC LR0 0 LR2 LR3;;",
             ),
-            "execute_fn": "execute_mult_ve",
+            "execute_fn": "execute_mult_ve_cyclic",
+        },
+        "mult.ve.padded": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-Element Multiply (padded RC)",
+                summary=(
+                    "Same scalar × RC row as `mult.ve.cyclic`, but indices at or past the 512-byte RC "
+                    "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
+                ),
+                syntax="MULT.VE.PADDED CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
+                operands=[
+                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC`; out-of-range lanes use dtype 1.",
+                    "`MASK_OFFSET`: immediate mask slot `0`..`7` — selects one of eight 128-bit masks in `RM`.",
+                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
+                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
+                ],
+                operation="For i in [0, 128): RB = RC[CYCLIC_OFFSET + i] if in bounds else dtype_one; SCALAR from R0/R1; MULT_RES[i] = SCALAR * RB (then mask/shift).",
+                example="MULT.VE.PADDED LR0 0 LR2 LR3;;",
+            ),
+            "execute_fn": "execute_mult_ve_padded",
         },
         "mult_nop": {
             "operands": [],
@@ -971,7 +951,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     Example:
         {
             "xmem": ["str_acc_reg", "ldr_mult_reg", ...],
-            "lr": ["incr", "set", "add", "sub", "incr_mod_pow2"],
+            "lr": ["set", "add", "sub", "incr_mod_pow2"],
             ...
         }
     """
@@ -1126,6 +1106,32 @@ def create_emulator_constants() -> Dict[str, int]:
 
 
 # ===========================================================================
+# Operand types (single source for validation + documentation generation)
+# ===========================================================================
+
+VALID_OPERAND_TYPES: frozenset[str] = frozenset(
+    {
+        "MultStageReg",
+        "LrIdx",
+        "CrIdx",
+        "LcrIdx",
+        "AaqRegIdx",
+        "ElementsInRow",
+        "HorizontalStride",
+        "VerticalStride",
+        "AggMode",
+        "PostFn",
+        "Immediate",
+        "LrModPow2KImmediate",
+        "MultMaskOffsetImmediate",
+        "BreakImmediate",
+        "Label",
+        "AddSubSrcB",
+    }
+)
+
+
+# ===========================================================================
 # Validation
 # ===========================================================================
 
@@ -1140,13 +1146,7 @@ def validate_instruction_spec() -> None:
     
     Raises ValueError if validation fails.
     """
-    valid_operand_types = {
-        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
-        "ElementsInRow", "HorizontalStride", "VerticalStride",
-        "AggMode", "PostFn",
-        "Immediate", "LrModPow2KImmediate", "MultMaskOffsetImmediate",
-        "BreakImmediate", "Label"
-    }
+    valid_operand_types = VALID_OPERAND_TYPES
     valid_read_sources = {"snapshot", "live"}
     
     for slot_type, instructions in INSTRUCTION_SPEC.items():

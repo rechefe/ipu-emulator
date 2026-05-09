@@ -119,6 +119,10 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+        # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
+        state.regfile.set_cr(3, 128)
+        state.regfile.set_cr(4, 1)
+        state.regfile.set_cr(5, 256)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

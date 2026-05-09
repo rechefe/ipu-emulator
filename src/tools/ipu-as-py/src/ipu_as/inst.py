@@ -8,6 +8,15 @@ import ipu_as.immediate as immediate
 from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc
 
 
+def _operand_type_md_link(typ: str) -> str:
+    slug = typ.lower().replace("_", "-")
+    return f"[`{typ}`](operand-types.md#{slug})"
+
+
+def _md_table_cell(text: str) -> str:
+    return text.replace("\n", " ").replace("|", "\\|")
+
+
 # ===========================================================================
 # Operand Type Resolution
 # ===========================================================================
@@ -20,6 +29,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "AddSubSrcB": immediate.AddSubSrcBField,
     "AaqRegIdx": reg.AaqRegField,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
@@ -221,7 +231,7 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, heading: str, intro: str) -> str:
+    def _render_instruction_docs(cls, heading: str, intro: str, slot_type: str) -> str:
         lines = [f"## {heading}", ""]
         if intro.strip():
             lines.append(intro.strip())
@@ -231,30 +241,58 @@ class Inst:
             instruction_format = cls._struct_entry(opcode)
             if instruction_format.doc is None:
                 continue
-            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc))
+            spec_ops = INSTRUCTION_SPEC[slot_type][opcode]["operands"]
+            lines.extend(
+                cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops)
+            )
             lines.append("")
 
         return "\n".join(lines).rstrip()
 
     @staticmethod
-    def _render_opcode_doc(opcode: str, doc: InstructionDoc) -> list[str]:
-        lines = [f"### {opcode} - {doc.title}", doc.summary, ""]
+    def _render_opcode_doc(
+        opcode: str,
+        doc: InstructionDoc,
+        spec_operands: list[dict],
+    ) -> list[str]:
+        display_opcode = opcode.upper()
+        lines = [f"### `{display_opcode}` — {doc.title}", ""]
         lines.append(f"**Syntax:** `{doc.syntax}`")
         lines.append("")
 
-        if doc.operands:
+        if spec_operands:
+            lines.append(
+                "**Operands:** *(the **Type** column links to the "
+                "[operand type reference](operand-types.md))*"
+            )
+            lines.append("")
+            lines.append("| Name | Type | Details |")
+            lines.append("|------|------|---------|")
+            for i, sop in enumerate(spec_operands):
+                name = sop["name"]
+                typ = sop["type"]
+                link = _operand_type_md_link(typ)
+                detail = doc.operands[i] if i < len(doc.operands) else "—"
+                lines.append(
+                    f"| `{name}` | {link} | {_md_table_cell(detail)} |"
+                )
+            lines.append("")
+        elif doc.operands:
             lines.append("**Operands:**")
             lines.extend([f"- {operand}" for operand in doc.operands])
             lines.append("")
 
+        lines.append("**General description:**")
+        lines.append(doc.summary)
+        lines.append("")
+
         if doc.operation:
-            lines.append("**Operation:**")
-            lines.append("```")
-            lines.append(f"{doc.operation}")
-            lines.append("```")
+            lines.append("**Pseudo code:**")
+            lines.append(f"`{doc.operation}`")
+            lines.append("")
 
         if doc.example:
-            lines.append("**Example:**")
+            lines.append("**Example of usage:**")
             lines.append("```asm")
             lines.append(doc.example)
             lines.append("```")
@@ -298,6 +336,7 @@ class XmemInst(Inst):
         return cls._render_instruction_docs(
             heading="XMEM Instructions",
             intro="Memory access instructions for loading and storing data between registers and memory.",
+            slot_type="xmem",
         )
 
 
@@ -342,6 +381,7 @@ class MultInst(Inst):
             intro="""Multiplication instructions for element-wise and element-vector operations.
 The multiplication result (`mult_result`) is forwarded to the ACC stage in the CPU and not stored in any register in the way.
 """,
+            slot_type="mult",
         )
 
 
@@ -382,6 +422,7 @@ class AccInst(Inst):
         return cls._render_instruction_docs(
             heading="ACC Instructions",
             intro="Accumulation instructions for combining values with optional masking and shifting.",
+            slot_type="acc",
         )
 
 
@@ -421,6 +462,7 @@ class AaqInst(Inst):
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
             intro="Activation and quantization: aggregate r_acc into AAQ registers.",
+            slot_type="aaq",
         )
 
 
@@ -430,8 +472,9 @@ class LrInst(Inst):
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
             reg.LrRegField,
+            reg.LrRegField,
             reg.LcrRegField,
-            reg.LcrRegField,
+            immediate.AddSubSrcBField,
             immediate.LrImmediateType,
             immediate.LrModPow2KImmediate,
         ]
@@ -449,10 +492,14 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "incr", line=0, column=0),
+                    token=lark.Token("TOKEN", "add", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
+                        instr_id=addr,
+                    ),
                     ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "lr0", line=0, column=0),
                         instr_id=addr,
@@ -470,6 +517,7 @@ class LrInst(Inst):
         return cls._render_instruction_docs(
             heading="LR Instructions",
             intro="Loop register manipulation instructions for controlling loop counters and addresses.",
+            slot_type="lr",
         )
 
 
@@ -507,6 +555,7 @@ class CondInst(Inst):
         return cls._render_instruction_docs(
             heading="Conditional Branch Instructions",
             intro="Control flow instructions for branching based on conditions or unconditionally.",
+            slot_type="cond",
         )
 
 
@@ -541,4 +590,5 @@ class BreakInst(Inst):
         return cls._render_instruction_docs(
             heading="Break Instructions",
             intro="Debug break instructions for halting execution and entering debug mode.",
+            slot_type="break",
         )

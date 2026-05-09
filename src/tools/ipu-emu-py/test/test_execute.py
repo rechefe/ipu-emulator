@@ -58,12 +58,12 @@ class TestRegisterOperations:
         state = _run("set lr13 0x1000;;\nbkpt;;")
         assert state.regfile.get_lr(13) == 0x1000
 
-    def test_incr_lr(self):
+    def test_add_imm_accumulates_lr(self):
         state = _run(
             """\
 set lr11 10;;
-incr lr11 5;;
-incr lr11 3;;
+add lr11 lr11 5;;
+add lr11 lr11 3;;
 bkpt;;
 """
         )
@@ -105,6 +105,16 @@ bkpt;;
         assert state.regfile.get_cr(5) == 75
         assert state.regfile.get_lr(4) == 275
 
+    def test_add_lr_lr_imm5(self):
+        state = _run(
+            """\
+set lr1 200;;
+add lr4 lr1 11;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(4) == 211
+
     def test_sub_lr_lr(self):
         state = _run(
             """\
@@ -116,17 +126,27 @@ bkpt;;
         )
         assert state.regfile.get_lr(3) == 70
 
-    def test_sub_cr_lr(self):
+    def test_sub_lr_lr_cr(self):
         state = _make_state(
             """\
 set lr2 45;;
-sub lr5 cr3 lr2;;
+sub lr5 lr2 cr3;;
 bkpt;;
 """
         )
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == 155
+        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
+
+    def test_sub_lr_lr_imm5(self):
+        state = _run(
+            """\
+set lr2 100;;
+sub lr3 lr2 30;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(3) == 70
 
 
 # ============================================================================
@@ -199,7 +219,7 @@ bkpt;;
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
         encoded = assemble("incr_mod_pow2 lr0 lr1 9;; bkpt;;")
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 8
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
         with pytest.raises(ValueError, match=r"incr_mod_pow2 k operand"):
@@ -239,16 +259,25 @@ bkpt;;
         encoded = assemble("set lr4 10; set lr5 20; set lr6 30;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 4
-        assert d["lr_inst_0_token_4_lr_immediate_type"] == 10
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
+        assert d["lr_inst_0_token_5_lr_immediate_type"] == 10
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
         assert d["lr_inst_1_token_1_lr_reg_field"] == 5
-        assert d["lr_inst_1_token_4_lr_immediate_type"] == 20
-        assert d["lr_inst_1_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_1_token_5_lr_immediate_type"] == 20
+        assert d["lr_inst_1_token_6_lr_mod_pow2_k_immediate"] == 0
         assert d["lr_inst_2_token_1_lr_reg_field"] == 6
-        assert d["lr_inst_2_token_4_lr_immediate_type"] == 30
-        assert d["lr_inst_2_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_2_token_5_lr_immediate_type"] == 30
+        assert d["lr_inst_2_token_6_lr_mod_pow2_k_immediate"] == 0
+
+    def test_decode_add_imm_operand_field(self):
+        """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
+        encoded = assemble("add lr2 lr1 7;; bkpt;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
+        assert d["lr_inst_0_token_1_lr_reg_field"] == 2  # dest
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 1  # src_a
+        assert d["lr_inst_0_token_4_add_sub_src_b_field"] == 32 + 7
 
 
 # ============================================================================
@@ -602,7 +631,7 @@ bkpt;;
             """\
 set lr0 0;;
 cr_loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 cr5 cr_loop_start;;
 bkpt;;
 """
@@ -618,7 +647,7 @@ set lr0 0;;
 set lr1 10;;
 set lr2 0;;
 loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 lr1 loop_start;;
 bkpt;;
 """,
@@ -1116,11 +1145,11 @@ class TestDecodeRoundtrip:
         encoded = assemble("set lr13 0x1000;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        # LR opcode should be 'set' = index 1
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        # LR opcode should be 'set' = index 0
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 13
-        assert d["lr_inst_0_token_4_lr_immediate_type"] == 0x1000
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_5_lr_immediate_type"] == 0x1000
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0
 
 
 # ============================================================================
@@ -1449,7 +1478,7 @@ bkpt;;
             assert val == 20, f"acc word {i}: expected 20, got {val}"
 
     def test_backward_compat_mult_ve(self):
-        """mult.ve still works correctly after adding new mult variants."""
+        """mult.ve.cyclic still works correctly after adding new mult variants."""
         cyclic_data = bytes([6] * 512)
         r0_data = bytes([0] * 128)
         r0_data = bytearray(r0_data)
@@ -1463,7 +1492,7 @@ set lr1 0x2000;;
 set lr2 0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ve lr2 0 lr2 lr2;
+mult.ve.cyclic lr2 0 lr2 lr2;
 acc;;
 bkpt;;
 """
@@ -1478,12 +1507,12 @@ bkpt;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
-    def test_mult_ve_boundary_padding(self):
-        """mult.ve: elements beyond RC boundary (512 bytes) are padded with int8 1."""
-        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
+    def test_mult_ve_cyclic_wrap_at_rc_boundary(self):
+        """mult.ve.cyclic: RC indices wrap modulo 512."""
+        # cyclic_offset = 450, so without wrap we'd read past 512; with wrap, bytes
+        # 450..511 then 0..65 of RC are used — all rc_fill.
         rc_fill = 4
         scalar = 5
-        pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         r0_data = bytearray(128)
         r0_data[0] = scalar  # fixed_idx=0 → r0[0] = 5
@@ -1496,7 +1525,39 @@ reset_acc;;
 set lr2 450;;
 set lr4 0;;
 set lr5 0;;
-mult.ve lr2 0 lr4 lr5;
+mult.ve.cyclic lr2 0 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+
+    def test_mult_ve_padded_boundary(self):
+        """mult.ve.padded: elements past RC byte 511 use dtype 1."""
+        rc_fill = 4
+        scalar = 5
+        pad_start = 62  # 512 - 450 = 62 elements in bounds before padding
+
+        r0_data = bytearray(128)
+        r0_data[0] = scalar
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+reset_acc;;
+set lr2 450;;
+set lr4 0;;
+set lr5 0;;
+mult.ve.padded lr2 0 lr4 lr5;
 acc;;
 bkpt;;
 """
@@ -1515,7 +1576,7 @@ bkpt;;
             assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
 
     def test_mult_ve_r1_scalar(self):
-        """mult.ve: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
+        """mult.ve.cyclic: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
         r0_data = bytearray(128)  # all zeros — must not be picked
         r1_data = bytearray(128)
         r1_data[0] = 7  # fixed_idx=128 → r1[0] = 7
@@ -1532,7 +1593,7 @@ set lr2 0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
 set lr3 128;;
-mult.ve lr2 0 lr2 lr3;
+mult.ve.cyclic lr2 0 lr2 lr3;
 acc;;
 bkpt;;
 """

@@ -48,7 +48,7 @@ The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/
 
 While **addresses are still byte addresses**, wide mode changes how much data some loads consume per instruction:
 
-- **`ldr_mult_reg`** reads **512 bytes** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for `r0`, `r1`, or `mem_bypass`. The architectural 128-byte `r` register bytes in the regfile are not the source for mult operands in this mode.
+- **`ldr_mult_reg`** reads **512 bytes** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`r0` or `r1` only**. The architectural 128-byte `r` register bytes in the regfile are not the source for mult operands in this mode.
 - **`ldr_cyclic_mult_reg`** reads **512 bytes** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-byte alignment in normal mode, scaled to the wide chunk).
 
 Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
