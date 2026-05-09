@@ -14,6 +14,8 @@ Adding an instruction is a 3-step process:
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
+When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to `VALID_OPERAND_TYPES` in the same file and extend `OPERAND_TYPE_DETAILS` in `src/tools/ipu-as-py/src/ipu_as/gen_docs.py` so the generated [Operand types](operand-types.md) page stays complete (`bazel build //docs:generate_mkdocs_md` or `docs/gen_docs_wrapper.py`).
+
 ## Step 1: Add Instruction to `instruction_spec.py`
 
 Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"xmem"`, `"lr"`, `"cond"`, `"break"`).
@@ -36,7 +38,7 @@ INSTRUCTION_SPEC = {
                 summary="Performs a custom operation on two source registers.",
                 syntax="my_new_instruction Rd Ra Rb",
                 operands=[
-                    "Rd: Destination mult stage register (r0, r1, or mem_bypass)",
+                    "Rd: Destination mult stage register (r0 or r1)",
                     "Ra: First source mult stage register",
                     "Rb: Second source mult stage register",
                 ],
@@ -44,7 +46,7 @@ INSTRUCTION_SPEC = {
                     "for i in [0, R_REG_SIZE):\n"
                     "    Rd[i] = custom_operation(Ra[i], Rb[i])"
                 ),
-                example="my_new_instruction r0 r1 mem_bypass;;",
+                example="my_new_instruction r0 r1 r0;;",
             ),
             "execute_fn": "execute_my_new_instruction",
         },
@@ -58,7 +60,7 @@ INSTRUCTION_SPEC = {
 - **`operands`**: List of operand definitions, each with:
   - `name`: Meaningful name for the operand (used in handler signature)
   - `type`: Operand type — one of:
-    - `"MultStageReg"` — r0, r1, or mem_bypass
+    - `"MultStageReg"` — `r0` or `r1` (2-bit encoding in the VLIW word)
     - `"LrIdx"` — lr0-lr15
     - `"CrIdx"` — cr0-cr15
     - `"LcrIdx"` — lr0-lr15 or cr0-cr15
@@ -222,7 +224,7 @@ After adding your instruction, verify it works in both assembler and emulator:
 
 ```bash
 # Verify assembler accepts the instruction
-echo "my_new_instruction r0 r1 mem_bypass;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
+echo "my_new_instruction r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
 
 # Run all tests
 bazel test //...

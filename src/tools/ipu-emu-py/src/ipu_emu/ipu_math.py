@@ -174,7 +174,7 @@ def fp8_bytes_to_fp32(raw: bytes, dtype: DType) -> np.ndarray:
 def dtype_one_byte(dtype: DType) -> int:
     """Return the raw uint8 encoding of the value 1 for the given dtype.
 
-    Used to pad out-of-bounds RC elements in mult.ve / mult.ve.cr / mult.ve.aaq.
+    Used to pad out-of-bounds RC elements in mult.ve.padded and in mult.ve.cr / mult.ve.aaq.
     """
     if dtype == DType.INT8:
         return 0x01
