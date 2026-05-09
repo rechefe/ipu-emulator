@@ -58,12 +58,12 @@ class TestRegisterOperations:
         state = _run("set lr13 0x1000;;\nbkpt;;")
         assert state.regfile.get_lr(13) == 0x1000
 
-    def test_incr_lr(self):
+    def test_add_imm_accumulates_lr(self):
         state = _run(
             """\
 set lr11 10;;
-incr lr11 5;;
-incr lr11 3;;
+add lr11 lr11 5;;
+add lr11 lr11 3;;
 bkpt;;
 """
         )
@@ -105,6 +105,16 @@ bkpt;;
         assert state.regfile.get_cr(5) == 75
         assert state.regfile.get_lr(4) == 275
 
+    def test_add_lr_lr_imm5(self):
+        state = _run(
+            """\
+set lr1 200;;
+add lr4 lr1 11;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(4) == 211
+
     def test_sub_lr_lr(self):
         state = _run(
             """\
@@ -116,17 +126,27 @@ bkpt;;
         )
         assert state.regfile.get_lr(3) == 70
 
-    def test_sub_cr_lr(self):
+    def test_sub_lr_lr_cr(self):
         state = _make_state(
             """\
 set lr2 45;;
-sub lr5 cr3 lr2;;
+sub lr5 lr2 cr3;;
 bkpt;;
 """
         )
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == 155
+        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
+
+    def test_sub_lr_lr_imm5(self):
+        state = _run(
+            """\
+set lr2 100;;
+sub lr3 lr2 30;;
+bkpt;;
+"""
+        )
+        assert state.regfile.get_lr(3) == 70
 
 
 # ============================================================================
@@ -199,7 +219,7 @@ bkpt;;
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
         encoded = assemble("incr_mod_pow2 lr0 lr1 9;; bkpt;;")
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 8
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
         with pytest.raises(ValueError, match=r"incr_mod_pow2 k operand"):
@@ -239,16 +259,25 @@ bkpt;;
         encoded = assemble("set lr4 10; set lr5 20; set lr6 30;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 4
-        assert d["lr_inst_0_token_4_lr_immediate_type"] == 10
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
+        assert d["lr_inst_0_token_5_lr_immediate_type"] == 10
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
         assert d["lr_inst_1_token_1_lr_reg_field"] == 5
-        assert d["lr_inst_1_token_4_lr_immediate_type"] == 20
-        assert d["lr_inst_1_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_1_token_5_lr_immediate_type"] == 20
+        assert d["lr_inst_1_token_6_lr_mod_pow2_k_immediate"] == 0
         assert d["lr_inst_2_token_1_lr_reg_field"] == 6
-        assert d["lr_inst_2_token_4_lr_immediate_type"] == 30
-        assert d["lr_inst_2_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_2_token_5_lr_immediate_type"] == 30
+        assert d["lr_inst_2_token_6_lr_mod_pow2_k_immediate"] == 0
+
+    def test_decode_add_imm_operand_field(self):
+        """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
+        encoded = assemble("add lr2 lr1 7;; bkpt;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
+        assert d["lr_inst_0_token_1_lr_reg_field"] == 2  # dest
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 1  # src_a
+        assert d["lr_inst_0_token_4_add_sub_src_b_field"] == 32 + 7
 
 
 # ============================================================================
@@ -604,7 +633,7 @@ bkpt;;
             """\
 set lr0 0;;
 cr_loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 cr5 cr_loop_start;;
 bkpt;;
 """
@@ -620,7 +649,7 @@ set lr0 0;;
 set lr1 10;;
 set lr2 0;;
 loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 lr1 loop_start;;
 bkpt;;
 """,
@@ -1118,11 +1147,11 @@ class TestDecodeRoundtrip:
         encoded = assemble("set lr13 0x1000;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        # LR opcode should be 'set' = index 1
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        # LR opcode should be 'set' = index 0
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 13
-        assert d["lr_inst_0_token_4_lr_immediate_type"] == 0x1000
-        assert d["lr_inst_0_token_5_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_5_lr_immediate_type"] == 0x1000
+        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0
 
 
 # ============================================================================

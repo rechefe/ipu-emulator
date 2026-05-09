@@ -155,7 +155,7 @@ Set pc = 10
 
 ```bash
 debug >>> disasm
-PC 3: break lr0 0; incr lr0 cr0 cr0 0; mult_nop; acc_nop; b lr0 lr0 @4;;
+PC 3: break lr0 0; add lr0 lr0 0; mult_nop; acc_nop; b lr0 lr0 @4;;
 ```
 
 ### Saving State

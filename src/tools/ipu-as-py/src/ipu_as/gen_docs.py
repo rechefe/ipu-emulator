@@ -29,6 +29,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
         "`**cr0`–`cr15`** in the usual combined ordering used by the assembler."
     ),
+    "AddSubSrcB": (
+        "Second source for **`add`** / **`sub`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
+        "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
+        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
+    ),
     "AaqRegIdx": "AAQ register selector: **`aaq0`** … **`aaq3`**.",
     "ElementsInRow": (
         "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
@@ -52,7 +57,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "Immediate": (
         "Signed **16-bit** immediate carried in the LR slot (sign-extended by the emulator for "
-        "`set` / `incr`)."
+        "`set`)."
     ),
     "LrModPow2KImmediate": (
         "Four-bit immediate for **`incr_mod_pow2`**: encodes exponent **k** with semantic "
@@ -130,7 +135,7 @@ label:                          # Labels end with a colon
     ldr_mult_reg r0 lr0 cr0;     # XMEM: load into mult stage R0
     mult.ee r0 lr1 lr2 lr3;      # MULT: element-wise multiply
     acc;                         # ACC: accumulate
-    incr lr0 1;                  # LR: bump address
+    add lr0 lr0 1;               # LR: bump address (increment via add)
     bne lr0 lr1 next;            # COND: branch
     ;;
 ```
@@ -156,7 +161,7 @@ xmem_inst; mult_inst; acc_inst; aaq_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_
 **Example (parallel slots):**
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 128; bne lr0 lr1 loop;;
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -181,7 +186,7 @@ The **`mem_bypass`** vector may still exist in the **emulator regfile** for debu
 start:
     set lr0 0
 loop:
-    incr lr0 1
+    add lr0 lr0 1
     bne lr0 lr1 loop
     bkpt
 ```

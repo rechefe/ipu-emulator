@@ -15,15 +15,15 @@ input_loop:
 
 element_loop:
     ldr_cyclic_mult_reg lr4 cr1 lr15;
-    incr                lr4 128;
-    incr                lr5 1;
+    add                 lr4 lr4 cr3;
+    add                 lr5 lr5 cr4;
     mult.ve             lr15 lr15 lr15 lr5;
     acc;
     blt                 lr5 lr6 element_loop;;
 
     str_acc_reg         lr7 cr2;;
-    incr                lr7 256;
-    incr                lr0 128;;
+    add                 lr7 lr7 cr5;
+    add                 lr0 lr0 cr3;;
 
     break;;
 

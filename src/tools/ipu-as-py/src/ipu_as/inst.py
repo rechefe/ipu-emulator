@@ -29,6 +29,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "AddSubSrcB": immediate.AddSubSrcBField,
     "AaqRegIdx": reg.AaqRegField,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
@@ -470,8 +471,9 @@ class LrInst(Inst):
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
         return [
             reg.LrRegField,
+            reg.LrRegField,
             reg.LcrRegField,
-            reg.LcrRegField,
+            immediate.AddSubSrcBField,
             immediate.LrImmediateType,
             immediate.LrModPow2KImmediate,
         ]
@@ -489,10 +491,14 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "incr", line=0, column=0),
+                    token=lark.Token("TOKEN", "add", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
+                        instr_id=addr,
+                    ),
                     ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "lr0", line=0, column=0),
                         instr_id=addr,

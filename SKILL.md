@@ -61,7 +61,7 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 1; bne lr0 lr1 next;;
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1 next;;
 ```
 
 - Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
@@ -91,13 +91,13 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 1; bne lr0 lr1 ne
 | MULT | `mult.ee`, `mult.ve`, `mult.ve.cr`, `mult.ve.aaq`, … | 8-bit vector multiply |
 | ACC | `acc`, `acc.stride`, `acc.max`, `acc.max.first`, `reset_acc` | Accumulate into r_acc |
 | AAQ | `agg` (sum/max + post-fn) | Aggregate r_acc → aaq register |
-| LR (×2) | `incr`, `set`, `add`, `sub` | Scalar loop register ops |
+| LR (×3) | `set`, `add`, `sub`, `incr_mod_pow2` | Scalar loop register ops |
 | COND | `beq`, `bne`, `blt`, `bnz`, `bz`, `b`, `br`, `bkpt` | Branches |
 | BREAK | `break`, `break.ifeq` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `Label`
 
 ---
 

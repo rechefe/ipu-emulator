@@ -26,6 +26,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIdx": lr0-lr15 (LrRegField)  
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
+  - "AddSubSrcB": second operand for add/sub — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for incr_mod_pow2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "BreakImmediate": 16-bit break condition value (BreakImmediateType)
@@ -64,24 +65,6 @@ Structure:
           through so the handler can write to it.
         - Immediates and Labels have no "read" flag (literal values always
           passed as-is).
-        create_assembler_opcodes,
-        create_emulator_constants,
-    )
-    
-    # Get all instruction definitions
-    spec = INSTRUCTION_SPEC
-    
-    # Extract opcodes automatically (derived from position)
-    opcodes = extract_opcodes(spec)
-    # → {"xmem": ["str_acc_reg", "ldr_mult_reg", ...], ...}
-    
-    # Create Opcode classes at runtime (no file generation)
-    assembler_opcodes = create_assembler_opcodes()
-    # → {"XmemInstOpcode": <class>, "LrInstOpcode": <class>, ...}
-    
-    # Create emulator constants at runtime
-    constants = create_emulator_constants()
-    # → {"XMEM_OP_STR_ACC_REG": 0, "XMEM_OP_LDR_MULT_REG": 1, ...}
 """
 
 from __future__ import annotations
@@ -141,7 +124,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "mult": ["MultStageReg", "LrIdx", "LrIdx", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
-    "lr": ["LrIdx", "LcrIdx", "LcrIdx", "Immediate", "LrModPow2KImmediate"],
+    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
@@ -278,27 +261,9 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: incr=0, set=1, add=2, sub=3, incr_mod_pow2=4
+    # Opcode = position: set=0, add=1, sub=2, incr_mod_pow2=3
     # =========================================================================
     "lr": {
-        "incr": {
-            "operands": [
-                {"name": "reg", "type": "LrIdx"},
-                {"name": "value", "type": "Immediate"},
-            ],
-            "doc": InstructionDoc(
-                title="Increment Loop Register",
-                summary="Increment a loop register by an immediate value.",
-                syntax="incr reg value",
-                operands=[
-                    "reg: Loop register to increment (lr0-lr15)",
-                    "value: Immediate value to add",
-                ],
-                operation="reg += value",
-                example="incr lr0 1;;",
-            ),
-            "execute_fn": "execute_lr_incr",
-        },
         "set": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
@@ -320,40 +285,46 @@ INSTRUCTION_SPEC = {
         "add": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
-                title="Add Registers",
-                summary="Add two registers and store in destination.",
+                title="Add",
+                summary=(
+                    "Add two sources (second source may be an LR, CR, or 5-bit unsigned immediate) "
+                    "and store the result in the destination LR."
+                ),
                 syntax="add dest src_a src_b",
                 operands=[
-                    "dest: Destination loop register (lr0-lr15)",
-                    "src_a: First source register (lr0-lr15 or cr0-cr15)",
-                    "src_b: Second source register (lr0-lr15 or cr0-cr15)",
+                    "dest: Destination local register (lr0-lr15)",
+                    "src_a: First source local register (lr0-lr15)",
+                    "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a + src_b",
-                example="add lr0 lr1 lr2;;",
+                example="add lr0 lr1 lr2;;\nadd lr3 lr1 cr5;;\nadd lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_add",
         },
         "sub": {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
+                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
-                title="Subtract Registers",
-                summary="Subtract two registers and store in destination.",
+                title="Subtract",
+                summary=(
+                    "Subtract the second source from the first (second source may be an LR, CR, "
+                    "or 5-bit unsigned immediate) and store the result in the destination LR."
+                ),
                 syntax="sub dest src_a src_b",
                 operands=[
-                    "dest: Destination loop register (lr0-lr15)",
-                    "src_a: First source register (lr0-lr15 or cr0-cr15)",
-                    "src_b: Second source register (lr0-lr15 or cr0-cr15)",
+                    "dest: Destination local register (lr0-lr15)",
+                    "src_a: First source local register (lr0-lr15)",
+                    "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a - src_b",
-                example="sub lr0 lr1 lr2;;",
+                example="sub lr0 lr1 lr2;;\nsub lr3 lr1 cr5;;\nsub lr4 lr1 7;;",
             ),
             "execute_fn": "execute_lr_sub",
         },
@@ -949,7 +920,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     Example:
         {
             "xmem": ["str_acc_reg", "ldr_mult_reg", ...],
-            "lr": ["incr", "set", "add", "sub", "incr_mod_pow2"],
+            "lr": ["set", "add", "sub", "incr_mod_pow2"],
             ...
         }
     """
@@ -1123,6 +1094,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "LrModPow2KImmediate",
         "BreakImmediate",
         "Label",
+        "AddSubSrcB",
     }
 )
 
