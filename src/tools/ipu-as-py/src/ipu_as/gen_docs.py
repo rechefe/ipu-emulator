@@ -29,6 +29,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
         "`**cr0`–`cr15`** in the usual combined ordering used by the assembler."
     ),
+    "AddSubSrcB": (
+        "Second source for **`add`** / **`sub`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
+        "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
+        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
+    ),
     "AaqRegIdx": "AAQ register selector: **`aaq0`** … **`aaq3`**.",
     "ElementsInRow": (
         "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
