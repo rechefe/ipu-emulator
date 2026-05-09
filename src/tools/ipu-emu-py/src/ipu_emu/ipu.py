@@ -86,6 +86,7 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
+    "AddSubSrcB": "add_sub_src_b_field",
     "AaqRegIdx": "aaq_reg_field",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
@@ -307,6 +308,7 @@ class Ipu:
         - LrIdx → source.get_lr(idx) → uint32 value
         - CrIdx → source.get_cr(idx) → uint32 value
         - LcrIdx → LR if idx < LR_REG_COUNT, else CR → uint32 value
+        - AddSubSrcB → like LcrIdx for codes 0–31; codes ≥ 32 → unsigned IMM5 (low 5 bits)
         - MultStageReg → register bytes via _MULT_STAGE_MAP → bytearray
 
         Args:
@@ -323,6 +325,13 @@ class Ipu:
                 return source.get_lr(raw_value)
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
+        elif op_type == "AddSubSrcB":
+            # 6-bit encoding: 0–31 same as LcrIdx; 32–63 → unsigned IMM5 (low 5 bits).
+            if raw_value >= 32:
+                return raw_value & 31
+            if raw_value < LR_REG_COUNT:
+                return source.get_lr(raw_value)
+            return source.get_cr(raw_value - LR_REG_COUNT)
         elif op_type == "MultStageReg":
             if self._wide_vector_active():
                 # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
@@ -453,11 +462,11 @@ class Ipu:
         self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute add: Add two LCR registers."""
+        """Execute add: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
         self.state.regfile.set_lr(dest, (src_a + src_b) & 0xFFFFFFFF)
 
     def execute_lr_sub(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute sub: Subtract two LCR registers."""
+        """Execute sub: uint32 ``dest = src_a - src_b`` (``src_b`` may be an immediate)."""
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
 
     def execute_lr_incr_mod_pow2(self, *, dst: int, step: int, k: int) -> None:
