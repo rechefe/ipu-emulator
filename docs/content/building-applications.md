@@ -283,7 +283,7 @@ This section walks through a complete real-world implementation: a fully-connect
 
 ### Assembly Program
 
-The IPU assembly implements the core computation: for each input sample, compute the dot product of the input vector with each weight row (after transposition for efficiency):
+The IPU assembly implements the core computation: activations for the current sample live in **`R0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`RC`**) and issues **`MULT.VE`**, which multiplies that row by the scalar **`R0[LR5]`** (loop counter after increment), then accumulates.
 
 ```asm
 set                 lr0 0 ;;
@@ -293,17 +293,18 @@ set                 lr2 0 ;;
 input_loop:
     reset_acc;;
 
-    ldr_cyclic_mult_reg lr0 cr0 lr15;;
+    ldr_mult_reg        r0 lr0 cr0;;
 
     set                 lr4 -128;;
     set                 lr5 -1;;
     set                 lr6 127;;
+    set                 lr15 0;;
 
 element_loop:
-    ldr_mult_reg        mem_bypass lr4 cr1;
+    ldr_cyclic_mult_reg lr4 cr1 lr15;
     incr                lr4 128;
     incr                lr5 1;
-    mult.ev             mem_bypass lr5 lr15 lr15;
+    mult.ve             lr15 lr15 lr15 lr5;
     acc;
     blt                 lr5 lr6 element_loop;;
 

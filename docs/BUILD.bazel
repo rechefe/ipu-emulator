@@ -16,9 +16,13 @@ py_binary(
 )
 
 genrule(
-    name = "generate_instruction_docs",
-    outs = ["instructions.md"],
-    cmd = "$(location :gen_docs) $(@D)",
+    name = "generate_mkdocs_md",
+    outs = [
+        "instructions.md",
+        "operand-types.md",
+        "assembly-syntax.md",
+    ],
+    cmd = "$(location :gen_docs) $(location instructions.md) $(location operand-types.md) $(location assembly-syntax.md)",
     tools = [":gen_docs"],
 )
 
@@ -54,7 +58,7 @@ genrule(
     srcs = [
         "mkdocs.yml",
         ":doc_sources",
-        ":generate_instruction_docs",
+        ":generate_mkdocs_md",
         ":generate_release_log",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -92,8 +96,12 @@ genrule(
             ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages live under the output tree only; link them into docs_dir.
-        ln -sfn "$$ORIGDIR/$(location :generate_instruction_docs)" "$(@D)/docs_temp/content/instructions.md"
+        # Generated pages (instructions, operand types, assembly syntax)
+        for out in $(locations :generate_mkdocs_md); do \
+          base=$$(basename "$$out"); \
+          ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/$$base"; \
+        done
+
         ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
 
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
