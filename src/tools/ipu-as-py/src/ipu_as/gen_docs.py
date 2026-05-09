@@ -14,7 +14,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "MultStageReg": (
         "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; "
         "the field is **two bits** wide (encoding `2` is reserved). Used as the destination of "
-        "`ldr_mult_reg` and as the `ra` operand of `mult.ee`."
+        "`LDR_MULT_REG` and as the **`ra`** operand of `MULT.EE`."
     ),
     "LrIdx": (
         "Loop register index: resolves to **`lr0`** … **`lr15`**. Often used for addresses, strides, "
@@ -30,7 +30,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "`**cr0`–`cr15`** in the usual combined ordering used by the assembler."
     ),
     "AddSubSrcB": (
-        "Second source for **`add`** / **`sub`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
+        "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
         "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
         "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
     ),
@@ -40,15 +40,15 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "`ipu_common`)."
     ),
     "HorizontalStride": (
-        "ACC-slot immediate: **horizontal stride** bit pattern for `acc.stride` (see "
+        "ACC-slot immediate: **horizontal stride** bit pattern for `ACC.STRIDE` (see "
         "`acc_stride_enums`)."
     ),
     "VerticalStride": (
-        "ACC-slot immediate: **vertical stride** bit pattern for `acc.stride` (see "
+        "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
         "`acc_stride_enums`)."
     ),
     "AggMode": (
-        "AAQ-slot immediate: aggregation mode for the `aaq` instruction (sum / max family); see "
+        "AAQ-slot immediate: aggregation mode for the `AGG` / `AGG.FIRST` instructions (sum / max family); see "
         "`acc_agg_enums`."
     ),
     "PostFn": (
@@ -57,10 +57,10 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "Immediate": (
         "Signed **16-bit** immediate carried in the LR slot (sign-extended by the emulator for "
-        "`set`)."
+        "`SET`)."
     ),
     "LrModPow2KImmediate": (
-        "Four-bit immediate for **`incr_mod_pow2`**: encodes exponent **k** with semantic "
+        "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic "
         "**k ∈ [1, 9]** as **(k − 1)** in the word."
     ),
     "MultMaskOffsetImmediate": (
@@ -68,7 +68,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`0`**–**`7`**, each a **128-bit** region of **`r_mask`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
-    "BreakImmediate": "16-bit value for **`break`** / breakpoint slot conditions.",
+    "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
         "(e.g. `loop`, `+3`)."
@@ -137,15 +137,15 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 ```asm
 # Comments start with # or //
 label:                          # Labels end with a colon
-    ldr_mult_reg r0 lr0 cr0;     # XMEM: load into mult stage R0
-    mult.ee r0 lr1 0 lr3;      # MULT: element-wise multiply
-    acc;                         # ACC: accumulate
-    add lr0 lr0 1;               # LR: bump address (increment via add)
-    bne lr0 lr1 next;            # COND: branch
+    LDR_MULT_REG r0 lr0 cr0;     # XMEM: load into mult stage r0
+    MULT.EE r0 lr1 0 lr3;        # MULT: element-wise multiply
+    ACC;                         # ACC: accumulate
+    ADD lr0 lr0 1;               # LR: bump address (increment via ADD)
+    BNE lr0 lr1 next;            # COND: branch
     ;;
 ```
 
-Use **lower-case** mnemonics and register names in source (e.g. `mult.ee`, `lr0`, `r0`). Generated documentation often uses **upper-case** for readability (e.g. `MULT.EE`, `LR0`, `R0`).
+By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.EE`, `LDR_MULT_REG`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
 
 ## Compound instructions
 
@@ -166,7 +166,7 @@ xmem_inst; mult_inst; acc_inst; aaq_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_
 **Example (parallel slots):**
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; ADD lr0 lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -189,14 +189,14 @@ The **`mem_bypass`** vector may still exist in the **emulator regfile** for debu
 
 ```asm
 start:
-    set lr0 0
+    SET lr0 0;;
 loop:
-    add lr0 lr0 1
-    bne lr0 lr1 loop
-    bkpt
+    ADD lr0 lr0 1;;
+    BNE lr0 lr1 loop;;
+    BKPT;;
 ```
 
-Relative labels such as `b +5` / `b -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
+Relative labels such as `B +5` / `B -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
 
 ## Jinja2 preprocessing
 
@@ -211,8 +211,8 @@ Relative labels such as `b +5` / `b -2` are supported where the grammar accepts 
 
 ```jinja2
 {% set base = 0x1000 %}
-set lr0 {{ base }};
-ldr_mult_reg r0 lr0 cr0;;
+SET lr0 {{ base }};
+LDR_MULT_REG r0 lr0 cr0;;
 ```
 
 ## Running the assembler

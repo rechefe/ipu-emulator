@@ -1,7 +1,7 @@
 """Wide-vector debug mode (GitHub issue #33).
 
 XMEM transfer sizes stay architectural (128-byte loads for r in normal mode);
-in wide-vector mode ``ldr_mult_reg`` / ``ldr_cyclic_mult_reg`` consume 512 bytes
+in wide-vector mode ``LDR_MULT_REG`` / ``LDR_CYCLIC_MULT_REG`` consume 512 bytes
 per transfer as 128×32-bit lanes. LR/CR are unchanged.
 """
 
@@ -49,15 +49,15 @@ class TestWideVectorFp32:
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
-set lr0 0x1000;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-reset_acc;;
-mult.ee r0 lr2 0 lr2;;
+SET lr0 0x1000;;
+SET lr1 0x2000;;
+SET lr2 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+RESET_ACC;;
+MULT.EE r0 lr2 0 lr2;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
@@ -70,16 +70,16 @@ bkpt;;
     def test_aaq_noop_unless_quantize_flag(self) -> None:
         state = _run_wide(
             """\
-set lr0 0x1000;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-reset_acc;;
-mult.ee r0 lr2 0 lr2;;
+SET lr0 0x1000;;
+SET lr1 0x2000;;
+SET lr2 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+RESET_ACC;;
+MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 aaq;;
-bkpt;;
+BKPT;;
 """,
         )
         assert state.regfile.get_aaq_result() == bytearray(128)
@@ -97,16 +97,16 @@ bkpt;;
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
-set lr0 0x1000;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-reset_acc;;
-mult.ee r0 lr2 0 lr2;;
+SET lr0 0x1000;;
+SET lr1 0x2000;;
+SET lr2 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+RESET_ACC;;
+MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 aaq;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
@@ -124,15 +124,15 @@ class TestWideVectorInt32:
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
-set lr0 0x1000;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-reset_acc;;
-mult.ee r0 lr2 0 lr2;;
+SET lr0 0x1000;;
+SET lr1 0x2000;;
+SET lr2 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+RESET_ACC;;
+MULT.EE r0 lr2 0 lr2;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
@@ -161,17 +161,17 @@ class TestWideVectorR0R1Isolation:
             st.xmem.write_address(0x1100, r1)
             st.xmem.write_address(0x2000, rc)
             asm = f"""\
-set lr0 0x1000;;
-set lr1 0x1100;;
-set lr2 0x2000;;
-set lr3 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_mult_reg r1 lr1 cr0;;
-ldr_cyclic_mult_reg lr2 cr0 lr3;;
-reset_acc;;
-mult.ee {which} lr3 0 lr3;;
+SET lr0 0x1000;;
+SET lr1 0x1100;;
+SET lr2 0x2000;;
+SET lr3 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_MULT_REG r1 lr1 cr0;;
+LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
+RESET_ACC;;
+MULT.EE {which} lr3 0 lr3;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
             encoded = assemble(asm)
             load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -183,7 +183,7 @@ bkpt;;
 
 
 class TestWideVectorCyclicIndex:
-    """``ldr_cyclic_mult_reg`` must honour ``index`` in wide mode (512-byte chunk)."""
+    """``LDR_CYCLIC_MULT_REG`` must honour ``index`` in wide mode (512-byte chunk)."""
 
     def test_ldr_cyclic_nonzero_index_fp32(self) -> None:
         zeros = struct.pack("<128f", *([0.0] * 128))
@@ -195,19 +195,19 @@ class TestWideVectorCyclicIndex:
         st.xmem.write_address(0x2200, nines)
         st.xmem.write_address(0x1000, twos)
         asm = """\
-set lr0 0x2000;;
-set lr1 0;;
-ldr_cyclic_mult_reg lr0 cr0 lr1;;
-set lr2 0x2200;;
-set lr3 512;;
-ldr_cyclic_mult_reg lr2 cr0 lr3;;
-set lr4 0x1000;;
-ldr_mult_reg r0 lr4 cr0;;
-set lr5 512;;
-reset_acc;;
-mult.ee r0 lr5 0 lr5;;
+SET lr0 0x2000;;
+SET lr1 0;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+SET lr2 0x2200;;
+SET lr3 512;;
+LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
+SET lr4 0x1000;;
+LDR_MULT_REG r0 lr4 cr0;;
+SET lr5 512;;
+RESET_ACC;;
+MULT.EE r0 lr5 0 lr5;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -230,12 +230,12 @@ class TestWideVectorPadding:
         st.regfile.set_cr(1, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
         st.regfile.set_r_cyclic_at(0, buf)
         asm = """\
-set lr0 384;;
-set lr2 0;;
-mult.ve.cr lr0 0 lr2 cr1;;
-reset_acc;;
+SET lr0 384;;
+SET lr2 0;;
+MULT.VE.CR lr0 0 lr2 cr1;;
+RESET_ACC;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -247,7 +247,7 @@ bkpt;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
     def test_mult_ve_fp32_wide_cyclic_past_boundary(self) -> None:
-        """mult.ve.cyclic (wide FP32): RC lanes wrap at 512 bytes."""
+        """MULT.VE.CYCLIC (wide FP32): RC lanes wrap at 512 bytes."""
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
@@ -259,15 +259,15 @@ bkpt;;
         st.regfile.set_r_cyclic_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         asm = """\
-set lr4 0x1000;;
-ldr_mult_reg r0 lr4 cr0;;
-set lr0 384;;
-set lr2 0;;
-set lr3 0;;
-mult.ve.cyclic lr0 0 lr2 lr3;;
-reset_acc;;
+SET lr4 0x1000;;
+LDR_MULT_REG r0 lr4 cr0;;
+SET lr0 384;;
+SET lr2 0;;
+SET lr3 0;;
+MULT.VE.CYCLIC lr0 0 lr2 lr3;;
+RESET_ACC;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -279,7 +279,7 @@ bkpt;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
     def test_mult_ve_fp32_wide_padded_past_boundary(self) -> None:
-        """mult.ve.padded (wide FP32): lanes past byte 511 use ×1."""
+        """MULT.VE.PADDED (wide FP32): lanes past byte 511 use ×1."""
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
@@ -291,15 +291,15 @@ bkpt;;
         st.regfile.set_r_cyclic_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         asm = """\
-set lr4 0x1000;;
-ldr_mult_reg r0 lr4 cr0;;
-set lr0 384;;
-set lr2 0;;
-set lr3 0;;
-mult.ve.padded lr0 0 lr2 lr3;;
-reset_acc;;
+SET lr4 0x1000;;
+LDR_MULT_REG r0 lr4 cr0;;
+SET lr0 384;;
+SET lr2 0;;
+SET lr3 0;;
+MULT.VE.PADDED lr0 0 lr2 lr3;;
+RESET_ACC;;
 acc.first;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -322,7 +322,7 @@ class TestWideVectorAggInt32:
         st.regfile.set_lr(1, 128)
         asm = """\
 agg sum inv lr1 cr0 aaq0;;
-bkpt;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -337,15 +337,15 @@ class TestWideVectorAlignment:
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
         st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))
         asm = """\
-set lr0 0x1000;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_mult_reg r0 lr0 cr0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-set lr3 1;;
-reset_acc;;
-mult.ee r0 lr3 0 lr3;;
-bkpt;;
+SET lr0 0x1000;;
+SET lr1 0x2000;;
+SET lr2 0;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 1;;
+RESET_ACC;;
+MULT.EE r0 lr3 0 lr3;;
+BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])

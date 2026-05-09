@@ -77,7 +77,10 @@ def validate_inst_structure(cls: type) -> type:
 class Inst:
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
-        struct_entry = self.struct_by_opcode_table()[inst["opcode"].token.value]
+        opcode_idx = self.opcode.encode()
+        struct_table = self.struct_by_opcode_table()
+        struct_names = list(struct_table.keys())
+        struct_entry = struct_table[struct_names[opcode_idx]]
         operand_types = self._operand_types_from_struct(struct_entry)
 
         if len(inst["operands"]) != len(operand_types):
@@ -95,7 +98,7 @@ class Inst:
         full_token_list = [None for _ in range(1 + len(self.operand_types()))]
         full_token_list[0] = self.opcode
         for i, operand in enumerate(self.operands):
-            mapped_index = self._inst_mapping_table[self.opcode.token.value][i]
+            mapped_index = self._inst_mapping_table[self.opcode.encode()][i]
             full_token_list[mapped_index + 1] = operand
         for i in range(len(full_token_list)):
             if full_token_list[i] is None:
@@ -113,12 +116,16 @@ class Inst:
     @classmethod
     def _validate_instr_structure(cls) -> None:
         cls._inst_mapping_table = dict()
-        for opcode, struct_entry in cls.struct_by_opcode_table().items():
-            assert (
-                opcode in cls.opcode_type().enum_array()
-            ), f"Configuration of {cls.__name__} is invalid, opcode key must be of type {cls.opcode_type().__name__}"
+        names = cls.opcode_type().enum_array()
+        for opcode_idx, (opcode_name, struct_entry) in enumerate(
+            cls.struct_by_opcode_table().items()
+        ):
+            assert opcode_name == names[opcode_idx], (
+                f"Configuration of {cls.__name__} is invalid: opcode table order "
+                f"does not match {cls.opcode_type().__name__}.enum_array()"
+            )
 
-            cls._inst_mapping_table[opcode] = cls._find_instruction_inst_mapping(
+            cls._inst_mapping_table[opcode_idx] = cls._find_instruction_inst_mapping(
                 cls._operand_types_from_struct(struct_entry)
             )
 
@@ -171,8 +178,9 @@ class Inst:
 
     @classmethod
     def find_inst_type_by_opcode(cls, opcode: str) -> type["Inst"]:
+        opl = opcode.lower()
         for subclass in cls.__subclasses__():
-            if opcode in subclass.struct_by_opcode_table().keys():
+            if any(opl == name.lower() for name in subclass.struct_by_opcode_table()):
                 return subclass
         raise ValueError(f"Opcode '{opcode}' not found in any Inst subclass.")
 
@@ -255,8 +263,7 @@ class Inst:
         doc: InstructionDoc,
         spec_operands: list[dict],
     ) -> list[str]:
-        display_opcode = opcode.upper()
-        lines = [f"### `{display_opcode}` — {doc.title}", ""]
+        lines = [f"### `{opcode}` — {doc.title}", ""]
         lines.append(f"**Syntax:** `{doc.syntax}`")
         lines.append("")
 
@@ -324,7 +331,7 @@ class XmemInst(Inst):
         return XmemInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "xmem_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "XMEM_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -367,7 +374,7 @@ class MultInst(Inst):
         return MultInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "mult_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "MULT_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -410,7 +417,7 @@ class AccInst(Inst):
         return AccInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "acc_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "ACC_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -451,7 +458,7 @@ class AaqInst(Inst):
         return AaqInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "aaq_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "AAQ_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -493,7 +500,7 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "add", line=0, column=0),
+                    token=lark.Token("TOKEN", "ADD", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
@@ -541,7 +548,7 @@ class CondInst(Inst):
         return CondInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "b", line=0, column=0), instr_id=addr
+                    token=lark.Token("TOKEN", "B", line=0, column=0), instr_id=addr
                 ),
                 "operands": [
                     ipu_token.AnnotatedToken(
@@ -579,7 +586,7 @@ class BreakInst(Inst):
         return BreakInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "break_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "BREAK_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],

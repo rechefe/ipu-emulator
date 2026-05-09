@@ -19,7 +19,7 @@ Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/t
 |-----------|---------|---------|
 | `wide_vector_debug` | `False` | Turn wide-vector mode on. |
 | `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` lane arithmetic. |
-| `wide_vector_quantize_output` | `False` | If `True`, the `aaq` instruction writes `aaq_result` from wide lanes for comparison with the real quantized path. If `False`, `aaq` does nothing in wide mode (results stay in `r_acc`). |
+| `wide_vector_quantize_output` | `False` | If `True`, the `AAQ` instruction writes `aaq_result` from wide lanes for comparison with the real quantized path. If `False`, `AAQ` does nothing in wide mode (results stay in `r_acc`). |
 
 ```python
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -48,8 +48,8 @@ The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/
 
 While **addresses are still byte addresses**, wide mode changes how much data some loads consume per instruction:
 
-- **`ldr_mult_reg`** reads **512 bytes** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`r0` or `r1` only**. The architectural 128-byte `r` register bytes in the regfile are not the source for mult operands in this mode.
-- **`ldr_cyclic_mult_reg`** reads **512 bytes** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-byte alignment in normal mode, scaled to the wide chunk).
+- **`LDR_MULT_REG`** reads **512 bytes** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`r0` or `r1` only**. The architectural 128-byte `r` register bytes in the regfile are not the source for mult operands in this mode.
+- **`LDR_CYCLIC_MULT_REG`** reads **512 bytes** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-byte alignment in normal mode, scaled to the wide chunk).
 
 Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
 
@@ -62,14 +62,14 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit lanes starting at a **byt
 ## Semantics that differ from normal mode
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 lanes.
-- **`aaq`**: unless `wide_vector_quantize_output=True`, **`aaq` is a no-op** in wide mode; full lane results remain in **`r_acc`**. Use the existing debug-only **`str_acc_reg`** instruction (or read `r_acc` in Python) to dump 512 bytes of accumulator data.
-- **LR and CR** are **not** widened; scalars such as `mult.ve.cr` still use the **low byte** of a CR as a signed value in the wide path.
+- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full lane results remain in **`r_acc`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `r_acc` in Python) to dump 512 bytes of accumulator data.
+- **LR and CR** are **not** widened; scalars such as **`MULT.VE.CR`** still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32
 
 - **`WideVectorArithmetic.FP32`**: lane multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
-- **`WideVectorArithmetic.INT32`**: lane multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per lane. `agg` post-functions that need integer results use integer-friendly paths when the lane format is INT32.
+- **`WideVectorArithmetic.INT32`**: lane multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per lane. **`AGG`** post-functions that need integer results use integer-friendly paths when the lane format is INT32.
 
 ## Related documentation
 
-- [Debugging IPU Programs](debugging.md) — interactive `break` / `debug_prompt` workflow (orthogonal to wide-vector mode; you can combine them by passing a state created with `wide_vector_debug=True` into `run_with_debug`).
+- [Debugging IPU Programs](debugging.md) — interactive **`BREAK`** / `debug_prompt` workflow (orthogonal to wide-vector mode; you can combine them by passing a state created with `wide_vector_debug=True` into `run_with_debug`).
