@@ -575,23 +575,27 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ve(self, *, cyclic_offset: int,
-                        mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute mult.ve: Fixed element from R0/R1 x RC elements with boundary padding.
+    def _execute_mult_ve_variant(
+        self,
+        *,
+        pad_128_ones: bool,
+        cyclic_offset: int,
+        mask_offset: int,
+        mask_shift: int,
+        fixed_idx: int,
+    ) -> None:
+        """Shared mult.ve.cyclic / mult.ve.padded implementation."""
+        raw = cyclic_offset & 0xFFFFFFFF
+        co_cyclic = raw % R_CYCLIC_SIZE
 
-        Uses fixed_idx to select the scalar multiplicand: indices 0-127 address
-        R0[fixed_idx], indices 128-255 address R1[fixed_idx-128]. Multiplies that
-        scalar against each byte of RC[cyclic_offset : cyclic_offset+128]. Non-cyclic:
-        elements where cyclic_offset+i >= R_CYCLIC_SIZE are padded with the
-        dtype-specific encoding of 1 instead of wrapping.
-        """
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
+            co_wb = raw if pad_128_ones else co_cyclic
+            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", co_wb)
             r0_vals = self._debug_ra_lane_vals(0)
             r1_vals = self._debug_ra_lane_vals(1)
-            rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
+            rb_vals = self._debug_rb_lane_vals(co_wb, self.state.regfile)
             if fixed_idx < R_REG_SIZE:
                 ra_fixed = r0_vals[fixed_idx % R_REG_SIZE]
             else:
@@ -599,14 +603,20 @@ class Ipu:
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 one = 1.0
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
+                    pos = co_wb + i * 4
+                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
+                        rb_lane = one
+                    else:
+                        rb_lane = float(rb_vals[i])
                     struct.pack_into("<f", mult_res, i * 4, float(ra_fixed) * rb_lane)
             else:
                 one = 1
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
+                    pos = co_wb + i * 4
+                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
+                        rb_lane = one
+                    else:
+                        rb_lane = int(rb_vals[i])
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_fixed), rb_lane)
                     )
@@ -621,20 +631,50 @@ class Ipu:
 
         ra_fixed = r_buf[fixed_idx % (2 * R_REG_SIZE)]
 
-        for i in range(R_REG_SIZE):
-            pos = cyclic_offset + i
-            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
-            result = ipu_mult(ra_fixed, rb_byte, dtype)
-            struct.pack_into(fmt, mult_res, i * 4, result)
+        if pad_128_ones:
+            for i in range(R_REG_SIZE):
+                pos = raw + i
+                rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
+                result = ipu_mult(ra_fixed, rb_byte, dtype)
+                struct.pack_into(fmt, mult_res, i * 4, result)
+        else:
+            base = co_cyclic
+            for i in range(R_REG_SIZE):
+                pos = base + i
+                rb_byte = rc_buf[pos % R_CYCLIC_SIZE]
+                result = ipu_mult(ra_fixed, rb_byte, dtype)
+                struct.pack_into(fmt, mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve_cyclic(self, *, cyclic_offset: int,
+                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
+        """Execute mult.ve.cyclic: fixed R0/R1 element × RC row with cyclic addressing."""
+        self._execute_mult_ve_variant(
+            pad_128_ones=False,
+            cyclic_offset=cyclic_offset,
+            mask_offset=mask_offset,
+            mask_shift=mask_shift,
+            fixed_idx=fixed_idx,
+        )
+
+    def execute_mult_ve_padded(self, *, cyclic_offset: int,
+                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
+        """Execute mult.ve.padded: fixed R0/R1 element × RC row with boundary padding."""
+        self._execute_mult_ve_variant(
+            pad_128_ones=True,
+            cyclic_offset=cyclic_offset,
+            mask_offset=mask_offset,
+            mask_shift=mask_shift,
+            fixed_idx=fixed_idx,
+        )
 
     def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
                            mask_shift: int, cr_idx: int) -> None:
         """Execute mult.ve.cr: CR scalar x RC elements with boundary padding.
 
         Multiplies the low byte of CR[cr_idx] against each byte of
-        RC[cyclic_offset : cyclic_offset+128]. Unlike mult.ve, this is
+        RC[cyclic_offset : cyclic_offset+128]. Like mult.ve.padded, this is
         non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
         padded with the dtype-specific encoding of 1 instead of wrapping.
         """

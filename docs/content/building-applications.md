@@ -283,7 +283,7 @@ This section walks through a complete real-world implementation: a fully-connect
 
 ### Assembly Program
 
-The IPU assembly implements the core computation: activations for the current sample live in **`R0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`RC`**) and issues **`MULT.VE`**, which multiplies that row by the scalar **`R0[LR5]`** (loop counter advanced via **`add`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
+The IPU assembly implements the core computation: activations for the current sample live in **`R0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`RC`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`R0[LR5]`** (loop counter advanced via **`add`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
 
 ```asm
 set                 lr0 0 ;;
@@ -304,7 +304,7 @@ element_loop:
     ldr_cyclic_mult_reg lr4 cr1 lr15;
     add                 lr4 lr4 cr3;
     add                 lr5 lr5 cr4;
-    mult.ve             lr15 lr15 lr15 lr5;
+    mult.ve.cyclic      lr15 lr15 lr15 lr5;
     acc;
     blt                 lr5 lr6 element_loop;;
 

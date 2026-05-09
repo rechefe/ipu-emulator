@@ -88,7 +88,7 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; add lr0 lr0 1; bne lr0 lr1
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
 | XMEM | `ldr`, `str_acc_reg`, `ldr_cyclic_mult_reg`, … | Memory load/store |
-| MULT | `mult.ee`, `mult.ve`, `mult.ve.cr`, `mult.ve.aaq`, … | 8-bit vector multiply |
+| MULT | `mult.ee`, `mult.ve.cyclic`, `mult.ve.padded`, `mult.ve.cr`, `mult.ve.aaq`, … | 8-bit vector multiply |
 | ACC | `acc`, `acc.stride`, `acc.max`, `acc.max.first`, `reset_acc` | Accumulate into r_acc |
 | AAQ | `agg` (sum/max + post-fn) | Aggregate r_acc → aaq register |
 | LR (×3) | `set`, `add`, `sub`, `incr_mod_pow2` | Scalar loop register ops |

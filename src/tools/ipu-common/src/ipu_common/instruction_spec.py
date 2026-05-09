@@ -355,7 +355,8 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: mult.ee=0, mult.ve=1, mult_nop=2, mult.ve.cr=3, mult.ve.aaq=4
+    # Opcode = position: mult.ee=0, mult.ve.cyclic=1, mult.ve.padded=2, mult_nop=3,
+    #          mult.ve.cr=4, mult.ve.aaq=5
     # =========================================================================
     "mult": {
         "mult.ee": {
@@ -380,7 +381,7 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_mult_ee",
         },
-        "mult.ve": {
+        "mult.ve.cyclic": {
             "operands": [
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "LrIdx", "read": "live"},
@@ -388,19 +389,48 @@ INSTRUCTION_SPEC = {
                 {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Vector-Element Multiply",
-                summary="Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. fixed_idx 0-127 addresses R0[fixed_idx], 128-255 addresses R1[fixed_idx-128]. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="MULT.VE CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
+                title="Vector-Element Multiply (cyclic RC)",
+                summary=(
+                    "Multiply a fixed element from R0 or R1 against RC[cyclic_offset:cyclic_offset+128]. "
+                    "`FIXED_IDX` 0..127 selects `R0[FIXED_IDX]`, 128..255 selects `R1[FIXED_IDX - 128]`. "
+                    "RC is addressed cyclically modulo 512 bytes (no padding with 1 past the boundary)."
+                ),
+                syntax="MULT.VE.CYCLIC CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
                 operands=[
-                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base offset into `RC`; out-of-range lanes are padded with a dtype-specific 1.",
+                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (reduced mod 512).",
                     "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM`.",
                     "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
-                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index: 0..127 selects `R0[FIXED_IDX]`, 128..255 selects `R1[FIXED_IDX - 128]`.",
+                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
                 ],
-                operation="For i in [0, 128): RB = RC[CYCLIC_OFFSET + i] if in bounds else dtype_one; SCALAR = R0[FIXED_IDX] if FIXED_IDX < 128 else R1[FIXED_IDX - 128]; MULT_RES[i] = SCALAR * RB (then mask/shift).",
-                example="MULT.VE LR0 LR1 LR2 LR3;;",
+                operation="For i in [0, 128): RB = RC[(CYCLIC_OFFSET + i) mod 512]; SCALAR from R0/R1 via FIXED_IDX; MULT_RES[i] = SCALAR * RB (then mask/shift).",
+                example="MULT.VE.CYCLIC LR0 LR1 LR2 LR3;;",
             ),
-            "execute_fn": "execute_mult_ve",
+            "execute_fn": "execute_mult_ve_cyclic",
+        },
+        "mult.ve.padded": {
+            "operands": [
+                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_offset", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Vector-Element Multiply (padded RC)",
+                summary=(
+                    "Same scalar × RC row as `mult.ve.cyclic`, but indices at or past the 512-byte RC "
+                    "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
+                ),
+                syntax="MULT.VE.PADDED CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT FIXED_IDX",
+                operands=[
+                    "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC`; out-of-range lanes use dtype 1.",
+                    "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM`.",
+                    "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
+                    "`FIXED_IDX`: `LR0`..`LR15` (value read live) — scalar index into `R0`/`R1`.",
+                ],
+                operation="For i in [0, 128): RB = RC[CYCLIC_OFFSET + i] if in bounds else dtype_one; SCALAR from R0/R1; MULT_RES[i] = SCALAR * RB (then mask/shift).",
+                example="MULT.VE.PADDED LR0 LR1 LR2 LR3;;",
+            ),
+            "execute_fn": "execute_mult_ve_padded",
         },
         "mult_nop": {
             "operands": [],

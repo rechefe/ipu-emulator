@@ -1489,7 +1489,7 @@ bkpt;;
             assert val == 20, f"acc word {i}: expected 20, got {val}"
 
     def test_backward_compat_mult_ve(self):
-        """mult.ve still works correctly after adding new mult variants."""
+        """mult.ve.cyclic still works correctly after adding new mult variants."""
         cyclic_data = bytes([6] * 512)
         r0_data = bytes([0] * 128)
         r0_data = bytearray(r0_data)
@@ -1503,7 +1503,7 @@ set lr1 0x2000;;
 set lr2 0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
-mult.ve lr2 lr2 lr2 lr2;
+mult.ve.cyclic lr2 lr2 lr2 lr2;
 acc;;
 bkpt;;
 """
@@ -1518,12 +1518,12 @@ bkpt;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
-    def test_mult_ve_boundary_padding(self):
-        """mult.ve: elements beyond RC boundary (512 bytes) are padded with int8 1."""
-        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
+    def test_mult_ve_cyclic_wrap_at_rc_boundary(self):
+        """mult.ve.cyclic: RC indices wrap modulo 512."""
+        # cyclic_offset = 450, so without wrap we'd read past 512; with wrap, bytes
+        # 450..511 then 0..65 of RC are used — all rc_fill.
         rc_fill = 4
         scalar = 5
-        pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         r0_data = bytearray(128)
         r0_data[0] = scalar  # fixed_idx=0 → r0[0] = 5
@@ -1537,7 +1537,40 @@ set lr2 450;;
 set lr3 0;;
 set lr4 0;;
 set lr5 0;;
-mult.ve lr2 lr3 lr4 lr5;
+mult.ve.cyclic lr2 lr3 lr4 lr5;
+acc;;
+bkpt;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, bytes(r0_data))
+        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
+
+    def test_mult_ve_padded_boundary(self):
+        """mult.ve.padded: elements past RC byte 511 use dtype 1."""
+        rc_fill = 4
+        scalar = 5
+        pad_start = 62  # 512 - 450 = 62 elements in bounds before padding
+
+        r0_data = bytearray(128)
+        r0_data[0] = scalar
+
+        state = _make_state(
+            """\
+set lr0 0x1000;;
+ldr_mult_reg r0 lr0 cr0;;
+reset_acc;;
+set lr2 450;;
+set lr3 0;;
+set lr4 0;;
+set lr5 0;;
+mult.ve.padded lr2 lr3 lr4 lr5;
 acc;;
 bkpt;;
 """
@@ -1556,7 +1589,7 @@ bkpt;;
             assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
 
     def test_mult_ve_r1_scalar(self):
-        """mult.ve: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
+        """mult.ve.cyclic: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
         r0_data = bytearray(128)  # all zeros — must not be picked
         r1_data = bytearray(128)
         r1_data[0] = 7  # fixed_idx=128 → r1[0] = 7
@@ -1573,7 +1606,7 @@ set lr2 0;;
 ldr_cyclic_mult_reg lr1 cr0 lr2;;
 reset_acc;;
 set lr3 128;;
-mult.ve lr2 lr2 lr2 lr3;
+mult.ve.cyclic lr2 lr2 lr2 lr3;
 acc;;
 bkpt;;
 """
