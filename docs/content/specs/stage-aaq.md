@@ -157,6 +157,10 @@ Supported activation functions:
 
 ### 7.1 Aggregate (`agg`)
 
+**Assembly syntax:** `agg <agg_mode> <post_fn> <valid_elements> <cr_idx> <aaq_rf_idx>`
+
+- `valid_elements`: any `lr0`–`lr15` or `cr0`–`cr15` operand (5-bit `LcrIdx` encoding). The **value** read from that register at cycle start is the number of `r_acc` lanes fed into the adder/max tree (unsigned, clamped to 0–128). Lanes from index `valid_elements` through 127 are masked out.
+
 ```text
 // r_acc lanes are always FP32; only the first valid_elements lanes are used
 values = [activation(r_acc[i]) for i in 0..valid_elements-1]
@@ -216,6 +220,10 @@ flowchart TD
 | 4 | `sqrt` | `sqrt(x)` | 0 if x < 0 |
 
 #### 7.1.1 Aggregate First (`agg.first`)
+
+**Assembly syntax:** `agg.first <agg_mode> <post_fn> <valid_elements> <cr_idx> <aaq_rf_idx>`
+
+Same `valid_elements` masking rules as `agg`.
 
 Identical to `agg` except that `max` mode ignores the RF feedback value:
 

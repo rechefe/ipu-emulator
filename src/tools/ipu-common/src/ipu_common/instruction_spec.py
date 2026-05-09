@@ -124,7 +124,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
     "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
-    "aaq": ["AggMode", "PostFn", "CrIdx", "AaqRegIdx"],
+    "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "AaqRegIdx"],
     "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
@@ -658,26 +658,37 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
+                {
+                    "name": "valid_elements",
+                    "type": "LcrIdx",
+                    "read": "snapshot",
+                },
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate",
-                summary="Collapse 128 r_acc words into one value (SUM or MAX), apply post function, store to selected AAQ register.",
-                syntax="agg agg_mode post_fn cr_idx aaq_rf_idx",
+                summary=(
+                    "Collapse r_acc lanes into one value (SUM or MAX), using only the first "
+                    "valid_elements words for the tree; apply post function; store to selected AAQ register."
+                ),
+                syntax="agg agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
+                    "valid_elements: lane count from an LR or CR register (value read at cycle start; "
+                    "unsigned, clamped to 0–128; indices [valid_elements..127] are masked out)",
                     "cr_idx: CR register for value_cr post function (cr0-cr15)",
                     "aaq_rf_idx: AAQ register to store result (aaq0-aaq3)",
                 ],
                 operation=(
-                    "If sum: v = sum(r_acc[0..127]). "
-                    "If max: v = max(r_acc[0..127], aaq[aaq_rf_idx]). "
+                    "Let n = min(valid_elements, 128). "
+                    "If sum: v = sum(r_acc[0..n-1]). "
+                    "If max: v = max(r_acc[0..n-1], aaq[aaq_rf_idx]). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "aaq[aaq_rf_idx] = result."
                 ),
-                example="agg sum value cr0 aaq0;;",
+                example="agg sum value lr0 cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg",
         },
@@ -685,26 +696,34 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
+                {
+                    "name": "valid_elements",
+                    "type": "LcrIdx",
+                    "read": "snapshot",
+                },
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate First",
                 summary="Like agg, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
-                syntax="agg.first agg_mode post_fn cr_idx aaq_rf_idx",
+                syntax="agg.first agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
+                    "valid_elements: lane count from an LR or CR register (value read at cycle start; "
+                    "unsigned, clamped to 0–128; indices [valid_elements..127] are masked out)",
                     "cr_idx: CR register for value_cr post function (cr0-cr15)",
                     "aaq_rf_idx: AAQ register to store result (aaq0-aaq3)",
                 ],
                 operation=(
-                    "If sum: v = sum(r_acc[0..127]). "
-                    "If max: v = max(r_acc[0..127]) (previous aaq value is NOT included). "
+                    "Let n = min(valid_elements, 128). "
+                    "If sum: v = sum(r_acc[0..n-1]). "
+                    "If max: v = max(r_acc[0..n-1]) (previous aaq value is NOT included). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "aaq[aaq_rf_idx] = result."
                 ),
-                example="agg.first max value cr0 aaq0;;",
+                example="agg.first max value lr0 cr0 aaq0;;",
             ),
             "execute_fn": "execute_agg_first",
         },
