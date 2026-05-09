@@ -61,10 +61,10 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
+ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 1; bne lr0 lr1 next;;
 ```
 
-- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×2), `cond`
+- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
 - Separated by `;`, terminated by `;;`
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
@@ -88,7 +88,7 @@ ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
 | XMEM | `ldr`, `str_acc_reg`, `ldr_cyclic_mult_reg`, … | Memory load/store |
-| MULT | `mult.ee`, `mult.ev`, `mult.ve`, `mult.vv` | 8-bit vector multiply |
+| MULT | `mult.ee`, `mult.ve`, `mult.ve.cr`, `mult.ve.aaq`, … | 8-bit vector multiply |
 | ACC | `acc`, `acc.stride`, `acc.max`, `acc.max.first`, `reset_acc` | Accumulate into r_acc |
 | AAQ | `agg` (sum/max + post-fn) | Aggregate r_acc → aaq register |
 | LR (×2) | `incr`, `set`, `add`, `sub` | Scalar loop register ops |

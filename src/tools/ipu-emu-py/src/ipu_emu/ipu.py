@@ -65,7 +65,7 @@ _emu_constants = create_emulator_constants()
 _reg_sizes = get_register_sizes()
 
 # MultStageRegField: index → (register_name, element_index)
-# e.g. [("r", 0), ("r", 1), ("mem_bypass", 0)]
+# e.g. [("r", 0), ("r", 1)] — encoding 2 is reserved / invalid in assembly
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
 
 # Register dimensions — from REGISTER_DEFINITIONS via get_register_sizes()
@@ -333,9 +333,14 @@ class Ipu:
                 return source.get_lr(raw_value)
             return source.get_cr(raw_value - LR_REG_COUNT)
         elif op_type == "MultStageReg":
+            if raw_value > 1:
+                raise EmulatorError(
+                    "Mult-stage operand must encode r0 (0) or r1 (1); "
+                    f"got {raw_value}"
+                )
             if self._wide_vector_active():
                 # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
-                # keyed by MultStageReg encoding index (0=r0, 1=r1, 2=mem_bypass).
+                # keyed by MultStageReg encoding index (0=r0, 1=r1).
                 return raw_value
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
@@ -399,6 +404,10 @@ class Ipu:
 
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute ldr_mult_reg: Load data from memory into a mult stage register."""
+        if dest not in (0, 1):
+            raise EmulatorError(
+                f"ldr_mult_reg: dest must be 0 (r0) or 1 (r1); got {dest}"
+            )
         addr = offset + base
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
@@ -561,36 +570,6 @@ class Ipu:
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], rb[i], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
-    def execute_mult_ev(self, *, ra: bytearray | int, fixed_cyclic_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
-        """Execute mult_ev: Element x fixed cyclic multiplication."""
-        mult_res = self.state.regfile.raw("mult_res")
-
-        if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("fixed_cyclic_idx", fixed_cyclic_idx)
-            ra_vals = self._debug_ra_lane_vals(ra)
-            rb_vals = self._debug_rb_lane_vals(fixed_cyclic_idx, self.state.regfile)
-            rb0 = rb_vals[0]
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into("<f", mult_res, i * 4, float(ra_vals[i]) * float(rb0))
-            else:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(int(ra_vals[i]), int(rb0))
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
-
-        dtype = self.state.get_cr_dtype()
-        rb = self.state.regfile.get_r_cyclic_at(fixed_cyclic_idx, R_REG_SIZE)
-
-        for i in range(R_REG_SIZE):
-            result = ipu_mult(ra[i], rb[0], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)

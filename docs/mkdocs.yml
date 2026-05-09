@@ -72,6 +72,7 @@ nav:
       - Adding Instructions: adding-instruction.md
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
+      - Operand types: operand-types.md
       - Instruction Reference: instructions.md
   - Specs:
       - Cache Unit Specification: specs/cache-unit.md

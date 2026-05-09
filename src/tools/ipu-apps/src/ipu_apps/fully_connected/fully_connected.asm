@@ -5,18 +5,19 @@
 input_loop:
     reset_acc;;
 
-    ldr_cyclic_mult_reg lr0 cr0 lr15;;
+    ldr_mult_reg        r0 lr0 cr0;;
 
     set                 lr4 -128;;
     set                 lr5 -1;;
     set                 lr6 127;;
+    set                 lr15 0;;
 
 
 element_loop:
-    ldr_mult_reg        mem_bypass lr4 cr1;
+    ldr_cyclic_mult_reg lr4 cr1 lr15;
     incr                lr4 128;
     incr                lr5 1;
-    mult.ev             mem_bypass lr5 lr15 lr15;
+    mult.ve             lr15 lr15 lr15 lr5;
     acc;
     blt                 lr5 lr6 element_loop;;
 
