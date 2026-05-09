@@ -22,10 +22,7 @@ genrule(
         "operand-types.md",
         "assembly-syntax.md",
     ],
-    cmd = (
-        "$(location :gen_docs) "
-        "$(location instructions.md) $(location operand-types.md) $(location assembly-syntax.md)"
-    ),
+    cmd = "$(location :gen_docs) $(location instructions.md) $(location operand-types.md) $(location assembly-syntax.md)",
     tools = [":gen_docs"],
 )
 
