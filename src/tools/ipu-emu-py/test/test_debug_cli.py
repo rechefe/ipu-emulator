@@ -188,7 +188,7 @@ class TestCLICommands:
 
     def test_set_lr(self):
         state = IpuState()
-        action, output = _run_cli(state, "SET lr7 0xFF\ncontinue\n")
+        action, output = _run_cli(state, "set lr7 0xFF\ncontinue\n")
         assert state.regfile.get_lr(7) == 0xFF
         assert "Set lr7" in output
 
