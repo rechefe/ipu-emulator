@@ -14,6 +14,8 @@ Adding an instruction is a 3-step process:
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
+When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to `VALID_OPERAND_TYPES` in the same file and extend `OPERAND_TYPE_DETAILS` in `src/tools/ipu-as-py/src/ipu_as/gen_docs.py` so the generated [Operand types](operand-types.md) page stays complete (`bazel build //docs:generate_mkdocs_md` or `docs/gen_docs_wrapper.py`).
+
 ## Step 1: Add Instruction to `instruction_spec.py`
 
 Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"xmem"`, `"lr"`, `"cond"`, `"break"`).

@@ -99,6 +99,7 @@ __all__ = [
     "INSTRUCTION_SPEC",
     "SLOT_BINARY_LAYOUT",
     "SLOT_COUNT",
+    "VALID_OPERAND_TYPES",
     "extract_opcodes",
     "get_instruction",
     "get_instruction_by_opcode",
@@ -1103,6 +1104,30 @@ def create_emulator_constants() -> Dict[str, int]:
 
 
 # ===========================================================================
+# Operand types (single source for validation + documentation generation)
+# ===========================================================================
+
+VALID_OPERAND_TYPES: frozenset[str] = frozenset(
+    {
+        "MultStageReg",
+        "LrIdx",
+        "CrIdx",
+        "LcrIdx",
+        "AaqRegIdx",
+        "ElementsInRow",
+        "HorizontalStride",
+        "VerticalStride",
+        "AggMode",
+        "PostFn",
+        "Immediate",
+        "LrModPow2KImmediate",
+        "BreakImmediate",
+        "Label",
+    }
+)
+
+
+# ===========================================================================
 # Validation
 # ===========================================================================
 
@@ -1117,12 +1142,7 @@ def validate_instruction_spec() -> None:
     
     Raises ValueError if validation fails.
     """
-    valid_operand_types = {
-        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
-        "ElementsInRow", "HorizontalStride", "VerticalStride",
-        "AggMode", "PostFn",
-        "Immediate", "LrModPow2KImmediate", "BreakImmediate", "Label"
-    }
+    valid_operand_types = VALID_OPERAND_TYPES
     valid_read_sources = {"snapshot", "live"}
     
     for slot_type, instructions in INSTRUCTION_SPEC.items():
