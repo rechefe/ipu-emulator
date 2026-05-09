@@ -261,27 +261,9 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: incr=0, set=1, add=2, sub=3, incr_mod_pow2=4
+    # Opcode = position: set=0, add=1, sub=2, incr_mod_pow2=3
     # =========================================================================
     "lr": {
-        "incr": {
-            "operands": [
-                {"name": "reg", "type": "LrIdx"},
-                {"name": "value", "type": "Immediate"},
-            ],
-            "doc": InstructionDoc(
-                title="Increment Loop Register",
-                summary="Increment a loop register by an immediate value.",
-                syntax="incr reg value",
-                operands=[
-                    "reg: Loop register to increment (lr0-lr15)",
-                    "value: Immediate value to add",
-                ],
-                operation="reg += value",
-                example="incr lr0 1;;",
-            ),
-            "execute_fn": "execute_lr_incr",
-        },
         "set": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
@@ -938,7 +920,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     Example:
         {
             "xmem": ["str_acc_reg", "ldr_mult_reg", ...],
-            "lr": ["incr", "set", "add", "sub", "incr_mod_pow2"],
+            "lr": ["set", "add", "sub", "incr_mod_pow2"],
             ...
         }
     """

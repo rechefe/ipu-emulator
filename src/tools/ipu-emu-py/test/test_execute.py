@@ -58,12 +58,12 @@ class TestRegisterOperations:
         state = _run("set lr13 0x1000;;\nbkpt;;")
         assert state.regfile.get_lr(13) == 0x1000
 
-    def test_incr_lr(self):
+    def test_add_imm_accumulates_lr(self):
         state = _run(
             """\
 set lr11 10;;
-incr lr11 5;;
-incr lr11 3;;
+add lr11 lr11 5;;
+add lr11 lr11 3;;
 bkpt;;
 """
         )
@@ -259,7 +259,7 @@ bkpt;;
         encoded = assemble("set lr4 10; set lr5 20; set lr6 30;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 4
         assert d["lr_inst_0_token_5_lr_immediate_type"] == 10
         assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
@@ -274,7 +274,7 @@ bkpt;;
         """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
         encoded = assemble("add lr2 lr1 7;; bkpt;;")
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 2  # add
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_1_lr_reg_field"] == 2  # dest
         assert d["lr_inst_0_token_2_lr_reg_field"] == 1  # src_a
         assert d["lr_inst_0_token_4_add_sub_src_b_field"] == 32 + 7
@@ -633,7 +633,7 @@ bkpt;;
             """\
 set lr0 0;;
 cr_loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 cr5 cr_loop_start;;
 bkpt;;
 """
@@ -649,7 +649,7 @@ set lr0 0;;
 set lr1 10;;
 set lr2 0;;
 loop_start:
-incr lr0 1;;
+add lr0 lr0 1;;
 bne lr0 lr1 loop_start;;
 bkpt;;
 """,
@@ -1147,8 +1147,8 @@ class TestDecodeRoundtrip:
         encoded = assemble("set lr13 0x1000;;\nbkpt;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
-        # LR opcode should be 'set' = index 1
-        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # set
+        # LR opcode should be 'set' = index 0
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_1_lr_reg_field"] == 13
         assert d["lr_inst_0_token_5_lr_immediate_type"] == 0x1000
         assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0

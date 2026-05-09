@@ -460,12 +460,6 @@ class Ipu:
             return value | 0xFFFF0000
         return value
 
-    def execute_lr_incr(self, *, reg: int, value: int) -> None:
-        """Execute incr: Increment a loop register by an immediate value."""
-        current = self.state.regfile.get_lr(reg)
-        signed_value = self._sign_extend_16(value)
-        self.state.regfile.set_lr(reg, (current + signed_value) & 0xFFFFFFFF)
-
     def execute_lr_set(self, *, reg: int, value: int) -> None:
         """Execute set: Set a loop register to an immediate value."""
         self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
@@ -514,9 +508,16 @@ class Ipu:
             field_map = _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)]
             kwargs = {name: inst[field_key] for name, field_key in field_map.items()}
 
-            # incr by 0 is a NOP — skip
-            if inst_name == "incr" and kwargs.get("value", 0) == 0:
-                continue
+            # Unfilled LR slots encode ``add lrX lrX 0`` (IMM5 0 → encoding 32): identity, no write.
+            if inst_name == "add":
+                sb = kwargs.get("src_b")
+                if (
+                    kwargs.get("dest") == kwargs.get("src_a")
+                    and isinstance(sb, int)
+                    and sb >= 32
+                    and (sb & 31) == 0
+                ):
+                    continue
 
             # Auto-resolve 'read' operands to register values.
             read_types = _INSTRUCTION_READ_TYPES.get(("lr", inst_name), {})

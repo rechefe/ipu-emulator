@@ -491,10 +491,14 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "incr", line=0, column=0),
+                    token=lark.Token("TOKEN", "add", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
+                        instr_id=addr,
+                    ),
                     ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "lr0", line=0, column=0),
                         instr_id=addr,
