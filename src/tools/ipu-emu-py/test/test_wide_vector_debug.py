@@ -146,19 +146,19 @@ bkpt;;
             assert v == expected, f"lane {i}"
 
 
-class TestWideVectorMemBypassIsolation:
-    """Encoding 0 (r0) and 2 (mem_bypass) must not share debug staging storage."""
+class TestWideVectorR0R1Isolation:
+    """Encoding 0 (R0) and 1 (R1) must not share debug staging storage."""
 
-    def test_r0_and_mem_bypass_independent(self) -> None:
+    def test_r0_and_r1_independent(self) -> None:
         r0 = struct.pack("<128f", *([1.0] * 128))
-        mb = struct.pack("<128f", *([99.0] * 128))
+        r1 = struct.pack("<128f", *([99.0] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
 
         def run_mult(which: str) -> float:
             st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
             st.regfile.set_cr(15, DType.INT8)
             st.xmem.write_address(0x1000, r0)
-            st.xmem.write_address(0x1100, mb)
+            st.xmem.write_address(0x1100, r1)
             st.xmem.write_address(0x2000, rc)
             asm = f"""\
 set lr0 0x1000;;
@@ -166,7 +166,7 @@ set lr1 0x1100;;
 set lr2 0x2000;;
 set lr3 0;;
 ldr_mult_reg r0 lr0 cr0;;
-ldr_mult_reg mem_bypass lr1 cr0;;
+ldr_mult_reg r1 lr1 cr0;;
 ldr_cyclic_mult_reg lr2 cr0 lr3;;
 reset_acc;;
 mult.ee {which} lr3 lr3 lr3;;
@@ -179,7 +179,7 @@ bkpt;;
             return struct.unpack_from("<f", st.regfile.raw("r_acc"), 0)[0]
 
         assert run_mult("r0") == pytest.approx(2.0)
-        assert run_mult("mem_bypass") == pytest.approx(198.0)
+        assert run_mult("r1") == pytest.approx(198.0)
 
 
 class TestWideVectorCyclicIndex:
@@ -248,7 +248,7 @@ bkpt;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
     def test_mult_ve_fp32_wide_cyclic_past_boundary(self) -> None:
-        """mult.ve (wide FP32): RC lanes wrap at 512 bytes when pad MSB is clear."""
+        """mult.ve.cyclic (wide FP32): RC lanes wrap at 512 bytes."""
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
@@ -266,7 +266,7 @@ set lr0 384;;
 set lr1 0;;
 set lr2 0;;
 set lr3 0;;
-mult.ve lr0 lr1 lr2 lr3;;
+mult.ve.cyclic lr0 lr1 lr2 lr3;;
 reset_acc;;
 acc.first;;
 bkpt;;
@@ -280,8 +280,8 @@ bkpt;;
         for i in range(32, 128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
-    def test_mult_ve_fp32_wide_pad_flag_past_boundary(self) -> None:
-        """mult.ve (wide FP32): MSB on cyclic_offset restores ×1 padding past byte 511."""
+    def test_mult_ve_fp32_wide_padded_past_boundary(self) -> None:
+        """mult.ve.padded (wide FP32): lanes past byte 511 use ×1."""
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
@@ -295,11 +295,11 @@ bkpt;;
         asm = """\
 set lr4 0x1000;;
 ldr_mult_reg r0 lr4 cr0;;
-set lr0 896;;
+set lr0 384;;
 set lr1 0;;
 set lr2 0;;
 set lr3 0;;
-mult.ve lr0 lr1 lr2 lr3;;
+mult.ve.padded lr0 lr1 lr2 lr3;;
 reset_acc;;
 acc.first;;
 bkpt;;

@@ -23,8 +23,25 @@ IPU_CR_REG_NUM = 16
 # Generate the EnumToken classes from ipu-common
 _generated_classes = create_assembler_reg_classes(ipu_token)
 
+_MultStageBase = _generated_classes.pop("MultStageRegField")
+
+
+class MultStageRegField(_MultStageBase):
+    """Mult-stage field: **2 bits** in the VLIW word; assembly allows only ``r0`` and ``r1``."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return 2
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        opts = cls.enum_array()
+        if 0 <= value < len(opts):
+            return opts[value]
+        return f"<illegal_mult_stage_{value}>"
+
+
 # Re-export generated classes with their original names
-MultStageRegField = _generated_classes.get("MultStageRegField")
 LrRegField = _generated_classes.get("LrRegField")
 CrRegField = _generated_classes.get("CrRegField")
 LcrRegField = _generated_classes.get("LcrRegField")

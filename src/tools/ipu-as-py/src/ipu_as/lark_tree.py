@@ -162,7 +162,7 @@ start:
 end:
     mac.ev rq8 r5 r9 lr0; 
     beq lr0 lr1 +2;
-    incr lr2 15;
+    add lr2 lr2 15;
     ;;
     
     b start; mac.ev rq0 r3 mem_bypass lr15; ;;

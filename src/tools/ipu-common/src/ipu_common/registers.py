@@ -45,7 +45,7 @@ REGISTER_DEFINITIONS = {
         "count": 2,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("r0", "r1"),
-        "assembler_values": ["r0", "r1", "mem_bypass"],
+        "assembler_values": ["r0", "r1"],
         "encoding_class": "MultStageRegField",
     },
     "r_cyclic": {
@@ -135,7 +135,7 @@ REGISTER_DEFINITIONS = {
         "size_bytes": 128,
         "count": 1,
         "dtype": RegDtype.UINT8,
-        # Note: mem_bypass is included in MultStageRegField, not a separate register
+        # Emulator/debug storage only — not encodable as a mult-stage operand in assembly.
     },
 }
 
@@ -181,8 +181,8 @@ def get_mult_stage_map() -> list[tuple[str, int]]:
 
     Example::
 
-        [("r", 0), ("r", 1), ("mem_bypass", 0)]
-        #  0→r0     1→r1     2→mem_bypass
+        [("r", 0), ("r", 1)]
+        #  0→r0     1→r1   (bit field is 2 bits; value 2 is reserved / invalid)
     """
     r_def = REGISTER_DEFINITIONS["r"]
     aliases = r_def["debug_aliases"]  # ("r0", "r1")
@@ -234,7 +234,7 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
     
     Example:
         {
-            "MultStageRegField": ["r0", "r1", "mem_bypass"],
+            "MultStageRegField": ["r0", "r1"],
             "LrRegField": ["lr0", "lr1", ..., "lr15"],
             "CrRegField": ["cr0", "cr1", ..., "cr15"],
             "LcrRegField": ["lr0", ..., "lr15", "cr0", ..., "cr15"],
