@@ -22,8 +22,7 @@ KEY DESIGN PRINCIPLES:
      - ``"live"``     → read from the current (post-write) register file
 
 OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
-  - "MultStageReg": r0, r1, or mem_bypass (MultStageRegField); used by ``ldr_mult_reg`` dest
-  - "MultStageRegR01": r0 or r1 only, same 2-bit encoding as ``MultStageReg`` (``mult.ee``)
+  - "MultStageReg": r0 or r1 (MultStageRegField); 2-bit encoding in the VLIW word
   - "LrIdx": lr0-lr15 (LrRegField)  
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
@@ -201,11 +200,11 @@ INSTRUCTION_SPEC = {
                 summary="Load data from memory into a multiplication stage register.",
                 syntax="ldr_mult_reg dest offset base",
                 operands=[
-                    "dest: Mult stage register (r0, r1, or mem_bypass)",
-                    "offset: Offset register (lr0-lr15)",
-                    "base: Base address register (cr0-cr15)",
+                    "`DEST`: `R0` | `R1` — mult-stage register to load (2-bit field; only these encodings are valid).",
+                    "`OFFSET`: `LR0`..`LR15` — offset register.",
+                    "`BASE`: `CR0`..`CR15` — base address register.",
                 ],
-                operation="dest = Memory[offset + base]",
+                operation="DEST = Memory[OFFSET + BASE]  # 128 bytes (512 in wide-vector debug mode)",
                 example="set lr0 0x1000;;\nldr_mult_reg r0 lr0 cr0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
@@ -389,7 +388,7 @@ INSTRUCTION_SPEC = {
     "mult": {
         "mult.ee": {
             "operands": [
-                {"name": "ra", "type": "MultStageRegR01", "read": "live"},
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
@@ -399,7 +398,7 @@ INSTRUCTION_SPEC = {
                 summary="Multiply elements of two registers element by element.",
                 syntax="MULT.EE RA CYCLIC_OFFSET MASK_OFFSET MASK_SHIFT",
                 operands=[
-                    "`RA`: `R0` | `R1` — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into `R0`/`R1` is allowed; `MEM_BYPASS` is not valid here).",
+                    "`RA`: `R0` | `R1` — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into `R0`/`R1` is allowed).",
                     "`CYCLIC_OFFSET`: `LR0`..`LR15` — base byte offset into `RC` (cyclic register).",
                     "`MASK_OFFSET`: `LR0`..`LR15` — offset to select mask from `RM` (mask register).",
                     "`MASK_SHIFT`: `LR0`..`LR15` — shift applied to the mask register.",
@@ -1119,7 +1118,7 @@ def validate_instruction_spec() -> None:
     Raises ValueError if validation fails.
     """
     valid_operand_types = {
-        "MultStageReg", "MultStageRegR01", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
+        "MultStageReg", "LrIdx", "CrIdx", "LcrIdx", "AaqRegIdx",
         "ElementsInRow", "HorizontalStride", "VerticalStride",
         "AggMode", "PostFn",
         "Immediate", "LrModPow2KImmediate", "BreakImmediate", "Label"

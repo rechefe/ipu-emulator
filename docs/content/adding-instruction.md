@@ -36,7 +36,7 @@ INSTRUCTION_SPEC = {
                 summary="Performs a custom operation on two source registers.",
                 syntax="my_new_instruction Rd Ra Rb",
                 operands=[
-                    "Rd: Destination mult stage register (r0, r1, or mem_bypass)",
+                    "Rd: Destination mult stage register (r0 or r1)",
                     "Ra: First source mult stage register",
                     "Rb: Second source mult stage register",
                 ],
@@ -44,7 +44,7 @@ INSTRUCTION_SPEC = {
                     "for i in [0, R_REG_SIZE):\n"
                     "    Rd[i] = custom_operation(Ra[i], Rb[i])"
                 ),
-                example="my_new_instruction r0 r1 mem_bypass;;",
+                example="my_new_instruction r0 r1 r0;;",
             ),
             "execute_fn": "execute_my_new_instruction",
         },
@@ -58,8 +58,7 @@ INSTRUCTION_SPEC = {
 - **`operands`**: List of operand definitions, each with:
   - `name`: Meaningful name for the operand (used in handler signature)
   - `type`: Operand type — one of:
-    - `"MultStageReg"` — `r0`, `r1`, or `mem_bypass` (e.g. `ldr_mult_reg` destination)
-    - `"MultStageRegR01"` — `r0` or `r1` only; same 2-bit encoding as `MultStageReg` (used by `mult.ee`)
+    - `"MultStageReg"` — `r0` or `r1` (2-bit encoding in the VLIW word)
     - `"LrIdx"` — lr0-lr15
     - `"CrIdx"` — cr0-cr15
     - `"LcrIdx"` — lr0-lr15 or cr0-cr15
@@ -223,7 +222,7 @@ After adding your instruction, verify it works in both assembler and emulator:
 
 ```bash
 # Verify assembler accepts the instruction
-echo "my_new_instruction r0 r1 mem_bypass;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
+echo "my_new_instruction r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
 
 # Run all tests
 bazel test //...

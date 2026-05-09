@@ -23,27 +23,29 @@ IPU_CR_REG_NUM = 16
 # Generate the EnumToken classes from ipu-common
 _generated_classes = create_assembler_reg_classes(ipu_token)
 
+_MultStageBase = _generated_classes.pop("MultStageRegField")
+
+
+class MultStageRegField(_MultStageBase):
+    """Mult-stage field: **2 bits** in the VLIW word; assembly allows only ``r0`` and ``r1``."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return 2
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        opts = cls.enum_array()
+        if 0 <= value < len(opts):
+            return opts[value]
+        return f"<illegal_mult_stage_{value}>"
+
+
 # Re-export generated classes with their original names
-MultStageRegField = _generated_classes.get("MultStageRegField")
 LrRegField = _generated_classes.get("LrRegField")
 CrRegField = _generated_classes.get("CrRegField")
 LcrRegField = _generated_classes.get("LcrRegField")
 AaqRegField = _generated_classes.get("AaqRegField")
-
-
-class MultStageRegR01Field(MultStageRegField):
-    """Mult-stage operand for ``mult.ee``: same 2-bit encoding as ``MultStageRegField`` but ``mem_bypass`` is rejected."""
-
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        if token.token.value.lower() == "mem_bypass":
-            loc = f"Line {token.token.line}, Column {token.token.column}"
-            raise ValueError(
-                "Invalid token value - mem_bypass in token MultStageRegR01Field\n"
-                f"In {loc}\n"
-                "`mem_bypass` is not valid for `mult.ee`; use `r0` or `r1` "
-                "(load with `ldr_mult_reg` in the same compound if needed)."
-            )
-        super().__init__(token)
 
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()
@@ -63,7 +65,6 @@ __all__ = [
     "IPU_CR_REG_NUM",
     # Classes
     "MultStageRegField",
-    "MultStageRegR01Field",
     "LrRegField",
     "CrRegField",
     "LcrRegField",

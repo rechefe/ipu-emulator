@@ -52,8 +52,7 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 lr2 lr3; acc; incr lr0 128; bne lr0 lr1 
 
 | Kind | Assembler | Notes |
 |------|-----------|--------|
-| Mult stage | `r0`, `r1` | 128-byte vectors; operands for `MULT.EE` are **`r0`/`r1` only** (no `mem_bypass` on that opcode). |
-| Mult stage (loads) | `r0`, `r1`, `mem_bypass` | Destination of `ldr_mult_reg` only; `mem_bypass` is a load target, not an `MULT.EE` operand. |
+| Mult stage | `r0`, `r1` | 128-byte vectors; **`ldr_mult_reg`** and **`MULT.EE`** use these encodings only (2-bit field; value `2` is reserved). |
 | Cyclic / mask | `RC`, `RM` | Documented as cyclic and mask register file in the instruction reference; addressed via offsets from `LR` operands. |
 | Loop / scalar | `lr0`–`lr15` | General-purpose; **read/write**. |
 | Constant | `cr0`–`cr15` | **Read-only** in assembly; values come from the emulator harness or reset state. **`cr0` is 0, `cr1` is 1** where used as constants. |

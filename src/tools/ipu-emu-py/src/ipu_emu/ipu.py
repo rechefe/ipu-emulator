@@ -65,7 +65,7 @@ _emu_constants = create_emulator_constants()
 _reg_sizes = get_register_sizes()
 
 # MultStageRegField: index → (register_name, element_index)
-# e.g. [("r", 0), ("r", 1), ("mem_bypass", 0)]
+# e.g. [("r", 0), ("r", 1)] — encoding 2 is reserved / invalid in assembly
 _MULT_STAGE_MAP: list[tuple[str, int]] = get_mult_stage_map()
 
 # Register dimensions — from REGISTER_DEFINITIONS via get_register_sizes()
@@ -83,7 +83,6 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # (derived from assembler token class names via camelCase→snake_case)
 _TYPE_FIELD_SUFFIX = {
     "MultStageReg": "mult_stage_reg_field",
-    "MultStageRegR01": "mult_stage_reg_field",
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
@@ -126,7 +125,7 @@ def _build_field_map_for_instruction(
     for op in operands:
         op_type = op["type"]
         for j, layout_type in enumerate(layout):
-            if not used[j] and _layout_accepts_operand(layout_type, op_type):
+            if layout_type == op_type and not used[j]:
                 used[j] = True
                 token_idx = j + 1  # +1 because token_0 is opcode
                 suffix = _TYPE_FIELD_SUFFIX[layout_type]
@@ -134,12 +133,6 @@ def _build_field_map_for_instruction(
                 break
 
     return field_map
-
-
-def _layout_accepts_operand(layout_type: str, op_type: str) -> bool:
-    if layout_type == op_type:
-        return True
-    return layout_type == "MultStageReg" and op_type == "MultStageRegR01"
 
 
 def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
@@ -330,21 +323,16 @@ class Ipu:
                 return source.get_lr(raw_value)
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
-        elif op_type == "MultStageReg" or op_type == "MultStageRegR01":
-            if self._wide_vector_active():
-                if op_type == "MultStageRegR01" and raw_value >= 2:
-                    raise EmulatorError(
-                        "mult.ee ra operand encoding must be 0 (R0) or 1 (R1); "
-                        f"got {raw_value}"
-                    )
-                # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
-                # keyed by MultStageReg encoding index (0=r0, 1=r1, 2=mem_bypass).
-                return raw_value
-            if op_type == "MultStageRegR01" and raw_value >= 2:
+        elif op_type == "MultStageReg":
+            if raw_value > 1:
                 raise EmulatorError(
-                    "mult.ee ra operand encoding must be 0 (R0) or 1 (R1); "
+                    "Mult-stage operand must encode r0 (0) or r1 (1); "
                     f"got {raw_value}"
                 )
+            if self._wide_vector_active():
+                # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
+                # keyed by MultStageReg encoding index (0=r0, 1=r1).
+                return raw_value
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
         else:
@@ -407,6 +395,10 @@ class Ipu:
 
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute ldr_mult_reg: Load data from memory into a mult stage register."""
+        if dest not in (0, 1):
+            raise EmulatorError(
+                f"ldr_mult_reg: dest must be 0 (r0) or 1 (r1); got {dest}"
+            )
         addr = offset + base
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
