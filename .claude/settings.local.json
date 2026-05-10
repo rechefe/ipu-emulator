@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"immediate.*table\\\\|immediate.*registration\\\\|register.*immediate\")",
+      "Bash(git ls-tree *)",
+      "Bash(xargs grep -l \"control.*stage\\\\|stage.*control\")",
+      "Bash(xargs grep -l \"control\")"
+    ]
+  }
+}
