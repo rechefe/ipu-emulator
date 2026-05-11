@@ -3,7 +3,7 @@
 from ipu_emu.xmem import XMem
 from ipu_emu.descriptors import RegDescriptor, REGFILE_SCHEMA
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.execute import (
     decode_instruction_word,
@@ -37,6 +37,7 @@ __all__ = [
     "REGFILE_SCHEMA",
     "RegFile",
     "IpuState",
+    "WideVectorArithmetic",
     "DType",
     "ipu_mult",
     "ipu_add",

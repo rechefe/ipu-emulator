@@ -168,8 +168,8 @@ class TestRunTest:
         """A program that immediately breaks should run in 1 cycle."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        asm = "bkpt;;\n"
-        inst_path = tmp_path / "bkpt.bin"
+        asm = "BKPT;;\n"
+        inst_path = tmp_path / "BKPT.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
         setup_called = [False]
@@ -189,15 +189,15 @@ class TestRunTest:
 
         assert setup_called[0]
         assert teardown_called[0]
-        # bkpt in run_until_complete skips the break, advances PC
+        # BKPT in run_until_complete skips the break, advances PC
         assert cycles >= 1
 
     def test_run_test_with_debug_callback(self, tmp_path: Path) -> None:
         """run_test with debug_callback should invoke it on break."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Use a BREAK instruction (break slot) followed by bkpt (cond halt)
-        asm = "break;;\nbkpt;;\n"
+        # Use a BREAK instruction (break slot) followed by BKPT (cond halt)
+        asm = "BREAK;;\nBKPT;;\n"
         inst_path = tmp_path / "break.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
@@ -226,12 +226,12 @@ class TestEndToEnd:
         """Assemble a trivial program, run it, verify register state."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Simple program: set lr0 = 42, then breakpoint
-        asm = "set lr0 42;;\nbkpt;;\n"
+        # Simple program: SET lr0 = 42, then breakpoint
+        asm = "SET lr0 42;;\nBKPT;;\n"
         inst_path = tmp_path / "simple.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
         state, cycles = run_test(inst_path=inst_path)
 
         assert state.regfile.get_lr(0) == 42
-        assert cycles >= 2  # set + bkpt
+        assert cycles >= 2  # set + BKPT

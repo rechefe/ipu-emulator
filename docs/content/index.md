@@ -14,8 +14,9 @@ This repository contains:
 
 ## Quick Links
 
-- [Assembly Syntax Guide](assembly-syntax.md) - Complete assembly language reference
-- [Instruction Reference](instructions.md) - Complete IPU instruction set
+- [Assembly Syntax Guide](assembly-syntax.md) — generated (register tokens from `ipu_common`)
+- [Operand types](operand-types.md) — generated reference for `instruction_spec` field types
+- [Instruction Reference](instructions.md) — generated per-opcode pages
 - [Repository on GitHub](https://github.com/rechefe/ipu-emulator)
 
 ---
@@ -29,7 +30,8 @@ ipu-c-samples/
 │   ├── lib/                # Core libraries (ipu, xmem, emulator, fp, logging)
 │   └── tools/              # IPU assembler and emulator tools
 ├── test/                   # Unit tests
-├── docs/                   # Documentation (this site)
+├── docs/                   # MkDocs config, hooks, overrides
+│   └── content/            # Documentation page sources (MkDocs docs_dir)
 ├── BUILD.bazel             # Root build configuration
 ├── MODULE.bazel            # Bazel module dependencies
 └── README.md               # Project README
@@ -73,8 +75,9 @@ bazel build //docs:build_docs
 ## Next Steps
 
 - [Building Applications](building-applications.md) - Learn how to build IPU applications
-- [Assembly Syntax Guide](assembly-syntax.md) - Complete assembly language reference
-- [Instruction Reference](instructions.md) - Complete IPU instruction set
+- [Assembly Syntax Guide](assembly-syntax.md) — syntax, compounds, Jinja2 (generated)
+- [Operand types](operand-types.md) — type names used in the instruction reference tables
+- [Instruction Reference](instructions.md) — all opcodes (generated)
 
 ## Contributing
 

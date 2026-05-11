@@ -6,13 +6,13 @@ The IPU emulator includes a powerful interactive debugger that allows you to pau
 
 ### 1. Add Break Instructions to Your Assembly
 
-Add `break` instructions where you want execution to pause:
+Add `BREAK` instructions where you want execution to pause:
 
 ```asm
 main_loop:
-    break ;;              # Unconditional break
-    reset_acc;;
-    ldr_cyclic_mult_reg lr0 cr0 lr15;;
+    BREAK ;;              # Unconditional break
+    RESET_ACC;;
+    LDR_CYCLIC_MULT_REG lr0 cr0 lr15;;
 ```
 
 ### 2. Enable Debug Mode
@@ -155,7 +155,7 @@ Set pc = 10
 
 ```bash
 debug >>> disasm
-PC 3: break lr0 0; incr lr0 cr0 cr0 0; mult_nop; acc_nop; b lr0 lr0 @4;;
+PC 3: break lr0 0; add lr0 lr0 0; mult_nop; acc_nop; b lr0 lr0 @4;;
 ```
 
 ### Saving State
@@ -230,7 +230,7 @@ IPU Debug - Break at PC=3
   ...
 
 === Current Instruction ===
-  break lr0 0; reset_acc; mult_nop; acc_nop; b lr0 lr0 @4;;
+  BREAK.IFEQ lr0 0; RESET_ACC; MULT_NOP; ACC_NOP; B lr0 lr0 @4;;
 
 debug >>> get lr1
 lr1 = 1280 (0x500)

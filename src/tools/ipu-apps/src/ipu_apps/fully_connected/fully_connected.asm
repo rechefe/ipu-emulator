@@ -1,32 +1,33 @@
-    set                 lr0 0 ;;
-    set                 lr1 1280 ;;
-    set                 lr2 0 ;;
+    SET                 lr0 0 ;;
+    SET                 lr1 1280 ;;
+    SET                 lr2 0 ;;
 
 input_loop:
-    reset_acc;;
+    RESET_ACC;;
 
-    ldr_cyclic_mult_reg lr0 cr0 lr15;;
+    LDR_MULT_REG        r0 lr0 cr0;;
 
-    set                 lr4 -128;;
-    set                 lr5 -1;;
-    set                 lr6 127;;
+    SET                 lr4 -128;;
+    SET                 lr5 -1;;
+    SET                 lr6 127;;
+    SET                 lr15 0;;
 
 
 element_loop:
-    ldr_mult_reg        mem_bypass lr4 cr1;
-    incr                lr4 128;
-    incr                lr5 1;
-    mult.ev             mem_bypass lr5 lr15 lr15;
-    acc;
-    blt                 lr5 lr6 element_loop;;
+    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    ADD                 lr4 lr4 cr3;
+    ADD                 lr5 lr5 cr4;
+    MULT.VE.CYCLIC      lr15 0 lr15 lr5;
+    ACC;
+    BLT                 lr5 lr6 element_loop;;
 
-    str_acc_reg         lr7 cr2;;
-    incr                lr7 256;
-    incr                lr0 128;;
+    STR_ACC_REG         lr7 cr2;;
+    ADD                 lr7 lr7 cr5;
+    ADD                 lr0 lr0 cr3;;
 
-    break;;
+    BREAK;;
 
-    blt                 lr0 lr1 input_loop;;
+    BLT                 lr0 lr1 input_loop;;
 
 end:
-    bkpt;;
+    BKPT;;

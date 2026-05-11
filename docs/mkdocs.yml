@@ -1,12 +1,26 @@
 site_name: IPU Emulator
 site_description: Documentation for IPU emulator and assembly language
 site_author: IPU Development Team
+# Markdown lives under content/ (MkDocs requires docs_dir to be a subdirectory of the project).
+docs_dir: content
 repo_url: https://github.com/rechefe/ipu-emulator
 repo_name: rechefe/ipu-emulator
-edit_uri: edit/main/docs/
+edit_uri: edit/master/docs/
+
+hooks:
+  - hooks/giscus_env.py
+  - hooks/history_link.py
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+      fallback_to_build_date: true
 
 theme:
   name: material
+  custom_dir: overrides
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"
@@ -41,6 +55,8 @@ theme:
     - toc.follow
     - content.code.copy
     - content.code.annotate
+    - content.action.edit
+    - content.action.view
   icon:
     repo: fontawesome/brands/github
 
@@ -51,15 +67,25 @@ nav:
       - Debugging: debugging.md
   - Programming the IPU:
       - Building Applications: building-applications.md
+      - Wide-vector debug mode: wide-vector-debug-mode.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:
       - Assembly Syntax: assembly-syntax.md
+      - Operand types: operand-types.md
       - Instruction Reference: instructions.md
+  - Specs:
+      - Cache Unit Specification: specs/cache-unit.md
+      - AAQ Stage Specification: specs/stage-aaq.md
+  - Release Log: release-log.md
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -80,6 +106,22 @@ markdown_extensions:
       toc_depth: 3
 
 extra:
+  docs_git_branch: master
+  # giscus: set repo_id + category_id from https://giscus.app (Discussions must be on).
+  # CI: add repository secrets GISCUS_REPO_ID and GISCUS_CATEGORY_ID (optional: GISCUS_CATEGORY, …).
+  # Local: export the same env vars before `mkdocs build` or `bazel build //docs:build_docs`.
+  giscus:
+    repo: rechefe/ipu-emulator
+    repo_id: ""
+    category: Announcements
+    category_id: ""
+    mapping: pathname
+    reactions_enabled: "1"
+    emit_metadata: "0"
+    input_position: bottom
+    theme: preferred_color_scheme
+    lang: en
+    strict: "0"
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/rechefe/ipu-emulator

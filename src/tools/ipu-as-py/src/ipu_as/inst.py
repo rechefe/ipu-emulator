@@ -8,6 +8,15 @@ import ipu_as.immediate as immediate
 from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc
 
 
+def _operand_type_md_link(typ: str) -> str:
+    slug = typ.lower().replace("_", "-")
+    return f"[`{typ}`](operand-types.md#{slug})"
+
+
+def _md_table_cell(text: str) -> str:
+    return text.replace("\n", " ").replace("|", "\\|")
+
+
 # ===========================================================================
 # Operand Type Resolution
 # ===========================================================================
@@ -20,6 +29,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "AddSubSrcB": immediate.AddSubSrcBField,
     "AaqRegIdx": reg.AaqRegField,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
@@ -27,6 +37,8 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "AggMode": immediate.AggModeField,
     "PostFn": immediate.PostFnField,
     "Immediate": immediate.LrImmediateType,
+    "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
+    "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -65,7 +77,10 @@ def validate_inst_structure(cls: type) -> type:
 class Inst:
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
-        struct_entry = self.struct_by_opcode_table()[inst["opcode"].token.value]
+        opcode_idx = self.opcode.encode()
+        struct_table = self.struct_by_opcode_table()
+        struct_names = list(struct_table.keys())
+        struct_entry = struct_table[struct_names[opcode_idx]]
         operand_types = self._operand_types_from_struct(struct_entry)
 
         if len(inst["operands"]) != len(operand_types):
@@ -83,7 +98,7 @@ class Inst:
         full_token_list = [None for _ in range(1 + len(self.operand_types()))]
         full_token_list[0] = self.opcode
         for i, operand in enumerate(self.operands):
-            mapped_index = self._inst_mapping_table[self.opcode.token.value][i]
+            mapped_index = self._inst_mapping_table[self.opcode.encode()][i]
             full_token_list[mapped_index + 1] = operand
         for i in range(len(full_token_list)):
             if full_token_list[i] is None:
@@ -101,12 +116,16 @@ class Inst:
     @classmethod
     def _validate_instr_structure(cls) -> None:
         cls._inst_mapping_table = dict()
-        for opcode, struct_entry in cls.struct_by_opcode_table().items():
-            assert (
-                opcode in cls.opcode_type().enum_array()
-            ), f"Configuration of {cls.__name__} is invalid, opcode key must be of type {cls.opcode_type().__name__}"
+        names = cls.opcode_type().enum_array()
+        for opcode_idx, (opcode_name, struct_entry) in enumerate(
+            cls.struct_by_opcode_table().items()
+        ):
+            assert opcode_name == names[opcode_idx], (
+                f"Configuration of {cls.__name__} is invalid: opcode table order "
+                f"does not match {cls.opcode_type().__name__}.enum_array()"
+            )
 
-            cls._inst_mapping_table[opcode] = cls._find_instruction_inst_mapping(
+            cls._inst_mapping_table[opcode_idx] = cls._find_instruction_inst_mapping(
                 cls._operand_types_from_struct(struct_entry)
             )
 
@@ -159,8 +178,9 @@ class Inst:
 
     @classmethod
     def find_inst_type_by_opcode(cls, opcode: str) -> type["Inst"]:
+        opl = opcode.lower()
         for subclass in cls.__subclasses__():
-            if opcode in subclass.struct_by_opcode_table().keys():
+            if any(opl == name.lower() for name in subclass.struct_by_opcode_table()):
                 return subclass
         raise ValueError(f"Opcode '{opcode}' not found in any Inst subclass.")
 
@@ -219,7 +239,7 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, heading: str, intro: str) -> str:
+    def _render_instruction_docs(cls, heading: str, intro: str, slot_type: str) -> str:
         lines = [f"## {heading}", ""]
         if intro.strip():
             lines.append(intro.strip())
@@ -229,30 +249,57 @@ class Inst:
             instruction_format = cls._struct_entry(opcode)
             if instruction_format.doc is None:
                 continue
-            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc))
+            spec_ops = INSTRUCTION_SPEC[slot_type][opcode]["operands"]
+            lines.extend(
+                cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops)
+            )
             lines.append("")
 
         return "\n".join(lines).rstrip()
 
     @staticmethod
-    def _render_opcode_doc(opcode: str, doc: InstructionDoc) -> list[str]:
-        lines = [f"### {opcode} - {doc.title}", doc.summary, ""]
+    def _render_opcode_doc(
+        opcode: str,
+        doc: InstructionDoc,
+        spec_operands: list[dict],
+    ) -> list[str]:
+        lines = [f"### `{opcode}` — {doc.title}", ""]
         lines.append(f"**Syntax:** `{doc.syntax}`")
         lines.append("")
 
-        if doc.operands:
+        if spec_operands:
+            lines.append(
+                "**Operands:** *(the **Type** column links to the "
+                "[operand type reference](operand-types.md))*"
+            )
+            lines.append("")
+            lines.append("| Name | Type | Details |")
+            lines.append("|------|------|---------|")
+            for i, sop in enumerate(spec_operands):
+                name = sop["name"]
+                typ = sop["type"]
+                link = _operand_type_md_link(typ)
+                detail = doc.operands[i] if i < len(doc.operands) else "—"
+                lines.append(
+                    f"| `{name}` | {link} | {_md_table_cell(detail)} |"
+                )
+            lines.append("")
+        elif doc.operands:
             lines.append("**Operands:**")
             lines.extend([f"- {operand}" for operand in doc.operands])
             lines.append("")
 
+        lines.append("**General description:**")
+        lines.append(doc.summary)
+        lines.append("")
+
         if doc.operation:
-            lines.append("**Operation:**")
-            lines.append("```")
-            lines.append(f"{doc.operation}")
-            lines.append("```")
+            lines.append("**Pseudo code:**")
+            lines.append(f"`{doc.operation}`")
+            lines.append("")
 
         if doc.example:
-            lines.append("**Example:**")
+            lines.append("**Example of usage:**")
             lines.append("```asm")
             lines.append(doc.example)
             lines.append("```")
@@ -284,7 +331,7 @@ class XmemInst(Inst):
         return XmemInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "xmem_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "XMEM_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -296,6 +343,7 @@ class XmemInst(Inst):
         return cls._render_instruction_docs(
             heading="XMEM Instructions",
             intro="Memory access instructions for loading and storing data between registers and memory.",
+            slot_type="xmem",
         )
 
 
@@ -306,7 +354,7 @@ class MultInst(Inst):
         return [
             reg.MultStageRegField,
             reg.LrRegField,
-            reg.LrRegField,
+            immediate.MultMaskOffsetImmediate,
             reg.LrRegField,
             reg.LrRegField,
             reg.CrRegField,
@@ -326,7 +374,7 @@ class MultInst(Inst):
         return MultInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "mult_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "MULT_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -340,6 +388,7 @@ class MultInst(Inst):
             intro="""Multiplication instructions for element-wise and element-vector operations.
 The multiplication result (`mult_result`) is forwarded to the ACC stage in the CPU and not stored in any register in the way.
 """,
+            slot_type="mult",
         )
 
 
@@ -368,7 +417,7 @@ class AccInst(Inst):
         return AccInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "acc_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "ACC_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -380,6 +429,7 @@ class AccInst(Inst):
         return cls._render_instruction_docs(
             heading="ACC Instructions",
             intro="Accumulation instructions for combining values with optional masking and shifting.",
+            slot_type="acc",
         )
 
 
@@ -390,6 +440,7 @@ class AaqInst(Inst):
         return [
             immediate.AggModeField,
             immediate.PostFnField,
+            reg.LcrRegField,
             reg.CrRegField,
             reg.AaqRegField,
         ]
@@ -407,7 +458,7 @@ class AaqInst(Inst):
         return AaqInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "aaq_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "AAQ_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -419,6 +470,7 @@ class AaqInst(Inst):
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
             intro="Activation and quantization: aggregate r_acc into AAQ registers.",
+            slot_type="aaq",
         )
 
 
@@ -426,7 +478,14 @@ class AaqInst(Inst):
 class LrInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, reg.LcrRegField, reg.LcrRegField, immediate.LrImmediateType]
+        return [
+            reg.LrRegField,
+            reg.LrRegField,
+            reg.LcrRegField,
+            immediate.AddSubSrcBField,
+            immediate.LrImmediateType,
+            immediate.LrModPow2KImmediate,
+        ]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -441,10 +500,14 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "incr", line=0, column=0),
+                    token=lark.Token("TOKEN", "ADD", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
+                        instr_id=addr,
+                    ),
                     ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "lr0", line=0, column=0),
                         instr_id=addr,
@@ -462,6 +525,7 @@ class LrInst(Inst):
         return cls._render_instruction_docs(
             heading="LR Instructions",
             intro="Loop register manipulation instructions for controlling loop counters and addresses.",
+            slot_type="lr",
         )
 
 
@@ -469,7 +533,7 @@ class LrInst(Inst):
 class CondInst(Inst):
     @classmethod
     def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, reg.LrRegField, ipu_token.LabelToken]
+        return [reg.LcrRegField, reg.LcrRegField, ipu_token.LabelToken]
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -484,7 +548,7 @@ class CondInst(Inst):
         return CondInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "b", line=0, column=0), instr_id=addr
+                    token=lark.Token("TOKEN", "B", line=0, column=0), instr_id=addr
                 ),
                 "operands": [
                     ipu_token.AnnotatedToken(
@@ -499,6 +563,7 @@ class CondInst(Inst):
         return cls._render_instruction_docs(
             heading="Conditional Branch Instructions",
             intro="Control flow instructions for branching based on conditions or unconditionally.",
+            slot_type="cond",
         )
 
 
@@ -521,7 +586,7 @@ class BreakInst(Inst):
         return BreakInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "break_nop", line=0, column=0),
+                    token=lark.Token("TOKEN", "BREAK_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -533,4 +598,5 @@ class BreakInst(Inst):
         return cls._render_instruction_docs(
             heading="Break Instructions",
             intro="Debug break instructions for halting execution and entering debug mode.",
+            slot_type="break",
         )

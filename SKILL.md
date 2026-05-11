@@ -37,7 +37,7 @@ src/tools/
 │   └── debug_cli.py              # Interactive debugger
 └── ipu-apps/src/ipu_apps/        # Sample applications
     └── fully_connected/          # FC neural network layer example
-docs/                             # MkDocs documentation
+docs/                             # MkDocs (config + content/ page sources)
 ```
 
 ---
@@ -52,6 +52,11 @@ Do not hardcode opcodes anywhere. Do not duplicate instruction metadata.
 
 Same principle applies to **`registers.py`** for register definitions.
 
+### Naming in prose, docs, and examples
+
+- **Instruction mnemonics** are written in **upper case** everywhere in this repository (Markdown, comments, `InstructionDoc.syntax` / examples, and the keys in `INSTRUCTION_SPEC`). The assembler still accepts upper or lower case in source files.
+- **Operand and field names** (`dest`, `src_a`, register tokens like `lr0` / `r0`) are written in **lower case**.
+
 ---
 
 ## ISA Concepts
@@ -61,10 +66,10 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
+LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; ADD lr0 lr0 1; BNE lr0 lr1 next;;
 ```
 
-- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×2), `cond`
+- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
 - Separated by `;`, terminated by `;;`
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
@@ -87,17 +92,17 @@ ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
 
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
-| XMEM | `ldr`, `str_acc_reg`, `ldr_cyclic_mult_reg`, … | Memory load/store |
-| MULT | `mult.ee`, `mult.ev`, `mult.ve`, `mult.vv` | 8-bit vector multiply |
-| ACC | `acc`, `acc.stride`, `acc.max`, `acc.max.first`, `reset_acc` | Accumulate into r_acc |
-| AAQ | `agg` (sum/max + post-fn) | Aggregate r_acc → aaq register |
-| LR (×2) | `incr`, `set`, `add`, `sub` | Scalar loop register ops |
-| COND | `beq`, `bne`, `blt`, `bnz`, `bz`, `b`, `br`, `bkpt` | Branches |
-| BREAK | `break`, `break.ifeq` | Debug breakpoints |
+| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
+| MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
+| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into r_acc |
+| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ` | Aggregate r_acc → aaq register |
+| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops |
+| COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
+| BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `Immediate`, `MultMaskOffsetImmediate`, `Label`
 
 ---
 
@@ -105,7 +110,7 @@ ldr r0 lr0 cr0; mac.ee rq4 r2 r3; incr lr0 1; b next;;
 
 1. **Define it in `instruction_spec.py`:**
    ```python
-   "my_inst": {
+   "MY_INST": {
        "operands": [
            {"name": "dest", "type": "AaqRegIdx"},
            {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
@@ -143,7 +148,7 @@ def _run(asm_code: str) -> IpuState:
     return state
 
 def test_my_instruction():
-    state = _run("my_inst aaq0 r0;;")
+    state = _run("MY_INST aaq0 r0;;")
     assert state.regfile.get_aaq(0) == expected
 ```
 
@@ -193,7 +198,7 @@ Each app lives under `ipu-apps/src/ipu_apps/<name>/` and has:
 
 ## Debugging
 
-Add `break;;` to assembly, then run with the debug callback:
+Add `BREAK;;` to assembly, then run with the debug callback:
 
 ```python
 from ipu_emu.debug_cli import debug_prompt

@@ -14,8 +14,8 @@ An instruction is stored as a ``dict[str, int]`` whose keys match the
 C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
 
     {
-        "break_inst_token_0_break_inst_opcode": 2,   # break_nop
-        "xmem_inst_token_0_xmem_inst_opcode": 4,     # xmem_nop
+        "break_inst_token_0_break_inst_opcode": 2,   # BREAK_NOP
+        "xmem_inst_token_0_xmem_inst_opcode": 4,     # XMEM_NOP
         ...
     }
 
