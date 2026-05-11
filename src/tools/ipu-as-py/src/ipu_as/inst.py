@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import lark
+import re
 import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
@@ -258,13 +259,52 @@ class Inst:
         return "\n".join(lines).rstrip()
 
     @staticmethod
+    def _normalize_elements_terminology(text: str) -> str:
+        return re.sub(r"(?i)\bbytes\b", "elements", text)
+
+    @staticmethod
+    def _uppercase_register_names(text: str) -> str:
+        return re.sub(
+            r"(?i)\b(?:r[01]|lr\d+|cr\d+|r_acc|r_cyclic|r_mask|aaq\d+|aaq_regs|aaq_result)\b",
+            lambda m: m.group(0).upper(),
+            text,
+        )
+
+    @classmethod
+    def _format_instruction_command(cls, command: str) -> str:
+        parts = command.split()
+        if len(parts) <= 1:
+            return cls._uppercase_register_names(command)
+        mnemonic = parts[0]
+        operands = [operand.rstrip(",") for operand in parts[1:]]
+        formatted = f"{mnemonic} {', '.join(operands)}"
+        return cls._uppercase_register_names(formatted)
+
+    @classmethod
+    def _format_example_line(cls, line: str) -> str:
+        stripped = line.strip()
+        if not stripped or stripped.endswith(":"):
+            return line
+
+        indent = line[: len(line) - len(line.lstrip())]
+        code = line.strip()
+        suffix = ";;" if code.endswith(";;") else ""
+        if suffix:
+            code = code[:-2].rstrip()
+        return f"{indent}{cls._format_instruction_command(code)}{suffix}"
+
+    @classmethod
+    def _format_example_block(cls, text: str) -> str:
+        return "\n".join(cls._format_example_line(line) for line in text.splitlines())
+
+    @staticmethod
     def _render_opcode_doc(
         opcode: str,
         doc: InstructionDoc,
         spec_operands: list[dict],
     ) -> list[str]:
         lines = [f"### `{opcode}` — {doc.title}", ""]
-        lines.append(f"**Syntax:** `{doc.syntax}`")
+        lines.append(f"**Syntax:** `{Inst._format_instruction_command(doc.syntax)}`")
         lines.append("")
 
         if spec_operands:
@@ -280,6 +320,7 @@ class Inst:
                 typ = sop["type"]
                 link = _operand_type_md_link(typ)
                 detail = doc.operands[i] if i < len(doc.operands) else "—"
+                detail = Inst._uppercase_register_names(detail)
                 lines.append(
                     f"| `{name}` | {link} | {_md_table_cell(detail)} |"
                 )
@@ -290,18 +331,20 @@ class Inst:
             lines.append("")
 
         lines.append("**General description:**")
-        lines.append(doc.summary)
+        lines.append(Inst._uppercase_register_names(doc.summary))
         lines.append("")
 
         if doc.operation:
             lines.append("**Pseudo code:**")
-            lines.append(f"`{doc.operation}`")
+            operation = Inst._normalize_elements_terminology(doc.operation)
+            operation = Inst._uppercase_register_names(operation)
+            lines.append(f"`{operation}`")
             lines.append("")
 
         if doc.example:
             lines.append("**Example of usage:**")
             lines.append("```asm")
-            lines.append(doc.example)
+            lines.append(Inst._format_example_block(doc.example))
             lines.append("```")
 
         return lines
