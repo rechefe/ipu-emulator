@@ -76,6 +76,11 @@ def validate_inst_structure(cls: type) -> type:
 
 
 class Inst:
+    _REGISTER_NAME_PATTERN = (
+        r"(?i)\b(?:r[01]|lr\d+|cr\d+|r_acc|r_cyclic|r_mask|aaq\d+|aaq_regs|aaq_result)\b"
+    )
+    _INSTRUCTION_TERMINATOR = ";;"
+
     def __init__(self, inst: dict[str, any]):
         self.opcode = self.opcode_type()(inst["opcode"])
         opcode_idx = self.opcode.encode()
@@ -265,7 +270,7 @@ class Inst:
     @staticmethod
     def _uppercase_register_names(text: str) -> str:
         return re.sub(
-            r"(?i)\b(?:r[01]|lr\d+|cr\d+|r_acc|r_cyclic|r_mask|aaq\d+|aaq_regs|aaq_result)\b",
+            Inst._REGISTER_NAME_PATTERN,
             lambda m: m.group(0).upper(),
             text,
         )
@@ -288,9 +293,9 @@ class Inst:
 
         indent = line[: len(line) - len(line.lstrip())]
         code = line.strip()
-        suffix = ";;" if code.endswith(";;") else ""
+        suffix = cls._INSTRUCTION_TERMINATOR if code.endswith(cls._INSTRUCTION_TERMINATOR) else ""
         if suffix:
-            code = code[:-2].rstrip()
+            code = code[: -len(cls._INSTRUCTION_TERMINATOR)].rstrip()
         return f"{indent}{cls._format_instruction_command(code)}{suffix}"
 
     @classmethod
