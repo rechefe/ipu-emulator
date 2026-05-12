@@ -529,8 +529,11 @@ class Ipu:
             pending.append((inst_name, spec["execute_fn"], kwargs))
 
         # Conflict check: no two valid instructions may write to the same LR
-        lr_targets = [kw.get("reg", kw.get("dest")) for _, _, kw in pending]
-        if len(lr_targets) != len(set(lr_targets)):
+        lr_targets = [
+            kw.get("reg", kw.get("dest", kw.get("dst"))) for _, _, kw in pending
+        ]
+        real_targets = [t for t in lr_targets if t is not None]
+        if len(real_targets) != len(set(real_targets)):
             raise RuntimeError(
                 f"LR conflict: multiple writes to LR{lr_targets} in same cycle"
             )
