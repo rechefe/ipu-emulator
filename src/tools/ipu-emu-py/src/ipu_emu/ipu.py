@@ -97,7 +97,7 @@ _TYPE_FIELD_SUFFIX = {
     "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
-    "ActivationFnId": "activation_fn_id_field",
+    "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -1178,7 +1178,7 @@ class Ipu:
     def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
         """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
 
-        The activation id (0–11) is ``activation_fn`` from the instruction word.
+        ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
         Lanes at indices ``>=`` the active lane count are left unchanged.
         """
         fn_id = int(activation_fn) & 0xFFFFFFFF

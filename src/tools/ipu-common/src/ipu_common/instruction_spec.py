@@ -30,7 +30,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
-  - "ActivationFnId": unsigned 4-bit immediate on `ACTIVATE` (0–15 wire; 0–11 are defined activations)
+  - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -125,7 +125,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
     "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
-    "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "ActivationFnId", "AaqRegIdx"],
+    "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "ActivationFn", "AaqRegIdx"],
     "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
@@ -750,27 +750,27 @@ INSTRUCTION_SPEC = {
                     "type": "LcrIdx",
                     "read": "snapshot",
                 },
-                {"name": "activation_fn", "type": "ActivationFnId"},
+                {"name": "activation_fn", "type": "ActivationFn"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Activation",
                 summary=(
                     "Apply an element-wise activation to the first valid_elements lanes of "
-                    "r_acc; lanes beyond the active prefix are unchanged. The activation id "
-                    "(0–11) is an immediate in the instruction word (see AAQ stage spec section 7.0; "
-                    "values 12–15 are reserved and behave as identity)."
+                    "r_acc; lanes beyond the active prefix are unchanged. The activation is "
+                    "selected by keyword (see ACTIVATION_FN_NAMES; see AAQ stage spec section 7.0). "
+                    "The binary encoding uses four bits; values not listed in the enum are treated as identity."
                 ),
                 syntax="ACTIVATE valid_elements activation_fn",
                 operands=[
                     "valid_elements: lane count from an LR or CR register (unsigned, clamped to 0–128)",
-                    "activation_fn: unsigned 4-bit immediate 0–15 (ids 0–11 per spec; 12–15 treated as identity)",
+                    "activation_fn: keyword naming the activation (e.g. relu, gelu, silu; see ACTIVATION_FN_NAMES)",
                 ],
                 operation=(
-                    "Let n = min(valid_elements, 128) and k = activation_fn (12–15 → identity). "
+                    "Let n = min(valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): r_acc[i] = activation_k(r_acc[i]). "
                     "Alpha for leaky_relu / elu / prelu is fixed in the emulator (not ISA)."
                 ),
-                example="ACTIVATE lr0 1;;",
+                example="ACTIVATE lr0 relu;;",
             ),
             "execute_fn": "execute_activate",
         },
@@ -1189,7 +1189,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "Immediate",
         "LrModPow2KImmediate",
         "MultMaskOffsetImmediate",
-        "ActivationFnId",
+        "ActivationFn",
         "BreakImmediate",
         "Label",
         "AddSubSrcB",

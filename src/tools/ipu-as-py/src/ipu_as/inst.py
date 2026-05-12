@@ -39,7 +39,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "Immediate": immediate.LrImmediateType,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
-    "ActivationFnId": immediate.ActivationFnIdField,
+    "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -443,7 +443,7 @@ class AaqInst(Inst):
             immediate.PostFnField,
             reg.LcrRegField,
             reg.CrRegField,
-            immediate.ActivationFnIdField,
+            immediate.ActivationFnField,
             reg.AaqRegField,
         ]
 

@@ -102,37 +102,27 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
         return str(value)
 
 
-class ActivationFnIdField(ipu_token.IpuToken):
-    """Unsigned activation selector for ``ACTIVATE`` (ids ``0`` through ``11``)."""
+from ipu_common.activations import ACTIVATION_FN_NAMES
 
-    _FIELD_BITS = 4
-    _MAX_ENCODED = (1 << _FIELD_BITS) - 1  # 0..15; ids >= 12 are identity at runtime
 
-    @classmethod
-    def bits(cls) -> int:
-        return cls._FIELD_BITS
+class ActivationFnField(ipu_token.EnumToken):
+    """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
+
+    _TOKEN_ALIASES: dict[str, str] = {"swish": "silu"}
 
     @classmethod
-    def default(cls) -> "ipu_token.IpuToken":
-        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+    def enum_array(cls) -> list[str]:
+        return list(ACTIVATION_FN_NAMES)
 
     def __init__(self, token: ipu_token.AnnotatedToken):
-        super().__init__(token)
-        try:
-            self.int = int(token.token.value, 0)
-        except ValueError:
-            self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (0 <= self.int <= self._MAX_ENCODED):
-            self._raise_error(
-                f"Activation function id must be in [0, {self._MAX_ENCODED}], got {self.int}"
+        raw = token.token.value.lower()
+        if raw in self._TOKEN_ALIASES:
+            t = token.token
+            token = ipu_token.AnnotatedToken(
+                lark.Token(t.type, self._TOKEN_ALIASES[raw], t.line, t.column),
+                token.instr_id,
             )
-
-    def encode(self) -> int:
-        return self.int
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return str(value)
+        super().__init__(token)
 
 
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).

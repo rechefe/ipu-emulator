@@ -26,7 +26,7 @@ from ipu_as.lark_tree import assemble, parse
 
 from ipu_as.compound_inst import CompoundInst
 
-from ipu_common.activations import apply_activation
+from ipu_common.activations import ACTIVATION_FN_NAMES, apply_activation
 
 
 # ---------------------------------------------------------------------------
@@ -1855,7 +1855,7 @@ class TestActivate:
     def test_activate_relu_int32(self):
         state = _make_state(
             """\
-ACTIVATE lr0 1;;
+ACTIVATE lr0 relu;;
 BKPT;;
 """
         )
@@ -1871,7 +1871,7 @@ BKPT;;
     def test_activate_masks_inactive_lanes(self):
         state = _make_state(
             """\
-ACTIVATE lr0 1;;
+ACTIVATE lr0 relu;;
 BKPT;;
 """
         )
@@ -1898,10 +1898,10 @@ BKPT;;
         for i in range(2, 128):
             assert state.regfile.get_r_acc_word(i) == sentinel
 
-    def test_activate_reserved_id_is_identity(self):
+    def test_activate_identity_keyword_is_noop(self):
         state = _make_state(
             """\
-ACTIVATE lr0 12;;
+ACTIVATE lr0 identity;;
 BKPT;;
 """
         )
@@ -1915,7 +1915,7 @@ BKPT;;
     def test_activate_sigmoid_float_lane(self):
         state = _make_state(
             """\
-ACTIVATE lr0 4;;
+ACTIVATE lr0 sigmoid;;
 BKPT;;
 """
         )
@@ -1932,10 +1932,10 @@ BKPT;;
 
     def test_activate_matches_reference_all_ids_float(self):
         x = 0.25
-        for fid in range(12):
+        for fid, name in enumerate(ACTIVATION_FN_NAMES):
             state = _make_state(
                 f"""\
-ACTIVATE lr0 {fid};;
+ACTIVATE lr0 {name};;
 BKPT;;
 """
             )
@@ -1954,7 +1954,7 @@ BKPT;;
     def test_activate_exp2_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 11;;
+ACTIVATE lr0 exp2;;
 BKPT;;
 """
         )
@@ -1972,7 +1972,7 @@ BKPT;;
     def test_activate_gelu_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 6;;
+ACTIVATE lr0 gelu;;
 BKPT;;
 """
         )
@@ -1988,10 +1988,45 @@ BKPT;;
         )[0]
         assert abs(out - apply_activation(6, x)) < 1e-5
 
+    def test_activate_swish_alias_matches_silu(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 swish;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        x = 0.5
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out_swish = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+
+        st2 = _make_state(
+            """\
+ACTIVATE lr0 silu;;
+BKPT;;
+"""
+        )
+        st2.regfile.set_cr(15, DType.E4)
+        st2.regfile.set_lr(0, 1)
+        st2.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(st2)
+        out_silu = struct.unpack(
+            "<f", struct.pack("<I", st2.regfile.get_r_acc_word(0))
+        )[0]
+        assert abs(out_swish - out_silu) < 1e-7
+
     def test_activate_valid_elements_from_cr(self):
         state = _make_state(
             """\
-ACTIVATE cr3 1;;
+ACTIVATE cr3 relu;;
 BKPT;;
 """
         )

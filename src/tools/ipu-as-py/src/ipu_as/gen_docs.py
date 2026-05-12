@@ -55,9 +55,10 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "AAQ-slot immediate: post-aggregation function selector (identity, inverse sqrt, etc.); "
         "see `acc_agg_enums`."
     ),
-    "ActivationFnId": (
-        "AAQ-slot **4-bit** unsigned immediate on **`ACTIVATE`**: ids **0**–**11** select the "
-        "activation (see `ipu_common.activations`); **12**–**15** are reserved and decode as identity."
+    "ActivationFn": (
+        "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, **leaky_relu**, "
+        "**sigmoid**, **tanh**, **gelu**, **silu** (alias **swish**), **softplus**, **elu**, **prelu**, **exp2** "
+        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``)."
     ),
     "Immediate": (
         "Signed **16-bit** immediate carried in the LR slot (sign-extended by the emulator for "

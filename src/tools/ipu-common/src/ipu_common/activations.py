@@ -2,9 +2,8 @@
 
 Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. Alpha parameters for
 ``leaky_relu``, ``elu``, and ``prelu`` are fixed simulator constants (not part
-of the ISA). The ``ACTIVATE`` instruction passes the function id as a 4-bit
-immediate; values **12**–**15** are reserved and :func:`apply_activation` treats
-them as identity.
+of the ISA). Assembly uses ``ACTIVATE … <name>`` where ``<name>`` is one of the
+strings in ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**).
 """
 
 from __future__ import annotations
@@ -26,6 +25,22 @@ ACTIVATION_PRELU = 10
 ACTIVATION_EXP2 = 11
 
 ACTIVATION_COUNT = 12
+
+# Assembly / encoding order (id = index); must match ACTIVATION_* constants above.
+ACTIVATION_FN_NAMES: tuple[str, ...] = (
+    "identity",
+    "relu",
+    "relu6",
+    "leaky_relu",
+    "sigmoid",
+    "tanh",
+    "gelu",
+    "silu",
+    "softplus",
+    "elu",
+    "prelu",
+    "exp2",
+)
 
 # Fixed α values — virtual configuration outside the ISA (issue #77).
 _LEAKY_ALPHA: Final[float] = 0.01
