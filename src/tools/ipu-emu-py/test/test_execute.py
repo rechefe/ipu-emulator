@@ -1855,13 +1855,12 @@ class TestActivate:
     def test_activate_relu_int32(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 1;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
         state.regfile.set_lr(0, 128)
-        state.regfile.set_cr(2, 1)  # relu
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -9))[0]
         )
@@ -1872,13 +1871,12 @@ BKPT;;
     def test_activate_masks_inactive_lanes(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 1;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
         state.regfile.set_lr(0, 2)
-        state.regfile.set_cr(2, 1)  # relu
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -5))[0]
         )
@@ -1900,16 +1898,15 @@ BKPT;;
         for i in range(2, 128):
             assert state.regfile.get_r_acc_word(i) == sentinel
 
-    def test_activate_unknown_id_is_identity(self):
+    def test_activate_reserved_id_is_identity(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 12;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
         state.regfile.set_lr(0, 1)
-        state.regfile.set_cr(2, 0x100)  # out of range → identity
         raw = struct.unpack("<I", struct.pack("<i", -42))[0]
         state.regfile.set_r_acc_word(0, raw)
         run_until_complete(state)
@@ -1918,13 +1915,12 @@ BKPT;;
     def test_activate_sigmoid_float_lane(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 4;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.E4)
         state.regfile.set_lr(0, 1)
-        state.regfile.set_cr(2, 4)  # sigmoid
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -1938,14 +1934,13 @@ BKPT;;
         x = 0.25
         for fid in range(12):
             state = _make_state(
-                """\
-ACTIVATE lr0 cr2;;
+                f"""\
+ACTIVATE lr0 {fid};;
 BKPT;;
 """
             )
             state.regfile.set_cr(15, DType.E4)
             state.regfile.set_lr(0, 1)
-            state.regfile.set_cr(2, fid)
             state.regfile.set_r_acc_word(
                 0, struct.unpack("<I", struct.pack("<f", x))[0]
             )
@@ -1959,13 +1954,12 @@ BKPT;;
     def test_activate_exp2_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 11;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.E4)
         state.regfile.set_lr(0, 1)
-        state.regfile.set_cr(2, 11)  # exp2
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
         )
@@ -1978,13 +1972,12 @@ BKPT;;
     def test_activate_gelu_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 cr2;;
+ACTIVATE lr0 6;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.E4)
         state.regfile.set_lr(0, 1)
-        state.regfile.set_cr(2, 6)  # gelu
         x = 1.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -1998,13 +1991,12 @@ BKPT;;
     def test_activate_valid_elements_from_cr(self):
         state = _make_state(
             """\
-ACTIVATE cr3 cr2;;
+ACTIVATE cr3 1;;
 BKPT;;
 """
         )
         state.regfile.set_cr(15, DType.INT8)
         state.regfile.set_cr(3, 1)
-        state.regfile.set_cr(2, 1)  # relu
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -8))[0]
         )

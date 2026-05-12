@@ -1,8 +1,10 @@
 """Element-wise activation functions for IPU accumulator lanes.
 
-Encodings match ``docs/content/specs/stage-aaq.md`` §7.0. Alpha parameters for
+Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. Alpha parameters for
 ``leaky_relu``, ``elu``, and ``prelu`` are fixed simulator constants (not part
-of the ISA); extend :func:`apply_activation` when adding new kinds.
+of the ISA). The ``ACTIVATE`` instruction passes the function id as a 4-bit
+immediate; values **12**–**15** are reserved and :func:`apply_activation` treats
+them as identity.
 """
 
 from __future__ import annotations

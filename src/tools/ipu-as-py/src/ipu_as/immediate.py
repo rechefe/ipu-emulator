@@ -102,6 +102,39 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
         return str(value)
 
 
+class ActivationFnIdField(ipu_token.IpuToken):
+    """Unsigned activation selector for ``ACTIVATE`` (ids ``0`` through ``11``)."""
+
+    _FIELD_BITS = 4
+    _MAX_ENCODED = (1 << _FIELD_BITS) - 1  # 0..15; ids >= 12 are identity at runtime
+
+    @classmethod
+    def bits(cls) -> int:
+        return cls._FIELD_BITS
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        if not (0 <= self.int <= self._MAX_ENCODED):
+            self._raise_error(
+                f"Activation function id must be in [0, {self._MAX_ENCODED}], got {self.int}"
+            )
+
+    def encode(self) -> int:
+        return self.int
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return str(value)
+
+
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).
 _ADD_SUB_SRC_B_REGS: tuple[str, ...] = tuple(
     [f"lr{i}" for i in range(16)] + [f"cr{i}" for i in range(16)]

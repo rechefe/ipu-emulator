@@ -97,6 +97,7 @@ _TYPE_FIELD_SUFFIX = {
     "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
+    "ActivationFnId": "activation_fn_id_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -1174,13 +1175,13 @@ class Ipu:
             result[i] = clamped & 0xFF
         self.state.regfile.set_aaq_result(result)
 
-    def execute_activate(self, *, valid_elements: int, act_cr_idx: int) -> None:
+    def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
         """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
 
-        The activation id (0–11) is read from ``cr[act_cr_idx]`` using the cycle-start
-        snapshot. Lanes at indices ``>=`` the active lane count are left unchanged.
+        The activation id (0–11) is ``activation_fn`` from the instruction word.
+        Lanes at indices ``>=`` the active lane count are left unchanged.
         """
-        fn_id = self.snapshot.get_cr(act_cr_idx) & 0xFFFFFFFF
+        fn_id = int(activation_fn) & 0xFFFFFFFF
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
