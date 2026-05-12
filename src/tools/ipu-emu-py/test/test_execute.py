@@ -227,6 +227,20 @@ BKPT;;
         with pytest.raises(ValueError, match=r"INCR_MOD_POW2 k operand"):
             CompoundInst(parse("INCR_MOD_POW2 lr0 lr1 10;;")[0])
 
+    def test_two_incr_mod_pow2_different_dst_no_conflict(self):
+        """Two INCR_MOD_POW2 writing different LRs must not raise a conflict error."""
+        state = _run(
+            """\
+SET lr5 0;;
+SET lr12 1;;
+SET lr13 128;;
+INCR_MOD_POW2 lr5 lr12 7; INCR_MOD_POW2 lr6 lr13 8;;
+BKPT;;
+"""
+        )
+        assert state.regfile.get_lr(5) == 1
+        assert state.regfile.get_lr(6) == 128
+
 
 # ============================================================================
 # Three LR sub-slots per VLIW (SLOT_COUNT["lr"] == 3)
