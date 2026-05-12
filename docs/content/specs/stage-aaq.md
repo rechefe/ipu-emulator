@@ -155,6 +155,26 @@ Supported activation functions:
 | 10 | `prelu` | `f(x) = x if x ≥ 0 else α·x` | Like Leaky ReLU but α is a learned per-channel parameter. |
 | 11 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
+#### Emulator: `ACTIVATE` and configuring α (“virtual” parameters)
+
+The block diagram and `act_cr_idx` discussion above describe the staged hardware view. In **this repository’s Python emulator**, element-wise activations on `r_acc` are issued with the **`ACTIVATE`** AAQ-slot instruction:
+
+```asm
+ACTIVATE lr0 relu;;
+```
+
+Syntax: **`ACTIVATE`** *valid_elements* *activation_fn*, where *valid_elements* is an `lr`/`cr` source (same masking rules as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `leaky_relu`, `sigmoid`, `tanh`, `gelu`, `silu`, `softplus`, `elu`, `prelu`, `exp2`). The canonical spellings and encoding order live in `src/tools/ipu-common/src/ipu_common/activations.py` as `ACTIVATION_FN_NAMES`, next to `apply_activation`.
+
+**α for `leaky_relu`, `elu`, and `prelu`:** The ISA does not carry α. In software, α is **not** a register, environment variable, or CLI flag. It is fixed for the whole emulator by **module-level constants** in the same file:
+
+| Name in `activations.py` | Activation | Default |
+|---------------------------|--------------|---------|
+| `_LEAKY_ALPHA` | `leaky_relu` | `0.01` |
+| `_ELU_ALPHA` | `elu` | `1.0` |
+| `_PRELU_ALPHA` | `prelu` | `0.25` |
+
+To model different training or deployment assumptions, **edit those constants**, then run your usual checks (for example `bazel test //…`). That is the supported “virtual configuration” path: calibration is intentionally **outside** the instruction stream. For experiments that need several α values in one process, use separate builds, test-only copies of the helpers, or a harness that swaps a patched `activations` module before loading the emulator.
+
 ### 7.1 Aggregate (`agg`)
 
 **Assembly syntax:** `agg <agg_mode> <post_fn> <valid_elements> <cr_idx> <aaq_rf_idx>`

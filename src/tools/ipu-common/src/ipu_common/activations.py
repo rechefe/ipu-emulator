@@ -3,7 +3,9 @@
 Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. Alpha parameters for
 ``leaky_relu``, ``elu``, and ``prelu`` are fixed simulator constants (not part
 of the ISA). Assembly uses ``ACTIVATE … <name>`` where ``<name>`` is one of the
-strings in ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**).
+strings in ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**). How to change
+the virtual α constants is documented in ``docs/content/specs/stage-aaq.md``
+(Emulator: `ACTIVATE` and configuring α).
 """
 
 from __future__ import annotations
