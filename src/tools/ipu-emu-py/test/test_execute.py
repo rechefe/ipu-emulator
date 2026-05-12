@@ -26,6 +26,8 @@ from ipu_as.lark_tree import assemble, parse
 
 from ipu_as.compound_inst import CompoundInst
 
+from ipu_common.activations import apply_activation
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1840,3 +1842,177 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+
+
+# ============================================================================
+# ACTIVATE (element-wise r_acc activations, issue #77)
+# ============================================================================
+
+
+class TestActivate:
+    """ACTIVATE applies ipu_common.activations to the first ``valid_elements`` r_acc lanes."""
+
+    def test_activate_relu_int32(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 128)
+        state.regfile.set_cr(2, 1)  # relu
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -9))[0]
+        )
+        run_until_complete(state)
+        w0 = struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+        assert w0 == 0
+
+    def test_activate_masks_inactive_lanes(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 2)
+        state.regfile.set_cr(2, 1)  # relu
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -5))[0]
+        )
+        state.regfile.set_r_acc_word(
+            1, struct.unpack("<I", struct.pack("<i", -3))[0]
+        )
+        sentinel = struct.unpack("<I", struct.pack("<i", 99_999))[0]
+        for i in range(2, 128):
+            state.regfile.set_r_acc_word(i, sentinel)
+        run_until_complete(state)
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == 0
+        )
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(1)))[0]
+            == 0
+        )
+        for i in range(2, 128):
+            assert state.regfile.get_r_acc_word(i) == sentinel
+
+    def test_activate_unknown_id_is_identity(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_cr(2, 0x100)  # out of range → identity
+        raw = struct.unpack("<I", struct.pack("<i", -42))[0]
+        state.regfile.set_r_acc_word(0, raw)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(0) == raw
+
+    def test_activate_sigmoid_float_lane(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_cr(2, 4)  # sigmoid
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+        assert abs(out - 0.5) < 1e-6
+
+    def test_activate_matches_reference_all_ids_float(self):
+        x = 0.25
+        for fid in range(12):
+            state = _make_state(
+                """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+            )
+            state.regfile.set_cr(15, DType.E4)
+            state.regfile.set_lr(0, 1)
+            state.regfile.set_cr(2, fid)
+            state.regfile.set_r_acc_word(
+                0, struct.unpack("<I", struct.pack("<f", x))[0]
+            )
+            run_until_complete(state)
+            got = struct.unpack(
+                "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+            )[0]
+            exp = apply_activation(fid, x)
+            assert abs(got - exp) < 1e-5, f"id={fid} got={got} exp={exp}"
+
+    def test_activate_exp2_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_cr(2, 11)  # exp2
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
+        )
+        run_until_complete(state)
+        out = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+        assert abs(out - 8.0) < 1e-5
+
+    def test_activate_gelu_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_cr(2, 6)  # gelu
+        x = 1.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+        assert abs(out - apply_activation(6, x)) < 1e-5
+
+    def test_activate_valid_elements_from_cr(self):
+        state = _make_state(
+            """\
+ACTIVATE cr3 cr2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(3, 1)
+        state.regfile.set_cr(2, 1)  # relu
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -8))[0]
+        )
+        tail = struct.unpack("<I", struct.pack("<i", 123))[0]
+        state.regfile.set_r_acc_word(1, tail)
+        run_until_complete(state)
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == 0
+        )
+        assert state.regfile.get_r_acc_word(1) == tail

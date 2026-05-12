@@ -48,6 +48,7 @@ from ipu_common.acc_agg_enums import (
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
+from ipu_common.activations import apply_activation
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -1172,6 +1173,30 @@ class Ipu:
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
         self.state.regfile.set_aaq_result(result)
+
+    def execute_activate(self, *, valid_elements: int, act_cr_idx: int) -> None:
+        """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
+
+        The activation id (0–11) is read from ``cr[act_cr_idx]`` using the cycle-start
+        snapshot. Lanes at indices ``>=`` the active lane count are left unchanged.
+        """
+        fn_id = self.snapshot.get_cr(act_cr_idx) & 0xFFFFFFFF
+        active = self._agg_active_lane_count(valid_elements)
+        fmt = self._acc_agg_lane_fmt()
+        acc_buf = self.state.regfile.raw("r_acc")
+
+        for i in range(active):
+            raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            y = apply_activation(fn_id, float(raw))
+            if fmt == "<i":
+                yi = int(round(y))
+                if yi < -2147483648:
+                    yi = -2147483648
+                elif yi > 2147483647:
+                    yi = 2147483647
+                struct.pack_into("<i", acc_buf, i * 4, yi)
+            else:
+                struct.pack_into("<f", acc_buf, i * 4, float(y))
 
     def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
         """Execute XMEM.STORE_AAQ_RESULT: Write 128-byte aaq_result to xmem."""

@@ -469,7 +469,7 @@ class AaqInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
-            intro="Activation and quantization: aggregate r_acc into AAQ registers.",
+            intro="Activation and quantization: aggregate r_acc into AAQ registers; ACTIVATE applies element-wise activations in place.",
             slot_type="aaq",
         )
 

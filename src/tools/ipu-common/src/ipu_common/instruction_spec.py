@@ -641,7 +641,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: AAQ_NOP=0, AGG=1, AGG.FIRST=2
+    # Opcode = position: AAQ_NOP=0, AGG=1, AGG.FIRST=2, AAQ=3, ACTIVATE=4
     # =========================================================================
     "aaq": {
         "AAQ_NOP": {
@@ -741,6 +741,36 @@ INSTRUCTION_SPEC = {
                 example="AAQ;;",
             ),
             "execute_fn": "execute_aaq",
+        },
+        "ACTIVATE": {
+            "operands": [
+                {
+                    "name": "valid_elements",
+                    "type": "LcrIdx",
+                    "read": "snapshot",
+                },
+                {"name": "act_cr_idx", "type": "CrIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Activation",
+                summary=(
+                    "Apply an element-wise activation to the first valid_elements lanes of "
+                    "r_acc; lanes beyond the active prefix are unchanged. The activation id "
+                    "(0–11) is read from cr[act_cr_idx] at cycle start."
+                ),
+                syntax="ACTIVATE valid_elements act_cr_idx",
+                operands=[
+                    "valid_elements: lane count from an LR or CR register (unsigned, clamped to 0–128)",
+                    "act_cr_idx: which CR holds the activation function id (see AAQ stage spec section 7.0)",
+                ],
+                operation=(
+                    "Let n = min(valid_elements, 128) and k = cr[act_cr_idx]. "
+                    "For i in [0, n): r_acc[i] = activation_k(r_acc[i]). "
+                    "Alpha for leaky_relu / elu / prelu is fixed in the emulator (not ISA)."
+                ),
+                example="ACTIVATE lr0 cr2;;",
+            ),
+            "execute_fn": "execute_activate",
         },
     },
 
