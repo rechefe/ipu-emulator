@@ -18,7 +18,7 @@ Use `bazel`, not `pip install` or `python` directly.
 - **Never duplicate instruction metadata.** `instruction_spec.py` is the single source of truth for both the assembler and emulator.
 - **Operand names in `execute_*` handlers must exactly match** the `"name"` fields in `instruction_spec.py`.
 - **`cr15` is reserved** — never use it for application data.
-- **Docs and written examples:** instruction mnemonics are **upper case**; operand and register field tokens are **lower case** (the assembler still accepts any case for mnemonics).
+- **Docs and written examples:** instruction mnemonics are **upper case**; hardware register names (`R0`, `R1`, `LR0`–`LR15`, `CR0`–`CR15`) are **upper case**; abstract operand placeholder tokens (`dest`, `src_a`) are **lower case** (the assembler still accepts any case for mnemonics). Operands in assembly commands are separated by **commas**. Pseudocode data-size comments use **elements**, not bytes.
 
 ## Adding an Instruction (quick checklist)
 

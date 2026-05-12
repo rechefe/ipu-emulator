@@ -164,13 +164,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Accumulator",
                 summary="Store accumulator to memory.",
-                syntax="STR_ACC_REG offset base",
+                syntax="STR_ACC_REG offset, base",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
                 ],
                 operation="Memory[offset + base] = r_acc",
-                example="STR_ACC_REG cr0 cr1;;",
+                example="STR_ACC_REG CR0, CR1;;",
             ),
             "execute_fn": "execute_str_acc_reg",
         },
@@ -183,14 +183,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Register",
                 summary="Load data from memory into a multiplication stage register.",
-                syntax="LDR_MULT_REG dest offset base",
+                syntax="LDR_MULT_REG dest, offset, base",
                 operands=[
-                    "`dest`: **`r0`** | **`r1`** — mult-stage register to load (2-bit field; only these encodings are valid).",
-                    "`offset`: **`lr0`**…**`lr15`** — offset register.",
-                    "`base`: **`cr0`**…**`cr15`** — base address register.",
+                    "`dest`: **`R0`** | **`R1`** — mult-stage register to load (2-bit field; only these encodings are valid).",
+                    "`offset`: **`LR0`**…**`LR15`** — offset register.",
+                    "`base`: **`CR0`**…**`CR15`** — base address register.",
                 ],
-                operation="dest = Memory[offset + base]  # 128 bytes (512 in wide-vector debug mode)",
-                example="SET lr0 0x1000;;\nLDR_MULT_REG r0 lr0 cr0;;",
+                operation="dest = Memory[offset + base]  # 128 elements (512 in wide-vector debug mode)",
+                example="SET LR0, 0x1000;;\nLDR_MULT_REG R0, LR0, CR0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
         },
@@ -203,7 +203,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Cyclic Register",
                 summary="Load with cyclic addressing into r_cyclic.",
-                syntax="LDR_CYCLIC_MULT_REG offset base index",
+                syntax="LDR_CYCLIC_MULT_REG offset, base, index",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
@@ -221,7 +221,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Load Mask Register",
                 summary="Load mask data from memory.",
-                syntax="LDR_MULT_MASK_REG offset base mask_idx",
+                syntax="LDR_MULT_MASK_REG offset, base, mask_idx",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
@@ -248,13 +248,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store AAQ Result",
                 summary="Write the 128-byte AAQ quantization result register to external memory.",
-                syntax="XMEM.STORE_AAQ_RESULT offset base",
+                syntax="XMEM.STORE_AAQ_RESULT offset, base",
                 operands=[
                     "offset: Offset register (lr0-lr15)",
                     "base: Base address register (cr0-cr15)",
                 ],
-                operation="Memory[offset + base] = aaq_result  # 128 bytes",
-                example="XMEM.STORE_AAQ_RESULT lr0 cr0;;",
+                operation="Memory[offset + base] = aaq_result  # 128 elements",
+                example="XMEM.STORE_AAQ_RESULT LR0, CR0;;",
             ),
             "execute_fn": "execute_xmem_store_aaq_result",
         },
@@ -273,13 +273,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Set Loop Register",
                 summary="Set a loop register to an immediate value.",
-                syntax="SET reg value",
+                syntax="SET reg, value",
                 operands=[
                     "reg: Loop register (lr0-lr15)",
                     "value: 32-bit immediate value",
                 ],
                 operation="reg = value",
-                example="SET lr0 0x1000;;",
+                example="SET LR0, 0x1000;;",
             ),
             "execute_fn": "execute_lr_set",
         },
@@ -295,14 +295,14 @@ INSTRUCTION_SPEC = {
                     "Add two sources (second source may be an LR, CR, or 5-bit unsigned immediate) "
                     "and store the result in the destination LR."
                 ),
-                syntax="ADD dest src_a src_b",
+                syntax="ADD dest, src_a, src_b",
                 operands=[
                     "dest: Destination local register (lr0-lr15)",
                     "src_a: First source local register (lr0-lr15)",
                     "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a + src_b",
-                example="ADD lr0 lr1 lr2;;\nadd lr3 lr1 cr5;;\nadd lr4 lr1 7;;",
+                example="ADD LR0, LR1, LR2;;\nADD LR3, LR1, CR5;;\nADD LR4, LR1, 7;;",
             ),
             "execute_fn": "execute_lr_add",
         },
@@ -318,14 +318,14 @@ INSTRUCTION_SPEC = {
                     "Subtract the second source from the first (second source may be an LR, CR, "
                     "or 5-bit unsigned immediate) and store the result in the destination LR."
                 ),
-                syntax="SUB dest src_a src_b",
+                syntax="SUB dest, src_a, src_b",
                 operands=[
                     "dest: Destination local register (lr0-lr15)",
                     "src_a: First source local register (lr0-lr15)",
                     "src_b: Second source — lr0-lr15, cr0-cr15, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a - src_b",
-                example="SUB lr0 lr1 lr2;;\nsub lr3 lr1 cr5;;\nsub lr4 lr1 7;;",
+                example="SUB LR0, LR1, LR2;;\nSUB LR3, LR1, CR5;;\nSUB LR4, LR1, 7;;",
             ),
             "execute_fn": "execute_lr_sub",
         },
@@ -341,14 +341,14 @@ INSTRUCTION_SPEC = {
                     "Add a loop or configuration register into the destination loop "
                     "register, then mask to k low bits (mod 2^k)."
                 ),
-                syntax="INCR_MOD_POW2 dst step k",
+                syntax="INCR_MOD_POW2 dst, step, k",
                 operands=[
                     "dst: Destination loop register (lr0-lr15); read and written",
                     "step: Signed 32-bit increment from lr0-lr15 or cr0-cr15",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dst <- (dst + step) & ((1 << k) - 1)",
-                example="INCR_MOD_POW2 lr2 lr3 4;;",
+                example="INCR_MOD_POW2 LR2, LR3, 4;;",
             ),
             "execute_fn": "execute_lr_incr_mod_pow2",
         },
@@ -370,15 +370,15 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Element-wise Multiply",
                 summary="Multiply elements of two registers element by element.",
-                syntax="MULT.EE ra cyclic_offset mask_offset mask_shift",
+                syntax="MULT.EE ra, cyclic_offset, mask_offset, mask_shift",
                 operands=[
-                    "`ra`: **`r0`** | **`r1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`r0`**/**`r1`** is allowed).",
-                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into **`r_cyclic`**.",
+                    "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
+                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into **`r_cyclic`**.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
-                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — shift applied to the mask register.",
                 ],
                 operation="For each lane i: mult_res[i] = ipu_mult(ra[i], r_cyclic[cyclic_offset + i]); then apply mask and shift.",
-                example="MULT.EE r0 lr0 0 lr2;;",
+                example="MULT.EE R0, LR0, 0, LR2;;",
             ),
             "execute_fn": "execute_mult_ee",
         },
@@ -394,17 +394,17 @@ INSTRUCTION_SPEC = {
                 summary=(
                     "Multiply a fixed element from r0 or r1 against r_cyclic[cyclic_offset:cyclic_offset+128]. "
                     "`fixed_idx` 0..127 selects `r0[fixed_idx]`, 128..255 selects `r1[fixed_idx - 128]`. "
-                    "r_cyclic is addressed cyclically modulo 512 bytes (no padding with 1 past the boundary)."
+                    "r_cyclic is addressed cyclically modulo 512 elements (no padding with 1 past the boundary)."
                 ),
-                syntax="MULT.VE.CYCLIC cyclic_offset mask_offset mask_shift fixed_idx",
+                syntax="MULT.VE.CYCLIC cyclic_offset, mask_offset, mask_shift, fixed_idx",
                 operands=[
-                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into **`r_cyclic`** (reduced mod 512).",
+                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into **`r_cyclic`** (reduced mod 512).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
-                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
-                    "`fixed_idx`: **`lr0`**…**`lr15`** (value read live) — scalar index into **`r0`**/**`r1`**.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — shift applied to the mask register.",
+                    "`fixed_idx`: **`LR0`**…**`LR15`** (value read live) — scalar index into **`R0`**/**`R1`**.",
                 ],
-                operation="For i in [0, 128): rb = r_cyclic[(cyclic_offset + i) % 512]; scalar from r0/r1 via fixed_idx; mult_res[i] = scalar * rb (then mask/shift).",
-                example="MULT.VE.CYCLIC lr0 0 lr2 lr3;;",
+                operation="For i in [0, 128): rb = r_cyclic[(cyclic_offset + i) % 512]; scalar from R0/R1 via fixed_idx; mult_res[i] = scalar * rb (then mask/shift).",
+                example="MULT.VE.CYCLIC LR0, 0, LR2, LR3;;",
             ),
             "execute_fn": "execute_mult_ve_cyclic",
         },
@@ -421,15 +421,15 @@ INSTRUCTION_SPEC = {
                     "Same scalar × RC row as `MULT.VE.CYCLIC`, but indices at or past the 512-byte RC "
                     "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
                 ),
-                syntax="MULT.VE.PADDED cyclic_offset mask_offset mask_shift fixed_idx",
+                syntax="MULT.VE.PADDED cyclic_offset, mask_offset, mask_shift, fixed_idx",
                 operands=[
-                    "`cyclic_offset`: **`lr0`**…**`lr15`** — base byte offset into `r_cyclic`; out-of-range lanes use dtype 1.",
+                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into `r_cyclic`; out-of-range lanes use dtype 1.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in `r_mask`.",
-                    "`mask_shift`: **`lr0`**…**`lr15`** — shift applied to the mask register.",
-                    "`fixed_idx`: **`lr0`**…**`lr15`** (value read live) — scalar index into **`r0`**/**`r1`**.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — shift applied to the mask register.",
+                    "`fixed_idx`: **`LR0`**…**`LR15`** (value read live) — scalar index into **`R0`**/**`R1`**.",
                 ],
-                operation="For i in [0, 128): rb = r_cyclic[cyclic_offset + i] if in bounds else dtype_one; scalar from r0/r1; mult_res[i] = scalar * rb (then mask/shift).",
-                example="MULT.VE.PADDED lr0 0 lr2 lr3;;",
+                operation="For i in [0, 128): rb = r_cyclic[cyclic_offset + i] if in bounds else dtype_one; scalar from R0/R1; mult_res[i] = scalar * rb (then mask/shift).",
+                example="MULT.VE.PADDED LR0, 0, LR2, LR3;;",
             ),
             "execute_fn": "execute_mult_ve_padded",
         },
@@ -453,7 +453,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (CR scalar)",
                 summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from a CR register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="MULT.VE.CR cyclic_offset mask_offset mask_shift cr_idx",
+                syntax="MULT.VE.CR cyclic_offset, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
                     "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
@@ -461,7 +461,7 @@ INSTRUCTION_SPEC = {
                     "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (cr0-cr15)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = CR[cr_idx][0] * rb",
-                example="MULT.VE.CR lr0 0 lr15 cr3;;",
+                example="MULT.VE.CR LR0, 0, LR15, CR3;;",
             ),
             "execute_fn": "execute_mult_ve_cr",
         },
@@ -475,7 +475,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Vector-Element Multiply (AAQ scalar)",
                 summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from an AAQ register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="MULT.VE.AAQ cyclic_offset mask_offset mask_shift aaq_rf_idx",
+                syntax="MULT.VE.AAQ cyclic_offset, mask_offset, mask_shift, aaq_rf_idx",
                 operands=[
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
                     "mask_offset: Immediate mask slot 0–7 (128-bit slice of r_mask)",
@@ -483,7 +483,7 @@ INSTRUCTION_SPEC = {
                     "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (aaq0-aaq3)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; mult_res[i] = AAQ[aaq_rf_idx][0] * rb",
-                example="MULT.VE.AAQ lr0 0 lr15 aaq1;;",
+                example="MULT.VE.AAQ LR0, 0, LR15, AAQ1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
         },
@@ -553,7 +553,7 @@ INSTRUCTION_SPEC = {
                     "r_acc += multiply_result;\n"
                     "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
                 ),
-                example="ACC.ADD_AAQ aaq0;;",
+                example="ACC.ADD_AAQ AAQ0;;",
             ),
             "execute_fn": "execute_acc_add_aaq",
         },
@@ -572,7 +572,7 @@ INSTRUCTION_SPEC = {
                     "r_acc = multiply_result;\n"
                     "for i in [0, 128): r_acc[i] += aaq_regs[aaq_rf_idx]"
                 ),
-                example="ACC.ADD_AAQ.FIRST aaq0;;",
+                example="ACC.ADD_AAQ.FIRST AAQ0;;",
             ),
             "execute_fn": "execute_acc_add_aaq_first",
         },
@@ -590,7 +590,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "for i in [0, 128): r_acc[i] = max(r_acc[i], mult_res[i], aaq_regs[aaq_rf_idx])"
                 ),
-                example="ACC.MAX aaq0;;",
+                example="ACC.MAX AAQ0;;",
             ),
             "execute_fn": "execute_acc_max",
         },
@@ -608,7 +608,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "for i in [0, 128): r_acc[i] = max(mult_res[i], aaq_regs[aaq_rf_idx])"
                 ),
-                example="ACC.MAX.FIRST aaq0;;",
+                example="ACC.MAX.FIRST AAQ0;;",
             ),
             "execute_fn": "execute_acc_max_first",
         },
@@ -622,7 +622,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Accumulator Stride",
                 summary="Reorder the multiplication result into r_acc using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
-                syntax="ACC.STRIDE elements_in_row horizontal_stride vertical_stride offset",
+                syntax="ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset",
                 operands=[
                     "elements_in_row: Elements per row (8, 16, 32, or 64)",
                     "horizontal_stride: Horizontal stride mode (enabled, inverted, expand)",
@@ -633,7 +633,7 @@ INSTRUCTION_SPEC = {
                     "Decimate mult_res as rows×cols; apply horizontal stride (take every 2nd column, optional expand); "
                     "then vertical stride (take every 2nd row). Write result into r_acc[start:start+N] where start = (offset%4)*32, N = 32|64|128."
                 ),
-                example="ACC.STRIDE 8 off off lr0;;",
+                example="ACC.STRIDE 8, off, off, LR0;;",
             ),
             "execute_fn": "execute_acc_stride",
         },
@@ -672,7 +672,7 @@ INSTRUCTION_SPEC = {
                     "Collapse r_acc lanes into one value (SUM or MAX), using only the first "
                     "valid_elements words for the tree; apply post function; store to selected AAQ register."
                 ),
-                syntax="AGG agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
+                syntax="AGG agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
@@ -688,7 +688,7 @@ INSTRUCTION_SPEC = {
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG sum value lr0 cr0 aaq0;;",
+                example="AGG sum, value, LR0, CR0, AAQ0;;",
             ),
             "execute_fn": "execute_agg",
         },
@@ -707,7 +707,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Accumulator Aggregate First",
                 summary="Like AGG, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
-                syntax="AGG.FIRST agg_mode post_fn valid_elements cr_idx aaq_rf_idx",
+                syntax="AGG.FIRST agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
@@ -723,7 +723,7 @@ INSTRUCTION_SPEC = {
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG.FIRST max value lr0 cr0 aaq0;;",
+                example="AGG.FIRST max, value, LR0, CR0, AAQ0;;",
             ),
             "execute_fn": "execute_agg_first",
         },
@@ -758,14 +758,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Equal",
                 summary="Branch if two registers are equal.",
-                syntax="BEQ reg1 reg2 label",
+                syntax="BEQ reg1, reg2, label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
-                example="BEQ lr0 lr1 end;;",
+                example="BEQ LR0, LR1, end;;",
             ),
             "execute_fn": "execute_beq",
         },
@@ -778,14 +778,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Not Equal",
                 summary="Branch if two registers are not equal.",
-                syntax="BNE reg1 reg2 label",
+                syntax="BNE reg1, reg2, label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
-                example="BNE lr0 cr0 loop;;",
+                example="BNE LR0, CR0, loop;;",
             ),
             "execute_fn": "execute_bne",
         },
@@ -798,14 +798,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Less Than",
                 summary="Branch if first register is less than second.",
-                syntax="BLT reg1 reg2 label",
+                syntax="BLT reg1, reg2, label",
                 operands=[
                     "reg1: First register to compare (lr0-lr15 or cr0-cr15)",
                     "reg2: Second register to compare (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 < reg2) PC = label",
-                example="BLT lr0 cr1 smaller;;",
+                example="BLT LR0, CR1, smaller;;",
             ),
             "execute_fn": "execute_blt",
         },
@@ -818,14 +818,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Not Zero",
                 summary="Branch if test register not equal to base register.",
-                syntax="BNZ test_reg base_reg label",
+                syntax="BNZ test_reg, base_reg, label",
                 operands=[
                     "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
                     "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg != base_reg) PC = label",
-                example="BNZ lr3 lr0 loop;;",
+                example="BNZ LR3, LR0, loop;;",
             ),
             "execute_fn": "execute_bnz",
         },
@@ -838,14 +838,14 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Branch if Zero",
                 summary="Branch if test register equals base register.",
-                syntax="BZ test_reg base_reg label",
+                syntax="BZ test_reg, base_reg, label",
                 operands=[
                     "test_reg: Register to test (lr0-lr15 or cr0-cr15)",
                     "base_reg: Base comparison register (lr0-lr15 or cr0-cr15)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg == base_reg) PC = label",
-                example="BZ lr0 lr1 zero;;",
+                example="BZ LR0, LR1, zero;;",
             ),
             "execute_fn": "execute_bz",
         },
@@ -913,13 +913,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Break if Equal",
                 summary="Break execution if register equals value.",
-                syntax="BREAK.IFEQ reg value",
+                syntax="BREAK.IFEQ reg, value",
                 operands=[
                     "reg: Register to test (lr0-lr15)",
                     "value: Immediate value to compare against",
                 ],
                 operation="if (reg == value) BREAK",
-                example="BREAK.IFEQ lr0 10;;",
+                example="BREAK.IFEQ LR0, 10;;",
             ),
             "execute_fn": "execute_break_ifeq",
         },
