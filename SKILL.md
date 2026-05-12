@@ -96,7 +96,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
 | MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
 | ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into `R_ACC` |
-| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | Aggregate / quantize `R_ACC`; `ACTIVATE` applies keyword activations (see `docs/content/specs/stage-aaq.md` for α configuration) |
+| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | Aggregate / quantize `R_ACC`; `ACTIVATE` is a Python-emulator AAQ-slot aid (see `docs/content/building-applications.md#activations-emulator`) |
 | LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops |
 | COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |

@@ -58,7 +58,8 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, **leaky_relu**, "
         "**sigmoid**, **tanh**, **gelu**, **silu** (alias **swish**), **softplus**, **elu**, **prelu**, **exp2** "
-        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``)."
+        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
+        "is covered in **Building Applications** (`docs/content/building-applications.md#activations-emulator`)."
     ),
     "Immediate": (
         "Signed **16-bit** immediate carried in the LR slot (sign-extended by the emulator for "
@@ -70,7 +71,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "MultMaskOffsetImmediate": (
         "Unsigned **3-bit** immediate on multiply instructions: **`mask_offset`** selects slot "
-        "**`0`**–**`7`**, each a **128-bit** region of **`r_mask`** (eight mask slots total). "
+        "**`0`**–**`7`**, each a **128-bit** region of **`R_MASK`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",

@@ -16,7 +16,46 @@ Everything lives together in one directory.
 
 ## Wide-vector debug mode (optional)
 
-The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `aaq` / `str_acc_reg` in that mode.
+The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / `STR_ACC_REG` in that mode.
+
+## Activations, `ACTIVATE`, and virtual α (Python emulator) {#activations-emulator}
+
+The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
+
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same twelve activation shapes to **`R_ACC`** before aggregation or quantization, without modeling the full `act_cr_idx` path:
+
+```asm
+ACTIVATE LR0 relu;;
+```
+
+- **Syntax:** `ACTIVATE` *valid_elements* *activation_fn*, where *valid_elements* is an `LR`/`CR` selector (same lane-count semantics as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `leaky_relu`, `sigmoid`, `tanh`, `gelu`, `silu`, `softplus`, `elu`, `prelu`, `exp2`). The assembler also accepts **`swish`** as an alias for **`silu`**.
+- **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
+
+### Virtual α in the emulator (leaky_relu, elu, prelu)
+
+The stock ISA does not expose α. In software, α is represented by **module-level constants** in the same file (not `CR` writes, not environment variables, not CLI flags):
+
+| Name | Activation | Default |
+|------|------------|---------|
+| `_LEAKY_ALPHA` | `leaky_relu` | `0.01` |
+| `_ELU_ALPHA` | `elu` | `1.0` |
+| `_PRELU_ALPHA` | `prelu` | `0.25` |
+
+These are **virtual** values: they stand in for whatever fixed calibration your RTL or chip would supply.
+
+### Overriding α (or the whole activation table) when you need to
+
+Pick the approach that matches how much isolation you need:
+
+1. **Edit `activations.py` and rebuild** — simplest for a long-lived fork or when you always want new defaults. Run `bazel test //…` (or your usual pytest targets) after changing `_LEAKY_ALPHA`, `_ELU_ALPHA`, or `_PRELU_ALPHA`.
+
+2. **Monkeypatch at import time (tests and one-off harnesses)** — after `import ipu_common.activations as act` but **before** the first `Ipu` run in that process, assign new floats, for example `act._LEAKY_ALPHA = 0.05`. `apply_activation` reads the module globals on each call, so patched values take effect immediately. Prefer doing this in a `conftest.py` autouse fixture or an app `setup()` that runs before `load_program`.
+
+3. **Shim `ipu_common` on `PYTHONPATH` (advanced)** — for CI matrix jobs without touching the main tree, prepend a directory that provides a replacement `ipu_common/activations.py` (or a tiny package that re-exports `apply_activation` with different constants). Keep the public API (`ACTIVATION_FN_NAMES`, `apply_activation` signature) compatible so the assembler and emulator imports keep working.
+
+4. **Vendor a copy for experiments** — for notebooks or papers, copy the small `apply_activation` body into your own module and drive `R_ACC` writes from Python; bypass `ACTIVATE` entirely if you are not assembling IPU binaries.
+
+For **multiple α values in one process**, prefer (2) inside distinct test cases, or separate subprocesses with different patches—constants are process-wide.
 
 ## Step 1: Write the Assembly Program
 

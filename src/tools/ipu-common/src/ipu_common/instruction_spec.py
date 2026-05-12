@@ -757,8 +757,11 @@ INSTRUCTION_SPEC = {
                 summary=(
                     "Apply an element-wise activation to the first valid_elements lanes of "
                     "R_ACC; lanes beyond the active prefix are unchanged. The activation is "
-                    "selected by keyword (see ACTIVATION_FN_NAMES; see AAQ stage spec section 7.0). "
-                    "The binary encoding uses four bits; values not listed in the enum are treated as identity."
+                    "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
+                    "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
+                    "encodings outside the twelve named activations behave as identity. For Python "
+                    "emulator calibration (including virtual α), see "
+                    "docs/content/building-applications.md#activations-emulator."
                 ),
                 syntax="ACTIVATE valid_elements activation_fn",
                 operands=[
@@ -768,7 +771,9 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = min(valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): R_ACC[i] = activation_k(R_ACC[i]). "
-                    "Alpha for leaky_relu / elu / prelu is fixed in the emulator (not ISA)."
+                    "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
+                    "α for leaky_relu, elu, and prelu is not an ISA operand; see "
+                    "docs/content/building-applications.md#activations-emulator."
                 ),
                 example="ACTIVATE LR0 relu;;",
             ),
