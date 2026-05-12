@@ -55,7 +55,8 @@ Same principle applies to **`registers.py`** for register definitions.
 ### Naming in prose, docs, and examples
 
 - **Instruction mnemonics** are written in **upper case** everywhere in this repository (Markdown, comments, `InstructionDoc.syntax` / examples, and the keys in `INSTRUCTION_SPEC`). The assembler still accepts upper or lower case in source files.
-- **Operand and field names** (`dest`, `src_a`, register tokens like `lr0` / `r0`) are written in **lower case**.
+- **Hardware register names** (`R0`, `R1`, `LR0`–`LR15`, `CR0`–`CR15`) are written in **upper case** in all docs and examples.
+- **Abstract operand placeholder tokens** (`dest`, `src_a`, `offset`) in syntax templates are written in **lower case**.
 
 ---
 
@@ -66,7 +67,7 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; ADD lr0 lr0 1; BNE lr0 lr1 next;;
+LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
 - Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`

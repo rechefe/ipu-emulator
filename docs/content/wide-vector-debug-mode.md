@@ -48,8 +48,8 @@ The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/
 
 While **addresses are still byte addresses**, wide mode changes how much data some loads consume per instruction:
 
-- **`LDR_MULT_REG`** reads **512 bytes** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`r0` or `r1` only**. The architectural 128-byte `r` register bytes in the regfile are not the source for mult operands in this mode.
-- **`LDR_CYCLIC_MULT_REG`** reads **512 bytes** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-byte alignment in normal mode, scaled to the wide chunk).
+- **`LDR_MULT_REG`** reads **512 elements** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`R0` or `R1` only**. The architectural 128-element `r` register in the regfile is not the source for mult operands in this mode.
+- **`LDR_CYCLIC_MULT_REG`** reads **512 elements** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-element alignment in normal mode, scaled to the wide chunk).
 
 Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
 
@@ -62,7 +62,7 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit lanes starting at a **byt
 ## Semantics that differ from normal mode
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 lanes.
-- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full lane results remain in **`r_acc`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `r_acc` in Python) to dump 512 bytes of accumulator data.
+- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full lane results remain in **`r_acc`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `r_acc` in Python) to dump 512 elements of accumulator data.
 - **LR and CR** are **not** widened; scalars such as **`MULT.VE.CR`** still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32
