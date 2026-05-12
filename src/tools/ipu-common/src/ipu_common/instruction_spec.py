@@ -331,7 +331,7 @@ INSTRUCTION_SPEC = {
         },
         "INCR_MOD_POW2": {
             "operands": [
-                {"name": "dst", "type": "LrIdx"},
+                {"name": "dest", "type": "LrIdx"},
                 {"name": "step", "type": "LcrIdx", "read": "snapshot"},
                 {"name": "k", "type": "LrModPow2KImmediate"},
             ],
