@@ -473,10 +473,10 @@ class Ipu:
         """Execute SUB: uint32 ``dest = src_a - src_b`` (``src_b`` may be an immediate)."""
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
 
-    def execute_lr_incr_mod_pow2(self, *, dst: int, step: int, k: int) -> None:
-        """INCR_MOD_POW2: dst <- (dst + step) mod 2^k.
+    def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
+        """INCR_MOD_POW2: dest <- (dest + step) mod 2^k.
 
-        Old dst is taken from the cycle-start snapshot (read-before-write). Step is
+        Old dest is taken from the cycle-start snapshot (read-before-write). Step is
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
         ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
         """
@@ -486,10 +486,10 @@ class Ipu:
                 f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
             )
         k_exp = k + LR_MOD_POW2_K_MIN
-        cur = self.snapshot.get_lr(dst)
+        cur = self.snapshot.get_lr(dest)
         step_u = step & 0xFFFFFFFF
         mask = (1 << k_exp) - 1
-        self.state.regfile.set_lr(dst, ((cur + step_u) & 0xFFFFFFFF) & mask)
+        self.state.regfile.set_lr(dest, ((cur + step_u) & 0xFFFFFFFF) & mask)
 
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
         """Dispatch all LR sub-slots with conflict detection.
@@ -530,7 +530,8 @@ class Ipu:
 
         # Conflict check: no two valid instructions may write to the same LR
         lr_targets = [kw.get("reg", kw.get("dest")) for _, _, kw in pending]
-        if len(lr_targets) != len(set(lr_targets)):
+        real_targets = [t for t in lr_targets if t is not None]
+        if len(real_targets) != len(set(real_targets)):
             raise RuntimeError(
                 f"LR conflict: multiple writes to LR{lr_targets} in same cycle"
             )
