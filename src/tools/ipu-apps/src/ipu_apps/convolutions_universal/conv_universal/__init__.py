@@ -157,7 +157,9 @@ class ConvUniversalApp(IpuApp):
         self.kernel_path = Path(kernel_path) if kernel_path is not None else None
 
         # Validate
-        valid_cols = {16, 32, 64, 128}
+        # cols=128 is not yet supported by the walking-pointer asm; this
+        # binary handles 16/32/64. (cols=128 will live in a separate binary.)
+        valid_cols = {16, 32, 64}
         if cols not in valid_cols:
             raise ValueError(f"cols must be in {valid_cols}, got {cols}")
         num_chunks = (rows * cols) // 128
@@ -201,12 +203,10 @@ class ConvUniversalApp(IpuApp):
                 np.frombuffer(raw, dtype=np.int8)
                 .reshape(self.out_channels, self.in_channels, 3, 3)
             )
-        # Reorder taps to match asm execution order: kr=+1, kr=0, kr=-1.
-        # Original row-major order: [0..8] = (kr=-1,kc=-1)..(kr=+1,kc=+1).
-        # New order bytes: [6,7,8, 3,4,5, 0,1,2].
-        TAP_ORDER = [6, 7, 8, 3, 4, 5, 0, 1, 2]
-        w9 = weights.reshape(self.out_channels, self.in_channels, 9)
-        w_reordered = w9[:, :, TAP_ORDER]
+        # Tap order in the walking-pointer asm: kr=-1 → kr=0 → kr=+1, with
+        # kc=-1 → 0 → +1 within each row.  That's natural row-major from the
+        # source [out_ch, in_ch, 3, 3] — no reordering needed.
+        w_reordered = weights.reshape(self.out_channels, self.in_channels, 9)
         return _pack_conv_weights_fpb28(w_reordered, self.dtype)
 
     def setup(self, state: "IpuState") -> None:
@@ -250,6 +250,10 @@ class ConvUniversalApp(IpuApp):
         # removed — `add` with AddSubSrcB caps the immediate at 5-bit unsigned).
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, 256)
+        # cr14 = end-of-9 walking-pointer step: brings lr_walk from this ch's
+        # tap-9 offset (lr_read + cols + 1) to next ch's tap-1 offset
+        # ((lr_read + 256) - cols - 1), i.e. +(256 - 2*cols - 2).
+        state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

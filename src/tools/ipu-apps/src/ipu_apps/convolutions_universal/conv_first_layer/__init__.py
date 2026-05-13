@@ -139,7 +139,8 @@ class ConvFirstLayerApp(IpuApp):
         state.regfile.set_cr(4, MASK_BASE_ADDR)
         state.regfile.set_cr(5, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(6, TEMP_BASE_ADDR)
-        state.regfile.set_cr(9, 1)  # identity scalar for mult.ve.cr
+        state.regfile.set_cr(9, 1)    # identity scalar for mult.ve.cr
+        state.regfile.set_cr(12, 128) # step constant for add (kernel/output advance)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

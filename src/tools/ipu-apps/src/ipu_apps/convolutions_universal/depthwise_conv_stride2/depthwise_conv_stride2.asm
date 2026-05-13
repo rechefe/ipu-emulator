@@ -29,6 +29,7 @@
 #   cr7 = 1024 (channel group size = 8 * 128)
 #   cr8 = temp region base address
 #   cr9 = 1 (identity scalar for mult.ve.cr)
+#   cr12 = 128 (step constant for add)
 #
 # LR registers:
 #   lr0  = 0     (zero, mask slot 0, mask_shift)
@@ -67,7 +68,7 @@
     sub                 lr3 lr4 cr4;;
 
     add                 lr5 lr4 cr4;
-    add                 lr13 cr6 lr0;;
+    add                 lr13 lr0 cr6;;
 
 # ===========================================================================
 # Main loop: output chunks 0..30  (2 full output rows per chunk)
@@ -114,46 +115,46 @@ chunk_ch_loop:
 
     # --- kr=-1: cyclic base lr3, masks 1/0/2 ---
     sub                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=0: cyclic base lr4, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=+1: cyclic base lr5, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # Quantize row A result and store to temp_A
@@ -165,7 +166,7 @@ chunk_ch_loop:
     # =======================================================================
 
     # Reset lr6 to channel's kernel base (undo 9 increments, currently at base+8)
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # Compute S1 addr = lr8 + 3*lr13 + lr10
     add                 lr14 lr8 lr10;;
@@ -189,46 +190,46 @@ chunk_ch_loop:
 
     # --- kr=-1: cyclic base lr3, masks 1/0/2 ---
     sub                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=0: cyclic base lr4, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=+1: cyclic base lr5, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # Quantize row B result and store to temp_B
@@ -241,7 +242,7 @@ chunk_ch_loop:
 
     # Load temp_A into cyclic[0], identity multiply, reset acc
     ldr_cyclic_mult_reg lr0 cr8 lr0;
-    mult.ve.cr           lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
     # Stride row A -> r_acc[0:63]
@@ -249,7 +250,7 @@ chunk_ch_loop:
 
     # Load temp_B into cyclic[0], identity multiply
     ldr_cyclic_mult_reg lr4 cr8 lr0;
-    mult.ve.cr           lr0 lr0 lr0 cr9;;
+    mult.ve.cr          lr0 0 lr0 cr9;;
 
     # Stride row B -> r_acc[64:127]
     acc.stride           64 on off lr2;;
@@ -259,15 +260,15 @@ chunk_ch_loop:
     xmem.store_aaq_result lr7 cr2;;
 
     # Advance to next channel
-    incr                lr6 1;
-    incr                lr10 128;;
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr7 128;;
+    add                 lr7 lr7 cr12;;
 
     blt                 lr10 lr11 chunk_ch_loop;;
 
     # Advance to next kernel group
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     blt                 lr10 lr13 chunk_kg_loop;;
 
@@ -278,7 +279,7 @@ chunk_ch_loop:
     add                 lr8 lr8 lr13;;
     add                 lr8 lr8 lr13;;
 
-    incr                lr9 1;;
+    add                 lr9 lr9 1;;
 
     set                 lr15 31;;
 
@@ -324,44 +325,44 @@ last_ch_loop:
 
     # --- 9 taps (same pattern) ---
     sub                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # Quantize row A and store to temp_A
@@ -374,7 +375,7 @@ last_ch_loop:
 
     # Load temp_A, identity multiply, reset acc
     ldr_cyclic_mult_reg lr0 cr8 lr0;
-    mult.ve.cr           lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
     # Stride row A -> r_acc[0:63], r_acc[64:127] stays zero
@@ -385,14 +386,14 @@ last_ch_loop:
     xmem.store_aaq_result lr7 cr2;;
 
     # Advance
-    incr                lr6 1;
-    incr                lr10 128;;
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr7 128;;
+    add                 lr7 lr7 cr12;;
 
     blt                 lr10 lr11 last_ch_loop;;
 
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     blt                 lr10 lr13 last_kg_loop;;
 

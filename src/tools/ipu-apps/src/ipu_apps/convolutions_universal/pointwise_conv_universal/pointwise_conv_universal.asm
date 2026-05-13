@@ -15,6 +15,8 @@
 #   - Grouped path:  when num_groups > 1  — processes G channels per group,
 #     accumulating across groups without resetting the accumulator
 #
+# ISA: mult.ve.cyclic (mask_offset immediate), acc.first, no reset_acc+mult+acc triplet.
+#
 # CR register parameters (set by harness):
 #   cr0 = input base address
 #   cr1 = kernel base address
@@ -89,16 +91,17 @@
 # ===========================================================================
 
     # Load mask data (all zeros — no masking for pointwise conv)
+    set                 lr7 0;
     ldr_mult_mask_reg   lr7 cr2;
-    set                 lr5 512;
-    set                 lr6 128;;
+    set                 lr5 512;;
 
+    set                 lr6 128;
     set                 lr8 256;
     set                 lr9 384;;
 
     # Copy CR parameters into LR registers (used by original path)
-    add                 lr10 cr4 lr7;
-    add                 lr11 cr5 lr7;;
+    add                 lr10 lr7 cr4;
+    add                 lr11 lr7 cr5;;
 
     set                 lr1 -512;;
 
@@ -126,7 +129,7 @@ row_loop:
     # Path selection: if num_groups > 1, use grouped path
     # cr9 = num_groups * 128; lr6 = 128
     # If 128 < cr9 → num_groups > 1 → grouped path
-    add                 lr14 cr9 lr7;;
+    add                 lr14 lr7 cr9;;
 
     blt                 lr6 lr14 kernel_group_loop_g;;
 
@@ -155,12 +158,9 @@ kernel_group_loop:
 
 LOOP_OCH_A:
 
-    # W1: Reset accumulator
-    reset_acc;;
-
-    # W2: mult ich0 (S0), first kernel byte for this OC
-    mult.ve             r0 lr7 lr7 lr7 lr4;
-    acc;;
+    # W1: Reset acc + first mult (ich0 from S0) folded via acc.first
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc.first;;
 
     # Guard: skip pipeline if in_channels <= 4 (pipeline_limit < 0)
     # lr15 = lr4 + (in_channels - 5) = per-OC pipeline bound
@@ -176,64 +176,64 @@ LOOP_OCH_A:
 PIPELINE_LOOP_A:
 
     # load ich(k)   -> S0, mult ich(k-3) from S1
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    mult.ve             r0 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
     # load ich(k+1) -> S1, mult ich(k-2) from S2
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r0 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
     # load ich(k+2) -> S2, mult ich(k-1) from S3
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r0 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
     # load ich(k+3) -> S3, mult ich(k) from S0; branch if more
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    mult.ve             r0 lr7 lr7 lr7 lr4;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
     acc;
     blt                 lr4 lr15 PIPELINE_LOOP_A;;
 
 EPILOGUE_A:
 
     # E1: reload ich0 -> S0, mult second-to-last-3 from S1
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    mult.ve             r0 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
     # E2: reload ich1 -> S1, mult second-to-last-2 from S2
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r0 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
     # E3: reload ich2 -> S2, mult last channel from S3
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r0 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
     # E4: reload ich3 -> S3, advance kernel index past this OC
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
     # Store accumulator, advance output pointer
     add                 lr1 lr1 lr5;
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     str_acc_reg         lr1 cr3;;
 
     # Branch back if more OCs in first half
@@ -241,9 +241,11 @@ EPILOGUE_A:
 
 # ---------------------------------------------------------------------------
 # Transition: reset kernel index for second register half (r1)
+# fixed_idx 128..255 selects r1[fixed_idx-128]; seed lr4=128 so loop B
+# uses the same cyclic pipeline structure as A with no extra register.
 # ---------------------------------------------------------------------------
 
-    set                 lr4 0;
+    set                 lr4 128;
     add                 lr13 lr3 lr10;;
 
 # ---------------------------------------------------------------------------
@@ -252,10 +254,8 @@ EPILOGUE_A:
 
 LOOP_OCH_B:
 
-    reset_acc;;
-
-    mult.ve             r1 lr7 lr7 lr7 lr4;
-    acc;;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc.first;;
 
     add                 lr15 lr4 cr6;
     add                 lr14 lr0 lr9;;
@@ -264,56 +264,56 @@ LOOP_OCH_B:
 
 PIPELINE_LOOP_B:
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    mult.ve             r1 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r1 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r1 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    mult.ve             r1 lr7 lr7 lr7 lr4;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
     acc;
     blt                 lr4 lr15 PIPELINE_LOOP_B;;
 
 EPILOGUE_B:
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    mult.ve             r1 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r1 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r1 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr0 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
     add                 lr1 lr1 lr5;
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     str_acc_reg         lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_B;;
@@ -322,7 +322,7 @@ EPILOGUE_B:
 # Advance to next kernel group
 # ---------------------------------------------------------------------------
 
-    add                 lr14 cr7 lr7;
+    add                 lr14 lr7 cr7;
     add                 lr12 lr12 lr8;;
 
     blt                 lr3 lr14 kernel_group_loop;;
@@ -332,7 +332,7 @@ EPILOGUE_B:
 # ---------------------------------------------------------------------------
 
     add                 lr0 lr0 cr8;
-    incr                lr2 1;;
+    add                 lr2 lr2 1;;
 
     blt                 lr2 lr11 row_loop;;
 
@@ -360,8 +360,6 @@ kernel_group_loop_g:
 
 LOOP_OCH_A_G:
 
-    reset_acc;;
-
     # Initialize group loop: lr10 = kernel group offset, lr11 = input group base
     add                 lr10 lr12 lr7;
     add                 lr11 lr0 lr7;;
@@ -371,9 +369,9 @@ GROUP_LOOP_A_G:
     # Load r0 for this group
     ldr_mult_reg        r0 lr10 cr1;;
 
-    # First mult: ich0 from S0 (already in cyclic from preload or previous epilogue)
-    mult.ve             r0 lr7 lr7 lr7 lr4;
-    acc;;
+    # First group of a new OC: use acc.first to reset accumulator
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc.first;;
 
     # Pipeline guard: lr15 = lr4 + (G - 5)
     add                 lr15 lr4 cr6;
@@ -383,28 +381,28 @@ GROUP_LOOP_A_G:
 
 PIPELINE_LOOP_GROUP_A_G:
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    mult.ve             r0 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r0 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r0 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    mult.ve             r0 lr7 lr7 lr7 lr4;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
     acc;
     blt                 lr4 lr15 PIPELINE_LOOP_GROUP_A_G;;
 
@@ -423,27 +421,27 @@ EPILOGUE_GROUP_A_G:
 EPILOGUE_LOADS_A_G:
 
     # E1: preload ich0 -> S0, mult from S1
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     ldr_cyclic_mult_reg lr11 cr0 lr7;
-    mult.ve             r0 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
     # E2: preload ich1 -> S1, mult from S2
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r0 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
     # E3: preload ich2 -> S2, mult from S3
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r0 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
     # E4: preload ich3 -> S3
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
@@ -452,7 +450,7 @@ EPILOGUE_LOADS_A_G:
 
     # All groups done: store accumulator
     add                 lr1 lr1 lr5;
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     str_acc_reg         lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_A_G;;
@@ -461,17 +459,31 @@ EPILOGUE_LOADS_A_G:
     b                   TRANSITION_B_G;;
 
 CONTINUE_GROUP_A_G:
-    # Not last group: restore lr4 to OC's starting byte index
+    # Not last group: restore lr4 to OC's starting byte index, accumulate into existing r_acc
     sub                 lr4 lr4 cr11;;
-    b                   GROUP_LOOP_A_G;;
+
+    # Load r0 for this group
+    ldr_mult_reg        r0 lr10 cr1;;
+
+    # Subsequent group: plain acc (do NOT reset accumulator)
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc;;
+
+    # Pipeline guard
+    add                 lr15 lr4 cr6;
+    add                 lr14 lr11 lr9;;
+
+    blt                 lr15 lr4 EPILOGUE_GROUP_A_G;;
+    b                   PIPELINE_LOOP_GROUP_A_G;;
 
 # ---------------------------------------------------------------------------
 # Transition: reset for second register half (r1)
+# fixed_idx 128..255 selects r1[fixed_idx-128]; seed lr4=128.
 # ---------------------------------------------------------------------------
 
 TRANSITION_B_G:
 
-    set                 lr4 0;
+    set                 lr4 128;
     add                 lr13 lr3 cr4;;
 
 # ---------------------------------------------------------------------------
@@ -479,8 +491,6 @@ TRANSITION_B_G:
 # ---------------------------------------------------------------------------
 
 LOOP_OCH_B_G:
-
-    reset_acc;;
 
     # lr10 = kernel offset for r1 groups = lr12 + num_groups * 128
     add                 lr10 lr12 cr9;
@@ -490,8 +500,8 @@ GROUP_LOOP_B_G:
 
     ldr_mult_reg        r1 lr10 cr1;;
 
-    mult.ve             r1 lr7 lr7 lr7 lr4;
-    acc;;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc.first;;
 
     add                 lr15 lr4 cr6;
     add                 lr14 lr11 lr9;;
@@ -500,28 +510,28 @@ GROUP_LOOP_B_G:
 
 PIPELINE_LOOP_GROUP_B_G:
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    mult.ve             r1 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r1 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r1 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    mult.ve             r1 lr7 lr7 lr7 lr4;
+    mult.ve.cyclic      lr7 0 lr7 lr4;
     acc;
     blt                 lr4 lr15 PIPELINE_LOOP_GROUP_B_G;;
 
@@ -543,24 +553,24 @@ EPILOGUE_GROUP_B_G:
 
 EPILOGUE_LOADS_B_G:
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     ldr_cyclic_mult_reg lr11 cr0 lr7;
-    mult.ve             r1 lr6 lr7 lr7 lr4;
+    mult.ve.cyclic      lr6 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    mult.ve             r1 lr8 lr7 lr7 lr4;
+    mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    mult.ve             r1 lr9 lr7 lr7 lr4;
+    mult.ve.cyclic      lr9 0 lr7 lr4;
     acc;;
 
-    incr                lr4 1;
+    add                 lr4 lr4 1;
     add                 lr14 lr11 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
@@ -569,7 +579,7 @@ EPILOGUE_LOADS_B_G:
 
     # All groups done: store
     add                 lr1 lr1 lr5;
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     str_acc_reg         lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_B_G;;
@@ -578,8 +588,22 @@ EPILOGUE_LOADS_B_G:
     b                   ADVANCE_BATCH_G;;
 
 CONTINUE_GROUP_B_G:
+    # Not last group: restore lr4, accumulate into existing r_acc
     sub                 lr4 lr4 cr11;;
-    b                   GROUP_LOOP_B_G;;
+
+    # Load r1 for this group
+    ldr_mult_reg        r1 lr10 cr1;;
+
+    # Subsequent group: plain acc (do NOT reset accumulator)
+    mult.ve.cyclic      lr7 0 lr7 lr4;
+    acc;;
+
+    # Pipeline guard
+    add                 lr15 lr4 cr6;
+    add                 lr14 lr11 lr9;;
+
+    blt                 lr15 lr4 EPILOGUE_GROUP_B_G;;
+    b                   PIPELINE_LOOP_GROUP_B_G;;
 
 # ---------------------------------------------------------------------------
 # Advance to next kernel batch (grouped path)
@@ -587,12 +611,13 @@ CONTINUE_GROUP_B_G:
 
 ADVANCE_BATCH_G:
 
-    # Batch stride = 2 * num_groups * 128 = 2 * cr9
-    # Must be two words: add reads from snapshot, so lr12 would see stale lr14
-    add                 lr14 cr9 cr9;;
+    # Batch stride = 2 * num_groups * 128 = 2 * cr9.
+    # add reads snapshot so split across two words to avoid RAW on lr14.
+    add                 lr14 lr7 cr9;;
+    add                 lr14 lr14 cr9;;
     add                 lr12 lr12 lr14;;
 
-    add                 lr14 cr7 lr7;;
+    add                 lr14 lr7 cr7;;
 
     blt                 lr3 lr14 kernel_group_loop_g;;
 
@@ -601,9 +626,9 @@ ADVANCE_BATCH_G:
 # ---------------------------------------------------------------------------
 
     add                 lr0 lr0 cr8;
-    incr                lr2 1;;
+    add                 lr2 lr2 1;;
 
-    add                 lr14 cr5 lr7;;
+    add                 lr14 lr7 cr5;;
 
     blt                 lr2 lr14 row_loop;;
 

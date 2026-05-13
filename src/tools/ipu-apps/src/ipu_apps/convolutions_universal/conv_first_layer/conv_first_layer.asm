@@ -42,6 +42,7 @@
 #   cr5  = OUTPUT_BASE
 #   cr6  = TEMP_BASE (256 bytes: temp_left + temp_right)
 #   cr9  = 1 (identity scalar for mult.ve.cr)
+#   cr12 = 128  (step constant: kernel/output advance)
 #
 # LR registers:
 #   lr0  = 0     (zero, mask slot 0, cyclic index, kc=0 offset)
@@ -57,9 +58,9 @@
 #   lr10 = 511   (kc=-1 cyclic offset)
 #   lr11 = 2048  (total kernel bytes, filter loop limit)
 #   lr12 = 512   (row advance = 2 * 256)
-#   lr13 = 127   (main loop row limit)
+#   lr13 = 128   (main loop row limit)
 #   lr14 = temp
-#   lr15 = temp
+#   lr15 = 4     (channel skip: advance lr3 by 4 between channels)
 
 # ===========================================================================
 # Initialization
@@ -79,6 +80,8 @@
 
     set                 lr12 512;
     set                 lr13 128;;
+
+    set                 lr15 4;;
 
 # ===========================================================================
 # Row 0 (top border): skip kr=-1 taps (6 taps/channel instead of 9)
@@ -102,113 +105,113 @@ row0_filter_loop:
     ldr_cyclic_mult_reg lr5 cr0 lr0;;
 
     # Tap 3 (kr=0, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
     # Tap 4 (kr=0, kc=0)
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
     # Tap 5 (kr=0, kc=+1)
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: load row 1 left, channel 0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
     # Tap 6 (kr=+1, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
     # Tap 7 (kr=+1, kc=0)
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
     # Tap 8 (kr=+1, kc=+1)
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # --- LEFT HALF: channel 1, kr=0 and kr=+1 ---
 
     # Skip taps 9-11 (kr=-1 for ch1), advance to tap 12
-    incr                lr3 4;;
+    add                 lr3 lr3 lr15;;
 
     # kr=0: load row 0 left, channel 1
     ldr_cyclic_mult_reg lr5 cr1 lr0;;
 
     # Tap 12 (kr=0, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: load row 1 left, channel 1
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
     # Tap 15 (kr=+1, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # --- LEFT HALF: channel 2, kr=0 and kr=+1 ---
 
     # Skip taps 18-20, advance to tap 21
-    incr                lr3 4;;
+    add                 lr3 lr3 lr15;;
 
     # kr=0: load row 0 left, channel 2
     ldr_cyclic_mult_reg lr5 cr2 lr0;;
 
     # Tap 21 (kr=0, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: load row 1 left, channel 2
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
     # Tap 24 (kr=+1, kc=-1)
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # Quantize left half, store to temp[0]
@@ -224,106 +227,106 @@ row0_filter_loop:
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: load row 1 right, channel 0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # --- RIGHT HALF: channel 1, kr=0 and kr=+1 ---
-    incr                lr3 4;;
+    add                 lr3 lr3 lr15;;
 
     add                 lr14 lr5 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # --- RIGHT HALF: channel 2, kr=0 and kr=+1 ---
-    incr                lr3 4;;
+    add                 lr3 lr3 lr15;;
 
     add                 lr14 lr5 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # Quantize right half, store to temp[128]
@@ -332,13 +335,13 @@ row0_filter_loop:
 
     # --- STRIDE STEP ---
     ldr_cyclic_mult_reg lr0 cr6 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
     acc.stride          64 on off lr0;;
 
     ldr_cyclic_mult_reg lr4 cr6 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;;
+    mult.ve.cr          lr0 0 lr0 cr9;;
 
     acc.stride          64 on off lr2;;
 
@@ -346,8 +349,8 @@ row0_filter_loop:
     aaq;;
     xmem.store_aaq_result lr7 cr5;;
 
-    incr                lr7 128;
-    incr                lr8 128;;
+    add                 lr7 lr7 cr12;
+    add                 lr8 lr8 cr12;;
 
     blt                 lr8 lr11 row0_filter_loop;;
 
@@ -373,143 +376,143 @@ filter_loop:
     sub                 lr14 lr5 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=0: load row(2r) left, ch0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     ldr_cyclic_mult_reg lr5 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: load row(2r+1) left, ch0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # === LEFT HALF: channel 1 (taps 9..17) ===
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     sub                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     ldr_cyclic_mult_reg lr5 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # === LEFT HALF: channel 2 (taps 18..26) ===
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     sub                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     ldr_cyclic_mult_reg lr5 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # Quantize left half, store to temp[0]
@@ -526,159 +529,159 @@ filter_loop:
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=0: row(2r) right, ch0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # kr=+1: row(2r+1) right, ch0
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr0 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # === RIGHT HALF: channel 1 (taps 9..17) ===
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     sub                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr1 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # === RIGHT HALF: channel 2 (taps 18..26) ===
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     sub                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     add                 lr14 lr5 lr6;;
 
     add                 lr14 lr14 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr2 lr0;;
 
-    mult.ve             r0 lr10 lr1 lr0 lr3;
+    mult.ve.cyclic      lr10 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr0 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr0 0 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    mult.ve             r0 lr1 lr2 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr1 2 lr0 lr3;
     acc;;
 
     # Quantize right half, store to temp[128]
@@ -687,13 +690,13 @@ filter_loop:
 
     # --- STRIDE STEP ---
     ldr_cyclic_mult_reg lr0 cr6 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
     acc.stride          64 on off lr0;;
 
     ldr_cyclic_mult_reg lr4 cr6 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;;
+    mult.ve.cr          lr0 0 lr0 cr9;;
 
     acc.stride          64 on off lr2;;
 
@@ -701,14 +704,14 @@ filter_loop:
     aaq;;
     xmem.store_aaq_result lr7 cr5;;
 
-    incr                lr7 128;
-    incr                lr8 128;;
+    add                 lr7 lr7 cr12;
+    add                 lr8 lr8 cr12;;
 
     blt                 lr8 lr11 filter_loop;;
 
     # Advance to next output row
     add                 lr5 lr5 lr12;
-    incr                lr9 1;;
+    add                 lr9 lr9 1;;
 
     blt                 lr9 lr13 row_loop;;
 

@@ -19,25 +19,24 @@
 #   Paired processing uses 4 pairs per group (lr3 advances by 18 per pair).
 #
 # CR registers (set by harness):
-#   cr0 = input base address
-#   cr1 = kernel base address
-#   cr2 = output base address
-#   cr3 = mask base address
-#   cr4 = total_input_bytes (= num_channels / 2 * 128)
+#   cr0  = input base address
+#   cr1  = kernel base address
+#   cr2  = output base address
+#   cr3  = mask base address
+#   cr4  = total_input_bytes (= num_channels / 2 * 128)
+#   cr12 = 128  (step constant: chunk / kernel group advance)
+#   cr13 = 256  (step constant: output pointer +512 via two adds)
 #
 # LR registers:
-#   lr0  = 0     (mask_shift, mask_slot_0)
+#   lr0  = 0     (mask_shift; also zero constant for add src_a)
 #   lr1  = 384   (mask group D offset)
 #   lr2  = output write offset (0, 512, ...)
 #   lr3  = kernel byte index within r0 (0..71, +18 per pair)
-#   lr4  = temp  (cyclic offset for mult.ve)
+#   lr4  = temp  (cyclic offset for mult.ve.cyclic)
 #   lr5  = 128   (cyclic load index)
 #   lr7  = kernel group offset (0, 128, 256, ...)
-#   lr8  = 1     (mask_slot_1 = kc=-1)
-#   lr9  = 2     (mask_slot_2 = kc=+1)
 #   lr10 = input chunk offset (0, 128, ...)
 #   lr11 = 72    (pair sub-loop end: 4 pairs x 18 bytes = 72)
-#   lr13 = temp  (mask slot indices 3/4/5 for bleed taps)
 #   lr15 = total_input_bytes (copy of cr4, outer loop limit)
 
 # ===========================================================================
@@ -45,16 +44,13 @@
 # ===========================================================================
 
     set                 lr5 128;
-    set                 lr8 1;;
-
-    set                 lr9 2;
     set                 lr11 72;;
 
     set                 lr1 384;
     set                 lr0 0;;
 
 # Copy CR parameter to LR for use in blt
-    add                 lr15 cr4 lr0;;
+    add                 lr15 lr0 cr4;;
 
     set                 lr7 0;
     set                 lr2 0;;
@@ -82,134 +78,125 @@ pair_loop:
 
     # kr=-1, kc=-1 (offset 119, slot 1)
     set                 lr4 119;
-    mult.ve             r0 lr4 lr8 lr0 lr3;
+    mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=-1, kc=0 (offset 120, slot 0)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 120;
-    mult.ve             r0 lr4 lr0 lr0 lr3;
+    mult.ve.cyclic      lr4 0 lr0 lr3;
     acc;;
 
     # kr=-1, kc=+1 (offset 121, slot 2)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 121;
-    mult.ve             r0 lr4 lr9 lr0 lr3;
+    mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=0, kc=-1 (offset 127, slot 1)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 127;
-    mult.ve             r0 lr4 lr8 lr0 lr3;
+    mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=0, kc=0 (offset 128, slot 0)
-    incr                lr3 1;
-    mult.ve             r0 lr5 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr5 0 lr0 lr3;
     acc;;
 
     # kr=0, kc=+1 (offset 129, slot 2)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 129;
-    mult.ve             r0 lr4 lr9 lr0 lr3;
+    mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=+1, kc=-1 (offset 135, slot 4 -- bleed)
-    incr                lr3 1;
-    set                 lr4 135;;
-
-    set                 lr13 4;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    add                 lr3 lr3 1;
+    set                 lr4 135;
+    mult.ve.cyclic      lr4 4 lr0 lr3;
     acc;;
 
     # kr=+1, kc=0 (offset 136, slot 3 -- bleed)
-    incr                lr3 1;
-    set                 lr4 136;;
-
-    set                 lr13 3;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    add                 lr3 lr3 1;
+    set                 lr4 136;
+    mult.ve.cyclic      lr4 3 lr0 lr3;
     acc;;
 
     # kr=+1, kc=+1 (offset 137, slot 5 -- bleed)
-    incr                lr3 1;
-    set                 lr4 137;;
-
-    set                 lr13 5;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    add                 lr3 lr3 1;
+    set                 lr4 137;
+    mult.ve.cyclic      lr4 5 lr0 lr3;
     acc;;
 
     # ===== Channel B (lanes 64-127, mask group D at offset 384) =====
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     ldr_mult_mask_reg   lr1 cr3;;
 
     # kr=-1, kc=-1 (offset 119, slot 4 -- bleed)
     set                 lr4 119;
-    set                 lr13 4;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    mult.ve.cyclic      lr4 4 lr0 lr3;
     acc;;
 
     # kr=-1, kc=0 (offset 120, slot 3 -- bleed)
-    incr                lr3 1;
-    set                 lr4 120;;
-
-    set                 lr13 3;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    add                 lr3 lr3 1;
+    set                 lr4 120;
+    mult.ve.cyclic      lr4 3 lr0 lr3;
     acc;;
 
     # kr=-1, kc=+1 (offset 121, slot 5 -- bleed)
-    incr                lr3 1;
-    set                 lr4 121;;
-
-    set                 lr13 5;
-    mult.ve             r0 lr4 lr13 lr0 lr3;
+    add                 lr3 lr3 1;
+    set                 lr4 121;
+    mult.ve.cyclic      lr4 5 lr0 lr3;
     acc;;
 
     # kr=0, kc=-1 (offset 127, slot 1)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 127;
-    mult.ve             r0 lr4 lr8 lr0 lr3;
+    mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=0, kc=0 (offset 128, slot 0)
-    incr                lr3 1;
-    mult.ve             r0 lr5 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr5 0 lr0 lr3;
     acc;;
 
     # kr=0, kc=+1 (offset 129, slot 2)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 129;
-    mult.ve             r0 lr4 lr9 lr0 lr3;
+    mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=+1, kc=-1 (offset 135, slot 1)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 135;
-    mult.ve             r0 lr4 lr8 lr0 lr3;
+    mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=+1, kc=0 (offset 136, slot 0)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 136;
-    mult.ve             r0 lr4 lr0 lr0 lr3;
+    mult.ve.cyclic      lr4 0 lr0 lr3;
     acc;;
 
     # kr=+1, kc=+1 (offset 137, slot 2)
-    incr                lr3 1;
+    add                 lr3 lr3 1;
     set                 lr4 137;
-    mult.ve             r0 lr4 lr9 lr0 lr3;
+    mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # Store result, advance pointers
     str_acc_reg         lr2 cr2;
-    incr                lr10 128;;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr2 512;
-    incr                lr3 1;;
+    add                 lr2 lr2 cr13;
+    add                 lr3 lr3 1;;
+
+    add                 lr2 lr2 cr13;;
 
     blt                 lr3 lr11 pair_loop;;
 
     # Next kernel group
-    incr                lr7 128;
+    add                 lr7 lr7 cr12;
     blt                 lr10 lr15 kernel_group_process;;
 
 end:

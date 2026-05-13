@@ -31,6 +31,7 @@
 #   cr9  = 1 (identity scalar for mult.ve.cr)
 #   cr10 = zero region base address (128 bytes of zeros)
 #   cr11 = num_groups - 1 (last group index)
+#   cr12 = 128 (step constant for add)
 #
 # LR registers:
 #   lr0  = 0     (zero, mask slot 0, mask_shift, S0 cyclic index, stride offset 0)
@@ -58,46 +59,46 @@
 {% macro nine_taps() %}
     # --- kr=-1: cyclic base lr3, masks 1/0/2 ---
     sub                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr3 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr3 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=0: cyclic base lr4, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr4 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr4 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 
     # --- kr=+1: cyclic base lr5, masks 1/0/2 ---
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     sub                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr1 lr0 lr6;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
-    mult.ve             r0 lr5 lr0 lr0 lr6;
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr5 0 lr0 lr6;
     acc;;
 
-    incr                lr6 1;
+    add                 lr6 lr6 1;
     add                 lr14 lr5 lr1;
-    mult.ve             r0 lr14 lr2 lr0 lr6;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
     acc;;
 {% endmacro %}
 
@@ -146,21 +147,21 @@
 {% macro stride_phase(cols_param) %}
     # Reload temp[0] -> stride offset 0
     ldr_cyclic_mult_reg lr0 cr8 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
     acc.stride          {{ cols_param }} on on_inv lr0;;
 
     # Reload temp[1] -> stride offset 1
     ldr_cyclic_mult_reg lr4 cr8 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     acc.stride          {{ cols_param }} on on_inv lr1;;
 
     # Reload temp[2] -> stride offset 2
     add                 lr14 lr4 lr4;;
 
     ldr_cyclic_mult_reg lr14 cr8 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     acc.stride          {{ cols_param }} on on_inv lr2;;
 
     # Reload temp[3] -> stride offset 3
@@ -168,7 +169,7 @@
     set                 lr15 3;;
 
     ldr_cyclic_mult_reg lr14 cr8 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr9;
+    mult.ve.cr          lr0 0 lr0 cr9;
     acc.stride          {{ cols_param }} on on_inv lr15;;
 {% endmacro %}
 
@@ -186,7 +187,7 @@
     sub                 lr3 lr4 cr4;;
 
     add                 lr5 lr4 cr4;
-    add                 lr13 cr6 lr0;;
+    add                 lr13 lr0 cr6;;
 
     set                 lr7 0;
     set                 lr8 0;;
@@ -215,7 +216,7 @@ g0_ch_loop:
     aaq;;
     xmem.store_aaq_result lr0 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 1: normal -> conv -> store to temp+128 ---
     add                 lr14 lr8 lr10;;
@@ -225,7 +226,7 @@ g0_ch_loop:
     aaq;;
     xmem.store_aaq_result lr4 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 2: normal -> conv -> store to temp+256 ---
     add                 lr14 lr8 lr10;;
@@ -237,7 +238,7 @@ g0_ch_loop:
     aaq;;
     xmem.store_aaq_result lr14 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 3: normal -> conv -> store to temp+384 ---
     add                 lr14 lr8 lr10;;
@@ -259,15 +260,15 @@ g0_ch_loop:
     xmem.store_aaq_result lr7 cr2;;
 
     # Advance channel
-    incr                lr6 1;
-    incr                lr10 128;;
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr7 128;;
+    add                 lr7 lr7 cr12;;
 
     blt                 lr10 lr11 g0_ch_loop;;
 
     # Advance kernel group
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     blt                 lr10 lr13 g0_kg_loop;;
 
@@ -277,10 +278,10 @@ g0_ch_loop:
     add                 lr8 lr8 lr13;;
     add                 lr8 lr8 lr13;;
 
-    incr                lr9 1;;
+    add                 lr9 lr9 1;;
 
     # Check if middle groups exist (skip if only 2 groups)
-    add                 lr15 cr11 lr0;;
+    add                 lr15 lr0 cr11;;
 
     blt                 lr9 lr15 mid_group_start;;
 
@@ -309,7 +310,7 @@ mid_ch_loop:
     aaq;;
     xmem.store_aaq_result lr0 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 1: normal -> conv -> store to temp+128 ---
     add                 lr14 lr8 lr10;;
@@ -319,7 +320,7 @@ mid_ch_loop:
     aaq;;
     xmem.store_aaq_result lr4 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 2: normal -> conv -> store to temp+256 ---
     add                 lr14 lr8 lr10;;
@@ -331,7 +332,7 @@ mid_ch_loop:
     aaq;;
     xmem.store_aaq_result lr14 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 3: normal -> conv -> store to temp+384 ---
     add                 lr14 lr8 lr10;;
@@ -353,15 +354,15 @@ mid_ch_loop:
     xmem.store_aaq_result lr7 cr2;;
 
     # Advance channel
-    incr                lr6 1;
-    incr                lr10 128;;
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr7 128;;
+    add                 lr7 lr7 cr12;;
 
     blt                 lr10 lr11 mid_ch_loop;;
 
     # Advance kernel group
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     blt                 lr10 lr13 mid_kg_loop;;
 
@@ -371,10 +372,10 @@ mid_ch_loop:
     add                 lr8 lr8 lr13;;
     add                 lr8 lr8 lr13;;
 
-    incr                lr9 1;;
+    add                 lr9 lr9 1;;
 
     # Continue middle if not at last group yet
-    add                 lr15 cr11 lr0;;
+    add                 lr15 lr0 cr11;;
 
     blt                 lr9 lr15 mid_group_start;;
 
@@ -401,7 +402,7 @@ last_ch_loop:
     aaq;;
     xmem.store_aaq_result lr0 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 1: normal -> conv -> store to temp+128 ---
     add                 lr14 lr8 lr10;;
@@ -411,7 +412,7 @@ last_ch_loop:
     aaq;;
     xmem.store_aaq_result lr4 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 2: normal -> conv -> store to temp+256 ---
     add                 lr14 lr8 lr10;;
@@ -423,7 +424,7 @@ last_ch_loop:
     aaq;;
     xmem.store_aaq_result lr14 cr8;;
 
-    incr                lr6 -8;;
+    sub                 lr6 lr6 8;;
 
     # --- Position 3: bottom border -> conv -> store to temp+384 ---
     add                 lr14 lr8 lr10;;
@@ -445,15 +446,15 @@ last_ch_loop:
     xmem.store_aaq_result lr7 cr2;;
 
     # Advance channel
-    incr                lr6 1;
-    incr                lr10 128;;
+    add                 lr6 lr6 1;
+    add                 lr10 lr10 cr12;;
 
-    incr                lr7 128;;
+    add                 lr7 lr7 cr12;;
 
     blt                 lr10 lr11 last_ch_loop;;
 
     # Advance kernel group
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     blt                 lr10 lr13 last_kg_loop;;
 

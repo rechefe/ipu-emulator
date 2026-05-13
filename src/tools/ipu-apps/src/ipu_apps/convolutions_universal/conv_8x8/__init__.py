@@ -269,6 +269,8 @@ class Conv8x8App(IpuApp):
         state.regfile.set_cr(4, self.kernel_bytes_per_filter)
         state.regfile.set_cr(5, self.total_input_bytes)
         state.regfile.set_cr(6, self.total_output_bytes)
+        state.regfile.set_cr(12, 128)   # step constant for add (chunk/kernel block advances)
+        state.regfile.set_cr(13, 256)   # step constant for output-pointer +512 (two adds)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

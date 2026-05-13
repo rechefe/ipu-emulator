@@ -263,6 +263,8 @@ class Depthwise8x8App(IpuApp):
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, MASK_BASE_ADDR)
         state.regfile.set_cr(4, self.total_input_bytes)
+        state.regfile.set_cr(12, 128)   # step constant for add (chunk/kernel group advance)
+        state.regfile.set_cr(13, 256)   # step constant for output-pointer +512 (two adds)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

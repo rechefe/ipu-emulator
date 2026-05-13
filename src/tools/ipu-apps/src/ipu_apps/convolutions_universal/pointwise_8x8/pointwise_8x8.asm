@@ -23,22 +23,23 @@
 #   Slot 1: bits {0-63} set  -> zero lanes 0-63   (for f1)
 #
 # CR registers (set by harness):
-#   cr0 = input base address
-#   cr1 = kernel base address
-#   cr2 = output base address
-#   cr3 = mask base address
-#   cr4 = kernel_bytes_per_oc_pair (= ceil(ic_pairs/32) * 128)
-#   cr5 = total_input_bytes (= ic_pairs * 128)
-#   cr6 = total_output_bytes (= oc_pairs * 512)
+#   cr0  = input base address
+#   cr1  = kernel base address
+#   cr2  = output base address
+#   cr3  = mask base address
+#   cr4  = kernel_bytes_per_oc_pair (= ceil(ic_pairs/32) * 128)
+#   cr5  = total_input_bytes (= ic_pairs * 128)
+#   cr6  = total_output_bytes (= oc_pairs * 512)
+#   cr12 = 128  (step constant: chunk / kernel block advance)
+#   cr13 = 256  (step constant: output pointer +512 via two adds)
 #
 # LR registers:
-#   lr0  = 0     (mask_shift=0, mask_slot_0 for f0)
+#   lr0  = 0     (mask_shift=0; also zero constant for add src_a)
 #   lr2  = output write offset (0, 512, ..., total_output_bytes-512)
 #   lr3  = r0 byte index (0..127, resets per block)
 #   lr5  = 128   (cyclic load index, cyclic_offset for f0xeven & f1xodd, block size)
 #   lr6  = 64    (cyclic_offset for f1 x IC_even)
 #   lr7  = 192   (cyclic_offset for f0 x IC_odd)
-#   lr8  = 1     (mask_slot_1 for f1)
 #   lr9  = kernel offset for start of current OC pair
 #   lr10 = input chunk offset (0, 128, ..., total_input_bytes-128)
 #   lr11 = total_input_bytes (copy of cr5, ic_loop limit)
@@ -53,16 +54,14 @@
     set                 lr6 64;;
 
     set                 lr7 192;
-    set                 lr8 1;;
-
     set                 lr0 0;;
 
 # Load mask (stays loaded for entire computation)
     ldr_mult_mask_reg   lr0 cr3;;
 
 # Copy CR parameters to LR for use in blt
-    add                 lr11 cr5 lr0;
-    add                 lr15 cr6 lr0;;
+    add                 lr11 lr0 cr5;
+    add                 lr15 lr0 cr6;;
 
     set                 lr9 0;
     set                 lr2 0;;
@@ -89,32 +88,32 @@ ic_loop:
     ldr_cyclic_mult_reg lr10 cr0 lr5;;
 
     # f0 x IC_even: cyclic_offset=128, mask=slot0
-    mult.ve             r0 lr5 lr0 lr0 lr3;
+    mult.ve.cyclic      lr5 0 lr0 lr3;
     acc;;
 
     # f0 x IC_odd: cyclic_offset=192, mask=slot0
-    incr                lr3 1;
-    mult.ve             r0 lr7 lr0 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr7 0 lr0 lr3;
     acc;;
 
     # f1 x IC_even: cyclic_offset=64, mask=slot1
-    incr                lr3 1;
-    mult.ve             r0 lr6 lr8 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr6 1 lr0 lr3;
     acc;;
 
     # f1 x IC_odd: cyclic_offset=128, mask=slot1
-    incr                lr3 1;
-    mult.ve             r0 lr5 lr8 lr0 lr3;
+    add                 lr3 lr3 1;
+    mult.ve.cyclic      lr5 1 lr0 lr3;
     acc;;
 
-    incr                lr3 1;
-    incr                lr10 128;;
+    add                 lr3 lr3 1;
+    add                 lr10 lr10 cr12;;
 
     # Check if we consumed an entire r0 block (lr3 == 128)
     blt                 lr3 lr5 skip_reload;;
 
     # Reload next kernel block
-    incr                lr12 128;;
+    add                 lr12 lr12 cr12;;
 
     ldr_mult_reg        r0 lr12 cr1;
     set                 lr3 0;;
@@ -129,7 +128,9 @@ skip_reload:
     str_acc_reg         lr2 cr2;;
 
     add                 lr9 lr9 cr4;
-    incr                lr2 512;;
+    add                 lr2 lr2 cr13;;
+
+    add                 lr2 lr2 cr13;;
 
     blt                 lr2 lr15 oc_pair_loop;;
 
