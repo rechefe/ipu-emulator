@@ -226,12 +226,15 @@ class TestEndToEnd:
         """Assemble a trivial program, run it, verify register state."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Simple program: SET lr0 = 42, then breakpoint
-        asm = "SET lr0 42;;\nBKPT;;\n"
+        # Simple program: SET lr0 from cr8 (=42), then breakpoint
+        asm = "SET lr0 cr8;;\nBKPT;;\n"
         inst_path = tmp_path / "simple.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
-        state, cycles = run_test(inst_path=inst_path)
+        state, cycles = run_test(
+            inst_path=inst_path,
+            setup=lambda s: s.regfile.set_cr(8, 42),
+        )
 
         assert state.regfile.get_lr(0) == 42
         assert cycles >= 2  # set + BKPT

@@ -27,7 +27,6 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "CrIdx": cr0-cr15 (CrRegField)
   - "LcrIdx": lr0-lr15 or cr0-cr15 (LcrRegField)
   - "AddSubSrcB": second operand for ADD/SUB — lr, cr, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
-  - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in r_mask)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
@@ -125,7 +124,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "AaqRegIdx"],
-    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
+    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "CrIdx", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
@@ -190,7 +189,7 @@ INSTRUCTION_SPEC = {
                     "`base`: **`CR0`**…**`CR15`** — base address register.",
                 ],
                 operation="dest = Memory[offset + base]  # 128 elements (512 in wide-vector debug mode)",
-                example="SET LR0, 0x1000;;\nLDR_MULT_REG R0, LR0, CR0;;",
+                example="SET LR0, CR1;;\nLDR_MULT_REG R0, LR0, CR0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
         },
@@ -268,18 +267,18 @@ INSTRUCTION_SPEC = {
         "SET": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
-                {"name": "value", "type": "Immediate"},
+                {"name": "src", "type": "CrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Set Loop Register",
-                summary="Set a loop register to an immediate value.",
-                syntax="SET reg, value",
+                summary="Copy a 32-bit value from a configuration register into a loop register.",
+                syntax="SET reg, src",
                 operands=[
                     "reg: Loop register (lr0-lr15)",
-                    "value: 32-bit immediate value",
+                    "src: Source configuration register (cr0-cr15)",
                 ],
-                operation="reg = value",
-                example="SET LR0, 0x1000;;",
+                operation="reg = cr[src]",
+                example="SET LR0, CR1;;",
             ),
             "execute_fn": "execute_lr_set",
         },
@@ -1154,7 +1153,6 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "VerticalStride",
         "AggMode",
         "PostFn",
-        "Immediate",
         "LrModPow2KImmediate",
         "MultMaskOffsetImmediate",
         "BreakImmediate",
