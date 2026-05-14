@@ -641,6 +641,7 @@ ADD lr0 lr0 1;;
 BNE lr0 lr1 loop_start;;
 BKPT;;
 """,
+            cr={8: 0, 9: 10},
             max_cycles=1000,
         )
         assert state.regfile.get_lr(0) == 10
