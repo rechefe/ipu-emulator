@@ -189,7 +189,7 @@ def main() -> None:
         max_cycles=args.max_cycles,
         debug_callback=debug_prompt,  # Interactive debug CLI
     )
-    print(f"Finished in {cycles} cycles")
+    print(state.stats.format_summary())
 
 
 if __name__ == "__main__":
@@ -275,6 +275,42 @@ Run tests:
 
 ```bash
 bazel test //src/tools/ipu-apps:test_my_app
+```
+
+## Inspecting Run Statistics
+
+Every run populates `state.stats` (a `RunStats` instance) with counters useful for spotting bottlenecks. They are updated automatically by `run_until_complete` / `run_with_debug` — no opt-in flag is required.
+
+Available fields:
+
+- `total_cycles` — VLIW cycles executed
+- `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
+- `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
+- `xmem_reads` — count of `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG`
+- `xmem_writes` — count of `STR_ACC_REG`, `XMEM.STORE_AAQ_RESULT`
+- `xmem_accesses` — sum of reads + writes
+- `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
+
+`state.stats.format_summary()` returns a ready-to-print multi-line block:
+
+```text
+=== Run summary ===
+Total cycles:           12847
+Mult active:            10421  (81.1%)
+Acc  active:             9876  (76.9%)
+XMEM reads:              3200
+XMEM writes:              128
+XMEM accesses:           3328
+```
+
+Typical usage from an interactive runner or a test:
+
+```python
+state, cycles = app.run(max_cycles=args.max_cycles)
+print(state.stats.format_summary())
+
+# Or pick individual fields for assertions / metrics:
+assert state.stats.mult_utilization > 0.5
 ```
 
 ## Example Application: Fully Connected Layer
@@ -476,7 +512,7 @@ def main() -> None:
         dtype=args.dtype,
     )
     state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(f"Finished in {cycles} cycles")
+    print(state.stats.format_summary())
 
 
 if __name__ == "__main__":
