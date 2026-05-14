@@ -93,7 +93,6 @@ _TYPE_FIELD_SUFFIX = {
     "VerticalStride": "vertical_stride_field",
     "AggMode": "agg_mode_field",
     "PostFn": "post_fn_field",
-    "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
     "BreakImmediate": "break_immediate_type",
@@ -454,16 +453,9 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    @staticmethod
-    def _sign_extend_16(value: int) -> int:
-        """Sign-extend a 16-bit value to a 32-bit signed integer."""
-        if value & 0x8000:
-            return value | 0xFFFF0000
-        return value
-
-    def execute_lr_set(self, *, reg: int, value: int) -> None:
-        """Execute SET: Set a loop register to an immediate value."""
-        self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
+    def execute_lr_set(self, *, reg: int, src: int) -> None:
+        """Execute SET: Copy a 32-bit value from a configuration register into an LR."""
+        self.state.regfile.set_lr(reg, src & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""

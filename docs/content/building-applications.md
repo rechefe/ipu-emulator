@@ -286,19 +286,19 @@ This section walks through a complete real-world implementation: a fully-connect
 The IPU assembly implements the core computation: activations for the current sample live in **`r0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`r_cyclic`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`r0[lr5]`** (loop counter advanced via **`ADD`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
 
 ```asm
-    SET                 lr0 0 ;;
-    SET                 lr1 1280 ;;
-    SET                 lr2 0 ;;
+    SET                 lr0 cr6 ;;
+    SET                 lr1 cr7 ;;
+    SET                 lr2 cr8 ;;
 
 input_loop:
     RESET_ACC;;
 
     LDR_MULT_REG        r0 lr0 cr0;;
 
-    SET                 lr4 -128;;
-    SET                 lr5 -1;;
-    SET                 lr6 127;;
-    SET                 lr15 0;;
+    SET                 lr4 cr9 ;;
+    SET                 lr5 cr10 ;;
+    SET                 lr6 cr11 ;;
+    SET                 lr15 cr12 ;;
 
 
 element_loop:
@@ -415,6 +415,17 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+        state.regfile.set_cr(3, 128)
+        state.regfile.set_cr(4, 1)
+        state.regfile.set_cr(5, 256)
+        # Values for ``SET lr* cr*`` in the assembly listing above
+        state.regfile.set_cr(6, 0)
+        state.regfile.set_cr(7, 1280)
+        state.regfile.set_cr(8, 0)
+        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
+        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
+        state.regfile.set_cr(11, 127)
+        state.regfile.set_cr(12, 0)
 
     def teardown(self, state: "IpuState") -> None:
         """Dump output activations from XMEM."""

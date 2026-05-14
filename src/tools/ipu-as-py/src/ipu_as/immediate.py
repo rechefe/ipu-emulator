@@ -18,12 +18,6 @@ from ipu_common.acc_stride_enums import (
 from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 
 
-class LrImmediateType(ipu_token.NumberToken):
-    @classmethod
-    def bits(cls) -> int:
-        return 16
-
-
 class LrModPow2KImmediate(ipu_token.IpuToken):
     """Semantic k ∈ [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX]; encoded as (k−1) in LR_MOD_POW2_K_FIELD_BITS bits."""
 
