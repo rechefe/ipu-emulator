@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any
 
 from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
@@ -50,6 +51,7 @@ class IpuState:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
+        self.stats = RunStats()
         # Instruction memory — each entry will be a decoded instruction dict
         # (populated when loading a binary or assembling).
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
