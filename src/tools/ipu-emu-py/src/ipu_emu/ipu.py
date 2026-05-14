@@ -1272,6 +1272,20 @@ class Ipu:
             regfile = self.snapshot if source == "snapshot" else self.state.regfile
             kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
 
+        # Update run statistics
+        stats = self.state.stats
+        if slot_type == "mult":
+            if instruction_name != "MULT_NOP":
+                stats.mult_active_cycles += 1
+        elif slot_type == "acc":
+            if instruction_name != "ACC_NOP":
+                stats.acc_active_cycles += 1
+        elif slot_type == "xmem":
+            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+                stats.xmem_reads += 1
+            elif instruction_name in {"STR_ACC_REG", "XMEM.STORE_AAQ_RESULT"}:
+                stats.xmem_writes += 1
+
         # Call handler with named arguments
         method = getattr(self, execute_fn_name)
         return method(**kwargs)

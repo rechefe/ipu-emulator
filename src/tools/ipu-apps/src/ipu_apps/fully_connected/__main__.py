@@ -34,7 +34,7 @@ def main() -> None:
         dtype=args.dtype,
     )
     state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(f"Finished in {cycles} cycles")
+    print(state.stats.format_summary())
 
 
 if __name__ == "__main__":
