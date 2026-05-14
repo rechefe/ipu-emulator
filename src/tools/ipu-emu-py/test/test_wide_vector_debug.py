@@ -145,6 +145,7 @@ BKPT;;
         load_program(state, [decode_instruction_word(w) for w in encoded])
         run_until_complete(state)
         acc = state.regfile.raw("r_acc")
+        expected = (70000 * 70000) & 0xFFFFFFFF
         if expected >= 0x80000000:
             expected -= 0x100000000
         for i in range(128):
