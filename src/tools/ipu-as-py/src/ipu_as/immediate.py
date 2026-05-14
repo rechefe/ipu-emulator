@@ -48,7 +48,7 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
         if not (LR_MOD_POW2_K_MIN <= self.int <= LR_MOD_POW2_K_MAX):
             self._raise_error(
                 f"Value {self.int} out of range [{LR_MOD_POW2_K_MIN}, {LR_MOD_POW2_K_MAX}] "
-                "for incr_mod_pow2 k operand"
+                "for INCR_MOD_POW2 k operand"
             )
 
     def encode(self) -> int:

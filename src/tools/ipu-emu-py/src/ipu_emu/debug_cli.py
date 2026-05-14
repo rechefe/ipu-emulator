@@ -6,6 +6,10 @@ register descriptor automatically creates the corresponding debug commands.
 
 Built on Python's ``cmd.Cmd`` for readline support, history, and ``?`` help.
 
+Debugger **verbs** (``set``, ``get``, ``continue``, …) are matched **case-insensitively**
+on the first word, same spirit as assembly mnemonics — they still do **not** go through
+the Lark assembler (that path is only for ``*.asm`` / ``assemble()``).
+
 Usage from Python::
 
     from ipu_emu.debug_cli import debug_prompt, DebugAction
@@ -309,6 +313,23 @@ class DebugCLI(cmd.Cmd):
         self.use_rawinput = False
         self._result: DebugAction = DebugAction.QUIT
         self._generate_register_commands()
+
+    def precmd(self, line: str) -> str:
+        """If the first token names a ``do_*`` handler, normalize it to lowercase.
+
+        So ``SET lr0 1`` dispatches to ``do_set`` like ``set lr0 1``, without using
+        the assembly parser.
+        """
+        stripped = line.strip()
+        if not stripped:
+            return line
+        parts = stripped.split(maxsplit=1)
+        verb = parts[0]
+        tail = parts[1] if len(parts) > 1 else ""
+        canon = verb.lower()
+        if hasattr(self, f"do_{canon}"):
+            return f"{canon} {tail}".rstrip() if tail else canon
+        return line
 
     def _generate_register_commands(self) -> None:
         """Auto-generate ``do_<name>`` methods for each register group."""

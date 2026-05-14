@@ -8,9 +8,11 @@ The IPU uses a **single source of truth** for all instruction definitions: `INST
 
 Adding an instruction is a 3-step process:
 
-1. **Add to instruction_spec** — define the instruction with operands and documentation
+1. **Add to instruction_spec** — define the instruction with operands and documentation (instruction **mnemonic keys** are **upper case**; each operand’s `"name"` is **lower case**)
 2. **Implement execution handler** — write the Python method in the emulator's `Ipu` class  
 3. **Add tests** — verify the instruction works correctly
+
+The assembler accepts mnemonics in any case; written examples and the spec use upper case by convention.
 
 No manual opcode management needed — opcodes are automatically derived from instruction position.
 
@@ -20,14 +22,14 @@ When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to
 
 Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"xmem"`, `"lr"`, `"cond"`, `"break"`).
 
-Add your instruction to the slot's dictionary:
+Add your instruction to the slot's dictionary (**instruction keys are upper-case mnemonics**, e.g. `MULT.EE`, `STR_ACC_REG`; operand `"name"` fields stay **lower case**):
 
 ```python
 INSTRUCTION_SPEC = {
     "mult": {
         # ... existing mult instructions ...
-        
-        "my_new_instruction": {
+
+        "MY_NEW_INSTRUCTION": {
             "operands": [
                 {"name": "dest", "type": "MultStageReg"},
                 {"name": "src_a", "type": "MultStageReg", "read": "snapshot"},
@@ -36,17 +38,17 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="My New Operation",
                 summary="Performs a custom operation on two source registers.",
-                syntax="my_new_instruction Rd Ra Rb",
+                syntax="MY_NEW_INSTRUCTION dest src_a src_b",
                 operands=[
-                    "Rd: Destination mult stage register (r0 or r1)",
-                    "Ra: First source mult stage register",
-                    "Rb: Second source mult stage register",
+                    "dest: Destination mult-stage register (r0 or r1)",
+                    "src_a: First source mult-stage register",
+                    "src_b: Second source mult-stage register",
                 ],
                 operation=(
                     "for i in [0, R_REG_SIZE):\n"
-                    "    Rd[i] = custom_operation(Ra[i], Rb[i])"
+                    "    dest[i] = custom_operation(src_a[i], src_b[i])"
                 ),
-                example="my_new_instruction r0 r1 r0;;",
+                example="MY_NEW_INSTRUCTION r0 r1 r0;;",
             ),
             "execute_fn": "execute_my_new_instruction",
         },
@@ -104,8 +106,8 @@ class Ipu:
     
     def execute_my_new_instruction(self, *, dest: int, src_a: bytearray,
                                     src_b: bytearray) -> None:
-        """Execute my_new_instruction: performs custom operation.
-        
+        """Execute MY_NEW_INSTRUCTION: performs custom operation.
+
         Args:
             dest: Destination register index (raw MultStageRegField value)
             src_a: Source A register bytes (auto-resolved from snapshot)
@@ -184,7 +186,7 @@ from ipu_emu.ipu_state import IpuState
 from ipu_emu.ipu import Ipu
 
 def test_my_new_instruction():
-    """Test my_new_instruction performs custom operation correctly."""
+    """Test MY_NEW_INSTRUCTION performs custom operation correctly."""
     state = IpuState()
     ipu = Ipu(state)
     
@@ -224,7 +226,7 @@ After adding your instruction, verify it works in both assembler and emulator:
 
 ```bash
 # Verify assembler accepts the instruction
-echo "my_new_instruction r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
+echo "MY_NEW_INSTRUCTION r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as -- assemble --format hex -
 
 # Run all tests
 bazel test //...

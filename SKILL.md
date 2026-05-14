@@ -52,6 +52,12 @@ Do not hardcode opcodes anywhere. Do not duplicate instruction metadata.
 
 Same principle applies to **`registers.py`** for register definitions.
 
+### Naming in prose, docs, and examples
+
+- **Instruction mnemonics** are written in **upper case** everywhere in this repository (Markdown, comments, `InstructionDoc.syntax` / examples, and the keys in `INSTRUCTION_SPEC`). The assembler still accepts upper or lower case in source files.
+- **Hardware register names** (`R0`, `R1`, `LR0`–`LR15`, `CR0`–`CR15`) are written in **upper case** in all docs and examples.
+- **Abstract operand placeholder tokens** (`dest`, `src_a`, `offset`) in syntax templates are written in **lower case**.
+
 ---
 
 ## ISA Concepts
@@ -61,7 +67,7 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 next;;
+LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
 - Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
@@ -87,13 +93,13 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 n
 
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
-| XMEM | `ldr`, `str_acc_reg`, `ldr_cyclic_mult_reg`, … | Memory load/store |
-| MULT | `mult.ee`, `mult.ve.cyclic`, `mult.ve.padded`, `mult.ve.cr`, `mult.ve.aaq`, … | 8-bit vector multiply |
-| ACC | `acc`, `acc.stride`, `acc.max`, `acc.max.first`, `reset_acc` | Accumulate into r_acc |
-| AAQ | `agg` / `agg.first` (sum/max + post-fn + `valid_elements` mask), `aaq` | Aggregate r_acc → aaq register |
-| LR (×3) | `set`, `add`, `sub`, `incr_mod_pow2` | Scalar loop register ops |
-| COND | `beq`, `bne`, `blt`, `bnz`, `bz`, `b`, `br`, `bkpt` | Branches |
-| BREAK | `break`, `break.ifeq` | Debug breakpoints |
+| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
+| MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
+| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into r_acc |
+| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ` | Aggregate r_acc → aaq register |
+| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops |
+| COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
+| BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
@@ -105,7 +111,7 @@ ldr_mult_reg r0 lr0 cr0; mult.ee r0 lr1 0 lr3; acc; add lr0 lr0 1; bne lr0 lr1 n
 
 1. **Define it in `instruction_spec.py`:**
    ```python
-   "my_inst": {
+   "MY_INST": {
        "operands": [
            {"name": "dest", "type": "AaqRegIdx"},
            {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
@@ -143,7 +149,7 @@ def _run(asm_code: str) -> IpuState:
     return state
 
 def test_my_instruction():
-    state = _run("my_inst aaq0 r0;;")
+    state = _run("MY_INST aaq0 r0;;")
     assert state.regfile.get_aaq(0) == expected
 ```
 
@@ -193,7 +199,7 @@ Each app lives under `ipu-apps/src/ipu_apps/<name>/` and has:
 
 ## Debugging
 
-Add `break;;` to assembly, then run with the debug callback:
+Add `BREAK;;` to assembly, then run with the debug callback:
 
 ```python
 from ipu_emu.debug_cli import debug_prompt

@@ -261,16 +261,16 @@ Notes:
 - The Quantization block appends 12 bits of metadata to the 1024-bit data
   payload to form the full 1036-bit `aaq_result`: bits [11:4] = 8-bit scale
   factor, bits [3:0] = 4-bit representation type (INT8, e6m1, e5m2, …).
-- `aaq_result` must be flushed to XMEM with `xmem.store_aaq_result offset base`
-  before the next `aaq` overwrites it.
-- In wide-vector debug mode `aaq` is a no-op unless
+- `aaq_result` must be flushed to XMEM with `XMEM.STORE_AAQ_RESULT offset base`
+  before the next `AAQ` overwrites it.
+- In wide-vector debug mode `AAQ` is a no-op unless
   `wide_vector_quantize_output` is explicitly set (debug feature only).
 
-**ISA Interactions** — instructions in other slots that consume `aaq_result` written by `aaq`:
+**ISA Interactions** — instructions in other slots that consume `aaq_result` written by `AAQ`:
 
 | Instruction | Slot | Operation |
 |-------------|------|-----------|
-| `xmem.store_aaq_result offset base` | XMEM | Writes the 128-byte `aaq_result` register to XMEM at address `offset + base`. Must be issued before the next `aaq` to avoid overwrite. |
+| `XMEM.STORE_AAQ_RESULT offset base` | XMEM | Writes the 128-byte `aaq_result` register to XMEM at address `offset + base`. Must be issued before the next `AAQ` to avoid overwrite. |
 
 ## 8. ISA 
 

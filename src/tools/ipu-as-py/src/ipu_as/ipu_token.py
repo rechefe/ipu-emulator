@@ -68,7 +68,7 @@ class NumberToken(IpuToken):
 class EnumToken(IpuToken):
     def __init__(self, token: AnnotatedToken):
         super().__init__(token)
-        if self.token.value.lower() not in self.enum_array():
+        if self.token.value.lower() not in {n.lower() for n in self.enum_array()}:
             self._raise_error(
                 (
                     f"Value {self.token.value} not in enum options\n"
