@@ -15,10 +15,10 @@ from pathlib import Path
 
 from ipu_apps.convolutions_universal.depthwise_conv_universal import DepthwiseConvUniversalApp
 from ipu_apps.convolutions_universal.profiling._utils import (
-    cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
+    assemble_if_needed, cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
 )
 
-BIN = Path(__file__).resolve().parents[1] / "depthwise_conv_universal" / "depthwise_conv_universal.bin"
+ASM = Path(__file__).resolve().parents[1] / "depthwise_conv_universal" / "depthwise_conv_universal.asm"
 CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
 
 # (rows, cols, channels)
@@ -42,6 +42,7 @@ CONFIGS = [
 
 
 def main() -> None:
+    bin_path = assemble_if_needed(ASM)
     rng = np.random.RandomState(0)
     rows_data = []
 
@@ -53,7 +54,7 @@ def main() -> None:
         krn = make_tmp_bin(kernel_bytes)
         try:
             app = DepthwiseConvUniversalApp(
-                inst_path=BIN,
+                inst_path=bin_path,
                 input_path=inp,
                 kernel_path=krn,
                 output_path=None,

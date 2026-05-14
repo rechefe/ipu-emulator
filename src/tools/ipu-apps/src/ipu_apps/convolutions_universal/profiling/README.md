@@ -47,7 +47,7 @@ PYTHONPATH=$PYPATH python src/tools/ipu-apps/src/ipu_apps/convolutions_universal
 ### `profile_pointwise_universal.py`
 **App:** `pointwise_conv_universal` — 1×1 convolution, flexible spatial and channels.  
 **Regions:** inputs, kernels, mask, outputs  
-**Binary:** pre-built `pointwise_conv_universal/pointwise_conv_universal.bin`
+**Binary:** assembled on first run from `pointwise_conv_universal/pointwise_conv_universal.asm`, cached as `.bin`.
 
 ```bash
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_pointwise_universal
@@ -60,7 +60,7 @@ Expected pattern: `inputs = in_channels - 1`, `outputs = 0` (written sequentiall
 ### `profile_conv_universal.py`
 **App:** `conv_universal` — 3×3 convolution, flexible spatial and channels.  
 **Regions:** inputs, kernels, outputs, mask  
-**Binary:** pre-built `conv_universal/conv_universal.bin`
+**Binary:** assembled on first run from `conv_universal/conv_universal.asm`, cached as `.bin`.
 
 ```bash
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_conv_universal
@@ -73,7 +73,7 @@ Expected pattern: `inputs = 3 * in_channels - 1` (3-row sliding window).
 ### `profile_depthwise_universal.py`
 **App:** `depthwise_conv_universal` — 3×3 depthwise convolution, flexible spatial and channels.  
 **Regions:** inputs, kernels, outputs, mask  
-**Binary:** pre-built `depthwise_conv_universal/depthwise_conv_universal.bin`
+**Binary:** assembled on first run from `depthwise_conv_universal/depthwise_conv_universal.asm`, cached as `.bin`.
 
 ```bash
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_depthwise_universal

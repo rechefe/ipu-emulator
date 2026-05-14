@@ -45,7 +45,7 @@ def main() -> None:
                 input_path=inp,
                 kernel_path=krn,
                 output_path=None,
-                num_channels=ch,
+                channels=ch,
             )
             result = run_profile_safe(app, CR_NAMES)
         except Exception as exc:
