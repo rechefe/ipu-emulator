@@ -79,6 +79,7 @@ def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
             # In "run" mode, skip the break and execute the instruction anyway
             execute_instruction_skip_break(state)
         cycles += 1
+    state.stats.total_cycles = cycles
     return cycles
 
 
@@ -122,6 +123,7 @@ def run_with_debug(
 
         cycles += 1
 
+    state.stats.total_cycles = cycles
     return cycles
 
 

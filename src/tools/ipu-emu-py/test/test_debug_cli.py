@@ -46,10 +46,13 @@ def _run_cli(state: IpuState, commands: str, level: int = 0) -> tuple[DebugActio
     return action, out.getvalue()
 
 
-def _make_state_with_program(asm_code: str) -> IpuState:
+def _make_state_with_program(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
     state = IpuState()
+    if cr:
+        for idx, val in cr.items():
+            state.regfile.set_cr(idx, val)
     load_program(state, decoded)
     return state
 
@@ -232,7 +235,7 @@ class TestDebugLevels:
         assert "42" in output
 
     def test_level1_shows_disasm(self):
-        state = _make_state_with_program("SET lr0 100;;\nBKPT;;")
+        state = _make_state_with_program("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
         action, output = _run_cli(state, "continue\n", level=1)
         assert "Current Instruction" in output
 
@@ -250,10 +253,12 @@ class TestDebugLevels:
 
 class TestDisassembly:
     def test_disasm_set_lr(self):
-        state = _make_state_with_program("SET lr0 100;;\nBKPT;;")
+        state = _make_state_with_program("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
         text = disassemble_current(state)
-        assert "set" in text.lower()
-        assert "lr0" in text.lower()
+        tl = text.lower()
+        assert "set" in tl
+        assert "lr0" in tl
+        assert "cr8" in tl
 
     def test_disasm_out_of_bounds(self):
         state = IpuState()

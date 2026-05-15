@@ -1,16 +1,16 @@
-    SET                 lr0 0 ;;
-    SET                 lr1 1280 ;;
-    SET                 lr2 0 ;;
+    SET                 lr0 cr6 ;;
+    SET                 lr1 cr7 ;;
+    SET                 lr2 cr8 ;;
 
 input_loop:
     RESET_ACC;;
 
     LDR_MULT_REG        r0 lr0 cr0;;
 
-    SET                 lr4 -128;;
-    SET                 lr5 -1;;
-    SET                 lr6 127;;
-    SET                 lr15 0;;
+    SET                 lr4 cr9 ;;
+    SET                 lr5 cr10 ;;
+    SET                 lr6 cr11 ;;
+    SET                 lr15 cr12 ;;
 
 
 element_loop:

@@ -66,7 +66,8 @@ INSTRUCTION_SPEC = {
     - `"LrIdx"` — lr0-lr15
     - `"CrIdx"` — cr0-cr15
     - `"LcrIdx"` — lr0-lr15 or cr0-cr15
-    - `"Immediate"` — 32-bit signed integer
+    - `"LrModPow2KImmediate"` — exponent **k** for `INCR_MOD_POW2` (semantic **k ∈ [1, 9]**)
+    - `"MultMaskOffsetImmediate"` — mult mask slot index **0**–**7**
     - `"BreakImmediate"` — 16-bit break condition
     - `"Label"` — branch target label
   - `read` (optional): `"snapshot"` or `"live"` — marks source registers whose values are auto-resolved:

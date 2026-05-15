@@ -189,7 +189,7 @@ def main() -> None:
         max_cycles=args.max_cycles,
         debug_callback=debug_prompt,  # Interactive debug CLI
     )
-    print(f"Finished in {cycles} cycles")
+    print(state.stats.format_summary())
 
 
 if __name__ == "__main__":
@@ -277,6 +277,42 @@ Run tests:
 bazel test //src/tools/ipu-apps:test_my_app
 ```
 
+## Inspecting Run Statistics
+
+Every run populates `state.stats` (a `RunStats` instance) with counters useful for spotting bottlenecks. They are updated automatically by `run_until_complete` / `run_with_debug` — no opt-in flag is required.
+
+Available fields:
+
+- `total_cycles` — VLIW cycles executed
+- `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
+- `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
+- `xmem_reads` — count of `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG`
+- `xmem_writes` — count of `STR_ACC_REG`, `XMEM.STORE_AAQ_RESULT`
+- `xmem_accesses` — sum of reads + writes
+- `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
+
+`state.stats.format_summary()` returns a ready-to-print multi-line block:
+
+```text
+=== Run summary ===
+Total cycles:           12847
+Mult active:            10421  (81.1%)
+Acc  active:             9876  (76.9%)
+XMEM reads:              3200
+XMEM writes:              128
+XMEM accesses:           3328
+```
+
+Typical usage from an interactive runner or a test:
+
+```python
+state, cycles = app.run(max_cycles=args.max_cycles)
+print(state.stats.format_summary())
+
+# Or pick individual fields for assertions / metrics:
+assert state.stats.mult_utilization > 0.5
+```
+
 ## Example Application: Fully Connected Layer
 
 This section walks through a complete real-world implementation: a fully-connected neural network layer that processes multiple samples, each with 128 input neurons and produces 64 output neurons.
@@ -286,19 +322,19 @@ This section walks through a complete real-world implementation: a fully-connect
 The IPU assembly implements the core computation: activations for the current sample live in **`r0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`r_cyclic`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`r0[lr5]`** (loop counter advanced via **`ADD`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
 
 ```asm
-    SET                 lr0 0 ;;
-    SET                 lr1 1280 ;;
-    SET                 lr2 0 ;;
+    SET                 lr0 cr6 ;;
+    SET                 lr1 cr7 ;;
+    SET                 lr2 cr8 ;;
 
 input_loop:
     RESET_ACC;;
 
     LDR_MULT_REG        r0 lr0 cr0;;
 
-    SET                 lr4 -128;;
-    SET                 lr5 -1;;
-    SET                 lr6 127;;
-    SET                 lr15 0;;
+    SET                 lr4 cr9 ;;
+    SET                 lr5 cr10 ;;
+    SET                 lr6 cr11 ;;
+    SET                 lr15 cr12 ;;
 
 
 element_loop:
@@ -415,6 +451,17 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+        state.regfile.set_cr(3, 128)
+        state.regfile.set_cr(4, 1)
+        state.regfile.set_cr(5, 256)
+        # Values for ``SET lr* cr*`` in the assembly listing above
+        state.regfile.set_cr(6, 0)
+        state.regfile.set_cr(7, 1280)
+        state.regfile.set_cr(8, 0)
+        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
+        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
+        state.regfile.set_cr(11, 127)
+        state.regfile.set_cr(12, 0)
 
     def teardown(self, state: "IpuState") -> None:
         """Dump output activations from XMEM."""
@@ -465,7 +512,7 @@ def main() -> None:
         dtype=args.dtype,
     )
     state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(f"Finished in {cycles} cycles")
+    print(state.stats.format_summary())
 
 
 if __name__ == "__main__":

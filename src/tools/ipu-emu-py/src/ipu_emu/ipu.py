@@ -93,7 +93,6 @@ _TYPE_FIELD_SUFFIX = {
     "VerticalStride": "vertical_stride_field",
     "AggMode": "agg_mode_field",
     "PostFn": "post_fn_field",
-    "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
     "BreakImmediate": "break_immediate_type",
@@ -454,16 +453,9 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    @staticmethod
-    def _sign_extend_16(value: int) -> int:
-        """Sign-extend a 16-bit value to a 32-bit signed integer."""
-        if value & 0x8000:
-            return value | 0xFFFF0000
-        return value
-
-    def execute_lr_set(self, *, reg: int, value: int) -> None:
-        """Execute SET: Set a loop register to an immediate value."""
-        self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
+    def execute_lr_set(self, *, reg: int, src: int) -> None:
+        """Execute SET: Copy a 32-bit value from a configuration register into an LR."""
+        self.state.regfile.set_lr(reg, src & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
@@ -1278,6 +1270,20 @@ class Ipu:
         for name, (op_type, source) in read_types.items():
             regfile = self.snapshot if source == "snapshot" else self.state.regfile
             kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
+
+        # Update run statistics
+        stats = self.state.stats
+        if slot_type == "mult":
+            if instruction_name != "MULT_NOP":
+                stats.mult_active_cycles += 1
+        elif slot_type == "acc":
+            if instruction_name != "ACC_NOP":
+                stats.acc_active_cycles += 1
+        elif slot_type == "xmem":
+            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+                stats.xmem_reads += 1
+            elif instruction_name in {"STR_ACC_REG", "XMEM.STORE_AAQ_RESULT"}:
+                stats.xmem_writes += 1
 
         # Call handler with named arguments
         method = getattr(self, execute_fn_name)
