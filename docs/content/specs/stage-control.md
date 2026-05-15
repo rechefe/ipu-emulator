@@ -220,12 +220,13 @@ the current cycle's VLIW, and the internal program counter (`PC`).
 - **Purpose:** drives the **fall-through read address** every cycle — `imem_read_addr_a = PC + 1`. This causes IMEM to return the next sequential instruction so it can be latched into `inst $` for the next cycle.
 - **Update rule (combinational, latched at end of cycle):**
   ```text
-  next_PC = taken ? label : (PC + 1)
+  target_pc = (cond.op == BR) ? reg_value : label
+  next_PC   = taken ? target_pc : (PC + 1)
   PC      <= next_PC                       // every cycle
   ```
-  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `label` (extracted from `inst $`'s cond slot) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
+  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BNZ`/`BZ`/`B`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
 - **Reset:** `rst` initialises `PC` to 0.
-- **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is `label` on branch cycles, don't-care otherwise).
+- **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is the computed branch target on branch cycles, don't-care otherwise).
 
 ### 6.4 Fetch Decision
 
@@ -240,7 +241,8 @@ is_branch = inst$.cond.op is one of {BEQ, BNE, BLT, BNZ, BZ, B, BR}
 if is_branch:
     // Issue BOTH speculative reads in parallel this cycle
     imem_read_a = PC + 1                        // fall-through candidate
-    imem_read_b = label_from_cond_slot          // taken candidate
+    branch_target = (inst$.cond.op == BR) ? reg_target_from_cond_slot : label_from_cond_slot
+    imem_read_b = branch_target                 // taken candidate
     // Wait for cond evaluator
     inst $ <= taken ? imem_b : imem_a       // committed at end of cycle N
 else:
