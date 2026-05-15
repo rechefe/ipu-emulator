@@ -183,7 +183,11 @@ class DepthwiseConvStride2App(IpuApp):
         state.regfile.set_cr(7, 1024)  # channel group size = 8 * 128
         state.regfile.set_cr(8, self._temp_base)
         state.regfile.set_cr(9, 1)  # identity scalar for mult.ve.cr
+        state.regfile.set_cr(10, 0)   # zero constant
+        state.regfile.set_cr(11, 1)   # small constant 1
         state.regfile.set_cr(12, 128)  # step constant for add
+        state.regfile.set_cr(13, 2)   # small constant 2
+        state.regfile.set_cr(14, 31)  # small constant 31
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

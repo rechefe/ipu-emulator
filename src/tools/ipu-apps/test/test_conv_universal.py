@@ -76,12 +76,14 @@ def reference_conv_universal(
       chunk = r // rows_per_chunk
       local_row = r % rows_per_chunk
       elem = local_row * cols + c
-      byte_offset = (chunk * out_ch + f) * 512 + elem * 4
+      byte_offset = (chunk * out_ch + f) * 128 + elem
+
+    aaq quantization: clamp int32 accumulator to [-128, 127], store as int8.
     """
     out_ch, in_ch, _, _ = weights.shape
     rows_per_chunk = 128 // cols
     num_chunks = (rows * cols) // 128
-    output = bytearray(num_chunks * out_ch * 512)
+    output = bytearray(num_chunks * out_ch * 128)
     for f in range(out_ch):
         for r in range(rows):
             for c in range(cols):
@@ -95,11 +97,12 @@ def reference_conv_universal(
                                 b = int(input_chw[ic, nr, nc])
                                 prod = ipu_mult(a, b, DType.INT8)
                                 acc = ipu_add(acc, prod, DType.INT8)
+                clamped = max(-128, min(127, acc))
                 chunk = r // rows_per_chunk
                 local_row = r % rows_per_chunk
                 elem = local_row * cols + c
-                out_idx = (chunk * out_ch + f) * 512 + elem * 4
-                struct.pack_into("<i", output, out_idx, acc)
+                out_idx = (chunk * out_ch + f) * 128 + elem
+                output[out_idx] = clamped & 0xFF
     return bytes(output)
 
 
@@ -163,13 +166,12 @@ class TestConvUniversal:
 
         mismatches = []
         rows_per_chunk = 128 // cols
-        for i in range(0, len(expected), 4):
-            a_val = struct.unpack_from("<i", actual, i)[0]
-            e_val = struct.unpack_from("<i", expected, i)[0]
+        for i in range(len(expected)):
+            a_val = struct.unpack_from("b", actual, i)[0]
+            e_val = struct.unpack_from("b", expected, i)[0]
             if a_val != e_val:
-                word = i // 4
-                elem = word % 128
-                f_and_chunk = word // 128
+                elem = i % 128
+                f_and_chunk = i // 128
                 f = f_and_chunk % out_ch
                 chunk = f_and_chunk // out_ch
                 local_row = elem // cols

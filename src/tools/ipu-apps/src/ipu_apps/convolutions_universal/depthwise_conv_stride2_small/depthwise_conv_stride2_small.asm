@@ -166,7 +166,7 @@
 
     # Reload temp[3] -> stride offset 3
     add                 lr14 lr14 lr4;;
-    set                 lr15 3;;
+    add                 lr15 lr0 3;;
 
     ldr_cyclic_mult_reg lr14 cr8 lr0;
     mult.ve.cr          lr0 0 lr0 cr9;
@@ -177,33 +177,33 @@
 # Initialization
 # =========================================================================
 
-    set                 lr0 0;
+    SET                 lr0 cr13;
     ldr_mult_mask_reg   lr0 cr3;;
 
     add                 lr4 lr0 cr12;
-    set                 lr1 1;;
+    SET                 lr1 cr14;;
 
-    set                 lr2 2;
+    add                 lr2 lr0 2;
     sub                 lr3 lr4 cr4;;
 
     add                 lr5 lr4 cr4;
     add                 lr13 lr0 cr6;;
 
-    set                 lr7 0;
-    set                 lr8 0;;
+    SET                 lr7 cr13;
+    SET                 lr8 cr13;;
 
-    set                 lr9 0;;
+    SET                 lr9 cr13;;
 
 # =========================================================================
 # Group 0: position 0 = top border, positions 1-3 = normal
 # =========================================================================
 
-    set                 lr10 0;
-    set                 lr12 0;;
+    SET                 lr10 cr13;
+    SET                 lr12 cr13;;
 
 g0_kg_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr13;;
 
     add                 lr11 lr10 cr7;;
 
@@ -292,12 +292,12 @@ g0_ch_loop:
 # =========================================================================
 
 mid_group_start:
-    set                 lr10 0;
-    set                 lr12 0;;
+    SET                 lr10 cr13;
+    SET                 lr12 cr13;;
 
 mid_kg_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr13;;
 
     add                 lr11 lr10 cr7;;
 
@@ -384,12 +384,12 @@ mid_ch_loop:
 # =========================================================================
 
 last_group:
-    set                 lr10 0;
-    set                 lr12 0;;
+    SET                 lr10 cr13;
+    SET                 lr12 cr13;;
 
 last_kg_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr13;;
 
     add                 lr11 lr10 cr7;;
 

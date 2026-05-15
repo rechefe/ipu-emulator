@@ -139,7 +139,11 @@ class ConvFirstLayerApp(IpuApp):
         state.regfile.set_cr(4, MASK_BASE_ADDR)
         state.regfile.set_cr(5, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(6, TEMP_BASE_ADDR)
+        state.regfile.set_cr(7, 256)  # constant 256
+        state.regfile.set_cr(8, 511)  # constant 511 (cyclic wrap mask)
         state.regfile.set_cr(9, 1)    # identity scalar for mult.ve.cr
+        state.regfile.set_cr(10, 512) # constant 512 (2 * row stride)
+        state.regfile.set_cr(11, 2048) # constant 2048 (8 * row stride)
         state.regfile.set_cr(12, 128) # step constant for add (kernel/output advance)
 
     def teardown(self, state: "IpuState") -> None:

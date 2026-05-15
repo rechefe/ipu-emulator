@@ -269,6 +269,11 @@ class Conv8x8App(IpuApp):
         state.regfile.set_cr(4, self.kernel_bytes_per_filter)
         state.regfile.set_cr(5, self.total_input_bytes)
         state.regfile.set_cr(6, self.total_output_bytes)
+        state.regfile.set_cr(7, 0)      # zero constant
+        state.regfile.set_cr(8, 119)    # f0/f1-chB cyclic base offset (kr=-1, kc=-1)
+        state.regfile.set_cr(9, 183)    # f0-chB cyclic base offset (kr=-1, kc=-1)
+        state.regfile.set_cr(10, 55)    # f1-chA cyclic base offset (kr=-1, kc=-1)
+        state.regfile.set_cr(11, 64)    # f1-chA cyclic base (kr=0, kc=0)
         state.regfile.set_cr(12, 128)   # step constant: chunk / kernel block / output advance
         state.regfile.set_cr(13, 256)   # mask group C offset, used to compute lr12 and lr1
         state.regfile.set_cr(14, 72)    # r0 reload threshold (4 ch x 18 bytes)

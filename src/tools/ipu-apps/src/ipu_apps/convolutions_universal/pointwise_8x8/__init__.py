@@ -181,6 +181,7 @@ class Pointwise8x8App(IpuApp):
         state.regfile.set_cr(4, self.kernel_bytes_per_pair)
         state.regfile.set_cr(5, self.total_input_bytes)
         state.regfile.set_cr(6, self.total_output_bytes)
+        state.regfile.set_cr(7, 0)      # zero constant
         state.regfile.set_cr(12, 128)   # step constant: chunk / kernel block / output advance
         state.regfile.set_cr(13, 64)    # cyclic_offset for f1 x IC_even
         state.regfile.set_cr(14, 192)   # cyclic_offset for f0 x IC_odd

@@ -94,7 +94,7 @@
 # ===========================================================================
 
     # Load mask data (all zeros — no masking for pointwise conv)
-    set                 lr7 0;
+    SET                 lr7 cr0;
     ldr_mult_mask_reg   lr7 cr2;
     add                 lr5 lr7 cr12;;   # lr5 = 128 (output stride)
 
@@ -107,7 +107,7 @@
     add                 lr10 lr7 cr4;
     add                 lr11 lr7 cr5;;
 
-    set                 lr1 0;;
+    SET                 lr1 cr0;;
     sub                 lr1 lr1 cr12;;   # lr1 = -128 (pre-offset)
 
 # ===========================================================================
@@ -128,8 +128,8 @@ row_loop:
     add                 lr14 lr0 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
-    set                 lr3 0;
-    set                 lr12 0;;
+    SET                 lr3 cr0;
+    SET                 lr12 cr0;;
 
     # Path selection: if num_groups > 1, use grouped path
     # cr9 = num_groups * 128; lr6 = 128
@@ -154,7 +154,7 @@ kernel_group_loop:
     add                 lr14 lr12 lr6;
     ldr_mult_reg        r1 lr14 cr1;;
 
-    set                 lr4 0;
+    SET                 lr4 cr0;
     add                 lr13 lr3 lr10;;
 
 # ---------------------------------------------------------------------------
@@ -358,7 +358,7 @@ end:
 
 kernel_group_loop_g:
 
-    set                 lr4 0;
+    SET                 lr4 cr0;
     add                 lr13 lr3 cr4;;
 
 # ---------------------------------------------------------------------------

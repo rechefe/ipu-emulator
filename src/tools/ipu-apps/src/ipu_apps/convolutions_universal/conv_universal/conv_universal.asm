@@ -88,12 +88,12 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr0 0;
+    SET                 lr0 cr10;
     ldr_mult_mask_reg   lr0 cr3;;
 
     add                 lr1 lr0 cr4;        # lr1 = cols (temp)
-    set                 lr8 0;
-    set                 lr7 0;;
+    SET                 lr8 cr10;
+    SET                 lr7 cr10;;
 
     sub                 lr1 lr1 2;;         # lr1 = cols - 2 (permanent)
 
@@ -101,13 +101,13 @@
 # Section 1: Chunk 0 (top border) — kr=-1 row is zeros (loaded from cr9).
 # ===========================================================================
 
-    set                 lr12 0;;
+    SET                 lr12 cr10;;
 
 g0_filter_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
-    set                 lr10 0;
+    SET                 lr10 cr10;
     reset_acc;;
 
     add                 lr14 lr12 cr12;
@@ -130,8 +130,8 @@ g0_ch_loop:
 
     # Cy 1: lr_read=0, lr_write=0; lr2 = lr8+lr10 (ch base ext addr).
     # Load ch's kr=0 → slot 0.
-    set                 lr4 0;
-    set                 lr5 0;
+    SET                 lr4 cr10;
+    SET                 lr5 cr10;
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
@@ -139,7 +139,7 @@ g0_ch_loop:
     # lr3 = 1 (seed for -255: next cycle sub lr3 lr3 cr13 → 1-256 = -255).
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
-    set                 lr3 1;
+    add                 lr3 lr0 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -149,7 +149,7 @@ g0_ch_loop:
     # Cy 4: finalize seeds.  lr3 += cols → cols-255.
     # lr6 = -1 (so tap 1's `add lr6 lr6 1` brings it to 0).
     add                 lr3 lr3 cr4;
-    set                 lr6 -1;;
+    sub                 lr6 lr0 1;;
 
     b                   g0_tap_body;;
 
@@ -253,7 +253,7 @@ g0_tap_body:
 
 g0_reload:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
     add                 lr14 lr12 cr12;
     add                 lr11 lr10 cr7;
@@ -275,13 +275,13 @@ main_setup:
     b                   gN_section;;
 
 row_loop:
-    set                 lr12 0;;
+    SET                 lr12 cr10;;
 
 filter_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
-    set                 lr10 0;
+    SET                 lr10 cr10;
     reset_acc;;
 
     add                 lr14 lr12 cr12;
@@ -296,15 +296,15 @@ ch_loop:
     # Preamble: see g0_ch_loop.  All loads from cr0.
 
     # Cy 1: lr2 = lr8+lr10; load ch kr=0 → slot 0.
-    set                 lr4 0;
-    set                 lr5 0;
+    SET                 lr4 cr10;
+    SET                 lr5 cr10;
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
     # Cy 2: lr_write = 128; ext = lr2+cr6 (kr=+1).  lr3 = 1 (seed for -255).
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
-    set                 lr3 1;
+    add                 lr3 lr0 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -313,7 +313,7 @@ ch_loop:
 
     # Cy 4.
     add                 lr3 lr3 cr4;
-    set                 lr6 -1;;
+    sub                 lr6 lr0 1;;
 
     b                   mn_tap_body;;
 
@@ -406,7 +406,7 @@ mn_after_block:
 
 reload:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
     add                 lr14 lr12 cr12;
     add                 lr11 lr10 cr7;
@@ -422,13 +422,13 @@ mn_reload_clamp:
 # ===========================================================================
 
 gN_section:
-    set                 lr12 0;;
+    SET                 lr12 cr10;;
 
 gN_filter_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
-    set                 lr10 0;
+    SET                 lr10 cr10;
     reset_acc;;
 
     add                 lr14 lr12 cr12;
@@ -445,14 +445,14 @@ gN_ch_loop:
     # correct channel offset within each super-block.
 
     # Cy 1: lr2 = lr8+lr10 (ch base ext addr); load ch kr=0 → slot 0.
-    set                 lr4 0;
-    set                 lr5 0;
+    SET                 lr4 cr10;
+    SET                 lr5 cr10;
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
     # Cy 2: lr5 = 128; lr3 = 1 (seed for -255); load ch kr=+1 (zeros) → slot 128.
     add                 lr5 lr5 cr12;
-    set                 lr3 1;
+    add                 lr3 lr0 1;
     ldr_cyclic_mult_reg lr0 cr9 lr5;;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -463,7 +463,7 @@ gN_ch_loop:
 
     # Cy 4.
     add                 lr3 lr3 cr4;
-    set                 lr6 -1;;
+    sub                 lr6 lr0 1;;
 
     b                   gN_tap_body;;
 
@@ -552,7 +552,7 @@ end:
 
 gN_reload:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
     add                 lr14 lr12 cr12;
     add                 lr11 lr10 cr7;

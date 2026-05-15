@@ -66,36 +66,36 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr0 0;
+    SET                 lr0 cr0;
     ldr_mult_mask_reg   lr0 cr4;;
 
-    set                 lr4 128;
-    set                 lr1 1;;
+    SET                 lr4 cr12;
+    SET                 lr1 cr9;;
 
-    set                 lr2 2;
-    set                 lr6 256;;
+    add                 lr2 lr0 2;
+    SET                 lr6 cr7;;
 
-    set                 lr10 511;
-    set                 lr11 2048;;
+    SET                 lr10 cr8;
+    SET                 lr11 cr11;;
 
-    set                 lr12 512;
-    set                 lr13 128;;
+    SET                 lr12 cr10;
+    SET                 lr13 cr12;;
 
-    set                 lr15 4;;
+    add                 lr15 lr0 4;;
 
 # ===========================================================================
 # Row 0 (top border): skip kr=-1 taps (6 taps/channel instead of 9)
 # Center row = 0, need rows -1, 0, 1. Row -1 doesn't exist -> skip.
 # ===========================================================================
 
-    set                 lr5 0;
-    set                 lr7 0;;
+    SET                 lr5 cr0;
+    SET                 lr7 cr0;;
 
-    set                 lr8 0;;
+    SET                 lr8 cr0;;
 
 row0_filter_loop:
     ldr_mult_reg        r0 lr8 cr3;
-    set                 lr3 3;;
+    add                 lr3 lr0 3;;
 
     reset_acc;;
 
@@ -219,7 +219,7 @@ row0_filter_loop:
     xmem.store_aaq_result lr0 cr6;;
 
     # --- RIGHT HALF: channel 0, kr=0 and kr=+1 ---
-    set                 lr3 3;
+    add                 lr3 lr0 3;
     reset_acc;;
 
     # kr=0: load row 0 right, channel 0
@@ -359,14 +359,14 @@ row0_filter_loop:
 # ===========================================================================
 
     add                 lr5 lr12 lr0;
-    set                 lr9 1;;
+    SET                 lr9 cr9;;
 
 row_loop:
-    set                 lr8 0;;
+    SET                 lr8 cr0;;
 
 filter_loop:
     ldr_mult_reg        r0 lr8 cr3;
-    set                 lr3 0;;
+    SET                 lr3 cr0;;
 
     reset_acc;;
 
@@ -520,7 +520,7 @@ filter_loop:
     xmem.store_aaq_result lr0 cr6;;
 
     # === RIGHT HALF: channel 0 (taps 0..8) ===
-    set                 lr3 0;
+    SET                 lr3 cr0;
     reset_acc;;
 
     # kr=-1: row(2r-1) right, ch0

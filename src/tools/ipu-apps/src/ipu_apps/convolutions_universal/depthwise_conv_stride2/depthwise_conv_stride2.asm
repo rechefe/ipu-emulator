@@ -58,13 +58,13 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr0 0;
+    SET                 lr0 cr10;
     ldr_mult_mask_reg   lr0 cr3;;
 
     add                 lr4 lr0 cr12;
-    set                 lr1 1;;
+    SET                 lr1 cr11;;
 
-    set                 lr2 2;
+    SET                 lr2 cr13;
     sub                 lr3 lr4 cr4;;
 
     add                 lr5 lr4 cr4;
@@ -74,18 +74,18 @@
 # Main loop: output chunks 0..30  (2 full output rows per chunk)
 # ===========================================================================
 
-    set                 lr8 0;
-    set                 lr7 0;;
+    SET                 lr8 cr10;
+    SET                 lr7 cr10;;
 
-    set                 lr9 0;;
+    SET                 lr9 cr10;;
 
 chunk_loop:
-    set                 lr10 0;
-    set                 lr12 0;;
+    SET                 lr10 cr10;
+    SET                 lr12 cr10;;
 
 chunk_kg_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
     add                 lr11 lr10 cr7;;
 
@@ -281,7 +281,7 @@ chunk_ch_loop:
 
     add                 lr9 lr9 1;;
 
-    set                 lr15 31;;
+    SET                 lr15 cr14;;
 
     blt                 lr9 lr15 chunk_loop;;
 
@@ -289,12 +289,12 @@ chunk_ch_loop:
 # Last chunk (k=31): row A normal (9 taps), row B bottom border (6 taps, no S2)
 # ===========================================================================
 
-    set                 lr10 0;
-    set                 lr12 0;;
+    SET                 lr10 cr10;
+    SET                 lr12 cr10;;
 
 last_kg_loop:
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr6 0;;
+    SET                 lr6 cr10;;
 
     add                 lr11 lr10 cr7;;
 

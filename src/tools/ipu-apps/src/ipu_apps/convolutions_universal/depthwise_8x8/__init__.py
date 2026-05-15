@@ -263,6 +263,8 @@ class Depthwise8x8App(IpuApp):
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, MASK_BASE_ADDR)
         state.regfile.set_cr(4, self.total_input_bytes)
+        state.regfile.set_cr(5, 0)      # zero constant
+        state.regfile.set_cr(6, 119)    # cyclic base offset for 3x3 tap start (kr=-1, kc=-1)
         state.regfile.set_cr(12, 128)   # step constant: chunk / kernel group / output advance
         state.regfile.set_cr(13, 72)    # pair sub-loop end (4 pairs x 18 bytes)
         state.regfile.set_cr(14, 384)   # mask group D offset

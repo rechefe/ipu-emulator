@@ -246,8 +246,8 @@ class ConvUniversalApp(IpuApp):
         # replacing the previous lr9 chunk counter.
         state.regfile.set_cr(11, (self.num_chunks - 1) * self.in_group_stride)
 
-        # Constants used by the asm in place of `incr` (which the new ISA
-        # removed — `add` with AddSubSrcB caps the immediate at 5-bit unsigned).
+        # Constants used by the asm
+        state.regfile.set_cr(10, 0)   # zero constant for SET lr<n> cr10
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, 256)
         # cr14 = end-of-9 walking-pointer step: brings lr_walk from this ch's

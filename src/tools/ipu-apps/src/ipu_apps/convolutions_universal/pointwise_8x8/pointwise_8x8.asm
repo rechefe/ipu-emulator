@@ -51,7 +51,7 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr0 0;;
+    SET                 lr0 cr7;;
 
     add                 lr5 lr0 cr12;
     add                 lr6 lr0 cr13;;
@@ -65,8 +65,8 @@
     add                 lr11 lr0 cr5;
     add                 lr15 lr0 cr6;;
 
-    set                 lr9 0;
-    set                 lr2 0;;
+    SET                 lr9 cr7;
+    SET                 lr2 cr7;;
 
 # ===========================================================================
 # OC pair loop (processes 2 output channels per iteration)
@@ -74,13 +74,13 @@
 
 oc_pair_loop:
     reset_acc;
-    set                 lr10 0;;
+    SET                 lr10 cr7;;
 
 # Load first kernel block for this OC pair
     add                 lr12 lr9 lr0;;
 
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr3 0;;
+    SET                 lr3 cr7;;
 
 # ---------------------------------------------------------------------------
 # IC loop: iterate over all IC pairs, reload r0 every 32 IC pairs
@@ -118,7 +118,7 @@ ic_loop:
     add                 lr12 lr12 cr12;;
 
     ldr_mult_reg        r0 lr12 cr1;
-    set                 lr3 0;;
+    SET                 lr3 cr7;;
 
 skip_reload:
     blt                 lr10 lr11 ic_loop;;

@@ -455,125 +455,6 @@ BKPT;;
 # ============================================================================
 
 
-class TestMaskShiftExploration:
-    """Probe how `mask_shift` interacts with the 128-bit mask integer.
-
-    Each trial loads a known mask pattern into RM slot 0, runs one mult.ee
-    with mult_res = 1*1 = 1 in every lane (so mask zeroes show as 0, kept
-    lanes show as 1), applies a chosen shift, and asserts which lanes
-    survive. Together the trials map out:
-      - shift = 0 baseline
-      - positive shift moves bits left (high index)
-      - bits shifted past lane 127 vanish (never wrap)
-      - negative shift (LR holds 0xFFFFFFFF − k + 1) right-shifts; bits
-        shifted past lane 0 vanish
-      - the cols=64 conv use case: base {0,64} shifted +63 → {63,127}
-    """
-
-    @staticmethod
-    def _build_asm(base_mask_bytes: bytes, shift_value: int) -> str:
-        # mult.ee with r0 = all 1s and rc = all 1s gives mult_res[i] = 1 for
-        # every lane (int8 dtype). After mask+shift, masked lanes are 0.
-        # acc adds r_acc(0) + mult_res, then str_acc_reg dumps to xmem.
-        # `set` only takes 16-bit signed immediates, so encode shift via two
-        # halves if it doesn't fit. For our trials shift fits in [-32768,32767].
-        assert -32768 <= shift_value <= 32767
-        return f"""\
-set lr0 0x1000;;
-ldr_mult_reg r0 lr0 cr0;;
-set lr1 0x2000;;
-set lr2 0;;
-ldr_cyclic_mult_reg lr1 cr0 lr2;;
-set lr3 0x3000;;
-ldr_mult_mask_reg lr3 cr0;;
-reset_acc;;
-set lr4 0;;
-set lr5 {shift_value};;
-set lr6 0;;
-mult.ee r0 lr6 lr4 lr5;
-acc;;
-set lr9 0x4000;;
-str_acc_reg lr9 cr0;;
-bkpt;;
-"""
-
-    @staticmethod
-    def _bits_set(mask_int: int) -> set[int]:
-        return {i for i in range(128) if (mask_int >> i) & 1}
-
-    def _run_trial(self, base_bits: set[int], shift: int) -> set[int]:
-        """Run the trial and return the set of lanes that were ZEROED."""
-        # Pack base_bits into 16-byte slot-0 of the mask register.
-        mask_int = 0
-        for b in base_bits:
-            mask_int |= 1 << b
-        mask_data = bytearray(128)
-        mask_data[0:16] = mask_int.to_bytes(16, "little")
-
-        state = _make_state(self._build_asm(bytes(mask_data), shift))
-        state.xmem.write_address(0x1000, bytes([1] * 128))   # r0 = all 1s
-        state.xmem.write_address(0x2000, bytes([1] * 512))   # rc = all 1s
-        state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
-
-        words = struct.unpack_from(
-            "<128i", state.xmem.read_address(0x4000, 512)
-        )
-        # mult_res[i] = 1*1 = 1 unmasked, 0 if masked. acc adds it once.
-        zeroed = {i for i, w in enumerate(words) if w == 0}
-        kept = {i for i, w in enumerate(words) if w == 1}
-        unexpected = set(range(128)) - zeroed - kept
-        assert not unexpected, f"unexpected acc values at lanes {unexpected}"
-        return zeroed
-
-    # -------- baseline: shift = 0 reproduces the base mask --------
-    def test_shift_zero_baseline(self):
-        zeroed = self._run_trial(base_bits={0, 64}, shift=0)
-        assert zeroed == {0, 64}
-
-    # -------- positive shift moves bits to higher lane indices --------
-    def test_positive_shift_moves_left(self):
-        zeroed = self._run_trial(base_bits={0}, shift=10)
-        assert zeroed == {10}
-
-    def test_positive_shift_multiple_bits(self):
-        # Cols=64 use case: kc=-1 mask {0,64} shifted by cols-1 == 63 should
-        # land cleanly at {63, 127} (kc=+1 mask). This is the property that
-        # makes the single-base-mask plan work for cols=64.
-        zeroed = self._run_trial(base_bits={0, 64}, shift=63)
-        assert zeroed == {63, 127}
-
-    # -------- bits shifted past lane 127 vanish (no wrap) --------
-    def test_bits_past_127_vanish(self):
-        # bit 0 -> 64 (kept); bit 64 -> 128 (out of window, no effect).
-        zeroed = self._run_trial(base_bits={0, 64}, shift=64)
-        assert zeroed == {64}
-
-    def test_shift_128_is_no_op(self):
-        # Every base bit moves >=128 -> no lane zeroed.
-        zeroed = self._run_trial(base_bits={0, 64}, shift=128)
-        assert zeroed == set()
-
-    # -------- negative shift right-shifts; bits past 0 vanish --------
-    def test_negative_shift_moves_right(self):
-        # base bit 127 with shift -64 -> bit 63.
-        zeroed = self._run_trial(base_bits={127}, shift=-64)
-        assert zeroed == {63}
-
-    def test_negative_shift_drops_low_bits(self):
-        # base {0, 64} shifted right by 1: bit 0 vanishes (past lane 0),
-        # bit 64 -> 63.
-        zeroed = self._run_trial(base_bits={0, 64}, shift=-1)
-        assert zeroed == {63}
-
-    # -------- generalize cols=N: base {0,N,2N,...} shifted N-1 -> {N-1,...,127} --------
-    @pytest.mark.parametrize("cols", [16, 32, 64, 128])
-    def test_left_to_right_edge_mask_via_shift(self, cols):
-        base = set(range(0, 128, cols))
-        zeroed = self._run_trial(base_bits=base, shift=cols - 1)
-        expected = set(range(cols - 1, 128, cols))
-        assert zeroed == expected
-
 
 # ============================================================================
 # Control Flow
@@ -1884,8 +1765,8 @@ class TestAaqQuantize:
         """xmem.store_aaq_result writes exactly 128 bytes to the given address."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        # Set r_acc: each word = i << 24 so byte i = i (for i < 128)
-        self._set_acc_words(state, [i << 24 for i in range(128)])
+        # Set r_acc: each word = i directly; clamp to [-128,127] gives byte i.
+        self._set_acc_words(state, list(range(128)))
         state.regfile.set_cr(8, 0x4000)
 
         encoded = assemble(

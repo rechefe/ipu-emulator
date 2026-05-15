@@ -44,7 +44,7 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr0 0;;
+    SET                 lr0 cr5;;
 
     add                 lr5 lr0 cr12;
     add                 lr11 lr0 cr13;;
@@ -54,10 +54,10 @@
 # Copy CR parameter to LR for use in blt
     add                 lr15 lr0 cr4;;
 
-    set                 lr7 0;
-    set                 lr2 0;;
+    SET                 lr7 cr5;
+    SET                 lr2 cr5;;
 
-    set                 lr10 0;;
+    SET                 lr10 cr5;;
 
 # ===========================================================================
 # Kernel group loop (ceil(num_channels/8) groups, 4 pairs each)
@@ -65,7 +65,7 @@
 
 kernel_group_process:
     ldr_mult_reg        r0 lr7 cr1;
-    set                 lr3 0;;
+    SET                 lr3 cr5;;
 
 # ---------------------------------------------------------------------------
 # Pair loop (4 pairs per kernel group)
@@ -79,25 +79,25 @@ pair_loop:
     ldr_mult_mask_reg   lr0 cr3;;
 
     # kr=-1, kc=-1 (offset 119, slot 1)
-    set                 lr4 119;
+    SET                 lr4 cr6;
     mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=-1, kc=0 (offset 120, slot 0)
     add                 lr3 lr3 1;
-    set                 lr4 120;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 0 lr0 lr3;
     acc;;
 
     # kr=-1, kc=+1 (offset 121, slot 2)
     add                 lr3 lr3 1;
-    set                 lr4 121;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=0, kc=-1 (offset 127, slot 1)
     add                 lr3 lr3 1;
-    set                 lr4 127;
+    add                 lr4 lr4 6;
     mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
@@ -108,25 +108,25 @@ pair_loop:
 
     # kr=0, kc=+1 (offset 129, slot 2)
     add                 lr3 lr3 1;
-    set                 lr4 129;
+    add                 lr4 lr4 2;
     mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=+1, kc=-1 (offset 135, slot 4 -- bleed)
     add                 lr3 lr3 1;
-    set                 lr4 135;
+    add                 lr4 lr4 6;
     mult.ve.cyclic      lr4 4 lr0 lr3;
     acc;;
 
     # kr=+1, kc=0 (offset 136, slot 3 -- bleed)
     add                 lr3 lr3 1;
-    set                 lr4 136;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 3 lr0 lr3;
     acc;;
 
     # kr=+1, kc=+1 (offset 137, slot 5 -- bleed)
     add                 lr3 lr3 1;
-    set                 lr4 137;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 5 lr0 lr3;
     acc;;
 
@@ -135,25 +135,25 @@ pair_loop:
     ldr_mult_mask_reg   lr1 cr3;;
 
     # kr=-1, kc=-1 (offset 119, slot 4 -- bleed)
-    set                 lr4 119;
+    SET                 lr4 cr6;
     mult.ve.cyclic      lr4 4 lr0 lr3;
     acc;;
 
     # kr=-1, kc=0 (offset 120, slot 3 -- bleed)
     add                 lr3 lr3 1;
-    set                 lr4 120;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 3 lr0 lr3;
     acc;;
 
     # kr=-1, kc=+1 (offset 121, slot 5 -- bleed)
     add                 lr3 lr3 1;
-    set                 lr4 121;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 5 lr0 lr3;
     acc;;
 
     # kr=0, kc=-1 (offset 127, slot 1)
     add                 lr3 lr3 1;
-    set                 lr4 127;
+    add                 lr4 lr4 6;
     mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
@@ -164,25 +164,25 @@ pair_loop:
 
     # kr=0, kc=+1 (offset 129, slot 2)
     add                 lr3 lr3 1;
-    set                 lr4 129;
+    add                 lr4 lr4 2;
     mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
     # kr=+1, kc=-1 (offset 135, slot 1)
     add                 lr3 lr3 1;
-    set                 lr4 135;
+    add                 lr4 lr4 6;
     mult.ve.cyclic      lr4 1 lr0 lr3;
     acc;;
 
     # kr=+1, kc=0 (offset 136, slot 0)
     add                 lr3 lr3 1;
-    set                 lr4 136;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 0 lr0 lr3;
     acc;;
 
     # kr=+1, kc=+1 (offset 137, slot 2)
     add                 lr3 lr3 1;
-    set                 lr4 137;
+    add                 lr4 lr4 1;
     mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 

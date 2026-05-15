@@ -27,12 +27,12 @@
 # Initialization
 # ===========================================================================
 
-    set     lr0 0;
-    set     lr2 0;;
+    SET     lr0 cr0;
+    SET     lr2 cr0;;
 
-    set     lr3 0;;
+    SET     lr3 cr0;;
 
-    add     lr11 cr4 lr0;;
+    add     lr11 lr0 cr4;;
 
 # ===========================================================================
 # Main loop: one iteration per 128-byte input chunk
@@ -41,19 +41,19 @@
 loop:
 # Load chunk from input A into r_cyclic[0], multiply by 1 -> r_acc = A[i]
     ldr_cyclic_mult_reg lr2 cr0 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr5;
+    mult.ve.cr          lr0 0 lr0 cr5;
     acc.first;;
 
 # Load chunk from input B into r_cyclic[0], multiply by 1 -> r_acc += B[i]
     ldr_cyclic_mult_reg lr2 cr1 lr0;
-    mult.ve.cr          lr0 lr0 lr0 cr5;
+    mult.ve.cr          lr0 0 lr0 cr5;
     acc;;
 
 # Store INT32 accumulator (512 bytes per chunk)
     str_acc_reg         lr3 cr2;;
 
-    incr    lr2 128;
-    incr    lr3 512;;
+    add     lr2 lr2 cr3;
+    add     lr3 lr3 cr6;;
 
     blt     lr2 lr11 loop;;
 

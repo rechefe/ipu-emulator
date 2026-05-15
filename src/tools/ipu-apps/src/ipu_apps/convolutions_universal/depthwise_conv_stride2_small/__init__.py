@@ -189,6 +189,8 @@ class DepthwiseConvStride2SmallApp(IpuApp):
         state.regfile.set_cr(10, ZERO_BASE_ADDR)
         state.regfile.set_cr(11, self.num_groups - 1)  # last group index
         state.regfile.set_cr(12, 128)  # step constant for add
+        state.regfile.set_cr(13, 0)   # zero constant
+        state.regfile.set_cr(14, 1)   # small constant 1
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

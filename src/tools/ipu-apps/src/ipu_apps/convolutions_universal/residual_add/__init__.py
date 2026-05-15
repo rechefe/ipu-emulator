@@ -94,8 +94,10 @@ class ResidualAddApp(IpuApp):
         state.regfile.set_cr(0, INPUT_A_BASE)
         state.regfile.set_cr(1, INPUT_B_BASE)
         state.regfile.set_cr(2, OUTPUT_BASE)
+        state.regfile.set_cr(3, 128)  # input chunk step
         state.regfile.set_cr(4, self.total_input_bytes)
-        state.regfile.set_cr(5, 1)  # identity scalar for mult.ve.cr
+        state.regfile.set_cr(5, 1)   # identity scalar for mult.ve.cr
+        state.regfile.set_cr(6, 512) # output chunk step (ACC_CHUNK_BYTES)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
