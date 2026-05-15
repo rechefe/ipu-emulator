@@ -2,7 +2,7 @@
 #
 # Paired-filter processing: two output filters share one accumulator.
 # Filter f0 (even) accumulates in lanes 0-63, filter f1 (odd) in lanes 64-127.
-# One str_acc_reg per pair stores all 512 bytes (both filters valid).
+# Output: aaq quantizes r_acc to 128 bytes int8 per filter pair.
 #
 # 8x8 spatial fits in 64 bytes (half a 128-byte chunk).
 # Two input channels packed per chunk: ch A at bytes 0-63, ch B at bytes 64-127.
@@ -28,22 +28,23 @@
 #   cr3  = mask base address
 #   cr4  = kernel_bytes_per_filter (= ceil(in_channels/8) * 128)
 #   cr5  = total_input_bytes (= in_channels / 2 * 128)
-#   cr6  = total_output_bytes (= out_channels / 2 * 512)
-#   cr12 = 128  (step constant: chunk / kernel block advance)
-#   cr13 = 256  (step constant: output pointer +512 via two adds)
+#   cr6  = total_output_bytes (= out_channels / 2 * 128)
+#   cr12 = 128  (step constant: chunk / kernel block / output advance)
+#   cr13 = 256  (mask group C offset, lr1 compute)
+#   cr14 = 72   (r0 reload threshold: 4 ch x 18 bytes)
 #
 # LR registers:
 #   lr0  = 0     (mask_shift; also zero constant for add src_a)
-#   lr1  = temp  (mask group D offset 384)
+#   lr1  = temp  (mask group D offset 384 = lr12 + lr5)
 #   lr2  = output write offset
 #   lr3  = kernel byte index within r0 (0..71)
 #   lr4  = temp  (cyclic offset for mult.ve.cyclic)
-#   lr5  = 128   (cyclic load index, mask group B offset)
+#   lr5  = 128   (cyclic load index, mask group B offset, from cr12)
 #   lr6  = temp  (kernel block address)
-#   lr7  = 72    (r0 reload threshold)
+#   lr7  = 72    (r0 reload threshold, from cr14)
 #   lr10 = input chunk offset (0, 128, ...)
 #   lr11 = total_input_bytes (copy of cr5, ic loop limit)
-#   lr12 = 256   (mask group C offset)
+#   lr12 = 256   (mask group C offset, from cr13)
 #   lr14 = kernel pair base offset (0, 2*kbpf, 4*kbpf, ...)
 #   lr15 = total_output_bytes (copy of cr6, oc pair loop limit)
 #
@@ -55,11 +56,12 @@
 # Initialization
 # ===========================================================================
 
-    set                 lr5 128;
-    set                 lr7 72;;
-
-    set                 lr12 256;
     set                 lr0 0;;
+
+    add                 lr5 lr0 cr12;
+    add                 lr7 lr0 cr14;;
+
+    add                 lr12 lr0 cr13;;
 
 # Copy CR parameters to LR for use in blt
     add                 lr11 lr0 cr5;
@@ -379,15 +381,16 @@ f1_skip_reload:
 # Store result (both filters), advance to next filter pair
 # ---------------------------------------------------------------------------
 
-    str_acc_reg         lr2 cr2;;
+    aaq;;
+
+    xmem.store_aaq_result lr2 cr2;;
 
     # Advance kernel: lr14 += 2 * kernel_bytes_per_filter.
-    # Output pointer lr2 += 512 via two sequential add cr13.
+    # Output pointer lr2 += 128.
     add                 lr14 lr14 cr4;
-    add                 lr2 lr2 cr13;;
+    add                 lr2 lr2 cr12;;
 
-    add                 lr14 lr14 cr4;
-    add                 lr2 lr2 cr13;;
+    add                 lr14 lr14 cr4;;
 
     blt                 lr2 lr15 filter_pair_loop;;
 

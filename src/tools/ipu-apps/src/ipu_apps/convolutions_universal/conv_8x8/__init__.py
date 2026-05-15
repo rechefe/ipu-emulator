@@ -7,7 +7,7 @@ Input layout: 2 channels per 128-byte chunk (ch_even bytes 0-63, ch_odd 64-127).
 Kernel layout: ceil(in_channels/8) blocks per filter, 128 bytes each.
   Each block: 8 channels x 9 taps = 72 bytes + 56 padding.
   Filters packed sequentially: f0 blocks, f1 blocks, f2 blocks, ...
-Output: INT32 accumulator, 512 bytes per filter pair (128 lanes x 4 bytes).
+Output: 128 bytes int8 per filter pair (AAQ-quantized).
 
 Usage::
 
@@ -49,7 +49,7 @@ KERNEL_BASE_ADDR = 0x80000
 MASK_BASE_ADDR = 0x200000
 OUTPUT_BASE_ADDR = 0x200300
 
-ACC_CHUNK_BYTES = 512  # 128 lanes x 4 bytes
+OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per filter pair (AAQ-quantized)
 CHANNELS_PER_BLOCK = 8
 KERNEL_SIZE = 9
 
@@ -244,7 +244,7 @@ class Conv8x8App(IpuApp):
         self.blocks_per_filter = math.ceil(in_channels / CHANNELS_PER_BLOCK)
         self.kernel_bytes_per_filter = self.blocks_per_filter * 128
         self.total_input_bytes = self.ic_pairs * 128
-        self.total_output_bytes = self.oc_pairs * ACC_CHUNK_BYTES
+        self.total_output_bytes = self.oc_pairs * OUTPUT_CHUNK_BYTES
 
     def setup(self, state: "IpuState") -> None:
         state.set_cr_dtype(int(DType.INT8))
@@ -269,9 +269,10 @@ class Conv8x8App(IpuApp):
         state.regfile.set_cr(4, self.kernel_bytes_per_filter)
         state.regfile.set_cr(5, self.total_input_bytes)
         state.regfile.set_cr(6, self.total_output_bytes)
-        state.regfile.set_cr(12, 128)   # step constant for add (chunk/kernel block advances)
-        state.regfile.set_cr(13, 256)   # step constant for output-pointer +512 (two adds)
+        state.regfile.set_cr(12, 128)   # step constant: chunk / kernel block / output advance
+        state.regfile.set_cr(13, 256)   # mask group C offset, used to compute lr12 and lr1
+        state.regfile.set_cr(14, 72)    # r0 reload threshold (4 ch x 18 bytes)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, ACC_CHUNK_BYTES, self.oc_pairs)
+            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, self.oc_pairs)

@@ -55,7 +55,7 @@ KERNEL_BASE_ADDR = 0x110000
 MASK_BASE_ADDR = 0x120000
 OUTPUT_BASE_ADDR = 0x130000
 
-OUTPUT_ROW_BYTES = 128 * 4  # 512 per output-channel per row-group
+OUTPUT_ROW_BYTES = 128  # 128 bytes (int8) per output-channel per row-group
 
 
 def _compute_G(in_channels: int) -> int:
@@ -221,6 +221,11 @@ class PointwiseConvUniversalApp(IpuApp):
         state.regfile.set_cr(9, self.num_groups * 128)
         state.regfile.set_cr(10, self.G * 128)
         state.regfile.set_cr(11, self.G)
+
+        # Small-immediate constants (avoids set >15 in asm)
+        state.regfile.set_cr(12, 128)
+        state.regfile.set_cr(13, 256)
+        state.regfile.set_cr(14, 512)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

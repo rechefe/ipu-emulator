@@ -2,6 +2,7 @@
 
 Fixed 8x8 spatial (64 positions). Paired-output processing: two output
 channels share one accumulator (even OC in lanes 0-63, odd OC in lanes 64-127).
+Output: 128-byte int8 per OC pair (AAQ-quantized, clamp [-128, 127]).
 
 Reports cycles, theoretical minimum (64 * in_ch * out_ch / 128 — MULT-issue
 floor at 128 mults/cycle), and end-to-end MAC/cycle efficiency.
@@ -24,7 +25,7 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.pointwise_8x8 import (
     Pointwise8x8App,
     OUTPUT_BASE_ADDR,
-    ACC_CHUNK_BYTES,
+    OUTPUT_CHUNK_BYTES,
     ROWS,
     COLS,
     SPATIAL,
@@ -53,33 +54,30 @@ def pack_input(input_chw: np.ndarray, in_ch: int) -> bytes:
     return _build_input_data(raw, in_ch)
 
 
-def reference_pointwise(
-    weights: np.ndarray, input_chw: np.ndarray
-) -> np.ndarray:
-    """1x1 conv, int32 accumulation wrapping. Returns (out_ch, SPATIAL) int32."""
+def reference_pointwise(weights: np.ndarray, input_chw: np.ndarray) -> bytes:
+    """1x1 conv, int32 acc, int8-clamped output.
+
+    Output layout: oc_pairs * 128 bytes, pairs interleaved (f0 in bytes 0-63,
+    f1 in bytes 64-127 of each 128-byte record).
+    """
     out_ch = weights.shape[0]
     in_ch = weights.shape[1]
-    inp = input_chw.astype(np.int32).reshape(in_ch, SPATIAL)  # (in_ch, SPATIAL)
-    w = weights.astype(np.int32)                               # (out_ch, in_ch)
-    return w @ inp                                             # (out_ch, SPATIAL)
-
-
-def read_output(state, out_ch: int) -> np.ndarray:
-    """Read paired-output ACC from emulator state. Returns (out_ch, SPATIAL) int32."""
     oc_pairs = out_ch // 2
-    raw = state.xmem.read_address(OUTPUT_BASE_ADDR, oc_pairs * ACC_CHUNK_BYTES)
-    vals = np.frombuffer(raw, dtype="<i4").reshape(oc_pairs, 128)
-    result = np.empty((out_ch, SPATIAL), dtype=np.int32)
+    inp = input_chw.astype(np.int32).reshape(in_ch, SPATIAL)
+    w = weights.astype(np.int32)
+    result = w @ inp  # (out_ch, SPATIAL)
+    clamped = np.clip(result, -128, 127).astype(np.int8)
+    out = bytearray(oc_pairs * OUTPUT_CHUNK_BYTES)
     for p in range(oc_pairs):
-        result[2 * p]     = vals[p, :SPATIAL]
-        result[2 * p + 1] = vals[p, SPATIAL:2 * SPATIAL]
-    return result
+        out[p * 128: p * 128 + 64] = clamped[2 * p].view(np.uint8).tobytes()
+        out[p * 128 + 64: p * 128 + 128] = clamped[2 * p + 1].view(np.uint8).tobytes()
+    return bytes(out)
 
 
 def run_config(inst_file: Path, in_ch: int, out_ch: int):
     rng = np.random.RandomState(42 + in_ch * 7 + out_ch * 13)
-    weights = rng.randint(-32, 33, size=(out_ch, in_ch), dtype=np.int8)
-    input_chw = rng.randint(-32, 33, size=(in_ch, ROWS, COLS), dtype=np.int8)
+    weights = rng.randint(-4, 5, size=(out_ch, in_ch), dtype=np.int8)
+    input_chw = rng.randint(-8, 9, size=(in_ch, ROWS, COLS), dtype=np.int8)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -92,6 +90,7 @@ def run_config(inst_file: Path, in_ch: int, out_ch: int):
         input_file.write_bytes(input_packed)
         kernel_file.write_bytes(kernel_packed)
 
+        oc_pairs = out_ch // 2
         app = Pointwise8x8App(
             inst_path=inst_file,
             input_path=input_file,
@@ -103,10 +102,10 @@ def run_config(inst_file: Path, in_ch: int, out_ch: int):
         max_cyc = 2000 * in_ch * out_ch + 50_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, out_ch)
+        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, oc_pairs * OUTPUT_CHUNK_BYTES)
         expected = reference_pointwise(weights, input_chw)
 
-    mismatches = int(np.sum(actual != expected))
+    mismatches = sum(a != b for a, b in zip(actual, expected))
     return cycles, mismatches
 
 

@@ -136,15 +136,15 @@ g0_ch_loop:
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
     # Cy 2: lr_write = 128.  Ext = lr2+cr6 (kr=+1) — load → slot 128.
+    # lr3 = 1 (seed for -255: next cycle sub lr3 lr3 cr13 → 1-256 = -255).
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
-    # Cy 3: prep state for body iteration 0.
-    #   lr3 = -255  (preamble seed; will be lr3 += cr4 next cycle)
-    #   lr5 = 384   (= lr_read(0) - 128 mod 512, used by iter 0 tap 1 ldr)
-    set                 lr3 -255;
-    set                 lr5 384;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
     # Cy 4: finalize seeds.  lr3 += cols → cols-255.
     # lr6 = -1 (so tap 1's `add lr6 lr6 1` brings it to 0).
@@ -229,23 +229,24 @@ g0_tap_body:
     acc;;
 
     # --- tap 9: kr=+1 kc=+1.  Compute lr_write for NEXT iter's tap 1.
-    #     SNAPSHOT lr4 here = post-tap-8 update = lr_read(N+1).
+    #     aaq quantizes r_acc -> aaq_result (fires every iter; only last matters).
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
     acc;
+    aaq;
     blt                 lr10 lr11 g0_tap_body;;
 
     # Advance kernel offset; check for more channel groups.
     add                 lr12 lr12 cr13;
     blt                 lr10 cr6 g0_reload;;
 
-    # All input channels done — store, advance filter pointer (+512).
-    str_acc_reg         lr7 cr2;;
+    # All input channels done — store aaq_result (128 B int8), advance by 128.
+    aaq;;
+    xmem.store_aaq_result lr7 cr2;;
 
-    add                 lr7 lr7 cr13;;
-    add                 lr7 lr7 cr13;
+    add                 lr7 lr7 cr12;
     blt                 lr12 cr8 g0_filter_loop;;
 
     b                   main_setup;;
@@ -300,14 +301,15 @@ ch_loop:
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
-    # Cy 2: lr_write = 128; ext = lr2+cr6 (kr=+1).
+    # Cy 2: lr_write = 128; ext = lr2+cr6 (kr=+1).  lr3 = 1 (seed for -255).
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
-    # Cy 3.
-    set                 lr3 -255;
-    set                 lr5 384;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
     # Cy 4.
     add                 lr3 lr3 cr4;
@@ -377,21 +379,24 @@ mn_tap_body:
     acc;;
 
     # --- tap 9: prep lr5 for next iter tap 1.
+    #     aaq fires every iter; only the final aaq_result (after all in_ch) matters.
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
     acc;
+    aaq;
     blt                 lr10 lr11 mn_tap_body;;
 
 mn_after_block:
     add                 lr12 lr12 cr13;
     blt                 lr10 cr6 reload;;
 
-    str_acc_reg         lr7 cr2;;
+    # All input channels done — store aaq_result (128 B int8), advance by 128.
+    aaq;;
+    xmem.store_aaq_result lr7 cr2;;
 
-    add                 lr7 lr7 cr13;;
-    add                 lr7 lr7 cr13;
+    add                 lr7 lr7 cr12;
     blt                 lr12 cr8 filter_loop;;
 
     add                 lr8 lr8 cr6;;
@@ -435,25 +440,29 @@ gN_clamp:
     add                 lr11 lr0 cr6;;
 
 gN_ch_loop:
-    # Preamble: load ch 0 kr=0 (real, slot 0) and ch 0 kr=+1 (zeros from cr9, slot 128).
+    # Preamble: load first-ch-of-block kr=0 (real) and kr=+1 (zeros from cr9).
+    # Mirrors g0_ch_loop/ch_loop: lr2 = lr8+lr10 so reload paths load the
+    # correct channel offset within each super-block.
 
-    # Cy 1: load ch 0 kr=0.
+    # Cy 1: lr2 = lr8+lr10 (ch base ext addr); load ch kr=0 → slot 0.
     set                 lr4 0;
     set                 lr5 0;
-    ldr_cyclic_mult_reg lr8 cr0 lr5;;
+    add                 lr2 lr8 lr10;
+    ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
-    # Cy 2: lr5 = 128, load ch 0 kr=+1 (zeros from cr9).
+    # Cy 2: lr5 = 128; lr3 = 1 (seed for -255); load ch kr=+1 (zeros) → slot 128.
     add                 lr5 lr5 cr12;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr0 cr9 lr5;;
 
-    # Cy 3.
-    set                 lr3 -255;
-    set                 lr5 384;
-    set                 lr10 0;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    # (lr10 is NOT reset here — filter_loop sets it to 0 for a fresh filter;
+    #  reload re-enters here with lr10 at its end-of-block value.)
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
     # Cy 4.
     add                 lr3 lr3 cr4;
-    add                 lr2 lr8 lr0;
     set                 lr6 -1;;
 
     b                   gN_tap_body;;
@@ -519,20 +528,23 @@ gN_tap_body:
     acc;;
 
     # --- tap 9: prep lr5 for next iter tap 1.
+    #     aaq fires every iter; only the final aaq_result matters.
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
     acc;
+    aaq;
     blt                 lr10 lr11 gN_tap_body;;
 
     add                 lr12 lr12 cr13;
     blt                 lr10 cr6 gN_reload;;
 
-    str_acc_reg         lr7 cr2;;
+    # All input channels done — store aaq_result (128 B int8), advance by 128.
+    aaq;;
+    xmem.store_aaq_result lr7 cr2;;
 
-    add                 lr7 lr7 cr13;;
-    add                 lr7 lr7 cr13;
+    add                 lr7 lr7 cr12;
     blt                 lr12 cr8 gN_filter_loop;;
 
 end:

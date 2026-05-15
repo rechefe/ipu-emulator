@@ -38,33 +38,46 @@ def reference_pointwise_conv(
 
     Kernel layout: kernel[oc * in_channels + ic].
 
-    Output layout: interleaved by row-group and output channel.
-      Output channel oc, row-group rg: offset = (rg * out_channels + oc) * 512
-      Each output element is 4 bytes (int32 or float32 accumulator).
+    Output layout (INT8): interleaved by row-group and output channel.
+      Output channel oc, row-group rg: offset = (rg * out_channels + oc) * 128
+      Each element is 1 byte (int8, clamped from int32 accumulator).
+
+    Output layout (FP8): same interleaving, 4 bytes per element (float32 acc).
     """
     rows_per_chunk = 128 // cols
     row_groups = (rows * cols) // 128
     simd_width = 128  # elements per chunk
 
-    fmt = "<i" if dtype == DType.INT8 else "<f"
-    output = bytearray(row_groups * out_channels * simd_width * 4)
-
-    for rg in range(row_groups):
-        for oc in range(out_channels):
-            for elem in range(simd_width):
-                acc: int | float = 0
-                for ic in range(in_channels):
-                    ki = oc * in_channels + ic
-                    # Input: rg * row_group_stride + ic * 128 + elem
-                    bi = rg * in_channels * 128 + ic * 128 + elem
-                    a = kernel_bytes[ki]
-                    b = input_bytes[bi]
-                    prod = ipu_mult(a, b, dtype)
-                    acc = ipu_add(acc, prod, dtype)
-                    if dtype != DType.INT8:
-                        acc = float(np.float32(acc))
-                out_idx = (rg * out_channels + oc) * simd_width + elem
-                struct.pack_into(fmt, output, out_idx * 4, acc)
+    if dtype == DType.INT8:
+        output = bytearray(row_groups * out_channels * simd_width)
+        for rg in range(row_groups):
+            for oc in range(out_channels):
+                for elem in range(simd_width):
+                    acc = 0
+                    for ic in range(in_channels):
+                        ki = oc * in_channels + ic
+                        bi = rg * in_channels * 128 + ic * 128 + elem
+                        a = kernel_bytes[ki]
+                        b = input_bytes[bi]
+                        acc = ipu_add(acc, ipu_mult(a, b, dtype), dtype)
+                    clamped = max(-128, min(127, acc))
+                    out_idx = (rg * out_channels + oc) * simd_width + elem
+                    output[out_idx] = clamped & 0xFF
+    else:
+        fmt = "<f"
+        output = bytearray(row_groups * out_channels * simd_width * 4)
+        for rg in range(row_groups):
+            for oc in range(out_channels):
+                for elem in range(simd_width):
+                    acc: float = 0.0
+                    for ic in range(in_channels):
+                        ki = oc * in_channels + ic
+                        bi = rg * in_channels * 128 + ic * 128 + elem
+                        a = kernel_bytes[ki]
+                        b = input_bytes[bi]
+                        acc = float(np.float32(ipu_add(acc, ipu_mult(a, b, dtype), dtype)))
+                    out_idx = (rg * out_channels + oc) * simd_width + elem
+                    struct.pack_into(fmt, output, out_idx * 4, acc)
 
     return bytes(output)
 
@@ -88,11 +101,11 @@ def generate_for_dtype(
     kernel_size = in_channels * out_channels
 
     if dtype == DType.INT8:
-        input_data = rng.randint(-128, 128, size=input_size, dtype=np.int8)
+        input_data = rng.randint(-8, 9, size=input_size, dtype=np.int8)
         input_bytes = input_data.view(np.uint8).tobytes()
-        kernel_data = rng.randint(-128, 128, size=kernel_size, dtype=np.int8)
+        kernel_data = rng.randint(-4, 5, size=kernel_size, dtype=np.int8)
         kernel_bytes = kernel_data.view(np.uint8).tobytes()
-        golden_name = f"out_{dtype_name}_acc_int32.bin"
+        golden_name = f"out_{dtype_name}_int8.bin"
     else:
         input_fp32 = rng.uniform(-1.0, 1.0, size=input_size).astype(np.float32)
         input_bytes = fp32_to_fp8_bytes(input_fp32, dtype)

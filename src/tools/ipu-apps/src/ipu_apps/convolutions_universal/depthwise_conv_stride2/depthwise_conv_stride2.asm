@@ -61,7 +61,7 @@
     set                 lr0 0;
     ldr_mult_mask_reg   lr0 cr3;;
 
-    set                 lr4 128;
+    add                 lr4 lr0 cr12;
     set                 lr1 1;;
 
     set                 lr2 2;
@@ -286,7 +286,7 @@ chunk_ch_loop:
     blt                 lr9 lr15 chunk_loop;;
 
 # ===========================================================================
-# Last chunk (k=31): row 62 only, row 63 skipped (bottom border)
+# Last chunk (k=31): row A normal (9 taps), row B bottom border (6 taps, no S2)
 # ===========================================================================
 
     set                 lr10 0;
@@ -301,8 +301,7 @@ last_kg_loop:
 last_ch_loop:
 
     # =======================================================================
-    # Row A only (output row 62, center at input row 125)
-    # S0=row124, S1=row125, S2=row126
+    # Row A: conv at input row 4k+1 (S0=4k, S1=4k+1, S2=4k+2) — all 9 taps
     # =======================================================================
 
     # Compute S1 addr = lr8 + lr13 + lr10
@@ -323,7 +322,6 @@ last_ch_loop:
     ldr_cyclic_mult_reg lr15 cr0 lr14;
     reset_acc;;
 
-    # --- 9 taps (same pattern) ---
     sub                 lr14 lr3 lr1;
     mult.ve.cyclic      lr14 1 lr0 lr6;
     acc;;
@@ -370,22 +368,86 @@ last_ch_loop:
     xmem.store_aaq_result lr0 cr8;;
 
     # =======================================================================
-    # Stride step: row A only, row B = zeros (from reset_acc)
+    # Row B: bottom border — S0=4k+2, S1=4k+3, S2 missing -> 6 taps only
+    # =======================================================================
+
+    sub                 lr6 lr6 8;;
+
+    # Compute S1 addr = lr8 + 3*lr13 + lr10
+    add                 lr14 lr8 lr10;;
+    add                 lr14 lr14 lr13;;
+    add                 lr14 lr14 lr13;;
+    add                 lr14 lr14 lr13;;
+
+    # Load S0 (row 4k+2) at cyclic[0]
+    sub                 lr15 lr14 lr13;
+    ldr_cyclic_mult_reg lr15 cr0 lr0;;
+
+    # Load S1 (row 4k+3) at cyclic[128]
+    ldr_cyclic_mult_reg lr14 cr0 lr4;
+    reset_acc;;
+
+    # --- kr=-1: 3 taps ---
+    sub                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
+    acc;;
+
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr3 0 lr0 lr6;
+    acc;;
+
+    add                 lr6 lr6 1;
+    add                 lr14 lr3 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
+    acc;;
+
+    # --- kr=0: 3 taps ---
+    add                 lr6 lr6 1;
+    sub                 lr14 lr4 lr1;
+    mult.ve.cyclic      lr14 1 lr0 lr6;
+    acc;;
+
+    add                 lr6 lr6 1;
+    mult.ve.cyclic      lr4 0 lr0 lr6;
+    acc;;
+
+    add                 lr6 lr6 1;
+    add                 lr14 lr4 lr1;
+    mult.ve.cyclic      lr14 2 lr0 lr6;
+    acc;;
+
+    # Quantize row B and store to temp_B
+    aaq;;
+    xmem.store_aaq_result lr4 cr8;;
+
+    # =======================================================================
+    # Stride step: decimate both rows and pack into one output chunk
     # =======================================================================
 
     # Load temp_A, identity multiply, reset acc
+    # (+3 lr6 increments here to account for the 3 skipped kr=+1 taps)
+    add                 lr6 lr6 1;
     ldr_cyclic_mult_reg lr0 cr8 lr0;
     mult.ve.cr          lr0 0 lr0 cr9;
     reset_acc;;
 
-    # Stride row A -> r_acc[0:63], r_acc[64:127] stays zero
+    # Stride row A -> r_acc[0:63]
+    add                 lr6 lr6 1;
     acc.stride           64 on off lr0;;
+
+    # Load temp_B, identity multiply
+    add                 lr6 lr6 1;
+    ldr_cyclic_mult_reg lr4 cr8 lr0;
+    mult.ve.cr          lr0 0 lr0 cr9;;
+
+    # Stride row B -> r_acc[64:127]
+    acc.stride           64 on off lr2;;
 
     # Quantize and store
     aaq;;
     xmem.store_aaq_result lr7 cr2;;
 
-    # Advance
+    # Advance (lr6 is now at base+8; +1 here brings it to base+9 for next ch)
     add                 lr6 lr6 1;
     add                 lr10 lr10 cr12;;
 

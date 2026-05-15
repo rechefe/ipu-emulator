@@ -38,10 +38,25 @@ if TYPE_CHECKING:
 # -- Memory layout -----------------------------------------------------------
 
 INPUT_BASE_ADDR = 0x000000
-KERNEL_BASE_ADDR = 0x110000
-MASK_BASE_ADDR = 0x120000
-TEMP_BASE_ADDR = 0x120100  # 256 bytes for temp_A (128) + temp_B (128)
-OUTPUT_BASE_ADDR = 0x130000
+
+
+def _compute_addresses(rows: int, cols: int, channels: int) -> dict:
+    """Compute memory addresses dynamically to avoid overlap for large configs."""
+    def align(addr: int, boundary: int = 256) -> int:
+        return (addr + boundary - 1) & ~(boundary - 1)
+
+    input_size = rows * channels * 128
+    kernel_base = align(INPUT_BASE_ADDR + input_size)
+    kernel_size = (channels // 8) * 128
+    mask_base = align(kernel_base + kernel_size)
+    temp_base = mask_base + 128  # mask is 128 bytes, temp follows immediately
+    output_base = align(temp_base + 256)  # temp is 256 bytes (temp_A + temp_B)
+    return {
+        "kernel": kernel_base,
+        "mask": mask_base,
+        "temp": temp_base,
+        "output": output_base,
+    }
 
 _DTYPE_MAP = {
     "INT8": DType.INT8,
@@ -135,6 +150,12 @@ class DepthwiseConvStride2App(IpuApp):
         self.group_stride = channels * 128
         self.kernel_groups = channels // 8
 
+        addrs = _compute_addresses(rows, cols, channels)
+        self._kernel_base = addrs["kernel"]
+        self._mask_base = addrs["mask"]
+        self._temp_base = addrs["temp"]
+        self.output_base = addrs["output"]
+
     def setup(self, state: "IpuState") -> None:
         state.set_cr_dtype(int(self.dtype))
 
@@ -145,22 +166,22 @@ class DepthwiseConvStride2App(IpuApp):
         # Load kernel (packed)
         kernel_raw = self.kernel_path.read_bytes()
         kernel_padded = _build_kernel_data(kernel_raw, self.channels)
-        state.xmem.write_address(KERNEL_BASE_ADDR, kernel_padded)
+        state.xmem.write_address(self._kernel_base, kernel_padded)
 
         # Load mask data
         mask_data = _build_mask_data(self.cols)
-        state.xmem.write_address(MASK_BASE_ADDR, mask_data)
+        state.xmem.write_address(self._mask_base, mask_data)
 
         # CR registers
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(1, KERNEL_BASE_ADDR)
-        state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
-        state.regfile.set_cr(3, MASK_BASE_ADDR)
+        state.regfile.set_cr(1, self._kernel_base)
+        state.regfile.set_cr(2, self.output_base)
+        state.regfile.set_cr(3, self._mask_base)
         state.regfile.set_cr(4, self.cols)
         state.regfile.set_cr(5, self.num_output_chunks)
         state.regfile.set_cr(6, self.group_stride)
         state.regfile.set_cr(7, 1024)  # channel group size = 8 * 128
-        state.regfile.set_cr(8, TEMP_BASE_ADDR)
+        state.regfile.set_cr(8, self._temp_base)
         state.regfile.set_cr(9, 1)  # identity scalar for mult.ve.cr
         state.regfile.set_cr(12, 128)  # step constant for add
 
@@ -168,5 +189,5 @@ class DepthwiseConvStride2App(IpuApp):
         if self.output_path is not None:
             total_chunks = self.num_output_chunks * self.channels
             total_bytes = total_chunks * 128
-            data = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+            data = state.xmem.read_address(self.output_base, total_bytes)
             Path(self.output_path).write_bytes(data)

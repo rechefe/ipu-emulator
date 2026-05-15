@@ -5,7 +5,7 @@ OC f0 (even) in lanes 0-63, OC f1 (odd) in lanes 64-127.
 
 Input layout: 2 channels per 128-byte chunk (IC_even bytes 0-63, IC_odd 64-127).
 Kernel layout: interleaved per IC pair, packed into 128-byte blocks.
-Output: INT32 accumulator, 512 bytes per OC pair (128 lanes x 4 bytes).
+Output: 128 bytes int8 per OC pair (AAQ-quantized).
 
 Usage::
 
@@ -51,7 +51,7 @@ KERNEL_BASE_ADDR = 0x80000
 MASK_BASE_ADDR = 0x200000
 OUTPUT_BASE_ADDR = 0x200100
 
-ACC_CHUNK_BYTES = 512  # 128 lanes x 4 bytes
+OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per OC pair (AAQ-quantized)
 
 
 def _build_mask_data() -> bytes:
@@ -156,7 +156,7 @@ class Pointwise8x8App(IpuApp):
         self.blocks_per_pair = math.ceil(self.ic_pairs / 32)
         self.kernel_bytes_per_pair = self.blocks_per_pair * 128
         self.total_input_bytes = self.ic_pairs * 128
-        self.total_output_bytes = self.oc_pairs * ACC_CHUNK_BYTES
+        self.total_output_bytes = self.oc_pairs * OUTPUT_CHUNK_BYTES
 
     def setup(self, state: "IpuState") -> None:
         state.set_cr_dtype(int(self.dtype))
@@ -181,9 +181,10 @@ class Pointwise8x8App(IpuApp):
         state.regfile.set_cr(4, self.kernel_bytes_per_pair)
         state.regfile.set_cr(5, self.total_input_bytes)
         state.regfile.set_cr(6, self.total_output_bytes)
-        state.regfile.set_cr(12, 128)   # step constant for add (chunk/kernel block advance)
-        state.regfile.set_cr(13, 256)   # step constant for output-pointer +512 (two adds)
+        state.regfile.set_cr(12, 128)   # step constant: chunk / kernel block / output advance
+        state.regfile.set_cr(13, 64)    # cyclic_offset for f1 x IC_even
+        state.regfile.set_cr(14, 192)   # cyclic_offset for f0 x IC_odd
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, ACC_CHUNK_BYTES, self.oc_pairs)
+            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, self.oc_pairs)

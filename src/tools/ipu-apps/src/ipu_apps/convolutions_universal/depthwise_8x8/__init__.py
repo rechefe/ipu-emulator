@@ -6,7 +6,7 @@ Channel A (even) in lanes 0-63, channel B (odd) in lanes 64-127.
 
 Input layout: 2 channels per 128-byte chunk (ch_even bytes 0-63, ch_odd 64-127).
 Kernel layout: ceil(channels/8) groups of 128 bytes (8 ch x 9 taps + padding).
-Output: INT32 accumulator, 512 bytes per channel pair (128 lanes x 4 bytes).
+Output: 128 bytes int8 per channel pair (AAQ-quantized).
 
 Usage::
 
@@ -35,7 +35,6 @@ from ipu_apps.convolutions_universal import (
     parse_dtype,
     pack_input_paired,
     dump_outputs,
-    ACC_CHUNK_BYTES,
 )
 
 if TYPE_CHECKING:
@@ -56,6 +55,7 @@ OUTPUT_BASE_ADDR = 0x200300
 
 CHANNELS_PER_GROUP = 8
 KERNEL_SIZE = 9
+OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per channel pair (AAQ-quantized)
 
 # Back-compat alias: benchmarks and profiling scripts import this name
 _build_input_data = pack_input_paired
@@ -240,7 +240,7 @@ class Depthwise8x8App(IpuApp):
         self.num_pairs = channels // 2
         self.num_kernel_groups = math.ceil(channels / CHANNELS_PER_GROUP)
         self.total_input_bytes = self.num_pairs * 128
-        self.total_output_bytes = self.num_pairs * ACC_CHUNK_BYTES
+        self.total_output_bytes = self.num_pairs * OUTPUT_CHUNK_BYTES
 
     def setup(self, state: "IpuState") -> None:
         state.set_cr_dtype(int(self.dtype))
@@ -263,9 +263,10 @@ class Depthwise8x8App(IpuApp):
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, MASK_BASE_ADDR)
         state.regfile.set_cr(4, self.total_input_bytes)
-        state.regfile.set_cr(12, 128)   # step constant for add (chunk/kernel group advance)
-        state.regfile.set_cr(13, 256)   # step constant for output-pointer +512 (two adds)
+        state.regfile.set_cr(12, 128)   # step constant: chunk / kernel group / output advance
+        state.regfile.set_cr(13, 72)    # pair sub-loop end (4 pairs x 18 bytes)
+        state.regfile.set_cr(14, 384)   # mask group D offset
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, ACC_CHUNK_BYTES, self.num_pairs)
+            dump_outputs(state, self.output_path, OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, self.num_pairs)

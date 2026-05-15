@@ -55,9 +55,10 @@
 #          ext = lr14 = lr2 + cr6.
 #
 # STORE (tap 10):  LR `add lr7 lr7 cr10` (commits to LIVE before XMEM stage),
-#   then XMEM `str_acc_reg lr7 cr2` writes r_acc to Memory[lr7+cr2] using the
-#   updated lr7.  Hence lr7 must start at -cr10 (= -512) so that ch 0's
-#   tap-10 advance lands at output offset 0.
+#   then XMEM `xmem.store_aaq_result lr7 cr2` writes aaq_result (128 bytes,
+#   int8) to Memory[lr7+cr2] using the updated lr7.  aaq fires at tap 9 (AAQ
+#   slot, fused with the final acc).  Hence lr7 must start at -cr10 (= -128)
+#   so that ch 0's tap-10 advance lands at output offset 0.
 #
 # CR registers (set by harness):
 #   cr0  = input base
@@ -70,7 +71,7 @@
 #   cr7  = FPB*128 (= 28*128 = 3584; channel-group inner-loop size in bytes)
 #   cr8  = total_kernel_bytes (= channel_groups * 256)
 #   cr9  = zero region address (128 bytes of zeros, for top/bottom border)
-#   cr10 = 512  (output-pointer step per channel)
+#   cr10 = 128  (output-pointer step per channel; 128 bytes int8)
 #   cr11 = chunk-loop limit (= (num_chunks - 1) * group_stride)
 #   cr12 = 128
 #   cr13 = 256
@@ -137,18 +138,17 @@ g0_ch_pre:
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
-    # Cy 2: lr5 = 128; ext = lr2+cr6 (kr=+1).  Load → slot 128.
+    # Cy 2: lr5 = 128; ext = lr2+cr6 (kr=+1); lr3 = 1 (seed for -255).
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
-    # Cy 3: lr3 = -255; lr5 = 384 (= lr_read - 128 mod 512, slot for tap-1
-    # kr=-1 load of first ch).
-    set                 lr3 -255;
-    set                 lr5 384;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
-    # Cy 4: walk seed += cols → cols-255 (one cr14 short of tap-1 offset).
-    # lr6 = -1 (so tap 1's `add lr6 lr6 1` brings it to 0).
+    # Cy 4: walk seed += cols → cols-255; lr6 = -1.
     add                 lr3 lr3 cr4;
     set                 lr6 -1;;
 
@@ -215,16 +215,17 @@ g0_tap_body:
     acc;;
 
     # --- tap 9.  Compute lr5 = lr_read(N+1) - 128 for next iter's tap-1
-    # kr=-1 slot.
+    # kr=-1 slot.  aaq quantizes r_acc -> aaq_result here.
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
-    acc;;
+    acc;
+    aaq;;
 
-    # --- tap 10 (STORE).  Store this ch's r_acc; advance lr7.
+    # --- tap 10 (STORE).  Advance lr7 then store aaq_result (128 B int8).
     add                 lr7 lr7 cr10;
-    str_acc_reg         lr7 cr2;
+    xmem.store_aaq_result lr7 cr2;
     blt                 lr10 lr11 g0_tap_body;;
 
     # All channels in this kernel-group done.  Advance kernel super-block.
@@ -283,14 +284,15 @@ ch_pre:
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
-    # Cy 2: lr5 = 128; load ch kr=+1 → slot 128.
+    # Cy 2: lr5 = 128; lr3 = 1 (seed for -255); load ch kr=+1 → slot 128.
     add                 lr5 lr5 cr12;
     add                 lr14 lr2 cr6;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr14 cr0 lr5;;
 
-    # Cy 3: lr3 = -255; lr5 = 384 (slot for tap-1 kr=-1 load).
-    set                 lr3 -255;
-    set                 lr5 384;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
     # Cy 4: walk seed += cols; lr6 = -1.
     add                 lr3 lr3 cr4;
@@ -359,16 +361,17 @@ mn_tap_body:
     mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    # --- tap 9.
+    # --- tap 9.  aaq quantizes r_acc -> aaq_result.
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
-    acc;;
+    acc;
+    aaq;;
 
-    # --- tap 10 (STORE).
+    # --- tap 10 (STORE).  Advance lr7 then store aaq_result (128 B int8).
     add                 lr7 lr7 cr10;
-    str_acc_reg         lr7 cr2;
+    xmem.store_aaq_result lr7 cr2;
     blt                 lr10 lr11 mn_tap_body;;
 
     add                 lr12 lr12 cr13;
@@ -424,13 +427,14 @@ gN_ch_pre:
     add                 lr2 lr8 lr10;
     ldr_cyclic_mult_reg lr2 cr0 lr5;;
 
-    # Cy 2: lr5 = 128; load THIS-ch kr=+1 from cr9 (zeros).
+    # Cy 2: lr5 = 128; lr3 = 1 (seed for -255); load THIS-ch kr=+1 from cr9.
     add                 lr5 lr5 cr12;
+    set                 lr3 1;
     ldr_cyclic_mult_reg lr0 cr9 lr5;;
 
-    # Cy 3: lr3 = -255; lr5 = 384.
-    set                 lr3 -255;
-    set                 lr5 384;;
+    # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
+    sub                 lr3 lr3 cr13;
+    add                 lr5 lr5 cr13;;
 
     # Cy 4.
     add                 lr3 lr3 cr4;
@@ -498,16 +502,17 @@ gN_tap_body:
     mult.ve.cyclic      lr3 0 lr0 lr6;
     acc;;
 
-    # --- tap 9.
+    # --- tap 9.  aaq quantizes r_acc -> aaq_result.
     add                 lr3 lr3 1;
     add                 lr6 lr6 1;
     sub                 lr5 lr4 cr12;
     mult.ve.cyclic      lr3 2 lr0 lr6;
-    acc;;
+    acc;
+    aaq;;
 
-    # --- tap 10 (STORE).
+    # --- tap 10 (STORE).  Advance lr7 then store aaq_result (128 B int8).
     add                 lr7 lr7 cr10;
-    str_acc_reg         lr7 cr2;
+    xmem.store_aaq_result lr7 cr2;
     blt                 lr10 lr11 gN_tap_body;;
 
     add                 lr12 lr12 cr13;

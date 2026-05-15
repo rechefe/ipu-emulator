@@ -30,18 +30,21 @@
 #   cr9 = num_groups * 128     (for group limit; 128 when num_groups == 1)
 #   cr10 = G * 128             (input stride per channel group)
 #   cr11 = G                   (channel group size)
+#   cr12 = 128                 (constant; cyclic slot stride / output stride)
+#   cr13 = 256                 (constant; cyclic S2 offset)
+#   cr14 = 512                 (constant; cyclic S3 base / kernel group advance)
 #
 # LR register allocation (original path, num_groups == 1):
 #   lr0  = input row-group base address
-#   lr1  = output pointer (pre-offset by -512)
+#   lr1  = output pointer (pre-offset by -128)
 #   lr2  = row-group counter
 #   lr3  = output channel counter
 #   lr4  = kernel byte index (continuous across OCs within a kernel group)
-#   lr5  = 512  (output stride constant)
-#   lr6  = 128  (cyclic S1 offset / channel stride constant)
+#   lr5  = 128  (output stride constant; loaded from cr12)
+#   lr6  = 128  (cyclic S1 offset / channel stride constant; loaded from cr12)
 #   lr7  = 0    (cyclic S0 offset / zero constant; default value)
-#   lr8  = 256  (cyclic S2 offset / kernel group advance constant)
-#   lr9  = 384  (cyclic S3 offset)
+#   lr8  = 256  (cyclic S2 offset / kernel group advance constant; loaded from cr13)
+#   lr9  = 384  (cyclic S3 offset; synthesized as cr12+cr13)
 #   lr10 = oc_per_reg (from cr4)
 #   lr11 = row_groups  (from cr5)
 #   lr12 = kernel memory offset (0, 256, 512, ... per kernel group)
@@ -51,15 +54,15 @@
 #
 # LR register allocation (grouped path, num_groups > 1):
 #   lr0  = input row-group base address (constant per row-group)
-#   lr1  = output pointer (pre-offset by -512)
+#   lr1  = output pointer (pre-offset by -128)
 #   lr2  = row-group counter
 #   lr3  = output channel counter
 #   lr4  = kernel byte index (within register, resets per group)
-#   lr5  = 512
-#   lr6  = 128
+#   lr5  = 128  (output stride; loaded from cr12)
+#   lr6  = 128  (cyclic stride; loaded from cr12)
 #   lr7  = 0
-#   lr8  = 256
-#   lr9  = 384
+#   lr8  = 256  (loaded from cr13)
+#   lr9  = 384  (synthesized as cr12+cr13)
 #   lr10 = kernel group offset (starts at lr12, advances +128 per group)
 #   lr11 = input group base (starts at lr0, advances +G*128 per group)
 #   lr12 = batch kernel base offset (advances per batch)
@@ -93,17 +96,19 @@
     # Load mask data (all zeros — no masking for pointwise conv)
     set                 lr7 0;
     ldr_mult_mask_reg   lr7 cr2;
-    set                 lr5 512;;
+    add                 lr5 lr7 cr12;;   # lr5 = 128 (output stride)
 
-    set                 lr6 128;
-    set                 lr8 256;
-    set                 lr9 384;;
+    add                 lr6 lr7 cr12;
+    add                 lr8 lr7 cr13;;   # lr6=128, lr8=256
+
+    add                 lr9 lr6 lr8;;    # lr9 = 384
 
     # Copy CR parameters into LR registers (used by original path)
     add                 lr10 lr7 cr4;
     add                 lr11 lr7 cr5;;
 
-    set                 lr1 -512;;
+    set                 lr1 0;;
+    sub                 lr1 lr1 cr12;;   # lr1 = -128 (pre-offset)
 
 # ===========================================================================
 # Row-group loop
@@ -219,22 +224,23 @@ EPILOGUE_A:
     mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    # E3: reload ich2 -> S2, mult last channel from S3
+    # E3: reload ich2 -> S2, mult last channel from S3; quantize r_acc -> aaq_result
     add                 lr4 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     mult.ve.cyclic      lr9 0 lr7 lr4;
-    acc;;
+    acc;
+    aaq;;
 
-    # E4: reload ich3 -> S3, advance kernel index past this OC
+    # E4: reload ich3 -> S3, advance output pointer
     add                 lr4 lr4 1;
     add                 lr14 lr0 lr9;
+    add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
-    # Store accumulator, advance output pointer
-    add                 lr1 lr1 lr5;
+    # Store 128-byte quantized output, advance OC counter
     add                 lr3 lr3 1;
-    str_acc_reg         lr1 cr3;;
+    xmem.store_aaq_result lr1 cr3;;
 
     # Branch back if more OCs in first half
     blt                 lr3 lr13 LOOP_OCH_A;;
@@ -245,7 +251,7 @@ EPILOGUE_A:
 # uses the same cyclic pipeline structure as A with no extra register.
 # ---------------------------------------------------------------------------
 
-    set                 lr4 128;
+    add                 lr4 lr7 cr12;   # lr4 = 128
     add                 lr13 lr3 lr10;;
 
 # ---------------------------------------------------------------------------
@@ -306,15 +312,16 @@ EPILOGUE_B:
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     mult.ve.cyclic      lr9 0 lr7 lr4;
-    acc;;
+    acc;
+    aaq;;
 
     add                 lr4 lr4 1;
     add                 lr14 lr0 lr9;
+    add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
-    add                 lr1 lr1 lr5;
     add                 lr3 lr3 1;
-    str_acc_reg         lr1 cr3;;
+    xmem.store_aaq_result lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_B;;
 
@@ -433,12 +440,13 @@ EPILOGUE_LOADS_A_G:
     mult.ve.cyclic      lr8 0 lr7 lr4;
     acc;;
 
-    # E3: preload ich2 -> S2, mult from S3
+    # E3: preload ich2 -> S2, mult from S3; quantize on last group
     add                 lr4 lr4 1;
     add                 lr14 lr11 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     mult.ve.cyclic      lr9 0 lr7 lr4;
-    acc;;
+    acc;
+    aaq;;
 
     # E4: preload ich3 -> S3
     add                 lr4 lr4 1;
@@ -448,10 +456,10 @@ EPILOGUE_LOADS_A_G:
     # Check if more groups (lr10, lr15 unchanged during epilogue)
     blt                 lr10 lr15 CONTINUE_GROUP_A_G;;
 
-    # All groups done: store accumulator
+    # All groups done: advance output pointer and store 128-byte quantized output
     add                 lr1 lr1 lr5;
     add                 lr3 lr3 1;
-    str_acc_reg         lr1 cr3;;
+    xmem.store_aaq_result lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_A_G;;
 
@@ -483,7 +491,7 @@ CONTINUE_GROUP_A_G:
 
 TRANSITION_B_G:
 
-    set                 lr4 128;
+    add                 lr4 lr7 cr12;   # lr4 = 128
     add                 lr13 lr3 cr4;;
 
 # ---------------------------------------------------------------------------
@@ -568,7 +576,8 @@ EPILOGUE_LOADS_B_G:
     add                 lr14 lr11 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     mult.ve.cyclic      lr9 0 lr7 lr4;
-    acc;;
+    acc;
+    aaq;;
 
     add                 lr4 lr4 1;
     add                 lr14 lr11 lr9;
@@ -577,10 +586,10 @@ EPILOGUE_LOADS_B_G:
     # Check if more groups
     blt                 lr10 lr15 CONTINUE_GROUP_B_G;;
 
-    # All groups done: store
+    # All groups done: advance output pointer and store 128-byte quantized output
     add                 lr1 lr1 lr5;
     add                 lr3 lr3 1;
-    str_acc_reg         lr1 cr3;;
+    xmem.store_aaq_result lr1 cr3;;
 
     blt                 lr3 lr13 LOOP_OCH_B_G;;
 

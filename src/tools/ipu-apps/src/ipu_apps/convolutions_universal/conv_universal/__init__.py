@@ -66,7 +66,7 @@ MASK_BASE_ADDR = 0x600000
 ZERO_BASE_ADDR = 0x600080  # 128 bytes of zeros (right after mask data)
 OUTPUT_BASE_ADDR = 0x700000
 
-OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
+OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output filter per chunk (int8)
 
 FPB = 28  # channels per 256-byte super-block (K=3 dense, R0+R1 shared index)
 SUPER_BLOCK_BYTES = 256  # = 2 * 128 (R0 half + R1 half)

@@ -49,7 +49,7 @@ MASK_BASE_ADDR = 0x120000
 ZERO_BASE_ADDR = 0x120080  # 128 bytes of zeros (right after mask data)
 OUTPUT_BASE_ADDR = 0x130000
 
-OUTPUT_CHUNK_BYTES = 128 * 4  # 512 bytes per output channel per chunk
+OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output channel per chunk (int8)
 
 FPB = 28  # channels per 256-byte super-block (R0+R1, shared fixed_idx)
 SUPER_BLOCK_BYTES = 256
@@ -162,7 +162,7 @@ class DepthwiseConvUniversalApp(IpuApp):
         state.regfile.set_cr(7, FPB * 128)        # 28 * 128 = 3584
         state.regfile.set_cr(8, self.total_kernel_bytes)
         state.regfile.set_cr(9, ZERO_BASE_ADDR)
-        state.regfile.set_cr(10, 512)             # output-pointer step
+        state.regfile.set_cr(10, 128)             # output-pointer step (128 B int8)
         state.regfile.set_cr(11, (self.num_chunks - 1) * self.group_stride)
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, 256)

@@ -2,6 +2,7 @@
 
 Fixed 8x8 spatial (64 positions). Paired-filter output: two output filters
 share one accumulator (even OC in lanes 0-63, odd OC in lanes 64-127).
+Output: 128-byte int8 per filter pair (AAQ-quantized, clamp [-128, 127]).
 
 Reports cycles, theoretical minimum (9 * 64 * in_ch * out_ch / 128 — MULT-issue
 floor at 128 mults/cycle), and end-to-end MAC/cycle efficiency.
@@ -13,7 +14,6 @@ Usage::
 
 from __future__ import annotations
 
-import struct
 import tempfile
 import time
 from pathlib import Path
@@ -25,7 +25,7 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.conv_8x8 import (
     Conv8x8App,
     OUTPUT_BASE_ADDR,
-    ACC_CHUNK_BYTES,
+    OUTPUT_CHUNK_BYTES,
     ROWS,
     COLS,
     SPATIAL,
@@ -56,12 +56,15 @@ def pack_input(input_chw: np.ndarray, in_ch: int) -> bytes:
     return _build_input_data(raw, in_ch)
 
 
-def reference_conv(
-    weights: np.ndarray, input_chw: np.ndarray
-) -> np.ndarray:
-    """3x3 zero-padded conv, int32 accumulation wrapping. Returns (out_ch, ROWS, COLS)."""
+def reference_conv(weights: np.ndarray, input_chw: np.ndarray) -> bytes:
+    """3x3 zero-padded conv, int32 acc, int8-clamped output.
+
+    Output layout: oc_pairs * 128 bytes, pairs interleaved (f0 in bytes 0-63,
+    f1 in bytes 64-127 of each 128-byte record).
+    """
     out_ch = weights.shape[0]
     in_ch = weights.shape[1]
+    oc_pairs = out_ch // 2
     inp32 = input_chw.astype(np.int32)
     padded = np.pad(inp32, ((0, 0), (1, 1), (1, 1)), mode="constant")
     w32 = weights.astype(np.int32)
@@ -70,30 +73,18 @@ def reference_conv(
         for dc in range(3):
             patch = padded[:, dr:dr + ROWS, dc:dc + COLS]
             result += np.tensordot(w32[:, :, dr, dc], patch, axes=([1], [0]))
-    return result
-
-
-def read_output(state, out_ch: int) -> np.ndarray:
-    """Read paired-output ACC from emulator state. Returns (out_ch, SPATIAL) int32."""
-    oc_pairs = out_ch // 2
-    raw = state.xmem.read_address(OUTPUT_BASE_ADDR, oc_pairs * ACC_CHUNK_BYTES)
-    vals = np.frombuffer(raw, dtype="<i4")  # (oc_pairs * 128,)
-    vals = vals.reshape(oc_pairs, 128)
-    result = np.empty((out_ch, SPATIAL), dtype=np.int32)
+    clamped = np.clip(result, -128, 127).astype(np.int8).reshape(out_ch, SPATIAL)
+    out = bytearray(oc_pairs * OUTPUT_CHUNK_BYTES)
     for p in range(oc_pairs):
-        result[2 * p]     = vals[p, :SPATIAL]
-        result[2 * p + 1] = vals[p, SPATIAL:2 * SPATIAL]
-    return result
-
-
-def compare(actual: np.ndarray, expected: np.ndarray) -> int:
-    return int(np.sum(actual != expected))
+        out[p * 128: p * 128 + 64] = clamped[2 * p].view(np.uint8).tobytes()
+        out[p * 128 + 64: p * 128 + 128] = clamped[2 * p + 1].view(np.uint8).tobytes()
+    return bytes(out)
 
 
 def run_config(inst_file: Path, in_ch: int, out_ch: int):
     rng = np.random.RandomState(42 + in_ch * 7 + out_ch * 13)
-    weights = rng.randint(-32, 33, size=(out_ch, in_ch, 3, 3), dtype=np.int8)
-    input_chw = rng.randint(-32, 33, size=(in_ch, ROWS, COLS), dtype=np.int8)
+    weights = rng.randint(-4, 5, size=(out_ch, in_ch, 3, 3), dtype=np.int8)
+    input_chw = rng.randint(-8, 9, size=(in_ch, ROWS, COLS), dtype=np.int8)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -106,6 +97,7 @@ def run_config(inst_file: Path, in_ch: int, out_ch: int):
         input_file.write_bytes(input_packed)
         kernel_file.write_bytes(kernel_packed)
 
+        oc_pairs = out_ch // 2
         app = Conv8x8App(
             inst_path=inst_file,
             input_path=input_file,
@@ -117,10 +109,10 @@ def run_config(inst_file: Path, in_ch: int, out_ch: int):
         max_cyc = 2000 * in_ch * out_ch + 50_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, out_ch)
-        expected = reference_conv(weights, input_chw).reshape(out_ch, SPATIAL)
+        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, oc_pairs * OUTPUT_CHUNK_BYTES)
+        expected = reference_conv(weights, input_chw)
 
-    mismatches = compare(actual, expected)
+    mismatches = sum(a != b for a, b in zip(actual, expected))
     return cycles, mismatches
 
 

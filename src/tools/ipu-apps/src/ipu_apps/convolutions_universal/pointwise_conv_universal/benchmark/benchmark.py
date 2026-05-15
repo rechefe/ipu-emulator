@@ -17,7 +17,6 @@ Usage::
 
 from __future__ import annotations
 
-import struct
 import tempfile
 import time
 from pathlib import Path
@@ -54,9 +53,9 @@ CONFIGS = [
 
 def compare(actual: bytes, expected: bytes) -> int:
     mismatches = 0
-    for i in range(0, len(expected), 4):
-        a = struct.unpack_from("<i", actual, i)[0]
-        e = struct.unpack_from("<i", expected, i)[0]
+    for i in range(len(expected)):
+        a = actual[i]
+        e = expected[i]
         if a != e:
             mismatches += 1
     return mismatches
@@ -65,9 +64,9 @@ def compare(actual: bytes, expected: bytes) -> int:
 def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
     rng = np.random.RandomState(42 + in_ch * 7 + out_ch + rows + cols)
     row_groups = (rows * cols) // 128
-    input_raw = rng.randint(-32, 33, size=row_groups * in_ch * 128, dtype=np.int8)
+    input_raw = rng.randint(-8, 9, size=row_groups * in_ch * 128, dtype=np.int8)
     input_bytes = input_raw.view(np.uint8).tobytes()
-    kernel_raw = rng.randint(-32, 33, size=in_ch * out_ch, dtype=np.int8)
+    kernel_raw = rng.randint(-4, 5, size=in_ch * out_ch, dtype=np.int8)
     kernel_bytes = kernel_raw.view(np.uint8).tobytes()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -93,7 +92,8 @@ def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
         max_cyc = row_groups * out_ch * in_ch * 4 + 200_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        total_bytes = row_groups * out_ch * 128 * 4
+        # Output is now 128 bytes (int8) per output-channel per row-group
+        total_bytes = row_groups * out_ch * 128
         actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
         expected = reference_pointwise_conv(
             input_bytes, kernel_bytes, DType.INT8, rows, cols, in_ch, out_ch

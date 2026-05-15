@@ -23,7 +23,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.depthwise_conv_stride2 import (
     DepthwiseConvStride2App,
-    OUTPUT_BASE_ADDR,
 )
 
 
@@ -31,17 +30,13 @@ ASM_PATH = Path(__file__).resolve().parents[1] / "depthwise_conv_stride2.asm"
 
 COLS = 128  # fixed for this app
 
-# (rows, channels) — channels multiples of 8, rows even.
-# Output spatial: (rows/2) x 64.
+# rows must be 128 (ASM hardcodes 32 output chunks). For variable-row configs
+# use depthwise_conv_stride2_small instead.
 CONFIGS = [
-    (16,   8),
-    (32,  16),
-    (64,  32),
-    (128, 64),
+    (128,  64),
     (128, 128),
-    (64,  256),
-    (32,  384),
-    (16,  512),
+    (128, 256),
+    (128, 384),
 ]
 
 
@@ -83,7 +78,7 @@ def reference_depthwise_stride2(
 
 
 def read_output(
-    state, rows: int, channels: int
+    state, output_base: int, rows: int, channels: int
 ) -> np.ndarray:
     """Read INT8 multi-channel output. Returns (channels, out_rows, out_cols) int8."""
     out_rows = rows // 2
@@ -91,7 +86,7 @@ def read_output(
     rows_per_out_chunk = 128 // out_cols  # = 2
     num_out_chunks = out_rows // rows_per_out_chunk
 
-    raw = state.xmem.read_address(OUTPUT_BASE_ADDR, num_out_chunks * channels * 128)
+    raw = state.xmem.read_address(output_base, num_out_chunks * channels * 128)
     vals = np.frombuffer(raw, dtype=np.uint8).reshape(num_out_chunks, channels, 128)
     result = np.empty((channels, out_rows, out_cols), dtype=np.int8)
     for rg in range(num_out_chunks):
@@ -129,7 +124,7 @@ def run_config(inst_file: Path, rows: int, channels: int):
         max_cyc = 2000 * rows * channels + 50_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, rows, channels)
+        actual = read_output(state, app.output_base, rows, channels)
         expected = reference_depthwise_stride2(weights, input_chw, rows)
 
     mismatches = int(np.sum(actual != expected))

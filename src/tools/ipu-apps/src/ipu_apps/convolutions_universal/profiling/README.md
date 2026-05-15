@@ -53,7 +53,7 @@ PYTHONPATH=$PYPATH python src/tools/ipu-apps/src/ipu_apps/convolutions_universal
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_pointwise_universal
 ```
 
-Expected pattern: `inputs = in_channels - 1`, `outputs = 0` (written sequentially).
+Expected pattern: `inputs = in_channels - 1`, `outputs = 0` (written sequentially, 128 B/record int8).
 
 ---
 
@@ -66,7 +66,7 @@ Expected pattern: `inputs = in_channels - 1`, `outputs = 0` (written sequentiall
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_conv_universal
 ```
 
-Expected pattern: `inputs = 3 * in_channels - 1` (3-row sliding window).
+Expected pattern: `inputs = 3 * in_channels - 1` (3-row sliding window). Output: 128 B/record int8.
 
 ---
 
@@ -79,7 +79,7 @@ Expected pattern: `inputs = 3 * in_channels - 1` (3-row sliding window).
 PYTHONPATH=$PYPATH python -m ipu_apps.convolutions_universal.profiling.profile_depthwise_universal
 ```
 
-Expected pattern: `inputs = 2 * channels - 1`, `kernels = channels/8 - 1`.
+Expected pattern: `inputs = 2 * channels - 1`, `kernels = channels/8 - 1`. Output: 128 B/record int8.
 
 ---
 

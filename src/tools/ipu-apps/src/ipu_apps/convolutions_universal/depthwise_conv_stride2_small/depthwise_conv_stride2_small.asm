@@ -180,7 +180,7 @@
     set                 lr0 0;
     ldr_mult_mask_reg   lr0 cr3;;
 
-    set                 lr4 128;
+    add                 lr4 lr0 cr12;
     set                 lr1 1;;
 
     set                 lr2 2;

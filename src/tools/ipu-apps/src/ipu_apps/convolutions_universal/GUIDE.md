@@ -230,12 +230,16 @@ offset      = (chunk_index * num_channels + channel) * 128 + local_row * cols + 
 
 ### 4.2 Output layout
 
-Same interleaving as input, but each element is a 4-byte accumulator
-(int32 for INT8, float32 for FP8):
+Same interleaving as input.  Each output record is **128 bytes of int8**
+(the AAQ unit quantizes the 128-element int32 accumulator to int8 via
+clamping to [−128, 127] before storing):
 
 ```
-output_offset = (chunk_index * num_out_channels + filter) * 512 + element * 4
+output_offset = (chunk_index * num_out_channels + filter) * 128 + element
 ```
+
+The `aaq` instruction fires in the same VLIW cycle as the final `acc` for
+each output record, so quantization adds zero extra cycles.
 
 ### 4.3 Kernel layout
 
@@ -251,15 +255,20 @@ output channel directly from the mult-stage register.
 
 ### 4.4 XMEM address regions
 
-| Region | Standard | Depthwise | Pointwise |
-|---|---|---|---|
-| Input base | `0x000000` | `0x000000` | `0x000000` |
-| Kernel base | `0x200000` | `0x110000` | `0x110000` |
-| Mask base | `0x600000` | `0x120000` | `0x120000` |
-| Output base | `0x700000` | `0x130000` | `0x130000` |
+Input always starts at `0x000000`.  Subsequent regions are placed
+dynamically by the Python harness (`_compute_addresses`) to avoid overlap
+as input size grows with channels and spatial dimensions:
 
-Standard conv uses larger address offsets because its kernel data can be
-much larger (out_channels × in_channels/8 × 128 bytes).
+```
+kernel_base  = align(input_end,  256)
+mask_base    = align(kernel_end, 256)
+output_base  = align(mask_end,   256)
+```
+
+Standard conv uses a fixed large kernel offset (`0x200000`) because its
+kernel can be much larger (out_channels × in_channels/8 × 128 bytes).
+Depthwise, pointwise, and the stride-2 variants compute all offsets
+dynamically.
 
 ---
 
@@ -437,13 +446,11 @@ holding `oc_per_reg` output channels worth of kernel weights.  The
 assembly processes all OCs from r0 first (loop A), then all from r1
 (loop B), before loading the next kernel group.
 
-### 7.5 Pre-offset output pointer
+### 7.5 Output pointer advancement
 
-The output pointer (lr1) is initialized to `-512` and incremented by
-`+512` before each store.  This allows the increment and store to be
-in the same VLIW word without the ordering issue that affects
-standard/depthwise conv (see Known Pitfalls below), because the store
-uses the post-incremented value which is the correct address.
+The output pointer is advanced by `+128` (one int8 AAQ record) after each
+`xmem.store_aaq_result` in a separate VLIW word, following the same
+pattern as standard and depthwise conv (see Known Pitfalls §9.1).
 
 ---
 
@@ -494,22 +501,23 @@ group size constant `1024 = 8 × 128` is used as the loop bound increment.
 
 ## 9. Known Pitfalls
 
-### 9.1 `str_acc_reg` + `incr` in the same VLIW word
+### 9.1 `xmem.store_aaq_result` + `add`/`incr` in the same VLIW word
 
-**Never** put `str_acc_reg lr7 cr2` and `incr lr7 512` in the same VLIW
-word.  Because LR executes before XMEM, the store sees the
-**post-incremented** address, causing every output to be written 512 bytes
-too late.
+**Never** put `xmem.store_aaq_result lr7 cr2` and an LR write to `lr7` in
+the same VLIW word.  Because LR executes before XMEM, the store sees the
+**post-incremented** address, writing the output 128 bytes too late.
 
 Correct pattern (used in all working code):
 ```asm
-str_acc_reg         lr7 cr2;;   # Store first (reads lr7 = current addr)
+aaq;;
+xmem.store_aaq_result lr7 cr2;;   # Store (reads current lr7)
 
-incr                lr7 512;;   # Then increment (separate VLIW word)
+add lr7 lr7 cr12;;                # Then advance output pointer
 ```
 
-The pointwise convolution avoids this by pre-offsetting lr1 to `-512` and
-incrementing before the store, so the post-increment value is correct.
+The same hazard applied to the legacy `str_acc_reg` instruction (which
+stored 512-byte int32 records); `xmem.store_aaq_result` uses 128-byte
+int8 records but the ordering rule is identical.
 
 ### 9.2 `blt` reads from snapshot
 

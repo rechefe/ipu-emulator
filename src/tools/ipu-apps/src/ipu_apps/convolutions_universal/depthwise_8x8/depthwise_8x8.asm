@@ -3,7 +3,7 @@
 # Each channel has its own independent 3x3 kernel (no cross-channel mixing).
 # Paired-channel processing: channels 2k and 2k+1 share one accumulator.
 # Channel A (even) accumulates in lanes 0-63, channel B (odd) in lanes 64-127.
-# One str_acc_reg per pair stores all 512 bytes (both channels valid).
+# Output: aaq quantizes r_acc to 128 bytes int8 per pair.
 #
 # 8x8 spatial fits in 64 bytes (half a 128-byte chunk).
 # Two input channels packed per chunk: ch A at bytes 0-63, ch B at bytes 64-127.
@@ -24,30 +24,32 @@
 #   cr2  = output base address
 #   cr3  = mask base address
 #   cr4  = total_input_bytes (= num_channels / 2 * 128)
-#   cr12 = 128  (step constant: chunk / kernel group advance)
-#   cr13 = 256  (step constant: output pointer +512 via two adds)
+#   cr12 = 128  (step constant: chunk / kernel group / output advance)
+#   cr13 = 72   (pair sub-loop end: 4 pairs x 18 bytes)
+#   cr14 = 384  (mask group D offset)
 #
 # LR registers:
 #   lr0  = 0     (mask_shift; also zero constant for add src_a)
-#   lr1  = 384   (mask group D offset)
-#   lr2  = output write offset (0, 512, ...)
+#   lr1  = 384   (mask group D offset, from cr14)
+#   lr2  = output write offset (0, 128, ...)
 #   lr3  = kernel byte index within r0 (0..71, +18 per pair)
 #   lr4  = temp  (cyclic offset for mult.ve.cyclic)
-#   lr5  = 128   (cyclic load index)
+#   lr5  = 128   (cyclic load index, from cr12)
 #   lr7  = kernel group offset (0, 128, 256, ...)
 #   lr10 = input chunk offset (0, 128, ...)
-#   lr11 = 72    (pair sub-loop end: 4 pairs x 18 bytes = 72)
+#   lr11 = 72    (pair sub-loop end, from cr13)
 #   lr15 = total_input_bytes (copy of cr4, outer loop limit)
 
 # ===========================================================================
 # Initialization
 # ===========================================================================
 
-    set                 lr5 128;
-    set                 lr11 72;;
-
-    set                 lr1 384;
     set                 lr0 0;;
+
+    add                 lr5 lr0 cr12;
+    add                 lr11 lr0 cr13;;
+
+    add                 lr1 lr0 cr14;;
 
 # Copy CR parameter to LR for use in blt
     add                 lr15 lr0 cr4;;
@@ -184,15 +186,14 @@ pair_loop:
     mult.ve.cyclic      lr4 2 lr0 lr3;
     acc;;
 
-    # Store result, advance pointers
-    str_acc_reg         lr2 cr2;
-    add                 lr10 lr10 cr12;;
+    # Quantize and store 128-byte int8 result, advance pointers.
+    add                 lr10 lr10 cr12;
+    add                 lr3 lr3 1;
+    aaq;;
 
-    add                 lr2 lr2 cr13;
-    add                 lr3 lr3 1;;
+    xmem.store_aaq_result lr2 cr2;;
 
-    add                 lr2 lr2 cr13;;
-
+    add                 lr2 lr2 cr12;
     blt                 lr3 lr11 pair_loop;;
 
     # Next kernel group

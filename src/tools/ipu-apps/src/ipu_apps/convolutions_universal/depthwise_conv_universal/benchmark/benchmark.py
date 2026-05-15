@@ -15,7 +15,6 @@ Usage::
 from __future__ import annotations
 
 import math
-import struct
 import tempfile
 import time
 from pathlib import Path
@@ -69,10 +68,7 @@ def pack_input_chunked(input_chw: np.ndarray, rows: int, cols: int) -> bytes:
 def reference_depthwise(
     weights: np.ndarray, input_chw: np.ndarray, rows: int, cols: int
 ) -> bytes:
-    """Numpy 3x3 depthwise conv with zero-padding, int32 wrapping accumulation.
-
-    INT8 multiply produces int32; numpy int32 wraps on overflow, matching IPU.
-    """
+    """Numpy 3x3 depthwise conv with zero-padding, int32 accumulation, int8 clamp output."""
     channels = weights.shape[0]
     rows_per_chunk = 128 // cols
     num_chunks = (rows * cols) // 128
@@ -84,36 +80,35 @@ def reference_depthwise(
     result = np.zeros((channels, rows, cols), dtype=np.int32)
     for dr in range(3):
         for dc in range(3):
-            patch = padded[:, dr:dr + rows, dc:dc + cols]  # (channels, rows, cols)
-            # Per-channel multiply (no in-channel reduction):
+            patch = padded[:, dr:dr + rows, dc:dc + cols]
             result += w32[:, dr, dc][:, None, None] * patch
 
-    output = bytearray(num_chunks * channels * 512)
+    clamped = np.clip(result, -128, 127).astype(np.int8)
+
+    output = bytearray(num_chunks * channels * 128)
     for ch in range(channels):
         for r in range(rows):
             chunk = r // rows_per_chunk
             local_row = r % rows_per_chunk
             for c in range(cols):
                 elem = local_row * cols + c
-                out_idx = (chunk * channels + ch) * 512 + elem * 4
-                struct.pack_into("<i", output, out_idx, result[ch, r, c].item())
+                out_idx = (chunk * channels + ch) * 128 + elem
+                output[out_idx] = np.uint8(clamped[ch, r, c]).item()
     return bytes(output)
 
 
 def compare(actual: bytes, expected: bytes) -> int:
     mismatches = 0
-    for i in range(0, len(expected), 4):
-        a = struct.unpack_from("<i", actual, i)[0]
-        e = struct.unpack_from("<i", expected, i)[0]
-        if a != e:
+    for i in range(len(expected)):
+        if actual[i] != expected[i]:
             mismatches += 1
     return mismatches
 
 
 def run_config(inst_file: Path, rows: int, cols: int, channels: int):
     rng = np.random.RandomState(42 + channels * 7 + rows + cols)
-    weights = rng.randint(-32, 33, size=(channels, 3, 3), dtype=np.int8)
-    input_chw = rng.randint(-32, 33, size=(channels, rows, cols), dtype=np.int8)
+    weights = rng.randint(-4, 5, size=(channels, 3, 3), dtype=np.int8)
+    input_chw = rng.randint(-8, 9, size=(channels, rows, cols), dtype=np.int8)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
