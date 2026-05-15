@@ -50,6 +50,7 @@ MASK_BASE_ADDR = 0x200000
 OUTPUT_BASE_ADDR = 0x200300
 
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per filter pair (AAQ-quantized)
+ACC_CHUNK_BYTES = OUTPUT_CHUNK_BYTES  # alias for backward compat
 CHANNELS_PER_BLOCK = 8
 KERNEL_SIZE = 9
 

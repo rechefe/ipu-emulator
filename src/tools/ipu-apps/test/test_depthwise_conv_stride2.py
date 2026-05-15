@@ -16,7 +16,6 @@ from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.depthwise_conv_stride2 import (
     DepthwiseConvStride2App,
-    OUTPUT_BASE_ADDR,
 )
 
 
@@ -61,17 +60,6 @@ def reference_depthwise_conv_stride2(
         for oj in range(out_rows):
             # Center input row
             center = 2 * oj + 1
-            # Check if this row needs an input row beyond the image
-            if center + 1 >= rows:
-                # Bottom border — skip (output zero)
-                val_q = 0
-                # Write to output
-                og = oj // rows_per_out_chunk
-                olr = oj % rows_per_out_chunk
-                for oc in range(out_cols):
-                    out_byte = (og * channels + ch) * 128 + olr * out_cols + oc
-                    output[out_byte] = 0
-                continue
 
             for oc in range(out_cols):
                 # Input column for stride-2
@@ -155,7 +143,7 @@ class TestDepthwiseConvStride2:
         # Read output from xmem
         num_out_chunks = rows // 4  # 32
         total_out_bytes = num_out_chunks * channels * 128
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_out_bytes)
+        actual = state.xmem.read_address(app.output_base, total_out_bytes)
 
         # Compute reference
         expected = reference_depthwise_conv_stride2(
@@ -216,7 +204,7 @@ class TestDepthwiseConvStride2:
 
         num_out_chunks = rows // 4
         total_out_bytes = num_out_chunks * channels * 128
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_out_bytes)
+        actual = state.xmem.read_address(app.output_base, total_out_bytes)
         expected = reference_depthwise_conv_stride2(
             input_bytes, kernel_bytes, rows, cols, channels,
         )

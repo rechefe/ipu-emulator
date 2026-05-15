@@ -1,20 +1,29 @@
 # Universal Convolution Apps — Guide
 
-This directory contains three **universal, runtime-parameterized** convolution
-programs for the IPU emulator.  Each one is a single assembled binary that
-handles **any** valid configuration of its convolution type — dimensions are
-passed via CR registers at runtime, so the binary never needs to be
-recompiled.
+This directory contains convolution programs for the IPU emulator organized
+into two tiers:
 
-These three apps replace all of the per-configuration specialized apps
-(e.g. `conv_32x32x16`, `depthwise_conv_128x128x64`,
-`pointwise_conv_32x32x32`, etc.).
+**Universal apps** — runtime-parameterized binaries that handle any valid
+configuration via CR registers (no recompilation needed):
 
 | Sub-package | Convolution type | Kernel size |
 |---|---|---|
 | `conv_universal/` | Standard (cross-channel) | 3 × 3 |
 | `depthwise_conv_universal/` | Depthwise (per-channel) | 3 × 3 |
 | `pointwise_conv_universal/` | Pointwise (1 × 1) | 1 × 1 |
+
+**Fixed-size apps** — optimized for specific spatial/channel configurations,
+useful when the universal app's general overhead matters:
+
+| Sub-package | Convolution type | Spatial | Notes |
+|---|---|---|---|
+| `conv_8x8/` | Standard 3 × 3 | 8 × 8 | Flexible channels |
+| `conv_first_layer/` | Standard 3 × 3 | 256 × 256 → 128 × 128 | Hardcoded first layer (3 IC, 16 OC, stride 2) |
+| `depthwise_8x8/` | Depthwise 3 × 3 | 8 × 8 | Flexible channels |
+| `depthwise_conv_stride2/` | Depthwise 3 × 3, stride 2 | 128 × 128 → 64 × 64 | For large spatial |
+| `depthwise_conv_stride2_small/` | Depthwise 3 × 3, stride 2 | 32–64 × 32–64 | For small spatial |
+| `pointwise_8x8/` | Pointwise 1 × 1 | 8 × 8 | Flexible channels |
+| `residual_add/` | Element-wise add | Any | Residual connection |
 
 ---
 
@@ -27,9 +36,12 @@ These three apps replace all of the per-configuration specialized apps
 5. [Standard Convolution — Internals](#5-standard-convolution--internals)
 6. [Depthwise Convolution — Internals](#6-depthwise-convolution--internals)
 7. [Pointwise Convolution — Internals](#7-pointwise-convolution--internals)
-8. [Common Techniques](#8-common-techniques)
-9. [Known Pitfalls](#9-known-pitfalls)
-10. [Specialized Apps (Legacy)](#10-specialized-apps-legacy)
+8. [Fixed-Size Apps](#8-fixed-size-apps)
+9. [Common Techniques](#9-common-techniques)
+10. [Known Pitfalls](#10-known-pitfalls)
+11. [Legacy Specialized Apps](#11-legacy-specialized-apps)
+
+
 
 ---
 
@@ -174,23 +186,56 @@ Each sub-package follows the standard `ipu_apps` pattern:
 
 ```
 convolutions_universal/
-├── __init__.py              # Package marker
-├── GUIDE.md                 # This file
+├── __init__.py                       # Package marker + shared helpers
+├── GUIDE.md                          # This file
+│
+│   # Universal (runtime-parameterized) apps:
 ├── conv_universal/
-│   ├── __init__.py          # ConvUniversalApp harness class
-│   ├── __main__.py          # CLI entry point
-│   ├── conv_universal.asm   # Universal assembly source
-│   └── gen_test_data.py     # Golden reference + test data generator
+│   ├── __init__.py                   # ConvUniversalApp harness
+│   ├── __main__.py                   # CLI entry point
+│   ├── conv_universal.asm            # Assembly source
+│   ├── gen_test_data.py              # Golden reference + data generator
+│   └── benchmark/benchmark.py        # Cycle-count benchmarks
 ├── depthwise_conv_universal/
-│   ├── __init__.py          # DepthwiseConvUniversalApp harness class
-│   ├── __main__.py          # CLI entry point
+│   ├── __init__.py                   # DepthwiseConvUniversalApp harness
+│   ├── __main__.py
 │   ├── depthwise_conv_universal.asm
-│   └── gen_test_data.py
-└── pointwise_conv_universal/
-    ├── __init__.py          # PointwiseConvUniversalApp harness class
-    ├── __main__.py          # CLI entry point
-    ├── pointwise_conv_universal.asm
-    └── gen_test_data.py
+│   ├── gen_test_data.py
+│   └── benchmark/benchmark.py
+├── pointwise_conv_universal/
+│   ├── __init__.py                   # PointwiseConvUniversalApp harness
+│   ├── __main__.py
+│   ├── pointwise_conv_universal.asm
+│   ├── gen_test_data.py
+│   └── benchmark/benchmark.py
+│
+│   # Fixed-size apps:
+├── conv_8x8/
+│   ├── __init__.py                   # Conv8x8App harness (8×8, flexible channels)
+│   ├── conv_8x8.asm
+│   └── benchmark/benchmark.py
+├── conv_first_layer/
+│   ├── __init__.py                   # ConvFirstLayerApp (256×256×3 → 128×128×16)
+│   └── conv_first_layer.asm
+├── depthwise_8x8/
+│   ├── __init__.py                   # Depthwise8x8App harness (8×8, flexible channels)
+│   ├── depthwise_8x8.asm
+│   └── benchmark/benchmark.py
+├── depthwise_conv_stride2/
+│   ├── __init__.py                   # DepthwiseConvStride2App (128×128 → 64×64)
+│   ├── depthwise_conv_stride2.asm
+│   └── benchmark/benchmark.py
+├── depthwise_conv_stride2_small/
+│   ├── __init__.py                   # DepthwiseConvStride2SmallApp (32–64 spatial)
+│   ├── depthwise_conv_stride2_small.asm  # Jinja template, rendered at runtime
+│   └── benchmark/benchmark.py
+├── pointwise_8x8/
+│   ├── __init__.py                   # Pointwise8x8App harness (8×8, flexible channels)
+│   ├── pointwise_8x8.asm
+│   └── benchmark/benchmark.py
+└── residual_add/
+    ├── __init__.py                   # ResidualAddApp
+    └── residual_add.asm
 ```
 
 Each harness class inherits from `ipu_apps.base.IpuApp` and implements:
@@ -450,13 +495,79 @@ assembly processes all OCs from r0 first (loop A), then all from r1
 
 The output pointer is advanced by `+128` (one int8 AAQ record) after each
 `xmem.store_aaq_result` in a separate VLIW word, following the same
-pattern as standard and depthwise conv (see Known Pitfalls §9.1).
+pattern as standard and depthwise conv (see Known Pitfalls §10.1).
 
 ---
 
-## 8. Common Techniques
+## 8. Fixed-Size Apps
 
-### 8.1 VLIW execution order
+These apps target specific spatial configurations and expose flexible channel
+counts via CR registers.  They share the same memory layout conventions as the
+universal apps (chunked input/output, same XMEM address regions).
+
+### 8.1 `conv_8x8` — Standard 3×3 convolution, 8×8 spatial
+
+Harness: `Conv8x8App(inst_path, input_path, kernel_path, output_path, in_channels, out_channels)`
+
+- Spatial: fixed 8 × 8 (64 elements per channel, fits in one 128-byte chunk pair)
+- Channels: any multiple of 2 for `out_channels`; `in_channels` flexible
+- Output: 128 bytes int8 per OC pair (AAQ-quantized)
+- Use when you need exactly 8×8 spatial and the universal app overhead matters
+
+### 8.2 `conv_first_layer` — First-layer 3×3 stride-2 convolution
+
+Harness: `ConvFirstLayerApp(inst_path, input_path, kernel_path, output_path)`
+
+- Hardcoded: 256×256×3 input → 128×128×16 output, stride 2
+- Designed for the first layer of a MobileNet-style network (3 RGB channels in)
+- No flexible channel parameters — everything is compiled into the asm
+
+### 8.3 `depthwise_8x8` — Depthwise 3×3 convolution, 8×8 spatial
+
+Harness: `Depthwise8x8App(inst_path, input_path, kernel_path, output_path, channels)`
+
+- Spatial: fixed 8 × 8
+- Channels: any multiple of 2
+- Processes channels in pairs (channel A in lanes 0–63, channel B in lanes 64–127 of each 128-byte output chunk)
+- Output: 128 bytes int8 per channel pair
+
+### 8.4 `depthwise_conv_stride2` — Depthwise 3×3 stride-2, large spatial
+
+Harness: `DepthwiseConvStride2App(inst_path, input_path, kernel_path, output_path, dtype, rows, cols, channels)`
+
+- Input: `rows × cols` spatial (designed for 128×128), flexible channels
+- Output: `(rows//2) × (cols//2)` spatial (stride-2 downsampling)
+- Output addresses computed dynamically via `app.output_base` (no module-level constant)
+- Border handling: last output row computed from only 6 taps when S2 row is out of bounds
+
+### 8.5 `depthwise_conv_stride2_small` — Depthwise 3×3 stride-2, small spatial
+
+Harness: `DepthwiseConvStride2SmallApp(inst_path, input_path, kernel_path, output_path, dtype, rows, cols, channels)`
+
+- Input: 32×32 or 64×64 spatial, flexible channels
+- Assembly is a **Jinja2 template** rendered at runtime with the specific spatial parameters — the `.asm` file contains `{{ rows }}`, `{{ cols }}` placeholders
+- Otherwise identical semantics to `depthwise_conv_stride2`
+
+### 8.6 `pointwise_8x8` — Pointwise 1×1 convolution, 8×8 spatial
+
+Harness: `Pointwise8x8App(inst_path, input_path, kernel_path, output_path, in_channels, out_channels)`
+
+- Spatial: fixed 8 × 8
+- Channels: flexible `in_channels` and `out_channels`
+- Output: 128 bytes int8 per OC pair
+
+### 8.7 `residual_add` — Element-wise addition
+
+Harness: `ResidualAddApp(inst_path, input_a_path, input_b_path, output_path, num_chunks)`
+
+- Adds two equally-shaped int8 tensors element-wise (residual connection)
+- `num_chunks`: total number of 128-byte chunks across both inputs
+
+---
+
+## 9. Common Techniques
+
+### 9.1 VLIW execution order
 
 Within one cycle, slots execute in this order:
 
@@ -471,7 +582,7 @@ This means:
 - `acc` (ACC slot) accumulates the current cycle's `mult_res`.
 - `blt`/`beq` (COND slot) reads from the **snapshot** taken at cycle start.
 
-### 8.2 Cyclic register for spatial neighbors
+### 9.2 Cyclic register for spatial neighbors
 
 For 3×3 convolutions, the cyclic register stores 3 consecutive chunks at
 indices 0, 128, and 256.  The vertical offset formula `128 ± cols` works
@@ -482,7 +593,7 @@ because:
   previous chunk's last rows (kr=-1) and offset 128+cols accesses the
   next chunk's first rows (kr=+1).
 
-### 8.3 Mask-based border handling
+### 9.3 Mask-based border handling
 
 Instead of conditional branches for border pixels, the IPU uses a 128-bit
 mask register.  Each mask slot has one bit per element in the SIMD lane.
@@ -491,7 +602,7 @@ A set bit **zeros** the corresponding element in the multiply result.
 This eliminates branches entirely — the same 9-tap multiply sequence runs
 for every pixel, with masks zeroing out-of-bounds contributions.
 
-### 8.4 Channel group processing
+### 9.4 Channel group processing
 
 Input channels are processed in groups of 8 (one `ldr_mult_reg` loads
 128 bytes = 8 channels × 9 taps + padding for 3×3 convs).  The channel
@@ -499,9 +610,9 @@ group size constant `1024 = 8 × 128` is used as the loop bound increment.
 
 ---
 
-## 9. Known Pitfalls
+## 10. Known Pitfalls
 
-### 9.1 `xmem.store_aaq_result` + `add`/`incr` in the same VLIW word
+### 10.1 `xmem.store_aaq_result` + `add`/`incr` in the same VLIW word
 
 **Never** put `xmem.store_aaq_result lr7 cr2` and an LR write to `lr7` in
 the same VLIW word.  Because LR executes before XMEM, the store sees the
@@ -519,21 +630,21 @@ The same hazard applied to the legacy `str_acc_reg` instruction (which
 stored 512-byte int32 records); `xmem.store_aaq_result` uses 128-byte
 int8 records but the ordering rule is identical.
 
-### 9.2 `blt` reads from snapshot
+### 10.2 `blt` reads from snapshot
 
 Branch conditions (`blt`, `beq`) read registers from the **snapshot** taken
 at the start of the cycle.  If you `incr` a register and `blt` on it in the
 same VLIW word, the branch sees the old value.  Put the `incr` in a
 previous cycle.
 
-### 9.3 `lr15` gets trashed by S2 index computation
+### 10.3 `lr15` gets trashed by S2 index computation
 
 In the main loop of standard and depthwise conv, `lr15` is temporarily
 overwritten with `256` (= lr4 + lr4) for the S2 cyclic load.  After the
 filter/channel loop finishes, lr15 must be restored to the chunk loop limit
 (`cr5 - 1`) before the chunk loop branch.
 
-### 9.4 Cyclic register initializes to zero
+### 10.4 Cyclic register initializes to zero
 
 The cyclic register starts as all zeros.  The top-border section exploits
 this: it skips loading S0, and the kr=-1 taps naturally read zeros (correct
@@ -541,7 +652,7 @@ zero-padding for the top border).
 
 ---
 
-## 10. Specialized Apps (Legacy)
+## 11. Legacy Specialized Apps
 
 The universal apps replace all of the following specialized per-configuration
 apps.  These still exist in `ipu_apps/` but are no longer needed for new

@@ -52,6 +52,7 @@ MASK_BASE_ADDR = 0x200000
 OUTPUT_BASE_ADDR = 0x200100
 
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per OC pair (AAQ-quantized)
+ACC_CHUNK_BYTES = OUTPUT_CHUNK_BYTES  # alias for backward compat
 
 
 def _build_mask_data() -> bytes:

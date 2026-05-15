@@ -46,12 +46,12 @@ def reference_depthwise_8x8(
     Input: input_raw[ch * 64 + row * 8 + col] per channel.
     Kernel: kernel_raw[ch * 9 + kr * 3 + kc] (row-major 3x3).
 
-    Output: num_pairs x 128 lanes x 4 bytes (INT32).
+    Output: num_pairs x 128 lanes x 1 byte (INT8, clamped to [-128, 127]).
       Lanes 0-63: channel A (even), lanes 64-127: channel B (odd).
     """
     dtype = DType.INT8
     num_pairs = num_channels // 2
-    output = bytearray(num_pairs * 128 * 4)
+    output = bytearray(num_pairs * 128)
 
     for ch in range(num_channels):
         pair = ch // 2
@@ -77,7 +77,8 @@ def reference_depthwise_8x8(
                 pos = row * COLS + col
                 lane = half * 64 + pos
                 out_idx = pair * 128 + lane
-                struct.pack_into("<i", output, out_idx * 4, acc)
+                clamped = max(-128, min(127, acc))
+                output[out_idx] = clamped & 0xFF
 
     return bytes(output)
 
@@ -154,12 +155,12 @@ class TestDepthwise8x8:
         )
 
         mismatches = []
-        for i in range(0, len(expected), 4):
-            a_val = struct.unpack_from("<i", actual, i)[0]
-            e_val = struct.unpack_from("<i", expected, i)[0]
+        for i in range(len(expected)):
+            a_val = struct.unpack_from("b", actual, i)[0]
+            e_val = struct.unpack_from("b", expected, i)[0]
             if a_val != e_val:
-                lane = (i // 4) % 128
-                pair = (i // 4) // 128
+                lane = i % 128
+                pair = i // 128
                 ch = pair * 2 + (1 if lane >= 64 else 0)
                 pos = lane % 64
                 row = pos // COLS

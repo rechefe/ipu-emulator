@@ -56,6 +56,7 @@ OUTPUT_BASE_ADDR = 0x200300
 CHANNELS_PER_GROUP = 8
 KERNEL_SIZE = 9
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes int8 per channel pair (AAQ-quantized)
+ACC_CHUNK_BYTES = OUTPUT_CHUNK_BYTES  # alias for backward compat
 
 # Back-compat alias: benchmarks and profiling scripts import this name
 _build_input_data = pack_input_paired

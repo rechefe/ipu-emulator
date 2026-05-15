@@ -47,12 +47,12 @@ def reference_pointwise_8x8(
     Input is in packed paired-chunk format (2 ICs per 128-byte chunk).
     Kernel is in raw format: kernel_raw[oc * in_channels + ic].
 
-    Output: oc_pairs x 128 lanes x 4 bytes (INT32).
+    Output: oc_pairs x 128 lanes x 1 byte (INT8, clamped to [-128, 127]).
       Lanes 0-63: f0 (even OC), lanes 64-127: f1 (odd OC).
     """
     dtype = DType.INT8
     oc_pairs = out_channels // 2
-    output = bytearray(oc_pairs * 128 * 4)
+    output = bytearray(oc_pairs * 128)
 
     for oc in range(out_channels):
         pair = oc // 2
@@ -75,7 +75,8 @@ def reference_pointwise_8x8(
 
             lane = half * 64 + pos
             out_idx = pair * 128 + lane
-            struct.pack_into("<i", output, out_idx * 4, acc)
+            clamped = max(-128, min(127, acc))
+            output[out_idx] = clamped & 0xFF
 
     return bytes(output)
 
@@ -157,12 +158,12 @@ class TestPointwise8x8:
         )
 
         mismatches = []
-        for i in range(0, len(expected), 4):
-            a_val = struct.unpack_from("<i", actual, i)[0]
-            e_val = struct.unpack_from("<i", expected, i)[0]
+        for i in range(len(expected)):
+            a_val = struct.unpack_from("b", actual, i)[0]
+            e_val = struct.unpack_from("b", expected, i)[0]
             if a_val != e_val:
-                lane = (i // 4) % 128
-                pair = (i // 4) // 128
+                lane = i % 128
+                pair = i // 128
                 oc = pair * 2 + (1 if lane >= 64 else 0)
                 pos = lane % 64
                 row = pos // COLS
