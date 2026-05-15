@@ -15,7 +15,7 @@ import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.convolutions_universal.depthwise_conv_universal import (
+from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
     OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
@@ -27,7 +27,7 @@ ASM_PATH = (
     / "src"
     / "ipu_apps"
     / "convolutions_universal"
-    / "depthwise_conv_universal"
+    / "depthwise" / "depthwise_conv_universal"
     / "depthwise_conv_universal.asm"
 )
 

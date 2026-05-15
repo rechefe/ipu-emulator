@@ -12,12 +12,12 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from ipu_apps.convolutions_universal.conv_8x8 import Conv8x8App, _build_input_data, _build_kernel_data
+from ipu_apps.convolutions_universal.conv.conv_8x8 import Conv8x8App, _build_input_data, _build_kernel_data
 from ipu_apps.convolutions_universal.profiling._utils import (
     assemble_if_needed, cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
 )
 
-ASM = Path(__file__).resolve().parents[1] / "conv_8x8" / "conv_8x8.asm"
+ASM = Path(__file__).resolve().parents[1] / "conv" / "conv_8x8" / "conv_8x8.asm"
 CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
 
 SPATIAL = 64  # 8x8

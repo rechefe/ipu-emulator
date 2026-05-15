@@ -14,12 +14,12 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_apps.convolutions_universal.depthwise_conv_stride2_small import DepthwiseConvStride2SmallApp
+from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_small import DepthwiseConvStride2SmallApp
 from ipu_apps.convolutions_universal.profiling._utils import (
     cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
 )
 
-ASM = Path(__file__).resolve().parents[1] / "depthwise_conv_stride2_small" / "depthwise_conv_stride2_small.asm"
+ASM = Path(__file__).resolve().parents[1] / "depthwise" / "depthwise_conv_stride2_small" / "depthwise_conv_stride2_small.asm"
 CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
 
 # (rows, cols, channels)

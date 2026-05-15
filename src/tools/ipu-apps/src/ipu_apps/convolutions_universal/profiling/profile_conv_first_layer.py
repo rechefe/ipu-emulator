@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from ipu_apps.convolutions_universal.conv_first_layer import (
+from ipu_apps.convolutions_universal.conv.conv_first_layer import (
     ConvFirstLayerApp,
     IN_ROWS, IN_COLS, IN_CHANNELS, OUT_CHANNELS,
 )
@@ -22,7 +22,7 @@ from ipu_apps.convolutions_universal.profiling._utils import (
     assemble_if_needed, cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
 )
 
-ASM = Path(__file__).resolve().parents[1] / "conv_first_layer" / "conv_first_layer.asm"
+ASM = Path(__file__).resolve().parents[1] / "conv" / "conv_first_layer" / "conv_first_layer.asm"
 
 # CR0-CR2: the three input channels; CR3: kernels; CR4: mask; CR5: outputs; CR6: temp
 CR_NAMES = {

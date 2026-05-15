@@ -13,7 +13,7 @@ import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.convolutions_universal.depthwise_conv_stride2_small import (
+from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_small import (
     DepthwiseConvStride2SmallApp,
     OUTPUT_BASE_ADDR,
 )

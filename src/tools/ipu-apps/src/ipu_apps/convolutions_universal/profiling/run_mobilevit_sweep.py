@@ -159,10 +159,10 @@ def _print_table(
 
 def run_conv_first_layer() -> None:
     print("=== conv_first_layer ===")
-    from ipu_apps.convolutions_universal.conv_first_layer import (
+    from ipu_apps.convolutions_universal.conv.conv_first_layer import (
         ConvFirstLayerApp, IN_ROWS, IN_COLS, IN_CHANNELS, OUT_CHANNELS,
     )
-    ASM = Path(__file__).resolve().parents[1] / "conv_first_layer" / "conv_first_layer.asm"
+    ASM = Path(__file__).resolve().parents[1] / "conv" / "conv_first_layer" / "conv_first_layer.asm"
     CR_NAMES = {0: "input_ch0", 1: "input_ch1", 2: "input_ch2",
                 3: "kernels", 4: "mask", 5: "outputs", 6: "temp"}
     COLS = ["input_ch0", "input_ch1", "input_ch2", "kernels", "mask", "outputs", "temp"]
@@ -186,8 +186,8 @@ def run_conv_first_layer() -> None:
 
 def run_conv_universal() -> None:
     print("=== conv_universal ===")
-    from ipu_apps.convolutions_universal.conv_universal import ConvUniversalApp
-    BIN = Path(__file__).resolve().parents[1] / "conv_universal" / "conv_universal.bin"
+    from ipu_apps.convolutions_universal.conv.conv_universal import ConvUniversalApp
+    BIN = Path(__file__).resolve().parents[1] / "conv" / "conv_universal" / "conv_universal.bin"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
 
@@ -215,8 +215,8 @@ def run_conv_universal() -> None:
 
 def run_conv_8x8() -> None:
     print("=== conv_8x8 ===")
-    from ipu_apps.convolutions_universal.conv_8x8 import Conv8x8App, _build_input_data, _build_kernel_data
-    ASM = Path(__file__).resolve().parents[1] / "conv_8x8" / "conv_8x8.asm"
+    from ipu_apps.convolutions_universal.conv.conv_8x8 import Conv8x8App, _build_input_data, _build_kernel_data
+    ASM = Path(__file__).resolve().parents[1] / "conv" / "conv_8x8" / "conv_8x8.asm"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
     SPATIAL = 64  # 8x8 tile = 64 elements
@@ -252,8 +252,8 @@ def run_conv_8x8() -> None:
 
 def run_depthwise_universal() -> None:
     print("=== depthwise_conv_universal ===")
-    from ipu_apps.convolutions_universal.depthwise_conv_universal import DepthwiseConvUniversalApp
-    BIN = Path(__file__).resolve().parents[1] / "depthwise_conv_universal" / "depthwise_conv_universal.bin"
+    from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import DepthwiseConvUniversalApp
+    BIN = Path(__file__).resolve().parents[1] / "depthwise" / "depthwise_conv_universal" / "depthwise_conv_universal.bin"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
 
@@ -281,8 +281,8 @@ def run_depthwise_universal() -> None:
 
 def run_depthwise_stride2() -> None:
     print("=== depthwise_conv_stride2 ===")
-    from ipu_apps.convolutions_universal.depthwise_conv_stride2 import DepthwiseConvStride2App
-    ASM = Path(__file__).resolve().parents[1] / "depthwise_conv_stride2" / "depthwise_conv_stride2.asm"
+    from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2 import DepthwiseConvStride2App
+    ASM = Path(__file__).resolve().parents[1] / "depthwise" / "depthwise_conv_stride2" / "depthwise_conv_stride2.asm"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
     COLS_FIXED = 128
@@ -312,8 +312,8 @@ def run_depthwise_stride2() -> None:
 
 def run_depthwise_8x8() -> None:
     print("=== depthwise_8x8 ===")
-    from ipu_apps.convolutions_universal.depthwise_8x8 import Depthwise8x8App, _build_input_data, _build_kernel_data
-    ASM = Path(__file__).resolve().parents[1] / "depthwise_8x8" / "depthwise_8x8.asm"
+    from ipu_apps.convolutions_universal.depthwise.depthwise_8x8 import Depthwise8x8App, _build_input_data, _build_kernel_data
+    ASM = Path(__file__).resolve().parents[1] / "depthwise" / "depthwise_8x8" / "depthwise_8x8.asm"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
     SPATIAL = 64
@@ -343,8 +343,8 @@ def run_depthwise_8x8() -> None:
 
 def run_pointwise_universal() -> None:
     print("=== pointwise_conv_universal ===")
-    from ipu_apps.convolutions_universal.pointwise_conv_universal import PointwiseConvUniversalApp
-    BIN = Path(__file__).resolve().parents[1] / "pointwise_conv_universal" / "pointwise_conv_universal.bin"
+    from ipu_apps.convolutions_universal.pointwise.pointwise_conv_universal import PointwiseConvUniversalApp
+    BIN = Path(__file__).resolve().parents[1] / "pointwise" / "pointwise_conv_universal" / "pointwise_conv_universal.bin"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "mask", 3: "outputs"}
     COLS = ["inputs", "kernels", "mask", "outputs"]
 
@@ -372,8 +372,8 @@ def run_pointwise_universal() -> None:
 
 def run_pointwise_8x8() -> None:
     print("=== pointwise_8x8 ===")
-    from ipu_apps.convolutions_universal.pointwise_8x8 import Pointwise8x8App, _build_input_data, _build_kernel_data
-    ASM = Path(__file__).resolve().parents[1] / "pointwise_8x8" / "pointwise_8x8.asm"
+    from ipu_apps.convolutions_universal.pointwise.pointwise_8x8 import Pointwise8x8App, _build_input_data, _build_kernel_data
+    ASM = Path(__file__).resolve().parents[1] / "pointwise" / "pointwise_8x8" / "pointwise_8x8.asm"
     CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
     COLS = ["inputs", "kernels", "outputs", "mask"]
     SPATIAL = 64

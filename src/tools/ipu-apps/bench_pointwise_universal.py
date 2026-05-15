@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.convolutions_universal.pointwise_conv_universal import (
+from ipu_apps.convolutions_universal.pointwise.pointwise_conv_universal import (
     PointwiseConvUniversalApp,
 )
 

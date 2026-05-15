@@ -13,12 +13,12 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from ipu_apps.convolutions_universal.depthwise_conv_universal import DepthwiseConvUniversalApp
+from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import DepthwiseConvUniversalApp
 from ipu_apps.convolutions_universal.profiling._utils import (
     assemble_if_needed, cleanup, make_tmp_bin, print_profile_table, run_profile_safe,
 )
 
-ASM = Path(__file__).resolve().parents[1] / "depthwise_conv_universal" / "depthwise_conv_universal.asm"
+ASM = Path(__file__).resolve().parents[1] / "depthwise" / "depthwise_conv_universal" / "depthwise_conv_universal.asm"
 CR_NAMES = {0: "inputs", 1: "kernels", 2: "outputs", 3: "mask"}
 
 # (rows, cols, channels)

@@ -18,7 +18,7 @@ import pytest
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_as.lark_tree import assemble_to_bin_file
 
-from ipu_apps.convolutions_universal.conv_universal import (
+from ipu_apps.convolutions_universal.conv.conv_universal import (
     ConvUniversalApp,
     OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
@@ -31,7 +31,7 @@ ASM_PATH = (
     / "src"
     / "ipu_apps"
     / "convolutions_universal"
-    / "conv_universal"
+    / "conv" / "conv_universal"
     / "conv_universal.asm"
 )
 
