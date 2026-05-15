@@ -1,12 +1,12 @@
 """External memory (XMEM) model.
 
-A flat 8 MB byte-addressable memory that mirrors the C ``xmem__obj_t``.
+A flat 2 MB byte-addressable memory that mirrors the C ``xmem__obj_t``.
 Supports 128-byte word alignment helpers and bulk load utilities.
 """
 
 from __future__ import annotations
 
-XMEM_SIZE_BYTES = 1 << 23     # 8 MB
+XMEM_SIZE_BYTES = 1 << 21        # 2 MB
 XMEM_WIDTH_BYTES = 128           # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
@@ -23,7 +23,7 @@ def words_needed_for_bytes(n: int) -> int:
 
 
 class XMem:
-    """8 MB flat byte-addressable external memory.
+    """2 MB flat byte-addressable external memory.
 
     Internally stored as a ``bytearray`` for efficient byte-level access.
     """
