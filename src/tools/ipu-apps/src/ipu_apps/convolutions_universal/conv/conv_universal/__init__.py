@@ -61,10 +61,10 @@ if TYPE_CHECKING:
 # -- Memory layout -----------------------------------------------------------
 
 INPUT_BASE_ADDR = 0x000000
-KERNEL_BASE_ADDR = 0x200000
-MASK_BASE_ADDR = 0x600000
-ZERO_BASE_ADDR = 0x600080  # 128 bytes of zeros (right after mask data)
-OUTPUT_BASE_ADDR = 0x700000
+KERNEL_BASE_ADDR = 0x100000
+MASK_BASE_ADDR = 0x180000
+ZERO_BASE_ADDR = 0x180080  # 128 bytes of zeros (right after mask data)
+OUTPUT_BASE_ADDR = 0x1C0000
 
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output filter per chunk (int8)
 

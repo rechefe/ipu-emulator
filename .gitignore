@@ -9,3 +9,4 @@ bazel-testlogs/
 /playground/
 **egg-info**
 **_pycache**
+.claude/
