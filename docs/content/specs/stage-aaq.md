@@ -272,6 +272,90 @@ Notes:
 |-------------|------|-----------|
 | `XMEM.STORE_AAQ_RESULT offset base` | XMEM | Writes the 128-byte `aaq_result` register to XMEM at address `offset + base`. Must be issued before the next `AAQ` to avoid overwrite. |
 
-## 8. ISA 
+## 8. ISA — Instruction Reference
 
-Need to add after Eyal add all changes
+The AAQ stage executes **four mnemonics** in its single AAQ slot (one
+per VLIW word): `AAQ_NOP`, `AGG`, `AGG.FIRST`, and `AAQ`. Detailed
+binary encoding is maintained in `SLOT_BINARY_LAYOUT` in
+`src/tools/ipu-common/src/ipu_common/instruction_spec.py` and is not
+duplicated here.
+
+The AAQ slot is resolved by CTRL and forwarded down the dispatch chain;
+the stage does not read the CR/LR register files itself (see the
+Control Stage spec, §5). The `valid_elements` lane count is taken from
+the register **value** at cycle start — see §7.1 for the masking rule.
+
+### 8.1 `AAQ_NOP` — No Operation
+
+- **Summary:** No operation for the AAQ slot; performs no state changes.
+- **Syntax:** `AAQ_NOP`
+- **Operands:** none.
+- **Operation:** none — `r_acc`, the AAQ RF (`AAQ0`–`AAQ3`), and `aaq_result` are unchanged.
+- **Notes:** Inserted automatically when the AAQ slot is omitted from a VLIW word, or whenever `valid = 0` (see §3.1).
+
+### 8.2 `AGG` — Accumulator Aggregate
+
+- **Summary:** Collapse the first `valid_elements` lanes of `r_acc` into one FP32 scalar (`sum` or `max`), apply the post function, and store the result to the selected AAQ register.
+- **Syntax:** `AGG agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Operands:**
+  - `agg_mode` — aggregation mode: `sum` (0) or `max` (1).
+  - `post_fn` — post function applied to the aggregated scalar: `value` (0), `value_cr` (1), `inv` (2), `inv_sqrt` (3). See §7.1 *Post-Function Details*.
+  - `valid_elements` — `LR0`–`LR15` or `CR0`–`CR15` (5-bit `LcrIdx`). The **value** read selects how many `r_acc` lanes are aggregated; lanes `[valid_elements..127]` are masked out (see §7.1).
+  - `cr_idx` — `CR0`–`CR15`; the CR value used by the `value_cr` post function.
+  - `aaq_rf_idx` — destination AAQ register, `AAQ0`–`AAQ3`.
+- **Operation:**
+  ```text
+  n = min(value(valid_elements), 128)
+  values = [activation(r_acc[i]) for i in 0..n-1]      // activation per §7.0
+  if agg_mode == sum:
+      raw = sum(values)
+  else:  // max — includes RF feedback of the target register
+      raw = max(values + [AAQ[aaq_rf_idx]])
+  AAQ[aaq_rf_idx] = pack32(post_fn(raw, CR[cr_idx]))    // stored as float32
+  ```
+- **Examples:**
+  - `AGG sum, value, LR0, CR0, AAQ0;;` — sum the first `LR0` lanes into `AAQ0`.
+  - `AGG max, value_cr, CR3, CR5, AAQ1;;` — max of the first `CR3` lanes (with `AAQ1` fed back), scaled by `CR5`.
+- **Notes:** In `max` mode the current value of `AAQ[aaq_rf_idx]` is fed back into the max tree; use `AGG.FIRST` to avoid contamination from an uninitialised register.
+
+### 8.3 `AGG.FIRST` — Accumulator Aggregate First
+
+- **Summary:** Identical to `AGG` except that `max` mode does **not** fold in the previous AAQ register value (no RF feedback).
+- **Syntax:** `AGG.FIRST agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Operands:** identical to `AGG`.
+- **Operation:**
+  ```text
+  n = min(value(valid_elements), 128)
+  values = [activation(r_acc[i]) for i in 0..n-1]
+  if agg_mode == sum:
+      raw = sum(values)
+  else:  // max — RF feedback NOT included
+      raw = max(values)
+  AAQ[aaq_rf_idx] = pack32(post_fn(raw, CR[cr_idx]))
+  ```
+- **Example:** `AGG.FIRST max, value, LR0, CR0, AAQ0;;`.
+- **Notes:** Use at the start of a new accumulation sequence so a stale/uninitialised `AAQ[aaq_rf_idx]` cannot contaminate the `max`.
+
+### 8.4 `AAQ` — Quantize Accumulator
+
+- **Summary:** Quantize the 128-lane accumulator to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode.
+- **Syntax:** `AAQ`
+- **Operands:** none.
+- **Operation:**
+  ```text
+  // requires cr15 == DType.INT8; r_acc lanes are FP32
+  for i in 0..127:
+      aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)
+  ```
+  The Quantization block appends 12 bits of metadata to the 1024-bit payload (see §5 / §7.2).
+- **Example:** `AAQ;;`.
+- **Notes:** `aaq_result` must be flushed with `XMEM.STORE_AAQ_RESULT offset base` before the next `AAQ` overwrites it (see §7.2).
+
+### 8.5 Summary Table
+
+| Slot | Mnemonic | Operands | One-line Effect |
+|------|----------|----------|-----------------|
+| AAQ | `AAQ_NOP`   | —                                                      | no state change |
+| AAQ | `AGG`       | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1], AAQ[idx]))` |
+| AAQ | `AGG.FIRST` | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1]))` (no RF feedback) |
+| AAQ | `AAQ`       | —                                                      | `aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)` |

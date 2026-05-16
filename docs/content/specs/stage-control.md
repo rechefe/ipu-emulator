@@ -23,7 +23,7 @@ The CTRL stage produces:
 - Up to three local-register writes (`LR0`–`LR15`) per cycle.
 - A dispatched decoded-VLIW-word, split at the CTRL output into two parallel paths:
   - **XMEM path** — CTRL resolves the XMEM slot into a single read address (CR base + LR offset) and hands it to XMEM. XMEM is **read-only**: it has no opcode field, every access is a memory load, and the returned data is written directly into the MULT stage's input registers.
-  - **MULT → ACC → AAQ → STORE chain** — the remaining VLIW fields are handed to MULT and forwarded down the chain, each stage stripping its own fields. The relevant CR/LR operand values are **forwarded** from the register file as the **prior-cycle snapshot** (the stages do not perform their own register-file reads — see §5).
+  - **MULT → ACC → AAQ → STORE chain** — the remaining VLIW fields are handed to MULT and forwarded down the chain, each stage stripping its own fields. CTRL also resolves the CR/LR operand value(s) each of these stages needs and **forwards them on the bus** — these stages never read the register files and CR/LR are **not visible** to them. CTRL evaluates its three LR-ALU lanes first, so the forwarded values are this cycle's **post-LR-write** values, **not** the prior-cycle snapshot. The snapshot governs only CTRL's own reads — see §5.
 
 The IPU is configured by an external **RISC-V host** that writes the
 instruction memory (inactive bank) and the CR register file (inactive bank)
@@ -63,21 +63,12 @@ flowchart LR
     CTRL --> LRRF
     CTRL --> BUS
 
-    BUS -->|VLIW minus ctrl fields| mult_stage
+    BUS -->|VLIW minus ctrl fields + resolved CR/LR operand values| mult_stage
     BUS -->|xmem resolved address| XMEM
     XMEM -->|fetched data| mult_stage
     mult_stage -->|VLIW minus mult fields| acc_stage
     acc_stage -->|VLIW minus acc fields| aaq_stage
     aaq_stage -->|store fields| store_stage
-
-    CRRF -.->|snapshot| mult_stage
-    CRRF -.->|snapshot| acc_stage
-    CRRF -.->|snapshot| aaq_stage
-    CRRF -.->|snapshot| store_stage
-    LRRF -.->|snapshot| mult_stage
-    LRRF -.->|snapshot| acc_stage
-    LRRF -.->|snapshot| aaq_stage
-    LRRF -.->|snapshot| store_stage
 
     subgraph LEGEND["Legend"]
         L_blue["Downstream Stages"]:::blue
@@ -147,7 +138,7 @@ out of `inst $`); everything else stays inside the fetch path
 | `lr_write_en[0..2]` | `output logic [2:0]` | One enable per LR lane; deasserted for NOP lanes. |
 | `lr_write_idx[0..2]` | `output logic [2:0][3:0]` | Destination LR index per lane. |
 | `lr_write_data[0..2]` | `output logic [2:0][19:0]` | 20-bit value to write per lane. |
-| `dispatch_word` | `output logic [IW-1:0]` | The decoded VLIW word for the current cycle, driven onto the dispatched VLIW word bus in §2. The bus splits downstream into two parallel paths: the XMEM slot is routed to XMEM (not a stage; **read-only**, no opcode) as a single resolved read address — CTRL reads CR base + LR offset, forwards the computed address, and XMEM writes its returned data into the MULT stage's input registers. The MULT/ACC/AAQ/STORE portion is handed to MULT, then forwarded down MULT → ACC → AAQ → STORE with each stage stripping its own fields. For each instruction in those four stages, the relevant CR/LR operand values are **forwarded** from the register file as the **prior-cycle snapshot** (those stages do not perform their own register-file reads — see §5). |
+| `dispatch_word` | `output logic [IW-1:0]` | The decoded VLIW word for the current cycle, driven onto the dispatched VLIW word bus in §2. The bus splits downstream into two parallel paths: the XMEM slot is routed to XMEM (not a stage; **read-only**, no opcode) as a single resolved read address — CTRL reads CR base + LR offset, forwards the computed address, and XMEM writes its returned data into the MULT stage's input registers. The MULT/ACC/AAQ/STORE portion is handed to MULT, then forwarded down MULT → ACC → AAQ → STORE with each stage stripping its own fields. For each instruction in those four stages, CTRL resolves the CR/LR operand value(s) and forwards them on the bus — those stages never read the register files (CR/LR are not visible to them). The forwarded values are this cycle's **post-LR-write** values (CTRL evaluates its three LR-ALU lanes first), **not** the prior-cycle snapshot; the snapshot governs only CTRL's own reads — see §5. |
 
 ## 4. Parameters
 
@@ -169,9 +160,9 @@ out of `inst $`); everything else stays inside the fetch path
 
 ## 5. Data and Register Model
 
-- For each instruction in the MULT, ACC, AAQ, and STORE stages, the relevant CR/LR operand values are **forwarded** from the register file based on the indices carried in that stage's slot fields. The downstream stages do not perform their own register-file reads — the operand value(s) needed by the instruction arrive already resolved.
+- For each instruction in the MULT, ACC, AAQ, and STORE stages, **CTRL** resolves the CR/LR operand value(s) from the register files (by the indices carried in that stage's slot fields) and **forwards** them on the dispatch bus. The downstream stages **never** read the register files and CR/LR are **not visible** to them — the operand value(s) arrive already resolved. CTRL evaluates its three LR-ALU lanes before forwarding, so a downstream stage sees this cycle's **post-LR-write** value (it reflects any LR write this same VLIW performs).
 - **XMEM is not a pipeline stage** and is **read-only**. CTRL pre-resolves the XMEM address from CR + LR and forwards only the computed **read address** to XMEM (there is no XMEM opcode; every XMEM access is a memory load). XMEM accesses external memory and **writes the returned data directly into the MULT stage's input registers** (e.g. `R0`/`R1`/`R_CYCLIC`/`R_MASK`). It has no CR/LR read port and does not appear on the MULT → ACC → AAQ → STORE chain. Writes back to external memory are the responsibility of the STORE stage.
-- CR/LR reads (in CTRL **and** in every downstream stage) are always a **snapshot from the previous CTRL execution** — i.e. the values committed at end of cycle N−1. LR writes generated in cycle N commit at end of cycle N and become visible only starting cycle N+1. This applies uniformly: branches, LR-ALU sources, and MULT/ACC/AAQ/STORE/XMEM operand reads all see the same prior-cycle snapshot.
+- The **prior-cycle snapshot** (read-before-write) applies **only to CTRL's own register reads**: the three LR-ALU lane source operands and the branch/COND operands. These see the values committed at end of cycle N−1 — an LR write generated in cycle N is **not** visible to CTRL's own reads in cycle N (it becomes visible to them only starting cycle N+1). The CR/LR operand values CTRL **forwards** to MULT/ACC/AAQ/STORE/XMEM are **not** the snapshot: CTRL evaluates its LR-ALU lanes first, then forwards the resulting **post-write** values for this cycle. So a downstream stage sees this cycle's LR writes, while CTRL's own LR-ALU/branch reads do not.
 - `LR0`–`LR15` are **20-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`). The RISC-V host cannot write LR.
 - `CR0`–`CR15` are **20-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
 - **`CR0` is hard-wired to `0` (zero register)** and **`CR1` is hard-wired to `1` (one register)**. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via `ADD`/`SUB`.
@@ -269,9 +260,9 @@ the only piece of information CTRL hands over is the **resolved read
 address**:
 
 ```text
-// Inside CTRL — runs in parallel with cond / LR ALUs
+// Inside CTRL — computed after the three LR ALUs (uses this cycle's post-write LR)
 xmem_addr    = CR[inst$_vliw.xmem.base_idx]
-             + LR[inst$_vliw.xmem.offset_idx]
+             + LR[inst$_vliw.xmem.offset_idx]   // post-LR-write value, not the snapshot
 xmem_payload = { xmem_addr }    // no opcode; XMEM is read-only
 ```
 
@@ -281,8 +272,10 @@ data directly into the MULT stage's input registers** (e.g. `R0`, `R1`,
 
 Consequences:
 
-- XMEM **does not** read the CR or LR register files. Its only input
-  from the dispatch bus is the resolved read address.
+- XMEM **does not** read the CR or LR register files (CR/LR are not
+  visible to it). Its only input from the dispatch bus is the resolved
+  read address, which CTRL computed from the **post-LR-write** LR
+  offset for this cycle — not the prior-cycle snapshot (see §5).
 - XMEM has no opcode field; writes back to external memory are the
   responsibility of the STORE stage, not XMEM.
 - XMEM does not produce a `dispatch_word` residual — it is a sideband
@@ -305,11 +298,12 @@ aaq_in    = acc_in  - acc  fields
 store_in  = aaq_in  - aaq  fields
 ```
 
-For each instruction these four stages execute, the relevant CR/LR
-operand values are **forwarded** from the register file (looked up by
-the indices carried in the stage's slot fields). The values are taken
-from the prior-cycle snapshot, the same snapshot CTRL itself uses — see
-§5.
+For each instruction these four stages execute, **CTRL** looks up the
+CR/LR operand value(s) (by the indices carried in the stage's slot
+fields) and **forwards** them on the bus; the stages never read the
+register files. The forwarded values are this cycle's **post-LR-write**
+values — CTRL evaluates its three LR-ALU lanes first — **not** the
+prior-cycle snapshot, which is reserved for CTRL's own reads. See §5.
 
 ## 8. Hazards
 
@@ -360,9 +354,12 @@ ops in the **LR slot** (replicated ×3 lanes per VLIW word) and seven branches
 in the **COND slot** (one per VLIW word). Detailed binary encoding is
 maintained in `SLOT_BINARY_LAYOUT` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and is not duplicated here.
 
-An LR write performed in cycle N is **not** visible to reads in the same
-cycle — see §5 for the prior-cycle register-file behavior that applies
-uniformly to CTRL and every downstream stage.
+An LR write performed in cycle N is **not** visible to **CTRL's own**
+reads in the same cycle — the LR-ALU lane source operands and the
+branch/COND operands use the prior-cycle snapshot (see §5). It **is**,
+however, reflected in the operand values CTRL forwards to this cycle's
+downstream MULT/ACC/AAQ/STORE/XMEM, because CTRL evaluates the LR-ALU
+lanes before forwarding.
 
 ### 9.1 LR Slot (×3 lanes per VLIW word)
 
