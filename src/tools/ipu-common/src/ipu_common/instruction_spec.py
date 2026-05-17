@@ -356,7 +356,7 @@ INSTRUCTION_SPEC = {
     # =========================================================================
     # MULT Slot (Multiply Instructions)
     # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
-    #          MULT.VE.CR=4, MULT.VE.AAQ=5
+    #          MULT.VE.CR=4, MULT.VE.AAQ=5, MULT.EE.RR=6
     # =========================================================================
     "mult": {
         "MULT.EE": {
@@ -485,6 +485,30 @@ INSTRUCTION_SPEC = {
                 example="MULT.VE.AAQ LR0, 0, LR15, AAQ1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
+        },
+        "MULT.EE.RR": {
+            "operands": [
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Multi-Element Multiply (register by register)",
+                summary=(
+                    "Multi-element execution (MEE): multiply a mult-stage register "
+                    "element by element against itself. `ra` selects the execution "
+                    "mode — **`R0`** gives r0-by-r0, **`R1`** gives r1-by-r1."
+                ),
+                syntax="MULT.EE.RR ra, mask_offset, mask_shift",
+                operands=[
+                    "`ra`: **`R0`** | **`R1`** — selects the MEE mode; the chosen register is both multiplicand and multiplier (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — shift applied to the mask register.",
+                ],
+                operation="For each lane i: mult_res[i] = ipu_mult(ra[i], ra[i]); then apply mask and shift.",
+                example="MULT.EE.RR R0, 0, LR2;;",
+            ),
+            "execute_fn": "execute_mult_ee_rr",
         },
     },
 

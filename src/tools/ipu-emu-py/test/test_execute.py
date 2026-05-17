@@ -1660,6 +1660,93 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
+
+class TestMultEeRr:
+    """MULT.EE.RR — multi-element execution (MEE): r0-by-r0 or r1-by-r1."""
+
+    def test_mult_ee_rr_r0_by_r0(self):
+        """MEE mode R0: each lane multiplied by itself (4 × 4 = 16)."""
+        r0_data = bytes([4] * 128)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+RESET_ACC;;
+SET lr5 cr9;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 16, f"acc word {i}: expected 16 (4×4), got {val}"
+
+    def test_mult_ee_rr_r1_by_r1(self):
+        """MEE mode R1 squares r1 (3 × 3 = 9); r0 holds a decoy value."""
+        r0_data = bytes([9] * 128)   # decoy — must be ignored when ra=R1
+        r1_data = bytes([3] * 128)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+LDR_MULT_REG r1 lr1 cr0;;
+RESET_ACC;;
+SET lr5 cr10;;
+MULT.EE.RR r1 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 4352, 10: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x1100, r1_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 9, f"acc word {i}: expected 9 (r1 3×3, not r0), got {val}"
+
+    def test_mult_ee_rr_mask_zeroes_lanes(self):
+        """mask_offset/mask_shift still gate lanes (first 64 masked → 0)."""
+        r0_data = bytes([3] * 128)   # squared → 9
+        mask_data = bytearray(128)
+        for i in range(8):           # 64 bits set → first 64 lanes masked
+            mask_data[i] = 0xFF
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr3 cr9;;
+LDR_MULT_MASK_REG lr3 cr0;;
+RESET_ACC;;
+SET lr5 cr10;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, bytes(mask_data))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(64):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 0, f"word {i} should be masked to 0, got {val}"
+        for i in range(64, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
+
+
 # ============================================================================
 # AAQ Quantization (aaq instruction + xmem.store_aaq_result)
 # ============================================================================
