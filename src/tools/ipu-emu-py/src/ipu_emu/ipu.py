@@ -569,6 +569,39 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
+    def execute_mult_ee_rr(self, *, ra: bytearray | int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.EE.RR: multi-element multiply of a mult-stage register by itself.
+
+        ``ra`` selects the MEE mode: R0 → r0-by-r0, R1 → r1-by-r1. Each lane is
+        multiplied by itself (element-wise square), then masked and shifted.
+        """
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            ra_vals = self._debug_ra_lane_vals(ra)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<f", mult_res, i * 4, float(ra_vals[i]) * float(ra_vals[i])
+                    )
+            else:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<i", mult_res, i * 4,
+                        self._wide_imult32(int(ra_vals[i]), int(ra_vals[i])),
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.get_cr_dtype()
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(ra[i], ra[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
     def _execute_mult_ve_variant(
         self,
         *,
