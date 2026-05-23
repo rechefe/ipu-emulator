@@ -287,7 +287,7 @@ class TestIpuState:
     def test_post_aaq_reg_debug_alias_aaq_result(self):
         """Legacy debug name ``aaq_result`` resolves to ``post_aaq_reg``."""
         state = IpuState()
-        data = bytearray(range(128))
+        data = bytearray((i * 3) & 0xFF for i in range(512))
         state.regfile.set_post_aaq_reg(data)
         assert state.regfile.get_register_bytes("aaq_result") == bytearray(data)
 

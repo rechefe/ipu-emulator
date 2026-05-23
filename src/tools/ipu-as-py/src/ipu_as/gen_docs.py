@@ -60,7 +60,8 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, **leaky_relu**, "
         "**sigmoid**, **tanh**, **gelu**, **silu** (alias **swish**), **softplus**, **elu**, **prelu**, **exp2** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
-        "and the temporary **`STR_POST_AAQ_REG` → `R_ACC` (512 B)** export are described in **Building Applications** "
+        "and how **`POST_AAQ_REG`** (interim **512 B**) and **`STR_POST_AAQ_REG`** (store to XMEM) "
+        "are described in **Building Applications** "
         "(`docs/content/building-applications.md#activations-emulator`)."
     ),
     "LrModPow2KImmediate": (

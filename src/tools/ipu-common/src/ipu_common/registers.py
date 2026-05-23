@@ -89,16 +89,17 @@ REGISTER_DEFINITIONS = {
         "assembler_values": [f"aaq{i}" for i in range(4)],
         "encoding_class": "AaqRegField",
     },
-    # Staging for post-quantization byte lanes (128 × INT8) written by `AAQ`.
-    # Intended pipeline: activation is 32→32 per lane in `R_ACC`, then quantization
-    # 32→8 into this register. The **128-byte width is temporary** in the sense that the
-    # exact packing / metadata may evolve when quant is fully separated from `R_ACC`.
-    # XMEM `STR_POST_AAQ_REG` currently dumps **512 bytes from `R_ACC`** (see `ipu.py`);
-    # it will switch to this buffer once the export path matches the quant output.
+    # Post-AAQ staging: **temporarily 512 bytes** (128×32-bit lanes, same footprint as
+    # `R_ACC`) until end-to-end quantization lands; then this register is expected to
+    # hold the narrower quantized export buffer instead. `AAQ` already writes the leading
+    # **128 bytes** with clamped INT8 lanes; the emulator clears the tail. XMEM
+    # **`STR_POST_AAQ_REG`** stores **this register** (512 bytes) to memory. In the
+    # Python emulator, `STR_POST_AAQ_REG` **refreshes** `post_aaq_reg` from `R_ACC`
+    # immediately before the store so exports match post-activation wide lanes (see `ipu.py`).
     "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,
-        "size_bytes": 128,
+        "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("aaq_result",),

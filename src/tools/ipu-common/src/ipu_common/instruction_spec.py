@@ -246,19 +246,20 @@ INSTRUCTION_SPEC = {
                 {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Store Post-AAQ (temporary R_ACC export)",
+                title="Store Post-AAQ register",
                 summary=(
-                    "**Temporary:** write **512 bytes** from **`R_ACC`** (128×32-bit post-activation "
-                    "lanes) to external memory. Intended final behavior is to export the **128-byte** "
-                    "**`POST_AAQ_REG`** buffer after **quantization** (32→8 per lane); the register "
-                    "width and store source will be aligned when that path is fully implemented."
+                    "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
+                    "the post-AAQ buffer is sized like **`R_ACC`** (128×32-bit lanes) until "
+                    "quantization export is finalized; the Python emulator refreshes "
+                    "`POST_AAQ_REG` from `R_ACC` at store time so XMEM sees the current "
+                    "post-activation lanes."
                 ),
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR15)",
                 ],
-                operation="Memory[offset + base] = R_ACC (512 bytes); temporary until export reads POST_AAQ_REG (128 bytes) after quant split",
+                operation="Memory[offset + base] = POST_AAQ_REG (512 bytes); interim staging register",
                 example="STR_POST_AAQ_REG LR0, CR0;;",
             ),
             "execute_fn": "execute_str_post_aaq_reg",
@@ -761,16 +762,17 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="AAQ Quantize",
                 summary=(
-                    "Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the "
-                    "POST_AAQ_REG staging register (128 bytes; layout may evolve when quant is fully split from "
-                    "R_ACC). Requires INT8 mode. STR_POST_AAQ_REG currently exports 512 bytes from R_ACC instead—"
-                    "see docs/content/building-applications.md#activations-emulator."
+                    "Quantize the 128-word accumulator from INT32 to INT8, storing clamped results "
+                    "in the **leading 128 bytes** of **`POST_AAQ_REG`**. The register is **512 bytes** "
+                    "for now (tail cleared); **`STR_POST_AAQ_REG`** exports the full register to XMEM. "
+                    "Requires INT8 mode."
                 ),
                 syntax="AAQ",
                 operands=[],
                 operation=(
                     "Requires INT8 mode (CR15 == DType.INT8). "
-                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(R_ACC[i]), -128, 127)"
+                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(R_ACC[i]), -128, 127); "
+                    "POST_AAQ_REG[128..511] = 0"
                 ),
                 example="AAQ;;",
             ),

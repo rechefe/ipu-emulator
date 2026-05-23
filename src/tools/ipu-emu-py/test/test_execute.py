@@ -1807,6 +1807,7 @@ class TestAaqQuantize:
         for i in range(128):
             expected = i if i < 128 else i - 256
             assert result[i] == (expected & 0xFF), f"byte {i}: expected {expected & 0xFF}, got {result[i]}"
+        assert result[128:] == bytearray(384), "tail of POST_AAQ_REG should be cleared"
 
     def test_aaq_all_zeros(self):
         """All-zero accumulator quantizes to all-zero bytes."""
@@ -1821,7 +1822,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        assert state.regfile.get_post_aaq_reg() == bytearray(128)
+        assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_aaq_positive_clamp(self):
         """Large positive values clamp to 127 after truncation."""
@@ -1844,6 +1845,7 @@ class TestAaqQuantize:
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
         for i in range(64, 128):
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
+        assert result[128:] == bytearray(384)
 
     def test_aaq_negative_values(self):
         """Negative accumulator values truncate correctly."""
@@ -1862,6 +1864,7 @@ class TestAaqQuantize:
         result = state.regfile.get_post_aaq_reg()
         for i in range(128):
             assert result[i] == 0xFF, f"byte {i}: expected 0xFF (-1), got {result[i]}"
+        assert result[128:] == bytearray(384)
 
     def test_aaq_requires_int8_mode(self):
         """aaq raises EmulatorError when not in INT8 mode."""
@@ -1871,8 +1874,8 @@ class TestAaqQuantize:
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
-    def test_str_post_aaq_reg_writes_r_acc_512_to_xmem(self):
-        """STR_POST_AAQ_REG writes 512 bytes from R_ACC (temporary pre-quant export)."""
+    def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
+        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM; emulator syncs from R_ACC."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
         self._set_acc_words(state, [i << 24 for i in range(128)])
@@ -1893,6 +1896,7 @@ BKPT;;
 
         stored = state.xmem.read_address(0x4000, 512)
         assert stored == state.regfile.get_r_acc_bytes()
+        assert stored == state.regfile.get_post_aaq_reg()
 
     def test_STR_ACC_REG_emits_warning(self):
         """STR_ACC_REG emits a UserWarning about being debug-only."""

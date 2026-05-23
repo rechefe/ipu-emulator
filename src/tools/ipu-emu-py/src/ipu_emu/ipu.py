@@ -1157,11 +1157,12 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute AAQ: Quantize r_acc (128 × INT32) → POST_AAQ_REG (128 × INT8).
+        """Execute AAQ: Quantize r_acc (128 × INT32) → leading bytes of POST_AAQ_REG.
 
         Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
         arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the post_aaq_reg staging register.
+        a signed byte in the **first 128 bytes** of ``post_aaq_reg``. The register
+        is **512 bytes** for now; unused tail bytes are cleared.
 
         In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
         ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
@@ -1188,7 +1189,7 @@ class Ipu:
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
                     result[i] = clamped & 0xFF
-            self.state.regfile.set_post_aaq_reg(result)
+            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
             return
 
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1198,7 +1199,7 @@ class Ipu:
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
-        self.state.regfile.set_post_aaq_reg(result)
+        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
         """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
@@ -1231,16 +1232,19 @@ class Ipu:
                 struct.pack_into("<f", acc_buf, i * 4, float(y))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
-        """Write **512 bytes** from ``R_ACC`` to XMEM (temporary export).
+        """Store **POST_AAQ_REG** (512 bytes) to XMEM.
 
-        Intended pipeline: **activation** (32→32 per lane, in ``R_ACC``) then
-        **quantization** (32→8) into ``POST_AAQ_REG``. Until the XMEM path is switched
-        to the quantized buffer, this instruction mirrors the post-activation
-        accumulator so harnesses can snapshot full lanes.
+        **Interim model:** ``POST_AAQ_REG`` is a **512-byte** staging register (same
+        width as ``R_ACC``) until the quantized export path is finalized. This
+        instruction writes those 512 bytes to external memory. The Python emulator
+        **refreshes** ``POST_AAQ_REG`` from ``R_ACC`` immediately before the store
+        so the buffer holds the current post-activation wide lanes (``AAQ`` still
+        writes the leading **128 bytes** with clamped INT8 when INT8 mode is on).
         """
         addr = offset + base
-        data = self.state.regfile.get_r_acc_bytes()
-        self.state.xmem.write_address(addr, data)
+        acc = self.state.regfile.get_r_acc_bytes()
+        self.state.regfile.set_post_aaq_reg(bytearray(acc))
+        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
