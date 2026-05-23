@@ -214,7 +214,7 @@ BKPT;;
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
         encoded = assemble("INCR_MOD_POW2 lr0 lr1 9;; BKPT;;")
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 8
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
         with pytest.raises(ValueError, match=r"INCR_MOD_POW2 k operand"):
@@ -269,24 +269,24 @@ BKPT;;
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 4
-        assert d["lr_inst_0_token_5_cr_reg_field"] == 8
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
-        assert d["lr_inst_1_token_1_lr_reg_field"] == 5
-        assert d["lr_inst_1_token_5_cr_reg_field"] == 9
-        assert d["lr_inst_1_token_6_lr_mod_pow2_k_immediate"] == 0
-        assert d["lr_inst_2_token_1_lr_reg_field"] == 6
-        assert d["lr_inst_2_token_5_cr_reg_field"] == 10
-        assert d["lr_inst_2_token_6_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
+        assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
+        assert d["lr_inst_1_token_1_add_sub_src_b_field"] == 9   # src = cr9
+        assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
+        assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
+        assert d["lr_inst_2_token_1_add_sub_src_b_field"] == 10  # src = cr10
+        assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
 
     def test_decode_add_imm_operand_field(self):
         """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
         encoded = assemble("ADD lr2 lr1 7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 2  # dest
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 1  # src_a
-        assert d["lr_inst_0_token_4_add_sub_src_b_field"] == 32 + 7
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 32 + 7  # src_b = IMM5(7)
 
 
 # ============================================================================
@@ -1212,9 +1212,8 @@ class TestDecodeRoundtrip:
         d = decode_instruction_word(encoded[0])
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 13
-        assert d["lr_inst_0_token_5_cr_reg_field"] == 8
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
 
 
 # ============================================================================

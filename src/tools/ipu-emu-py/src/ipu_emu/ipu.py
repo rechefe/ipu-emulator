@@ -27,6 +27,7 @@ from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
+    SLOT_UNIONS,
     SLOT_COUNT,
     get_instruction_by_opcode,
     create_emulator_constants,
@@ -111,28 +112,16 @@ _SLOT_FIELD_PREFIX = {
 }
 
 
-def _build_field_map_for_instruction(
-    prefix: str, layout: list[str], operands: list[dict],
+def _build_field_map_for_instruction_union(
+    prefix: str, slot_union: object, inst_name: str,
 ) -> dict[str, str]:
-    """Build operand_name → inst dict field_key mapping for one instruction.
-
-    Uses the same greedy matching algorithm as the assembler's
-    _find_instruction_inst_mapping: for each operand, find the first
-    unused position in the binary layout with matching type.
-    """
-    used = [False] * len(layout)
+    """Build operand_name → inst dict field_key mapping using union bindings."""
     field_map: dict[str, str] = {}
-
-    for op in operands:
-        op_type = op["type"]
-        for j, layout_type in enumerate(layout):
-            if layout_type == op_type and not used[j]:
-                used[j] = True
-                token_idx = j + 1  # +1 because token_0 is opcode
-                suffix = _TYPE_FIELD_SUFFIX[layout_type]
-                field_map[op["name"]] = f"{prefix}_token_{token_idx}_{suffix}"
-                break
-
+    for field_idx, operand_name in slot_union.opcode_bindings.get(inst_name, []):
+        canonical_type = slot_union.fields[field_idx].canonical_type
+        token_idx = field_idx + 1  # +1: token_0 is the opcode
+        suffix = _TYPE_FIELD_SUFFIX[canonical_type]
+        field_map[operand_name] = f"{prefix}_token_{token_idx}_{suffix}"
     return field_map
 
 
@@ -146,19 +135,19 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
     result: dict[tuple, dict[str, str]] = {}
 
     for slot_type, prefix in _SLOT_FIELD_PREFIX.items():
-        layout = SLOT_BINARY_LAYOUT[slot_type]
-        for inst_name, inst_def in INSTRUCTION_SPEC[slot_type].items():
-            result[(slot_type, inst_name)] = _build_field_map_for_instruction(
-                prefix, layout, inst_def["operands"]
+        slot_union = SLOT_UNIONS[slot_type]
+        for inst_name in INSTRUCTION_SPEC[slot_type]:
+            result[(slot_type, inst_name)] = _build_field_map_for_instruction_union(
+                prefix, slot_union, inst_name
             )
 
     # LR has multiple sub-slots with different field prefixes
-    lr_layout = SLOT_BINARY_LAYOUT["lr"]
-    for inst_name, inst_def in INSTRUCTION_SPEC["lr"].items():
+    lr_slot_union = SLOT_UNIONS["lr"]
+    for inst_name in INSTRUCTION_SPEC["lr"]:
         for slot_idx in range(SLOT_COUNT["lr"]):
             prefix = f"lr_inst_{slot_idx}"
-            result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction(
-                prefix, lr_layout, inst_def["operands"]
+            result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction_union(
+                prefix, lr_slot_union, inst_name
             )
 
     return result
