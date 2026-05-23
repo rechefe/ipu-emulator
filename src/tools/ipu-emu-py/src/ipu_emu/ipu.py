@@ -1342,7 +1342,7 @@ class Ipu:
         elif slot_type == "xmem":
             if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
                 stats.xmem_reads += 1
-            elif instruction_name in {"STR_ACC_REG", "XMEM.STORE_AAQ_RESULT"}:
+            elif instruction_name in {"STR_ACC_REG", "STR_POST_AAQ_REG"}:
                 stats.xmem_writes += 1
 
         # Call handler with named arguments

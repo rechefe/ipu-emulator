@@ -326,7 +326,7 @@ Available fields:
 - `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
 - `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
 - `xmem_reads` — count of `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG`
-- `xmem_writes` — count of `STR_ACC_REG`, `XMEM.STORE_AAQ_RESULT`
+- `xmem_writes` — count of `STR_ACC_REG`, `STR_POST_AAQ_REG`
 - `xmem_accesses` — sum of reads + writes
 - `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
 
