@@ -1146,17 +1146,18 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute AAQ: Quantize r_acc (128 × INT32) → leading bytes of POST_AAQ_REG.
+        """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
-        Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
-        arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the **first 128 bytes** of ``post_aaq_reg``. The register
-        is **512 bytes** for now; unused tail bytes are cleared.
+        Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
+        ``r_acc``), typically filled by ``ACTIVATE``. Each 32-bit lane is truncated
+        then clamped to INT8 and stored in the **first 128 bytes** of
+        ``post_aaq_reg``; the wide-lane tail is cleared.
 
-        In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
-        ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
-        ``state.wide_vector_quantize_output`` to re-run INT8-style quantization
-        from wide lanes for comparison with the real path.
+        Requires INT8 mode.
+
+        In wide-vector debug mode, ``aaq`` is normally a no-op (use
+        ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
+        to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
         """
         dtype = self.state.get_cr_dtype()
         if dtype != DType.INT8:
@@ -1165,41 +1166,46 @@ class Ipu:
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
                 return
-            acc_buf = self.state.regfile.raw("r_acc")
+            src_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(128):
-                    val = struct.unpack_from("<f", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<f", src_buf, i * 4)[0]
                     clamped = max(-128, min(127, int(round(val))))
                     result[i] = clamped & 0xFF
             else:
                 for i in range(128):
-                    val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<i", src_buf, i * 4)[0]
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
                     result[i] = clamped & 0xFF
             self.state.regfile.set_post_aaq_reg(result + bytearray(384))
             return
 
-        acc_buf = self.state.regfile.raw("r_acc")
+        src_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
         for i in range(128):
-            val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+            val = struct.unpack_from("<i", src_buf, i * 4)[0]
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
-        """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
+        """Apply element-wise activation to the first ``valid_elements`` lanes.
+
+        Reads each active lane from ``r_acc`` and writes the result into the same
+        lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
+        Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
+        unchanged.
 
         ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
-        Lanes at indices ``>=`` the active lane count are left unchanged.
         """
         fn_id = int(activation_fn) & 0xFFFFFFFF
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
+        post_buf = self.state.regfile.raw("post_aaq_reg")
 
         for i in range(active):
             raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
@@ -1216,23 +1222,13 @@ class Ipu:
                     yi = -2147483648
                 elif yi > 2147483647:
                     yi = 2147483647
-                struct.pack_into("<i", acc_buf, i * 4, yi)
+                struct.pack_into("<i", post_buf, i * 4, yi)
             else:
-                struct.pack_into("<f", acc_buf, i * 4, float(y))
+                struct.pack_into("<f", post_buf, i * 4, float(y))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
-        """Store **POST_AAQ_REG** (512 bytes) to XMEM.
-
-        **Interim model:** ``POST_AAQ_REG`` is a **512-byte** staging register (same
-        width as ``R_ACC``) until the quantized export path is finalized. This
-        instruction writes those 512 bytes to external memory. The Python emulator
-        **refreshes** ``POST_AAQ_REG`` from ``R_ACC`` immediately before the store
-        so the buffer holds the current post-activation wide lanes (``AAQ`` still
-        writes the leading **128 bytes** with clamped INT8 when INT8 mode is on).
-        """
+        """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
         addr = offset + base
-        acc = self.state.regfile.get_r_acc_bytes()
-        self.state.regfile.set_post_aaq_reg(bytearray(acc))
         self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
 
     # -----------------------------------------------------------------------

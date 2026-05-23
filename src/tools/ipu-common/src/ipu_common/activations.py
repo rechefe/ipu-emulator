@@ -5,10 +5,10 @@ Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. α for
 override per run via :class:`ipu_emu.ipu_state.IpuState` constructor or
 :meth:`IpuState.set_activation_alphas` (not CR-visible). Assembly uses
 ``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
-``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**). See
+``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**); the emulator writes
+activated lanes into ``POST_AAQ_REG``. See
 ``docs/content/building-applications.md#activations-emulator`` for calibration,
-``POST_AAQ_REG`` (interim **512 B**, same width as ``R_ACC``), and
-``STR_POST_AAQ_REG`` (store that register to XMEM).
+``STR_POST_AAQ_REG`` (store that register to XMEM), and pipeline notes.
 """
 
 from __future__ import annotations

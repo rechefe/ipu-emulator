@@ -96,7 +96,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `STR_POST_AAQ_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
 | MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
 | ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into `R_ACC` |
-| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | `ACTIVATE` / agg work on **`R_ACC`** (512 B, 32b lanes). **`POST_AAQ_REG`** is **temporarily 512 B** (same footprint as `R_ACC`) until quant export is finalized; **`AAQ`** fills the **leading 128 B** with clamped INT8 in INT8 mode. **`STR_POST_AAQ_REG`** stores that **512-byte** register to XMEM (the Python emulator refreshes it from `R_ACC` at store time so exports match post-activation lanes). See `docs/content/building-applications.md#activations-emulator`. |
+| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | **`AGG`** uses **`R_ACC`**. **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
 | LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`CR`** register) |
 | COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |

@@ -249,10 +249,7 @@ INSTRUCTION_SPEC = {
                 title="Store Post-AAQ register",
                 summary=(
                     "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
-                    "the post-AAQ buffer is sized like **`R_ACC`** (128×32-bit lanes) until "
-                    "quantization export is finalized; the Python emulator refreshes "
-                    "`POST_AAQ_REG` from `R_ACC` at store time so XMEM sees the current "
-                    "post-activation lanes."
+                    "the buffer is **512 bytes** (128×32-bit lanes) until quantization export is finalized."
                 ),
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
@@ -762,16 +759,16 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="AAQ Quantize",
                 summary=(
-                    "Quantize the 128-word accumulator from INT32 to INT8, storing clamped results "
-                    "in the **leading 128 bytes** of **`POST_AAQ_REG`**. The register is **512 bytes** "
-                    "for now (tail cleared); **`STR_POST_AAQ_REG`** exports the full register to XMEM. "
-                    "Requires INT8 mode."
+                    "Quantize the 128 wide lanes in **`POST_AAQ_REG`** (INT32 per lane in INT8 mode) "
+                    "to INT8, storing clamped bytes in the **leading 128 bytes** of **`POST_AAQ_REG`** "
+                    "and clearing the rest of the register. Wide lanes are normally produced by "
+                    "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode."
                 ),
                 syntax="AAQ",
                 operands=[],
                 operation=(
                     "Requires INT8 mode (CR15 == DType.INT8). "
-                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(R_ACC[i]), -128, 127); "
+                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(POST_AAQ_REG wide lane i), -128, 127); "
                     "POST_AAQ_REG[128..511] = 0"
                 ),
                 example="AAQ;;",
@@ -790,12 +787,13 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Accumulator Activation",
                 summary=(
-                    "Apply an element-wise activation to the first valid_elements lanes of "
-                    "R_ACC; lanes beyond the active prefix are unchanged. The activation is "
+                    "Read each of the first ``valid_elements`` lanes from ``r_acc``, apply the "
+                    "selected element-wise activation, and write results into the same lane indices "
+                    "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
                     "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
                     "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
                     "encodings outside the twelve named activations behave as identity. For Python "
-                    "emulator calibration (including virtual α), see "
+                    "emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
                 syntax="ACTIVATE valid_elements activation_fn",
@@ -805,8 +803,9 @@ INSTRUCTION_SPEC = {
                 ],
                 operation=(
                     "Let n = min(valid_elements, 128) and k = encoded activation index. "
-                    "For i in [0, n): R_ACC[i] = activation_k(R_ACC[i]). "
-                    "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
+                    "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
+                    "R_ACC is not modified. The selector uses four bits; encodings outside the twelve named "
+                    "activations behave as identity. "
                     "α for leaky_relu, elu, and prelu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),

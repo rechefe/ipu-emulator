@@ -22,7 +22,7 @@ The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 
 
 The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same twelve activation shapes to **`R_ACC`** before aggregation or quantization, without modeling the full `act_cr_idx` path:
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same twelve activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
 ACTIVATE LR0 relu;;
@@ -33,10 +33,11 @@ ACTIVATE LR0 relu;;
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
-- **Activation** applies element-wise **32→32** transforms in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`ACTIVATE`** does this in the emulator; hardware uses the `act_cr_idx` path described in the AAQ spec.
-- **`POST_AAQ_REG`** is **temporarily a 512-byte** register (same lane footprint as **`R_ACC`**) until end-to-end quantization and export are finalized; the exact final width and packing may change once the quant path is decoupled from the wide accumulator view.
-- **`AAQ`** (INT8 mode) writes **128 bytes** of clamped INT8 lanes into the **leading** bytes of **`POST_AAQ_REG`** and clears the remainder of the register for now.
-- **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM. In the Python emulator the buffer is **refreshed from `R_ACC` immediately before the store** so the exported bytes match the current post-activation wide lanes; later hardware may instead flush a narrower quantized view once **`AAQ`** fully owns the buffer.
+- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`AGG`** / **`AGG.FIRST`** still reduce **`R_ACC`**; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
+- **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated lanes into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
+- **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same lane layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
+- **`AAQ`** (INT8 mode) quantizes the **wide lanes currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide lanes) then **`AAQ`** (quantize in place into the same register’s byte prefix).
+- **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
 ### Virtual α in the emulator (leaky_relu, elu, prelu)
 

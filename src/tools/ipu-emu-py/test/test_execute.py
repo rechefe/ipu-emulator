@@ -1788,6 +1788,7 @@ class TestAaqQuantize:
         buf = bytearray(512)
         struct.pack_into("<128i", buf, 0, *values)
         state.regfile.set_r_acc_bytes(buf)
+        state.regfile.set_post_aaq_reg(bytearray(buf))
 
     def test_aaq_basic_truncation(self):
         """Values that fit in int8 after >> 24: e.g. 1 << 24 → byte 1."""
@@ -1874,7 +1875,7 @@ class TestAaqQuantize:
             run_until_complete(state)
 
     def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
-        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM; emulator syncs from R_ACC."""
+        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
         self._set_acc_words(state, [i << 24 for i in range(128)])
@@ -1894,7 +1895,6 @@ BKPT;;
         run_until_complete(state)
 
         stored = state.xmem.read_address(0x4000, 512)
-        assert stored == state.regfile.get_r_acc_bytes()
         assert stored == state.regfile.get_post_aaq_reg()
 
     def test_STR_ACC_REG_emits_warning(self):
@@ -1913,12 +1913,24 @@ BKPT;;
 
 
 # ============================================================================
-# ACTIVATE (element-wise r_acc activations, issue #77)
+# ACTIVATE (element-wise: r_acc → POST_AAQ_REG, issue #77)
 # ============================================================================
 
 
+def _post_aaq_lane_i32(state: IpuState, lane: int) -> int:
+    buf = state.regfile.get_post_aaq_reg()
+    word = struct.unpack_from("<I", buf, lane * 4)[0]
+    return struct.unpack("<i", struct.pack("<I", word))[0]
+
+
+def _post_aaq_lane_f32(state: IpuState, lane: int) -> float:
+    buf = state.regfile.get_post_aaq_reg()
+    word = struct.unpack_from("<I", buf, lane * 4)[0]
+    return struct.unpack("<f", struct.pack("<I", word))[0]
+
+
 class TestActivate:
-    """ACTIVATE applies ipu_common.activations to the first ``valid_elements`` r_acc lanes."""
+    """ACTIVATE applies ipu_common.activations to r_acc lanes; results go to POST_AAQ_REG."""
 
     def test_activate_relu_int32(self):
         state = _make_state(
@@ -1933,8 +1945,11 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<i", -9))[0]
         )
         run_until_complete(state)
-        w0 = struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-        assert w0 == 0
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == -9
+        )
+        assert _post_aaq_lane_i32(state, 0) == 0
 
     def test_activate_masks_inactive_lanes(self):
         state = _make_state(
@@ -1954,17 +1969,25 @@ BKPT;;
         sentinel = struct.unpack("<I", struct.pack("<i", 99_999))[0]
         for i in range(2, 128):
             state.regfile.set_r_acc_word(i, sentinel)
+        post = bytearray(512)
+        for i in range(2, 128):
+            struct.pack_into("<i", post, i * 4, 99_999)
+        state.regfile.set_post_aaq_reg(post)
         run_until_complete(state)
         assert (
             struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-            == 0
+            == -5
         )
         assert (
             struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(1)))[0]
-            == 0
+            == -3
         )
         for i in range(2, 128):
             assert state.regfile.get_r_acc_word(i) == sentinel
+        assert _post_aaq_lane_i32(state, 0) == 0
+        assert _post_aaq_lane_i32(state, 1) == 0
+        for i in range(2, 128):
+            assert _post_aaq_lane_i32(state, i) == 99_999
 
     def test_activate_identity_keyword_is_noop(self):
         state = _make_state(
@@ -1979,6 +2002,7 @@ BKPT;;
         state.regfile.set_r_acc_word(0, raw)
         run_until_complete(state)
         assert state.regfile.get_r_acc_word(0) == raw
+        assert _post_aaq_lane_i32(state, 0) == struct.unpack("<i", struct.pack("<I", raw))[0]
 
     def test_activate_sigmoid_float_lane(self):
         state = _make_state(
@@ -1993,9 +2017,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
         run_until_complete(state)
-        out = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out = _post_aaq_lane_f32(state, 0)
         assert abs(out - 0.5) < 1e-6
 
     def test_activate_matches_reference_all_ids_float(self):
@@ -2013,9 +2035,7 @@ BKPT;;
                 0, struct.unpack("<I", struct.pack("<f", x))[0]
             )
             run_until_complete(state)
-            got = struct.unpack(
-                "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-            )[0]
+            got = _post_aaq_lane_f32(state, 0)
             exp = apply_activation(fid, x)
             assert abs(got - exp) < 1e-5, f"id={fid} got={got} exp={exp}"
 
@@ -2032,9 +2052,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
         )
         run_until_complete(state)
-        out = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out = _post_aaq_lane_f32(state, 0)
         assert abs(out - 8.0) < 1e-5
 
     def test_activate_gelu_float(self):
@@ -2051,9 +2069,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
-        out = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out = _post_aaq_lane_f32(state, 0)
         assert abs(out - apply_activation(6, x)) < 1e-5
 
     def test_activate_swish_alias_matches_silu(self):
@@ -2070,9 +2086,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
-        out_swish = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out_swish = _post_aaq_lane_f32(state, 0)
 
         st2 = _make_state(
             """\
@@ -2086,9 +2100,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(st2)
-        out_silu = struct.unpack(
-            "<f", struct.pack("<I", st2.regfile.get_r_acc_word(0))
-        )[0]
+        out_silu = _post_aaq_lane_f32(st2, 0)
         assert abs(out_swish - out_silu) < 1e-7
 
     def test_activate_leaky_relu_respects_ipu_state_alpha(self):
@@ -2108,9 +2120,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
-        out = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out = _post_aaq_lane_f32(state, 0)
         exp = apply_activation(3, x, leaky_relu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
@@ -2130,9 +2140,7 @@ BKPT;;
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
-        out = struct.unpack(
-            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
-        )[0]
+        out = _post_aaq_lane_f32(state, 0)
         exp = apply_activation(3, x, leaky_relu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
@@ -2153,6 +2161,8 @@ BKPT;;
         run_until_complete(state)
         assert (
             struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-            == 0
+            == -8
         )
         assert state.regfile.get_r_acc_word(1) == tail
+        assert _post_aaq_lane_i32(state, 0) == 0
+        assert _post_aaq_lane_i32(state, 1) == 0
