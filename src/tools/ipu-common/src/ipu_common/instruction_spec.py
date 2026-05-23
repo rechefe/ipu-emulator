@@ -81,8 +81,10 @@ __all__ = [
     "InstructionDoc",
     "INSTRUCTION_SPEC",
     "SLOT_BINARY_LAYOUT",
+    "SLOT_UNIONS",
     "SLOT_COUNT",
     "VALID_OPERAND_TYPES",
+    "SlotUnion",
     "canonical_instruction_name",
     "get_instruction",
     "get_instruction_by_opcode",
@@ -109,25 +111,23 @@ class InstructionDoc:
 
 
 # ===========================================================================
-# SLOT BINARY LAYOUT
+# SLOT BINARY LAYOUT  (derived — do not edit manually)
 # ===========================================================================
-# Defines the operand type positions in the binary encoding for each slot.
-# Position 0 is always the opcode (implicit), these list the operand fields.
-# This is the "union" of all operand positions a slot can encode.
+# SLOT_BINARY_LAYOUT and SLOT_UNIONS are computed by the union layout solver
+# from INSTRUCTION_SPEC below.  They are populated after INSTRUCTION_SPEC is
+# fully defined (see the call at the bottom of this module).
 #
-# Example: XMEM can encode [MultStageReg, LrIdx, LrIdx, CrIdx] in its
-# binary format. Individual instructions use a subset of these positions.
+# SLOT_BINARY_LAYOUT: slot → [canonical_type, ...] — one entry per union
+#   field, in field order.  Used by the assembler's Inst.operand_types() and
+#   the emulator's field-map builder.
+#
+# SLOT_UNIONS: slot → SlotUnion — full union metadata including per-opcode
+#   operand-to-field bindings.
 # ===========================================================================
 
-SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
-    "xmem": ["MultStageReg", "LrIdx", "LrIdx", "CrIdx"],
-    "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
-    "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
-    "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "AaqRegIdx"],
-    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "CrIdx", "LrModPow2KImmediate"],
-    "cond": ["LcrIdx", "LcrIdx", "Label"],
-    "break": ["LrIdx", "BreakImmediate"],
-}
+# Placeholder — overwritten after INSTRUCTION_SPEC is defined.
+SLOT_BINARY_LAYOUT: dict[str, list[str]] = {}
+SLOT_UNIONS: dict = {}
 
 # How many times each slot appears in the VLIW instruction word.
 # Most slots appear once; LR appears three times (three independent sub-instructions).
@@ -1275,3 +1275,13 @@ def validate_instruction_spec() -> None:
 
 # Validate on import
 validate_instruction_spec()
+
+# Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
+from ipu_common.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
+
+_computed_unions = compute_slot_layouts(INSTRUCTION_SPEC)
+SLOT_UNIONS.update(_computed_unions)
+SLOT_BINARY_LAYOUT.update({
+    slot: [f.canonical_type for f in su.fields]
+    for slot, su in _computed_unions.items()
+})
