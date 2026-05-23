@@ -89,9 +89,9 @@ def apply_activation(
 ) -> float:
     """Apply activation ``fn_id`` (0–11) to scalar ``x``. Unknown ids → identity.
 
-    α arguments default to module-level ``DEFAULT_*`` / ``_*`` (so monkeypatching
-    ``_LEAKY_ALPHA`` etc. still affects calls that omit overrides). The emulator
-    passes per-:class:`ipu_emu.ipu_state.IpuState` values from ``execute_activate``.
+    If an α keyword is omitted, the value comes from the module ``DEFAULT_*``
+    constants (snapshotted onto :class:`ipu_emu.ipu_state.IpuState` at construction
+    for ``ACTIVATE``). Passing explicit α overrides those defaults for this call.
     """
     k = int(fn_id) & 0xFFFFFFFF
     if k >= ACTIVATION_COUNT:
