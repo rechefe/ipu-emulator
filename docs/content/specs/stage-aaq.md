@@ -9,8 +9,6 @@ vector for output. It produces:
 - Scalar results in `aaq0`–`aaq3` via `agg` and `agg.first`.
 - A 128-byte `aaq_result` vector via `aaq` (any 8-bit format: INT8 or FP8 e(x)m(7-x)).
 
-**Python emulator (interim):** the in-tree emulator models **`POST_AAQ_REG` as 512 bytes** (same footprint as `r_acc`) until end-to-end quantization export is finalized; **`STR_POST_AAQ_REG`** stores that full register to XMEM. The **128-byte** `aaq_result` description below remains the architectural quantized payload. See [Building Applications](../building-applications.md#activations-emulator).
-
 ## 2. Block Diagram
 
 ```mermaid
