@@ -123,6 +123,14 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(3, 128)
         state.regfile.set_cr(4, 1)
         state.regfile.set_cr(5, 256)
+        # Constants for ``SET lr* cr*`` in ``fully_connected.asm`` (issue #82).
+        state.regfile.set_cr(6, 0)
+        state.regfile.set_cr(7, 1280)
+        state.regfile.set_cr(8, 0)
+        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
+        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
+        state.regfile.set_cr(11, 127)
+        state.regfile.set_cr(12, 0)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

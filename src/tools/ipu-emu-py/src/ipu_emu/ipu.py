@@ -94,7 +94,6 @@ _TYPE_FIELD_SUFFIX = {
     "VerticalStride": "vertical_stride_field",
     "AggMode": "agg_mode_field",
     "PostFn": "post_fn_field",
-    "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
     "ActivationFn": "activation_fn_field",
@@ -456,16 +455,9 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    @staticmethod
-    def _sign_extend_16(value: int) -> int:
-        """Sign-extend a 16-bit value to a 32-bit signed integer."""
-        if value & 0x8000:
-            return value | 0xFFFF0000
-        return value
-
-    def execute_lr_set(self, *, reg: int, value: int) -> None:
-        """Execute SET: Set a loop register to an immediate value."""
-        self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
+    def execute_lr_set(self, *, reg: int, src: int) -> None:
+        """Execute SET: Copy a 32-bit value from a configuration register into an LR."""
+        self.state.regfile.set_lr(reg, src & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
@@ -575,6 +567,39 @@ class Ipu:
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], rb[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ee_rr(self, *, ra: bytearray | int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.EE.RR: multi-element multiply of a mult-stage register by itself.
+
+        ``ra`` selects the MEE mode: R0 → r0-by-r0, R1 → r1-by-r1. Each lane is
+        multiplied by itself (element-wise square), then masked and shifted.
+        """
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            ra_vals = self._debug_ra_lane_vals(ra)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<f", mult_res, i * 4, float(ra_vals[i]) * float(ra_vals[i])
+                    )
+            else:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<i", mult_res, i * 4,
+                        self._wide_imult32(int(ra_vals[i]), int(ra_vals[i])),
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.get_cr_dtype()
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(ra[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
@@ -1305,6 +1330,20 @@ class Ipu:
         for name, (op_type, source) in read_types.items():
             regfile = self.snapshot if source == "snapshot" else self.state.regfile
             kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
+
+        # Update run statistics
+        stats = self.state.stats
+        if slot_type == "mult":
+            if instruction_name != "MULT_NOP":
+                stats.mult_active_cycles += 1
+        elif slot_type == "acc":
+            if instruction_name != "ACC_NOP":
+                stats.acc_active_cycles += 1
+        elif slot_type == "xmem":
+            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+                stats.xmem_reads += 1
+            elif instruction_name in {"STR_ACC_REG", "XMEM.STORE_AAQ_RESULT"}:
+                stats.xmem_writes += 1
 
         # Call handler with named arguments
         method = getattr(self, execute_fn_name)

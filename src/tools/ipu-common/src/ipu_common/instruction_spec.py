@@ -27,7 +27,6 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "CrIdx": CR0–CR15 (CrRegField)
   - "LcrIdx": LR0–LR15 or CR0–CR15 (LcrRegField)
   - "AddSubSrcB": second operand for ADD/SUB — LR, CR, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
-  - "Immediate": 16-bit signed integer for LR immediates (LrImmediateType)
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
   - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
@@ -126,7 +125,7 @@ SLOT_BINARY_LAYOUT: dict[str, list[str]] = {
     "mult": ["MultStageReg", "LrIdx", "MultMaskOffsetImmediate", "LrIdx", "LrIdx", "CrIdx", "AaqRegIdx"],
     "acc": ["AaqRegIdx", "ElementsInRow", "HorizontalStride", "VerticalStride", "LrIdx"],
     "aaq": ["AggMode", "PostFn", "LcrIdx", "CrIdx", "ActivationFn", "AaqRegIdx"],
-    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "Immediate", "LrModPow2KImmediate"],
+    "lr": ["LrIdx", "LrIdx", "LcrIdx", "AddSubSrcB", "CrIdx", "LrModPow2KImmediate"],
     "cond": ["LcrIdx", "LcrIdx", "Label"],
     "break": ["LrIdx", "BreakImmediate"],
 }
@@ -191,7 +190,7 @@ INSTRUCTION_SPEC = {
                     "`base`: **`CR0`**…**`CR15`** — base address register.",
                 ],
                 operation="dest = Memory[offset + base]  # 128 elements (512 in wide-vector debug mode)",
-                example="SET LR0, 0x1000;;\nLDR_MULT_REG R0, LR0, CR0;;",
+                example="SET LR0, CR1;;\nLDR_MULT_REG R0, LR0, CR0;;",
             ),
             "execute_fn": "execute_ldr_mult_reg",
         },
@@ -272,18 +271,18 @@ INSTRUCTION_SPEC = {
         "SET": {
             "operands": [
                 {"name": "reg", "type": "LrIdx"},
-                {"name": "value", "type": "Immediate"},
+                {"name": "src", "type": "CrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Set Loop Register",
-                summary="Set a loop register to an immediate value.",
-                syntax="SET reg, value",
+                summary="Copy a 32-bit value from a configuration register into a loop register.",
+                syntax="SET reg, src",
                 operands=[
                     "reg: Loop register (LR0–LR15)",
-                    "value: 32-bit immediate value",
+                    "src: Source configuration register (CR0–CR15)",
                 ],
-                operation="reg = value",
-                example="SET LR0, 0x1000;;",
+                operation="reg = cr[src]",
+                example="SET LR0, CR1;;",
             ),
             "execute_fn": "execute_lr_set",
         },
@@ -361,7 +360,7 @@ INSTRUCTION_SPEC = {
     # =========================================================================
     # MULT Slot (Multiply Instructions)
     # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
-    #          MULT.VE.CR=4, MULT.VE.AAQ=5
+    #          MULT.VE.CR=4, MULT.VE.AAQ=5, MULT.EE.RR=6
     # =========================================================================
     "mult": {
         "MULT.EE": {
@@ -490,6 +489,30 @@ INSTRUCTION_SPEC = {
                 example="MULT.VE.AAQ LR0, 0, LR15, AAQ1;;",
             ),
             "execute_fn": "execute_mult_ve_aaq",
+        },
+        "MULT.EE.RR": {
+            "operands": [
+                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Multi-Element Multiply (register by register)",
+                summary=(
+                    "Multi-element execution (MEE): multiply a mult-stage register "
+                    "element by element against itself. `ra` selects the execution "
+                    "mode — **`R0`** gives r0-by-r0, **`R1`** gives r1-by-r1."
+                ),
+                syntax="MULT.EE.RR ra, mask_offset, mask_shift",
+                operands=[
+                    "`ra`: **`R0`** | **`R1`** — selects the MEE mode; the chosen register is both multiplicand and multiplier (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — shift applied to the mask register.",
+                ],
+                operation="For each lane i: mult_res[i] = ipu_mult(ra[i], ra[i]); then apply mask and shift.",
+                example="MULT.EE.RR R0, 0, LR2;;",
+            ),
+            "execute_fn": "execute_mult_ee_rr",
         },
     },
 
@@ -1194,7 +1217,6 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "VerticalStride",
         "AggMode",
         "PostFn",
-        "Immediate",
         "LrModPow2KImmediate",
         "MultMaskOffsetImmediate",
         "ActivationFn",

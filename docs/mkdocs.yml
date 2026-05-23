@@ -77,6 +77,7 @@ nav:
   - Specs:
       - Cache Unit Specification: specs/cache-unit.md
       - AAQ Stage Specification: specs/stage-aaq.md
+      - Control Stage Specification: specs/stage-control.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition

@@ -79,3 +79,13 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_stats",
+    srcs = ["test/test_stats.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)

@@ -36,7 +36,6 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "VerticalStride": immediate.VerticalStrideField,
     "AggMode": immediate.AggModeField,
     "PostFn": immediate.PostFnField,
-    "Immediate": immediate.LrImmediateType,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "ActivationFn": immediate.ActivationFnField,
@@ -485,7 +484,7 @@ class LrInst(Inst):
             reg.LrRegField,
             reg.LcrRegField,
             immediate.AddSubSrcBField,
-            immediate.LrImmediateType,
+            reg.CrRegField,
             immediate.LrModPow2KImmediate,
         ]
 

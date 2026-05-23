@@ -6,8 +6,8 @@ The AAQ (Activation Aggregation and Quantization) stage collapses the 128-lane a
 into scalar activation values and/or quantizes the accumulator into an FP8
 vector for output. It produces:
 
-- Scalar results in `AAQ0`–`AAQ3` via `agg` and `agg.first`.
-- A 128-byte temporary staging register **POST_AAQ_REG** via `aaq` (8-bit lanes: INT8 or FP8 e(x)m(7-x)), written to XMEM with **`STR_POST_AAQ_REG`**. The full on-chip **`AAQ_RESULT`** bundle (§3.2) includes the same lane bytes plus scale/representation metadata.
+- Scalar results in `aaq0`–`aaq3` via `agg` and `agg.first`.
+- A 128-byte `aaq_result` vector via `aaq` (any 8-bit format: INT8 or FP8 e(x)m(7-x)).
 
 ## 2. Block Diagram
 
@@ -15,8 +15,8 @@ vector for output. It produces:
 flowchart LR
     mult_stage:::blue
     acc_stage:::blue
-    ACC(["R_ACC 128x32bit"]):::yellow
-    OUT(["AAQ_RESULT 128x8bit || 8bit scale | 4bit repr_type"]):::red
+    ACC(["r_acc 128x32bit"]):::yellow
+    OUT(["aaq_result 128x8bit || 8bit scale | 4bit repr_type"]):::red
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
     RED["Adder tree / Max tree"]:::teal
@@ -59,10 +59,10 @@ flowchart LR
 ```
                          ┌──────────────────────────────────────┐
               clk  ─────>│                                      │
-              rst  ─────>│                                      ├────> AAQ_RESULT        [1035:0]
+              rst  ─────>│                                      ├────> aaq_result        [1035:0]
             valid  ─────>│                                      │
                op  ─────>│                                      ├────> aaq_rf_to_acc[0..3] [31:0]
-            R_ACC  ─────>│             AAQ Stage                │
+            r_acc  ─────>│             AAQ Stage                │
          agg_mode  ─────>│                                      ├────> aaq_rf_to_mult[0..3][17:0]
           post_fn  ─────>│                                      │
            cr_idx  ─────>│                                      │
@@ -81,21 +81,21 @@ flowchart LR
 | `rst` | `input logic` | Synchronous reset. |
 | `valid` | `input logic` | Stage enable. When deasserted(valid = 0), the stage executes `aaq_nop` regardless of `op`. |
 | `op` | `input logic [2:0]` | Selects the AAQ operation: `agg`=1, `agg.first`=2, `aaq`=3. Sampled only when `valid`=1. |
-| `R_ACC` | `input logic [127:0][31:0]` | 128-lane accumulator (128 × 32-bit). |
+| `r_acc` | `input logic [127:0][31:0]` | 128-lane accumulator (128 × 32-bit). |
 | `agg_mode` | `input logic [0:0]` | Aggregation select: 0 = sum, 1 = max. |
 | `post_fn` | `input logic [1:0]` | Post-function select (see §8). |
 | `cr_idx` | `input logic [3:0]` | CR register index used by `value_cr` post function. |
 | `act_cr_idx` | `input logic [3:0]` | CR register index whose value selects the activation function (see §7.0). |
 | `aaq_rf_idx` | `input logic [1:0]` | AAQ register index (0–3). |
-| `cr15_dtype` | `input logic [2:0]` | Global data type from `CR15`; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
-| `valid_elements` | `input logic [4:0]` | Number of valid elements. Sourced from either an LR register (`LR0`–`LR15`) or a CR register (`CR0`–`CR15`); the 5-bit encoding selects among all 32 registers (16 LR + 16 CR). |
+| `cr15_dtype` | `input logic [2:0]` | Global data type from `cr15`; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
+| `valid_elements` | `input logic [4:0]` | Number of valid elements. Sourced from either an LR register (lr0–lr15) or a CR register (cr0–cr15); the 5-bit encoding selects among all 32 registers (16 LR + 16 CR). |
 
 ### 3.2 Outputs
 
 | Name | Type and Direction | Description |
 |------|--------------------|-------------|
-| `AAQ_RESULT` | `output logic [1035:0]` | Quantized output: 128 × 8-bit lanes (1024 bits) plus 12 bits of metadata: bits [1035:1028] = 8-bit scale factor, bits [1027:1024] = 4-bit representation type (e.g. INT8, e6m1). |
-| `aaq_rf_to_acc[0..3]` | `output logic [31:0]` | Full 32-bit view of the AAQ RF registers (`AAQ0`–`AAQ3`) fed back to the ACC stage. |
+| `aaq_result` | `output logic [1035:0]` | Quantized output: 128 × 8-bit lanes (1024 bits) plus 12 bits of metadata: bits [1035:1028] = 8-bit scale factor, bits [1027:1024] = 4-bit representation type (e.g. INT8, e6m1). |
+| `aaq_rf_to_acc[0..3]` | `output logic [31:0]` | Full 32-bit view of the AAQ RF registers (`aaq0`–`aaq3`) fed back to the ACC stage. |
 | `aaq_rf_to_mult[0..3]` | `output logic [17:0]` | Same AAQ RF registers as `aaq_rf_to_acc`, exposed to the MULT stage with only the lower 17/18 bits; the MULT stage does not require the full 32-bit precision. Exact width TBD. |
 
 ## 4. Parameters
@@ -104,16 +104,19 @@ flowchart LR
 |------|---------|-------------|
 | `LANES` | `128` | Number of accumulator lanes. |
 | `ACC_LANE_WIDTH` | `32` | Bits per accumulator lane. |
-| `AAQ_REG_COUNT` | `4` | Number of AAQ scalar registers (`AAQ0`–`AAQ3`). |
-| `AAQ_RESULT_BYTES` | `128` | Byte width of `AAQ_RESULT` output vector. |
+| `AAQ_REG_COUNT` | `4` | Number of AAQ scalar registers (`aaq0`–`aaq3`). |
+| `AAQ_RESULT_BYTES` | `128` | Byte width of `aaq_result` output vector. |
 | `AGG_MODE_COUNT` | `2` | Aggregation modes: 0 = sum, 1 = max. |
 | `POST_FN_COUNT` | `5` | Post functions: 0 = identity, 1 = value_cr, 2 = inv, 3 = inv_sqrt, 4 = sqrt. |
 
 ## 5. Data and Register Model
 
-- `R_ACC` is 512 bytes (128 × 32-bit lanes). Lanes are always FP32.
-- `AAQ0`–`AAQ3` are 32-bit registers. They store float32 bit patterns.
-- After `aaq`, the **128 × 8-bit quantized lane payload** is held in the temporary staging register **`POST_AAQ_REG`** (overwritten by the next `aaq`). The Quantization block also forms the wider **`AAQ_RESULT`** output (1024 lane bits plus 12 bits of metadata: bits [11:4] = 8-bit scale factor, bits [3:0] = 4-bit representation type, INT8 / e6m1 / e5m2 / …). Flush the lane bytes to XMEM with **`STR_POST_AAQ_REG`** before issuing another `aaq` if you need the previous vector in memory.
+- `r_acc` is 512 bytes (128 × 32-bit lanes). Lanes are always FP32.
+- `aaq0`–`aaq3` are 32-bit registers. They store float32 bit patterns.
+- `aaq_result` is produced only by `aaq`. It contains 128 × 8 bit quantized
+  values (1024 bits) plus 12 bits of metadata appended by the Quantization
+  block: bits [11:4] = 8-bit scale factor, bits [3:0] = 4-bit representation
+  type (INT8, e6m1, e5m2, …). It is written to XMEM via `xmem.store_aaq_result`.
 
 ## 6. Disclaimers
 
@@ -125,14 +128,14 @@ flowchart LR
 
 ### 7.0 Activation
 
-The Activation block applies an element-wise function to every valid lane of `R_ACC` before the result is passed downstream — both to the Adder/Max tree (`agg`, `agg.first`) and to the Quantization block (`aaq`).
+The Activation block applies an element-wise function to every valid lane of `r_acc` before the result is passed downstream — both to the Adder/Max tree (`agg`, `agg.first`) and to the Quantization block (`aaq`).
 
 The function is selected at runtime by reading the CR register indexed by `act_cr_idx`: `activation_fn = cr[act_cr_idx]`.
 
 ```text
 // Applied to all valid lanes before aggregation or quantization
 activation_fn = cr[act_cr_idx]
-activated[i]  = activation_fn(R_ACC[i])   for i in 0..valid_elements-1
+activated[i]  = activation_fn(r_acc[i])   for i in 0..valid_elements-1
 ```
 
 Supported activation functions:
@@ -152,19 +155,15 @@ Supported activation functions:
 | 10 | `prelu` | `f(x) = x if x ≥ 0 else α·x` | Like Leaky ReLU but α is a learned per-channel parameter. |
 | 11 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
-#### α parameters (hardware)
-
-For `leaky_relu`, `elu`, and `prelu`, the scalar **α** is **not** carried in the AAQ opcode or in general-purpose `CR` operands shown in assembly. Real implementations source α from **implementation-defined configuration** (for example: a fixed design-time constant per SKU, efuses, a small side-band register file, or a microcode RAM entry selected with the activation). The same α applies to every valid lane for that operation. Integrators document the legal α values and how they are selected for each product.
-
 ### 7.1 Aggregate (`agg`)
 
 **Assembly syntax:** `agg <agg_mode> <post_fn> <valid_elements> <cr_idx> <aaq_rf_idx>`
 
-- `valid_elements`: any `LR0`–`LR15` or `CR0`–`CR15` operand (5-bit `LcrIdx` encoding). The **value** read from that register at cycle start is the number of `R_ACC` lanes fed into the adder/max tree (unsigned, clamped to 0–128). Lanes from index `valid_elements` through 127 are masked out.
+- `valid_elements`: any `lr0`–`lr15` or `cr0`–`cr15` operand (5-bit `LcrIdx` encoding). The **value** read from that register at cycle start is the number of `r_acc` lanes fed into the adder/max tree (unsigned, clamped to 0–128). Lanes from index `valid_elements` through 127 are masked out.
 
 ```text
-// R_ACC lanes are always FP32; only the first valid_elements lanes are used
-values = [activation(R_ACC[i]) for i in 0..valid_elements-1]
+// r_acc lanes are always FP32; only the first valid_elements lanes are used
+values = [activation(r_acc[i]) for i in 0..valid_elements-1]
 
 // Adder tree / max tree (feedback from RF included in max mode)
 if agg_mode == sum:
@@ -229,8 +228,8 @@ Same `valid_elements` masking rules as `agg`.
 Identical to `agg` except that `max` mode ignores the RF feedback value:
 
 ```text
-// R_ACC lanes are always FP32; only the first valid_elements lanes are used
-values = [activation(R_ACC[i]) for i in 0..valid_elements-1]
+// r_acc lanes are always FP32; only the first valid_elements lanes are used
+values = [activation(r_acc[i]) for i in 0..valid_elements-1]
 
 if agg_mode == sum:
     raw = sum(values)       // FP32 scalar; input to post_fn
@@ -247,32 +246,116 @@ reading stale data from the target register.
 
 ### 7.2 Quantize (`TBD`) Work in progress
 
-Requires INT8 mode (`CR15 == DType.INT8`). Takes no operands. Reads `R_ACC`
-lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte lane payload to
-`POST_AAQ_REG`.
+Requires INT8 mode (`cr15 == DType.INT8`). Takes no operands. Reads `r_acc`
+lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte result to
+`aaq_result`.
 
 ```text
-// CR15 must be DType.INT8; R_ACC lanes are FP32
+// cr15 must be DType.INT8; r_acc lanes are FP32
 for i in 0..127:
-    val            = R_ACC[i]        // FP32
-    POST_AAQ_REG[i]  = clamp(round(val), -128, 127)
+    val            = r_acc[i]        // FP32
+    aaq_result[i]  = clamp(round(val), -128, 127)
 ```
 
 Notes:
 - The Quantization block appends 12 bits of metadata to the 1024-bit data
-  payload to form the full 1036-bit `AAQ_RESULT`: bits [11:4] = 8-bit scale
+  payload to form the full 1036-bit `aaq_result`: bits [11:4] = 8-bit scale
   factor, bits [3:0] = 4-bit representation type (INT8, e6m1, e5m2, …).
-- `POST_AAQ_REG` must be flushed to XMEM with **`STR_POST_AAQ_REG offset base`**
-  before the next `aaq` overwrites it.
+- `aaq_result` must be flushed to XMEM with `XMEM.STORE_AAQ_RESULT offset base`
+  before the next `AAQ` overwrites it.
 - In wide-vector debug mode `AAQ` is a no-op unless
   `wide_vector_quantize_output` is explicitly set (debug feature only).
 
-**ISA Interactions** — instructions in other slots that consume `POST_AAQ_REG` written by `AAQ`:
+**ISA Interactions** — instructions in other slots that consume `aaq_result` written by `AAQ`:
 
 | Instruction | Slot | Operation |
 |-------------|------|-----------|
-| `STR_POST_AAQ_REG offset base` | XMEM | Writes the 128-byte **`POST_AAQ_REG`** staging register to XMEM at address `offset + base`. Must be issued before the next `aaq` overwrites the staging latch. |
+| `XMEM.STORE_AAQ_RESULT offset base` | XMEM | Writes the 128-byte `aaq_result` register to XMEM at address `offset + base`. Must be issued before the next `AAQ` to avoid overwrite. |
 
-## 8. ISA 
+## 8. ISA — Instruction Reference
 
-Need to add after Eyal add all changes
+The AAQ stage executes **four mnemonics** in its single AAQ slot (one
+per VLIW word): `AAQ_NOP`, `AGG`, `AGG.FIRST`, and `AAQ`. Detailed
+binary encoding is maintained in `SLOT_BINARY_LAYOUT` in
+`src/tools/ipu-common/src/ipu_common/instruction_spec.py` and is not
+duplicated here.
+
+The AAQ slot is resolved by CTRL and forwarded down the dispatch chain;
+the stage does not read the CR/LR register files itself (see the
+Control Stage spec, §5). The `valid_elements` lane count is taken from
+the register **value** at cycle start — see §7.1 for the masking rule.
+
+### 8.1 `AAQ_NOP` — No Operation
+
+- **Summary:** No operation for the AAQ slot; performs no state changes.
+- **Syntax:** `AAQ_NOP`
+- **Operands:** none.
+- **Operation:** none — `r_acc`, the AAQ RF (`AAQ0`–`AAQ3`), and `aaq_result` are unchanged.
+- **Notes:** Inserted automatically when the AAQ slot is omitted from a VLIW word, or whenever `valid = 0` (see §3.1).
+
+### 8.2 `AGG` — Accumulator Aggregate
+
+- **Summary:** Collapse the first `valid_elements` lanes of `r_acc` into one FP32 scalar (`sum` or `max`), apply the post function, and store the result to the selected AAQ register.
+- **Syntax:** `AGG agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Operands:**
+  - `agg_mode` — aggregation mode: `sum` (0) or `max` (1).
+  - `post_fn` — post function applied to the aggregated scalar: `value` (0), `value_cr` (1), `inv` (2), `inv_sqrt` (3). See §7.1 *Post-Function Details*.
+  - `valid_elements` — `LR0`–`LR15` or `CR0`–`CR15` (5-bit `LcrIdx`). The **value** read selects how many `r_acc` lanes are aggregated; lanes `[valid_elements..127]` are masked out (see §7.1).
+  - `cr_idx` — `CR0`–`CR15`; the CR value used by the `value_cr` post function.
+  - `aaq_rf_idx` — destination AAQ register, `AAQ0`–`AAQ3`.
+- **Operation:**
+  ```text
+  n = min(value(valid_elements), 128)
+  values = [activation(r_acc[i]) for i in 0..n-1]      // activation per §7.0
+  if agg_mode == sum:
+      raw = sum(values)
+  else:  // max — includes RF feedback of the target register
+      raw = max(values + [AAQ[aaq_rf_idx]])
+  AAQ[aaq_rf_idx] = pack32(post_fn(raw, CR[cr_idx]))    // stored as float32
+  ```
+- **Examples:**
+  - `AGG sum, value, LR0, CR0, AAQ0;;` — sum the first `LR0` lanes into `AAQ0`.
+  - `AGG max, value_cr, CR3, CR5, AAQ1;;` — max of the first `CR3` lanes (with `AAQ1` fed back), scaled by `CR5`.
+- **Notes:** In `max` mode the current value of `AAQ[aaq_rf_idx]` is fed back into the max tree; use `AGG.FIRST` to avoid contamination from an uninitialised register.
+
+### 8.3 `AGG.FIRST` — Accumulator Aggregate First
+
+- **Summary:** Identical to `AGG` except that `max` mode does **not** fold in the previous AAQ register value (no RF feedback).
+- **Syntax:** `AGG.FIRST agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Operands:** identical to `AGG`.
+- **Operation:**
+  ```text
+  n = min(value(valid_elements), 128)
+  values = [activation(r_acc[i]) for i in 0..n-1]
+  if agg_mode == sum:
+      raw = sum(values)
+  else:  // max — RF feedback NOT included
+      raw = max(values)
+  AAQ[aaq_rf_idx] = pack32(post_fn(raw, CR[cr_idx]))
+  ```
+- **Example:** `AGG.FIRST max, value, LR0, CR0, AAQ0;;`.
+- **Notes:** Use at the start of a new accumulation sequence so a stale/uninitialised `AAQ[aaq_rf_idx]` cannot contaminate the `max`.
+
+### 8.4 `AAQ` — Quantize Accumulator
+
+- **Summary:** Quantize the 128-lane accumulator to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode.
+- **Syntax:** `AAQ`
+- **Operands:** none.
+- **Operation:**
+  ```text
+  // requires cr15 == DType.INT8; r_acc lanes are FP32
+  for i in 0..127:
+      aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)
+  ```
+  The Quantization block appends 12 bits of metadata to the 1024-bit payload (see §5 / §7.2).
+- **Example:** `AAQ;;`.
+- **Notes:** `aaq_result` must be flushed with `XMEM.STORE_AAQ_RESULT offset base` before the next `AAQ` overwrites it (see §7.2).
+
+### 8.5 Summary Table
+
+| Slot | Mnemonic | Operands | One-line Effect |
+|------|----------|----------|-----------------|
+| AAQ | `AAQ_NOP`   | —                                                      | no state change |
+| AAQ | `AGG`       | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1], AAQ[idx]))` |
+| AAQ | `AGG.FIRST` | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1]))` (no RF feedback) |
+| AAQ | `AAQ`       | —                                                      | `aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)` |
