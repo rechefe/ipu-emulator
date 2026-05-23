@@ -40,9 +40,9 @@ ACTIVATE LR0 relu;;
 
 ### Virtual α in the emulator (leaky_relu, elu, prelu)
 
-The stock ISA does not expose α. Defaults live in `ipu_common/activations.py` as **`DEFAULT_LEAKY_ALPHA`**, **`DEFAULT_ELU_ALPHA`**, and **`DEFAULT_PRELU_ALPHA`** (the legacy names `_LEAKY_ALPHA`, `_ELU_ALPHA`, `_PRELU_ALPHA` point at the same floats). These are **virtual** values: they stand in for whatever fixed calibration your RTL or chip would supply.
+The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (fields `leaky_relu_alpha`, `elu_alpha`, `prelu_alpha`). If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_LEAKY_ALPHA`, `DEFAULT_ELU_ALPHA`, `DEFAULT_PRELU_ALPHA`).
 
-**Preferred (per-run, like dtype on state, not over CR):** configure α on **`IpuState`** — at construction, via **`set_activation_alphas`**, or when using **`run_test`** / **`IpuApp.run`**:
+Configure α the same way you think about dtype on state — **not via CR**:
 
 ```python
 from ipu_emu.ipu_state import IpuState
@@ -68,17 +68,7 @@ state, cycles = app.run()  # uses 0.05
 state, cycles = app.run(leaky_relu_alpha=0.1)  # uses 0.1 for this run
 ```
 
-### Other ways to override α when you need to
-
-1. **Edit `activations.py` and rebuild** — change **`DEFAULT_*`** when you want new tree-wide defaults. Run `bazel test //…` after edits.
-
-2. **Monkeypatch at import time (tests)** — after `import ipu_common.activations as act`, assign `act._LEAKY_ALPHA = 0.05` before the first `Ipu` run **only if** you are not relying on per-`IpuState` α (the emulator passes state α into `apply_activation`; omitted kwargs still read the module globals).
-
-3. **Shim `ipu_common` on `PYTHONPATH` (advanced)** — for CI matrix jobs without touching the main tree, prepend a directory that provides a compatible `ipu_common/activations.py`.
-
-4. **Vendor a copy for experiments** — bypass `ACTIVATE` and drive `R_ACC` from Python if you are not assembling IPU binaries.
-
-For **different α in the same process**, use **separate `IpuState` instances** (or `run_test(..., leaky_relu_alpha=...)` per call) instead of relying on process-wide module constants.
+Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) when you need different α values in the same process.
 
 ## Step 1: Write the Assembly Program
 

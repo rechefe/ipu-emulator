@@ -1,4 +1,6 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -12,4 +14,14 @@ py_library(
         "src/ipu_common/*.py",
     ]),
     imports = ["src"],
+)
+
+py_pytest_test(
+    name = "test_union_layout",
+    srcs = ["test/test_union_layout.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_common_lib",
+        requirement("pytest"),
+    ],
 )
