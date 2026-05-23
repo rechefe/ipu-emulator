@@ -90,6 +90,8 @@ REGISTER_DEFINITIONS = {
         "encoding_class": "AaqRegField",
     },
     # Temporary staging: 128 × INT8 quantized lanes after `AAQ` (before XMEM store).
+    # Contrast `r_acc`: 512 bytes (128×32-bit FP32/INT32 lanes) is the quantize *input*;
+    # this register is the packed 128×8-bit *output* (one byte per lane).
     "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,
