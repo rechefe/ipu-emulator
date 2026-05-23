@@ -173,7 +173,7 @@ INSTRUCTION_SPEC = {
                 operation="Memory[offset + base] = R_ACC",
                 example="STR_ACC_REG CR0, CR1;;",
             ),
-            "execute_fn": "execute_stR_ACC_reg",
+            "execute_fn": "execute_str_acc_reg",
         },
         "LDR_MULT_REG": {
             "operands": [
@@ -212,7 +212,7 @@ INSTRUCTION_SPEC = {
                 ],
                 operation="R_CYCLIC[index % 512:128] = Memory[offset + base]",
             ),
-            "execute_fn": "execute_ldR_CYCLIC_mult_reg",
+            "execute_fn": "execute_ldr_cyclic_mult_reg",
         },
         "LDR_MULT_MASK_REG": {
             "operands": [
@@ -241,23 +241,26 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_xmem_nop",
         },
-        "XMEM.STORE_AAQ_RESULT": {
+        "STR_POST_AAQ_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
                 {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Store AAQ Result",
-                summary="Write the 128-byte AAQ quantization result register to external memory.",
-                syntax="XMEM.STORE_AAQ_RESULT offset, base",
+                title="Store Post-AAQ Staging Register",
+                summary=(
+                    "Write the 128-byte temporary `POST_AAQ_REG` staging register (quantized "
+                    "lanes produced by `AAQ`) to external memory."
+                ),
+                syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR15)",
                 ],
-                operation="Memory[offset + base] = AAQ_RESULT  # 128 elements",
-                example="XMEM.STORE_AAQ_RESULT LR0, CR0;;",
+                operation="Memory[offset + base] = POST_AAQ_REG  # 128 elements",
+                example="STR_POST_AAQ_REG LR0, CR0;;",
             ),
-            "execute_fn": "execute_xmem_store_AAQ_RESULT",
+            "execute_fn": "execute_str_post_aaq_reg",
         },
     },
     
@@ -732,12 +735,12 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="AAQ Quantize",
-                summary="Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the AAQ_RESULT register. Requires INT8 mode.",
+                summary="Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the POST_AAQ_REG staging register. Requires INT8 mode.",
                 syntax="AAQ",
                 operands=[],
                 operation=(
                     "Requires INT8 mode (CR15 == DType.INT8). "
-                    "For i in [0, 128): AAQ_RESULT[i] = clamp(trunc(R_ACC[i]), -128, 127)"
+                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(R_ACC[i]), -128, 127)"
                 ),
                 example="AAQ;;",
             ),

@@ -82,7 +82,7 @@ aaq;;
 BKPT;;
 """,
         )
-        assert state.regfile.get_aaq_result() == bytearray(128)
+        assert state.regfile.get_post_aaq_reg() == bytearray(128)
 
     def test_aaq_quantize_fp32_acc_for_comparison(self) -> None:
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
@@ -111,7 +111,7 @@ BKPT;;
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
         run_until_complete(state)
-        out = state.regfile.get_aaq_result()
+        out = state.regfile.get_post_aaq_reg()
         assert all(b == 3 for b in out)
 
 

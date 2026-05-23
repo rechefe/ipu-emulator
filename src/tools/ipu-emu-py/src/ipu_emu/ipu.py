@@ -1132,11 +1132,11 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute AAQ: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+        """Execute AAQ: Quantize r_acc (128 × INT32) → POST_AAQ_REG (128 × INT8).
 
         Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
         arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the aaq_result register.
+        a signed byte in the post_aaq_reg staging register.
 
         In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
         ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
@@ -1163,7 +1163,7 @@ class Ipu:
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
                     result[i] = clamped & 0xFF
-            self.state.regfile.set_aaq_result(result)
+            self.state.regfile.set_post_aaq_reg(result)
             return
 
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1173,7 +1173,7 @@ class Ipu:
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
-        self.state.regfile.set_aaq_result(result)
+        self.state.regfile.set_post_aaq_reg(result)
 
     def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
         """Apply element-wise activation to the first ``valid_elements`` lanes of ``r_acc``.
@@ -1199,10 +1199,10 @@ class Ipu:
             else:
                 struct.pack_into("<f", acc_buf, i * 4, float(y))
 
-    def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
-        """Execute XMEM.STORE_AAQ_RESULT: Write 128-byte aaq_result to xmem."""
+    def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
+        """Execute STR_POST_AAQ_REG: Write 128-byte POST_AAQ_REG staging buffer to XMEM."""
         addr = offset + base
-        data = self.state.regfile.get_aaq_result()
+        data = self.state.regfile.get_post_aaq_reg()
         self.state.xmem.write_address(addr, data)
 
     # -----------------------------------------------------------------------

@@ -284,6 +284,13 @@ class TestIpuState:
         state.store_r_reg_to_xmem(512, 1)
         assert state.xmem.read_address(512, 128) == data
 
+    def test_post_aaq_reg_debug_alias_aaq_result(self):
+        """Legacy debug name ``aaq_result`` resolves to ``post_aaq_reg``."""
+        state = IpuState()
+        data = bytearray(range(128))
+        state.regfile.set_post_aaq_reg(data)
+        assert state.regfile.get_register_bytes("aaq_result") == bytearray(data)
+
     def test_snapshot_regfile(self):
         state = IpuState()
         state.regfile.set_lr(3, 77)

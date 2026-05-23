@@ -16,7 +16,7 @@ Everything lives together in one directory.
 
 ## Wide-vector debug mode (optional)
 
-The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / `STR_ACC_REG` in that mode.
+The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
 
 ## Activations, `ACTIVATE`, and virtual α (Python emulator) {#activations-emulator}
 

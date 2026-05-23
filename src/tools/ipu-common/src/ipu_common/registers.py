@@ -89,13 +89,14 @@ REGISTER_DEFINITIONS = {
         "assembler_values": [f"aaq{i}" for i in range(4)],
         "encoding_class": "AaqRegField",
     },
-    # AAQ quantization result — 128 × INT8 output of the aaq instruction
-    "aaq_result": {
+    # Temporary staging: 128 × INT8 quantized lanes after `AAQ` (before XMEM store).
+    "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,
         "size_bytes": 128,
         "count": 1,
         "dtype": RegDtype.UINT8,
+        "debug_aliases": ("aaq_result",),
     },
     # -----------------------------------------------------------------------
     # LR / CR scalar registers

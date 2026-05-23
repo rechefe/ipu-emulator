@@ -19,7 +19,7 @@ Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/t
 |-----------|---------|---------|
 | `wide_vector_debug` | `False` | Turn wide-vector mode on. |
 | `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` lane arithmetic. |
-| `wide_vector_quantize_output` | `False` | If `True`, the `AAQ` instruction writes `AAQ_RESULT` from wide lanes for comparison with the real quantized path. If `False`, `AAQ` does nothing in wide mode (results stay in `R_ACC`). |
+| `wide_vector_quantize_output` | `False` | If `True`, the `AAQ` instruction writes `POST_AAQ_REG` from wide lanes for comparison with the real quantized path. If `False`, `AAQ` does nothing in wide mode (results stay in `R_ACC`). |
 
 ```python
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic

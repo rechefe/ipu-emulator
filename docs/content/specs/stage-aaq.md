@@ -7,7 +7,7 @@ into scalar activation values and/or quantizes the accumulator into an FP8
 vector for output. It produces:
 
 - Scalar results in `AAQ0`–`AAQ3` via `agg` and `agg.first`.
-- A 128-byte `AAQ_RESULT` vector via `aaq` (any 8-bit format: INT8 or FP8 e(x)m(7-x)).
+- A 128-byte temporary staging register **POST_AAQ_REG** via `aaq` (8-bit lanes: INT8 or FP8 e(x)m(7-x)), written to XMEM with **`STR_POST_AAQ_REG`**. The full on-chip **`AAQ_RESULT`** bundle (§3.2) includes the same lane bytes plus scale/representation metadata.
 
 ## 2. Block Diagram
 
@@ -113,10 +113,7 @@ flowchart LR
 
 - `R_ACC` is 512 bytes (128 × 32-bit lanes). Lanes are always FP32.
 - `AAQ0`–`AAQ3` are 32-bit registers. They store float32 bit patterns.
-- `AAQ_RESULT` is produced only by `aaq`. It contains 128 × 8 bit quantized
-  values (1024 bits) plus 12 bits of metadata appended by the Quantization
-  block: bits [11:4] = 8-bit scale factor, bits [3:0] = 4-bit representation
-  type (INT8, e6m1, e5m2, …). It is written to XMEM via `xmem.store_aaq_result`.
+- After `aaq`, the **128 × 8-bit quantized lane payload** is held in the temporary staging register **`POST_AAQ_REG`** (overwritten by the next `aaq`). The Quantization block also forms the wider **`AAQ_RESULT`** output (1024 lane bits plus 12 bits of metadata: bits [11:4] = 8-bit scale factor, bits [3:0] = 4-bit representation type, INT8 / e6m1 / e5m2 / …). Flush the lane bytes to XMEM with **`STR_POST_AAQ_REG`** before issuing another `aaq` if you need the previous vector in memory.
 
 ## 6. Disclaimers
 
@@ -251,30 +248,30 @@ reading stale data from the target register.
 ### 7.2 Quantize (`TBD`) Work in progress
 
 Requires INT8 mode (`CR15 == DType.INT8`). Takes no operands. Reads `R_ACC`
-lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte result to
-`AAQ_RESULT`.
+lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte lane payload to
+`POST_AAQ_REG`.
 
 ```text
 // CR15 must be DType.INT8; R_ACC lanes are FP32
 for i in 0..127:
     val            = R_ACC[i]        // FP32
-    AAQ_RESULT[i]  = clamp(round(val), -128, 127)
+    POST_AAQ_REG[i]  = clamp(round(val), -128, 127)
 ```
 
 Notes:
 - The Quantization block appends 12 bits of metadata to the 1024-bit data
   payload to form the full 1036-bit `AAQ_RESULT`: bits [11:4] = 8-bit scale
   factor, bits [3:0] = 4-bit representation type (INT8, e6m1, e5m2, …).
-- `AAQ_RESULT` must be flushed to XMEM with `XMEM.STORE_AAQ_RESULT offset base`
-  before the next `AAQ` overwrites it.
+- `POST_AAQ_REG` must be flushed to XMEM with **`STR_POST_AAQ_REG offset base`**
+  before the next `aaq` overwrites it.
 - In wide-vector debug mode `AAQ` is a no-op unless
   `wide_vector_quantize_output` is explicitly set (debug feature only).
 
-**ISA Interactions** — instructions in other slots that consume `AAQ_RESULT` written by `AAQ`:
+**ISA Interactions** — instructions in other slots that consume `POST_AAQ_REG` written by `AAQ`:
 
 | Instruction | Slot | Operation |
 |-------------|------|-----------|
-| `XMEM.STORE_AAQ_RESULT offset base` | XMEM | Writes the 128-byte `AAQ_RESULT` register to XMEM at address `offset + base`. Must be issued before the next `AAQ` to avoid overwrite. |
+| `STR_POST_AAQ_REG offset base` | XMEM | Writes the 128-byte **`POST_AAQ_REG`** staging register to XMEM at address `offset + base`. Must be issued before the next `aaq` overwrites the staging latch. |
 
 ## 8. ISA 
 

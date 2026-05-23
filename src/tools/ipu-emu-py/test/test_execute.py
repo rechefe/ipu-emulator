@@ -1709,12 +1709,12 @@ BKPT;;
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
 # ============================================================================
-# AAQ Quantization (aaq instruction + xmem.store_aaq_result)
+# AAQ Quantization (aaq instruction + str_post_aaq_reg)
 # ============================================================================
 
 
 class TestAaqQuantize:
-    """Tests for the aaq quantization instruction and xmem.store_aaq_result."""
+    """Tests for the aaq quantization instruction and STR_POST_AAQ_REG."""
 
     def _set_acc_words(self, state: IpuState, values: list[int]) -> None:
         """Write a list of 128 signed INT32 values into r_acc."""
@@ -1736,7 +1736,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        result = state.regfile.get_aaq_result()
+        result = state.regfile.get_post_aaq_reg()
         for i in range(128):
             expected = i if i < 128 else i - 256
             assert result[i] == (expected & 0xFF), f"byte {i}: expected {expected & 0xFF}, got {result[i]}"
@@ -1754,7 +1754,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        assert state.regfile.get_aaq_result() == bytearray(128)
+        assert state.regfile.get_post_aaq_reg() == bytearray(128)
 
     def test_aaq_positive_clamp(self):
         """Large positive values clamp to 127 after truncation."""
@@ -1772,7 +1772,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        result = state.regfile.get_aaq_result()
+        result = state.regfile.get_post_aaq_reg()
         for i in range(64):
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
         for i in range(64, 128):
@@ -1792,7 +1792,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        result = state.regfile.get_aaq_result()
+        result = state.regfile.get_post_aaq_reg()
         for i in range(128):
             assert result[i] == 0xFF, f"byte {i}: expected 0xFF (-1), got {result[i]}"
 
@@ -1804,8 +1804,8 @@ class TestAaqQuantize:
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
-    def test_aaq_result_written_to_xmem(self):
-        """xmem.store_aaq_result writes exactly 128 bytes to the given address."""
+    def test_post_aaq_reg_written_to_xmem(self):
+        """STR_POST_AAQ_REG writes exactly 128 bytes to the given address."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
         # Set r_acc: each word = i << 24 so byte i = i (for i < 128)
@@ -1815,7 +1815,7 @@ class TestAaqQuantize:
             """\
 aaq;;
 SET lr0 0x4000;;
-xmem.store_aaq_result lr0 cr0;;
+str_post_aaq_reg lr0 cr0;;
 BKPT;;
 """
         )
