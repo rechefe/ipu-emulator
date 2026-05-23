@@ -49,6 +49,7 @@ from ipu_common.acc_agg_enums import (
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
+from ipu_common.activations import apply_activation
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -96,6 +97,7 @@ _TYPE_FIELD_SUFFIX = {
     "PostFn": "post_fn_field",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
+    "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -1144,16 +1146,18 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute AAQ: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+        """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
-        Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
-        arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the aaq_result register.
+        Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
+        ``r_acc``), typically filled by ``ACTIVATE``. Each 32-bit lane is truncated
+        then clamped to INT8 and stored in the **first 128 bytes** of
+        ``post_aaq_reg``; the wide-lane tail is cleared.
 
-        In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
-        ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
-        ``state.wide_vector_quantize_output`` to re-run INT8-style quantization
-        from wide lanes for comparison with the real path.
+        Requires INT8 mode.
+
+        In wide-vector debug mode, ``aaq`` is normally a no-op (use
+        ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
+        to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
         """
         dtype = self.state.get_cr_dtype()
         if dtype != DType.INT8:
@@ -1162,36 +1166,70 @@ class Ipu:
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
                 return
-            acc_buf = self.state.regfile.raw("r_acc")
+            src_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(128):
-                    val = struct.unpack_from("<f", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<f", src_buf, i * 4)[0]
                     clamped = max(-128, min(127, int(round(val))))
                     result[i] = clamped & 0xFF
             else:
                 for i in range(128):
-                    val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<i", src_buf, i * 4)[0]
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
                     result[i] = clamped & 0xFF
-            self.state.regfile.set_aaq_result(result)
+            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
             return
 
-        acc_buf = self.state.regfile.raw("r_acc")
+        src_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
         for i in range(128):
-            val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+            val = struct.unpack_from("<i", src_buf, i * 4)[0]
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
-        self.state.regfile.set_aaq_result(result)
+        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
-        """Execute XMEM.STORE_AAQ_RESULT: Write 128-byte aaq_result to xmem."""
+    def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
+        """Apply element-wise activation to the first ``valid_elements`` lanes.
+
+        Reads each active lane from ``r_acc`` and writes the result into the same
+        lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
+        Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
+        unchanged.
+
+        ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
+        """
+        fn_id = int(activation_fn) & 0xFFFFFFFF
+        active = self._agg_active_lane_count(valid_elements)
+        fmt = self._acc_agg_lane_fmt()
+        acc_buf = self.state.regfile.raw("r_acc")
+        post_buf = self.state.regfile.raw("post_aaq_reg")
+
+        for i in range(active):
+            raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            y = apply_activation(
+                fn_id,
+                float(raw),
+                leaky_relu_alpha=self.state.leaky_relu_alpha,
+                elu_alpha=self.state.elu_alpha,
+                prelu_alpha=self.state.prelu_alpha,
+            )
+            if fmt == "<i":
+                yi = int(round(y))
+                if yi < -2147483648:
+                    yi = -2147483648
+                elif yi > 2147483647:
+                    yi = 2147483647
+                struct.pack_into("<i", post_buf, i * 4, yi)
+            else:
+                struct.pack_into("<f", post_buf, i * 4, float(y))
+
+    def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
+        """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
         addr = offset + base
-        data = self.state.regfile.get_aaq_result()
-        self.state.xmem.write_address(addr, data)
+        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
@@ -1305,7 +1343,7 @@ class Ipu:
         elif slot_type == "xmem":
             if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
                 stats.xmem_reads += 1
-            elif instruction_name in {"STR_ACC_REG", "XMEM.STORE_AAQ_RESULT"}:
+            elif instruction_name in {"STR_ACC_REG", "STR_POST_AAQ_REG"}:
                 stats.xmem_writes += 1
 
         # Call handler with named arguments

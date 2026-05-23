@@ -38,6 +38,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "PostFn": immediate.PostFnField,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
+    "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -465,7 +466,7 @@ class AaqInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
-            intro="Activation and quantization: aggregate r_acc into AAQ registers.",
+            intro="Activation and quantization: aggregate r_acc into AAQ registers; ACTIVATE writes activated lanes from r_acc into POST_AAQ_REG; AAQ quantizes POST_AAQ_REG.",
             slot_type="aaq",
         )
 

@@ -29,6 +29,7 @@ from ipu_common.acc_stride_enums import (
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
+from ipu_common.activations import ACTIVATION_FN_NAMES
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
 from ipu_common.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
 from ipu_common.registers import REGISTER_DEFINITIONS
@@ -60,6 +61,7 @@ def get_operand_type_bits() -> dict[str, int]:
         "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
         "AggMode": _enum_bits(AGG_MODE_NAMES),
         "PostFn": _enum_bits(POST_FN_NAMES),
+        "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
     }
 
 

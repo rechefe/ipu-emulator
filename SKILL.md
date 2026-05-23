@@ -79,31 +79,31 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 
 | Register | Size | Purpose |
 |----------|------|---------|
-| `r0`, `r1` | 128 bytes (128×INT8) | Multiply-stage inputs/outputs |
-| `r_cyclic` | 512 bytes | Cyclic-access variant of r0 |
-| `r_mask` | 128 bytes | Bit mask register |
-| `r_acc` | 512 bytes (128×INT32) | Accumulator |
-| `aaq0`–`aaq3` | 32-bit each | Activation & Quantization results |
-| `lr0`–`lr15` | 32-bit each | Loop/scalar registers |
-| `cr0`–`cr15` | 32-bit, read-only | Configuration (base addresses, params) |
+| `R0`, `R1` | 128 bytes (128×INT8) | Multiply-stage inputs/outputs |
+| `R_CYCLIC` | 512 bytes | Cyclic-access variant of `R0` |
+| `R_MASK` | 128 bytes | Bit mask register |
+| `R_ACC` | 512 bytes (128×INT32) | Accumulator |
+| `AAQ0`–`AAQ3` | 32-bit each | Activation & Quantization results |
+| `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
+| `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
 
-`cr15` is reserved for data type selection (INT8 / FP8_E4M3 / FP8_E5M2).
+`CR15` is reserved for data type selection (INT8 / FP8_E4M3 / FP8_E5M2).
 
 ### Instruction Slots
 
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
-| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
+| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `STR_POST_AAQ_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
 | MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
-| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into r_acc |
-| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ` | Aggregate r_acc → aaq register |
-| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`cr`** register) |
+| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into `R_ACC` |
+| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | **`AGG`** uses **`R_ACC`**. **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
+| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`CR`** register) |
 | COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
 
 ---
 
@@ -149,7 +149,7 @@ def _run(asm_code: str) -> IpuState:
     return state
 
 def test_my_instruction():
-    state = _run("MY_INST aaq0 r0;;")
+    state = _run("MY_INST AAQ0 R0;;")
     assert state.regfile.get_aaq(0) == expected
 ```
 
@@ -216,6 +216,6 @@ Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.
 - **Never duplicate instruction metadata** — assembler and emulator both read `instruction_spec.py`
 - **Operand names in `execute_*` must exactly match** the names in `instruction_spec.py`
 - **Read-before-write**: slots with `"read": "snapshot"` see pre-cycle register values
-- **`cr15`** is reserved — never use it for application data
+- **`CR15`** is reserved — never use it for application data
 - The build system is **Bazel** — use `bazel build/test/run`, not pip/python directly
 - Data types (INT8, FP8_E4M3, FP8_E5M2) affect how register bytes are interpreted in math ops
