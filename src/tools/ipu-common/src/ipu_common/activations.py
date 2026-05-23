@@ -4,7 +4,8 @@ Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. Alpha parameter
 ``leaky_relu``, ``elu``, and ``prelu`` are fixed simulator constants (not part
 of the ISA). Assembly uses ``ACTIVATE … <name>`` where ``<name>`` is one of the
 strings in ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**). Emulator
-calibration (including α) is described in ``docs/content/building-applications.md#activations-emulator``.
+calibration (including α) and how ``STR_POST_AAQ_REG`` temporarily exports ``R_ACC``
+(512 B) vs ``POST_AAQ_REG`` are described in ``docs/content/building-applications.md#activations-emulator``.
 """
 
 from __future__ import annotations

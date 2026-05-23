@@ -1845,17 +1845,15 @@ class TestAaqQuantize:
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
-    def test_post_aaq_reg_written_to_xmem(self):
-        """STR_POST_AAQ_REG writes exactly 128 bytes to the given address."""
+    def test_str_post_aaq_reg_writes_r_acc_512_to_xmem(self):
+        """STR_POST_AAQ_REG writes 512 bytes from R_ACC (temporary pre-quant export)."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        # Set r_acc: each word = i << 24 so byte i = i (for i < 128)
         self._set_acc_words(state, [i << 24 for i in range(128)])
         state.regfile.set_cr(8, 0x4000)
 
         encoded = assemble(
             """\
-aaq;;
 SET lr0 cr8;;
 str_post_aaq_reg lr0 cr0;;
 BKPT;;
@@ -1867,9 +1865,8 @@ BKPT;;
         load_program(state, decoded)
         run_until_complete(state)
 
-        stored = state.xmem.read_address(0x4000, 128)
-        for i in range(128):
-            assert stored[i] == i, f"xmem byte {i}: expected {i}, got {stored[i]}"
+        stored = state.xmem.read_address(0x4000, 512)
+        assert stored == state.regfile.get_r_acc_bytes()
 
     def test_STR_ACC_REG_emits_warning(self):
         """STR_ACC_REG emits a UserWarning about being debug-only."""

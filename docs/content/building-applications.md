@@ -31,6 +31,12 @@ ACTIVATE LR0 relu;;
 - **Syntax:** `ACTIVATE` *valid_elements* *activation_fn*, where *valid_elements* is an `LR`/`CR` selector (same lane-count semantics as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `leaky_relu`, `sigmoid`, `tanh`, `gelu`, `silu`, `softplus`, `elu`, `prelu`, `exp2`). The assembler also accepts **`swish`** as an alias for **`silu`**.
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
+### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
+
+- **Activation** applies element-wise **32→32** transforms in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`ACTIVATE`** does this in the emulator; hardware uses the `act_cr_idx` path described in the AAQ spec.
+- **Quantization** (target **32→8** per lane) is what **`AAQ`** approximates today: it writes **128 bytes** of clamped INT8 lanes into **`POST_AAQ_REG`**. That register’s **role and exact layout are still evolving** once quant is fully decoupled from the wide accumulator view.
+- **`STR_POST_AAQ_REG`** currently writes **512 bytes from `R_ACC`** to XMEM so you can snapshot **post-activation** lanes before the export is rewired to flush the **128-byte** quantized **`POST_AAQ_REG`** buffer instead.
+
 ### Virtual α in the emulator (leaky_relu, elu, prelu)
 
 The stock ISA does not expose α. In software, α is represented by **module-level constants** in the same file (not `CR` writes, not environment variables, not CLI flags):

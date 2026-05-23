@@ -1225,9 +1225,15 @@ class Ipu:
                 struct.pack_into("<f", acc_buf, i * 4, float(y))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
-        """Execute STR_POST_AAQ_REG: Write 128-byte POST_AAQ_REG staging buffer to XMEM."""
+        """Write **512 bytes** from ``R_ACC`` to XMEM (temporary export).
+
+        Intended pipeline: **activation** (32→32 per lane, in ``R_ACC``) then
+        **quantization** (32→8) into ``POST_AAQ_REG``. Until the XMEM path is switched
+        to the quantized buffer, this instruction mirrors the post-activation
+        accumulator so harnesses can snapshot full lanes.
+        """
         addr = offset + base
-        data = self.state.regfile.get_post_aaq_reg()
+        data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, data)
 
     # -----------------------------------------------------------------------

@@ -246,17 +246,19 @@ INSTRUCTION_SPEC = {
                 {"name": "base", "type": "CrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Store Post-AAQ Staging Register",
+                title="Store Post-AAQ (temporary R_ACC export)",
                 summary=(
-                    "Write the 128-byte temporary `POST_AAQ_REG` staging register (quantized "
-                    "lanes produced by `AAQ`) to external memory."
+                    "**Temporary:** write **512 bytes** from **`R_ACC`** (128×32-bit post-activation "
+                    "lanes) to external memory. Intended final behavior is to export the **128-byte** "
+                    "**`POST_AAQ_REG`** buffer after **quantization** (32→8 per lane); the register "
+                    "width and store source will be aligned when that path is fully implemented."
                 ),
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR15)",
                 ],
-                operation="Memory[offset + base] = POST_AAQ_REG  # 128 elements",
+                operation="Memory[offset + base] = R_ACC (512 bytes); temporary until export reads POST_AAQ_REG (128 bytes) after quant split",
                 example="STR_POST_AAQ_REG LR0, CR0;;",
             ),
             "execute_fn": "execute_str_post_aaq_reg",
@@ -758,7 +760,12 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="AAQ Quantize",
-                summary="Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the POST_AAQ_REG staging register. Requires INT8 mode.",
+                summary=(
+                    "Quantize the 128-word accumulator from INT32 to INT8, storing clamped results in the "
+                    "POST_AAQ_REG staging register (128 bytes; layout may evolve when quant is fully split from "
+                    "R_ACC). Requires INT8 mode. STR_POST_AAQ_REG currently exports 512 bytes from R_ACC instead—"
+                    "see docs/content/building-applications.md#activations-emulator."
+                ),
                 syntax="AAQ",
                 operands=[],
                 operation=(
