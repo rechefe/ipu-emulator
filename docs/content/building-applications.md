@@ -39,29 +39,45 @@ ACTIVATE LR0 relu;;
 
 ### Virtual α in the emulator (leaky_relu, elu, prelu)
 
-The stock ISA does not expose α. In software, α is represented by **module-level constants** in the same file (not `CR` writes, not environment variables, not CLI flags):
+The stock ISA does not expose α. Defaults live in `ipu_common/activations.py` as **`DEFAULT_LEAKY_ALPHA`**, **`DEFAULT_ELU_ALPHA`**, and **`DEFAULT_PRELU_ALPHA`** (the legacy names `_LEAKY_ALPHA`, `_ELU_ALPHA`, `_PRELU_ALPHA` point at the same floats). These are **virtual** values: they stand in for whatever fixed calibration your RTL or chip would supply.
 
-| Name | Activation | Default |
-|------|------------|---------|
-| `_LEAKY_ALPHA` | `leaky_relu` | `0.01` |
-| `_ELU_ALPHA` | `elu` | `1.0` |
-| `_PRELU_ALPHA` | `prelu` | `0.25` |
+**Preferred (per-run, like dtype on state, not over CR):** configure α on **`IpuState`** — at construction, via **`set_activation_alphas`**, or when using **`run_test`** / **`IpuApp.run`**:
 
-These are **virtual** values: they stand in for whatever fixed calibration your RTL or chip would supply.
+```python
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.emulator import run_test
 
-### Overriding α (or the whole activation table) when you need to
+state = IpuState(leaky_relu_alpha=0.05, elu_alpha=1.0, prelu_alpha=0.3)
+# or after construction:
+state.set_activation_alphas(leaky_relu_alpha=0.05)
 
-Pick the approach that matches how much isolation you need:
+# High-level harness (optional kwargs mirror IpuState):
+state, cycles = run_test(
+    inst_path="prog.bin",
+    setup=my_setup,
+    leaky_relu_alpha=0.05,
+)
+```
 
-1. **Edit `activations.py` and rebuild** — simplest for a long-lived fork or when you always want new defaults. Run `bazel test //…` (or your usual pytest targets) after changing `_LEAKY_ALPHA`, `_ELU_ALPHA`, or `_PRELU_ALPHA`.
+Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
 
-2. **Monkeypatch at import time (tests and one-off harnesses)** — after `import ipu_common.activations as act` but **before** the first `Ipu` run in that process, assign new floats, for example `act._LEAKY_ALPHA = 0.05`. `apply_activation` reads the module globals on each call, so patched values take effect immediately. Prefer doing this in a `conftest.py` autouse fixture or an app `setup()` that runs before `load_program`.
+```python
+app = MyApp(inst_path="prog.bin", leaky_relu_alpha=0.05)
+state, cycles = app.run()  # uses 0.05
+state, cycles = app.run(leaky_relu_alpha=0.1)  # uses 0.1 for this run
+```
 
-3. **Shim `ipu_common` on `PYTHONPATH` (advanced)** — for CI matrix jobs without touching the main tree, prepend a directory that provides a replacement `ipu_common/activations.py` (or a tiny package that re-exports `apply_activation` with different constants). Keep the public API (`ACTIVATION_FN_NAMES`, `apply_activation` signature) compatible so the assembler and emulator imports keep working.
+### Other ways to override α when you need to
 
-4. **Vendor a copy for experiments** — for notebooks or papers, copy the small `apply_activation` body into your own module and drive `R_ACC` writes from Python; bypass `ACTIVATE` entirely if you are not assembling IPU binaries.
+1. **Edit `activations.py` and rebuild** — change **`DEFAULT_*`** when you want new tree-wide defaults. Run `bazel test //…` after edits.
 
-For **multiple α values in one process**, prefer (2) inside distinct test cases, or separate subprocesses with different patches—constants are process-wide.
+2. **Monkeypatch at import time (tests)** — after `import ipu_common.activations as act`, assign `act._LEAKY_ALPHA = 0.05` before the first `Ipu` run **only if** you are not relying on per-`IpuState` α (the emulator passes state α into `apply_activation`; omitted kwargs still read the module globals).
+
+3. **Shim `ipu_common` on `PYTHONPATH` (advanced)** — for CI matrix jobs without touching the main tree, prepend a directory that provides a compatible `ipu_common/activations.py`.
+
+4. **Vendor a copy for experiments** — bypass `ACTIVATE` and drive `R_ACC` from Python if you are not assembling IPU binaries.
+
+For **different α in the same process**, use **separate `IpuState` instances** (or `run_test(..., leaky_relu_alpha=...)` per call) instead of relying on process-wide module constants.
 
 ## Step 1: Write the Assembly Program
 

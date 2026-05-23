@@ -1,17 +1,19 @@
 """Element-wise activation functions for IPU accumulator lanes.
 
-Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. Alpha parameters for
-``leaky_relu``, ``elu``, and ``prelu`` are fixed simulator constants (not part
-of the ISA). Assembly uses ``ACTIVATE … <name>`` where ``<name>`` is one of the
-strings in ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**). Emulator
-calibration (including α) and how ``STR_POST_AAQ_REG`` temporarily exports ``R_ACC``
-(512 B) vs ``POST_AAQ_REG`` are described in ``docs/content/building-applications.md#activations-emulator``.
+Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. α for
+``leaky_relu``, ``elu``, and ``prelu`` defaults to ``DEFAULT_*`` constants below;
+override per run via :class:`ipu_emu.ipu_state.IpuState` constructor or
+:meth:`IpuState.set_activation_alphas` (not CR-visible). Assembly uses
+``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
+``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**). See
+``docs/content/building-applications.md#activations-emulator`` for calibration
+and how ``STR_POST_AAQ_REG`` temporarily exports ``R_ACC`` (512 B) vs
+``POST_AAQ_REG``.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Final
 
 ACTIVATION_IDENTITY = 0
 ACTIVATION_RELU = 1
@@ -44,10 +46,16 @@ ACTIVATION_FN_NAMES: tuple[str, ...] = (
     "exp2",
 )
 
-# Fixed α values — virtual configuration outside the ISA (issue #77).
-_LEAKY_ALPHA: Final[float] = 0.01
-_ELU_ALPHA: Final[float] = 1.0
-_PRELU_ALPHA: Final[float] = 0.25
+# Default α values — virtual configuration outside the ISA (issue #77).
+# Mutable so tests can monkeypatch; ``IpuState`` normally snapshots these at init.
+DEFAULT_LEAKY_ALPHA: float = 0.01
+DEFAULT_ELU_ALPHA: float = 1.0
+DEFAULT_PRELU_ALPHA: float = 0.25
+
+# Legacy private names (same objects) for older monkeypatch patterns.
+_LEAKY_ALPHA = DEFAULT_LEAKY_ALPHA
+_ELU_ALPHA = DEFAULT_ELU_ALPHA
+_PRELU_ALPHA = DEFAULT_PRELU_ALPHA
 
 
 def _sigmoid(x: float) -> float:
@@ -71,11 +79,27 @@ def _softplus(x: float) -> float:
     return math.log1p(math.exp(x))
 
 
-def apply_activation(fn_id: int, x: float) -> float:
-    """Apply activation ``fn_id`` (0–11) to scalar ``x``. Unknown ids → identity."""
+def apply_activation(
+    fn_id: int,
+    x: float,
+    *,
+    leaky_relu_alpha: float | None = None,
+    elu_alpha: float | None = None,
+    prelu_alpha: float | None = None,
+) -> float:
+    """Apply activation ``fn_id`` (0–11) to scalar ``x``. Unknown ids → identity.
+
+    α arguments default to module-level ``DEFAULT_*`` / ``_*`` (so monkeypatching
+    ``_LEAKY_ALPHA`` etc. still affects calls that omit overrides). The emulator
+    passes per-:class:`ipu_emu.ipu_state.IpuState` values from ``execute_activate``.
+    """
     k = int(fn_id) & 0xFFFFFFFF
     if k >= ACTIVATION_COUNT:
         return x
+
+    la = _LEAKY_ALPHA if leaky_relu_alpha is None else float(leaky_relu_alpha)
+    ea = _ELU_ALPHA if elu_alpha is None else float(elu_alpha)
+    pa = _PRELU_ALPHA if prelu_alpha is None else float(prelu_alpha)
 
     if k == ACTIVATION_IDENTITY:
         return x
@@ -84,7 +108,7 @@ def apply_activation(fn_id: int, x: float) -> float:
     if k == ACTIVATION_RELU6:
         return min(max(x, 0.0), 6.0)
     if k == ACTIVATION_LEAKY_RELU:
-        return x if x >= 0.0 else _LEAKY_ALPHA * x
+        return x if x >= 0.0 else la * x
     if k == ACTIVATION_SIGMOID:
         return _sigmoid(x)
     if k == ACTIVATION_TANH:
@@ -96,9 +120,9 @@ def apply_activation(fn_id: int, x: float) -> float:
     if k == ACTIVATION_SOFTPLUS:
         return _softplus(x)
     if k == ACTIVATION_ELU:
-        return x if x >= 0.0 else _ELU_ALPHA * (math.exp(x) - 1.0)
+        return x if x >= 0.0 else ea * (math.exp(x) - 1.0)
     if k == ACTIVATION_PRELU:
-        return x if x >= 0.0 else _PRELU_ALPHA * x
+        return x if x >= 0.0 else pa * x
     if k == ACTIVATION_EXP2:
         return math.exp(x * math.log(2.0))
     return x

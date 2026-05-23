@@ -34,15 +34,27 @@ from ipu_common.activations import ACTIVATION_FN_NAMES, apply_activation
 # ---------------------------------------------------------------------------
 
 
-def _make_state(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
+def _make_state(
+    asm_code: str,
+    *,
+    cr: dict[int, int] | None = None,
+    leaky_relu_alpha: float | None = None,
+    elu_alpha: float | None = None,
+    prelu_alpha: float | None = None,
+) -> IpuState:
     """Assemble *asm_code* and return a ready-to-run IpuState.
 
     Optional *cr* presets configuration registers before the program is loaded
-    (e.g. constants read by ``SET lr* cr*``).
+    (e.g. constants read by ``SET lr* cr*``). Optional α kwargs are forwarded to
+    :class:`IpuState` (emulator-only; not CR).
     """
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState()
+    state = IpuState(
+        leaky_relu_alpha=leaky_relu_alpha,
+        elu_alpha=elu_alpha,
+        prelu_alpha=prelu_alpha,
+    )
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -50,10 +62,24 @@ def _make_state(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
     return state
 
 
-def _run(asm_code: str, *, cr: dict[int, int] | None = None, **kw) -> IpuState:
+def _run(
+    asm_code: str,
+    *,
+    cr: dict[int, int] | None = None,
+    leaky_relu_alpha: float | None = None,
+    elu_alpha: float | None = None,
+    prelu_alpha: float | None = None,
+    max_cycles: int = 100_000,
+) -> IpuState:
     """Assemble, load, run, and return the final state."""
-    state = _make_state(asm_code, cr=cr)
-    run_until_complete(state, **kw)
+    state = _make_state(
+        asm_code,
+        cr=cr,
+        leaky_relu_alpha=leaky_relu_alpha,
+        elu_alpha=elu_alpha,
+        prelu_alpha=prelu_alpha,
+    )
+    run_until_complete(state, max_cycles)
     return state
 
 
@@ -2061,6 +2087,51 @@ BKPT;;
             "<f", struct.pack("<I", st2.regfile.get_r_acc_word(0))
         )[0]
         assert abs(out_swish - out_silu) < 1e-7
+
+    def test_activate_leaky_relu_respects_ipu_state_alpha(self):
+        """``IpuState`` α overrides module defaults for ``ACTIVATE`` (not CR)."""
+        x = -1.0
+        alpha = 0.5
+        state = _make_state(
+            """\
+ACTIVATE lr0 leaky_relu;;
+BKPT;;
+""",
+            leaky_relu_alpha=alpha,
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        assert abs(out - exp) < 1e-5
+
+    def test_activate_leaky_relu_after_set_activation_alphas(self):
+        x = -2.0
+        alpha = 0.125
+        state = _make_state(
+            """\
+ACTIVATE lr0 leaky_relu;;
+BKPT;;
+"""
+        )
+        state.set_activation_alphas(leaky_relu_alpha=alpha)
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = struct.unpack(
+            "<f", struct.pack("<I", state.regfile.get_r_acc_word(0))
+        )[0]
+        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        assert abs(out - exp) < 1e-5
 
     def test_activate_valid_elements_from_cr(self):
         state = _make_state(

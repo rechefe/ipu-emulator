@@ -1213,7 +1213,13 @@ class Ipu:
 
         for i in range(active):
             raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            y = apply_activation(fn_id, float(raw))
+            y = apply_activation(
+                fn_id,
+                float(raw),
+                leaky_relu_alpha=self.state.leaky_relu_alpha,
+                elu_alpha=self.state.elu_alpha,
+                prelu_alpha=self.state.prelu_alpha,
+            )
             if fmt == "<i":
                 yi = int(round(y))
                 if yi < -2147483648:
