@@ -102,21 +102,9 @@ from ipu_common.activations import ACTIVATION_FN_NAMES
 class ActivationFnField(ipu_token.EnumToken):
     """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
 
-    _TOKEN_ALIASES: dict[str, str] = {"swish": "silu"}
-
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(ACTIVATION_FN_NAMES)
-
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        raw = token.token.value.lower()
-        if raw in self._TOKEN_ALIASES:
-            t = token.token
-            token = ipu_token.AnnotatedToken(
-                lark.Token(t.type, self._TOKEN_ALIASES[raw], t.line, t.column),
-                token.instr_id,
-            )
-        super().__init__(token)
 
 
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).

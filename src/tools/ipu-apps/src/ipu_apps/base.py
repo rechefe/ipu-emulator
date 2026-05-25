@@ -37,8 +37,7 @@ class IpuApp:
         inst_path:   Path to the assembled instruction binary.
         output_path: Optional path to write output data.
         **kwargs:    Any extra fields are stored as attributes (for example
-            ``leaky_relu_alpha`` / ``elu_alpha`` / ``prelu_alpha`` for
-            :meth:`run`).
+            ``elu_alpha`` for :meth:`run`).
     """
 
     def __init__(
@@ -65,25 +64,17 @@ class IpuApp:
         max_cycles: int = 1_000_000,
         debug_callback: DebugCallback | None = None,
         state: "IpuState | None" = None,
-        leaky_relu_alpha: float | None = None,
         elu_alpha: float | None = None,
-        prelu_alpha: float | None = None,
     ) -> tuple["IpuState", int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
-        Optional ``leaky_relu_alpha`` / ``elu_alpha`` / ``prelu_alpha`` match
-        :func:`ipu_emu.emulator.run_test`: they configure emulator-only activation
-        α (not CR). Explicit arguments win; otherwise attributes stored on the
-        app from ``__init__(**kwargs)`` (for example ``MyApp(..., leaky_relu_alpha=0.05)``)
-        are used when present.
+        Optional ``elu_alpha`` matches :func:`ipu_emu.emulator.run_test`: it
+        configures emulator-only activation α (not CR). An explicit argument wins;
+        otherwise an ``elu_alpha`` attribute stored on the app from
+        ``__init__(**kwargs)`` (for example ``MyApp(..., elu_alpha=0.5)``) is used
+        when present.
         """
-        lr = (
-            leaky_relu_alpha
-            if leaky_relu_alpha is not None
-            else getattr(self, "leaky_relu_alpha", None)
-        )
         ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
-        pa = prelu_alpha if prelu_alpha is not None else getattr(self, "prelu_alpha", None)
         return run_test(
             inst_path=self.inst_path,
             setup=self.setup,
@@ -91,7 +82,5 @@ class IpuApp:
             max_cycles=max_cycles,
             debug_callback=debug_callback,
             state=state,
-            leaky_relu_alpha=lr,
             elu_alpha=ea,
-            prelu_alpha=pa,
         )

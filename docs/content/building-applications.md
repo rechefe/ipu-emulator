@@ -22,13 +22,13 @@ The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 
 
 The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same twelve activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
 ACTIVATE LR0 relu;;
 ```
 
-- **Syntax:** `ACTIVATE` *valid_elements* *activation_fn*, where *valid_elements* is an `LR`/`CR` selector (same lane-count semantics as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `leaky_relu`, `sigmoid`, `tanh`, `gelu`, `silu`, `softplus`, `elu`, `prelu`, `exp2`). The assembler also accepts **`swish`** as an alias for **`silu`**.
+- **Syntax:** `ACTIVATE` *valid_elements* *activation_fn*, where *valid_elements* is an `LR`/`CR` selector (same lane-count semantics as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`).
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
@@ -39,9 +39,9 @@ ACTIVATE LR0 relu;;
 - **`AAQ`** (INT8 mode) quantizes the **wide lanes currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide lanes) then **`AAQ`** (quantize in place into the same register’s byte prefix).
 - **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
-### Virtual α in the emulator (leaky_relu, elu, prelu)
+### Virtual α in the emulator (elu)
 
-The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (fields `leaky_relu_alpha`, `elu_alpha`, `prelu_alpha`). If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_LEAKY_ALPHA`, `DEFAULT_ELU_ALPHA`, `DEFAULT_PRELU_ALPHA`).
+The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (field `elu_alpha`). If you do not set it, it is initialized from the default float in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`).
 
 Configure α the same way you think about dtype on state — **not via CR**:
 
@@ -49,24 +49,24 @@ Configure α the same way you think about dtype on state — **not via CR**:
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_test
 
-state = IpuState(leaky_relu_alpha=0.05, elu_alpha=1.0, prelu_alpha=0.3)
+state = IpuState(elu_alpha=1.0)
 # or after construction:
-state.set_activation_alphas(leaky_relu_alpha=0.05)
+state.set_activation_alphas(elu_alpha=1.0)
 
 # High-level harness (optional kwargs mirror IpuState):
 state, cycles = run_test(
     inst_path="prog.bin",
     setup=my_setup,
-    leaky_relu_alpha=0.05,
+    elu_alpha=1.0,
 )
 ```
 
 Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
 
 ```python
-app = MyApp(inst_path="prog.bin", leaky_relu_alpha=0.05)
-state, cycles = app.run()  # uses 0.05
-state, cycles = app.run(leaky_relu_alpha=0.1)  # uses 0.1 for this run
+app = MyApp(inst_path="prog.bin", elu_alpha=1.0)
+state, cycles = app.run()  # uses 1.0
+state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
 ```
 
 Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) when you need different α values in the same process.
