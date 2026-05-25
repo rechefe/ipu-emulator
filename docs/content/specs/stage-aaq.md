@@ -21,7 +21,7 @@ flowchart LR
     QUANT["Quantization"]:::teal
     RED["Adder tree / Max tree"]:::teal
     PFN["Post_func"]:::teal
-    RF["RF regs 4x32bit aaq0-aaq3 with shadow regs 17/18 bits"]:::purple
+    RF["RF regs 4x32bit aaq0-aaq3 with shadow regs 17 bits"]:::purple
 
     ACC -->|128x32| ACT
     ACC -->|128x32| RED
@@ -34,7 +34,7 @@ flowchart LR
     RED --> PFN
     PFN -->|FP32| RF
     RF -.->|feedback 32bit| RED
-    RF -.->|feedback 17/18 bit| mult_stage
+    RF -.->|feedback 17 bit| mult_stage
     RF -.->|feedback 32bit| acc_stage
 
     subgraph LEGEND["Legend"]
@@ -63,7 +63,7 @@ flowchart LR
             valid  ─────>│                                      │
                op  ─────>│                                      ├────> aaq_rf_to_acc[0..3] [31:0]
             r_acc  ─────>│             AAQ Stage                │
-         agg_mode  ─────>│                                      ├────> aaq_rf_to_mult[0..3][17:0]
+         agg_mode  ─────>│                                      ├────> aaq_rf_to_mult[0..3][16:0]
           post_fn  ─────>│                                      │
            cr_idx  ─────>│                                      │
        act_cr_idx  ─────>│                                      │
@@ -96,7 +96,7 @@ flowchart LR
 |------|--------------------|-------------|
 | `aaq_result` | `output logic [1035:0]` | Quantized output: 128 × 8-bit lanes (1024 bits) plus 12 bits of metadata: bits [1035:1028] = 8-bit scale factor, bits [1027:1024] = 4-bit representation type (e.g. INT8, e6m1). |
 | `aaq_rf_to_acc[0..3]` | `output logic [31:0]` | Full 32-bit view of the AAQ RF registers (`aaq0`–`aaq3`) fed back to the ACC stage. |
-| `aaq_rf_to_mult[0..3]` | `output logic [17:0]` | Same AAQ RF registers as `aaq_rf_to_acc`, exposed to the MULT stage with only the lower 17/18 bits; the MULT stage does not require the full 32-bit precision. Exact width TBD. |
+| `aaq_rf_to_mult[0..3]` | `output logic [16:0]` | Same AAQ RF registers as `aaq_rf_to_acc`, exposed to the MULT stage with only the lower 17 bits; the MULT stage does not require the full 32-bit precision. |
 
 ## 4. Parameters
 
@@ -145,15 +145,12 @@ Supported activation functions:
 | 0 | `identity` | `f(x) = x` | Pass-through; no transform. |
 | 1 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
 | 2 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
-| 3 | `leaky_relu` | `f(x) = x if x ≥ 0 else α·x` | α is a small constant (e.g. 0.01). |
-| 4 | `sigmoid` | `f(x) = 1 / (1 + e^−x)` | Squashes to (0, 1). |
-| 5 | `tanh` | `f(x) = (e^x − e^−x) / (e^x + e^−x)` | Squashes to (−1, 1). |
-| 6 | `gelu` | `f(x) = x · Φ(x)` | Φ = standard normal CDF; used in BERT/GPT. |
-| 7 | `silu` / `swish` | `f(x) = x · sigmoid(x)` | Used in EfficientNet, LLaMA. |
-| 8 | `softplus` | `f(x) = ln(1 + e^x)` | Smooth approximation of ReLU. |
-| 9 | `elu` | `f(x) = x if x ≥ 0 else α·(e^x − 1)` | Smooth negative region; reduces vanishing gradient. |
-| 10 | `prelu` | `f(x) = x if x ≥ 0 else α·x` | Like Leaky ReLU but α is a learned per-channel parameter. |
-| 11 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+| 3 | `sigmoid` | `f(x) = 1 / (1 + e^−x)` | Squashes to (0, 1). |
+| 4 | `tanh` | `f(x) = (e^x − e^−x) / (e^x + e^−x)` | Squashes to (−1, 1). |
+| 5 | `gelu` | `f(x) = x · Φ(x)` | Φ = standard normal CDF; used in BERT/GPT. |
+| 6 | `softplus` | `f(x) = ln(1 + e^x)` | Smooth approximation of ReLU. |
+| 7 | `elu` | `f(x) = x if x ≥ 0 else α·(e^x − 1)` | Smooth negative region; reduces vanishing gradient. |
+| 8 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
 ### 7.1 Aggregate (`agg`)
 
