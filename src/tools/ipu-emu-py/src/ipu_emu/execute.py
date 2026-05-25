@@ -16,6 +16,7 @@ C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
     {
         "break_inst_token_0_break_inst_opcode": 2,   # BREAK_NOP
         "xmem_inst_token_0_xmem_inst_opcode": 4,     # XMEM_NOP
+        # … `STR_POST_AAQ_REG` is opcode 5 in the xmem slot when present
         ...
     }
 

@@ -89,13 +89,19 @@ REGISTER_DEFINITIONS = {
         "assembler_values": [f"aaq{i}" for i in range(4)],
         "encoding_class": "AaqRegField",
     },
-    # AAQ quantization result — 128 × INT8 output of the aaq instruction
-    "aaq_result": {
+    # Post-AAQ staging: **temporarily 512 bytes** (128×32-bit lanes, same footprint as
+    # `R_ACC`) until end-to-end quantization lands; then this register may hold a
+    # narrower quantized export buffer instead. **`ACTIVATE`** writes activated wide
+    # lanes (sourced from `r_acc`) here. **`AAQ`** (INT8) reads those wide lanes and
+    # replaces the register with 128 clamped INT8 bytes plus a cleared tail.
+    # **`STR_POST_AAQ_REG`** stores the full **512 bytes** to XMEM (see `ipu.py`).
+    "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,
-        "size_bytes": 128,
+        "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
+        "debug_aliases": ("aaq_result",),
     },
     # -----------------------------------------------------------------------
     # LR / CR scalar registers

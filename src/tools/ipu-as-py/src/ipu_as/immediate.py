@@ -18,12 +18,6 @@ from ipu_common.acc_stride_enums import (
 from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 
 
-class LrImmediateType(ipu_token.NumberToken):
-    @classmethod
-    def bits(cls) -> int:
-        return 16
-
-
 class LrModPow2KImmediate(ipu_token.IpuToken):
     """Semantic k ∈ [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX]; encoded as (k−1) in LR_MOD_POW2_K_FIELD_BITS bits."""
 
@@ -100,6 +94,29 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
     @classmethod
     def decode(cls, value: int) -> str:
         return str(value)
+
+
+from ipu_common.activations import ACTIVATION_FN_NAMES
+
+
+class ActivationFnField(ipu_token.EnumToken):
+    """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
+
+    _TOKEN_ALIASES: dict[str, str] = {"swish": "silu"}
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(ACTIVATION_FN_NAMES)
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        raw = token.token.value.lower()
+        if raw in self._TOKEN_ALIASES:
+            t = token.token
+            token = ipu_token.AnnotatedToken(
+                lark.Token(t.type, self._TOKEN_ALIASES[raw], t.line, t.column),
+                token.instr_id,
+            )
+        super().__init__(token)
 
 
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).

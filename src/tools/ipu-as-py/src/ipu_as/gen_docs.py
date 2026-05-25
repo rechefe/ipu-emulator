@@ -23,7 +23,8 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "CrIdx": (
         "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the "
-        "harness initializes them (e.g. base pointers, dtype in `cr15`)."
+        "harness initializes them (e.g. base pointers, dtype in `cr15`). **`SET`** in the LR slot "
+        "copies the full **32-bit** CR value into an LR."
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
@@ -55,9 +56,13 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "AAQ-slot immediate: post-aggregation function selector (identity, inverse sqrt, etc.); "
         "see `acc_agg_enums`."
     ),
-    "Immediate": (
-        "Signed **16-bit** immediate carried in the LR slot (sign-extended by the emulator for "
-        "`SET`)."
+    "ActivationFn": (
+        "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, **leaky_relu**, "
+        "**sigmoid**, **tanh**, **gelu**, **silu** (alias **swish**), **softplus**, **elu**, **prelu**, **exp2** "
+        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
+        "and how **`POST_AAQ_REG`** (interim **512 B**) and **`STR_POST_AAQ_REG`** (store to XMEM) "
+        "are described in **Building Applications** "
+        "(`docs/content/building-applications.md#activations-emulator`)."
     ),
     "LrModPow2KImmediate": (
         "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic "
@@ -65,7 +70,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "MultMaskOffsetImmediate": (
         "Unsigned **3-bit** immediate on multiply instructions: **`mask_offset`** selects slot "
-        "**`0`**–**`7`**, each a **128-bit** region of **`r_mask`** (eight mask slots total). "
+        "**`0`**–**`7`**, each a **128-bit** region of **`R_MASK`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
@@ -183,13 +188,13 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
-**Immediates (LR slot):** decimal, hex (`0x…`), binary (`0b…`); see [Immediate](operand-types.md#immediate).
+**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`** accept a small unsigned immediate on **`src_b`** only; **`INCR_MOD_POW2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
 
 ## Labels and branches
 
 ```asm
 start:
-    SET lr0 0;;
+    SET lr0 cr0;;
 loop:
     ADD lr0 lr0 1;;
     BNE lr0 lr1 loop;;
@@ -210,10 +215,12 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
     jinja_tail = """The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 
 ```jinja2
-{% set base = 0x1000 %}
-SET lr0 {{ base }};
+{% set off_reg = 6 %}
+SET lr0 cr{{ off_reg }};;
 LDR_MULT_REG r0 lr0 cr0;;
 ```
+
+The harness must initialize **`cr6`** (here: the memory offset) before this program runs.
 
 ## Running the assembler
 

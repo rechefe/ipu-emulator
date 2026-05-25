@@ -27,6 +27,7 @@ from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
+    SLOT_UNIONS,
     SLOT_COUNT,
     get_instruction_by_opcode,
     create_emulator_constants,
@@ -48,6 +49,7 @@ from ipu_common.acc_agg_enums import (
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
+from ipu_common.activations import apply_activation
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -93,9 +95,9 @@ _TYPE_FIELD_SUFFIX = {
     "VerticalStride": "vertical_stride_field",
     "AggMode": "agg_mode_field",
     "PostFn": "post_fn_field",
-    "Immediate": "lr_immediate_type",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
+    "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
 }
@@ -112,28 +114,16 @@ _SLOT_FIELD_PREFIX = {
 }
 
 
-def _build_field_map_for_instruction(
-    prefix: str, layout: list[str], operands: list[dict],
+def _build_field_map_for_instruction_union(
+    prefix: str, slot_union: object, inst_name: str,
 ) -> dict[str, str]:
-    """Build operand_name → inst dict field_key mapping for one instruction.
-
-    Uses the same greedy matching algorithm as the assembler's
-    _find_instruction_inst_mapping: for each operand, find the first
-    unused position in the binary layout with matching type.
-    """
-    used = [False] * len(layout)
+    """Build operand_name → inst dict field_key mapping using union bindings."""
     field_map: dict[str, str] = {}
-
-    for op in operands:
-        op_type = op["type"]
-        for j, layout_type in enumerate(layout):
-            if layout_type == op_type and not used[j]:
-                used[j] = True
-                token_idx = j + 1  # +1 because token_0 is opcode
-                suffix = _TYPE_FIELD_SUFFIX[layout_type]
-                field_map[op["name"]] = f"{prefix}_token_{token_idx}_{suffix}"
-                break
-
+    for field_idx, operand_name in slot_union.opcode_bindings.get(inst_name, []):
+        canonical_type = slot_union.fields[field_idx].canonical_type
+        token_idx = field_idx + 1  # +1: token_0 is the opcode
+        suffix = _TYPE_FIELD_SUFFIX[canonical_type]
+        field_map[operand_name] = f"{prefix}_token_{token_idx}_{suffix}"
     return field_map
 
 
@@ -147,19 +137,19 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
     result: dict[tuple, dict[str, str]] = {}
 
     for slot_type, prefix in _SLOT_FIELD_PREFIX.items():
-        layout = SLOT_BINARY_LAYOUT[slot_type]
-        for inst_name, inst_def in INSTRUCTION_SPEC[slot_type].items():
-            result[(slot_type, inst_name)] = _build_field_map_for_instruction(
-                prefix, layout, inst_def["operands"]
+        slot_union = SLOT_UNIONS[slot_type]
+        for inst_name in INSTRUCTION_SPEC[slot_type]:
+            result[(slot_type, inst_name)] = _build_field_map_for_instruction_union(
+                prefix, slot_union, inst_name
             )
 
     # LR has multiple sub-slots with different field prefixes
-    lr_layout = SLOT_BINARY_LAYOUT["lr"]
-    for inst_name, inst_def in INSTRUCTION_SPEC["lr"].items():
+    lr_slot_union = SLOT_UNIONS["lr"]
+    for inst_name in INSTRUCTION_SPEC["lr"]:
         for slot_idx in range(SLOT_COUNT["lr"]):
             prefix = f"lr_inst_{slot_idx}"
-            result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction(
-                prefix, lr_layout, inst_def["operands"]
+            result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction_union(
+                prefix, lr_slot_union, inst_name
             )
 
     return result
@@ -454,16 +444,9 @@ class Ipu:
     # LR Instruction Handlers
     # -----------------------------------------------------------------------
 
-    @staticmethod
-    def _sign_extend_16(value: int) -> int:
-        """Sign-extend a 16-bit value to a 32-bit signed integer."""
-        if value & 0x8000:
-            return value | 0xFFFF0000
-        return value
-
-    def execute_lr_set(self, *, reg: int, value: int) -> None:
-        """Execute SET: Set a loop register to an immediate value."""
-        self.state.regfile.set_lr(reg, self._sign_extend_16(value) & 0xFFFFFFFF)
+    def execute_lr_set(self, *, reg: int, src: int) -> None:
+        """Execute SET: Copy a 32-bit value from a configuration register into an LR."""
+        self.state.regfile.set_lr(reg, src & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
         """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
@@ -573,6 +556,39 @@ class Ipu:
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], rb[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ee_rr(self, *, ra: bytearray | int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.EE.RR: multi-element multiply of a mult-stage register by itself.
+
+        ``ra`` selects the MEE mode: R0 → r0-by-r0, R1 → r1-by-r1. Each lane is
+        multiplied by itself (element-wise square), then masked and shifted.
+        """
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            ra_vals = self._debug_ra_lane_vals(ra)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<f", mult_res, i * 4, float(ra_vals[i]) * float(ra_vals[i])
+                    )
+            else:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<i", mult_res, i * 4,
+                        self._wide_imult32(int(ra_vals[i]), int(ra_vals[i])),
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.get_cr_dtype()
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(ra[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
@@ -1130,16 +1146,18 @@ class Ipu:
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
     def execute_aaq(self) -> None:
-        """Execute AAQ: Quantize r_acc (128 × INT32) → aaq_result (128 × INT8).
+        """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
-        Requires INT8 mode. Each 32-bit word is truncated (top 8 bits taken via
-        arithmetic right-shift by 24) then clamped to [-128, 127] and stored as
-        a signed byte in the aaq_result register.
+        Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
+        ``r_acc``), typically filled by ``ACTIVATE``. Each 32-bit lane is truncated
+        then clamped to INT8 and stored in the **first 128 bytes** of
+        ``post_aaq_reg``; the wide-lane tail is cleared.
 
-        In wide-vector debug mode, ``aaq`` is normally a no-op (results stay in
-        ``r_acc`` as 32-bit lanes; use ``STR_ACC_REG`` to dump them). Set
-        ``state.wide_vector_quantize_output`` to re-run INT8-style quantization
-        from wide lanes for comparison with the real path.
+        Requires INT8 mode.
+
+        In wide-vector debug mode, ``aaq`` is normally a no-op (use
+        ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
+        to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
         """
         dtype = self.state.get_cr_dtype()
         if dtype != DType.INT8:
@@ -1148,36 +1166,70 @@ class Ipu:
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
                 return
-            acc_buf = self.state.regfile.raw("r_acc")
+            src_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(128):
-                    val = struct.unpack_from("<f", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<f", src_buf, i * 4)[0]
                     clamped = max(-128, min(127, int(round(val))))
                     result[i] = clamped & 0xFF
             else:
                 for i in range(128):
-                    val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+                    val = struct.unpack_from("<i", src_buf, i * 4)[0]
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
                     result[i] = clamped & 0xFF
-            self.state.regfile.set_aaq_result(result)
+            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
             return
 
-        acc_buf = self.state.regfile.raw("r_acc")
+        src_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
         for i in range(128):
-            val = struct.unpack_from("<i", acc_buf, i * 4)[0]
+            val = struct.unpack_from("<i", src_buf, i * 4)[0]
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
-        self.state.regfile.set_aaq_result(result)
+        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_xmem_store_aaq_result(self, *, offset: int, base: int) -> None:
-        """Execute XMEM.STORE_AAQ_RESULT: Write 128-byte aaq_result to xmem."""
+    def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
+        """Apply element-wise activation to the first ``valid_elements`` lanes.
+
+        Reads each active lane from ``r_acc`` and writes the result into the same
+        lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
+        Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
+        unchanged.
+
+        ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
+        """
+        fn_id = int(activation_fn) & 0xFFFFFFFF
+        active = self._agg_active_lane_count(valid_elements)
+        fmt = self._acc_agg_lane_fmt()
+        acc_buf = self.state.regfile.raw("r_acc")
+        post_buf = self.state.regfile.raw("post_aaq_reg")
+
+        for i in range(active):
+            raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            y = apply_activation(
+                fn_id,
+                float(raw),
+                leaky_relu_alpha=self.state.leaky_relu_alpha,
+                elu_alpha=self.state.elu_alpha,
+                prelu_alpha=self.state.prelu_alpha,
+            )
+            if fmt == "<i":
+                yi = int(round(y))
+                if yi < -2147483648:
+                    yi = -2147483648
+                elif yi > 2147483647:
+                    yi = 2147483647
+                struct.pack_into("<i", post_buf, i * 4, yi)
+            else:
+                struct.pack_into("<f", post_buf, i * 4, float(y))
+
+    def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
+        """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
         addr = offset + base
-        data = self.state.regfile.get_aaq_result()
-        self.state.xmem.write_address(addr, data)
+        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
@@ -1279,6 +1331,20 @@ class Ipu:
         for name, (op_type, source) in read_types.items():
             regfile = self.snapshot if source == "snapshot" else self.state.regfile
             kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
+
+        # Update run statistics
+        stats = self.state.stats
+        if slot_type == "mult":
+            if instruction_name != "MULT_NOP":
+                stats.mult_active_cycles += 1
+        elif slot_type == "acc":
+            if instruction_name != "ACC_NOP":
+                stats.acc_active_cycles += 1
+        elif slot_type == "xmem":
+            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+                stats.xmem_reads += 1
+            elif instruction_name in {"STR_ACC_REG", "STR_POST_AAQ_REG"}:
+                stats.xmem_writes += 1
 
         # Call handler with named arguments
         method = getattr(self, execute_fn_name)

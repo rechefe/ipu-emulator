@@ -213,6 +213,23 @@ class TestRunTest:
         )
         assert len(cb_calls) > 0
 
+    def test_run_test_passes_activation_alphas_to_state(self, tmp_path: Path) -> None:
+        """``run_test`` forwards α kwargs into ``IpuState`` (emulator-only)."""
+        from ipu_as.lark_tree import assemble_to_bin_file
+
+        inst_path = tmp_path / "bkpt.bin"
+        assemble_to_bin_file("BKPT;;\n", str(inst_path))
+
+        state, _ = run_test(
+            inst_path=inst_path,
+            leaky_relu_alpha=0.07,
+            elu_alpha=1.25,
+            prelu_alpha=0.33,
+        )
+        assert state.leaky_relu_alpha == pytest.approx(0.07)
+        assert state.elu_alpha == pytest.approx(1.25)
+        assert state.prelu_alpha == pytest.approx(0.33)
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: assemble → load → run → validate
@@ -226,12 +243,15 @@ class TestEndToEnd:
         """Assemble a trivial program, run it, verify register state."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Simple program: SET lr0 = 42, then breakpoint
-        asm = "SET lr0 42;;\nBKPT;;\n"
+        # Simple program: SET lr0 from cr8 (=42), then breakpoint
+        asm = "SET lr0 cr8;;\nBKPT;;\n"
         inst_path = tmp_path / "simple.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
-        state, cycles = run_test(inst_path=inst_path)
+        state, cycles = run_test(
+            inst_path=inst_path,
+            setup=lambda s: s.regfile.set_cr(8, 42),
+        )
 
         assert state.regfile.get_lr(0) == 42
         assert cycles >= 2  # set + BKPT

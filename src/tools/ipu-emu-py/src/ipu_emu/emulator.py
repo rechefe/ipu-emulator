@@ -79,6 +79,7 @@ def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
             # In "run" mode, skip the break and execute the instruction anyway
             execute_instruction_skip_break(state)
         cycles += 1
+    state.stats.total_cycles = cycles
     return cycles
 
 
@@ -122,6 +123,7 @@ def run_with_debug(
 
         cycles += 1
 
+    state.stats.total_cycles = cycles
     return cycles
 
 
@@ -237,18 +239,38 @@ def run_test(
     teardown: Callable[[IpuState], None] | None = None,
     max_cycles: int = 1_000_000,
     debug_callback: DebugCallback | None = None,
+    state: IpuState | None = None,
+    leaky_relu_alpha: float | None = None,
+    elu_alpha: float | None = None,
+    prelu_alpha: float | None = None,
 ) -> tuple[IpuState, int]:
     """Full test harness matching the C ``emulator__run_test`` pattern.
 
-    1. Creates a fresh :class:`IpuState`.
+    1. Creates a fresh :class:`IpuState` (unless *state* is provided).
     2. Loads the instruction binary.
     3. Calls *setup(state)* (e.g. to load data into XMEM).
     4. Runs the program.
     5. Calls *teardown(state)* (e.g. to dump XMEM results).
 
     Returns ``(state, cycles)`` so callers can inspect final state.
+
+    Optional ``leaky_relu_alpha`` / ``elu_alpha`` / ``prelu_alpha`` configure the
+    emulator-only activation α values (same idea as dtype setup, but not via CR).
+    They are applied when constructing a new ``IpuState``; if *state* is passed,
+    non-``None`` α arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
     """
-    state = IpuState()
+    if state is None:
+        state = IpuState(
+            leaky_relu_alpha=leaky_relu_alpha,
+            elu_alpha=elu_alpha,
+            prelu_alpha=prelu_alpha,
+        )
+    elif any(v is not None for v in (leaky_relu_alpha, elu_alpha, prelu_alpha)):
+        state.set_activation_alphas(
+            leaky_relu_alpha=leaky_relu_alpha,
+            elu_alpha=elu_alpha,
+            prelu_alpha=prelu_alpha,
+        )
     load_program_from_binary(state, inst_path)
 
     if setup is not None:
