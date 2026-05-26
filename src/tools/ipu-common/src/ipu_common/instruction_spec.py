@@ -792,7 +792,7 @@ INSTRUCTION_SPEC = {
                     "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
                     "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
                     "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
-                    "encodings outside the twelve named activations behave as identity. For Python "
+                    "encodings outside the thirteen named activations behave as identity. For Python "
                     "emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),

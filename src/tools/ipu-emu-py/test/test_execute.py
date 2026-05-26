@@ -1989,6 +1989,7 @@ BKPT;;
         for i in range(2, 128):
             assert _post_aaq_lane_i32(state, i) == 99_999
 
+
     def test_activate_identity_keyword_is_noop(self):
         state = _make_state(
             """\
@@ -2166,3 +2167,96 @@ BKPT;;
         assert state.regfile.get_r_acc_word(1) == tail
         assert _post_aaq_lane_i32(state, 0) == 0
         assert _post_aaq_lane_i32(state, 1) == 0
+
+    def test_activate_inv_sqrt_float_positive(self):
+        """inv_sqrt on a positive FP32 lane gives 1/sqrt(x)."""
+        state = _make_state(
+            """\
+ACTIVATE lr0 inv_sqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        x = 4.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 0.5) < 1e-6
+
+    def test_activate_inv_sqrt_zero_returns_zero(self):
+        """inv_sqrt(0) → 0 (corner case: no division by zero)."""
+        state = _make_state(
+            """\
+ACTIVATE lr0 inv_sqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert out == 0.0
+
+    def test_activate_inv_sqrt_negative_returns_zero(self):
+        """inv_sqrt(x) → 0 for x < 0 (same convention as agg inv_sqrt post-fn)."""
+        state = _make_state(
+            """\
+ACTIVATE lr0 inv_sqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", -9.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert out == 0.0
+
+    def test_activate_inv_sqrt_per_lane_not_global(self):
+        """inv_sqrt is applied per lane — result differs from inv_sqrt(sum)."""
+        state = _make_state(
+            """\
+ACTIVATE lr0 inv_sqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 2)
+        vals = [1.0, 9.0]
+        for i, v in enumerate(vals):
+            state.regfile.set_r_acc_word(
+                i, struct.unpack("<I", struct.pack("<f", v))[0]
+            )
+        run_until_complete(state)
+        assert abs(_post_aaq_lane_f32(state, 0) - 1.0) < 1e-6
+        assert abs(_post_aaq_lane_f32(state, 1) - (1.0 / 3.0)) < 1e-6
+
+    def test_activate_inv_sqrt_matches_apply_activation(self):
+        """ACTIVATE inv_sqrt matches ipu_common apply_activation for all 128 lanes."""
+        state = _make_state(
+            """\
+ACTIVATE lr0 inv_sqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 128)
+        xs = [(i + 1) * 0.25 for i in range(128)]
+        for i, x in enumerate(xs):
+            state.regfile.set_r_acc_word(
+                i, struct.unpack("<I", struct.pack("<f", x))[0]
+            )
+        run_until_complete(state)
+        fn_id = ACTIVATION_FN_NAMES.index("inv_sqrt")
+        for i, x in enumerate(xs):
+            got = _post_aaq_lane_f32(state, i)
+            exp = apply_activation(fn_id, x)
+            assert abs(got - exp) < 1e-5, f"lane {i}: got {got}, expected {exp}"

@@ -13,6 +13,14 @@
 #   cr0 = input  base  (A: 128 rows x 128 bytes = 16384 bytes)
 #   cr1 = weights base (T: 128 rows x 128 bytes = 16384 bytes; T[k] = col k of W)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes, 128 x int32/fp32 per row)
+#   cr3 = 1      (ADD step for fixed_idx)
+#   cr4 = 128    (ADD step for weight/input strides)
+#   cr5 = 512    (ADD step for output stride)
+#   cr6 = 16384  (outer loop limit = M * 128)
+#   cr7 = 0      (const zero: initial offsets and r_cyclic slot 0)
+#   cr8 = -128   (inner loop init: weight offset startup)
+#   cr9 = -1     (inner loop init: fixed_idx startup)
+#   cr10 = 127   (inner loop limit K-1)
 #
 # LRs:
 #   lr0  = byte offset into A (row m * 128)
@@ -26,21 +34,21 @@
 #   lr14 = 512 (ADD step for output stride)
 #   lr15 = 0   (const: r_cyclic slot 0 for LDR_CYCLIC_MULT_REG and MULT.VE.CYCLIC)
 
-    SET                 lr12 1;;
-    SET                 lr13 128;;
-    SET                 lr14 512;;
-    SET                 lr0 0;;
-    SET                 lr1 16384;;
-    SET                 lr7 0;;
+    SET                 lr12 cr3;;
+    SET                 lr13 cr4;;
+    SET                 lr14 cr5;;
+    SET                 lr0 cr7;;
+    SET                 lr1 cr6;;
+    SET                 lr7 cr7;;
 
 row_loop:
     RESET_ACC;;
 
     LDR_MULT_REG        r0 lr0 cr0;;     # r0 = A[m][0..127]
 
-    SET                 lr4 -128;;       # first live = 0 = T[k=0]
-    SET                 lr5 -1;;         # first live = 0
-    SET                 lr6 127;;        # BLT: exit when snap >= 127; last live = 127
+    SET                 lr4 cr8;;        # first live = 0 = T[k=0]
+    SET                 lr5 cr9;;        # first live = 0
+    SET                 lr6 cr10;;       # BLT: exit when snap >= 127; last live = 127
 
 k_loop:
     LDR_CYCLIC_MULT_REG lr4 cr1 lr15;   # XMEM: r_cyclic[0] = T[k][0..127]

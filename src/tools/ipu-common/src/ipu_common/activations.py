@@ -27,8 +27,9 @@ ACTIVATION_SOFTPLUS = 8
 ACTIVATION_ELU = 9
 ACTIVATION_PRELU = 10
 ACTIVATION_EXP2 = 11
+ACTIVATION_INV_SQRT = 12
 
-ACTIVATION_COUNT = 12
+ACTIVATION_COUNT = 13
 
 # Assembly / encoding order (id = index); must match ACTIVATION_* constants above.
 ACTIVATION_FN_NAMES: tuple[str, ...] = (
@@ -44,6 +45,7 @@ ACTIVATION_FN_NAMES: tuple[str, ...] = (
     "elu",
     "prelu",
     "exp2",
+    "inv_sqrt",
 )
 
 # Default α values — virtual configuration outside the ISA (issue #77).
@@ -125,4 +127,6 @@ def apply_activation(
         return x if x >= 0.0 else pa * x
     if k == ACTIVATION_EXP2:
         return math.exp(x * math.log(2.0))
+    if k == ACTIVATION_INV_SQRT:
+        return 1.0 / math.sqrt(x) if x > 0.0 else 0.0
     return x

@@ -25,6 +25,11 @@
 #   cr1 = B_BASE      = 0x10000
 #   cr2 = ONES_BASE   = 0x20000  (128 bytes of dtype-1.0, loaded by harness)
 #   cr3 = OUTPUT_BASE = 0x30000
+#   cr4 = 0    (const zero)
+#   cr5 = -128 (startup init for A/B row ptrs)
+#   cr6 = 288  (loop bound = N_ROWS)
+#   cr7 = 128  (row stride for A and B)
+#   cr8 = 512  (output stride)
 #
 # LRs:
 #   lr0 = 0    (const: r_cyclic slot-0 base offset; mask_shift=0)
@@ -37,15 +42,15 @@
 #   lr7 = 128  (row stride for A and B)
 #   lr8 = 512  (output stride)
 
-    SET                 lr0 0;;
-    SET                 lr1 0;;
-    SET                 lr2 -128;;
-    SET                 lr3 -128;;
-    SET                 lr4 0;;
-    SET                 lr5 0;;
-    SET                 lr6 288;;
-    SET                 lr7 128;;
-    SET                 lr8 512;;
+    SET                 lr0 cr4;;
+    SET                 lr1 cr4;;
+    SET                 lr2 cr5;;
+    SET                 lr3 cr5;;
+    SET                 lr4 cr4;;
+    SET                 lr5 cr4;;
+    SET                 lr6 cr6;;
+    SET                 lr7 cr7;;
+    SET                 lr8 cr8;;
     LDR_MULT_REG        r0 lr0 cr2;;      # r0 = ONES_BASE[0..127] = dtype-1.0 × 128
 
 row_loop:

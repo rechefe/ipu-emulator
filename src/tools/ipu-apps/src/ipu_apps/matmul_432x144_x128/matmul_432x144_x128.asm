@@ -1,6 +1,6 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]
 #
-# D: interleaved channel-major [144 channels, 2 tg, 128 tokens]
+# D: interleaved channel-major [K=144 channels, 2 tg, 128 tokens]
 #    Row (k, tg) at DATA_BASE + k*256 + tg*128
 # W: output-major [432 out_ch, 144 in_ch], NO transposition
 #    W[j, 0..127]   at WEIGHTS_BASE + j*256
@@ -8,88 +8,72 @@
 # C: grouped channel-major [2 tg, 432 out_ch, 128 tokens], FP32 accumulators
 #    Row (j, tg) at OUTPUT_BASE + tg*N_OUT*512 + j*512
 #
-# CRs:
-#   cr0 = DATA_BASE
-#   cr1 = WEIGHTS_BASE
-#   cr2 = WEIGHTS_BASE + 128   (second 128-byte chunk of weights)
-#   cr3 = OUTPUT_BASE                    (tg=0 output)
-#   cr4 = OUTPUT_BASE + N_OUT*512        (tg=1 output)
+# Algorithm: load W[j,:] into r0/r1 (once per j); load D[k,tg] into r_cyclic per k.
+#   MULT.VE.CYCLIC: r0[fixed_idx] x r_cyclic[:] → 128 outputs per cycle.
+#   k=0..127 uses r0[k]; k=128..143 uses r1[k-128] (fixed_idx=128..143 auto-reads r1).
 #
-# LRs:
-#   lr0 = 0    (const: r_cyclic slot-0 index)
-#   lr1 = 128  (const: r_cyclic slot-1 index)
-#   lr4 = inner data pointer (reset per j/tg via set)
-#   lr5 = inner cyclic index (reset per j/tg via set)
-#   lr6 = 143  (K-1, inner loop bound)
-#   lr7 = output pointer (+512 per j, shared by both tgs)
-#   lr8 = weight byte offset (+256 per j)
-#   lr9 = j counter (0..431)
-#   lr10 = 432 (j-loop limit; using counter avoids 16-bit immediate overflow)
-#
-# One-cycle startup offset pattern (pipeline alignment):
-#   Slot order within a compound instruction: XMEM → MULT → ACC → LR → COND
-#   XMEM reads the current lr4 BEFORE LR increments it in the same cycle.
-#   Likewise, MULT reads r_cyclic at lr5 BEFORE LR increments it.
-#   So we initialise both one step behind the true first value:
-#     lr4 = -128: dummy XMEM reads DATA_BASE-128 (before allocated region → zeros)
-#     lr5 = -1:   dummy MULT reads r_cyclic[511] = 0  → contributes 0 to accumulator
-#   After that dummy cycle lr4=0, lr5=0, and real k=0 data/weight is used from cycle 2.
-#
-#   tg=0: set lr4=-256, stride 256 → first real XMEM addr = DATA_BASE + 0   = D[k=0, tg=0]
-#   tg=1: set lr4=-128, stride 256 → first real XMEM addr = DATA_BASE + 128 = D[k=0, tg=1]
-#          (interleaved: D[k,tg] at k*256 + tg*128; startup = first_addr - stride)
+# CRs: cr0=DATA_BASE, cr1=WEIGHTS_BASE, cr2=WEIGHTS_BASE+128,
+#       cr3=OUTPUT_BASE (tg=0), cr4=OUTPUT_BASE+N_OUT*512 (tg=1)
+#       cr5=-256 (tg=0 data startup), cr6=-128 (tg=1 data startup)
+#       cr7=-1 (k-loop1 fixed_idx startup), cr8=127 (k-loop2 fixed_idx startup)
+# LRs (preset by harness):
+#   lr0=0    (const: r_cyclic write-index 0)
+#   lr2=256  (data stride: 256 bytes/channel)
+#   lr3=512  (output stride: 512 bytes/j)
+#   lr6=127  (k-loop1 bound: loop while lr5 < 127, last real k=127)
+#   lr7=0    (output pointer, incremented by lr3 each j)
+#   lr8=0    (weight byte offset, incremented by lr12 each j)
+#   lr9=0    (j counter)
+#   lr10=432 (j-loop limit)
+#   lr11=143 (k-loop2 bound: loop while lr5 < 143, last real k=143)
+#   lr12=256 (W_STRIDE = 256 bytes per j)
 #
 # Memory layout:
-#   DATA:    2 × 144 × 128 B = 36 864 B  (0x00000..0x08FFF)
+#   DATA:    2 × 144 × 128 B =  36 864 B (0x00000..0x08FFF)
 #   WEIGHTS: 432 rows × 256 B = 110 592 B (0x10000..0x2AFFF)
 #   OUTPUT:  2 × 432 × 512 B = 442 368 B  (0x30000..0x9BFFF)
 
-    set                 lr0 0;;
-    set                 lr1 128;;
-    set                 lr6 143;;
-    set                 lr7 0;;
-    set                 lr8 0;;
-    set                 lr9 0;;
-    set                 lr10 432;;
-
 j_loop:
-    ldr_cyclic_mult_reg lr8 cr1 lr0;;    # r_cyclic[0..127]   = W[j, 0..127]
-    ldr_cyclic_mult_reg lr8 cr2 lr1;;    # r_cyclic[128..255] = W[j, 128..143] + zeros
+    LDR_MULT_REG r0 lr8 cr1;;          # r0[0..127] = W[j, 0..127]
+    LDR_MULT_REG r1 lr8 cr2;;          # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
-    reset_acc;;
-    set                 lr4 -256;;         # startup offset: interleaved tg=0 stride=256
-    set                 lr5 -1;;
+    RESET_ACC;;
+    SET lr4 cr5;;                       # tg=0 startup offset: -256
+    SET lr5 cr7;;                       # k-loop1 fixed_idx startup: -1
 
-k_loop_tg0:                                  # K+1 iterations: 1 dummy startup + K real (k=0..143)
-    ldr_mult_reg        mem_bypass lr4 cr0;  # XMEM : mem_bypass = D[k, tg=0]  (128 bytes, cache bypassed)
-    incr                lr4 256;             # LR_A : lr4 += 256  (stride to next channel)
-    incr                lr5 1;               # LR_B : lr5 += 1    (cyclic index: −1 → 0 → … → 143)
-    mult.ev             mem_bypass lr5 lr0 lr0; # MULT: 128 PE outputs = r_cyclic[lr5_old] × mem_bypass
-    acc;                                     # ACC  : accumulator[0..127] += mult result  (FP32)
-    blt                 lr5 lr6 k_loop_tg0;; # COND : branch while lr5 < 143; exit when lr5 == 143
+k_loop1_tg0:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_loop1_tg0;;
 
-    str_acc_reg         lr7 cr3;;            # store 512 B accumulator → OUTPUT[j, tg=0]
+    SET lr5 cr8;;                       # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
+
+k_loop2_tg0:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr11 k_loop2_tg0;;
+
+    STR_ACC_REG lr7 cr3;;               # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
-    reset_acc;;                              # clear accumulator for tg=1 pass (weights stay in r_cyclic)
-    set                 lr4 -128;;           # startup: interleaved tg=1 first addr=128, stride=256, startup=128-256=-128
-    set                 lr5 -1;;             # reset cyclic index for second pass
+    RESET_ACC;;
+    SET lr4 cr6;;                       # tg=1 startup offset: -128
+    SET lr5 cr7;;                       # k-loop1 fixed_idx startup: -1
 
-k_loop_tg1:                                  # identical structure; iterates over same k, different tg
-    ldr_mult_reg        mem_bypass lr4 cr0;  # XMEM : mem_bypass = D[k, tg=1]
-    incr                lr4 256;             # LR_A : lr4 += 256
-    incr                lr5 1;               # LR_B : lr5 += 1
-    mult.ev             mem_bypass lr5 lr0 lr0; # MULT: r_cyclic[lr5_old] × mem_bypass
-    acc;                                     # ACC  : accumulator += mult result
-    blt                 lr5 lr6 k_loop_tg1;; # COND : branch while lr5 < 143
+k_loop1_tg1:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_loop1_tg1;;
 
-    str_acc_reg         lr7 cr4;;            # store 512 B accumulator → OUTPUT[j, tg=1]
-    incr                lr7 512;;            # advance output ptr (once per j)
+    SET lr5 cr8;;
 
-    incr                lr8 256;             # advance weight offset to W[j+1, :]  (W_STRIDE = 256 B)
-    incr                lr9 1;;              # increment j counter
-    blt                 lr9 lr10 j_loop;;    # loop while j < 432
+k_loop2_tg1:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr11 k_loop2_tg1;;
+
+    STR_ACC_REG lr7 cr4;;               # store 512B → OUTPUT[j, tg=1]
+    ADD lr7 lr7 lr3;;                   # advance output ptr
+
+    ADD lr8 lr8 lr12; ADD lr9 lr9 1;;   # next j: weight offset += W_STRIDE, j++
+    BLT lr9 lr10 j_loop;;
 
 end:
-    bkpt;;
+    BKPT;;

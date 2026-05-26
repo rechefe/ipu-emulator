@@ -82,6 +82,20 @@ class MatMul288x144x128App(IpuApp):
         state.regfile.set_cr(2, WEIGHTS_BASE + 128)
         state.regfile.set_cr(3, OUTPUT_BASE)                    # tg=0 output
         state.regfile.set_cr(4, OUTPUT_BASE + N_OUT * 512)      # tg=1 output
+        state.regfile.set_cr(5, -256)                           # tg=0 data startup
+        state.regfile.set_cr(6, -128)                           # tg=1 data startup
+        state.regfile.set_cr(7, -1)                             # k-loop1 fixed_idx startup
+        state.regfile.set_cr(8, 127)                            # k-loop2 fixed_idx startup
+        state.regfile.set_lr(0, 0)                              # r_cyclic write-index 0
+        state.regfile.set_lr(2, 256)                            # data stride
+        state.regfile.set_lr(3, 512)                            # output stride
+        state.regfile.set_lr(6, 127)                            # k-loop1 bound
+        state.regfile.set_lr(7, 0)                              # output pointer
+        state.regfile.set_lr(8, 0)                              # weight byte offset
+        state.regfile.set_lr(9, 0)                              # j counter
+        state.regfile.set_lr(10, N_OUT)                         # j-loop limit
+        state.regfile.set_lr(11, K - 1)                         # k-loop2 bound (143)
+        state.regfile.set_lr(12, W_STRIDE)                      # weight stride per j
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

@@ -80,6 +80,11 @@ class ResidualAdd256x144App(IpuApp):
         state.regfile.set_cr(1, B_BASE)
         state.regfile.set_cr(2, ONES_BASE)
         state.regfile.set_cr(3, OUTPUT_BASE)
+        state.regfile.set_cr(4, 0)
+        state.regfile.set_cr(5, -128)
+        state.regfile.set_cr(6, N_ROWS)
+        state.regfile.set_cr(7, ROW_BYTES)
+        state.regfile.set_cr(8, OUTPUT_ROW_BYTES)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

@@ -12,24 +12,32 @@
 #   cr0 = input  base  (A: 128 rows x 128 bytes padded = 16384 bytes)
 #   cr1 = weights base (T: 64 rows x 128 bytes = 8192 bytes; T[k] = col k of W)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes)
+#   cr3 = 1      (ADD step for fixed_idx)
+#   cr4 = 128    (ADD step for weight/input strides)
+#   cr5 = 512    (ADD step for output stride)
+#   cr6 = 16384  (outer loop limit = M * 128)
+#   cr7 = 0      (const zero)
+#   cr8 = -128   (inner loop init: weight offset startup)
+#   cr9 = -1     (inner loop init: fixed_idx startup)
+#   cr10 = 63    (inner loop limit K-1 = 63)
 #
-# Identical to matmul_128x128.asm except lr6 = 63 (K-1 = 63).
+# Identical to matmul_128x128.asm except cr10 = 63 (K-1 = 63).
 
-    SET                 lr12 1;;
-    SET                 lr13 128;;
-    SET                 lr14 512;;
-    SET                 lr0 0;;
-    SET                 lr1 16384;;
-    SET                 lr7 0;;
+    SET                 lr12 cr3;;
+    SET                 lr13 cr4;;
+    SET                 lr14 cr5;;
+    SET                 lr0 cr7;;
+    SET                 lr1 cr6;;
+    SET                 lr7 cr7;;
 
 row_loop:
     RESET_ACC;;
 
     LDR_MULT_REG        r0 lr0 cr0;;
 
-    SET                 lr4 -128;;
-    SET                 lr5 -1;;
-    SET                 lr6 63;;         # K-1 = 63
+    SET                 lr4 cr8;;
+    SET                 lr5 cr9;;
+    SET                 lr6 cr10;;       # K-1 = 63
 
 k_loop:
     LDR_CYCLIC_MULT_REG lr4 cr1 lr15;

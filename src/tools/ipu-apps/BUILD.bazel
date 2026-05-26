@@ -657,64 +657,6 @@ py_pytest_test(
     ],
 )
 
-# -- rf_feedback app --------------------------------------------------------
-
-exports_files([
-    "src/ipu_apps/rf_feedback/rf_feedback.asm",
-])
-
-filegroup(
-    name = "rf_feedback_test_data",
-    srcs = glob(["src/ipu_apps/rf_feedback/test_data_format/**/*.bin"]),
-)
-
-assemble_asm(
-    name = "assemble_rf_feedback",
-    src = "src/ipu_apps/rf_feedback/rf_feedback.asm",
-)
-
-py_binary(
-    name = "rf_feedback",
-    srcs = ["src/ipu_apps/rf_feedback/__main__.py"],
-    main = "src/ipu_apps/rf_feedback/__main__.py",
-    data = [
-        ":assemble_rf_feedback.bin",
-        ":rf_feedback_test_data",
-    ],
-    env = {
-        "RF_FEEDBACK_INST_BIN": "$(rootpath :assemble_rf_feedback.bin)",
-        "RF_FEEDBACK_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/rf_feedback/test_data_format",
-    },
-    imports = ["src"],
-    deps = [":ipu_apps_lib"],
-)
-
-py_binary(
-    name = "gen_rf_feedback_test_data",
-    srcs = ["src/ipu_apps/rf_feedback/gen_test_data.py"],
-    main = "src/ipu_apps/rf_feedback/gen_test_data.py",
-    imports = ["src"],
-    deps = [":ipu_apps_lib"],
-)
-
-py_pytest_test(
-    name = "test_rf_feedback",
-    srcs = ["test/test_rf_feedback.py"],
-    data = [
-        ":assemble_rf_feedback.bin",
-        ":rf_feedback_test_data",
-    ],
-    env = {
-        "RF_FEEDBACK_INST_BIN": "$(rootpath :assemble_rf_feedback.bin)",
-        "RF_FEEDBACK_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/rf_feedback/test_data_format",
-    },
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
 # -- layernorm_256x144 app --------------------------------------------------
 
 exports_files([

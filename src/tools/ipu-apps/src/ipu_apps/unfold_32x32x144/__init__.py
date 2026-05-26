@@ -130,6 +130,18 @@ class Unfold32x32x144App(IpuApp):
         state.regfile.set_cr(10, DST_BASE + _STREAM_BYTES)
         state.regfile.set_cr(11, DST_BASE + 2 * _STREAM_BYTES)
         state.regfile.set_cr(12, DST_BASE + 3 * _STREAM_BYTES)
+        # constant LRs preset here (SET requires CR source since issue #82)
+        state.regfile.set_lr(0, 0)
+        state.regfile.set_lr(1, 1)
+        state.regfile.set_lr(2, 2)
+        state.regfile.set_lr(3, 3)
+        state.regfile.set_lr(4, 0)
+        state.regfile.set_lr(5, 128)
+        state.regfile.set_lr(6, 1024)
+        state.regfile.set_lr(8, 0)
+        state.regfile.set_lr(9, 512)
+        state.regfile.set_lr(10, 0)
+        state.regfile.set_lr(11, C)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

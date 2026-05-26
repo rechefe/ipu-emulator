@@ -71,16 +71,11 @@
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
+# Constant LRs are preset by the harness (set_lr):
+#   lr0=0, lr1=1, lr2=2, lr3=3, lr4=0, lr5=128, lr6=1024,
+#   lr8=0, lr9=512, lr10=0, lr11=144
 
-    SET                 lr0 0;;
     LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
-
-    SET lr1 1; SET lr2 2;;
-    SET lr3 3; SET lr4 0;;
-    SET lr5 128; SET lr6 1024;;
-    SET lr8 0;;
-    SET lr9 512;;                                        # lr9 = 512 = tg=1 row offset for ch=0
-    SET lr10 0; SET lr11 144;;
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..143)

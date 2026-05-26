@@ -126,6 +126,14 @@ class MatMul128x64x64App(IpuApp):
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
         state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+        state.regfile.set_cr(3, 1)
+        state.regfile.set_cr(4, 128)
+        state.regfile.set_cr(5, N * 4)
+        state.regfile.set_cr(6, M * 128)
+        state.regfile.set_cr(7, 0)
+        state.regfile.set_cr(8, -128)
+        state.regfile.set_cr(9, -1)
+        state.regfile.set_cr(10, K - 1)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

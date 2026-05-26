@@ -154,6 +154,7 @@ Supported activation functions:
 | 9 | `elu` | `f(x) = x if x ≥ 0 else α·(e^x − 1)` | Smooth negative region; reduces vanishing gradient. |
 | 10 | `prelu` | `f(x) = x if x ≥ 0 else α·x` | Like Leaky ReLU but α is a learned per-channel parameter. |
 | 11 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+| 12 | `inv_sqrt` | `f(x) = 1 / sqrt(x)` | 0 if x ≤ 0. Used for per-lane variance normalization (LayerNorm). |
 
 ### 7.1 Aggregate (`agg`)
 
