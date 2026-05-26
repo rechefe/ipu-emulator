@@ -792,21 +792,23 @@ INSTRUCTION_SPEC = {
                     "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
                     "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
                     "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
-                    "encodings outside the twelve named activations behave as identity. For Python "
-                    "emulator calibration (virtual α), see "
+                    "encodings outside the nine named activations behave as identity. The available "
+                    "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
+                    "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
+                    "``exp2`` (8). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
                 syntax="ACTIVATE valid_elements activation_fn",
                 operands=[
                     "valid_elements: lane count from an LR or CR register (unsigned, clamped to 0–128)",
-                    "activation_fn: keyword naming the activation (e.g. relu, gelu, silu; see ACTIVATION_FN_NAMES)",
+                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
                 ],
                 operation=(
                     "Let n = min(valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
-                    "R_ACC is not modified. The selector uses four bits; encodings outside the twelve named "
+                    "R_ACC is not modified. The selector uses four bits; encodings outside the nine named "
                     "activations behave as identity. "
-                    "α for leaky_relu, elu, and prelu is not an ISA operand; see "
+                    "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
                 example="ACTIVATE LR0 relu;;",

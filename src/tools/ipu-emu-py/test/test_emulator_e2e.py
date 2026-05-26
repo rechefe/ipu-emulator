@@ -222,13 +222,9 @@ class TestRunTest:
 
         state, _ = run_test(
             inst_path=inst_path,
-            leaky_relu_alpha=0.07,
             elu_alpha=1.25,
-            prelu_alpha=0.33,
         )
-        assert state.leaky_relu_alpha == pytest.approx(0.07)
         assert state.elu_alpha == pytest.approx(1.25)
-        assert state.prelu_alpha == pytest.approx(0.33)
 
 
 # ---------------------------------------------------------------------------

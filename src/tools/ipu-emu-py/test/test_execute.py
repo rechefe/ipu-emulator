@@ -38,9 +38,7 @@ def _make_state(
     asm_code: str,
     *,
     cr: dict[int, int] | None = None,
-    leaky_relu_alpha: float | None = None,
     elu_alpha: float | None = None,
-    prelu_alpha: float | None = None,
 ) -> IpuState:
     """Assemble *asm_code* and return a ready-to-run IpuState.
 
@@ -50,11 +48,7 @@ def _make_state(
     """
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState(
-        leaky_relu_alpha=leaky_relu_alpha,
-        elu_alpha=elu_alpha,
-        prelu_alpha=prelu_alpha,
-    )
+    state = IpuState(elu_alpha=elu_alpha)
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -66,18 +60,14 @@ def _run(
     asm_code: str,
     *,
     cr: dict[int, int] | None = None,
-    leaky_relu_alpha: float | None = None,
     elu_alpha: float | None = None,
-    prelu_alpha: float | None = None,
     max_cycles: int = 100_000,
 ) -> IpuState:
     """Assemble, load, run, and return the final state."""
     state = _make_state(
         asm_code,
         cr=cr,
-        leaky_relu_alpha=leaky_relu_alpha,
         elu_alpha=elu_alpha,
-        prelu_alpha=prelu_alpha,
     )
     run_until_complete(state, max_cycles)
     return state
@@ -2070,49 +2060,18 @@ BKPT;;
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - apply_activation(6, x)) < 1e-5
+        assert abs(out - apply_activation(5, x)) < 1e-5
 
-    def test_activate_swish_alias_matches_silu(self):
-        state = _make_state(
-            """\
-ACTIVATE lr0 swish;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
-        x = 0.5
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out_swish = _post_aaq_lane_f32(state, 0)
-
-        st2 = _make_state(
-            """\
-ACTIVATE lr0 silu;;
-BKPT;;
-"""
-        )
-        st2.regfile.set_cr(15, DType.E4)
-        st2.regfile.set_lr(0, 1)
-        st2.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(st2)
-        out_silu = _post_aaq_lane_f32(st2, 0)
-        assert abs(out_swish - out_silu) < 1e-7
-
-    def test_activate_leaky_relu_respects_ipu_state_alpha(self):
+    def test_activate_elu_respects_ipu_state_alpha(self):
         """``IpuState`` α overrides module defaults for ``ACTIVATE`` (not CR)."""
         x = -1.0
         alpha = 0.5
         state = _make_state(
             """\
-ACTIVATE lr0 leaky_relu;;
+ACTIVATE lr0 elu;;
 BKPT;;
 """,
-            leaky_relu_alpha=alpha,
+            elu_alpha=alpha,
         )
         state.regfile.set_cr(15, DType.E4)
         state.regfile.set_lr(0, 1)
@@ -2121,19 +2080,19 @@ BKPT;;
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        exp = apply_activation(7, x, elu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
-    def test_activate_leaky_relu_after_set_activation_alphas(self):
+    def test_activate_elu_after_set_activation_alphas(self):
         x = -2.0
         alpha = 0.125
         state = _make_state(
             """\
-ACTIVATE lr0 leaky_relu;;
+ACTIVATE lr0 elu;;
 BKPT;;
 """
         )
-        state.set_activation_alphas(leaky_relu_alpha=alpha)
+        state.set_activation_alphas(elu_alpha=alpha)
         state.regfile.set_cr(15, DType.E4)
         state.regfile.set_lr(0, 1)
         state.regfile.set_r_acc_word(
@@ -2141,7 +2100,7 @@ BKPT;;
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        exp = apply_activation(7, x, elu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
     def test_activate_valid_elements_from_cr(self):

@@ -1199,7 +1199,7 @@ class Ipu:
         Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
         unchanged.
 
-        ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
+        ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
         """
         fn_id = int(activation_fn) & 0xFFFFFFFF
         active = self._agg_active_lane_count(valid_elements)
@@ -1212,9 +1212,7 @@ class Ipu:
             y = apply_activation(
                 fn_id,
                 float(raw),
-                leaky_relu_alpha=self.state.leaky_relu_alpha,
                 elu_alpha=self.state.elu_alpha,
-                prelu_alpha=self.state.prelu_alpha,
             )
             if fmt == "<i":
                 yi = int(round(y))

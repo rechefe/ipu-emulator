@@ -48,9 +48,7 @@ class IpuState:
         wide_vector_debug: bool = False,
         wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
         wide_vector_quantize_output: bool = False,
-        leaky_relu_alpha: float | None = None,
         elu_alpha: float | None = None,
-        prelu_alpha: float | None = None,
     ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
@@ -73,16 +71,8 @@ class IpuState:
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         # Snapshot module defaults at construction unless caller overrides. Matches
         # the ergonomics of ``set_cr_dtype`` but lives on ``IpuState`` only.
-        self.leaky_relu_alpha: float = (
-            float(leaky_relu_alpha)
-            if leaky_relu_alpha is not None
-            else float(_activations._LEAKY_ALPHA)
-        )
         self.elu_alpha: float = (
             float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
-        )
-        self.prelu_alpha: float = (
-            float(prelu_alpha) if prelu_alpha is not None else float(_activations._PRELU_ALPHA)
         )
 
     # -- CR dtype convenience (mirrors ipu__set_cr_dtype / ipu__get_cr_dtype) --
@@ -98,21 +88,15 @@ class IpuState:
     def set_activation_alphas(
         self,
         *,
-        leaky_relu_alpha: float | None = None,
         elu_alpha: float | None = None,
-        prelu_alpha: float | None = None,
     ) -> None:
-        """Override α for ``leaky_relu`` / ``elu`` / ``prelu`` (emulator-only; not CR).
+        """Override α for ``elu`` (emulator-only; not CR).
 
         Only arguments that are not ``None`` are updated. Values apply to subsequent
         ``ACTIVATE`` instructions executed on this state.
         """
-        if leaky_relu_alpha is not None:
-            self.leaky_relu_alpha = float(leaky_relu_alpha)
         if elu_alpha is not None:
             self.elu_alpha = float(elu_alpha)
-        if prelu_alpha is not None:
-            self.prelu_alpha = float(prelu_alpha)
 
     # -- register file snapshot (for VLIW dispatch) -------------------------
 
