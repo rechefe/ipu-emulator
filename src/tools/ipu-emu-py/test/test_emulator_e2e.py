@@ -213,6 +213,19 @@ class TestRunTest:
         )
         assert len(cb_calls) > 0
 
+    def test_run_test_passes_activation_alphas_to_state(self, tmp_path: Path) -> None:
+        """``run_test`` forwards α kwargs into ``IpuState`` (emulator-only)."""
+        from ipu_as.lark_tree import assemble_to_bin_file
+
+        inst_path = tmp_path / "bkpt.bin"
+        assemble_to_bin_file("BKPT;;\n", str(inst_path))
+
+        state, _ = run_test(
+            inst_path=inst_path,
+            elu_alpha=1.25,
+        )
+        assert state.elu_alpha == pytest.approx(1.25)
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: assemble → load → run → validate

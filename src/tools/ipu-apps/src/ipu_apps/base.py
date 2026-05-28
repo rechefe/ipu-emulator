@@ -36,7 +36,8 @@ class IpuApp:
     Args:
         inst_path:   Path to the assembled instruction binary.
         output_path: Optional path to write output data.
-        **kwargs:    Any extra fields are stored as attributes.
+        **kwargs:    Any extra fields are stored as attributes (for example
+            ``elu_alpha`` for :meth:`run`).
     """
 
     def __init__(
@@ -62,12 +63,24 @@ class IpuApp:
         *,
         max_cycles: int = 1_000_000,
         debug_callback: DebugCallback | None = None,
+        state: "IpuState | None" = None,
+        elu_alpha: float | None = None,
     ) -> tuple["IpuState", int]:
-        """Run the app end-to-end. Returns ``(state, cycles)``."""
+        """Run the app end-to-end. Returns ``(state, cycles)``.
+
+        Optional ``elu_alpha`` matches :func:`ipu_emu.emulator.run_test`: it
+        configures emulator-only activation α (not CR). An explicit argument wins;
+        otherwise an ``elu_alpha`` attribute stored on the app from
+        ``__init__(**kwargs)`` (for example ``MyApp(..., elu_alpha=0.5)``) is used
+        when present.
+        """
+        ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
         return run_test(
             inst_path=self.inst_path,
             setup=self.setup,
             teardown=self.teardown,
             max_cycles=max_cycles,
             debug_callback=debug_callback,
+            state=state,
+            elu_alpha=ea,
         )

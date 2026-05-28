@@ -26,21 +26,29 @@ from ipu_as.lark_tree import assemble, parse
 
 from ipu_as.compound_inst import CompoundInst
 
+from ipu_common.activations import ACTIVATION_FN_NAMES, apply_activation
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_state(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
+def _make_state(
+    asm_code: str,
+    *,
+    cr: dict[int, int] | None = None,
+    elu_alpha: float | None = None,
+) -> IpuState:
     """Assemble *asm_code* and return a ready-to-run IpuState.
 
     Optional *cr* presets configuration registers before the program is loaded
-    (e.g. constants read by ``SET lr* cr*``).
+    (e.g. constants read by ``SET lr* cr*``). Optional α kwargs are forwarded to
+    :class:`IpuState` (emulator-only; not CR).
     """
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState()
+    state = IpuState(elu_alpha=elu_alpha)
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -48,10 +56,20 @@ def _make_state(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
     return state
 
 
-def _run(asm_code: str, *, cr: dict[int, int] | None = None, **kw) -> IpuState:
+def _run(
+    asm_code: str,
+    *,
+    cr: dict[int, int] | None = None,
+    elu_alpha: float | None = None,
+    max_cycles: int = 100_000,
+) -> IpuState:
     """Assemble, load, run, and return the final state."""
-    state = _make_state(asm_code, cr=cr)
-    run_until_complete(state, **kw)
+    state = _make_state(
+        asm_code,
+        cr=cr,
+        elu_alpha=elu_alpha,
+    )
+    run_until_complete(state, max_cycles)
     return state
 
 
@@ -214,7 +232,7 @@ BKPT;;
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
         encoded = assemble("INCR_MOD_POW2 lr0 lr1 9;; BKPT;;")
         d = decode_instruction_word(encoded[0])
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 8
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
         with pytest.raises(ValueError, match=r"INCR_MOD_POW2 k operand"):
@@ -269,24 +287,24 @@ BKPT;;
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 4
-        assert d["lr_inst_0_token_5_cr_reg_field"] == 8
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0  # NOP default (k=1 → encoded 0)
-        assert d["lr_inst_1_token_1_lr_reg_field"] == 5
-        assert d["lr_inst_1_token_5_cr_reg_field"] == 9
-        assert d["lr_inst_1_token_6_lr_mod_pow2_k_immediate"] == 0
-        assert d["lr_inst_2_token_1_lr_reg_field"] == 6
-        assert d["lr_inst_2_token_5_cr_reg_field"] == 10
-        assert d["lr_inst_2_token_6_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
+        assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
+        assert d["lr_inst_1_token_1_add_sub_src_b_field"] == 9   # src = cr9
+        assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
+        assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
+        assert d["lr_inst_2_token_1_add_sub_src_b_field"] == 10  # src = cr10
+        assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
 
     def test_decode_add_imm_operand_field(self):
         """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
         encoded = assemble("ADD lr2 lr1 7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 2  # dest
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 1  # src_a
-        assert d["lr_inst_0_token_4_add_sub_src_b_field"] == 32 + 7
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
+        assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 32 + 7  # src_b = IMM5(7)
 
 
 # ============================================================================
@@ -1218,9 +1236,8 @@ class TestDecodeRoundtrip:
         d = decode_instruction_word(encoded[0])
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
-        assert d["lr_inst_0_token_1_lr_reg_field"] == 13
-        assert d["lr_inst_0_token_5_cr_reg_field"] == 8
-        assert d["lr_inst_0_token_6_lr_mod_pow2_k_immediate"] == 0
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
+        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
 
 
 # ============================================================================
@@ -1666,13 +1683,100 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
+
+class TestMultEeRr:
+    """MULT.EE.RR — multi-element execution (MEE): r0-by-r0 or r1-by-r1."""
+
+    def test_mult_ee_rr_r0_by_r0(self):
+        """MEE mode R0: each lane multiplied by itself (4 × 4 = 16)."""
+        r0_data = bytes([4] * 128)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+RESET_ACC;;
+SET lr5 cr9;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 16, f"acc word {i}: expected 16 (4×4), got {val}"
+
+    def test_mult_ee_rr_r1_by_r1(self):
+        """MEE mode R1 squares r1 (3 × 3 = 9); r0 holds a decoy value."""
+        r0_data = bytes([9] * 128)   # decoy — must be ignored when ra=R1
+        r1_data = bytes([3] * 128)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+LDR_MULT_REG r1 lr1 cr0;;
+RESET_ACC;;
+SET lr5 cr10;;
+MULT.EE.RR r1 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 4352, 10: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x1100, r1_data)
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 9, f"acc word {i}: expected 9 (r1 3×3, not r0), got {val}"
+
+    def test_mult_ee_rr_mask_zeroes_lanes(self):
+        """mask_offset/mask_shift still gate lanes (first 64 masked → 0)."""
+        r0_data = bytes([3] * 128)   # squared → 9
+        mask_data = bytearray(128)
+        for i in range(8):           # 64 bits set → first 64 lanes masked
+            mask_data[i] = 0xFF
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr3 cr9;;
+LDR_MULT_MASK_REG lr3 cr0;;
+RESET_ACC;;
+SET lr5 cr10;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0})
+        state.regfile.set_cr(15, DType.INT8)
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, bytes(mask_data))
+        run_until_complete(state)
+
+        acc_raw = state.regfile.raw("r_acc")
+        for i in range(64):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 0, f"word {i} should be masked to 0, got {val}"
+        for i in range(64, 128):
+            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
+            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
+
+
 # ============================================================================
-# AAQ Quantization (aaq instruction + xmem.store_aaq_result)
+# AAQ Quantization (aaq instruction + str_post_aaq_reg)
 # ============================================================================
 
 
 class TestAaqQuantize:
-    """Tests for the aaq quantization instruction and xmem.store_aaq_result."""
+    """Tests for the aaq quantization instruction and STR_POST_AAQ_REG."""
 
     def _set_acc_words(self, state: IpuState, values: list[int]) -> None:
         """Write a list of 128 signed INT32 values into r_acc."""
@@ -1680,6 +1784,7 @@ class TestAaqQuantize:
         buf = bytearray(512)
         struct.pack_into("<128i", buf, 0, *values)
         state.regfile.set_r_acc_bytes(buf)
+        state.regfile.set_post_aaq_reg(bytearray(buf))
 
     def test_aaq_basic_clamp(self):
         """Small values that fit in int8 pass through unchanged."""
@@ -1694,9 +1799,10 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        result = state.regfile.get_aaq_result()
+        result = state.regfile.get_post_aaq_reg()
         for i in range(128):
             assert result[i] == i, f"byte {i}: expected {i}, got {result[i]}"
+        assert result[128:] == bytearray(384), "tail of POST_AAQ_REG should be cleared"
 
     def test_aaq_all_zeros(self):
         """All-zero accumulator quantizes to all-zero bytes."""
@@ -1711,7 +1817,7 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        assert state.regfile.get_aaq_result() == bytearray(128)
+        assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_aaq_positive_clamp(self):
         """Large positive values clamp to 127."""
@@ -1727,11 +1833,12 @@ class TestAaqQuantize:
         load_program(state, decoded)
         run_until_complete(state)
 
-        result = state.regfile.get_aaq_result()
+        result = state.regfile.get_post_aaq_reg()
         for i in range(64):
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
         for i in range(64, 128):
             assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
+        assert result[128:] == bytearray(384)
 
     def test_aaq_negative_values(self):
         """Negative accumulator values clamp correctly."""
@@ -1761,19 +1868,17 @@ class TestAaqQuantize:
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
-    def test_aaq_result_written_to_xmem(self):
-        """xmem.store_aaq_result writes exactly 128 bytes to the given address."""
+    def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
+        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.regfile.set_cr(15, DType.INT8)
-        # Set r_acc: each word = i directly; clamp to [-128,127] gives byte i.
-        self._set_acc_words(state, list(range(128)))
+        self._set_acc_words(state, [i << 24 for i in range(128)])
         state.regfile.set_cr(8, 0x4000)
 
         encoded = assemble(
             """\
-aaq;;
 SET lr0 cr8;;
-xmem.store_aaq_result lr0 cr0;;
+str_post_aaq_reg lr0 cr0;;
 BKPT;;
 """
         )
@@ -1783,9 +1888,8 @@ BKPT;;
         load_program(state, decoded)
         run_until_complete(state)
 
-        stored = state.xmem.read_address(0x4000, 128)
-        for i in range(128):
-            assert stored[i] == i, f"xmem byte {i}: expected {i}, got {stored[i]}"
+        stored = state.xmem.read_address(0x4000, 512)
+        assert stored == state.regfile.get_post_aaq_reg()
 
     def test_STR_ACC_REG_emits_warning(self):
         """STR_ACC_REG emits a UserWarning about being debug-only."""
@@ -1800,3 +1904,228 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+
+
+# ============================================================================
+# ACTIVATE (element-wise: r_acc → POST_AAQ_REG, issue #77)
+# ============================================================================
+
+
+def _post_aaq_lane_i32(state: IpuState, lane: int) -> int:
+    buf = state.regfile.get_post_aaq_reg()
+    word = struct.unpack_from("<I", buf, lane * 4)[0]
+    return struct.unpack("<i", struct.pack("<I", word))[0]
+
+
+def _post_aaq_lane_f32(state: IpuState, lane: int) -> float:
+    buf = state.regfile.get_post_aaq_reg()
+    word = struct.unpack_from("<I", buf, lane * 4)[0]
+    return struct.unpack("<f", struct.pack("<I", word))[0]
+
+
+class TestActivate:
+    """ACTIVATE applies ipu_common.activations to r_acc lanes; results go to POST_AAQ_REG."""
+
+    def test_activate_relu_int32(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 relu;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 128)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -9))[0]
+        )
+        run_until_complete(state)
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == -9
+        )
+        assert _post_aaq_lane_i32(state, 0) == 0
+
+    def test_activate_masks_inactive_lanes(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 relu;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 2)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -5))[0]
+        )
+        state.regfile.set_r_acc_word(
+            1, struct.unpack("<I", struct.pack("<i", -3))[0]
+        )
+        sentinel = struct.unpack("<I", struct.pack("<i", 99_999))[0]
+        for i in range(2, 128):
+            state.regfile.set_r_acc_word(i, sentinel)
+        post = bytearray(512)
+        for i in range(2, 128):
+            struct.pack_into("<i", post, i * 4, 99_999)
+        state.regfile.set_post_aaq_reg(post)
+        run_until_complete(state)
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == -5
+        )
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(1)))[0]
+            == -3
+        )
+        for i in range(2, 128):
+            assert state.regfile.get_r_acc_word(i) == sentinel
+        assert _post_aaq_lane_i32(state, 0) == 0
+        assert _post_aaq_lane_i32(state, 1) == 0
+        for i in range(2, 128):
+            assert _post_aaq_lane_i32(state, i) == 99_999
+
+    def test_activate_identity_keyword_is_noop(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 identity;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_lr(0, 1)
+        raw = struct.unpack("<I", struct.pack("<i", -42))[0]
+        state.regfile.set_r_acc_word(0, raw)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(0) == raw
+        assert _post_aaq_lane_i32(state, 0) == struct.unpack("<i", struct.pack("<I", raw))[0]
+
+    def test_activate_sigmoid_float_lane(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 sigmoid;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 0.5) < 1e-6
+
+    def test_activate_matches_reference_all_ids_float(self):
+        x = 0.25
+        for fid, name in enumerate(ACTIVATION_FN_NAMES):
+            state = _make_state(
+                f"""\
+ACTIVATE lr0 {name};;
+BKPT;;
+"""
+            )
+            state.regfile.set_cr(15, DType.E4)
+            state.regfile.set_lr(0, 1)
+            state.regfile.set_r_acc_word(
+                0, struct.unpack("<I", struct.pack("<f", x))[0]
+            )
+            run_until_complete(state)
+            got = _post_aaq_lane_f32(state, 0)
+            exp = apply_activation(fid, x)
+            assert abs(got - exp) < 1e-5, f"id={fid} got={got} exp={exp}"
+
+    def test_activate_exp2_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 exp2;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 8.0) < 1e-5
+
+    def test_activate_gelu_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 gelu;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        x = 1.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - apply_activation(5, x)) < 1e-5
+
+    def test_activate_elu_respects_ipu_state_alpha(self):
+        """``IpuState`` α overrides module defaults for ``ACTIVATE`` (not CR)."""
+        x = -1.0
+        alpha = 0.5
+        state = _make_state(
+            """\
+ACTIVATE lr0 elu;;
+BKPT;;
+""",
+            elu_alpha=alpha,
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        exp = apply_activation(7, x, elu_alpha=alpha)
+        assert abs(out - exp) < 1e-5
+
+    def test_activate_elu_after_set_activation_alphas(self):
+        x = -2.0
+        alpha = 0.125
+        state = _make_state(
+            """\
+ACTIVATE lr0 elu;;
+BKPT;;
+"""
+        )
+        state.set_activation_alphas(elu_alpha=alpha)
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        exp = apply_activation(7, x, elu_alpha=alpha)
+        assert abs(out - exp) < 1e-5
+
+    def test_activate_valid_elements_from_cr(self):
+        state = _make_state(
+            """\
+ACTIVATE cr3 relu;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.INT8)
+        state.regfile.set_cr(3, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<i", -8))[0]
+        )
+        tail = struct.unpack("<I", struct.pack("<i", 123))[0]
+        state.regfile.set_r_acc_word(1, tail)
+        run_until_complete(state)
+        assert (
+            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
+            == -8
+        )
+        assert state.regfile.get_r_acc_word(1) == tail
+        assert _post_aaq_lane_i32(state, 0) == 0
+        assert _post_aaq_lane_i32(state, 1) == 0

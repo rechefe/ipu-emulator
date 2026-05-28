@@ -12,6 +12,7 @@ from typing import Any
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
+from ipu_common import activations as _activations
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
@@ -47,6 +48,7 @@ class IpuState:
         wide_vector_debug: bool = False,
         wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
         wide_vector_quantize_output: bool = False,
+        elu_alpha: float | None = None,
     ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
@@ -66,6 +68,13 @@ class IpuState:
         self._debug_mult_stage_vectors: dict[int, list[float | int]] = {}
         self._debug_mult_stage_vectors_snap: dict[int, list[float | int]] = {}
 
+        # --- Activation α (emulator-only; not mapped to CR) ----------------------
+        # Snapshot module defaults at construction unless caller overrides. Matches
+        # the ergonomics of ``set_cr_dtype`` but lives on ``IpuState`` only.
+        self.elu_alpha: float = (
+            float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
+        )
+
     # -- CR dtype convenience (mirrors ipu__set_cr_dtype / ipu__get_cr_dtype) --
 
     def set_cr_dtype(self, dtype: int) -> None:
@@ -75,6 +84,19 @@ class IpuState:
     def get_cr_dtype(self) -> int:
         """Read the data type register (CR[15])."""
         return self.regfile.get_cr(CR_DTYPE_REG)
+
+    def set_activation_alphas(
+        self,
+        *,
+        elu_alpha: float | None = None,
+    ) -> None:
+        """Override α for ``elu`` (emulator-only; not CR).
+
+        Only arguments that are not ``None`` are updated. Values apply to subsequent
+        ``ACTIVATE`` instructions executed on this state.
+        """
+        if elu_alpha is not None:
+            self.elu_alpha = float(elu_alpha)
 
     # -- register file snapshot (for VLIW dispatch) -------------------------
 

@@ -239,18 +239,28 @@ def run_test(
     teardown: Callable[[IpuState], None] | None = None,
     max_cycles: int = 1_000_000,
     debug_callback: DebugCallback | None = None,
+    state: IpuState | None = None,
+    elu_alpha: float | None = None,
 ) -> tuple[IpuState, int]:
     """Full test harness matching the C ``emulator__run_test`` pattern.
 
-    1. Creates a fresh :class:`IpuState`.
+    1. Creates a fresh :class:`IpuState` (unless *state* is provided).
     2. Loads the instruction binary.
     3. Calls *setup(state)* (e.g. to load data into XMEM).
     4. Runs the program.
     5. Calls *teardown(state)* (e.g. to dump XMEM results).
 
     Returns ``(state, cycles)`` so callers can inspect final state.
+
+    Optional ``elu_alpha`` configures the emulator-only activation α value
+    (same idea as dtype setup, but not via CR). It is applied when constructing
+    a new ``IpuState``; if *state* is passed, a non-``None`` α argument is
+    forwarded to :meth:`IpuState.set_activation_alphas`.
     """
-    state = IpuState()
+    if state is None:
+        state = IpuState(elu_alpha=elu_alpha)
+    elif elu_alpha is not None:
+        state.set_activation_alphas(elu_alpha=elu_alpha)
     load_program_from_binary(state, inst_path)
 
     if setup is not None:

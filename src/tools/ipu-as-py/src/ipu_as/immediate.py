@@ -96,6 +96,17 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
         return str(value)
 
 
+from ipu_common.activations import ACTIVATION_FN_NAMES
+
+
+class ActivationFnField(ipu_token.EnumToken):
+    """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return list(ACTIVATION_FN_NAMES)
+
+
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).
 _ADD_SUB_SRC_B_REGS: tuple[str, ...] = tuple(
     [f"lr{i}" for i in range(16)] + [f"cr{i}" for i in range(16)]

@@ -67,6 +67,12 @@ BKPT;;
         state.regfile.set_cr(7, 0x2000)
         state.regfile.set_cr(8, 0)
         encoded = assemble(asm)
+        load_program(state, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(state)
+        acc = state.regfile.raw("r_acc")
+        for i in range(128):
+            v = struct.unpack_from("<f", acc, i * 4)[0]
+            assert v == pytest.approx(6.0), f"lane {i}"
 
     def test_aaq_noop_unless_quantize_flag(self) -> None:
         state = _run_wide(
@@ -79,11 +85,14 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
+SET lr0 cr9;;
+ACTIVATE lr0 identity;;
 aaq;;
 BKPT;;
 """,
-            cr={6: 0x1000, 7: 0x2000, 8: 0},
+            cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
         )
+        assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_aaq_quantize_fp32_acc_for_comparison(self) -> None:
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
@@ -106,17 +115,21 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
+SET lr0 cr9;;
+ACTIVATE lr0 identity;;
 aaq;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
         state.regfile.set_cr(7, 0x2000)
         state.regfile.set_cr(8, 0)
+        state.regfile.set_cr(9, 128)
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
         run_until_complete(state)
-        out = state.regfile.get_aaq_result()
-        assert all(b == 3 for b in out)
+        out = state.regfile.get_post_aaq_reg()
+        assert all(b == 3 for b in out[:128])
+        assert out[128:] == bytearray(384)
 
 
 class TestWideVectorInt32:

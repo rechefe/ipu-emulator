@@ -5,7 +5,7 @@ import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
-from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc
+from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc, SLOT_UNIONS
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -38,6 +38,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "PostFn": immediate.PostFnField,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
+    "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
 }
@@ -113,41 +114,32 @@ class Inst:
         )
 
     @classmethod
+    def _slot_type_name(cls) -> str:
+        """Return the slot name string (e.g. 'lr', 'mult') for this Inst subclass."""
+        raise NotImplementedError(
+            "_slot_type_name must be implemented by subclasses"
+        )
+
+    @classmethod
+    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
+        """Return canonical token types for each union field (derived from SLOT_UNIONS)."""
+        slot_union = SLOT_UNIONS[cls._slot_type_name()]
+        return [OPERAND_TYPE_MAP[f.canonical_type] for f in slot_union.fields]
+
+    @classmethod
     def _validate_instr_structure(cls) -> None:
-        cls._inst_mapping_table = dict()
+        cls._inst_mapping_table = {}
+        cls._slot_union = SLOT_UNIONS[cls._slot_type_name()]
         names = cls.opcode_type().enum_array()
-        for opcode_idx, (opcode_name, struct_entry) in enumerate(
+        for opcode_idx, (opcode_name, _) in enumerate(
             cls.struct_by_opcode_table().items()
         ):
             assert opcode_name == names[opcode_idx], (
                 f"Configuration of {cls.__name__} is invalid: opcode table order "
                 f"does not match {cls.opcode_type().__name__}.enum_array()"
             )
-
-            cls._inst_mapping_table[opcode_idx] = cls._find_instruction_inst_mapping(
-                cls._operand_types_from_struct(struct_entry)
-            )
-
-    @classmethod
-    def _find_instruction_inst_mapping(
-        cls, operand_types: list[type[ipu_token.IpuToken]]
-    ):
-        inst_mapping = [None for _ in operand_types]
-        full_token_list = [False for _ in cls.operand_types()]
-        for i, token in enumerate(operand_types):
-            for j, token_type in enumerate(cls.operand_types()):
-                if token == token_type and not full_token_list[j]:
-                    full_token_list[j] = True
-                    inst_mapping[i] = j
-                    break
-        assert None not in inst_mapping, f"Configuration of {cls.__name__} is invalid"
-        return inst_mapping
-
-    @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        raise NotImplementedError(
-            "operand_types property must be implemented by subclasses"
-        )
+            bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
+            cls._inst_mapping_table[opcode_idx] = [fi for fi, _ in bindings]
 
     @classmethod
     def nop_inst(cls) -> str:
@@ -166,9 +158,13 @@ class Inst:
     def encode(self) -> int:
         encoded_inst = 0
         shift_amount = 0
-        for token in reversed(self._get_full_token_list()):
+        canonical_types = self.all_tokens()
+        full_token_list = self._get_full_token_list()
+        for i in range(len(full_token_list) - 1, -1, -1):
+            token = full_token_list[i]
+            canonical_width = canonical_types[i].bits()
             encoded_inst |= token.encode() << shift_amount
-            shift_amount += token.bits()
+            shift_amount += canonical_width
         return encoded_inst
 
     @classmethod
@@ -189,12 +185,39 @@ class Inst:
 
     @classmethod
     def decode(cls, value: int) -> str:
+        """Decode an instruction word to assembly text.
+
+        Uses the opcode to select the correct semantic token types for each
+        union field, so cross-type-sharing fields disassemble correctly.
+        """
+        all_tok = cls.all_tokens()
+        n = len(all_tok)
+        total_bits = cls.bits()
+        opcode_bits = cls.opcode_type().bits()
+
+        # Extract opcode (top bits) to pick semantic types.
+        opcode_value = (value >> (total_bits - opcode_bits)) & ((1 << opcode_bits) - 1)
+        try:
+            opcode_name = cls.opcode_type().enum_array()[opcode_value]
+        except (IndexError, AttributeError):
+            opcode_name = None
+
+        # Map all_tokens index → semantic token class for this opcode.
+        semantic: dict[int, type[ipu_token.IpuToken]] = {}
+        if opcode_name is not None and hasattr(cls, "_slot_union"):
+            bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
+            struct_entry = cls._struct_entry(opcode_name)
+            for (field_idx, _), op_class in zip(bindings, struct_entry.operands):
+                semantic[field_idx + 1] = op_class  # +1: index 0 is the opcode token
+
         decoded_tokens = []
         shift_amount = 0
-        for token_type in reversed(cls.all_tokens()):
-            token_bits = token_type.bits()
+        for tok_idx in range(n - 1, -1, -1):  # LSB → MSB
+            tok_type = all_tok[tok_idx]
+            token_bits = tok_type.bits()
             token_value = (value >> shift_amount) & ((1 << token_bits) - 1)
-            decoded_tokens.append(token_type.decode(token_value))
+            actual_type = semantic.get(tok_idx, tok_type)
+            decoded_tokens.append(actual_type.decode(token_value))
             shift_amount += token_bits
         return " ".join(reversed(decoded_tokens))
 
@@ -309,13 +332,8 @@ class Inst:
 @validate_inst_structure
 class XmemInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            reg.MultStageRegField,
-            reg.LrRegField,
-            reg.LrRegField,
-            reg.CrRegField,
-        ]
+    def _slot_type_name(cls) -> str:
+        return "xmem"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -349,16 +367,8 @@ class XmemInst(Inst):
 @validate_inst_structure
 class MultInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            reg.MultStageRegField,
-            reg.LrRegField,
-            immediate.MultMaskOffsetImmediate,
-            reg.LrRegField,
-            reg.LrRegField,
-            reg.CrRegField,
-            reg.AaqRegField,
-        ]
+    def _slot_type_name(cls) -> str:
+        return "mult"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -394,14 +404,8 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 @validate_inst_structure
 class AccInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            reg.AaqRegField,
-            immediate.ElementsInRowField,
-            immediate.HorizontalStrideField,
-            immediate.VerticalStrideField,
-            reg.LrRegField,
-        ]
+    def _slot_type_name(cls) -> str:
+        return "acc"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -435,14 +439,8 @@ class AccInst(Inst):
 @validate_inst_structure
 class AaqInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            immediate.AggModeField,
-            immediate.PostFnField,
-            reg.LcrRegField,
-            reg.CrRegField,
-            reg.AaqRegField,
-        ]
+    def _slot_type_name(cls) -> str:
+        return "aaq"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -468,7 +466,7 @@ class AaqInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
-            intro="Activation and quantization: aggregate r_acc into AAQ registers.",
+            intro="Activation and quantization: aggregate r_acc into AAQ registers; ACTIVATE writes activated lanes from r_acc into POST_AAQ_REG; AAQ quantizes POST_AAQ_REG.",
             slot_type="aaq",
         )
 
@@ -476,15 +474,8 @@ class AaqInst(Inst):
 @validate_inst_structure
 class LrInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [
-            reg.LrRegField,
-            reg.LrRegField,
-            reg.LcrRegField,
-            immediate.AddSubSrcBField,
-            reg.CrRegField,
-            immediate.LrModPow2KImmediate,
-        ]
+    def _slot_type_name(cls) -> str:
+        return "lr"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -531,8 +522,8 @@ class LrInst(Inst):
 @validate_inst_structure
 class CondInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LcrRegField, reg.LcrRegField, ipu_token.LabelToken]
+    def _slot_type_name(cls) -> str:
+        return "cond"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
@@ -569,8 +560,8 @@ class CondInst(Inst):
 @validate_inst_structure
 class BreakInst(Inst):
     @classmethod
-    def operand_types(cls) -> list[type[ipu_token.IpuToken]]:
-        return [reg.LrRegField, immediate.BreakImmediateType]
+    def _slot_type_name(cls) -> str:
+        return "break"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
