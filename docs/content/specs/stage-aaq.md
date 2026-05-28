@@ -151,6 +151,8 @@ Supported activation functions:
 | 6 | `softplus` | `f(x) = ln(1 + e^x)` | Smooth approximation of ReLU. |
 | 7 | `elu` | `f(x) = x if x ≥ 0 else α·(e^x − 1)` | Smooth negative region; reduces vanishing gradient. |
 | 8 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+| 9 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
+| 10 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
 
 ### 7.1 Aggregate (`agg`)
 
