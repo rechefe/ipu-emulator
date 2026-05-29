@@ -914,7 +914,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         # r_acc: set each word to 1, so sum = 128
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -935,7 +935,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
         state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 20))[0])  # 20 > 14
@@ -955,7 +955,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
         state.regfile.set_r_acc_word(10, struct.unpack("<I", struct.pack("<i", 100))[0])
@@ -975,7 +975,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         state.regfile.set_cr(2, struct.unpack("<I", struct.pack("<i", 3))[0])
@@ -996,7 +996,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
         # Set aaq0 to a large "garbage" value that would win against r_acc if included
@@ -1017,7 +1017,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
         state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
@@ -1037,7 +1037,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 2))[0])
         state.regfile.set_aaq(2, struct.unpack("<I", struct.pack("<i", 9999))[0])
@@ -1057,7 +1057,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 3)
+        state.set_cr_dstructure(3)
         for i in range(128):
             v = 10 if i < 3 else 1000
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
@@ -1076,7 +1076,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 100)
+        state.set_cr_dstructure(100)
         for i in range(128):
             v = 1 if i < 100 else 500
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
@@ -1095,7 +1095,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 100)
+        state.set_cr_dstructure(100)
         for i in range(128):
             v = 5 if i < 100 else 9999
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
@@ -1114,7 +1114,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 50)
+        state.set_cr_dstructure(50)
         for i in range(128):
             v = 3 if i < 50 else 200
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
@@ -1929,7 +1929,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 128)
+        state.set_cr_dstructure(128)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -9))[0]
         )
@@ -1948,7 +1948,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 2)
+        state.set_cr_dstructure(2)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -5))[0]
         )
@@ -1986,7 +1986,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         raw = struct.unpack("<I", struct.pack("<i", -42))[0]
         state.regfile.set_r_acc_word(0, raw)
         run_until_complete(state)
@@ -2001,7 +2001,7 @@ BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2019,7 +2019,7 @@ BKPT;;
 """
             )
             state.dtype = DType.E4
-            state.regfile.set_cr(15, 1)
+            state.set_cr_dstructure(1)
             state.regfile.set_r_acc_word(
                 0, struct.unpack("<I", struct.pack("<f", x))[0]
             )
@@ -2036,7 +2036,7 @@ BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
         )
@@ -2052,7 +2052,7 @@ BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         x = 1.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -2073,7 +2073,7 @@ BKPT;;
             elu_alpha=alpha,
         )
         state.dtype = DType.E4
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
@@ -2093,7 +2093,7 @@ BKPT;;
         )
         state.set_activation_alphas(elu_alpha=alpha)
         state.dtype = DType.E4
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
@@ -2110,7 +2110,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.regfile.set_cr(15, 1)
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -8))[0]
         )

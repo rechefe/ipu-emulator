@@ -359,7 +359,7 @@ class TestWideVectorAggInt32:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
         st.dtype = DType.INT8
         st.regfile.set_r_acc_bytes(acc)
-        st.regfile.set_cr(15, 128)
+        st.set_cr_dstructure(128)
         asm = """\
 agg sum inv cr0 aaq0;;
 BKPT;;

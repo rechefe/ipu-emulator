@@ -68,8 +68,8 @@ flowchart LR
            cr_idx  ─────>│                                      │
        act_cr_idx  ─────>│                                      │
        aaq_rf_idx  ─────>│                                      │
-       cr15_dtype  ─────>│                                      │
-   valid_elements  ─────>│                                      │
+            dtype  ─────>│                                      │
+       dstructure  ─────>│                                      │
                          └──────────────────────────────────────┘
 ```
 
@@ -87,8 +87,8 @@ flowchart LR
 | `cr_idx` | `input logic [3:0]` | CR register index used by `value_cr` post function. |
 | `act_cr_idx` | `input logic [3:0]` | CR register index whose value selects the activation function (see §7.0). |
 | `aaq_rf_idx` | `input logic [1:0]` | AAQ register index (0–3). |
-| `cr15_dtype` | `input logic [2:0]` | Global data type from `cr15`; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
-| `valid_elements` | `input logic [4:0]` | Number of valid elements. Sourced from either an LR register (lr0–lr15) or a CR register (cr0–cr15); the 5-bit encoding selects among all 32 registers (16 LR + 16 CR). |
+| `dtype` | `input logic [2:0]` | Global data type supplied by configuration; the Python emulator stores this on `IpuState.dtype`, not in a `CR` register. Must be `DType.INT8` (0) for `aaq`. |
+| `dstructure` | `input logic [19:0]` | Dstructure configuration sourced from `CR15`; bits `[7:0]` provide `valid_elements` and bits `[11:8]` provide `partition`. |
 
 ### 3.2 Outputs
 
@@ -154,9 +154,9 @@ Supported activation functions:
 
 ### 7.1 Aggregate (`agg`)
 
-**Assembly syntax:** `agg <agg_mode> <post_fn> <valid_elements> <cr_idx> <aaq_rf_idx>`
+**Assembly syntax:** `AGG agg_mode, post_fn, cr_idx, aaq_rf_idx`
 
-- `valid_elements`: any `lr0`–`lr15` or `cr0`–`cr15` operand (5-bit `LcrIdx` encoding). The **value** read from that register at cycle start is the number of `r_acc` lanes fed into the adder/max tree (unsigned, clamped to 0–128). Lanes from index `valid_elements` through 127 are masked out.
+- `valid_elements`: implicit lane count from `CR15.valid_elements` (the dstructure register). The value read at cycle start is the number of `R_ACC` lanes fed into the adder/max tree (unsigned, clamped to 0-128). Lanes from index `valid_elements` through 127 are masked out.
 
 ```text
 // r_acc lanes are always FP32; only the first valid_elements lanes are used
@@ -280,7 +280,7 @@ duplicated here.
 The AAQ slot is resolved by CTRL and forwarded down the dispatch chain;
 the stage does not read the CR/LR register files itself (see the
 Control Stage spec, §5). The `valid_elements` lane count is taken from
-the register **value** at cycle start — see §7.1 for the masking rule.
+the `CR15` dstructure **value** at cycle start -- see §7.1 for the masking rule.
 
 ### 8.1 `AAQ_NOP` — No Operation
 
@@ -293,16 +293,15 @@ the register **value** at cycle start — see §7.1 for the masking rule.
 ### 8.2 `AGG` — Accumulator Aggregate
 
 - **Summary:** Collapse the first `valid_elements` lanes of `r_acc` into one FP32 scalar (`sum` or `max`), apply the post function, and store the result to the selected AAQ register.
-- **Syntax:** `AGG agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Syntax:** `AGG agg_mode, post_fn, cr_idx, aaq_rf_idx`
 - **Operands:**
   - `agg_mode` — aggregation mode: `sum` (0) or `max` (1).
   - `post_fn` — post function applied to the aggregated scalar: `value` (0), `value_cr` (1), `inv` (2), `inv_sqrt` (3). See §7.1 *Post-Function Details*.
-  - `valid_elements` — `LR0`–`LR15` or `CR0`–`CR15` (5-bit `LcrIdx`). The **value** read selects how many `r_acc` lanes are aggregated; lanes `[valid_elements..127]` are masked out (see §7.1).
   - `cr_idx` — `CR0`–`CR15`; the CR value used by the `value_cr` post function.
   - `aaq_rf_idx` — destination AAQ register, `AAQ0`–`AAQ3`.
 - **Operation:**
   ```text
-  n = min(value(valid_elements), 128)
+  n = min(CR15.valid_elements, 128)
   values = [activation(r_acc[i]) for i in 0..n-1]      // activation per §7.0
   if agg_mode == sum:
       raw = sum(values)
@@ -311,18 +310,18 @@ the register **value** at cycle start — see §7.1 for the masking rule.
   AAQ[aaq_rf_idx] = pack32(post_fn(raw, CR[cr_idx]))    // stored as float32
   ```
 - **Examples:**
-  - `AGG sum, value, LR0, CR0, AAQ0;;` — sum the first `LR0` lanes into `AAQ0`.
-  - `AGG max, value_cr, CR3, CR5, AAQ1;;` — max of the first `CR3` lanes (with `AAQ1` fed back), scaled by `CR5`.
+  - `AGG sum, value, CR0, AAQ0;;` -- sum the configured active lanes into `AAQ0`.
+  - `AGG max, value_cr, CR5, AAQ1;;` -- max of the configured active lanes (with `AAQ1` fed back), scaled by `CR5`.
 - **Notes:** In `max` mode the current value of `AAQ[aaq_rf_idx]` is fed back into the max tree; use `AGG.FIRST` to avoid contamination from an uninitialised register.
 
 ### 8.3 `AGG.FIRST` — Accumulator Aggregate First
 
 - **Summary:** Identical to `AGG` except that `max` mode does **not** fold in the previous AAQ register value (no RF feedback).
-- **Syntax:** `AGG.FIRST agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx`
+- **Syntax:** `AGG.FIRST agg_mode, post_fn, cr_idx, aaq_rf_idx`
 - **Operands:** identical to `AGG`.
 - **Operation:**
   ```text
-  n = min(value(valid_elements), 128)
+  n = min(CR15.valid_elements, 128)
   values = [activation(r_acc[i]) for i in 0..n-1]
   if agg_mode == sum:
       raw = sum(values)
@@ -353,6 +352,6 @@ the register **value** at cycle start — see §7.1 for the masking rule.
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AAQ | `AAQ_NOP`   | —                                                      | no state change |
-| AAQ | `AGG`       | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1], AAQ[idx]))` |
-| AAQ | `AGG.FIRST` | `agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1]))` (no RF feedback) |
+| AAQ | `AGG`       | `agg_mode, post_fn, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1], AAQ[idx]))` |
+| AAQ | `AGG.FIRST` | `agg_mode, post_fn, cr_idx, aaq_rf_idx` | `AAQ[idx] = post_fn(agg(r_acc[0..n-1]))` (no RF feedback) |
 | AAQ | `AAQ`       | —                                                      | `aaq_result[i] = clamp(trunc(r_acc[i]), -128, 127)` |

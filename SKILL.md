@@ -33,7 +33,7 @@ src/tools/
 │   ├── execute.py                # VLIW decode + dispatch
 │   ├── regfile.py                # Register file
 │   ├── xmem.py                   # 2 MB external memory
-│   ├── ipu_math.py               # Typed math (INT8, FP8_E4M3, FP8_E5M2)
+│   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
 │   └── debug_cli.py              # Interactive debugger
 └── ipu-apps/src/ipu_apps/        # Sample applications
     └── fully_connected/          # FC neural network layer example
@@ -87,7 +87,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
 | `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
 
-`CR15` is reserved for data type selection (INT8 / FP8_E4M3 / FP8_E5M2).
+`CR15` is reserved for the dstructure configuration register (`valid_elements` and `partition`). Data type selection lives on `IpuState.dtype` in the Python emulator.
 
 ### Instruction Slots
 
@@ -216,6 +216,6 @@ Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.
 - **Never duplicate instruction metadata** — assembler and emulator both read `instruction_spec.py`
 - **Operand names in `execute_*` must exactly match** the names in `instruction_spec.py`
 - **Read-before-write**: slots with `"read": "snapshot"` see pre-cycle register values
-- **`CR15`** is reserved — never use it for application data
+- **`CR15`** is reserved for dstructure configuration — never use it for application data
 - The build system is **Bazel** — use `bazel build/test/run`, not pip/python directly
-- Data types (INT8, FP8_E4M3, FP8_E5M2) affect how register bytes are interpreted in math ops
+- Data types (`DType.INT8`, `DType.E4`, `DType.E5`, etc.) affect how register bytes are interpreted in math ops

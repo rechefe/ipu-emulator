@@ -24,6 +24,7 @@ from typing import Any
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
+from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -1013,9 +1014,9 @@ class Ipu:
         """Execute AGG: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
 
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
-        Lane count is taken from CR15 bits[7:0] (the dstructure register).
+        Lane count is taken from the CR15 dstructure register.
         """
-        valid_elements = self.state.regfile.get_cr(15) & 0xFF
+        valid_elements = self.state.get_config_valid_elements()
         dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1034,7 +1035,7 @@ class Ipu:
         if fn == POST_FN_VALUE:
             result_val = raw_result
         elif fn == POST_FN_VALUE_CR:
-            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
+            cr_val = self.state.regfile.get_cr(cr_idx) & REGISTER_WORD_VALUE_MASK
             cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
             if fmt == "<i":
                 result_val = int(raw_result) * int(cr_scalar)
@@ -1087,9 +1088,9 @@ class Ipu:
     ) -> None:
         """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value.
 
-        Lane count is taken from CR15 bits[7:0] (the dstructure register).
+        Lane count is taken from the CR15 dstructure register.
         """
-        valid_elements = self.state.regfile.get_cr(15) & 0xFF
+        valid_elements = self.state.get_config_valid_elements()
         dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1107,7 +1108,7 @@ class Ipu:
         if fn == POST_FN_VALUE:
             result_val = raw_result
         elif fn == POST_FN_VALUE_CR:
-            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
+            cr_val = self.state.regfile.get_cr(cr_idx) & REGISTER_WORD_VALUE_MASK
             cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
             if fmt == "<i":
                 result_val = int(raw_result) * int(cr_scalar)
@@ -1203,10 +1204,10 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        Active lane count is taken from CR15 bits[7:0] (the dstructure register).
+        Active lane count is taken from the CR15 dstructure register.
         """
-        fn_id = int(activation_fn) & 0xFFFFFFFF
-        valid_elements = self.state.regfile.get_cr(15) & 0xFF
+        fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
+        valid_elements = self.state.get_config_valid_elements()
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")

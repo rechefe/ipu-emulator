@@ -702,7 +702,7 @@ INSTRUCTION_SPEC = {
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
-                    "Let n = min(CR15.valid_elements, 128) where CR15.valid_elements = CR15 & 0xFF. "
+                    "Let n = min(CR15.valid_elements, 128), where CR15 is decoded as the dstructure register. "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1], AAQ[aaq_rf_idx]). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
@@ -730,7 +730,7 @@ INSTRUCTION_SPEC = {
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
-                    "Let n = min(CR15.valid_elements, 128) where CR15.valid_elements = CR15 & 0xFF. "
+                    "Let n = min(CR15.valid_elements, 128), where CR15 is decoded as the dstructure register. "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1]) (previous AAQ value is NOT included). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
@@ -753,7 +753,7 @@ INSTRUCTION_SPEC = {
                 syntax="AAQ",
                 operands=[],
                 operation=(
-                    "Requires INT8 mode (CR15 == DType.INT8). "
+                    "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
                     "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(POST_AAQ_REG wide lane i), -128, 127); "
                     "POST_AAQ_REG[128..511] = 0"
                 ),
@@ -784,7 +784,7 @@ INSTRUCTION_SPEC = {
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
                 ],
                 operation=(
-                    "Let n = min(CR15 & 0xFF, 128) (valid_elements from dstructure register) "
+                    "Let n = min(CR15.valid_elements, 128) (valid_elements from the dstructure register) "
                     "and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
                     "R_ACC is not modified. The selector uses four bits; encodings outside the nine named "

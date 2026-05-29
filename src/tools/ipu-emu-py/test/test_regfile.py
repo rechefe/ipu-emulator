@@ -8,6 +8,14 @@ import pytest
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
 from ipu_emu.regfile import RegFile
+from ipu_emu.ipu_config import (
+    CR_DSTRUCTURE_REG_INDEX,
+    DSTRUCTURE_PARTITION_MASK,
+    DSTRUCTURE_VALID_ELEMENTS_MASK,
+    LR_CR_SCALAR_VALUE_MASK,
+    decode_dstructure,
+    encode_dstructure,
+)
 from ipu_emu.ipu_state import IpuState
 
 
@@ -41,7 +49,7 @@ class TestRegFileScalars:
     def test_cr_20bit_mask(self):
         rf = RegFile()
         rf.set_cr(3, 0x1FFFFF)  # 21 bits — should be masked to 20 bits
-        assert rf.get_cr(3) == 0xFFFFF
+        assert rf.get_cr(3) == LR_CR_SCALAR_VALUE_MASK
 
     def test_lr_overflow_wraps_to_20bit(self):
         rf = RegFile()
@@ -293,9 +301,34 @@ class TestIpuState:
     def test_set_cr_dstructure(self):
         state = IpuState()
         state.set_cr_dstructure(64, 2)
-        valid_elements, partition = state.get_cr_dstructure()
-        assert valid_elements == 64
-        assert partition == 2
+        config = state.get_cr_dstructure()
+        assert config.valid_elements == 64
+        assert config.partition == 2
+        assert state.get_config_valid_elements() == 64
+        assert state.get_config_partition() == 2
+
+    def test_cr_dstructure_masks_fields(self):
+        state = IpuState()
+        state.set_cr_dstructure(
+            DSTRUCTURE_VALID_ELEMENTS_MASK + 1,
+            DSTRUCTURE_PARTITION_MASK + 1,
+        )
+        assert state.get_cr_dstructure().valid_elements == 0
+        assert state.get_cr_dstructure().partition == 0
+
+    def test_dstructure_codec_round_trip(self):
+        raw = encode_dstructure(valid_elements=17, partition=3)
+        decoded = decode_dstructure(raw)
+        assert decoded.valid_elements == 17
+        assert decoded.partition == 3
+
+    def test_cr_dstructure_uses_config_register(self):
+        state = IpuState()
+        state.set_cr_dstructure(7, 4)
+        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == encode_dstructure(
+            valid_elements=7,
+            partition=4,
+        )
 
     def test_load_store_r_reg_xmem(self):
         """Load data into XMEM, then load into R register, verify."""

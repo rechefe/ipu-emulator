@@ -14,25 +14,16 @@ from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 from ipu_common import activations as _activations
 from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_config import (
+    CR_DSTRUCTURE_REG_INDEX,
+    DEFAULT_DSTRUCTURE,
+    DStructureConfig,
+    decode_dstructure,
+    encode_dstructure,
+)
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
-
-# CR register index for data structure (valid_elements and partition)
-# Bits [7:0]  = valid_elements (default 128)
-# Bits [11:8] = partition      (default 0)
-CR_DSTRUCTURE_REG = 15
-
-_CR15_DEFAULT = 128  # valid_elements=128, partition=0
-
-
-def _dstructure_encode(valid_elements: int, partition: int) -> int:
-    return (int(valid_elements) & 0xFF) | ((int(partition) & 0xF) << 8)
-
-
-def _dstructure_decode(value: int) -> tuple[int, int]:
-    return (value & 0xFF), ((value >> 8) & 0xF)
-
 
 class WideVectorArithmetic(str, Enum):
     """How 128-lane wide-vector debug math is performed (emulator-only; issue #33).
@@ -74,8 +65,10 @@ class IpuState:
         # Arithmetic data type — not stored in a CR register (emulator-only).
         self.dtype: DType = dtype
 
-        # Initialize CR15 to default dstructure: valid_elements=128, partition=0.
-        self.regfile._storage["cr"][15 * 4 : 15 * 4 + 4] = _CR15_DEFAULT.to_bytes(4, "little")
+        self.set_cr_dstructure(
+            valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
+            partition=DEFAULT_DSTRUCTURE.partition,
+        )
 
         # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
         self.wide_vector_debug: bool = wide_vector_debug
@@ -91,13 +84,28 @@ class IpuState:
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
 
-    def get_cr_dstructure(self) -> tuple[int, int]:
-        """Read CR15 as dstructure: returns (valid_elements, partition)."""
-        return _dstructure_decode(self.regfile.get_cr(CR_DSTRUCTURE_REG))
+    def get_cr_dstructure(self) -> DStructureConfig:
+        """Read CR15 as decoded dstructure configuration fields."""
+        return decode_dstructure(self.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX))
 
-    def set_cr_dstructure(self, valid_elements: int, partition: int = 0) -> None:
-        """Write CR15 as dstructure (valid_elements in bits[7:0], partition in bits[11:8])."""
-        self.regfile.set_cr(CR_DSTRUCTURE_REG, _dstructure_encode(valid_elements, partition))
+    def get_config_valid_elements(self) -> int:
+        """Return the active lane count from the CR15 dstructure register."""
+        return self.get_cr_dstructure().valid_elements
+
+    def get_config_partition(self) -> int:
+        """Return the partition field from the CR15 dstructure register."""
+        return self.get_cr_dstructure().partition
+
+    def set_cr_dstructure(
+        self,
+        valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
+        partition: int = DEFAULT_DSTRUCTURE.partition,
+    ) -> None:
+        """Write CR15 as dstructure configuration fields."""
+        self.regfile.set_cr(
+            CR_DSTRUCTURE_REG_INDEX,
+            encode_dstructure(valid_elements=valid_elements, partition=partition),
+        )
 
     def set_activation_alphas(
         self,
