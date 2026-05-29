@@ -1,0 +1,3 @@
+config,inputs,kernels,outputs,mask
+8x8_ic160_oc160,79,0,0,3
+8x8_ic320_oc160,159,0,0,3

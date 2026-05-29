@@ -1,0 +1,2 @@
+config,input_ch0,input_ch1,input_ch2,kernels,mask,outputs,temp
+256x256x3_oc16_stride2,5,5,5,15,0,0,1

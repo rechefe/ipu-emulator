@@ -60,6 +60,7 @@ class ASTBuilder(lark.Transformer):
 
 
 def parse(text: str) -> list[dict[str, any]]:
+    ipu_label.reset_labels()
     # Check if text contains Jinja statements and preprocess if needed
     if any(marker in text for marker in ['{{', '{%', '{#']):
         template = jinja2.Template(text)

@@ -1,0 +1,7 @@
+config,inputs,kernels,outputs,mask
+32x32_ic96_oc96,287,1151,0,0
+32x32_ic192_oc96,575,2303,0,0
+16x16_ic128_oc128,383,2047,0,0
+16x16_ic256_oc128,767,4095,0,0
+8x8_ic160_oc160,"ERROR: cols must be in {16, 32, 64, 128}, got 8",,,
+8x8_ic320_oc160,"ERROR: cols must be in {16, 32, 64, 128}, got 8",,,

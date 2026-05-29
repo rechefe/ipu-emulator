@@ -70,3 +70,145 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- depthwise_conv_universal tests -------------------------------------------
+
+py_pytest_test(
+    name = "test_depthwise_conv_universal",
+    srcs = ["test/test_depthwise_conv_universal.py"],
+    data = ["src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal/depthwise_conv_universal.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- pointwise_conv_universal tests -------------------------------------------
+
+py_pytest_test(
+    name = "test_pointwise_conv_universal",
+    srcs = ["test/test_pointwise_conv_universal.py"],
+    data = ["src/ipu_apps/convolutions_universal/pointwise/pointwise_conv_universal/pointwise_conv_universal.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- conv_universal tests -----------------------------------------------------
+
+py_pytest_test(
+    name = "test_conv_universal",
+    srcs = ["test/test_conv_universal.py"],
+    data = ["src/ipu_apps/convolutions_universal/conv/conv_universal/conv_universal.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- conv_8x8 tests -----------------------------------------------------------
+
+py_pytest_test(
+    name = "test_conv_8x8",
+    srcs = ["test/test_conv_8x8.py"],
+    data = ["src/ipu_apps/convolutions_universal/conv/conv_8x8/conv_8x8.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- conv_first_layer tests ---------------------------------------------------
+
+py_pytest_test(
+    name = "test_conv_first_layer",
+    srcs = ["test/test_conv_first_layer.py"],
+    data = ["src/ipu_apps/convolutions_universal/conv/conv_first_layer/conv_first_layer.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- depthwise_8x8 tests ------------------------------------------------------
+
+py_pytest_test(
+    name = "test_depthwise_8x8",
+    srcs = ["test/test_depthwise_8x8.py"],
+    data = ["src/ipu_apps/convolutions_universal/depthwise/depthwise_8x8/depthwise_8x8.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- depthwise_conv_stride2 tests ---------------------------------------------
+
+py_pytest_test(
+    name = "test_depthwise_conv_stride2",
+    srcs = ["test/test_depthwise_conv_stride2.py"],
+    data = ["src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_stride2/depthwise_conv_stride2.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- depthwise_conv_stride2_small tests ---------------------------------------
+
+py_pytest_test(
+    name = "test_depthwise_conv_stride2_small",
+    srcs = ["test/test_depthwise_conv_stride2_small.py"],
+    data = ["src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_stride2_small/depthwise_conv_stride2_small.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- pointwise_8x8 tests ------------------------------------------------------
+
+py_pytest_test(
+    name = "test_pointwise_8x8",
+    srcs = ["test/test_pointwise_8x8.py"],
+    data = ["src/ipu_apps/convolutions_universal/pointwise/pointwise_8x8/pointwise_8x8.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- residual_add tests -------------------------------------------------------
+
+py_pytest_test(
+    name = "test_residual_add_conv_universal",
+    srcs = ["test/test_residual_add_conv_universal.py"],
+    data = ["src/ipu_apps/convolutions_universal/residual_add/residual_add.asm"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Weight packing unit tests -----------------------------------------------
+
+py_pytest_test(
+    name = "test_weight_packing",
+    srcs = ["test/test_weight_packing.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
