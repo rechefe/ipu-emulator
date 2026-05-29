@@ -101,6 +101,7 @@ _TYPE_FIELD_SUFFIX = {
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
+    "FullXmemRow": "full_xmem_row_field",
 }
 
 # Field prefix for each slot type (matches compound_inst naming)
@@ -1010,13 +1011,14 @@ class Ipu:
         post_fn: int,
         cr_idx: int,
         aaq_rf_idx: int,
+        full_xmem_row: int,
     ) -> None:
         """Execute AGG: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
 
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
-        Lane count is taken from the CR15 dstructure register.
+        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
         """
-        valid_elements = self.state.get_config_valid_elements()
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1085,12 +1087,13 @@ class Ipu:
         post_fn: int,
         cr_idx: int,
         aaq_rf_idx: int,
+        full_xmem_row: int,
     ) -> None:
         """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value.
 
-        Lane count is taken from the CR15 dstructure register.
+        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
         """
-        valid_elements = self.state.get_config_valid_elements()
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
@@ -1149,13 +1152,16 @@ class Ipu:
 
         self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
 
-    def execute_aaq(self) -> None:
+    def execute_aaq(self, *, full_xmem_row: int) -> None:
         """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
         Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
-        ``r_acc``), typically filled by ``ACTIVATE``. Each 32-bit lane is truncated
-        then clamped to INT8 and stored in the **first 128 bytes** of
-        ``post_aaq_reg``; the wide-lane tail is cleared.
+        ``r_acc``), typically filled by ``ACTIVATE``. Each active 32-bit lane is
+        truncated then clamped to INT8 and stored in the leading bytes of
+        ``post_aaq_reg``; the remainder is zeroed.
+
+        ``full_xmem_row=1``: always process all 128 lanes.
+        ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
 
         Requires INT8 mode.
 
@@ -1167,18 +1173,22 @@ class Ipu:
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
 
+        active = 128 if full_xmem_row else self._agg_active_lane_count(
+            self.state.get_config_valid_elements()
+        )
+
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
                 return
             src_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(128):
+                for i in range(active):
                     val = struct.unpack_from("<f", src_buf, i * 4)[0]
                     clamped = max(-128, min(127, int(round(val))))
                     result[i] = clamped & 0xFF
             else:
-                for i in range(128):
+                for i in range(active):
                     val = struct.unpack_from("<i", src_buf, i * 4)[0]
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
@@ -1188,15 +1198,15 @@ class Ipu:
 
         src_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
-        for i in range(128):
+        for i in range(active):
             val = struct.unpack_from("<i", src_buf, i * 4)[0]
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_activate(self, *, activation_fn: int) -> None:
-        """Apply element-wise activation to CR15.valid_elements lanes.
+    def execute_activate(self, *, activation_fn: int, full_xmem_row: int) -> None:
+        """Apply element-wise activation to active lanes.
 
         Reads each active lane from ``r_acc`` and writes the result into the same
         lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
@@ -1204,10 +1214,10 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        Active lane count is taken from the CR15 dstructure register.
+        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
-        valid_elements = self.state.get_config_valid_elements()
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")

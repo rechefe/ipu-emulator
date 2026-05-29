@@ -687,28 +687,31 @@ INSTRUCTION_SPEC = {
                 {"name": "post_fn", "type": "PostFn"},
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate",
                 summary=(
-                    "Collapse R_ACC lanes into one value (SUM or MAX), using CR15.valid_elements "
-                    "lanes; apply post function; store to selected AAQ register."
+                    "Collapse R_ACC lanes into one value (SUM or MAX); apply post function; "
+                    "store to selected AAQ register. "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
-                syntax="AGG agg_mode, post_fn, cr_idx, aaq_rf_idx",
+                syntax="AGG agg_mode, post_fn, cr_idx, aaq_rf_idx, full_xmem_row",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
                     "cr_idx: CR register for value_cr post function (CR0–CR14)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
                 ],
                 operation=(
-                    "Let n = min(CR15.valid_elements, 128), where CR15 is decoded as the dstructure register. "
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1], AAQ[aaq_rf_idx]). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG sum, value, CR0, AAQ0;;",
+                example="AGG sum, value, CR0, AAQ0, 0;;",
             ),
             "execute_fn": "execute_agg",
         },
@@ -718,73 +721,86 @@ INSTRUCTION_SPEC = {
                 {"name": "post_fn", "type": "PostFn"},
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate First",
-                summary="Like AGG, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
-                syntax="AGG.FIRST agg_mode, post_fn, cr_idx, aaq_rf_idx",
+                summary=(
+                    "Like AGG, but for MAX mode ignores the previous AAQ register value, "
+                    "avoiding contamination from uninitialized data. "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                ),
+                syntax="AGG.FIRST agg_mode, post_fn, cr_idx, aaq_rf_idx, full_xmem_row",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
                     "cr_idx: CR register for value_cr post function (CR0–CR14)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
                 ],
                 operation=(
-                    "Let n = min(CR15.valid_elements, 128), where CR15 is decoded as the dstructure register. "
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1]) (previous AAQ value is NOT included). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG.FIRST max, value, CR0, AAQ0;;",
+                example="AGG.FIRST max, value, CR0, AAQ0, 0;;",
             ),
             "execute_fn": "execute_agg_first",
         },
         "AAQ": {
-            "operands": [],
+            "operands": [
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
+            ],
             "doc": InstructionDoc(
                 title="AAQ Quantize",
                 summary=(
-                    "Quantize the 128 wide lanes in **`POST_AAQ_REG`** (INT32 per lane in INT8 mode) "
+                    "Quantize wide lanes in **`POST_AAQ_REG`** (INT32 per lane in INT8 mode) "
                     "to INT8, storing clamped bytes in the **leading 128 bytes** of **`POST_AAQ_REG`** "
                     "and clearing the rest of the register. Wide lanes are normally produced by "
-                    "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode."
+                    "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode. "
+                    "``full_xmem_row=1`` always processes all 128 lanes; "
+                    "``full_xmem_row=0`` uses ``CR15.valid_elements`` as the active lane count."
                 ),
-                syntax="AAQ",
-                operands=[],
+                syntax="AAQ full_xmem_row",
+                operands=[
+                    "full_xmem_row: 1 = always 128 lanes (full XMEM row); 0 = use CR15.valid_elements lane count",
+                ],
                 operation=(
                     "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
-                    "For i in [0, 128): POST_AAQ_REG[i] = clamp(trunc(POST_AAQ_REG wide lane i), -128, 127); "
-                    "POST_AAQ_REG[128..511] = 0"
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "For i in [0, n): POST_AAQ_REG[i] = clamp(trunc(POST_AAQ_REG wide lane i), -128, 127). "
+                    "POST_AAQ_REG[n..511] = 0."
                 ),
-                example="AAQ;;",
+                example="AAQ 1;;",
             ),
             "execute_fn": "execute_aaq",
         },
         "ACTIVATE": {
             "operands": [
                 {"name": "activation_fn", "type": "ActivationFn"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Activation",
                 summary=(
-                    "Read each of the first ``CR15.valid_elements`` lanes from ``r_acc``, apply the "
-                    "selected element-wise activation, and write results into the same lane indices "
-                    "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
-                    "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
-                    "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
-                    "encodings outside the eleven named activations behave as identity. The available "
+                    "Read active lanes from ``r_acc``, apply the selected element-wise activation, "
+                    "and write results into the same lane indices of ``POST_AAQ_REG`` (``r_acc`` is unchanged). "
+                    "``full_xmem_row=1`` always activates all 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements. "
+                    "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
                     "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
                     "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                syntax="ACTIVATE activation_fn",
+                syntax="ACTIVATE activation_fn, full_xmem_row",
                 operands=[
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
                 ],
                 operation=(
-                    "Let n = min(CR15.valid_elements, 128) (valid_elements from the dstructure register) "
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128) "
                     "and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
                     "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
@@ -792,7 +808,7 @@ INSTRUCTION_SPEC = {
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                example="ACTIVATE relu;;",
+                example="ACTIVATE relu, 0;;",
             ),
             "execute_fn": "execute_activate",
         },
@@ -1214,6 +1230,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "BreakImmediate",
         "Label",
         "AddSubSrcB",
+        "FullXmemRow",
     }
 )
 
