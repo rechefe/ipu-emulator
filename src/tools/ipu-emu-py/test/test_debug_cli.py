@@ -197,8 +197,8 @@ class TestCLICommands:
 
     def test_set_cr(self):
         state = IpuState()
-        action, output = _run_cli(state, "set cr0 12345\ncontinue\n")
-        assert state.regfile.get_cr(0) == 12345
+        action, output = _run_cli(state, "set cr3 12345\ncontinue\n")
+        assert state.regfile.get_cr(3) == 12345
 
     def test_set_pc(self):
         state = IpuState()

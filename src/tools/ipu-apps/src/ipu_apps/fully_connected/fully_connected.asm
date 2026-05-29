@@ -14,12 +14,12 @@ input_loop:
 
 
 element_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LDR_CYCLIC_MULT_REG lr4 cr13 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.VE.CYCLIC      lr15 0 lr15 lr5;
     ACC;
-    BLT                 lr5 lr6 element_loop;;
+    BNE                 lr5 lr6 element_loop;;
 
     STR_ACC_REG         lr7 cr2;;
     ADD                 lr7 lr7 cr5;

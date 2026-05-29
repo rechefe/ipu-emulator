@@ -13,18 +13,31 @@ from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 from ipu_common import activations as _activations
+from ipu_emu.ipu_math import DType
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
 
-# CR register index for data type
-CR_DTYPE_REG = 15
+# CR register index for data structure (valid_elements and partition)
+# Bits [7:0]  = valid_elements (default 128)
+# Bits [11:8] = partition      (default 0)
+CR_DSTRUCTURE_REG = 15
+
+_CR15_DEFAULT = 128  # valid_elements=128, partition=0
+
+
+def _dstructure_encode(valid_elements: int, partition: int) -> int:
+    return (int(valid_elements) & 0xFF) | ((int(partition) & 0xF) << 8)
+
+
+def _dstructure_decode(value: int) -> tuple[int, int]:
+    return (value & 0xFF), ((value >> 8) & 0xF)
 
 
 class WideVectorArithmetic(str, Enum):
     """How 128-lane wide-vector debug math is performed (emulator-only; issue #33).
 
-    FP32: each lane is IEEE float32 (default for “no quantization” FP analysis).
+    FP32: each lane is IEEE float32 (default for "no quantization" FP analysis).
     INT32: each lane is signed int32 with wrap semantics matching INT8-mode acc ops.
     """
 
@@ -40,6 +53,7 @@ class IpuState:
         xmem:            External memory (2 MB).
         program_counter: Current instruction address.
         inst_mem:        Instruction memory (list of decoded instruction dicts).
+        dtype:           Arithmetic data type (not stored in CR; emulator-only).
     """
 
     def __init__(
@@ -49,19 +63,21 @@ class IpuState:
         wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
         wide_vector_quantize_output: bool = False,
         elu_alpha: float | None = None,
+        dtype: DType = DType.INT8,
     ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
         self.stats = RunStats()
-        # Instruction memory — each entry will be a decoded instruction dict
-        # (populated when loading a binary or assembling).
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
 
+        # Arithmetic data type — not stored in a CR register (emulator-only).
+        self.dtype: DType = dtype
+
+        # Initialize CR15 to default dstructure: valid_elements=128, partition=0.
+        self.regfile._storage["cr"][15 * 4 : 15 * 4 + 4] = _CR15_DEFAULT.to_bytes(4, "little")
+
         # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
-        # XMEM addresses and architectural byte counts are unchanged; r/r_cyclic
-        # operands are staged as 128×32-bit lanes while mult/acc use that width.
-        # LR/CR are not widened. Keys are MultStageReg *encoding indices* (0=r0, 1=r1).
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
         self.wide_vector_quantize_output: bool = wide_vector_quantize_output
@@ -69,21 +85,19 @@ class IpuState:
         self._debug_mult_stage_vectors_snap: dict[int, list[float | int]] = {}
 
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
-        # Snapshot module defaults at construction unless caller overrides. Matches
-        # the ergonomics of ``set_cr_dtype`` but lives on ``IpuState`` only.
         self.elu_alpha: float = (
             float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
         )
 
-    # -- CR dtype convenience (mirrors ipu__set_cr_dtype / ipu__get_cr_dtype) --
+    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
 
-    def set_cr_dtype(self, dtype: int) -> None:
-        """Set the data type register (CR[15])."""
-        self.regfile.set_cr(CR_DTYPE_REG, dtype)
+    def get_cr_dstructure(self) -> tuple[int, int]:
+        """Read CR15 as dstructure: returns (valid_elements, partition)."""
+        return _dstructure_decode(self.regfile.get_cr(CR_DSTRUCTURE_REG))
 
-    def get_cr_dtype(self) -> int:
-        """Read the data type register (CR[15])."""
-        return self.regfile.get_cr(CR_DTYPE_REG)
+    def set_cr_dstructure(self, valid_elements: int, partition: int = 0) -> None:
+        """Write CR15 as dstructure (valid_elements in bits[7:0], partition in bits[11:8])."""
+        self.regfile.set_cr(CR_DSTRUCTURE_REG, _dstructure_encode(valid_elements, partition))
 
     def set_activation_alphas(
         self,
@@ -119,7 +133,6 @@ class IpuState:
     def load_r_cyclic_from_xmem(self, xmem_addr: int) -> None:
         """Load 128 bytes from XMEM into the cyclic register at current index."""
         data = self.xmem.read_address(xmem_addr, 128)
-        # Load into the start of the cyclic register
         self.regfile.set_r_cyclic_at(0, data)
 
     def store_acc_to_xmem(self, xmem_addr: int) -> None:

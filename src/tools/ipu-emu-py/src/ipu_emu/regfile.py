@@ -61,6 +61,10 @@ class RegFile:
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods)
         _attach_dynamic_accessors(self)
 
+        # CR0 is permanently 0 (already zero-initialized).
+        # CR1 is permanently 1; initialize it directly (bypassing set_scalar lock).
+        struct.pack_into("<I", self._storage["cr"], 1 * 4, 1)
+
     # -- helpers ------------------------------------------------------------
 
     def _resolve(self, name: str) -> str:
@@ -89,13 +93,19 @@ class RegFile:
         return struct.unpack_from("<I", buf, offset)[0]
 
     def set_scalar(self, name: str, index: int, value: int) -> None:
-        """Write a 32-bit scalar register (LR / CR) at *index*."""
+        """Write a 20-bit scalar register (LR / CR) at *index*."""
         desc = self._desc(name)
         assert not desc.is_vector, f"{name} is not a scalar register"
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+        if desc.kind in (RegKind.CR, RegKind.LR):
+            if desc.kind == RegKind.CR and index in (0, 1):
+                return  # CR0 and CR1 are read-only (CR0=0, CR1=1)
+            value = value & 0xFFFFF
+        else:
+            value = value & 0xFFFFFFFF
         offset = index * desc.size_bytes
         buf = self._storage[self._resolve(name)]
-        struct.pack_into("<I", buf, offset, value & 0xFFFFFFFF)
+        struct.pack_into("<I", buf, offset, value)
 
     # -- All convenience accessors generated from schema --------------------
     # get_lr, set_lr, get_cr, set_cr, get_r, set_r, get_r_cyclic_at,

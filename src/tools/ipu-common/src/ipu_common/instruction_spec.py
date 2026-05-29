@@ -685,37 +685,30 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
-                {
-                    "name": "valid_elements",
-                    "type": "LcrIdx",
-                    "read": "snapshot",
-                },
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate",
                 summary=(
-                    "Collapse R_ACC lanes into one value (SUM or MAX), using only the first "
-                    "valid_elements words for the tree; apply post function; store to selected AAQ register."
+                    "Collapse R_ACC lanes into one value (SUM or MAX), using CR15.valid_elements "
+                    "lanes; apply post function; store to selected AAQ register."
                 ),
-                syntax="AGG agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx",
+                syntax="AGG agg_mode, post_fn, cr_idx, aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "valid_elements: lane count from an LR or CR register (value read at cycle start; "
-                    "unsigned, clamped to 0–128; indices [valid_elements..127] are masked out)",
                     "cr_idx: CR register for value_cr post function (CR0–CR15)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
-                    "Let n = min(valid_elements, 128). "
+                    "Let n = min(CR15.valid_elements, 128) where CR15.valid_elements = CR15 & 0xFF. "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1], AAQ[aaq_rf_idx]). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG sum, value, LR0, CR0, AAQ0;;",
+                example="AGG sum, value, CR0, AAQ0;;",
             ),
             "execute_fn": "execute_agg",
         },
@@ -723,34 +716,27 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "agg_mode", "type": "AggMode"},
                 {"name": "post_fn", "type": "PostFn"},
-                {
-                    "name": "valid_elements",
-                    "type": "LcrIdx",
-                    "read": "snapshot",
-                },
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Aggregate First",
                 summary="Like AGG, but for MAX mode ignores the previous AAQ register value, avoiding contamination from uninitialized data.",
-                syntax="AGG.FIRST agg_mode, post_fn, valid_elements, cr_idx, aaq_rf_idx",
+                syntax="AGG.FIRST agg_mode, post_fn, cr_idx, aaq_rf_idx",
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "valid_elements: lane count from an LR or CR register (value read at cycle start; "
-                    "unsigned, clamped to 0–128; indices [valid_elements..127] are masked out)",
                     "cr_idx: CR register for value_cr post function (CR0–CR15)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
-                    "Let n = min(valid_elements, 128). "
+                    "Let n = min(CR15.valid_elements, 128) where CR15.valid_elements = CR15 & 0xFF. "
                     "If sum: v = sum(R_ACC[0..n-1]). "
                     "If max: v = max(R_ACC[0..n-1]) (previous AAQ value is NOT included). "
                     "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
                     "AAQ[aaq_rf_idx] = result."
                 ),
-                example="AGG.FIRST max, value, LR0, CR0, AAQ0;;",
+                example="AGG.FIRST max, value, CR0, AAQ0;;",
             ),
             "execute_fn": "execute_agg_first",
         },
@@ -777,17 +763,12 @@ INSTRUCTION_SPEC = {
         },
         "ACTIVATE": {
             "operands": [
-                {
-                    "name": "valid_elements",
-                    "type": "LcrIdx",
-                    "read": "snapshot",
-                },
                 {"name": "activation_fn", "type": "ActivationFn"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Activation",
                 summary=(
-                    "Read each of the first ``valid_elements`` lanes from ``r_acc``, apply the "
+                    "Read each of the first ``CR15.valid_elements`` lanes from ``r_acc``, apply the "
                     "selected element-wise activation, and write results into the same lane indices "
                     "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
                     "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
@@ -798,20 +779,20 @@ INSTRUCTION_SPEC = {
                     "``exp2`` (8). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                syntax="ACTIVATE valid_elements activation_fn",
+                syntax="ACTIVATE activation_fn",
                 operands=[
-                    "valid_elements: lane count from an LR or CR register (unsigned, clamped to 0–128)",
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
                 ],
                 operation=(
-                    "Let n = min(valid_elements, 128) and k = encoded activation index. "
+                    "Let n = min(CR15 & 0xFF, 128) (valid_elements from dstructure register) "
+                    "and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
                     "R_ACC is not modified. The selector uses four bits; encodings outside the nine named "
                     "activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                example="ACTIVATE LR0 relu;;",
+                example="ACTIVATE relu;;",
             ),
             "execute_fn": "execute_activate",
         },

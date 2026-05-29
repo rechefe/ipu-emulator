@@ -25,15 +25,28 @@ class TestRegFileScalars:
 
     def test_cr_set_get(self):
         rf = RegFile()
-        rf.set_cr(0, 42)
-        rf.set_cr(15, 0xDEADBEEF)
-        assert rf.get_cr(0) == 42
-        assert rf.get_cr(15) == 0xDEADBEEF
+        rf.set_cr(2, 0xCAFE)  # 20-bit value; CR0/CR1 are locked
+        assert rf.get_cr(2) == 0xCAFE
 
-    def test_lr_overflow_wraps_to_32bit(self):
+    def test_cr0_is_permanently_zero(self):
         rf = RegFile()
-        rf.set_lr(0, 0x1_0000_0001)  # > 32 bits
-        assert rf.get_lr(0) == 1  # only low 32 bits kept
+        rf.set_cr(0, 0xFFFFFF)  # write is silently ignored
+        assert rf.get_cr(0) == 0
+
+    def test_cr1_is_permanently_one(self):
+        rf = RegFile()
+        rf.set_cr(1, 0xFFFFFF)  # write is silently ignored
+        assert rf.get_cr(1) == 1
+
+    def test_cr_20bit_mask(self):
+        rf = RegFile()
+        rf.set_cr(3, 0x1FFFFF)  # 21 bits — should be masked to 20 bits
+        assert rf.get_cr(3) == 0xFFFFF
+
+    def test_lr_overflow_wraps_to_20bit(self):
+        rf = RegFile()
+        rf.set_lr(0, 0x1_0000_0001)  # > 20 bits
+        assert rf.get_lr(0) == 1  # only low 20 bits kept
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()
@@ -264,10 +277,25 @@ class TestIpuState:
         state.program_counter = 1024
         assert state.is_halted
 
-    def test_cr_dtype(self):
+    def test_dtype_attribute(self):
+        from ipu_emu.ipu_math import DType
         state = IpuState()
-        state.set_cr_dtype(2)
-        assert state.get_cr_dtype() == 2
+        assert state.dtype == DType.INT8  # default
+        state.dtype = DType.E4
+        assert state.dtype == DType.E4
+
+    def test_cr15_default_dstructure(self):
+        state = IpuState()
+        valid_elements, partition = state.get_cr_dstructure()
+        assert valid_elements == 128
+        assert partition == 0
+
+    def test_set_cr_dstructure(self):
+        state = IpuState()
+        state.set_cr_dstructure(64, 2)
+        valid_elements, partition = state.get_cr_dstructure()
+        assert valid_elements == 64
+        assert partition == 2
 
     def test_load_store_r_reg_xmem(self):
         """Load data into XMEM, then load into R register, verify."""

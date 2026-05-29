@@ -282,7 +282,7 @@ class Ipu:
         """Struct format for r_acc / agg when wide-vector debug is on."""
         if self._wide_vector_active():
             return "<f" if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         return "<i" if dtype == DType.INT8 else "<f"
 
     # -----------------------------------------------------------------------
@@ -551,7 +551,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
 
         for i in range(R_REG_SIZE):
@@ -585,7 +585,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], ra[i], dtype)
@@ -641,7 +641,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
         rc_buf = self.state.regfile.raw("r_cyclic")
         one_byte = dtype_one_byte(dtype)
@@ -696,7 +696,7 @@ class Ipu:
         non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
         padded with the dtype-specific encoding of 1 instead of wrapping.
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -743,7 +743,7 @@ class Ipu:
         cyclic_offset+i >= R_CYCLIC_SIZE are padded with the dtype-specific
         encoding of 1 instead of wrapping.
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -794,7 +794,7 @@ class Ipu:
 
     def execute_acc(self) -> None:
         """Execute ACC: Accumulate mult_res into accumulator."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
@@ -811,7 +811,7 @@ class Ipu:
 
     def execute_acc_first(self) -> None:
         """Execute ACC.FIRST: Set r_acc to multiply result (no previous sum)."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -822,7 +822,7 @@ class Ipu:
 
     def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
         """Execute ACC.ADD_AAQ: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
@@ -843,7 +843,7 @@ class Ipu:
 
     def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
         """Execute ACC.ADD_AAQ.FIRST: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -865,7 +865,7 @@ class Ipu:
 
         All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
@@ -884,7 +884,7 @@ class Ipu:
 
         All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
@@ -946,7 +946,7 @@ class Ipu:
                 out_indices.extend(after_h[start : start + effective_row_len])
 
         base = (offset % 4) * 32
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -1007,16 +1007,16 @@ class Ipu:
         *,
         agg_mode: int,
         post_fn: int,
-        valid_elements: int,
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
         """Execute AGG: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
 
         For MAX, the current value of the target AAQ register is included in the max (no update if already max).
-        Only the first ``valid_elements`` lanes (clamped to 128) participate in the tree.
+        Lane count is taken from CR15 bits[7:0] (the dstructure register).
         """
-        dtype = self.state.get_cr_dtype()
+        valid_elements = self.state.regfile.get_cr(15) & 0xFF
+        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
 
@@ -1082,12 +1082,15 @@ class Ipu:
         *,
         agg_mode: int,
         post_fn: int,
-        valid_elements: int,
         cr_idx: int,
         aaq_rf_idx: int,
     ) -> None:
-        """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value."""
-        dtype = self.state.get_cr_dtype()
+        """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value.
+
+        Lane count is taken from CR15 bits[7:0] (the dstructure register).
+        """
+        valid_elements = self.state.regfile.get_cr(15) & 0xFF
+        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
 
@@ -1159,7 +1162,7 @@ class Ipu:
         ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
         to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
 
@@ -1191,8 +1194,8 @@ class Ipu:
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
-        """Apply element-wise activation to the first ``valid_elements`` lanes.
+    def execute_activate(self, *, activation_fn: int) -> None:
+        """Apply element-wise activation to CR15.valid_elements lanes.
 
         Reads each active lane from ``r_acc`` and writes the result into the same
         lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
@@ -1200,8 +1203,10 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
+        Active lane count is taken from CR15 bits[7:0] (the dstructure register).
         """
         fn_id = int(activation_fn) & 0xFFFFFFFF
+        valid_elements = self.state.regfile.get_cr(15) & 0xFF
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")

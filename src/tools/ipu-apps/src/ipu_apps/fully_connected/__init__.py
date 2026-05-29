@@ -111,13 +111,13 @@ class FullyConnectedApp(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
         load_binary_to_xmem(
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
         )
         _load_and_transpose_weights(state, self.weights_path)
-        state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
+        # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
+        # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
         state.regfile.set_cr(3, 128)
@@ -127,10 +127,14 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(6, 0)
         state.regfile.set_cr(7, 1280)
         state.regfile.set_cr(8, 0)
-        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
-        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
-        state.regfile.set_cr(11, 127)
+        # Pre-decremented by one VLIW step because ADD runs before LDR/MULT within a cycle.
+        # The 20-bit wraparound on the first ADD gives the correct starting values (0 for
+        # both lr4 offset and lr5 element index on the first effective iteration).
+        state.regfile.set_cr(9, (-128) & 0xFFFFF)   # lr4 cyclic offset: pre-decremented
+        state.regfile.set_cr(10, (-1) & 0xFFFFF)    # lr5 counter: pre-decremented
+        state.regfile.set_cr(11, 127)                # BNE exit condition
         state.regfile.set_cr(12, 0)
+        state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)  # moved from cr1 (CR1 is now locked)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
