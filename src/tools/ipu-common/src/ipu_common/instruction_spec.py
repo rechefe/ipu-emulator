@@ -773,10 +773,10 @@ INSTRUCTION_SPEC = {
                     "of ``POST_AAQ_REG`` (``r_acc`` is unchanged). The activation is "
                     "selected by keyword (see ACTIVATION_FN_NAMES). Behaviour matches the activation "
                     "table in the AAQ stage spec (section 7.0). The selector uses four bits; "
-                    "encodings outside the nine named activations behave as identity. The available "
+                    "encodings outside the eleven named activations behave as identity. The available "
                     "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
-                    "``exp2`` (8). For Python emulator calibration (virtual α), see "
+                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
                 syntax="ACTIVATE activation_fn",
@@ -787,7 +787,7 @@ INSTRUCTION_SPEC = {
                     "Let n = min(CR15.valid_elements, 128) (valid_elements from the dstructure register) "
                     "and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
-                    "R_ACC is not modified. The selector uses four bits; encodings outside the nine named "
+                    "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
                     "activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."

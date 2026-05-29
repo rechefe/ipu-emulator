@@ -2124,3 +2124,69 @@ BKPT;;
         assert state.regfile.get_r_acc_word(1) == tail
         assert _post_aaq_lane_i32(state, 0) == 0
         assert _post_aaq_lane_i32(state, 1) == 0
+
+    def test_activate_reciprocal_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 reciprocal;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        x = 4.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 0.25) < 1e-6
+
+    def test_activate_reciprocal_zero_input(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 reciprocal;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert out == 0.0
+
+    def test_activate_rsqrt_float(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 rsqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        x = 4.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 0.5) < 1e-6
+
+    def test_activate_rsqrt_nonpositive_input(self):
+        state = _make_state(
+            """\
+ACTIVATE lr0 rsqrt;;
+BKPT;;
+"""
+        )
+        state.regfile.set_cr(15, DType.E4)
+        state.regfile.set_lr(0, 1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert out == 0.0
