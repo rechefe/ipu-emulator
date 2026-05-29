@@ -43,9 +43,29 @@ class MultStageRegField(_MultStageBase):
 
 # Re-export generated classes with their original names
 LrRegField = _generated_classes.get("LrRegField")
-CrRegField = _generated_classes.get("CrRegField")
-LcrRegField = _generated_classes.get("LcrRegField")
+_CrRegFieldBase = _generated_classes.get("CrRegField")
+_LcrRegFieldBase = _generated_classes.get("LcrRegField")
 AaqRegField = _generated_classes.get("AaqRegField")
+
+
+def _reject_cr15(token: "ipu_token.AnnotatedToken", cls_name: str) -> None:
+    if token.token.value.lower() == "cr15":
+        raise ValueError(
+            f"CR15 is reserved for dstructure configuration and cannot be used as an ISA operand.\n"
+            f"In Line {token.token.line}, Column {token.token.column}"
+        )
+
+
+class CrRegField(_CrRegFieldBase):
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        _reject_cr15(token, "CrRegField")
+        super().__init__(token)
+
+
+class LcrRegField(_LcrRegFieldBase):
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        _reject_cr15(token, "LcrRegField")
+        super().__init__(token)
 
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()

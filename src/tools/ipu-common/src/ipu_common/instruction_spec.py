@@ -24,8 +24,8 @@ KEY DESIGN PRINCIPLES:
 OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "MultStageReg": R0 or R1 (MultStageRegField); 2-bit encoding in the VLIW word
   - "LrIdx": LR0–LR15 (LrRegField)  
-  - "CrIdx": CR0–CR15 (CrRegField)
-  - "LcrIdx": LR0–LR15 or CR0–CR15 (LcrRegField)
+  - "CrIdx": CR0–CR14 (CrRegField)
+  - "LcrIdx": LR0–LR15 or CR0–CR14 (LcrRegField)
   - "AddSubSrcB": second operand for ADD/SUB — LR, CR, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
@@ -167,7 +167,7 @@ INSTRUCTION_SPEC = {
                 syntax="STR_ACC_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
-                    "base: Base address register (CR0–CR15)",
+                    "base: Base address register (CR0–CR14)",
                 ],
                 operation="Memory[offset + base] = R_ACC",
                 example="STR_ACC_REG CR0, CR1;;",
@@ -206,7 +206,7 @@ INSTRUCTION_SPEC = {
                 syntax="LDR_CYCLIC_MULT_REG offset, base, index",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
-                    "base: Base address register (CR0–CR15)",
+                    "base: Base address register (CR0–CR14)",
                     "index: Index inside cyclic register (LR0–LR15)",
                 ],
                 operation="R_CYCLIC[index % 512:128] = Memory[offset + base]",
@@ -224,7 +224,7 @@ INSTRUCTION_SPEC = {
                 syntax="LDR_MULT_MASK_REG offset, base, mask_idx",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
-                    "base: Base address register (CR0–CR15)",
+                    "base: Base address register (CR0–CR14)",
                 ],
                 operation="R_MASK = Memory[offset + base]",
             ),
@@ -254,7 +254,7 @@ INSTRUCTION_SPEC = {
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
-                    "base: Base address register (CR0–CR15)",
+                    "base: Base address register (CR0–CR14)",
                 ],
                 operation="Memory[offset + base] = POST_AAQ_REG (512 bytes); interim staging register",
                 example="STR_POST_AAQ_REG LR0, CR0;;",
@@ -279,7 +279,7 @@ INSTRUCTION_SPEC = {
                 syntax="SET reg, src",
                 operands=[
                     "reg: Loop register (LR0–LR15)",
-                    "src: Source configuration register (CR0–CR15)",
+                    "src: Source configuration register (CR0–CR14)",
                 ],
                 operation="reg = cr[src]",
                 example="SET LR0, CR1;;",
@@ -302,7 +302,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15, CR0–CR15, or unsigned immediate 0–31",
+                    "src_b: Second source — LR0–LR15, CR0–CR14, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a + src_b",
                 example="ADD LR0, LR1, LR2;;\nADD LR3, LR1, CR5;;\nADD LR4, LR1, 7;;",
@@ -325,7 +325,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15, CR0–CR15, or unsigned immediate 0–31",
+                    "src_b: Second source — LR0–LR15, CR0–CR14, or unsigned immediate 0–31",
                 ],
                 operation="dest = src_a - src_b",
                 example="SUB LR0, LR1, LR2;;\nSUB LR3, LR1, CR5;;\nSUB LR4, LR1, 7;;",
@@ -347,7 +347,7 @@ INSTRUCTION_SPEC = {
                 syntax="INCR_MOD_POW2 dst, step, k",
                 operands=[
                     "dst: Destination loop register (LR0–LR15); read and written",
-                    "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
+                    "step: Signed 32-bit increment from LR0–LR15 or CR0–CR14",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dst <- (dst + step) & ((1 << k) - 1)",
@@ -461,7 +461,7 @@ INSTRUCTION_SPEC = {
                     "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
                     "mask_offset: Immediate mask slot 0–7 (128-bit slice of R_MASK)",
                     "mask_shift: Shift applied to the mask (from LR)",
-                    "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (CR0–CR15)",
+                    "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (CR0–CR14)",
                 ],
                 operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; MULT_RES[i] = CR[cr_idx][0] * rb",
                 example="MULT.VE.CR LR0, 0, LR15, CR3;;",
@@ -698,7 +698,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "cr_idx: CR register for value_cr post function (CR0–CR15)",
+                    "cr_idx: CR register for value_cr post function (CR0–CR14)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
@@ -726,7 +726,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "agg_mode: sum or max",
                     "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "cr_idx: CR register for value_cr post function (CR0–CR15)",
+                    "cr_idx: CR register for value_cr post function (CR0–CR14)",
                     "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
                 ],
                 operation=(
@@ -814,8 +814,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are equal.",
                 syntax="BEQ reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
@@ -834,8 +834,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are not equal.",
                 syntax="BNE reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
@@ -854,8 +854,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if first register is less than second.",
                 syntax="BLT reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 < reg2) PC = label",
@@ -874,8 +874,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if test register not equal to base register.",
                 syntax="BNZ test_reg, base_reg, label",
                 operands=[
-                    "test_reg: Register to test (LR0–LR15 or CR0–CR15)",
-                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR15)",
+                    "test_reg: Register to test (LR0–LR15 or CR0–CR14)",
+                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR14)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg != base_reg) PC = label",
@@ -894,8 +894,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if test register equals base register.",
                 syntax="BZ test_reg, base_reg, label",
                 operands=[
-                    "test_reg: Register to test (LR0–LR15 or CR0–CR15)",
-                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR15)",
+                    "test_reg: Register to test (LR0–LR15 or CR0–CR14)",
+                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR14)",
                     "label: Branch target label",
                 ],
                 operation="if (test_reg == base_reg) PC = label",
@@ -925,7 +925,7 @@ INSTRUCTION_SPEC = {
                 title="Branch Register",
                 summary="Branch to address in register.",
                 syntax="BR reg",
-                operands=["reg: Register containing target address (LR0–LR15 or CR0–CR15)"],
+                operands=["reg: Register containing target address (LR0–LR15 or CR0–CR14)"],
                 operation="PC = reg",
             ),
             "execute_fn": "execute_br",
