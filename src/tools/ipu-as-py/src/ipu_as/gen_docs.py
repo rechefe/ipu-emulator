@@ -22,18 +22,21 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "LR value after earlier slots in the same cycle."
     ),
     "CrIdx": (
-        "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the "
-        "harness initializes them (e.g. base pointers, dtype in `cr15`). **`SET`** in the LR slot "
+        "Constant-register index: **`cr0`** … **`cr14`**. CRs are **read-only** in assembly; the "
+        "harness initializes them (e.g. base pointers, strides). `cr15` is reserved for dstructure "
+        "configuration and is not a valid ISA operand. **`SET`** in the LR slot "
         "copies the full **32-bit** CR value into an LR."
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
-        "`**cr0`–`cr15`** in the usual combined ordering used by the assembler."
+        "`**cr0`–`cr14`** in the usual combined ordering used by the assembler. `cr15` is reserved "
+        "and is not a valid operand."
     ),
     "AddSubSrcB": (
-        "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
+        "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr14`**, "
         "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
-        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
+        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**. `cr15` is "
+        "reserved and is not a valid operand."
     ),
     "AaqRegIdx": "AAQ register selector: **`aaq0`** … **`aaq3`**.",
     "ElementsInRow": (

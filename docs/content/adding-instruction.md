@@ -115,7 +115,7 @@ class Ipu:
             src_b: Source B register bytes (auto-resolved from snapshot)
         """
         result = bytearray(R_REG_SIZE)
-        dtype = DType(self.state.get_cr_dtype())
+        dtype = self.state.dtype
         
         for i in range(R_REG_SIZE):
             # Perform your custom operation
@@ -146,7 +146,7 @@ class Ipu:
 - **Common patterns**:
   - Use `_MULT_STAGE_MAP[dest]` to get `(reg_name, elem_idx)` from a MultStageReg index
   - Use `self.state.regfile.set_register_bytes()` to write to a register
-  - Use `DType(self.state.get_cr_dtype())` to get the current data type
+  - Use `self.state.dtype` to get the current data type
   - Use `ipu_mult()`, `ipu_add()` from `ipu_emu.ipu_math` for typed arithmetic
 
 **Available helpers:**
@@ -166,7 +166,7 @@ R_ACC_SIZE                                      # Accumulator size (512)
 # State access
 self.state.xmem.read_address(addr, size) -> bytearray
 self.state.xmem.write_address(addr, data: bytearray)
-self.state.get_cr_dtype() -> int               # Get dtype from CR register
+
 self.snapshot                                   # Pre-VLIW register snapshot
 
 # Math operations
