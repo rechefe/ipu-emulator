@@ -63,8 +63,12 @@ def fetch_merged_prs(token: str | None, latest_only: bool = False) -> list[dict]
         try:
             batch = _get(url, token)
         except HTTPError as exc:
-            print(f"GitHub API error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            print(
+                f"Warning: GitHub API error while fetching release log: {exc}. "
+                "Writing a minimal release log instead.",
+                file=sys.stderr,
+            )
+            return []
 
         if not batch:
             break
@@ -126,8 +130,7 @@ def main() -> None:
 
     prs = fetch_merged_prs(token, latest_only=args.latest)
     if not prs:
-        print("No merged PRs found.", file=sys.stderr)
-        sys.exit(0)
+        print("No merged PRs found; writing a minimal release log.", file=sys.stderr)
 
     content = build_content(prs)
     args.output.write_text(content, encoding="utf-8")

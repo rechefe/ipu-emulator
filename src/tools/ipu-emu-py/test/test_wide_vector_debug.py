@@ -34,7 +34,7 @@ def _run_wide(
         wide_vector_arithmetic=arithmetic,
         wide_vector_quantize_output=quantize_output,
     )
-    state.regfile.set_cr(15, DType.INT8)
+    state.dtype = DType.INT8
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -49,7 +49,7 @@ class TestWideVectorFp32:
         r0 = struct.pack("<128f", *([2.0] * 128))
         rc = struct.pack("<128f", *([3.0] * 128))
         state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
@@ -86,7 +86,7 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE lr0 identity;;
+ACTIVATE identity;;
 aaq;;
 BKPT;;
 """,
@@ -103,7 +103,7 @@ BKPT;;
             wide_vector_arithmetic=WideVectorArithmetic.FP32,
             wide_vector_quantize_output=True,
         )
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
@@ -116,7 +116,7 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE lr0 identity;;
+ACTIVATE identity;;
 aaq;;
 BKPT;;
 """
@@ -137,7 +137,7 @@ class TestWideVectorInt32:
         r0 = struct.pack("<128i", *([70000] * 128))
         rc = struct.pack("<128i", *([70000] * 128))
         state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
@@ -176,7 +176,7 @@ class TestWideVectorR0R1Isolation:
 
         def run_mult(which: str) -> float:
             st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-            st.regfile.set_cr(15, DType.INT8)
+            st.dtype = DType.INT8
             st.xmem.write_address(0x1000, r0)
             st.xmem.write_address(0x1100, r1)
             st.xmem.write_address(0x2000, rc)
@@ -214,7 +214,7 @@ class TestWideVectorCyclicIndex:
         nines = struct.pack("<128f", *([9.0] * 128))
         twos = struct.pack("<128f", *([2.0] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.regfile.set_cr(15, DType.INT8)
+        st.dtype = DType.INT8
         st.xmem.write_address(0x2000, zeros)
         st.xmem.write_address(0x2200, nines)
         st.xmem.write_address(0x1000, twos)
@@ -256,15 +256,15 @@ class TestWideVectorPadding:
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.regfile.set_cr(15, DType.INT8)
-        st.regfile.set_cr(1, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
+        st.dtype = DType.INT8
+        st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
         st.regfile.set_r_cyclic_at(0, buf)
         st.regfile.set_cr(6, 384)
         st.regfile.set_cr(7, 0)
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.VE.CR lr0 0 lr2 cr1;;
+MULT.VE.CR lr0 0 lr2 cr2;;
 RESET_ACC;;
 acc.first;;
 BKPT;;
@@ -286,7 +286,7 @@ BKPT;;
         for k in range(96):
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.regfile.set_cr(15, DType.INT8)
+        st.dtype = DType.INT8
         st.regfile.set_cr(0, 0)
         st.regfile.set_r_cyclic_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
@@ -322,7 +322,7 @@ BKPT;;
         for k in range(96):
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.regfile.set_cr(15, DType.INT8)
+        st.dtype = DType.INT8
         st.regfile.set_cr(0, 0)
         st.regfile.set_r_cyclic_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
@@ -357,11 +357,11 @@ class TestWideVectorAggInt32:
         acc = bytearray(512)
         struct.pack_into("<128i", acc, 0, *([4] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
-        st.regfile.set_cr(15, DType.INT8)
+        st.dtype = DType.INT8
         st.regfile.set_r_acc_bytes(acc)
-        st.regfile.set_lr(1, 128)
+        st.set_cr_dstructure(128)
         asm = """\
-agg sum inv lr1 cr0 aaq0;;
+agg sum inv cr0 aaq0;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -373,7 +373,7 @@ BKPT;;
 class TestWideVectorAlignment:
     def test_misaligned_cyclic_offset_raises(self) -> None:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.regfile.set_cr(15, DType.INT8)
+        st.dtype = DType.INT8
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
         st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))
         st.regfile.set_cr(6, 0x1000)

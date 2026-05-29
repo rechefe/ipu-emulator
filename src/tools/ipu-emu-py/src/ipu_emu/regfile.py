@@ -31,6 +31,12 @@ from typing import Any
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.ipu_config import (
+    CR_READ_ONLY_INITIAL_VALUES,
+    CR_REGISTER_NAME,
+    LR_CR_SCALAR_VALUE_MASK,
+    REGISTER_WORD_VALUE_MASK,
+)
 
 
 class RegFile:
@@ -61,6 +67,14 @@ class RegFile:
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods)
         _attach_dynamic_accessors(self)
 
+        for index, value in CR_READ_ONLY_INITIAL_VALUES.items():
+            self.set_scalar(
+                CR_REGISTER_NAME,
+                index,
+                value,
+                allow_read_only=True,
+            )
+
     # -- helpers ------------------------------------------------------------
 
     def _resolve(self, name: str) -> str:
@@ -88,14 +102,33 @@ class RegFile:
         buf = self._storage[self._resolve(name)]
         return struct.unpack_from("<I", buf, offset)[0]
 
-    def set_scalar(self, name: str, index: int, value: int) -> None:
-        """Write a 32-bit scalar register (LR / CR) at *index*."""
+    def set_scalar(
+        self,
+        name: str,
+        index: int,
+        value: int,
+        *,
+        allow_read_only: bool = False,
+    ) -> None:
+        """Write a scalar register (LR / CR) at *index*."""
         desc = self._desc(name)
         assert not desc.is_vector, f"{name} is not a scalar register"
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+
+        if self._is_read_only_cr(desc, index) and not allow_read_only:
+            return
+
+        if desc.kind in (RegKind.CR, RegKind.LR):
+            value &= LR_CR_SCALAR_VALUE_MASK
+        else:
+            value &= REGISTER_WORD_VALUE_MASK
+
         offset = index * desc.size_bytes
         buf = self._storage[self._resolve(name)]
-        struct.pack_into("<I", buf, offset, value & 0xFFFFFFFF)
+        struct.pack_into("<I", buf, offset, value)
+
+    def _is_read_only_cr(self, desc: RegDescriptor, index: int) -> bool:
+        return desc.kind == RegKind.CR and index in CR_READ_ONLY_INITIAL_VALUES
 
     # -- All convenience accessors generated from schema --------------------
     # get_lr, set_lr, get_cr, set_cr, get_r, set_r, get_r_cyclic_at,
@@ -373,7 +406,12 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
     def _make_set_word(n: str = name, nw: int = n_words):
         def set_word(self, index: int, value: int) -> None:
             assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
-            struct.pack_into("<I", self._storage[n], index * 4, value & 0xFFFFFFFF)
+            struct.pack_into(
+                "<I",
+                self._storage[n],
+                index * 4,
+                value & REGISTER_WORD_VALUE_MASK,
+            )
         set_word.__name__ = f"set_{n}_word"
         set_word.__doc__ = f"Set one uint32 word in {n}."
         return set_word

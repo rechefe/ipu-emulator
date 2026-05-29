@@ -75,6 +75,7 @@ bazel build //docs:build_docs
 ## Next Steps
 
 - [Building Applications](building-applications.md) - Learn how to build IPU applications
+- [IPU Configuration](ipu-configuration.md) - Configure dtype, CR constants, and dstructure lane counts
 - [Assembly Syntax Guide](assembly-syntax.md) — syntax, compounds, Jinja2 (generated)
 - [Operand types](operand-types.md) — type names used in the instruction reference tables
 - [Instruction Reference](instructions.md) — all opcodes (generated)
