@@ -130,12 +130,12 @@ class MatMul432x144x128App(IpuApp):
         state.regfile.set_lr(0, 0)                              # r_cyclic write-index 0
         state.regfile.set_lr(2, 256)                            # data stride
         state.regfile.set_lr(3, 512)                            # output stride
-        state.regfile.set_lr(6, 127)                            # k-loop1 bound
+        state.regfile.set_lr(6, 126)                            # k-loop1 bound: first_index=0, width=128 → 126
         state.regfile.set_lr(7, 0)                              # output pointer
         state.regfile.set_lr(8, 0)                              # weight byte offset
         state.regfile.set_lr(9, 0)                              # j counter
         state.regfile.set_lr(10, N_OUT)                         # j-loop limit
-        state.regfile.set_lr(11, K - 1)                         # k-loop2 bound (143)
+        state.regfile.set_lr(11, 142)                           # k-loop2 bound: first_index=128, width=16 → 142
         state.regfile.set_lr(12, W_STRIDE)                      # weight stride per j
 
     def teardown(self, state: "IpuState") -> None:

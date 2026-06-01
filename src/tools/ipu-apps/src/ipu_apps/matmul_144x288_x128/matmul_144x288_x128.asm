@@ -12,18 +12,23 @@
 # Algorithm: K=288 split into three 128-element chunks per tg.
 #   Per chunk: load W[j, chunk*128..(chunk+1)*128-1] into r0, run 128 k-steps.
 #   MULT.VE.CYCLIC r0[lr5] x r_cyclic[:] — lr5 cycles 0..127 per chunk.
-#   lr4 (data pointer) is NOT reset between chunks; advances continuously.
-#   lr5 reset to -1 at the start of each chunk (combined with LDR_MULT_REG).
+#   lr4 (data pointer) advances continuously; NOT reset between chunks.
+#   lr5 reset to -1 at the start of each chunk via SET lr5 cr8.
+#
+# Loop-bound formula (do-while with live MULT/XMEM, snapshot BLT):
+#   body runs for live index [lr5_start+1 … lr6+1]
+#   for width=128 starting at index 0: lr5_start=-1, lr6=126
+#   exit cycle lands on live index 127 (the last real term), lr4 advances 128 times total.
 #
 # CRs: cr0=DATA_BASE, cr1=WEIGHTS_BASE, cr2=WEIGHTS_BASE+128, cr3=WEIGHTS_BASE+256,
 #       cr4=OUTPUT_BASE (tg=0), cr5=OUTPUT_BASE+N_OUT*512 (tg=1)
 #       cr6=-256 (tg=0 data startup), cr7=-128 (tg=1 data startup)
-#       cr8=-1   (per-chunk fixed_idx startup, reset before every chunk)
+#       cr8=-1   (per-chunk fixed_idx startup)
 # LRs (preset by harness):
 #   lr0=0    (const: r_cyclic write-index 0)
 #   lr2=256  (data stride: 256 bytes/channel)
 #   lr3=512  (output stride: 512 bytes/j)
-#   lr6=127  (per-chunk k-loop bound: loop while lr5 < 127, last real k=127)
+#   lr6=126  (per-chunk k-loop bound: first_index=0, width=128 → 0+128-2=126)
 #   lr7=0    (output pointer, incremented by lr3 each j)
 #   lr8=0    (weight byte offset, incremented by lr12 each j)
 #   lr9=0    (j counter)
@@ -44,13 +49,13 @@ k_chunk0_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
     MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_chunk0_tg0;;
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;  # chunk1 fixed_idx startup; r0 = W[j, 128..255]
+    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, 128..255]
 
 k_chunk1_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
     MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_chunk1_tg0;;
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;  # chunk2 fixed_idx startup; r0 = W[j, 256..287]+zeros
+    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;  # chunk2 startup; r0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;

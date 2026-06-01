@@ -102,7 +102,7 @@ class MatMul144x288x128App(IpuApp):
         state.regfile.set_lr(0, 0)                              # r_cyclic write-index 0
         state.regfile.set_lr(2, 256)                            # data stride
         state.regfile.set_lr(3, 512)                            # output stride
-        state.regfile.set_lr(6, 127)                            # per-chunk k-loop bound
+        state.regfile.set_lr(6, 126)                            # per-chunk bound: first_index=0, width=128 → 126
         state.regfile.set_lr(7, 0)                              # output pointer
         state.regfile.set_lr(8, 0)                              # weight byte offset
         state.regfile.set_lr(9, 0)                              # j counter

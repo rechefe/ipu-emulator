@@ -20,12 +20,12 @@
 #   lr0=0    (const: r_cyclic write-index 0)
 #   lr2=256  (data stride: 256 bytes/channel)
 #   lr3=512  (output stride: 512 bytes/j)
-#   lr6=127  (k-loop1 bound: loop while lr5 < 127, last real k=127)
+#   lr6=126  (k-loop1 bound: first_index=0, width=128 → 0+128-2=126)
 #   lr7=0    (output pointer, incremented by lr3 each j)
 #   lr8=0    (weight byte offset, incremented by lr12 each j)
 #   lr9=0    (j counter)
 #   lr10=432 (j-loop limit)
-#   lr11=143 (k-loop2 bound: loop while lr5 < 143, last real k=143)
+#   lr11=142 (k-loop2 bound: first_index=128, width=16 → 128+16-2=142)
 #   lr12=256 (W_STRIDE = 256 bytes per j)
 #
 # Memory layout:
