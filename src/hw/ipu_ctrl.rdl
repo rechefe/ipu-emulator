@@ -1,0 +1,217 @@
+// IPU host-control register block — single source of truth for MMIO layout.
+// See docs/content/specs/riscv-host-integration.md
+
+enum ipu_dtype_e {
+    int8 = 0 { desc = "8-bit signed integer mode (x=0 exponent bits)"; };
+    e1 = 1;
+    e2 = 2;
+    e3 = 3;
+    e4 = 4;
+    e5 = 5;
+    e6 = 6;
+    e7 = 7;
+};
+
+enum ipu_err_code_e {
+    none = 0;
+    imem_access_while_running = 1 { desc = "IMEM read/write while STATUS.RUNNING"; };
+    pc_write_while_running = 2 { desc = "PC write while STATUS.RUNNING"; };
+    cr_read_only = 3 { desc = "Write to hard-wired CR0/CR1"; };
+};
+
+addrmap ipu_host #(
+    longint MMIO_BASE = 0x10000000,
+    longint IMEM_BASE = 0x10010000,
+    longint IMEM_DEPTH = 1024,
+    longint INSTRUCTION_ALIGNED_BYTES = 8
+) {
+    name = "IPU Host MMIO";
+    desc = "RISC-V host view: 4 KiB control block plus fully mapped instruction memory.";
+
+    default regwidth = 32;
+    default sw = rw;
+    default hw = r;
+
+    reg {
+        desc = "Magic and version (sanity check for firmware).";
+        field {
+            sw = r;
+            hw = w;
+        } magic[15:0] = 0x4950;
+        field {
+            sw = r;
+            hw = w;
+        } version[31:16] = 1;
+    } id @ 0x000;
+
+    reg {
+        desc = "Command bits (write-1-to-set / single-pulse).";
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+            desc = "Start execution from current PC.";
+        } start[0:0];
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+        } halt[1:1];
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+        } step[2:2];
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+            desc = "Soft reset (preserves instruction memory).";
+        } soft_reset[3:3];
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+            desc = "Inactive IMEM bank swap / commit barrier.";
+        } imem_swap[4:4];
+        field {
+            sw = w;
+            onwrite = woset;
+            hw = r;
+            singlepulse;
+            reset = 0;
+            desc = "Continue after a breakpoint.";
+        } cont[5:5];
+        field {
+            sw = rw;
+            hw = r;
+            reset = 0;
+        } reserved[31:6] = 0;
+    } ctrl @ 0x004;
+
+    reg {
+        desc = "Execution status.";
+        field {
+            sw = r;
+            hw = w;
+        } running[0:0];
+        field {
+            sw = r;
+            hw = w;
+        } halted[1:1];
+        field {
+            sw = r;
+            hw = w;
+        } break[2:2];
+        field {
+            sw = r;
+            hw = w;
+        } error[3:3];
+        field {
+            sw = r;
+            hw = w;
+            encode = ipu_err_code_e;
+        } err_code[15:8];
+        field {
+            sw = r;
+            hw = w;
+            reset = 0;
+        } reserved[31:16] = 0;
+    } status @ 0x008;
+
+    reg {
+        desc = "Program counter (RW only while halted).";
+        field {
+            sw = rw;
+            hw = w;
+        } value[31:0];
+    } pc @ 0x00C;
+
+    reg {
+        desc = "Cycles executed since last start/reset.";
+        field {
+            sw = r;
+            hw = w;
+        } value[31:0];
+    } cycles @ 0x010;
+
+    reg {
+        desc = "Watchdog cycle limit (0 = engine default).";
+        field {
+            sw = rw;
+            hw = r;
+        } value[31:0];
+    } max_cycles @ 0x014;
+
+    reg {
+        desc = "Program length in VLIW words (writable only while halted).";
+        field {
+            sw = rw;
+            hw = r;
+        } value[31:0];
+    } prog_len @ 0x018;
+
+    reg {
+        desc = "Arithmetic data type selector.";
+        field {
+            sw = rw;
+            hw = r;
+            encode = ipu_dtype_e;
+        } value[2:0];
+        field {
+            sw = rw;
+            hw = r;
+            reset = 0;
+        } reserved[31:3] = 0;
+    } dtype @ 0x020;
+
+    reg {
+        desc = "valid_elements[7:0], partition[11:8] — mirrors CR15 / dstructure.";
+        field {
+            sw = rw;
+            hw = r;
+        } valid_elements[7:0] = 128;
+        field {
+            sw = rw;
+            hw = r;
+        } partition[11:8] = 0;
+        field {
+            sw = rw;
+            hw = r;
+            reset = 0;
+        } reserved[31:12] = 0;
+    } dstructure @ 0x024;
+
+    reg {
+        desc = "Activation ELU alpha (IEEE-754 float bits; emulator-only).";
+        field {
+            sw = rw;
+            hw = r;
+        } value[31:0];
+    } elu_alpha @ 0x028;
+
+    reg {
+        desc = "Application config register (CR0/CR1 read-only; CR15 aliases DSTRUCTURE).";
+        field {
+            sw = rw;
+            hw = r;
+        } value[31:0];
+    } cr[16] @ 0x040 += 4;
+
+    external mem {
+        name = "Instruction memory";
+        desc = "Flat byte image of assembled --format bin stream (halt-only access enforced in bridge).";
+        memwidth = 8;
+        mementries = IMEM_DEPTH * INSTRUCTION_ALIGNED_BYTES;
+    } imem @ (IMEM_BASE - MMIO_BASE);
+};

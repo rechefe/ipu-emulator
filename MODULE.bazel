@@ -6,6 +6,17 @@ module(
 # Rules for Python
 bazel_dep(name = "rules_python", version = "0.40.0")
 bazel_dep(name = "caseyduquettesc_rules_python_pytest", version = "1.1.1", repo_name = "rules_python_pytest")
+bazel_dep(name = "rules_shell", version = "0.4.0")
+bazel_dep(name = "rules_rust", version = "0.63.0")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.84.1"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(
@@ -24,6 +35,7 @@ generate_requirements(
         "//src/tools/ipu-emu-py:pyproject.toml",
         "//src/tools/ipu-apps:pyproject.toml",
         "//src/tools/ipu-common:pyproject.toml",
+        "//src/tools/ipu-ctrl-rdl:pyproject.toml",
     ],
 )
 

@@ -1,0 +1,127 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+filegroup(
+    name = "rdl_src",
+    srcs = ["//src/hw:ipu_ctrl.rdl"],
+)
+
+filegroup(
+    name = "codegen_templates",
+    srcs = glob(["scripts/templates/**"]),
+)
+
+py_binary(
+    name = "export_codegen",
+    srcs = ["scripts/export_codegen.py"],
+    data = [
+        ":codegen_templates",
+        ":rdl_src",
+    ],
+    main = "scripts/export_codegen.py",
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("systemrdl-compiler"),
+        requirement("Jinja2"),
+    ],
+)
+
+genrule(
+    name = "generated_python_regs",
+    srcs = [
+        ":rdl_src",
+        "//src/hw:ipu_ctrl.rdl",
+    ],
+    outs = ["ipu_ctrl_regs.py"],
+    cmd = (
+        "$(location :export_codegen) " +
+        "--rdl $(location //src/hw:ipu_ctrl.rdl) " +
+        "--python-out $@ " +
+        "--rust-out $(@D)/lib.rs"
+    ),
+    tools = [":export_codegen"],
+)
+
+genrule(
+    name = "generated_rust_pac",
+    srcs = [
+        ":rdl_src",
+        "//src/hw:ipu_ctrl.rdl",
+    ],
+    outs = ["lib.rs"],
+    cmd = (
+        "$(location :export_codegen) " +
+        "--rdl $(location //src/hw:ipu_ctrl.rdl) " +
+        "--python-out $(@D)/ipu_ctrl_regs.py " +
+        "--rust-out $@"
+    ),
+    tools = [":export_codegen"],
+)
+
+py_library(
+    name = "ipu_ctrl_regs",
+    srcs = [":generated_python_regs"],
+    imports = ["."],
+)
+
+py_binary(
+    name = "peakrdl_html",
+    srcs = ["scripts/peakrdl_html.py"],
+    main = "scripts/peakrdl_html.py",
+    deps = [
+        requirement("peakrdl"),
+        requirement("peakrdl-html"),
+    ],
+)
+
+genrule(
+    name = "register_map_html",
+    srcs = [
+        ":rdl_src",
+        "//src/hw:ipu_ctrl.rdl",
+    ],
+    outs = ["generated/register_map.tar"],
+    cmd = (
+        "$(location :peakrdl_html) " +
+        "--rdl $(location //src/hw:ipu_ctrl.rdl) " +
+        "--output $@"
+    ),
+    tools = [":peakrdl_html"],
+)
+
+rust_library(
+    name = "ipu_pac",
+    srcs = [":generated_rust_pac"],
+    crate_name = "ipu_pac",
+    edition = "2021",
+)
+
+sh_test(
+    name = "ipu_pac_riscv_smoke",
+    srcs = ["test/compile_riscv.sh"],
+    data = [":generated_rust_pac"],
+    tags = ["no-sandbox"],
+)
+
+py_pytest_test(
+    name = "test_codegen",
+    srcs = ["test/test_codegen.py"],
+    data = [
+        ":rdl_src",
+        ":generated_python_regs",
+    ],
+    deps = [
+        ":ipu_ctrl_regs",
+        requirement("pytest"),
+    ],
+    imports = ["."],
+)
