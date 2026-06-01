@@ -77,6 +77,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
+    "FullXmemRow": (
+        "1-bit control flag on **`AAQ`**: **`1`** = always process all **128 lanes** (full XMEM row, "
+        "ignores ``CR15.valid_elements``); **`0`** = process only the first ``CR15.valid_elements`` "
+        "lanes (clamped to 128) and zero the rest. Defaults to **`1`** for backward compatibility."
+    ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
         "(e.g. `loop`, `+3`)."

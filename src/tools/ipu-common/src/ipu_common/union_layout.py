@@ -62,6 +62,7 @@ def get_operand_type_bits() -> dict[str, int]:
         "AggMode": _enum_bits(AGG_MODE_NAMES),
         "PostFn": _enum_bits(POST_FN_NAMES),
         "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
+        "FullXmemRow": 1,
     }
 
 

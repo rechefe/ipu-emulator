@@ -86,8 +86,8 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity;;
-aaq;;
+ACTIVATE identity 0;;
+aaq 0;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
@@ -116,8 +116,8 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity;;
-aaq;;
+ACTIVATE identity 0;;
+aaq 0;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -361,7 +361,7 @@ class TestWideVectorAggInt32:
         st.regfile.set_r_acc_bytes(acc)
         st.set_cr_dstructure(128)
         asm = """\
-agg sum inv cr0 aaq0;;
+agg sum inv cr0 aaq0 0;;
 BKPT;;
 """
         encoded = assemble(asm)
