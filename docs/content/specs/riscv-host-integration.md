@@ -36,9 +36,9 @@ This feature closes the gap between the emulator and the hardware model by:
 
 The end state: an integration test loads a **Rust** firmware image into the
 emulated RISC-V core; the firmware configures the IPU (CRs, dtype, dstructure),
-streams a program into instruction memory, starts the IPU, polls for
-completion, and reads back results — all through MMIO, exactly as it would on
-hardware.
+loads a program into the fully mapped instruction-memory region, starts the IPU,
+polls for completion, and reads back results — all through MMIO, exactly as it
+would on hardware.
 
 ## 2. Goals and Non-Goals
 
@@ -122,8 +122,8 @@ Data flow for a typical run:
 1. The Rust firmware image is loaded into the Unicorn core's RAM; execution
    starts at the firmware reset vector.
 2. The firmware uses the generated driver to write config registers (dtype,
-   dstructure, `CR2`–`CR14`), then streams the assembled IPU program into the
-   instruction-memory programming port.
+   dstructure, `CR2`–`CR14`), then copies the assembled IPU program into the
+   fully mapped instruction-memory region (while halted).
 3. The firmware writes `CTRL.START`. The MMIO write callback bridges into the
    Python execution engine, which runs the IPU program (functionally) and
    latches `STATUS.HALTED` (plus cycle count / error fields).
@@ -146,28 +146,49 @@ source delivered by [Issue 1](#9-implementation-plan).
 | `0x00C` | `PC`          | RW     | Program counter. Read returns the current PC; write sets the next PC (only valid while halted). |
 | `0x010` | `CYCLES`      | RO     | Cycles executed since the last start/reset. |
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |
+| `0x018` | `PROG_LEN`    | RW     | Program length in VLIW words (entries in `inst_mem`). Writable only while halted; used by the engine halt condition (`PC >= PROG_LEN`). |
 | `0x020` | `DTYPE`       | RW     | Arithmetic data type selector (enum mirroring `DType`). |
 | `0x024` | `DSTRUCTURE`  | RW     | `valid_elements[7:0]`, `partition[11:8]` — mirrors `CR15`. |
 | `0x028` | `ELU_ALPHA`   | RW     | Activation α (IEEE-754 float bits; emulator-only knob). |
 | `0x040` | `CR[0..15]`   | RW\*   | Application config window. `CR0`/`CR1` are hard-wired (`0`/`1`) and reject writes (`ERROR`); `CR15` aliases `DSTRUCTURE`. `CR2`–`CR14` are writable. |
-| `0x080` | `IMEM_ADDR`   | RW     | Instruction-memory word index for the programming port. Optional auto-increment. |
-| `0x084` | `IMEM_WDATA`  | WO     | Write port. A VLIW word is wider than 32 bits, so N sequential writes assemble one decoded instruction; the engine decodes and commits on the final sub-word. |
-| `0x088` | `IMEM_RDATA`  | RO     | Read-back of the addressed instruction word (sub-word streamed). |
-| `0x08C` | `IMEM_CTRL`   | RW     | Programming controls: begin/commit, auto-increment enable, clear-imem, program length. |
 
-Notes:
+The control block occupies the first **4 KiB** of the host MMIO window. Instruction
+memory is **not** accessed through indirect programming registers; it is a
+separate, fully mapped region in the host address space (see below).
 
-- **Instruction-memory width.** A compound (VLIW) instruction is word-aligned to
-  32 bits but spans several 32-bit sub-words (see `CompoundInst.bits()` /
-  `_instruction_aligned_bytes()`). The programming port accepts raw encoded
-  32-bit sub-words — the same byte stream the assembler emits with
-  `--format bin` — and the engine decodes them with `decode_instruction_word`
-  before storing into `inst_mem`. This keeps the host-side contract identical to
-  the existing binary format.
+### Instruction memory (fully mapped)
+
+| Host address (example) | Size | Access | Description |
+|------------------------|------|--------|-------------|
+| `IMEM_BASE` (`0x1001_0000`) | `IMEM_MAP_SIZE` | RW\* | Flat, byte-addressable instruction-memory image. |
+
+- **`IMEM_MAP_SIZE`** = `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES`, where
+  `INSTRUCTION_ALIGNED_BYTES` is the per-instruction size of the assembler
+  `--format bin` stream (see `instruction_aligned_bytes_len()` /
+  `_instruction_aligned_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
+  `IMEM_DEPTH`; hardware uses `IMEM_DEPTH = 256` per
+  [stage-control.md](stage-control.md) — the SystemRDL parameter drives the
+  generated map size.
+- **Contents.** The mapped region is a verbatim image of the assembled binary:
+  each VLIW occupies `INSTRUCTION_ALIGNED_BYTES` bytes, 32-bit-word-aligned. On
+  **write**, the bridge decodes the affected instruction word(s) with
+  `decode_instruction_word` and updates `inst_mem` (same semantics as
+  `load_program_from_binary`). On **read**, the bridge returns the stored encoded
+  bytes (unprogrammed slots read as zero).
+- **Halt-only access.** Instruction memory is **not** reachable while the IPU is
+  executing. Any read or write to `[IMEM_BASE, IMEM_BASE + IMEM_MAP_SIZE)` when
+  `STATUS.RUNNING` is set must **fail**: latch `STATUS.ERROR`, set
+  `ERR_CODE = IMEM_ACCESS_WHILE_RUNNING`, and return a bus error to the host
+  (Unicorn: failed MMIO callback; hardware: `apb_pslverr`). While halted (and on
+  initial power-up before the first `START`), IMEM is freely readable and
+  writable. This matches the hardware rule that the host programs only the
+  *inactive* IMEM bank and never contends with the execute pipeline.
 - **Banking.** Hardware double-buffers IMEM and CR (`IMEM_BANKS = 2`,
-  `CR_BANKS = 2`); the host writes the *inactive* bank and swaps. The initial
-  emulator model MAY collapse this to a single bank and treat `IMEM_SWAP` as a
-  commit barrier; full double-buffering can follow.
+  `CR_BANKS = 2`); the host maps/writes the *inactive* bank and swaps via
+  `IMEM_SWAP`. The initial emulator model MAY collapse this to a single bank
+  (one `IMEM_BASE` region) and treat `IMEM_SWAP` as a no-op or commit barrier;
+  full double-buffering adds a second `IMEM_BASE` offset or bank-select bit in
+  `CTRL`.
 
 ## 5. Execution-Flow Control Semantics
 
@@ -180,7 +201,7 @@ actions as follows.
 | **Start execution** | write `CTRL.START` | Run from the current `PC` until halt, breakpoint, or `MAX_CYCLES`. Sets `STATUS.RUNNING`, then `STATUS.HALTED` on completion. |
 | **Halt execution** | write `CTRL.HALT` | Stop the engine at an instruction boundary; clear `RUNNING`, set `HALTED`. Cooperative when the run is driven inside the MMIO callback; preemptive when driven step-by-step. |
 | **Single step** | write `CTRL.STEP` | Execute exactly one VLIW cycle, then re-enter halted state. Mirrors the existing debug-CLI `step`. |
-| **Reprogram IMEM** | `IMEM_ADDR` + `IMEM_WDATA` + `IMEM_CTRL` | Stream raw encoded words into instruction memory while halted; decode + store into `inst_mem`. |
+| **Reprogram IMEM** | read/write `IMEM_BASE` region (+ `PROG_LEN`) | Copy or memset the assembled `--format bin` image into the mapped IMEM window while halted; writes decode into `inst_mem`. Set `PROG_LEN` to the number of VLIW words. Rejected with `ERROR` while `RUNNING`. |
 | **Read PC** | read `PC` | Returns `IpuState.program_counter`. |
 | **Write PC** | write `PC` | Sets `IpuState.program_counter` (only honored while halted; otherwise `ERROR`). |
 | **Reset** | write `CTRL.RESET` | Resets **everything except instruction memory** (see below). |
@@ -192,7 +213,8 @@ actions as follows.
 - **Reset:** register file (re-init to defaults — `CR0=0`, `CR1=1`, default
   `dstructure`), `R_ACC`/`R`/AAQ/post-AAQ staging, `program_counter → 0`,
   `stats`/`CYCLES`, `STATUS` flags, and XMEM contents.
-- **Preserved:** `inst_mem` (the loaded program) and the program length.
+- **Preserved:** `inst_mem` (the loaded program), the IMEM map contents, and
+  `PROG_LEN`.
 
 This matches the user requirement ("resets everything but the instruction
 memory") and lets firmware re-run the same program with fresh inputs without
@@ -242,24 +264,27 @@ from unicorn import Uc, UC_ARCH_RISCV, UC_MODE_RISCV32
 from unicorn.riscv_const import UC_RISCV_REG_PC
 
 RAM_BASE,  RAM_SIZE  = 0x8000_0000, 0x0010_0000   # firmware code + data + stack
-MMIO_BASE, MMIO_SIZE = 0x1000_0000, 0x0000_1000   # IPU control block
+MMIO_BASE, MMIO_SIZE = 0x1000_0000, 0x0000_1000   # IPU control registers
+IMEM_BASE, IMEM_SIZE = 0x1001_0000, IMEM_MAP_SIZE # fully mapped instruction memory
 
 uc = Uc(UC_ARCH_RISCV, UC_MODE_RISCV32)
 uc.mem_map(RAM_BASE, RAM_SIZE)
 uc.mem_write(RAM_BASE, firmware_image)
 
-# Bridge MMIO accesses into the Python control-register model.
-uc.mmio_map(MMIO_BASE, MMIO_SIZE, read_cb=bridge.on_read, write_cb=bridge.on_write)
+# Bridge MMIO: control registers + halt-gated IMEM map.
+uc.mmio_map(MMIO_BASE, MMIO_SIZE, read_cb=bridge.on_ctrl_read, write_cb=bridge.on_ctrl_write)
+uc.mmio_map(IMEM_BASE, IMEM_SIZE, read_cb=bridge.on_imem_read, write_cb=bridge.on_imem_write)
 
 uc.reg_write(UC_RISCV_REG_PC, RAM_BASE)
 uc.emu_start(RAM_BASE, RAM_BASE + len(firmware_image))
 ```
 
-- `bridge.on_write` decodes the offset against the generated register map,
-  applies the side effect to the control-register model (which may drive the IPU
-  engine — e.g. a `START` write runs the program), and latches status.
-- `bridge.on_read` returns the current register value (e.g. `STATUS`, `PC`,
-  read-back data).
+- `bridge.on_ctrl_read` / `on_ctrl_write` decode offsets against the generated
+  register map, apply side effects (e.g. a `START` write runs the program), and
+  latch status.
+- `bridge.on_imem_read` / `on_imem_write` perform byte/word accesses into the
+  IMEM map. If `STATUS.RUNNING`, they reject the access (`ERROR`,
+  `IMEM_ACCESS_WHILE_RUNNING`) without modifying `inst_mem`.
 - The IPU "runs" functionally inside the `START`/`STEP` write callback; from the
   firmware's point of view the store simply takes a while and `STATUS.HALTED` is
   set when control returns. This keeps the model simple and deterministic
@@ -276,7 +301,7 @@ The on-device code is **Rust**, `no_std`:
 - **`ipu-pac`** — generated register-access crate (volatile reads/writes,
   typed fields/enums) produced from `ipu_ctrl.rdl` (see §6).
 - **`ipu-rt`** — a thin hand-written HAL on top of `ipu-pac` exposing ergonomic
-  operations: `configure(dtype, dstructure, crs)`, `load_program(words)`,
+  operations: `configure(dtype, dstructure, crs)`, `load_program(ptr, len)`,
   `start()`, `wait_until_halted()`, `read_pc()`, `write_pc()`, `reset()`.
 - **`firmware`** — an example `no_std` binary with a `main` that mirrors the
   fully-connected app flow: configure → load program → start → wait → done.
@@ -294,7 +319,7 @@ ready to file.
 |---|-------|---------|
 | 0 | **Epic** | Umbrella tracking issue: emulated RISC-V host drives the IPU through a SystemRDL-defined control register block. |
 | 1 | SystemRDL control-register block + codegen | Author `ipu_ctrl.rdl`; wire PeakRDL into Bazel; generate Python constants, the Rust `ipu-pac` crate, and HTML docs. |
-| 2 | Emulator MMIO control-register model | Map the generated register block onto `IpuState`: config (dtype/dstructure/CR2-14/α) + execution control (start/halt/step/reset/imem/PC). |
+| 2 | Emulator MMIO control-register model | Map the generated register block onto `IpuState`: config (dtype/dstructure/CR2-14/α) + execution control (start/halt/step/reset/PC) + halt-gated fully mapped IMEM. |
 | 3 | Steppable execution engine | Refactor the run loop into a host-drivable engine that reports `RUNNING`/`HALTED`/`BREAK`, with soft-reset (preserving IMEM) and PC R/W. |
 | 4 | Unicorn RISC-V integration | Embed Unicorn; map firmware RAM + the IPU MMIO window; bridge MMIO callbacks to the control-register model. |
 | 5 | Rust firmware + driver | `ipu-rt` HAL over generated `ipu-pac`; example `no_std` firmware; `rules_rust` bare-metal build to a flat binary. |

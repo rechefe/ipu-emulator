@@ -19,8 +19,9 @@ the control-register model so firmware running on the core can drive the IPU.
     and `mmio_map`s the IPU control window.
   - Routes MMIO `read`/`write` callbacks to `IpuHostController` (#2).
   - Loads a flat firmware binary, sets the reset PC, and runs via `emu_start`.
-- Define the address map (RAM base/size, MMIO base/size) and keep it consistent
-  with the firmware linker layout (#5).
+- Define the address map (RAM base/size, control MMIO base/size, `IMEM_BASE`/
+  `IMEM_MAP_SIZE`) and keep it consistent with the firmware linker layout (#5).
+  Map IMEM as a second `mmio_map` region with halt-gated callbacks (#2).
 - **Execution model:** run the IPU functionally inside the `START`/`STEP` write
   callback (deterministic, no threads). Document the alternative cooperative
   model and why it was deferred (see spec §10).

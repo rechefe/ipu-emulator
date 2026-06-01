@@ -23,9 +23,11 @@ wraps an `IpuState` (and the steppable engine from #3) and offers:
   - **Execution** — `CTRL.START/HALT/STEP/RESET/CONTINUE` drive the engine (#3);
     `PC` read/write maps to `state.program_counter` (writes honored only while
     halted); `STATUS`/`CYCLES` reflect engine state.
-  - **IMEM** — `IMEM_ADDR`/`IMEM_WDATA`/`IMEM_CTRL` accept raw encoded 32-bit
-    sub-words, assemble full VLIW words, decode via `decode_instruction_word`, and
-    write into `inst_mem`. Read-back via `IMEM_RDATA`.
+  - **IMEM** — byte/word accesses to the fully mapped `[IMEM_BASE, IMEM_BASE +
+    IMEM_MAP_SIZE)` region. Writes decode into `inst_mem` (same as
+    `load_program_from_binary`); reads return the encoded image. **Reject** all
+    IMEM accesses while `STATUS.RUNNING` (`ERROR`, `IMEM_ACCESS_WHILE_RUNNING`).
+    `PROG_LEN` sets the active program length.
 
 ### Reset semantics
 
@@ -44,10 +46,11 @@ XMEM, set `PC=0`, clear stats/cycles, and preserve the loaded program + length.
 - [ ] Writing `DTYPE`/`DSTRUCTURE`/`ELU_ALPHA`/`CR[n]` produces the same
       `IpuState` as the equivalent direct-Python setup.
 - [ ] Writing to `CR0`/`CR1` sets `STATUS.ERROR` and leaves them unchanged.
-- [ ] Streaming an assembled program through the IMEM port yields `inst_mem`
-      identical to `load_program_from_binary`.
+- [ ] Writing an assembled `--format bin` image into the IMEM map yields
+      `inst_mem` identical to `load_program_from_binary`.
+- [ ] IMEM read/write while `RUNNING` sets `ERROR` and does not modify state.
 - [ ] `CTRL.RESET` clears state but preserves `inst_mem`; a re-run reproduces
-      results without re-streaming the program.
+      results without reloading the program image.
 - [ ] `PC` read/write round-trips; writes while `RUNNING` are rejected.
 
 ## Acceptance Criteria

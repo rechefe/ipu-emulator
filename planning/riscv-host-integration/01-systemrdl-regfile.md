@@ -23,10 +23,11 @@ Final offsets/fields are owned by the `.rdl` file.
 - `ID` (RO) — magic + version
 - `CTRL` (RW/W1S) — `START`, `HALT`, `STEP`, `RESET`, `IMEM_SWAP`, `CONTINUE`
 - `STATUS` (RO) — `RUNNING`, `HALTED`, `BREAK`, `ERROR`, `ERR_CODE`
-- `PC` (RW), `CYCLES` (RO), `MAX_CYCLES` (RW)
+- `PC` (RW), `CYCLES` (RO), `MAX_CYCLES` (RW), `PROG_LEN` (RW, halted only)
 - `DTYPE` (RW), `DSTRUCTURE` (RW), `ELU_ALPHA` (RW)
 - `CR[0..15]` (RW\*; `CR0`/`CR1` hard-wired, `CR15` aliases `DSTRUCTURE`)
-- `IMEM_ADDR` (RW), `IMEM_WDATA` (WO), `IMEM_RDATA` (RO), `IMEM_CTRL` (RW)
+- **`IMEM` memory region** — fully mapped at `IMEM_BASE`, size
+  `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES` (not indirect addr/data ports)
 
 ## Implementation
 

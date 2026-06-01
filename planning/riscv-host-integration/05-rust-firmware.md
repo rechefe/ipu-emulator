@@ -15,7 +15,7 @@ into the Unicorn core (#4).
   access (fields + enums). Build output, not hand-edited.
 - **`ipu-rt`** — thin hand-written HAL over `ipu-pac` exposing:
   - `configure(dtype, dstructure, crs)`
-  - `load_program(words)` (streams via the IMEM port)
+  - `load_program(src, len)` (memcpy into `IMEM_BASE` while halted; sets `PROG_LEN`)
   - `start()`, `wait_until_halted()`
   - `read_pc()`, `write_pc(addr)`
   - `reset()`

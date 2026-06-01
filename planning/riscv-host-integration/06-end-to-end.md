@@ -5,9 +5,10 @@ Part of the [RISC-V host integration epic](00-epic.md). Depends on #2–#5.
 ## Goal
 
 Tie everything together: a **Rust firmware** image running on the emulated
-RISC-V core (#4/#5) configures the IPU, streams an assembled program into
-instruction memory, starts it, polls for halt, reads/writes the PC, and can
-reset and re-run — all through the SystemRDL control block (#1/#2). Prove parity
+RISC-V core (#4/#5) configures the IPU, loads an assembled program into the
+fully mapped instruction-memory region, starts it, polls for halt, reads/writes
+the PC, and can reset and re-run — all through the SystemRDL-defined address
+space (#1/#2). Prove parity
 with the existing direct-Python path and document the workflow.
 
 ## Implementation
@@ -33,7 +34,7 @@ with the existing direct-Python path and document the workflow.
 
 - [ ] End-to-end host-path run matches the direct-Python result for the chosen app.
 - [ ] Halt/step/PC-R/W/reset are each exercised and asserted.
-- [ ] Reset-preserving-IMEM allows a second run with fresh inputs, no re-stream.
+- [ ] Reset-preserving-IMEM allows a second run with fresh inputs, no IMEM reload.
 - [ ] `bazel test //...` is green, including the new integration target.
 
 ## Acceptance Criteria

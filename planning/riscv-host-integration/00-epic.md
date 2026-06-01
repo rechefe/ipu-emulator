@@ -63,7 +63,8 @@ Dependency order: **1 → {2, 3} → 4 → 5 → 6**.
 
 - [ ] A SystemRDL register block is the single source for Python, Rust, and docs.
 - [ ] A Rust `no_std` firmware image, running on an emulated RISC-V core, can
-      configure the IPU, stream a program into instruction memory, start it, poll
+      configure the IPU, load a program into the mapped instruction memory, start
+      it, poll
       for completion, read/write the PC, and reset it — all over MMIO.
 - [ ] An end-to-end test runs an existing app (e.g. fully-connected) through the
       host path and asserts identical results to the direct-Python path.
