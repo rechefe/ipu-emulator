@@ -33,3 +33,10 @@ to extend when issue #2 adds bridge semantics.
 bazel build //src/tools/ipu-ctrl-rdl:all
 bazel test //src/tools/ipu-ctrl-rdl:test_codegen
 ```
+
+When adding or changing Python dependencies in `pyproject.toml`, regenerate the
+repo lockfile (used by Bazel, no `uv` required at build time):
+
+```bash
+./tools/update_requirements.sh
+```

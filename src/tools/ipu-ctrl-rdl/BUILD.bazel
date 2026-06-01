@@ -2,7 +2,6 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
-load("@rules_rust//rust:defs.bzl", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -96,13 +95,6 @@ genrule(
         "--output $@"
     ),
     tools = [":peakrdl_html"],
-)
-
-rust_library(
-    name = "ipu_pac",
-    srcs = [":generated_rust_pac"],
-    crate_name = "ipu_pac",
-    edition = "2021",
 )
 
 sh_test(

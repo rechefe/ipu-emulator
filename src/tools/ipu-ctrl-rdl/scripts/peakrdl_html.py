@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         out_dir = Path(tmp) / "html"
         cmd = [
+            sys.executable,
+            "-m",
             "peakrdl",
             "html",
             "-o",
