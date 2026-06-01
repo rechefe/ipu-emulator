@@ -29,3 +29,4 @@ app = MatMul432x144x128App(
 )
 state, cycles = app.run(max_cycles=10_000_000)
 print(f"Done in {cycles} cycles.")
+print(state.stats.format_summary())
