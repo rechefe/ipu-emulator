@@ -427,10 +427,10 @@ BKPT;;
             assert words[i] == 6, f"word {i} should be 6"
 
     def test_mask_with_shift(self):
-        """Mask index 1, shift left 16 → bits 16-47 masked out."""
+        """Mask slot 1, shift_idx=+1 → 32 bits in slot 1 shift left by 1 (bits 1–32 masked out)."""
         r0_data = bytes([5] * 128)
         cyclic_data = bytes([4] * 512)
-        # Mask index 1 is at bytes 16..31; set first 4 bytes = 32 bits
+        # Mask slot 1 is at bytes 16..31; set first 4 bytes = 32 bits (lanes 0–31 of slot 1)
         mask_data = bytearray(128)
         for i in range(16, 20):
             mask_data[i] = 0xFF
@@ -452,7 +452,7 @@ SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16, 13: 16384})
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 1, 13: 16384})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -460,11 +460,10 @@ BKPT;;
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
-        for i in range(16):
-            assert words[i] == 20, f"word {i} should be 20"
-        for i in range(16, 48):
+        assert words[0] == 20, "word 0 should be 20 (not masked)"
+        for i in range(1, 33):
             assert words[i] == 0, f"word {i} should be masked to 0"
-        for i in range(48, 128):
+        for i in range(33, 128):
             assert words[i] == 20, f"word {i} should be 20"
 
 
@@ -1833,6 +1832,191 @@ BKPT;;
         for i in range(64, 128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
+
+
+# ============================================================================
+# Sequential shift-and-AND mask generation (issue #99)
+# ============================================================================
+
+
+class TestMaskShiftSequential:
+    """Sequential shift-and-AND mask generation for mult mask_shift operand.
+
+    mask_shift_idx ∈ [−3, +3] selects from 7 pre-generated masks:
+      idx 0  → base mask (unmodified)
+      idx −k → shift right k times, AND with partition_vector after each step
+      idx +k → shift left  k times, AND with partition_vector after each step
+
+    The partition_vector is derived from CR15.partition (0 = no partitioning).
+    """
+
+    _R0_ADDR = 0x1000   # xmem address for R0 data
+    _MASK_ADDR = 0x2000  # xmem address for mask data
+    _R0_CR = 8           # CR holding R0 xmem address
+    _MASK_CR = 9         # CR holding mask xmem address
+    _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
+
+    _ASM = """\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr3 cr9;;
+LDR_MULT_MASK_REG lr3 cr0;;
+RESET_ACC;;
+SET lr5 cr2;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+"""
+
+    def _run_mask_shift(
+        self,
+        base_mask_bits: int,
+        *,
+        shift_idx: int,
+        partition: int = 0,
+    ) -> bytearray:
+        """Run MULT.EE.RR with given 128-bit base mask and mask_shift_idx; return r_acc."""
+        mask_bytes = base_mask_bits.to_bytes(16, byteorder="little") + bytes(112)
+        state = _make_state(
+            self._ASM,
+            cr={
+                self._R0_CR: self._R0_ADDR,
+                self._MASK_CR: self._MASK_ADDR,
+                self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
+            },
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=128, partition=partition)
+        state.xmem.write_address(self._R0_ADDR, bytes([2] * 128))
+        state.xmem.write_address(self._MASK_ADDR, mask_bytes)
+        run_until_complete(state)
+        return state.regfile.raw("r_acc")
+
+    def _suppressed(self, acc_raw: bytearray, lane: int) -> bool:
+        return struct.unpack_from("<i", acc_raw, lane * 4)[0] == 0
+
+    # ------------------------------------------------------------------
+    # shift indices with partition=0 (no partitioning — unconstrained shift)
+    # ------------------------------------------------------------------
+
+    def test_idx_0_base_mask_unchanged(self):
+        """idx=0: base mask used as-is; only lane 32 is suppressed."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=0, partition=0)
+        assert self._suppressed(acc, 32)
+        for i in range(128):
+            if i != 32:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_minus1_shifts_right_by_1(self):
+        """idx=−1: base mask shifts right by 1; bit 32 → bit 31."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-1, partition=0)
+        assert self._suppressed(acc, 31)
+        for i in range(128):
+            if i != 31:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_minus2_shifts_right_by_2(self):
+        """idx=−2: base mask shifts right twice; bit 32 → bit 30."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-2, partition=0)
+        assert self._suppressed(acc, 30)
+        for i in range(128):
+            if i != 30:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_minus3_shifts_right_by_3(self):
+        """idx=−3: base mask shifts right three times; bit 32 → bit 29."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-3, partition=0)
+        assert self._suppressed(acc, 29)
+        for i in range(128):
+            if i != 29:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_plus1_shifts_left_by_1(self):
+        """idx=+1: base mask shifts left by 1; bit 32 → bit 33."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+1, partition=0)
+        assert self._suppressed(acc, 33)
+        for i in range(128):
+            if i != 33:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_plus2_shifts_left_by_2(self):
+        """idx=+2: base mask shifts left twice; bit 32 → bit 34."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+2, partition=0)
+        assert self._suppressed(acc, 34)
+        for i in range(128):
+            if i != 34:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_idx_plus3_shifts_left_by_3(self):
+        """idx=+3: base mask shifts left three times; bit 32 → bit 35."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+3, partition=0)
+        assert self._suppressed(acc, 35)
+        for i in range(128):
+            if i != 35:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    # ------------------------------------------------------------------
+    # partition=2 (2 partitions of 64): verify boundary enforcement
+    # ------------------------------------------------------------------
+
+    def test_left_shift_cleared_at_partition_boundary(self):
+        """A bit at the last position of partition 0 cannot shift into partition 1.
+
+        With partition=2 (step=64), bit 63 is the last element of partition 0.
+        Shifting left by 1 would move it to bit 64 (start of partition 1),
+        but partition_vector[64]=0 clears it → no suppression occurs.
+        """
+        acc = self._run_mask_shift(1 << 63, shift_idx=+1, partition=2)
+        for i in range(128):
+            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_right_shift_cleared_at_partition_boundary(self):
+        """A bit inside partition 1 cannot shift left into partition 0.
+
+        With partition=2 (step=64), bit 65 is inside partition 1.
+        Shifting right by 1 moves it to bit 64 (start of partition 1),
+        but partition_vector[64]=0 clears it → no suppression occurs.
+        """
+        acc = self._run_mask_shift(1 << 65, shift_idx=-1, partition=2)
+        for i in range(128):
+            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_shift_stays_within_partition(self):
+        """A bit inside partition 0 shifts freely within partition 0.
+
+        With partition=2, bit 33 shifted left by 1 → bit 34 (still in partition 0).
+        """
+        acc = self._run_mask_shift(1 << 33, shift_idx=+1, partition=2)
+        assert self._suppressed(acc, 34)
+        for i in range(128):
+            if i != 34:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+
+    def test_partition_4_boundary_constraint(self):
+        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross."""
+        acc = self._run_mask_shift(1 << 31, shift_idx=+1, partition=4)
+        for i in range(128):
+            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed (partition 4)"
+
+    def test_partition_8_boundary_constraint(self):
+        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross."""
+        acc = self._run_mask_shift(1 << 15, shift_idx=+1, partition=8)
+        for i in range(128):
+            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed (partition 8)"
+
+    def test_sequential_and_enforced_on_each_step(self):
+        """Sequential AND is applied after EACH shift step, not just at the end.
+
+        With partition=2, shift_idx=−2:
+          step 1: (1<<65 >> 1) = 1<<64; AND partition_vector[64]=0 → 0
+          step 2: (0 >> 1) & partition_vector = 0
+        Result: no lanes suppressed (bit cleared at first step, not at second).
+        Without the per-step AND, a 2-bit right shift of bit 65 would land at 63
+        (inside partition 0) and survive the AND since partition_vector[63]=1.
+        """
+        acc = self._run_mask_shift(1 << 65, shift_idx=-2, partition=2)
+        for i in range(128):
+            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
 
 
 # ============================================================================
