@@ -18,6 +18,7 @@ from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DEFAULT_DSTRUCTURE,
     DStructureConfig,
+    Partition,
     decode_dstructure,
     encode_dstructure,
 )
@@ -99,7 +100,7 @@ class IpuState:
     def set_cr_dstructure(
         self,
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
-        partition: int = DEFAULT_DSTRUCTURE.partition,
+        partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
     ) -> None:
         """Write CR15 as dstructure configuration fields."""
         self.regfile.set_cr(

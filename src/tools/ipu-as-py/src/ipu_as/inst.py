@@ -316,6 +316,10 @@ class Inst:
         lines.append(doc.summary)
         lines.append("")
 
+        if doc.notes:
+            lines.append(f"> {doc.notes}")
+            lines.append("")
+
         if doc.operation:
             lines.append("**Pseudo code:**")
             lines.append(f"`{doc.operation}`")

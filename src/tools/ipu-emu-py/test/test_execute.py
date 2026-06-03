@@ -1970,16 +1970,17 @@ BKPT;;
         for i in range(128):
             assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
 
-    def test_right_shift_cleared_at_partition_boundary(self):
-        """A bit inside partition 1 cannot shift left into partition 0.
+    def test_right_shift_stays_within_partition(self):
+        """A bit inside partition 1 shifts freely within partition 1.
 
-        With partition=2 (step=64), bit 65 is inside partition 1.
-        Shifting right by 1 moves it to bit 64 (start of partition 1),
-        but partition_vector[64]=0 clears it → no suppression occurs.
+        With partition=2, bit 65 shifted right by 1 → bit 64 (still inside partition 1).
+        inverse_partition_vector[64]=1, so the bit is NOT cleared → lane 64 is suppressed.
         """
         acc = self._run_mask_shift(1 << 65, shift_idx=-1, partition=2)
+        assert self._suppressed(acc, 64)
         for i in range(128):
-            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+            if i != 64:
+                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
 
     def test_shift_stays_within_partition(self):
         """A bit inside partition 0 shifts freely within partition 0.
@@ -2007,12 +2008,12 @@ BKPT;;
     def test_sequential_and_enforced_on_each_step(self):
         """Sequential AND is applied after EACH shift step, not just at the end.
 
-        With partition=2, shift_idx=−2:
-          step 1: (1<<65 >> 1) = 1<<64; AND partition_vector[64]=0 → 0
-          step 2: (0 >> 1) & partition_vector = 0
-        Result: no lanes suppressed (bit cleared at first step, not at second).
+        With partition=2, shift_idx=−2, using inverse_partition_vector (0 at end of each group):
+          step 1: (1<<65 >> 1) = 1<<64; inverse_pv[64]=1 → 1<<64 (not cleared)
+          step 2: (1<<64 >> 1) = 1<<63; inverse_pv[63]=0 → 0 (cleared at end of group 0)
+        Result: no lanes suppressed (bit cleared at second step).
         Without the per-step AND, a 2-bit right shift of bit 65 would land at 63
-        (inside partition 0) and survive the AND since partition_vector[63]=1.
+        and survive since inverse_pv[63] is never checked in a single-step AND.
         """
         acc = self._run_mask_shift(1 << 65, shift_idx=-2, partition=2)
         for i in range(128):

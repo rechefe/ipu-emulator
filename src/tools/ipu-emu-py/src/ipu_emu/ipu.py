@@ -24,7 +24,7 @@ from typing import Any
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
-from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS
+from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -342,20 +342,43 @@ class Ipu:
 
     @staticmethod
     def _build_partition_vector(num_partitions: int) -> int:
-        """Build the 128-bit partition vector for the sequential mask-shift algorithm.
+        """Build the left-shift partition vector (0 at the START of each group).
 
-        Bit format: 0 marks the start of each partition; 1 marks elements within partitions.
-        num_partitions=0: no partitioning → all-ones (shifts are unconstrained).
-        num_partitions=P: P partitions of 128/P elements each, with 0s at partition starts.
+        Used for positive mask_shift indices (+1, +2, +3).
+        num_partitions must be in VALID_PARTITION_VALUES.
+        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
+        num_partitions=P: P groups of R_REG_SIZE/P lanes; bit 0 of each group is 0.
         """
+        assert isinstance(num_partitions, Partition), (
+            f"partition must be a Partition enum value, got {num_partitions!r}"
+        )
         if num_partitions == 0:
-            return (1 << 128) - 1
-        step = 128 // num_partitions
-        if step == 0:
-            return (1 << 128) - 1
+            return (1 << R_REG_SIZE) - 1
+        step = R_REG_SIZE // num_partitions
         result = 0
-        for i in range(128):
+        for i in range(R_REG_SIZE):
             if i % step != 0:
+                result |= (1 << i)
+        return result
+
+    @staticmethod
+    def _build_inverse_partition_vector(num_partitions: int) -> int:
+        """Build the right-shift partition vector (0 at the END of each group).
+
+        Used for negative mask_shift indices (−1, −2, −3).
+        num_partitions must be in VALID_PARTITION_VALUES.
+        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
+        num_partitions=P: P groups of R_REG_SIZE/P lanes; last bit of each group is 0.
+        """
+        assert isinstance(num_partitions, Partition), (
+            f"partition must be a Partition enum value, got {num_partitions!r}"
+        )
+        if num_partitions == 0:
+            return (1 << R_REG_SIZE) - 1
+        step = R_REG_SIZE // num_partitions
+        result = 0
+        for i in range(R_REG_SIZE):
+            if i % step != step - 1:
                 result |= (1 << i)
         return result
 
@@ -363,12 +386,15 @@ class Ipu:
         """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
         ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
-        The base mask is taken from R_MASK slot ``mask_idx``, then shifted
-        sequentially (one bit per step) with AND against the partition vector
-        derived from CR15.partition:
-          idx 0  → base mask (unmodified)
-          idx −k → shift right k times, ANDing with partition_vector after each step
+        The slot mask M is taken from R_MASK slot ``mask_idx``, then shifted
+        sequentially (one bit per step):
+          idx 0  → M (unmodified)
           idx +k → shift left  k times, ANDing with partition_vector after each step
+          idx −k → shift right k times, ANDing with inverse_partition_vector after each step
+
+        Two partition vectors, both derived from CR15.partition:
+          partition_vector         — 0 at the START of each group (used for left shifts)
+          inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
         Lanes in mult_res where the resulting mask bit is 1 are zeroed.
         """
@@ -384,20 +410,21 @@ class Ipu:
         mask_bytes = self.state.regfile.get_r_mask()
         mask_slot = mask_idx % (R_REG_SIZE // 16)  # 8 slots of 128 bits each
         offset = mask_slot * 16
-        _128_BIT_MASK = (1 << 128) - 1
+        _128_BIT_MASK = (1 << R_REG_SIZE) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        # Build partition vector from CR15.partition
-        partition_vector = self._build_partition_vector(self.state.get_config_partition())
+        num_partitions = self.state.get_config_partition()
 
         # Generate the shifted mask via sequential shift-and-AND
         mask_int = base_mask
         if shift < 0:
+            pv = self._build_inverse_partition_vector(num_partitions)
             for _ in range(-shift):
-                mask_int = (mask_int >> 1) & partition_vector
+                mask_int = (mask_int >> 1) & pv
         elif shift > 0:
+            pv = self._build_partition_vector(num_partitions)
             for _ in range(shift):
-                mask_int = (mask_int << 1) & partition_vector & _128_BIT_MASK
+                mask_int = (mask_int << 1) & pv & _128_BIT_MASK
 
         # Zero out mult_res where mask bit is set
         mult_res = self.state.regfile.raw("mult_res")
