@@ -58,21 +58,20 @@ class CompoundInst:
 
     @classmethod
     def instruction_types(cls) -> list[type[inst.Inst]]:
-        # Define the instruction slots in order (with duplicates for multiple instances)
-        # Order matters for encoding/decoding
-        # BreakInst is first to ensure it runs before any side effects
-        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth)
+        # Instruction slots in MSB → LSB list order (encode places the last entry at LSB).
+        # Execution order (break first, then LR, …) is handled in ipu.py, not here.
+        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth).
         _slot_to_inst = {
-            "break": inst.BreakInst,
+            "cond": inst.CondInst,
+            "lr": inst.LrInst,
             "xmem": inst.XmemInst,
             "mult": inst.MultInst,
             "acc": inst.AccInst,
             "aaq": inst.AaqInst,
-            "lr": inst.LrInst,
-            "cond": inst.CondInst,
+            "break": inst.BreakInst,
         }
-        # Order defines bit layout: break, xmem, mult, acc, aaq, lr(×N), cond (N = SLOT_COUNT["lr"])
-        _slot_order = ["break", "xmem", "mult", "acc", "aaq", "lr", "cond"]
+        # Bit layout MSB→LSB: cond, lr(×N), xmem, mult, acc, aaq, break (N = SLOT_COUNT["lr"])
+        _slot_order = ["cond", "lr", "xmem", "mult", "acc", "aaq", "break"]
         result = []
         for slot in _slot_order:
             result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
@@ -155,13 +154,13 @@ class CompoundInst:
         """
         # Single source of truth: instruction type → (color, display label)
         legend_entries = [
-            (inst.CondInst, "#98D8C8", "CondInst (Conditional)"),
-            (inst.LrInst, "#FFA07A", "LrInst (Link Register)"),
+            (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
             (inst.XmemInst, "#FF6B6B", "XmemInst (Extended Memory)"),
             (inst.MultInst, "#4ECDC4", "MultInst (Multiply)"),
             (inst.AccInst, "#45B7D1", "AccInst (Accumulator)"),
             (inst.AaqInst, "#9B59B6", "AaqInst (Activation and Quantization)"),
-            (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
+            (inst.LrInst, "#FFA07A", "LrInst (Link Register)"),
+            (inst.CondInst, "#98D8C8", "CondInst (Conditional)"),
         ]
         color_map = {inst_type: color for inst_type, color, _ in legend_entries}
 
