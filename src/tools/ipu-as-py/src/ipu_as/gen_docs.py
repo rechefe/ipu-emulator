@@ -173,7 +173,7 @@ xmem_inst; mult_inst; acc_inst; aaq_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_
 **Rules:**
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
-- Slot order in the binary word is defined by the toolchain (`break`, `xmem`, `mult`, `acc`, `aaq`, then three `lr` sub-slots, then `cond`).
+- Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `xmem`, `mult`, `acc`, `aaq`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **XMEM**, **MULT**, **ACC**, **AAQ**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`).
 
 **Example (parallel slots):**
