@@ -9,4 +9,5 @@ bazel-testlogs/
 /playground/
 **egg-info**
 **_pycache**
+**/.venv/
 /.claude/settings.local.json

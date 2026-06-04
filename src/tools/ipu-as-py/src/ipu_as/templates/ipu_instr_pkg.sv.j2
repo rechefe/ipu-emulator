@@ -1,0 +1,36 @@
+// Auto-generated from instruction_spec.py — do not edit.
+package ipu_instr_pkg;
+
+{% for enum in enums -%}
+  typedef enum logic [{{ enum.width - 1 }}:0] {
+{%- for item in enum.members %}
+    {{ enum.name | upper }}_{{ item.name }} = {{ item.value }}{{ "," if not loop.last }}
+{%- endfor %}
+  } {{ enum.sv_type }};
+
+{% endfor -%}
+{% for slot in slots -%}
+  typedef enum logic [{{ slot.opcode_width - 1 }}:0] {
+{%- for op in slot.opcodes %}
+    {{ slot.opcode_prefix }}_{{ op.name }} = {{ op.value }}{{ "," if not loop.last }}
+{%- endfor %}
+  } {{ slot.opcode_enum }};
+
+  typedef struct packed {
+{%- for field in slot.fields %}
+    logic [{{ field.bits - 1 }}:0] {{ field.name }};
+{%- endfor %}
+  } {{ slot.sv_struct }};
+
+  localparam int unsigned {{ slot.sv_struct | upper }}_WIDTH = {{ slot.width }};
+
+{% endfor -%}
+  typedef struct packed {
+{%- for field in compound.fields %}
+    logic [{{ field.bits - 1 }}:0] {{ field.name }};
+{%- endfor %}
+  } {{ compound.sv_struct }};
+
+  localparam int unsigned IPU_COMPOUND_INST_WIDTH = {{ compound.width }};
+
+endpackage : ipu_instr_pkg

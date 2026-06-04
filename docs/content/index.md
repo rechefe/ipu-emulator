@@ -45,6 +45,7 @@ ipu-c-samples/
 
 The IPU supports a custom assembly language with powerful preprocessing capabilities. See the [Assembly Syntax Guide](assembly-syntax.md) for:
 
+- [Instruction format](instruction-format.md) — generated bit layout, C header and SystemVerilog package downloads
 - Basic instruction format and syntax
 - Instruction separators (`;` vs `;;`)
 - Register types and immediate values  

@@ -1,0 +1,35 @@
+/* Auto-generated from instruction_spec.py — do not edit. */
+#ifndef IPU_INST_H
+#define IPU_INST_H
+
+#include <stdint.h>
+
+{% for enum in enums -%}
+typedef enum {
+{%- for item in enum.members %}
+    {{ enum.name | upper }}_{{ item.name }} = {{ item.value }},
+{%- endfor %}
+} {{ enum.c_type }};
+
+{% endfor -%}
+
+/* Per-slot instruction structs (packed bit layout, MSB-first field order). */
+{% for slot in slots -%}
+typedef struct {
+{%- for field in slot.fields %}
+    uint32_t {{ field.name }} : {{ field.bits }};
+{%- endfor %}
+} {{ slot.struct_name }};
+
+{% endfor -%}
+
+/* Full VLIW compound instruction ({{ compound.width }} bits). */
+typedef struct {
+{%- for field in compound.fields %}
+    uint32_t {{ field.name }} : {{ field.bits }};
+{%- endfor %}
+} {{ compound.struct_name }};
+
+#define IPU_COMPOUND_INST_WIDTH {{ compound.width }}
+
+#endif /* IPU_INST_H */

@@ -276,6 +276,53 @@ def generate_instruction_docs(output_path: Path) -> None:
     print(f"Generated documentation at {output_path}")
 
 
+def generate_instruction_format_md(output_path: Path) -> None:
+    """Generate the instruction-format documentation page (with download links)."""
+    from ipu_as.compound_inst import CompoundInst
+
+    width = CompoundInst.bits()
+    svg_content = CompoundInst.generate_fields_svg()
+
+    content = f"""# Instruction format
+
+This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
+Field names, bit widths, and opcode values are **generated** from `instruction_spec.py` in
+`ipu_common` (the same source the assembler and emulator use).
+
+## Compound instruction layout ({width} bits)
+
+{svg_content}
+
+## Generated artifacts
+
+These files are produced at documentation build time (and via the assembler CLI). They are
+**not** checked into the repository.
+
+| Artifact | Description | Download |
+|----------|-------------|----------|
+| C header | `typedef struct` bitfields and opcode enums | [ipu_inst.h](assets/ipu_inst.h) |
+| SystemVerilog package | `ipu_instr_pkg` with packed structs and enums | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+
+### Regenerate locally
+
+```bash
+bazel build //docs:generate_instruction_format_artifacts
+# outputs under bazel-bin/docs/
+
+bazel run //src/tools/ipu-as-py:ipu-as -- c-header --output /tmp/ipu_inst.h
+bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output /tmp/ipu_instr_pkg.sv
+```
+
+## Related documentation
+
+- [Assembly syntax](assembly-syntax.md) — how to write compound instructions in assembly
+- [Operand types](operand-types.md) — semantic types of instruction operands
+- [Instruction reference](instructions.md) — per-opcode documentation
+"""
+    output_path.write_text(content, encoding="utf-8")
+    print(f"Generated instruction format page at {output_path}")
+
+
 def generate_all_docs(
     instructions_path: Path,
     operand_types_path: Path,
