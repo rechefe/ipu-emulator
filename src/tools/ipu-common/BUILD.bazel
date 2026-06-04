@@ -1,5 +1,5 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
-load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -16,9 +16,27 @@ py_library(
     imports = ["src"],
 )
 
+py_binary(
+    name = "gen_union_layout_svg",
+    srcs = ["src/ipu_common/gen_union_layout_svg.py"],
+    imports = ["src"],
+    main = "src/ipu_common/gen_union_layout_svg.py",
+    deps = [":ipu_common_lib"],
+)
+
 py_pytest_test(
     name = "test_union_layout",
     srcs = ["test/test_union_layout.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_common_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_union_layout_svg",
+    srcs = ["test/test_union_layout_svg.py"],
     imports = ["src"],
     deps = [
         ":ipu_common_lib",
