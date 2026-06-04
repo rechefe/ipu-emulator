@@ -4,10 +4,17 @@ def _generate_requirements_impl(repository_ctx):
     """Generate requirements.txt from one or more pyproject.toml files using uv"""
     pyprojects = [repository_ctx.path(label) for label in repository_ctx.attr.pyproject_tomls]
 
+    uv = repository_ctx.which("uv")
+    if not uv:
+        fail(
+            "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and ensure it " +
+            "is available when Bazel loads the repository. CI installs uv before running Bazel.",
+        )
+
     # Run uv pip compile to generate requirements including optional dependencies
     result = repository_ctx.execute(
         [
-            "uv",
+            uv,
             "pip",
             "compile",
         ] + [str(pyproject) for pyproject in pyprojects] + [

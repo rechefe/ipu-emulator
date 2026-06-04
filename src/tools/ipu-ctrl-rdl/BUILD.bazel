@@ -1,7 +1,8 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("@rules_rust//rust:defs.bzl", "rust_static_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -97,11 +98,17 @@ genrule(
     tools = [":peakrdl_html"],
 )
 
-sh_test(
+rust_static_library(
+    name = "ipu_pac",
+    srcs = [":generated_rust_pac"],
+    crate_name = "ipu_pac",
+    edition = "2021",
+    platform = "//platforms:riscv32_none",
+)
+
+build_test(
     name = "ipu_pac_riscv_smoke",
-    srcs = ["test/compile_riscv.sh"],
-    data = [":generated_rust_pac"],
-    tags = ["no-sandbox"],
+    targets = [":ipu_pac"],
 )
 
 py_pytest_test(

@@ -31,12 +31,10 @@ to extend when issue #2 adds bridge semantics.
 
 ```bash
 bazel build //src/tools/ipu-ctrl-rdl:all
-bazel test //src/tools/ipu-ctrl-rdl:test_codegen
+bazel test //src/tools/ipu-ctrl-rdl:all
 ```
 
-When adding or changing Python dependencies in `pyproject.toml`, regenerate the
-repo lockfile (used by Bazel, no `uv` required at build time):
-
-```bash
-./tools/update_requirements.sh
-```
+Python third-party deps are resolved from each package's `pyproject.toml` via
+`uv pip compile` at Bazel load time (`tools/python_deps.bzl`). The generated
+`ipu-pac` crate is built for bare-metal RISC-V through `rules_rust` (see
+`//platforms:riscv32_none`).

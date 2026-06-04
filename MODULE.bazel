@@ -6,7 +6,9 @@ module(
 # Rules for Python
 bazel_dep(name = "rules_python", version = "0.40.0")
 bazel_dep(name = "caseyduquettesc_rules_python_pytest", version = "1.1.1", repo_name = "rules_python_pytest")
-bazel_dep(name = "rules_shell", version = "0.4.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.1")
+bazel_dep(name = "platforms", version = "0.0.11")
+bazel_dep(name = "rules_rust", version = "0.70.0")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(
@@ -14,10 +16,32 @@ python.toolchain(
 )
 use_repo(python, "python_3_10")
 
-# Regenerate tools/requirements.txt when pyproject.toml deps change:
-#   uv pip compile src/tools/*/pyproject.toml --extra=docs --extra=dev \
-#     --python-version=3.10 --generate-hashes -o tools/requirements.txt
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.84.1"],
+    extra_target_triples = [
+        "riscv32imc-unknown-none-elf",
+    ],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Auto-generate requirements from pyproject.toml via uv (see tools/python_deps.bzl).
+generate_requirements = use_repo_rule("//:tools/python_deps.bzl", "generate_requirements")
 parse_pyproject_deps = use_repo_rule("//:tools/pyproject_deps.bzl", "parse_pyproject_deps")
+
+generate_requirements(
+    name = "ipu_as_requirements",
+    pyproject_tomls = [
+        "//src/tools/ipu-as-py:pyproject.toml",
+        "//src/tools/ipu-emu-py:pyproject.toml",
+        "//src/tools/ipu-apps:pyproject.toml",
+        "//src/tools/ipu-common:pyproject.toml",
+        "//src/tools/ipu-ctrl-rdl:pyproject.toml",
+    ],
+)
 
 parse_pyproject_deps(
     name = "ipu_as_pyproject",
@@ -47,6 +71,6 @@ pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "ipu_as_deps",
     python_version = "3.10",
-    requirements_lock = "//tools:requirements.txt",
+    requirements_lock = "@ipu_as_requirements//:requirements.txt",
 )
 use_repo(pip, "ipu_as_deps")
