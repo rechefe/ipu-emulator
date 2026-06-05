@@ -57,11 +57,16 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "ipu_compound_inst_t" in text
     assert "ipu_compound_inst_flat_t" in text
     assert f"IPU_COMPOUND_INST_WIDTH = {CompoundInst.bits()}" in text
-    # Operand enums used in per-instruction union views
-    assert "lr_reg_field_e" in text
-    assert "mult_stage_reg_field_e dest" in text
+    # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
+    assert "_e;" not in text
+    assert "lr_reg_field_t" in text
+    assert "mult_stage_reg_field_t dest" in text
+    assert "3'd" in text or "2'd" in text or "1'd" in text
     assert "break_inst;" in text  # reserved-word-safe union member name
     assert "} break;" not in text
+    # One enum member per line
+    assert "LR_REG_FIELD_LR0 = " in text
+    assert "\n    LR_REG_FIELD_LR1 = " in text
 
 
 def test_render_is_deterministic():

@@ -20,21 +20,26 @@ from ipu_common.union_layout import get_operand_type_bits
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # Operand type string → generated SystemVerilog enum typedef (when applicable).
-_OPERAND_TYPE_TO_SV_ENUM: dict[str, str] = {
-    "MultStageReg": "mult_stage_reg_field_e",
-    "LrIdx": "lr_reg_field_e",
-    "CrIdx": "cr_reg_field_e",
-    "LcrIdx": "lcr_reg_field_e",
-    "AddSubSrcB": "add_sub_src_b_field_e",
-    "AaqRegIdx": "aaq_reg_field_e",
-    "ElementsInRow": "elements_in_row_field_e",
-    "HorizontalStride": "horizontal_stride_field_e",
-    "VerticalStride": "vertical_stride_field_e",
-    "AggMode": "agg_mode_field_e",
-    "PostFn": "post_fn_field_e",
-    "ActivationFn": "activation_fn_field_e",
-    "FullXmemRow": "full_xmem_row_field_e",
+_OPERAND_TYPE_TO_SV_TYPEDEF: dict[str, str] = {
+    "MultStageReg": "mult_stage_reg_field_t",
+    "LrIdx": "lr_reg_field_t",
+    "CrIdx": "cr_reg_field_t",
+    "LcrIdx": "lcr_reg_field_t",
+    "AddSubSrcB": "add_sub_src_b_field_t",
+    "AaqRegIdx": "aaq_reg_field_t",
+    "ElementsInRow": "elements_in_row_field_t",
+    "HorizontalStride": "horizontal_stride_field_t",
+    "VerticalStride": "vertical_stride_field_t",
+    "AggMode": "agg_mode_field_t",
+    "PostFn": "post_fn_field_t",
+    "ActivationFn": "activation_fn_field_t",
+    "FullXmemRow": "full_xmem_row_field_t",
 }
+
+
+def _sv_sized_literal(width: int, value: int) -> str:
+    """SystemVerilog sized integer literal, e.g. width=3 value=5 → ``3'd5``."""
+    return f"{width}'d{value}"
 
 # Slot name → opcode EnumToken descriptor key and struct basename.
 _SV_RESERVED_STRUCT_NAMES = frozenset({
@@ -67,9 +72,9 @@ def _sanitize_enum_member(name: str) -> str:
 
 
 def _sv_logic_type(canonical_type: str, bits: int) -> str:
-    enum_type = _OPERAND_TYPE_TO_SV_ENUM.get(canonical_type)
-    if enum_type is not None:
-        return enum_type
+    typedef_name = _OPERAND_TYPE_TO_SV_TYPEDEF.get(canonical_type)
+    if typedef_name is not None:
+        return typedef_name
     return f"logic [{bits - 1}:0]"
 
 
@@ -92,7 +97,7 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
 
     for slot_name, slot_union in SLOT_UNIONS.items():
         opcode_key, struct_base = _SLOT_META[slot_name]
-        opcode_enum = f"{opcode_key}_e"
+        opcode_enum = f"{opcode_key}_t"
         fields: list[dict[str, Any]] = []
         for uf in slot_union.fields:
             fields.append(
@@ -126,17 +131,29 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 }
             )
 
+        opcode_names = list(INSTRUCTION_SPEC[slot_name].keys())
         slot_width = slot_union.opcode_bits + sum(f["bits"] for f in fields)
         slots.append(
             {
                 "slot": slot_name,
                 "opcode_enum": opcode_enum,
                 "opcode_width": slot_union.opcode_bits,
+                "opcode_prefix": struct_base.upper(),
                 "struct_name": f"{struct_base}_t",
                 "union_name": f"{struct_base}_u",
                 "width": slot_width,
                 "fields": fields,
                 "instructions": instructions,
+                "opcodes": [
+                    {
+                        "value": idx,
+                        "name": _sanitize_enum_member(name),
+                        "sized_value": _sv_sized_literal(
+                            slot_union.opcode_bits, idx
+                        ),
+                    }
+                    for idx, name in enumerate(opcode_names)
+                ],
             }
         )
 
@@ -181,10 +198,15 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
             {
                 "name": enum_name,
                 "c_type": f"{enum_name}_t",
-                "sv_type": f"{enum_name}_e",
+                "sv_type": f"{enum_name}_t",
                 "width": width,
                 "members": [
-                    {"value": value, "name": name} for value, name in members
+                    {
+                        "value": value,
+                        "name": name,
+                        "sized_value": _sv_sized_literal(width, value),
+                    }
+                    for value, name in members
                 ],
             }
         )

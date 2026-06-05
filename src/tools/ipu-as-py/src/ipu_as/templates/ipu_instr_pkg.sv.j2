@@ -9,9 +9,9 @@ package ipu_instr_pkg;
   // -------------------------------------------------------------------------
 {% for enum in enum_types %}
   typedef enum logic [{{ enum.width - 1 }}:0] {
-{%- for item in enum.members %}
-    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.value }}{{ "," if not loop.last }}
-{%- endfor %}
+{% for item in enum.members %}
+    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.sized_value }},
+{% endfor %}
   } {{ enum.sv_type }};
 
 {% endfor %}
@@ -19,25 +19,31 @@ package ipu_instr_pkg;
   // Per-slot encoded words (opcode + union fields, MSB-first within slot)
   // -------------------------------------------------------------------------
 {% for slot in slots %}
+  typedef enum logic [{{ slot.opcode_width - 1 }}:0] {
+{% for op in slot.opcodes %}
+    {{ slot.opcode_prefix }}_{{ op.name }} = {{ op.sized_value }},
+{% endfor %}
+  } {{ slot.opcode_enum }};
+
   typedef struct packed {
     {{ slot.opcode_enum }} opcode;
-{%- for field in slot.fields %}
+{% for field in slot.fields %}
     {{ field.sv_type }} {{ field.name }};
-{%- endfor %}
+{% endfor %}
   } {{ slot.struct_name }};
 
   localparam int unsigned {{ slot.struct_name | upper }}_WIDTH = {{ slot.width }};
 
   // Per-instruction decoded view for the {{ slot.slot }} slot
   typedef union packed {
-{%- for inst in slot.instructions %}
+{% for inst in slot.instructions %}
     struct packed {
       {{ slot.opcode_enum }} opcode;
-{%- for op in inst.operands %}
+{% for op in inst.operands %}
       {{ op.sv_type }} {{ op.name }};
-{%- endfor %}
+{% endfor %}
     } {{ inst.sv_struct }};
-{%- endfor %}
+{% endfor %}
   } {{ slot.union_name }};
 
 {% endfor %}
@@ -45,18 +51,18 @@ package ipu_instr_pkg;
   // Compound VLIW instruction (slots MSB → LSB: cond, lr×N, xmem, mult, acc, aaq, break)
   // -------------------------------------------------------------------------
   typedef struct packed {
-{%- for member in compound_members %}
+{% for member in compound_members %}
     {{ member.sv_type }} {{ member.name }};
-{%- endfor %}
+{% endfor %}
   } ipu_compound_inst_t;
 
   localparam int unsigned IPU_COMPOUND_INST_WIDTH = {{ compound_width }};
 
   // Flat wire-level view (field names match C header / emulator decode dict)
   typedef struct packed {
-{%- for name, bits in inst_bit_fields %}
+{% for name, bits in inst_bit_fields %}
     logic [{{ bits - 1 }}:0] {{ name }};
-{%- endfor %}
+{% endfor %}
   } ipu_compound_inst_flat_t;
 
 endpackage : ipu_instr_pkg
