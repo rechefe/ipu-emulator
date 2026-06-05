@@ -90,6 +90,11 @@ def _instruction_struct_name(inst_name: str) -> str:
     return base
 
 
+def _operand_sv_width(actual_type: str, type_bits: dict[str, int]) -> int:
+    """Bit width of an operand in a per-instruction union member struct."""
+    return type_bits[actual_type]
+
+
 def _slot_union_descriptors() -> list[dict[str, Any]]:
     """Per-slot union layout structs and per-instruction union members."""
     type_bits = get_operand_type_bits()
@@ -109,6 +114,9 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 }
             )
 
+        opcode_names = list(INSTRUCTION_SPEC[slot_name].keys())
+        slot_width = slot_union.opcode_bits + sum(f["bits"] for f in fields)
+
         instructions: list[dict[str, Any]] = []
         for inst_name, inst_def in INSTRUCTION_SPEC[slot_name].items():
             operands: list[dict[str, Any]] = []
@@ -116,23 +124,30 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
             operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
             for _field_idx, operand_name in bindings:
                 actual_type = operand_types[operand_name]
-                op_bits = type_bits[actual_type]
+                op_bits = _operand_sv_width(actual_type, type_bits)
                 operands.append(
                     {
                         "name": operand_name,
                         "sv_type": _sv_logic_type(actual_type, op_bits),
+                        "bits": op_bits,
                     }
+                )
+            struct_bits = slot_union.opcode_bits + sum(op["bits"] for op in operands)
+            pad_bits = slot_width - struct_bits
+            if pad_bits < 0:
+                raise ValueError(
+                    f"{slot_name}.{inst_name}: semantic struct is {struct_bits} bits, "
+                    f"but slot width is {slot_width}"
                 )
             instructions.append(
                 {
                     "name": inst_name,
                     "sv_struct": _instruction_struct_name(inst_name),
                     "operands": operands,
+                    "pad_bits": pad_bits,
+                    "struct_bits": struct_bits + pad_bits,
                 }
             )
-
-        opcode_names = list(INSTRUCTION_SPEC[slot_name].keys())
-        slot_width = slot_union.opcode_bits + sum(f["bits"] for f in fields)
         slots.append(
             {
                 "slot": slot_name,

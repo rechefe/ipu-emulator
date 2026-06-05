@@ -69,6 +69,24 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "\n    LR_REG_FIELD_LR1 = " in text
 
 
+def test_union_members_padded_to_slot_width():
+    ctx = gen_codegen.build_codegen_context()
+    for slot in ctx["slots"]:
+        for inst in slot["instructions"]:
+            assert inst["struct_bits"] == slot["width"], (
+                f"{slot['slot']}.{inst['name']}: {inst['struct_bits']} != {slot['width']}"
+            )
+
+
+def test_sv_union_includes_padding_field_when_needed(tmp_path: Path):
+    out = tmp_path / "ipu_instr_pkg.sv"
+    gen_codegen.generate_sv_package(out)
+    text = out.read_text(encoding="utf-8")
+    assert "logic [12:0] __pad;" in text or "logic [11:0] __pad;" in text
+    assert "xmem_nop" in text
+    assert "__pad;" in text
+
+
 def test_render_is_deterministic():
     a = gen_codegen.render_template("ipu_instr_pkg.sv.j2")
     b = gen_codegen.render_template("ipu_instr_pkg.sv.j2")
