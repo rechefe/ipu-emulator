@@ -264,8 +264,20 @@ def generate_instruction_docs(output_path: Path) -> None:
     )
 
     content.append("## Compound Instruction Layout\n")
-    svg_content = CompoundInst.generate_fields_svg()
-    content.append(svg_content)
+    content.append(
+        "The compound (VLIW) instruction word is shown two ways below.\n\n"
+        "* **Whole-word bit layout** — every operand token in its actual bit "
+        "position (MSB → LSB), coloured by the owning slot. This is what an "
+        "encoded VLIW word looks like in memory.\n"
+        "* **Per-slot union layout** — for each slot, the union fields packed "
+        "by the layout solver, with a per-opcode grid showing which operand "
+        "each opcode places in each field. Useful for seeing where cross-"
+        "opcode field sharing comes from.\n"
+    )
+    content.append("\n### Whole-word bit layout\n")
+    content.append(CompoundInst.generate_struct_layout_svg())
+    content.append("\n### Per-slot union layout\n")
+    content.append(CompoundInst.generate_union_layout_svg())
     content.append("\n---\n\n")
 
     for inst_class in Inst.get_all_instruction_classes():
