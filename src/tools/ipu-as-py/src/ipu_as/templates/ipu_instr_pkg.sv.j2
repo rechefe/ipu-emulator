@@ -38,13 +38,9 @@ package ipu_instr_pkg;
   typedef union packed {
 {% for inst in slot.instructions %}
     struct packed {
-      {{ slot.opcode_enum }} opcode;
-{% for op in inst.operands %}
-      {{ op.sv_type }} {{ op.name }};
+{% for lf in inst.layout_fields %}
+      {{ lf.sv_type }} {{ lf.name }};
 {% endfor %}
-{% if inst.pad_bits > 0 %}
-      logic [{{ inst.pad_bits - 1 }}:0] __pad;
-{% endif %}
     } {{ inst.sv_struct }};
 {% endfor %}
   } {{ slot.union_name }};
