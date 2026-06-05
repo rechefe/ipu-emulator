@@ -1,7 +1,9 @@
 """Generate C headers and SystemVerilog packages from the instruction format.
 
-Single source of truth: ``instruction_spec.py`` (via assembler token/union layout).
-Output is produced at build or CLI time and is not checked into the repository.
+Mirrors the historical C-header generator: ``EnumToken`` descriptors plus
+``CompoundInst.get_fields()`` for the flat wire-level word.  The SystemVerilog
+package additionally emits per-slot union-layout structs and per-instruction
+``union packed`` views derived from ``SLOT_UNIONS`` in ``instruction_spec``.
 """
 
 from __future__ import annotations
@@ -12,23 +14,169 @@ from typing import Any
 import jinja2
 
 from ipu_as import compound_inst, ipu_token, utils
-from ipu_as import inst as inst_module
+from ipu_common.instruction_spec import INSTRUCTION_SPEC, SLOT_COUNT, SLOT_UNIONS
+from ipu_common.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+
+# Operand type string → generated SystemVerilog enum typedef (when applicable).
+_OPERAND_TYPE_TO_SV_ENUM: dict[str, str] = {
+    "MultStageReg": "mult_stage_reg_field_e",
+    "LrIdx": "lr_reg_field_e",
+    "CrIdx": "cr_reg_field_e",
+    "LcrIdx": "lcr_reg_field_e",
+    "AddSubSrcB": "add_sub_src_b_field_e",
+    "AaqRegIdx": "aaq_reg_field_e",
+    "ElementsInRow": "elements_in_row_field_e",
+    "HorizontalStride": "horizontal_stride_field_e",
+    "VerticalStride": "vertical_stride_field_e",
+    "AggMode": "agg_mode_field_e",
+    "PostFn": "post_fn_field_e",
+    "ActivationFn": "activation_fn_field_e",
+    "FullXmemRow": "full_xmem_row_field_e",
+}
+
+# Slot name → opcode EnumToken descriptor key and struct basename.
+_SV_RESERVED_STRUCT_NAMES = frozenset({
+    "break",
+    "continue",
+    "return",
+    "module",
+    "endmodule",
+    "begin",
+    "end",
+    "case",
+    "default",
+    "function",
+    "task",
+})
+
+_SLOT_META: dict[str, tuple[str, str]] = {
+    "cond": ("cond_inst_opcode", "cond_slot"),
+    "lr": ("lr_inst_opcode", "lr_slot"),
+    "xmem": ("xmem_inst_opcode", "xmem_slot"),
+    "mult": ("mult_inst_opcode", "mult_slot"),
+    "acc": ("acc_inst_opcode", "acc_slot"),
+    "aaq": ("aaq_inst_opcode", "aaq_slot"),
+    "break": ("break_inst_opcode", "break_slot"),
+}
 
 
 def _sanitize_enum_member(name: str) -> str:
     return name.upper().replace(".", "_").replace("-", "_")
 
 
-def _enum_descriptors() -> list[dict[str, Any]]:
-    """EnumToken subclasses (immediates, register indices, etc.; not slot opcodes)."""
+def _sv_logic_type(canonical_type: str, bits: int) -> str:
+    enum_type = _OPERAND_TYPE_TO_SV_ENUM.get(canonical_type)
+    if enum_type is not None:
+        return enum_type
+    return f"logic [{bits - 1}:0]"
+
+
+def _canonical_field_name(canonical_type: str, field_index: int) -> str:
+    base = utils.camel_case_to_snake_case(canonical_type)
+    return f"{base}_{field_index}"
+
+
+def _instruction_struct_name(inst_name: str) -> str:
+    base = _sanitize_enum_member(inst_name).lower()
+    if base in _SV_RESERVED_STRUCT_NAMES:
+        return f"{base}_inst"
+    return base
+
+
+def _slot_union_descriptors() -> list[dict[str, Any]]:
+    """Per-slot union layout structs and per-instruction union members."""
+    type_bits = get_operand_type_bits()
+    slots: list[dict[str, Any]] = []
+
+    for slot_name, slot_union in SLOT_UNIONS.items():
+        opcode_key, struct_base = _SLOT_META[slot_name]
+        opcode_enum = f"{opcode_key}_e"
+        fields: list[dict[str, Any]] = []
+        for uf in slot_union.fields:
+            fields.append(
+                {
+                    "name": _canonical_field_name(uf.canonical_type, uf.index),
+                    "bits": uf.bits,
+                    "canonical_type": uf.canonical_type,
+                    "sv_type": _sv_logic_type(uf.canonical_type, uf.bits),
+                }
+            )
+
+        instructions: list[dict[str, Any]] = []
+        for inst_name, inst_def in INSTRUCTION_SPEC[slot_name].items():
+            operands: list[dict[str, Any]] = []
+            bindings = slot_union.opcode_bindings.get(inst_name, [])
+            operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
+            for _field_idx, operand_name in bindings:
+                actual_type = operand_types[operand_name]
+                op_bits = type_bits[actual_type]
+                operands.append(
+                    {
+                        "name": operand_name,
+                        "sv_type": _sv_logic_type(actual_type, op_bits),
+                    }
+                )
+            instructions.append(
+                {
+                    "name": inst_name,
+                    "sv_struct": _instruction_struct_name(inst_name),
+                    "operands": operands,
+                }
+            )
+
+        slot_width = slot_union.opcode_bits + sum(f["bits"] for f in fields)
+        slots.append(
+            {
+                "slot": slot_name,
+                "opcode_enum": opcode_enum,
+                "opcode_width": slot_union.opcode_bits,
+                "struct_name": f"{struct_base}_t",
+                "union_name": f"{struct_base}_u",
+                "width": slot_width,
+                "fields": fields,
+                "instructions": instructions,
+            }
+        )
+
+    return slots
+
+
+def _compound_members() -> list[dict[str, Any]]:
+    """Nested compound struct members in MSB → LSB order (matches encode layout)."""
+    members: list[dict[str, Any]] = []
+    type_counts: dict[str, int] = {}
+
+    for inst_cls in compound_inst.CompoundInst.instruction_types():
+        slot = inst_cls._slot_type_name()
+        _, struct_base = _SLOT_META[slot]
+        sv_type = f"{struct_base}_t"
+
+        count = type_counts.get(slot, 0)
+        type_counts[slot] = count + 1
+        if SLOT_COUNT[slot] > 1:
+            member_name = f"{struct_base}_{count}"
+        else:
+            member_name = struct_base
+
+        members.append(
+            {
+                "name": member_name,
+                "sv_type": sv_type,
+                "slot": slot,
+            }
+        )
+
+    return members
+
+
+def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
+    """EnumToken descriptors with precomputed bit-width for SV typedefs."""
     result: list[dict[str, Any]] = []
-    for enum_name, values in ipu_token.EnumToken.get_all_enum_descriptors().items():
-        # Slot opcodes are emitted per Inst struct; skip duplicate InstOpcode enums.
-        if enum_name.endswith("_inst_opcode"):
-            continue
-        width = max(1, (len(values) - 1).bit_length()) if len(values) > 1 else 1
+    for enum_name, members in ipu_token.EnumToken.get_all_enum_descriptors().items():
+        n = len(members)
+        width = max(1, (n - 1).bit_length()) if n > 1 else 1
         result.append(
             {
                 "name": enum_name,
@@ -36,82 +184,23 @@ def _enum_descriptors() -> list[dict[str, Any]]:
                 "sv_type": f"{enum_name}_e",
                 "width": width,
                 "members": [
-                    {"value": idx, "name": _sanitize_enum_member(name)}
-                    for idx, name in values
+                    {"value": value, "name": name} for value, name in members
                 ],
             }
         )
     return result
 
 
-def _slot_field_name(inst_cls: type, token_index: int, token_cls: type) -> str:
-    base = utils.camel_case_to_snake_case(inst_cls.__name__)
-    token_part = utils.camel_case_to_snake_case(token_cls.__name__)
-    return f"{base}_token_{token_index}_{token_part}"
-
-
-def _slot_descriptors() -> list[dict[str, Any]]:
-    """Per-slot packed struct layouts (one struct per Inst subclass)."""
-    slots: list[dict[str, Any]] = []
-    for inst_cls in sorted(
-        inst_module.Inst.__subclasses__(), key=lambda c: c.__name__
-    ):
-        slot_type = inst_cls._slot_type_name()
-        opcode_cls = inst_cls.opcode_type()
-        opcode_names = opcode_cls.enum_array()
-        token_types = inst_cls.all_tokens()
-        fields: list[dict[str, Any]] = []
-        # MSB-first field order matches packed struct convention (opcode at MSB).
-        for idx, tok_cls in enumerate(reversed(token_types)):
-            fields.append(
-                {
-                    "name": _slot_field_name(inst_cls, idx, tok_cls),
-                    "bits": tok_cls.bits(),
-                    "token_class": tok_cls.__name__,
-                }
-            )
-        struct_base = utils.camel_case_to_snake_case(inst_cls.__name__)
-        slots.append(
-            {
-                "slot": slot_type,
-                "struct_name": f"{struct_base}_t",
-                "sv_struct": f"{struct_base}_t",
-                "width": inst_cls.bits(),
-                "opcode_enum": f"{struct_base}_opcode_e",
-                "opcode_prefix": struct_base.upper(),
-                "opcode_width": opcode_cls.bits(),
-                "opcodes": [
-                    {
-                        "value": idx,
-                        "name": _sanitize_enum_member(name),
-                    }
-                    for idx, name in enumerate(opcode_names)
-                ],
-                "fields": fields,
-            }
-        )
-    return slots
-
-
-def _compound_descriptor() -> dict[str, Any]:
-    """Flat compound-instruction struct (full VLIW word)."""
-    fields = []
-    for name, bits in compound_inst.CompoundInst.get_fields():
-        fields.append({"name": name, "bits": bits})
-    return {
-        "struct_name": "ipu_compound_inst_t",
-        "sv_struct": "ipu_compound_inst_t",
-        "width": compound_inst.CompoundInst.bits(),
-        "fields": fields,
-    }
-
-
 def build_codegen_context() -> dict[str, Any]:
     """Build the Jinja render context from live assembler metadata."""
+    enum_list = _enum_descriptors_for_templates()
     return {
-        "enums": _enum_descriptors(),
-        "slots": _slot_descriptors(),
-        "compound": _compound_descriptor(),
+        "enums": {e["name"]: [(m["value"], m["name"]) for m in e["members"]] for e in enum_list},
+        "enum_types": enum_list,
+        "inst_bit_fields": compound_inst.CompoundInst.get_fields(),
+        "slots": _slot_union_descriptors(),
+        "compound_members": _compound_members(),
+        "compound_width": compound_inst.CompoundInst.bits(),
     }
 
 

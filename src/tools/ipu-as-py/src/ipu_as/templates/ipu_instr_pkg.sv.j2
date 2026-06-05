@@ -1,36 +1,62 @@
 // Auto-generated from instruction_spec.py — do not edit.
+//
+// Operand/opcodes enums and flat wire word match the C header generator.
+// Per-slot structs and unions follow SLOT_UNIONS (union field layout).
 package ipu_instr_pkg;
 
-{% for enum in enums -%}
+  // -------------------------------------------------------------------------
+  // Enumerations (EnumToken descriptors — opcodes, registers, immediates)
+  // -------------------------------------------------------------------------
+{% for enum in enum_types %}
   typedef enum logic [{{ enum.width - 1 }}:0] {
 {%- for item in enum.members %}
-    {{ enum.name | upper }}_{{ item.name }} = {{ item.value }}{{ "," if not loop.last }}
+    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.value }}{{ "," if not loop.last }}
 {%- endfor %}
   } {{ enum.sv_type }};
 
-{% endfor -%}
-{% for slot in slots -%}
-  typedef enum logic [{{ slot.opcode_width - 1 }}:0] {
-{%- for op in slot.opcodes %}
-    {{ slot.opcode_prefix }}_{{ op.name }} = {{ op.value }}{{ "," if not loop.last }}
-{%- endfor %}
-  } {{ slot.opcode_enum }};
-
+{% endfor %}
+  // -------------------------------------------------------------------------
+  // Per-slot encoded words (opcode + union fields, MSB-first within slot)
+  // -------------------------------------------------------------------------
+{% for slot in slots %}
   typedef struct packed {
+    {{ slot.opcode_enum }} opcode;
 {%- for field in slot.fields %}
-    logic [{{ field.bits - 1 }}:0] {{ field.name }};
+    {{ field.sv_type }} {{ field.name }};
 {%- endfor %}
-  } {{ slot.sv_struct }};
+  } {{ slot.struct_name }};
 
-  localparam int unsigned {{ slot.sv_struct | upper }}_WIDTH = {{ slot.width }};
+  localparam int unsigned {{ slot.struct_name | upper }}_WIDTH = {{ slot.width }};
 
-{% endfor -%}
+  // Per-instruction decoded view for the {{ slot.slot }} slot
+  typedef union packed {
+{%- for inst in slot.instructions %}
+    struct packed {
+      {{ slot.opcode_enum }} opcode;
+{%- for op in inst.operands %}
+      {{ op.sv_type }} {{ op.name }};
+{%- endfor %}
+    } {{ inst.sv_struct }};
+{%- endfor %}
+  } {{ slot.union_name }};
+
+{% endfor %}
+  // -------------------------------------------------------------------------
+  // Compound VLIW instruction (slots MSB → LSB: cond, lr×N, xmem, mult, acc, aaq, break)
+  // -------------------------------------------------------------------------
   typedef struct packed {
-{%- for field in compound.fields %}
-    logic [{{ field.bits - 1 }}:0] {{ field.name }};
+{%- for member in compound_members %}
+    {{ member.sv_type }} {{ member.name }};
 {%- endfor %}
-  } {{ compound.sv_struct }};
+  } ipu_compound_inst_t;
 
-  localparam int unsigned IPU_COMPOUND_INST_WIDTH = {{ compound.width }};
+  localparam int unsigned IPU_COMPOUND_INST_WIDTH = {{ compound_width }};
+
+  // Flat wire-level view (field names match C header / emulator decode dict)
+  typedef struct packed {
+{%- for name, bits in inst_bit_fields %}
+    logic [{{ bits - 1 }}:0] {{ name }};
+{%- endfor %}
+  } ipu_compound_inst_flat_t;
 
 endpackage : ipu_instr_pkg

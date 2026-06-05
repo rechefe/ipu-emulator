@@ -293,17 +293,24 @@ def generate_instruction_format_md(output_path: Path) -> None:
     from ipu_as.compound_inst import CompoundInst
 
     width = CompoundInst.bits()
-    svg_content = CompoundInst.generate_fields_svg()
+    struct_svg = CompoundInst.generate_struct_layout_svg()
+    union_svg = CompoundInst.generate_union_layout_svg()
 
     content = f"""# Instruction format
 
 This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
-Field names, bit widths, and opcode values are **generated** from `instruction_spec.py` in
-`ipu_common` (the same source the assembler and emulator use).
+Field names, bit widths, opcode values, and union-field sharing are **generated** from
+`instruction_spec.py` in `ipu_common` (the same source the assembler and emulator use).
 
 ## Compound instruction layout ({width} bits)
 
-{svg_content}
+### Whole-word bit layout
+
+{struct_svg}
+
+### Per-slot union layout
+
+{union_svg}
 
 ## Generated artifacts
 
@@ -312,8 +319,8 @@ These files are produced at documentation build time (and via the assembler CLI)
 
 | Artifact | Description | Download |
 |----------|-------------|----------|
-| C header | `typedef struct` bitfields and opcode enums | [ipu_inst.h](assets/ipu_inst.h) |
-| SystemVerilog package | `ipu_instr_pkg` with packed structs and enums | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+| C header | Opcode/operand enums and flat `ipu_compound_inst_t` bitfields | [ipu_inst.h](assets/ipu_inst.h) |
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot union structs, per-instruction `union packed` views, nested and flat compound types | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
 
 ### Regenerate locally
 

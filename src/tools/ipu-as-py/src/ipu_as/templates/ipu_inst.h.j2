@@ -4,32 +4,20 @@
 
 #include <stdint.h>
 
-{% for enum in enums -%}
+{% for enum_name in enums -%}
 typedef enum {
-{%- for item in enum.members %}
-    {{ enum.name | upper }}_{{ item.name }} = {{ item.value }},
+{%- for value, name in enums[enum_name] %}
+    {{ enum_name | upper }}_{{ name | upper }} = {{ value }},
 {%- endfor %}
-} {{ enum.c_type }};
+} {{ enum_name }}_t;
 
 {% endfor -%}
-
-/* Per-slot instruction structs (packed bit layout, MSB-first field order). */
-{% for slot in slots -%}
 typedef struct {
-{%- for field in slot.fields %}
-    uint32_t {{ field.name }} : {{ field.bits }};
+{%- for name, bits in inst_bit_fields %}
+    uint32_t {{ name }} : {{ bits }};
 {%- endfor %}
-} {{ slot.struct_name }};
+} ipu_compound_inst_t;
 
-{% endfor -%}
-
-/* Full VLIW compound instruction ({{ compound.width }} bits). */
-typedef struct {
-{%- for field in compound.fields %}
-    uint32_t {{ field.name }} : {{ field.bits }};
-{%- endfor %}
-} {{ compound.struct_name }};
-
-#define IPU_COMPOUND_INST_WIDTH {{ compound.width }}
+#define IPU_COMPOUND_INST_WIDTH {{ compound_width }}
 
 #endif /* IPU_INST_H */
