@@ -128,27 +128,36 @@ def _instruction_layout_fields(
             "name": "opcode",
             "sv_type": opcode_enum,
             "bits": opcode_width,
+            "operand": None,
         }
     ]
     for field in slot_fields:
         field_idx = field["index"]
         wire_bits = field["bits"]
+        wire_name = field["name"]
         if field_idx in bindings:
             op_name = bindings[field_idx]
             actual_type = operand_types[op_name]
+            canonical = field["canonical_type"]
+            if actual_type == canonical:
+                operand_comment = op_name
+            else:
+                operand_comment = f"{op_name} ({actual_type})"
             layout.append(
                 {
-                    "name": op_name,
+                    "name": wire_name,
                     "sv_type": _operand_sv_type(actual_type, wire_bits, type_bits),
                     "bits": wire_bits,
+                    "operand": operand_comment,
                 }
             )
         else:
             layout.append(
                 {
-                    "name": f"__pad_{field_idx}",
+                    "name": wire_name,
                     "sv_type": f"logic [{wire_bits - 1}:0]",
                     "bits": wire_bits,
+                    "operand": None,
                 }
             )
     return layout

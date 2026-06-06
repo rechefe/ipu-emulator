@@ -39,7 +39,8 @@ package ipu_instr_pkg;
 {% for inst in slot.instructions %}
     struct packed {
 {% for lf in inst.layout_fields %}
-      {{ lf.sv_type }} {{ lf.name }};
+      {{ lf.sv_type }} {{ lf.name }};{% if lf.operand %} // {{ lf.operand }}{% endif %}
+
 {% endfor %}
     } {{ inst.sv_struct }};
 {% endfor %}

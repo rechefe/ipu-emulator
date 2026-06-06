@@ -60,7 +60,7 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
     assert "_e;" not in text
     assert "lr_reg_field_t" in text
-    assert "logic [3:0] dest" in text  # MultStageReg in 4-bit union field
+    assert "logic [3:0] lr_idx_2; // dest (MultStageReg)" in text  # LDR_MULT_REG
     assert "3'd" in text or "2'd" in text or "1'd" in text
     assert "break_inst;" in text  # reserved-word-safe union member name
     assert "} break;" not in text
@@ -78,21 +78,30 @@ def test_union_members_padded_to_slot_width():
             )
 
 
-def test_sv_union_padding_in_union_field_positions(tmp_path: Path):
+def test_sv_union_matches_slot_field_names(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
     gen_codegen.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
-    # STR_ACC_REG uses fields 0,1; field 2 is unused → pad before end of struct
-    assert "str_acc_reg" in text
+    # Union members use same wire field names as {slot}_slot_t (union diagram columns)
+    assert "cr_idx_0" in text and "lr_idx_1" in text and "lr_idx_2" in text
+    # STR_ACC_REG: fields 0,1 used; lr_idx_2 unused (diagram shows — in col 2)
     i = text.index("} str_acc_reg;")
-    chunk = text[i - 400 : i]
-    assert "offset" in chunk and "base" in chunk
-    assert "__pad_2" in chunk
-    assert chunk.index("base") < chunk.index("__pad_2")
-    # XMEM_NOP: opcode then three in-place union field pads
-    j = text.index("} xmem_nop;")
-    nop_chunk = text[j - 300 : j]
-    assert "__pad_0" in nop_chunk and "__pad_1" in nop_chunk and "__pad_2" in nop_chunk
+    chunk = text[i - 500 : i]
+    assert "cr_idx_0" in chunk and "lr_idx_1" in chunk
+    assert "logic [3:0] lr_idx_2;" in chunk
+    assert "// offset" in chunk and "// base" in chunk
+    # MULT.EE: ra in CrIdx column (field 0), diagram shows ra:MultStageReg
+    j = text.index("} mult_ee;")
+    ee = text[j - 500 : j]
+    assert "logic [3:0] cr_idx_0; // ra (MultStageReg)" in ee
+    assert "lr_idx_1; // cyclic_offset" in ee
+    assert "lr_idx_2; // mask_shift" in ee
+    # MULT.EE.RR: field 2 unused — lr_idx_2 pad in place, not always "field 2 at end"
+    k = text.index("} mult_ee_rr;")
+    rr = text[k - 400 : k]
+    assert "lr_idx_1; // mask_shift" in rr
+    assert "logic [3:0] lr_idx_2;" in rr
+    assert "mult_mask_offset_immediate_3; // mask_offset" in rr
 
 
 def test_render_is_deterministic():
