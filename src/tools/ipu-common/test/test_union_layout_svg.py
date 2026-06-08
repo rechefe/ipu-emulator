@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from ipu_common.gen_union_layout_svg import COMPOUND_LAYOUT_SLOT_ORDER
-from ipu_common.instruction_spec import SLOT_COUNT, SLOT_UNIONS
+from ipu_common.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+)
 from ipu_common.union_layout_svg import render_union_layout_svg
 
 
@@ -59,9 +62,18 @@ def test_lr_multiplicity_annotated():
 
 
 def test_msb_to_lsb_slot_order():
-    """Slot blocks appear in compound-instruction MSB → LSB order."""
+    """Slot block titles appear in compound-instruction MSB → LSB order."""
     svg = _render()
-    positions = [svg.index(slot.upper()) for slot in COMPOUND_LAYOUT_SLOT_ORDER]
+    positions: list[int] = []
+    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
+        # Match slot title lines from union_layout_svg._render_slot, not opcode
+        # substrings (e.g. MULT.VE.AAQ must not satisfy slot "aaq").
+        needle = f">{slot.upper()} "
+        pos = svg.find(needle)
+        if pos == -1:
+            pos = svg.find(f">{slot.upper()} (")
+        assert pos != -1, f"slot title for {slot!r} not found in SVG"
+        positions.append(pos)
     assert positions == sorted(positions), (
         f"slots out of order: {list(zip(COMPOUND_LAYOUT_SLOT_ORDER, positions))}"
     )

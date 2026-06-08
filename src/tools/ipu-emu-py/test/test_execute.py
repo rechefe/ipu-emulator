@@ -387,6 +387,26 @@ BKPT;;
         loaded = state.regfile.get_r_mask()
         assert loaded == bytearray(mask_data)
 
+    def test_concurrent_load_and_store_same_cycle(self):
+        """Load and store in one VLIW bundle: load resolves before store."""
+        addr = 0x1000
+        old_data = bytes([i & 0xFF for i in range(128)])
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+STR_ACC_REG lr0 cr0;;
+BKPT;;
+""",
+            cr={8: addr})
+        state.xmem.write_address(addr, old_data)
+        state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
+        run_until_complete(state)
+
+        # Load saw pre-store memory; store overwrote memory afterward.
+        assert state.regfile.get_r(0) == bytearray(old_data)
+        stored = state.xmem.read_address(addr, 512)
+        assert stored == state.regfile.get_r_acc_bytes()
+
     def test_mask_affects_multiplication(self):
         """First 64 bits of mask set → first 64 mult_res words zeroed."""
         r0_data = bytes([2] * 128)

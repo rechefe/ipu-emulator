@@ -1,6 +1,13 @@
+import warnings
+
 import ipu_as.inst as inst
 import ipu_as.utils as utils
-from ipu_common.instruction_spec import SLOT_COUNT, SLOT_UNIONS
+from ipu_common.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+    is_hardware_slot,
+)
 from ipu_common.union_layout_svg import render_union_layout_svg
 
 
@@ -49,6 +56,13 @@ class CompoundInst:
                         f"Too many instructions of type {inst_type.__name__} (max {available_slots})\n"
                         f"At: {instruction['opcode'].get_location_string()}"
                     )
+
+            if not is_hardware_slot(inst_type._slot_type_name()):
+                warnings.warn(
+                    f"{instruction['opcode'].token.value} uses the simulation-only "
+                    f"{inst_type._slot_type_name()} slot (not implemented in real IPU hardware)",
+                    stacklevel=4,
+                )
         return address
 
     def _fill_out_nop(self, address: int):
@@ -65,16 +79,16 @@ class CompoundInst:
         _slot_to_inst = {
             "cond": inst.CondInst,
             "lr": inst.LrInst,
-            "xmem": inst.XmemInst,
+            "load": inst.LoadInst,
+            "store": inst.StoreInst,
+            "debug": inst.DebugInst,
             "mult": inst.MultInst,
             "acc": inst.AccInst,
             "aaq": inst.AaqInst,
             "break": inst.BreakInst,
         }
-        # Bit layout MSB→LSB: cond, lr(×N), xmem, mult, acc, aaq, break (N = SLOT_COUNT["lr"])
-        _slot_order = ["cond", "lr", "xmem", "mult", "acc", "aaq", "break"]
         result = []
-        for slot in _slot_order:
+        for slot in COMPOUND_LAYOUT_SLOT_ORDER:
             result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
         return result
 
@@ -178,7 +192,9 @@ class CompoundInst:
         """
         legend_entries = [
             (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
-            (inst.XmemInst, "#FF6B6B", "XmemInst (Extended Memory)"),
+            (inst.LoadInst, "#FF6B6B", "LoadInst (Memory Load)"),
+            (inst.StoreInst, "#E74C3C", "StoreInst (Memory Store)"),
+            (inst.DebugInst, "#C0392B", "DebugInst (Simulation-only)"),
             (inst.MultInst, "#4ECDC4", "MultInst (Multiply)"),
             (inst.AccInst, "#45B7D1", "AccInst (Accumulator)"),
             (inst.AaqInst, "#9B59B6", "AaqInst (Activation and Quantization)"),

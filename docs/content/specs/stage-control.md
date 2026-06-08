@@ -26,7 +26,7 @@ The CTRL stage produces:
 - Up to three local-register writes (`LR0`–`LR15`) per cycle into the **internal** LR file.
 - Four per-stage dispatch buses driven on the CTRL output:
   - `mult_vliw_bus`, `acc_vliw_bus`, `aaq_vliw_bus`, `str_vliw_bus` — each carries the corresponding stage's slot fields together with the CR/LR operand value(s) CTRL has already resolved for that stage. All four are driven from CTRL into MULT; MULT consumes `mult_vliw_bus` and forwards the remaining three to ACC; ACC consumes `acc_vliw_bus` and forwards the remaining two to AAQ; AAQ consumes `aaq_vliw_bus` and forwards `str_vliw_bus` to STORE. Downstream stages never read the register files and CR/LR are **not visible** to them. CTRL evaluates its three LR-ALU lanes first, so the forwarded values are this cycle's **post-LR-write** values, **not** the prior-cycle snapshot. The snapshot governs only CTRL's own reads — see §5.
-- The **XMEM read address** — CTRL resolves the XMEM slot into a single read address (CR base + LR offset) and drives it on `xmem_read_addr` (gated by `xmem_read_en`). XMEM is **read-only**: it has no opcode field, every access is a memory load, and the returned data is written directly into the MULT stage's input registers.
+- The **XMEM read address** — CTRL resolves the **load** slot into a single read address (CR base + LR offset) and drives it on `xmem_read_addr` (gated by `xmem_read_en`). External XMEM is **read-only** on this path: the load slot issues memory loads whose data is written directly into the MULT stage's input registers. The **store** slot (last pipeline stage) and the simulation-only **debug** slot issue writes separately.
 
 The IPU is configured by an external **RISC-V host** over an **APB**
 slave port on CTRL. The host writes the instruction memory (inactive
@@ -209,7 +209,7 @@ the current cycle's VLIW, and the internal program counter (`PC`).
 
 - **Depth:** `IMEM_DEPTH = 256` decoded-VLIW-word entries **total** across the two banks — `IMEM_BANK_DEPTH = 128` entries per bank (`IMEM_DEPTH / IMEM_BANKS`).
 - **Banks:** `IMEM_BANKS = 2` — double-buffered. At any time one bank is the *active* bank (fetched by the IPU) and the other is the *inactive* bank (writable by the RISC-V host).
-- **Contents:** every entry is an **already-decoded** VLIW word. Slot fields (cond, three LR sub-slots, MULT, ACC, AAQ, STORE, XMEM) are laid out explicitly in the entry — CTRL only demultiplexes them, it does not perform any opcode-level decode.
+- **Contents:** every entry is an **already-decoded** VLIW word. Slot fields (cond, three LR sub-slots, LOAD, MULT, ACC, AAQ, STORE, DEBUG) are laid out explicitly in the entry — CTRL only demultiplexes them, it does not perform any opcode-level decode. The **debug** slot is simulation-only and not implemented in real IPU hardware.
 - **Host write path:** the RISC-V host writes into the **inactive** bank only over the host bus. There is no ISA instruction to write `inst mem`; bank swaps are signalled externally via `imem_bank_sel`.
 - **Read path — dual port:** CTRL issues **two reads in parallel** on every branch cycle (one at `PC + 1`, one at the branch target `label` — see §6.2). The active IMEM bank must therefore expose **two independent read ports** that can serve any pair of addresses in the same clock cycle. On non-branch cycles only one read port is used.
 - **Per-bank port requirement:** each bank is sized as a **2R1W** SRAM macro — two read ports (consumed only when the bank is *active*) and one write port (consumed only when the bank is *inactive*, by the RISC-V host). Because active and inactive never coincide, reads and host writes never contend on the same bank.
@@ -280,17 +280,16 @@ any of these — CTRL has already consumed them internally.
 
 ### 7.1 XMEM Read Path (parallel path — not a stage)
 
-The XMEM slot is delivered to **XMEM** (a **read-only** external-memory
+The **load** slot is delivered to **XMEM** (a **read-only** external-memory
 access block, *not* a pipeline stage on the execute chain) on a
-dedicated CTRL output port. The XMEM slot carries no opcode — every
-XMEM access is a memory **load**, and the only piece of information
-CTRL hands over is the **resolved read address**:
+dedicated CTRL output port. The load slot issues memory **loads**; the
+only piece of information CTRL hands over is the **resolved read address**:
 
 ```text
 // Inside CTRL — computed after the three LR ALUs (uses this cycle's post-write LR)
-xmem_read_addr <= CR[inst$_vliw.xmem.base_idx]
-                + LR[inst$_vliw.xmem.offset_idx]   // post-LR-write value, not the snapshot
-xmem_read_en   <= (inst$_vliw.xmem != NOP) && !bubble
+xmem_read_addr <= CR[inst$_vliw.load.base_idx]
+                + LR[inst$_vliw.load.offset_idx]   // post-LR-write value, not the snapshot
+xmem_read_en   <= (inst$_vliw.load != NOP) && !bubble
 ```
 
 XMEM then performs the memory read and **writes the fetched
