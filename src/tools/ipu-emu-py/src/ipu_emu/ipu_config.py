@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 CR_REGISTER_NAME = "cr"
 
@@ -24,13 +25,24 @@ LR_CR_SCALAR_BITS = 20
 LR_CR_SCALAR_VALUE_MASK = (1 << LR_CR_SCALAR_BITS) - 1
 
 DSTRUCTURE_VALID_ELEMENTS_BITS = 8
-DSTRUCTURE_PARTITION_BITS = 4
+DSTRUCTURE_PARTITION_BITS = 5                                    # P16=16 requires 5 bits
 DSTRUCTURE_VALID_ELEMENTS_MASK = (1 << DSTRUCTURE_VALID_ELEMENTS_BITS) - 1
 DSTRUCTURE_PARTITION_MASK = (1 << DSTRUCTURE_PARTITION_BITS) - 1
 DSTRUCTURE_PARTITION_SHIFT = DSTRUCTURE_VALID_ELEMENTS_BITS
 
 DEFAULT_VALID_ELEMENTS = 128
-DEFAULT_PARTITION = 0
+
+
+class Partition(IntEnum):
+    """Valid CR15.partition values. Controls how the 128 lanes are grouped for mask shifts."""
+    P0  = 0   # no partitioning — all 128 lanes in one group
+    P2  = 2   # 2 groups of 64 lanes
+    P4  = 4   # 4 groups of 32 lanes
+    P8  = 8   # 8 groups of 16 lanes
+    P16 = 16  # 16 groups of 8 lanes
+
+
+DEFAULT_PARTITION = Partition.P0
 
 
 @dataclass(frozen=True)
@@ -38,7 +50,7 @@ class DStructureConfig:
     """Decoded CR15 dstructure configuration."""
 
     valid_elements: int = DEFAULT_VALID_ELEMENTS
-    partition: int = DEFAULT_PARTITION
+    partition: Partition = DEFAULT_PARTITION
 
     def __iter__(self):
         """Allow tuple unpacking as (valid_elements, partition)."""
@@ -56,8 +68,9 @@ class DStructureConfig:
 DEFAULT_DSTRUCTURE = DStructureConfig()
 
 
-def encode_dstructure(*, valid_elements: int, partition: int = DEFAULT_PARTITION) -> int:
+def encode_dstructure(*, valid_elements: int, partition: Partition | int = DEFAULT_PARTITION) -> int:
     """Pack dstructure fields into the CR15 register value."""
+    partition = Partition(partition)   # validates and converts; raises ValueError if invalid
     valid = int(valid_elements) & DSTRUCTURE_VALID_ELEMENTS_MASK
     part = int(partition) & DSTRUCTURE_PARTITION_MASK
     return valid | (part << DSTRUCTURE_PARTITION_SHIFT)
@@ -68,7 +81,7 @@ def decode_dstructure(value: int) -> DStructureConfig:
     word = int(value) & LR_CR_SCALAR_VALUE_MASK
     return DStructureConfig(
         valid_elements=word & DSTRUCTURE_VALID_ELEMENTS_MASK,
-        partition=(word >> DSTRUCTURE_PARTITION_SHIFT) & DSTRUCTURE_PARTITION_MASK,
+        partition=Partition((word >> DSTRUCTURE_PARTITION_SHIFT) & DSTRUCTURE_PARTITION_MASK),
     )
 
 
@@ -77,6 +90,6 @@ def get_config_valid_elements(value: int) -> int:
     return decode_dstructure(value).valid_elements
 
 
-def get_config_partition(value: int) -> int:
+def get_config_partition(value: int) -> Partition:
     """Return the partition field from an encoded dstructure value."""
     return decode_dstructure(value).partition
