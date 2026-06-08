@@ -70,7 +70,7 @@ Every cycle executes one **compound instruction** — multiple independent slots
 LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
-- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
+- Binary layout (MSB → LSB): `cond`, `lr` (×3), `xmem`, `mult`, `acc`, `aaq`, `break`
 - Separated by `;`, terminated by `;;`
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
