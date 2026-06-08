@@ -23,7 +23,7 @@ from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
+from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
@@ -258,8 +258,13 @@ class Ipu:
             return float(a) + float(b)
         return ipu_add(int(a), int(b), DType.INT8)
 
+    def _wide_sub_lane(self, a: float | int, b: float | int) -> float | int:
+        if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+            return float(a) - float(b)
+        return ipu_sub(int(a), int(b), DType.INT8)
+
     def _wide_aaq_scalar(self, aaq_rf_idx: int) -> float | int:
-        raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+        raw = self.snapshot.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             return struct.unpack("<f", struct.pack("<I", raw))[0]
         return struct.unpack("<i", struct.pack("<I", raw))[0]
@@ -878,82 +883,6 @@ class Ipu:
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
-    def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.ADD_AAQ: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
-        dtype = self.state.dtype
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self.snapshot.raw("r_acc")
-        fmt = self._acc_agg_lane_fmt()
-        if self._wide_vector_active():
-            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
-        else:
-            aaq_lane = self.state.regfile.get_aaq(aaq_rf_idx)
-
-        for i in range(R_REG_SIZE):
-            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            if self._wide_vector_active():
-                result = self._wide_add_lane(self._wide_add_lane(acc_val, mult_val), aaq_lane)
-            else:
-                result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_lane, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.ADD_AAQ.FIRST: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
-        dtype = self.state.dtype
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        fmt = self._acc_agg_lane_fmt()
-        if self._wide_vector_active():
-            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
-        else:
-            aaq_lane = self.state.regfile.get_aaq(aaq_rf_idx)
-
-        for i in range(R_REG_SIZE):
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            if self._wide_vector_active():
-                result = self._wide_add_lane(mult_val, aaq_lane)
-            else:
-                result = ipu_add(mult_val, aaq_lane, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.MAX: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
-
-        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
-        """
-        dtype = self.state.dtype
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self.snapshot.raw("r_acc")
-        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        fmt = self._acc_agg_lane_fmt()
-        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-
-        for i in range(R_REG_SIZE):
-            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = max(acc_val, mult_val, aaq_val)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_max_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.MAX.FIRST: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
-
-        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
-        """
-        dtype = self.state.dtype
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        fmt = self._acc_agg_lane_fmt()
-        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-
-        for i in range(R_REG_SIZE):
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = max(mult_val, aaq_val)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
     def execute_acc_stride(
         self,
         *,
@@ -1015,6 +944,75 @@ class Ipu:
             else:
                 val = 0.0 if fmt == "<f" else 0
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+
+    def execute_acc_aaq_add(self, *, aaq_rf_idx: int) -> None:
+        """Execute ACC.ADD.AAQ: R_ACC[i] += AAQ_REGS[aaq_rf_idx] for all 128 lanes (no mult_res)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+        if self._wide_vector_active():
+            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
+        else:
+            aaq_lane = self.snapshot.get_aaq(aaq_rf_idx)
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_add_lane(acc_val, aaq_lane)
+            else:
+                result = ipu_add(acc_val, aaq_lane, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_aaq_sub(self, *, aaq_rf_idx: int) -> None:
+        """Execute ACC.SUB.AAQ: R_ACC[i] -= AAQ_REGS[aaq_rf_idx] for all 128 lanes (no mult_res)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+        if self._wide_vector_active():
+            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
+        else:
+            aaq_lane = self.snapshot.get_aaq(aaq_rf_idx)
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_sub_lane(acc_val, aaq_lane)
+            else:
+                result = ipu_sub(acc_val, aaq_lane, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_aaq_max(self, *, aaq_rf_idx: int) -> None:
+        """Execute ACC.MAX.AAQ: R_ACC[i] = max(R_ACC[i], AAQ_REGS[aaq_rf_idx]) for all 128 lanes (no mult_res)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+        if self._wide_vector_active():
+            aaq_val = self._wide_aaq_scalar(aaq_rf_idx)
+        else:
+            aaq_raw = self.snapshot.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            result = max(acc_val, aaq_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_aaq_init(self, *, aaq_rf_idx: int) -> None:
+        """Execute ACC.INT.AAQ: R_ACC[i] = AAQ_REGS[aaq_rf_idx] for all 128 lanes (previous R_ACC ignored)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+        if self._wide_vector_active():
+            aaq_val = self._wide_aaq_scalar(aaq_rf_idx)
+        else:
+            aaq_raw = self.snapshot.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+            aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
+
+        for i in range(R_REG_SIZE):
+            struct.pack_into(fmt, acc_buf, i * 4, aaq_val)
 
     def execute_aaq_nop(self) -> None:
         """Execute AAQ_NOP: No operation for AAQ slot."""

@@ -525,7 +525,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.ADD_AAQ=4, ACC.ADD_AAQ.FIRST=5, ACC.MAX=6, ACC.MAX.FIRST=7, ACC.STRIDE=8
+    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.STRIDE=4, ACC.ADD.AAQ=5, ACC.SUB.AAQ=6, ACC.MAX.AAQ=7, ACC.INT.AAQ=8
     # =========================================================================
     "acc": {
         "ACC": {
@@ -572,80 +572,6 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_acc_nop",
         },
-        "ACC.ADD_AAQ": {
-            "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulate and Add AAQ",
-                summary="Accumulate multiply result, then ADD the selected AAQ register (32-bit) to each of the 128 accumulator words.",
-                syntax="ACC.ADD_AAQ aaq_rf_idx",
-                operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
-                ],
-                operation=(
-                    "R_ACC += multiply_result;\n"
-                    "for i in [0, 128): R_ACC[i] += AAQ_REGS[aaq_rf_idx]"
-                ),
-                example="ACC.ADD_AAQ AAQ0;;",
-            ),
-            "execute_fn": "execute_acc_add_aaq",
-        },
-        "ACC.ADD_AAQ.FIRST": {
-            "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulate and Add AAQ (First)",
-                summary="Set accumulator to multiply result plus selected AAQ register (do not ADD to previous R_ACC).",
-                syntax="ACC.ADD_AAQ.FIRST aaq_rf_idx",
-                operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
-                ],
-                operation=(
-                    "R_ACC = multiply_result;\n"
-                    "for i in [0, 128): R_ACC[i] += AAQ_REGS[aaq_rf_idx]"
-                ),
-                example="ACC.ADD_AAQ.FIRST AAQ0;;",
-            ),
-            "execute_fn": "execute_acc_add_aaq_first",
-        },
-        "ACC.MAX": {
-            "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulator Max",
-                summary="For each element, SET R_ACC[i] = max(R_ACC[i], MULT_RES[i], AAQ_REGS[aaq_rf_idx]).",
-                syntax="ACC.MAX aaq_rf_idx",
-                operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
-                ],
-                operation=(
-                    "for i in [0, 128): R_ACC[i] = max(R_ACC[i], MULT_RES[i], AAQ_REGS[aaq_rf_idx])"
-                ),
-                example="ACC.MAX AAQ0;;",
-            ),
-            "execute_fn": "execute_acc_max",
-        },
-        "ACC.MAX.FIRST": {
-            "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulator Max (First)",
-                summary="For each element, SET R_ACC[i] = max(MULT_RES[i], AAQ_REGS[aaq_rf_idx]). Previous R_ACC is ignored (treated as 0).",
-                syntax="ACC.MAX.FIRST aaq_rf_idx",
-                operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
-                ],
-                operation=(
-                    "for i in [0, 128): R_ACC[i] = max(MULT_RES[i], AAQ_REGS[aaq_rf_idx])"
-                ),
-                example="ACC.MAX.FIRST AAQ0;;",
-            ),
-            "execute_fn": "execute_acc_max_first",
-        },
         "ACC.STRIDE": {
             "operands": [
                 {"name": "elements_in_row", "type": "ElementsInRow"},
@@ -670,6 +596,70 @@ INSTRUCTION_SPEC = {
                 example="ACC.STRIDE 8, off, off, LR0;;",
             ),
             "execute_fn": "execute_acc_stride",
+        },
+        "ACC.ADD.AAQ": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Add AAQ",
+                summary="Add the selected AAQ register to each accumulator lane (no multiply result involved).",
+                syntax="ACC.ADD.AAQ aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                ],
+                operation="for i in [0, 128): R_ACC[i] += AAQ_REGS[aaq_rf_idx]",
+                example="ACC.ADD.AAQ AAQ0;;",
+            ),
+            "execute_fn": "execute_acc_aaq_add",
+        },
+        "ACC.SUB.AAQ": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Subtract AAQ",
+                summary="Subtract the selected AAQ register from each accumulator lane (no multiply result involved).",
+                syntax="ACC.SUB.AAQ aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                ],
+                operation="for i in [0, 128): R_ACC[i] -= AAQ_REGS[aaq_rf_idx]",
+                example="ACC.SUB.AAQ AAQ0;;",
+            ),
+            "execute_fn": "execute_acc_aaq_sub",
+        },
+        "ACC.MAX.AAQ": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Max AAQ",
+                summary="For each lane set R_ACC[i] = max(R_ACC[i], AAQ_REGS[aaq_rf_idx]) (no multiply result involved).",
+                syntax="ACC.MAX.AAQ aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                ],
+                operation="for i in [0, 128): R_ACC[i] = max(R_ACC[i], AAQ_REGS[aaq_rf_idx])",
+                example="ACC.MAX.AAQ AAQ0;;",
+            ),
+            "execute_fn": "execute_acc_aaq_max",
+        },
+        "ACC.INT.AAQ": {
+            "operands": [
+                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+            ],
+            "doc": InstructionDoc(
+                title="Accumulator Initialise from AAQ",
+                summary="Set every accumulator lane to the selected AAQ register value (previous R_ACC ignored).",
+                syntax="ACC.INT.AAQ aaq_rf_idx",
+                operands=[
+                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                ],
+                operation="for i in [0, 128): R_ACC[i] = AAQ_REGS[aaq_rf_idx]",
+                example="ACC.INT.AAQ AAQ0;;",
+            ),
+            "execute_fn": "execute_acc_aaq_init",
         },
     },
 

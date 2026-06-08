@@ -708,31 +708,6 @@ class TestAccumulator:
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 0
 
-    def test_acc_add_aaq(self):
-        """ACC.ADD_AAQ adds the selected AAQ register (32-bit) to each of the 128 accumulator words."""
-        state = _make_state(
-            """\
-RESET_ACC;;
-ACC.ADD_AAQ aaq1;;
-BKPT;;
-"""
-        )
-        # INT8 dtype
-        state.dtype = DType.INT8
-        # mult_res = 2 in each word; acc starts at 0
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 0)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        # aaq1 = 100 (added to every word)
-        state.regfile.set_aaq(1, 100)
-        run_until_complete(state)
-        # Each word should be 0 + 2 + 100 = 102
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 102, f"word {i}: expected 102, got {w}"
-
     def test_acc_first(self):
         """ACC.FIRST sets r_acc to mult_res without adding previous r_acc."""
         state = _make_state(
@@ -751,89 +726,6 @@ BKPT;;
         run_until_complete(state)
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 7, f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
-
-    def test_acc_add_aaq_first(self):
-        """ACC.ADD_AAQ.FIRST sets r_acc to mult_res + aaq (no previous sum)."""
-        state = _make_state(
-            """\
-ACC.ADD_AAQ.FIRST aaq2;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 3)
-        state.regfile.set_aaq(2, 10)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 13, f"word {i}: expected 13 (3+10), got {w}"
-
-    def test_acc_max(self):
-        """ACC.MAX sets r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg)."""
-        state = _make_state(
-            """\
-ACC.MAX aaq1;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        # r_acc: 1, mult_res: 2, aaq1: 3 → max(1,2,3)=3
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 1)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        state.regfile.set_aaq(1, 3)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 3, f"word {i}: expected max(1,2,3)=3, got {w}"
-
-    def test_acc_max_signed(self):
-        """ACC.MAX treats register values as signed int32; negative values compare correctly."""
-        state = _make_state(
-            """\
-ACC.MAX aaq0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        # r_acc: -10, mult_res: 2, aaq0: 5 → max(-10, 2, 5) = 5 (signed comparison)
-        acc_buf = state.regfile.raw("r_acc")
-        for i in range(128):
-            struct.pack_into("<i", acc_buf, i * 4, -10)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 5))[0])
-        run_until_complete(state)
-        for i in range(128):
-            val = struct.unpack_from("<i", state.regfile.raw("r_acc"), i * 4)[0]
-            assert val == 5, f"word {i}: expected max(-10, 2, 5)=5 (signed), got {val}"
-
-    def test_acc_max_first(self):
-        """ACC.MAX.FIRST sets r_acc[i] = max(mult_res[i], aaq_reg); previous r_acc ignored."""
-        state = _make_state(
-            """\
-ACC.MAX.FIRST aaq0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 5)
-        state.regfile.set_aaq(0, 10)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 10, f"word {i}: expected max(5,10)=10, got {w}"
 
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
@@ -901,6 +793,93 @@ BKPT;;
         for i in range(96, 128):
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
+
+    def test_acc_add_aaq_standalone(self):
+        """ACC.ADD.AAQ: R_ACC[i] += aaq (no mult_res involved)."""
+        state = _make_state(
+            """\
+ACC.ADD.AAQ aaq1;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 10)
+        state.regfile.set_aaq(1, 5)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 15, f"word {i}: expected 15 (10+5), got {w}"
+
+    def test_acc_sub_aaq(self):
+        """ACC.SUB.AAQ: R_ACC[i] -= aaq (no mult_res involved)."""
+        state = _make_state(
+            """\
+ACC.SUB.AAQ aaq0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 20)
+        state.regfile.set_aaq(0, 7)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 13, f"word {i}: expected 13 (20-7), got {w}"
+
+    def test_acc_sub_aaq_negative_result(self):
+        """ACC.SUB.AAQ: result wraps correctly when aaq > acc (signed int32)."""
+        state = _make_state(
+            """\
+ACC.SUB.AAQ aaq2;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 3)
+        state.regfile.set_aaq(2, 8)
+        run_until_complete(state)
+        for i in range(128):
+            raw = state.regfile.get_r_acc_word(i)
+            w = struct.unpack("<i", struct.pack("<I", raw))[0]
+            assert w == -5, f"word {i}: expected -5 (3-8), got {w}"
+
+    def test_acc_max_aaq_standalone(self):
+        """ACC.MAX.AAQ: R_ACC[i] = max(R_ACC[i], aaq) (no mult_res involved)."""
+        state = _make_state(
+            """\
+ACC.MAX.AAQ aaq1;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 5 if i % 2 == 0 else 15)
+        state.regfile.set_aaq(1, 10)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            expected = 10 if i % 2 == 0 else 15
+            assert w == expected, f"word {i}: expected {expected}, got {w}"
+
+    def test_acc_int_aaq(self):
+        """ACC.INT.AAQ: R_ACC[i] = aaq, ignoring previous R_ACC."""
+        state = _make_state(
+            """\
+ACC.INT.AAQ aaq0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
+        state.regfile.set_aaq(0, 42)
+        run_until_complete(state)
+        for i in range(128):
+            w = state.regfile.get_r_acc_word(i)
+            assert w == 42, f"word {i}: expected 42, got {w}"
 
     def test_acc_agg_sum_value(self):
         """agg sum value: sum of 128 r_acc words, identity post fn, store to aaq0."""
