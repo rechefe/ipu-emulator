@@ -206,3 +206,12 @@ def ipu_add(a_word: int | float, b_word: int | float, dtype: int) -> int | float
     else:
         # FP8 variants: accumulator is float
         return a_word + b_word
+
+
+def ipu_sub(a_word: int | float, b_word: int | float, dtype: int) -> int | float:
+    """Subtract b from a according to *dtype* (accumulator-width values)."""
+    if dtype == DType.INT8:
+        result = (a_word - b_word) & 0xFFFFFFFF
+        return result - 0x100000000 if result >= 0x80000000 else result
+    else:
+        return a_word - b_word
