@@ -84,6 +84,8 @@ __all__ = [
     "SLOT_BINARY_LAYOUT",
     "SLOT_UNIONS",
     "SLOT_COUNT",
+    "SLOT_METADATA",
+    "COMPOUND_LAYOUT_SLOT_ORDER",
     "VALID_OPERAND_TYPES",
     "SlotUnion",
     "canonical_instruction_name",
@@ -92,6 +94,7 @@ __all__ = [
     "create_assembler_opcodes",
     "create_emulator_constants",
     "get_operand_names_and_types",
+    "is_hardware_slot",
     "validate_instruction_spec",
 ]
 
@@ -135,7 +138,9 @@ SLOT_UNIONS: dict = {}
 # Most slots appear once; LR appears three times (three independent sub-instructions).
 SLOT_COUNT: dict[str, int] = {
     "break": 1,
-    "xmem": 1,
+    "load": 1,
+    "store": 1,
+    "acc_store": 1,
     "mult": 1,
     "acc": 1,
     "aaq": 1,
@@ -143,38 +148,45 @@ SLOT_COUNT: dict[str, int] = {
     "cond": 1,
 }
 
+# Compound instruction binary layout (MSB → LSB).  Used by the assembler,
+# union-layout SVG, and docs — keep in sync with compound_inst encoding order.
+COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
+    "cond",
+    "lr",
+    "load",
+    "mult",
+    "acc",
+    "aaq",
+    "store",
+    "acc_store",
+    "break",
+]
+
+# Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
+# not implemented in real IPU hardware (excluded from HW codegen).
+SLOT_METADATA: dict[str, dict[str, bool]] = {
+    "acc_store": {"hardware": False},
+}
+
+
+def is_hardware_slot(slot_type: str) -> bool:
+    """Return True when *slot_type* is implemented in real IPU hardware."""
+    return SLOT_METADATA.get(slot_type, {}).get("hardware", True)
+
 
 # ===========================================================================
 # MASTER INSTRUCTION SPECIFICATION
 # ===========================================================================
-# Each slot type (xmem, lr, mult, acc, cond, break) is defined separately.
-# Instructions maintain ORDER — position in dict determines opcode!
+# Each slot type (load, store, acc_store, lr, mult, acc, cond, break) is defined
+# separately.  Instructions maintain ORDER — position in dict determines opcode!
 # ===========================================================================
 
 INSTRUCTION_SPEC = {
     # =========================================================================
-    # XMEM Slot (Memory Load/Store Instructions)
-    # Opcode = position in list: STR_ACC_REG=0, LDR_MULT_REG=1, etc.
+    # LOAD Slot (first pipeline stage — feeds the multiply unit)
+    # Opcode = position in list: LDR_MULT_REG=0, LDR_CYCLIC_MULT_REG=1, etc.
     # =========================================================================
-    "xmem": {
-        "STR_ACC_REG": {
-            "operands": [
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
-            ],
-            "doc": InstructionDoc(
-                title="Store Accumulator",
-                summary="Store accumulator to memory.",
-                syntax="STR_ACC_REG offset, base",
-                operands=[
-                    "offset: Offset register (LR0–LR15)",
-                    "base: Base address register (CR0–CR14)",
-                ],
-                operation="Memory[offset + base] = R_ACC",
-                example="STR_ACC_REG CR0, CR1;;",
-            ),
-            "execute_fn": "execute_str_acc_reg",
-        },
+    "load": {
         "LDR_MULT_REG": {
             "operands": [
                 {"name": "dest", "type": "MultStageReg"},
@@ -231,16 +243,22 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
-        "XMEM_NOP": {
+        "LOAD_NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (XMEM)",
-                summary="No operation for xmem slot.",
-                syntax="XMEM_NOP",
+                title="No Operation (LOAD)",
+                summary="No operation for load slot.",
+                syntax="LOAD_NOP",
                 operands=[],
             ),
-            "execute_fn": "execute_xmem_nop",
+            "execute_fn": "execute_load_nop",
         },
+    },
+
+    # =========================================================================
+    # STORE Slot (last pipeline stage — drains POST_AAQ_REG after AAQ/activate)
+    # =========================================================================
+    "store": {
         "STR_POST_AAQ_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
@@ -261,6 +279,54 @@ INSTRUCTION_SPEC = {
                 example="STR_POST_AAQ_REG LR0, CR0;;",
             ),
             "execute_fn": "execute_str_post_aaq_reg",
+        },
+        "STORE_NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation (STORE)",
+                summary="No operation for store slot.",
+                syntax="STORE_NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_store_nop",
+        },
+    },
+
+    # =========================================================================
+    # ACC_STORE Slot (simulation-only — NOT implemented in real IPU hardware)
+    # =========================================================================
+    "acc_store": {
+        "STR_ACC_REG": {
+            "operands": [
+                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "base", "type": "CrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Store Accumulator",
+                summary=(
+                    "Store **R_ACC** to external memory. **Simulation-only** — not "
+                    "implemented in real IPU hardware."
+                ),
+                syntax="STR_ACC_REG offset, base",
+                operands=[
+                    "offset: Offset register (LR0–LR15)",
+                    "base: Base address register (CR0–CR14)",
+                ],
+                operation="Memory[offset + base] = R_ACC",
+                example="STR_ACC_REG CR0, CR1;;",
+                notes="This instruction lives in the simulation-only **acc_store** slot.",
+            ),
+            "execute_fn": "execute_str_acc_reg",
+        },
+        "ACC_STORE_NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation (ACC_STORE)",
+                summary="No operation for acc_store slot (simulation-only).",
+                syntax="ACC_STORE_NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_acc_store_nop",
         },
     },
     
@@ -1034,8 +1100,8 @@ def get_opcode_for_instruction(slot_type: str, instruction_name: str) -> int:
     """Get opcode index for an instruction (derived from its position).
     
     Args:
-        slot_type: Slot type (e.g., "xmem", "lr", "mult")
-        instruction_name: Instruction name (e.g., "STR_ACC_REG")
+        slot_type: Slot type (e.g., "load", "store", "lr", "mult")
+        instruction_name: Instruction name (e.g., "LDR_MULT_REG")
     
     Returns:
         Opcode index (0-based position in slot's instruction list)
@@ -1059,7 +1125,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     
     Example:
         {
-            "xmem": ["STR_ACC_REG", "LDR_MULT_REG", ...],
+            "load": ["LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", ...],
             "lr": ["SET", "ADD", "SUB", "INCR_MOD_POW2"],
             ...
         }
@@ -1074,8 +1140,8 @@ def get_instruction(slot_type: str, instruction_name: str) -> dict:
     """Look up a specific instruction definition.
     
     Args:
-        slot_type: Slot type (e.g., "xmem", "lr", "mult")
-        instruction_name: Instruction name (e.g., "STR_ACC_REG")
+        slot_type: Slot type (e.g., "load", "store", "lr", "mult")
+        instruction_name: Instruction name (e.g., "LDR_MULT_REG")
     
     Returns:
         The instruction definition dict with "operands", "doc", "execute_fn"
@@ -1090,7 +1156,7 @@ def get_instruction_by_opcode(slot_type: str, opcode_index: int) -> Tuple[str, d
     """Look up instruction by slot type and opcode (position-based).
     
     Args:
-        slot_type: Slot type (e.g., "xmem", "lr")
+        slot_type: Slot type (e.g., "load", "lr")
         opcode_index: 0-based opcode index
     
     Returns:
@@ -1126,7 +1192,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
     
     Returns a dict of dynamically created Opcode subclasses:
         {
-            "XmemInstOpcode": <class>,
+            "LoadInstOpcode": <class>,
             "LrInstOpcode": <class>,
             ...
         }
@@ -1149,7 +1215,9 @@ def create_assembler_opcodes() -> Dict[str, Type]:
             )
     
     slot_to_class_name = {
-        "xmem": "XmemInstOpcode",
+        "load": "LoadInstOpcode",
+        "store": "StoreInstOpcode",
+        "acc_store": "AccStoreInstOpcode",
         "lr": "LrInstOpcode",
         "mult": "MultInstOpcode",
         "acc": "AccInstOpcode",
@@ -1189,7 +1257,9 @@ def create_emulator_constants() -> Dict[str, int]:
         }
     """
     slot_to_prefix = {
-        "xmem": "XMEM_OP",
+        "load": "LOAD_OP",
+        "store": "STORE_OP",
+        "acc_store": "ACC_STORE_OP",
         "lr": "LR_OP",
         "mult": "MULT_OP",
         "acc": "ACC_OP",

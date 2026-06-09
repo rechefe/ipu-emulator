@@ -11,19 +11,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import SLOT_COUNT, SLOT_UNIONS
+from ipu_common.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+)
 from ipu_common.union_layout_svg import render_union_layout_svg
-
-# MSB → LSB binary layout of the compound instruction (issue #107).
-COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
-    "cond",
-    "lr",
-    "xmem",
-    "mult",
-    "acc",
-    "aaq",
-    "break",
-]
 
 
 def main(argv: list[str]) -> int:

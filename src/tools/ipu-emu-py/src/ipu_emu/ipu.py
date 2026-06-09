@@ -106,7 +106,9 @@ _TYPE_FIELD_SUFFIX = {
 
 # Field prefix for each slot type (matches compound_inst naming)
 _SLOT_FIELD_PREFIX = {
-    "xmem": "xmem_inst",
+    "load": "load_inst",
+    "store": "store_inst",
+    "acc_store": "acc_store_inst",
     "mult": "mult_inst",
     "acc": "acc_inst",
     "aaq": "aaq_inst",
@@ -433,11 +435,19 @@ class Ipu:
                 struct.pack_into("<I", mult_res, i * 4, 0)
 
     # -----------------------------------------------------------------------
-    # XMEM Instruction Handlers
+    # Memory slot instruction handlers (load / store / acc_store)
     # -----------------------------------------------------------------------
 
-    def execute_xmem_nop(self) -> None:
-        """Execute XMEM_NOP: No operation."""
+    def execute_load_nop(self) -> None:
+        """Execute LOAD_NOP: No operation."""
+        pass
+
+    def execute_store_nop(self) -> None:
+        """Execute STORE_NOP: No operation."""
+        pass
+
+    def execute_acc_store_nop(self) -> None:
+        """Execute ACC_STORE_NOP: No operation."""
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
@@ -1378,7 +1388,7 @@ class Ipu:
         5. Calls the handler with named keyword arguments
 
         Args:
-            slot_type: Slot type ("xmem", "mult", "acc", "cond", "break")
+            slot_type: Slot type ("load", "store", "acc_store", "mult", "acc", "cond", "break")
             inst: Decoded instruction dict (field_name → int value)
 
         Returns:
@@ -1410,10 +1420,11 @@ class Ipu:
         elif slot_type == "acc":
             if instruction_name != "ACC_NOP":
                 stats.acc_active_cycles += 1
-        elif slot_type == "xmem":
-            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+        elif slot_type == "load":
+            if instruction_name != "LOAD_NOP":
                 stats.xmem_reads += 1
-            elif instruction_name in {"STR_ACC_REG", "STR_POST_AAQ_REG"}:
+        elif slot_type in {"store", "acc_store"}:
+            if instruction_name not in {"STORE_NOP", "ACC_STORE_NOP"}:
                 stats.xmem_writes += 1
 
         # Call handler with named arguments
@@ -1430,7 +1441,8 @@ class Ipu:
         1. Fetch instruction at program counter
         2. Snapshot the register file
         3. Execute BREAK first (before side effects)
-        4. Execute XMEM, LR, MULT, ACC, COND in parallel from the snapshot
+        4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
+           (load before store; same-cycle load+store: load resolves first)
 
         Returns:
             BreakResult.BREAK if break condition occurred, CONTINUE otherwise
@@ -1454,10 +1466,12 @@ class Ipu:
 
         # Execute all other slots using the snapshot
         self._dispatch_lr_slots(inst)  # LR has multiple sub-slots
-        self.dispatch_instruction("xmem", inst)
+        self.dispatch_instruction("load", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
+        self.dispatch_instruction("store", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)
 
         return BreakResult.CONTINUE
@@ -1480,8 +1494,10 @@ class Ipu:
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)
-        self.dispatch_instruction("xmem", inst)
+        self.dispatch_instruction("load", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
+        self.dispatch_instruction("store", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)
