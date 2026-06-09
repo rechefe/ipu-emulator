@@ -140,7 +140,7 @@ SLOT_COUNT: dict[str, int] = {
     "break": 1,
     "load": 1,
     "store": 1,
-    "debug": 1,
+    "acc_store": 1,
     "mult": 1,
     "acc": 1,
     "aaq": 1,
@@ -158,14 +158,14 @@ COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
     "acc",
     "aaq",
     "store",
-    "debug",
+    "acc_store",
     "break",
 ]
 
 # Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
 # not implemented in real IPU hardware (excluded from HW codegen).
 SLOT_METADATA: dict[str, dict[str, bool]] = {
-    "debug": {"hardware": False},
+    "acc_store": {"hardware": False},
 }
 
 
@@ -177,7 +177,7 @@ def is_hardware_slot(slot_type: str) -> bool:
 # ===========================================================================
 # MASTER INSTRUCTION SPECIFICATION
 # ===========================================================================
-# Each slot type (load, store, debug, lr, mult, acc, cond, break) is defined
+# Each slot type (load, store, acc_store, lr, mult, acc, cond, break) is defined
 # separately.  Instructions maintain ORDER — position in dict determines opcode!
 # ===========================================================================
 
@@ -293,9 +293,9 @@ INSTRUCTION_SPEC = {
     },
 
     # =========================================================================
-    # DEBUG Slot (simulation-only — NOT implemented in real IPU hardware)
+    # ACC_STORE Slot (simulation-only — NOT implemented in real IPU hardware)
     # =========================================================================
-    "debug": {
+    "acc_store": {
         "STR_ACC_REG": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "live"},
@@ -304,8 +304,8 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Accumulator",
                 summary=(
-                    "Store accumulator to memory. **Simulation-only** — not implemented "
-                    "in real IPU hardware; available for emulator debugging."
+                    "Store **R_ACC** to external memory. **Simulation-only** — not "
+                    "implemented in real IPU hardware."
                 ),
                 syntax="STR_ACC_REG offset, base",
                 operands=[
@@ -314,19 +314,19 @@ INSTRUCTION_SPEC = {
                 ],
                 operation="Memory[offset + base] = R_ACC",
                 example="STR_ACC_REG CR0, CR1;;",
-                notes="This instruction lives in the simulation-only **debug** slot.",
+                notes="This instruction lives in the simulation-only **acc_store** slot.",
             ),
             "execute_fn": "execute_str_acc_reg",
         },
-        "DEBUG_NOP": {
+        "ACC_STORE_NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (DEBUG)",
-                summary="No operation for debug slot (simulation-only).",
-                syntax="DEBUG_NOP",
+                title="No Operation (ACC_STORE)",
+                summary="No operation for acc_store slot (simulation-only).",
+                syntax="ACC_STORE_NOP",
                 operands=[],
             ),
-            "execute_fn": "execute_debug_nop",
+            "execute_fn": "execute_acc_store_nop",
         },
     },
     
@@ -1217,7 +1217,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
     slot_to_class_name = {
         "load": "LoadInstOpcode",
         "store": "StoreInstOpcode",
-        "debug": "DebugInstOpcode",
+        "acc_store": "AccStoreInstOpcode",
         "lr": "LrInstOpcode",
         "mult": "MultInstOpcode",
         "acc": "AccInstOpcode",
@@ -1259,7 +1259,7 @@ def create_emulator_constants() -> Dict[str, int]:
     slot_to_prefix = {
         "load": "LOAD_OP",
         "store": "STORE_OP",
-        "debug": "DEBUG_OP",
+        "acc_store": "ACC_STORE_OP",
         "lr": "LR_OP",
         "mult": "MULT_OP",
         "acc": "ACC_OP",

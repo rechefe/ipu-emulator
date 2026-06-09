@@ -21,7 +21,7 @@ _SLOT_COLORS: dict[str, str] = {
     "lr": "#FFA07A",
     "load": "#FF6B6B",
     "store": "#E74C3C",
-    "debug": "#C0392B",
+    "acc_store": "#C0392B",
     "mult": "#4ECDC4",
     "acc": "#45B7D1",
     "aaq": "#9B59B6",

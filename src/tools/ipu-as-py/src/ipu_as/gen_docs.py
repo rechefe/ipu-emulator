@@ -140,7 +140,7 @@ The IPU assembler is a Python-based tool that turns assembly source into binary 
 
 - **Jinja2 preprocessing** — templates and macros for generated assembly
 - **Label resolution** — forward and backward references
-- **VLIW compounds** — multiple pipeline slots per cycle (`LOAD`, `STORE`, `DEBUG`†, `MULT`, `ACC`, `AAQ`, `LR`×3, `COND`, `BREAK`; †simulation-only)
+- **VLIW compounds** — multiple pipeline slots per cycle (`LOAD`, `STORE`, `ACC_STORE`†, `MULT`, `ACC`, `AAQ`, `LR`×3, `COND`, `BREAK`; †simulation-only)
 - **Syntax validation** — Lark-based parser with detailed errors
 
 ## Basic Syntax
@@ -167,15 +167,15 @@ A full IPU instruction is one **compound** word: several slots execute in parall
 **Pattern:**
 
 ```asm
-load_inst; mult_inst; acc_inst; aaq_inst; store_inst; debug_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
+load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a; lr_inst_b; lr_inst_c; cond_inst; break_inst;;
 ```
 
 **Rules:**
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
-- Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `debug`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
-- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **LOAD**, **MULT**, **ACC**, **AAQ**, **STORE**, **DEBUG**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`). Same-cycle **load** + **store**: load resolves before store.
-- The **debug** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
+- Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
+- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **LOAD**, **MULT**, **ACC**, **AAQ**, **STORE**, **ACC_STORE**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`). Same-cycle **load** + **store**: load resolves before store.
+- The **acc_store** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
 
 **Example (parallel slots):**
 

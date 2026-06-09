@@ -437,25 +437,25 @@ class StoreInst(Inst):
 
 
 @validate_inst_structure
-class DebugInst(Inst):
+class AccStoreInst(Inst):
     @classmethod
     def _slot_type_name(cls) -> str:
-        return "debug"
+        return "acc_store"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.DebugInstOpcode
+        return opcodes.AccStoreInstOpcode
 
     @classmethod
     def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
-        return _build_struct_table("debug")
+        return _build_struct_table("acc_store")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
-        return DebugInst(
+        return AccStoreInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "DEBUG_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "ACC_STORE_NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -465,12 +465,12 @@ class DebugInst(Inst):
     @classmethod
     def description(cls) -> str:
         return cls._render_instruction_docs(
-            heading="DEBUG Instructions",
+            heading="ACC_STORE Instructions",
             intro=(
-                "Simulation-only memory operations for emulator debugging. "
-                "Not implemented in real IPU hardware."
+                "Simulation-only slot for storing **R_ACC** to external memory "
+                "(`STR_ACC_REG`). Not implemented in real IPU hardware."
             ),
-            slot_type="debug",
+            slot_type="acc_store",
         )
 
 

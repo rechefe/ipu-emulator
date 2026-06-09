@@ -18,7 +18,7 @@ _opcode_classes = create_assembler_opcodes()
 # Export classes with their original names
 LoadInstOpcode = _opcode_classes["LoadInstOpcode"]
 StoreInstOpcode = _opcode_classes["StoreInstOpcode"]
-DebugInstOpcode = _opcode_classes["DebugInstOpcode"]
+AccStoreInstOpcode = _opcode_classes["AccStoreInstOpcode"]
 LrInstOpcode = _opcode_classes["LrInstOpcode"]
 MultInstOpcode = _opcode_classes["MultInstOpcode"]
 AccInstOpcode = _opcode_classes["AccInstOpcode"]

@@ -108,7 +108,7 @@ _TYPE_FIELD_SUFFIX = {
 _SLOT_FIELD_PREFIX = {
     "load": "load_inst",
     "store": "store_inst",
-    "debug": "debug_inst",
+    "acc_store": "acc_store_inst",
     "mult": "mult_inst",
     "acc": "acc_inst",
     "aaq": "aaq_inst",
@@ -435,7 +435,7 @@ class Ipu:
                 struct.pack_into("<I", mult_res, i * 4, 0)
 
     # -----------------------------------------------------------------------
-    # Memory slot instruction handlers (load / store / debug)
+    # Memory slot instruction handlers (load / store / acc_store)
     # -----------------------------------------------------------------------
 
     def execute_load_nop(self) -> None:
@@ -446,8 +446,8 @@ class Ipu:
         """Execute STORE_NOP: No operation."""
         pass
 
-    def execute_debug_nop(self) -> None:
-        """Execute DEBUG_NOP: No operation."""
+    def execute_acc_store_nop(self) -> None:
+        """Execute ACC_STORE_NOP: No operation."""
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
@@ -1388,7 +1388,7 @@ class Ipu:
         5. Calls the handler with named keyword arguments
 
         Args:
-            slot_type: Slot type ("load", "store", "debug", "mult", "acc", "cond", "break")
+            slot_type: Slot type ("load", "store", "acc_store", "mult", "acc", "cond", "break")
             inst: Decoded instruction dict (field_name → int value)
 
         Returns:
@@ -1423,8 +1423,8 @@ class Ipu:
         elif slot_type == "load":
             if instruction_name != "LOAD_NOP":
                 stats.xmem_reads += 1
-        elif slot_type in {"store", "debug"}:
-            if instruction_name not in {"STORE_NOP", "DEBUG_NOP"}:
+        elif slot_type in {"store", "acc_store"}:
+            if instruction_name not in {"STORE_NOP", "ACC_STORE_NOP"}:
                 stats.xmem_writes += 1
 
         # Call handler with named arguments
@@ -1441,7 +1441,7 @@ class Ipu:
         1. Fetch instruction at program counter
         2. Snapshot the register file
         3. Execute BREAK first (before side effects)
-        4. Execute load, MULT, ACC, AAQ, store, debug, COND from the snapshot
+        4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
            (load before store; same-cycle load+store: load resolves first)
 
         Returns:
@@ -1471,7 +1471,7 @@ class Ipu:
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("store", inst)
-        self.dispatch_instruction("debug", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)
 
         return BreakResult.CONTINUE
@@ -1499,5 +1499,5 @@ class Ipu:
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
         self.dispatch_instruction("store", inst)
-        self.dispatch_instruction("debug", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)
