@@ -14,6 +14,9 @@ bazel-testlogs/
 /docs/content/assembly-syntax.md
 /docs/content/release-log.md
 
+# Layout SVGs are generated at docs build time (embedded in instructions.md)
+/src/tools/ipu-as-py/instruction_fields_layout.svg
+
 **egg-info**
 **_pycache**
 /.claude/settings.local.json

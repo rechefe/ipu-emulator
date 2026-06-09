@@ -33,14 +33,6 @@ py_binary(
     deps = [":ipu_as_lib"],
 )
 
-py_binary(
-    name = "gen_instruction_fields_layout_svg",
-    srcs = ["gen_instruction_fields_layout_svg.py"],
-    imports = ["src"],
-    main = "gen_instruction_fields_layout_svg.py",
-    deps = [":ipu_as_lib"],
-)
-
 py_pytest_test(
     name = "test_assemble",
     srcs = ["test/test_assemble.py"],
