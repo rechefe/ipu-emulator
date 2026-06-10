@@ -41,12 +41,13 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, the selected dstructure lane count is implicit:
+In assembly, the selected dstructure lane count is implicit for `ACTIVATE`:
 
 ```asm
-AGG sum, value, CR2, AAQ0;;
 ACTIVATE relu;;
 ```
+
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the explicit `full_xmem_row` operand — `0` reads from `CR15.valid_elements`, `1` always uses 128 lanes.
 
 ## Wide-vector debug mode (optional)
 
