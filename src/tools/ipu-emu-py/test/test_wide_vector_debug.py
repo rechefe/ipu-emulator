@@ -351,25 +351,6 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
 
-class TestWideVectorAggInt32:
-    def test_agg_sum_inv_int32_wide(self) -> None:
-        """agg sum inv with INT32 wide lanes: 128×4 = 512 → inv rounds to int32 bits."""
-        acc = bytearray(512)
-        struct.pack_into("<128i", acc, 0, *([4] * 128))
-        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
-        st.dtype = DType.INT8
-        st.regfile.set_r_acc_bytes(acc)
-        st.set_cr_dstructure(128)
-        asm = """\
-agg sum inv cr0 aaq0 0;;
-BKPT;;
-"""
-        encoded = assemble(asm)
-        load_program(st, [decode_instruction_word(w) for w in encoded])
-        run_until_complete(st)
-        assert st.regfile.get_aaq(0) == 0  # 1/512 rounds to 0 as int32
-
-
 class TestWideVectorAlignment:
     def test_misaligned_cyclic_offset_raises(self) -> None:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)

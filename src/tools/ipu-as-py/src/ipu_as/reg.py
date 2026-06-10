@@ -45,7 +45,6 @@ class MultStageRegField(_MultStageBase):
 LrRegField = _generated_classes.get("LrRegField")
 _CrRegFieldBase = _generated_classes.get("CrRegField")
 _LcrRegFieldBase = _generated_classes.get("LcrRegField")
-AaqRegField = _generated_classes.get("AaqRegField")
 
 
 def _reject_cr15(token: "ipu_token.AnnotatedToken", cls_name: str) -> None:
@@ -73,7 +72,6 @@ MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
 LR_REG_FIELDS = _enums.get("LrRegField", [])
 CR_REG_FIELDS = _enums.get("CrRegField", [])
 LCR_REG_FIELDS = _enums.get("LcrRegField", [])
-AAQ_REG_FIELDS = _enums.get("AaqRegField", [])
 
 # Clean up internal state
 del _generated_classes, _enums
@@ -88,11 +86,9 @@ __all__ = [
     "LrRegField",
     "CrRegField",
     "LcrRegField",
-    "AaqRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",
     "LR_REG_FIELDS",
     "CR_REG_FIELDS",
     "LCR_REG_FIELDS",
-    "AAQ_REG_FIELDS",
 ]
