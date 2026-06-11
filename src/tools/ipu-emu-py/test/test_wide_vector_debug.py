@@ -351,6 +351,54 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
 
+class TestWideVectorAgg:
+    """Wide-vector coverage for the ACC-slot AGG.* instructions."""
+
+    def _run_agg(
+        self, asm: str, arithmetic: WideVectorArithmetic, acc: bytearray
+    ) -> IpuState:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=arithmetic)
+        st.dtype = DType.INT8
+        st.regfile.set_r_acc_bytes(acc)
+        st.set_cr_dstructure(128)
+        st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        return st
+
+    def test_agg_sum_first_int32_wide(self) -> None:
+        """AGG.SUM.FIRST with INT32 wide lanes: 128×4 = 512 written to dest lane."""
+        acc = bytearray(512)
+        struct.pack_into("<128i", acc, 0, *([4] * 128))
+        st = self._run_agg(
+            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.INT32, acc
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
+
+    def test_agg_sum_first_fp32_wide(self) -> None:
+        """AGG.SUM.FIRST with FP32 wide lanes: 128×0.5 = 64.0 written to dest lane."""
+        acc = bytearray(512)
+        struct.pack_into("<128f", acc, 0, *([0.5] * 128))
+        st = self._run_agg(
+            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
+
+    def test_agg_max_first_fp32_wide(self) -> None:
+        """AGG.MAX.FIRST with FP32 wide lanes picks the largest lane."""
+        acc = bytearray(512)
+        struct.pack_into("<128f", acc, 0, *([1.0] * 128))
+        struct.pack_into("<f", acc, 3 * 4, 7.5)
+        st = self._run_agg(
+            "AGG.MAX.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
+
+
 class TestWideVectorAlignment:
     def test_misaligned_cyclic_offset_raises(self) -> None:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)

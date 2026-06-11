@@ -48,9 +48,11 @@ class MyApp(IpuApp):
 
 ## Selecting lane count and partition
 
-`ACTIVATE` does not take a `valid_elements` assembly operand. It reads the
-active lane count from `CR15.valid_elements` implicitly. Configure it from
-Python before running the program:
+The `AGG.*` aggregation instructions, `ACTIVATE`, and `AAQ` do not take a
+`valid_elements` assembly operand. When their `full_xmem_row` flag is `0`,
+they read the active lane count from `CR15.valid_elements` implicitly
+(`full_xmem_row=1` always uses all 128 lanes). Configure it from Python
+before running the program:
 
 ```python
 state.set_cr_dstructure(valid_elements=64, partition=0)
@@ -69,9 +71,9 @@ The ACC-slot aggregation instructions (`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`,
 The destination slot in `R_ACC` is given by an LR register:
 
 ```asm
-AGG.SUM.FIRST LR0 0;;   ; dest = LR0, full_xmem_row=0 → use valid_elements
-AGG.SUM LR1 1;;          ; dest = LR1, full_xmem_row=1 → always 128 lanes
-ACTIVATE relu;;
+AGG.SUM LR0, 0;;
+AGG.MAX.FIRST LR1, 0;;
+ACTIVATE relu, 0;;
 ```
 
 ## Setting CR application constants

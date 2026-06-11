@@ -68,7 +68,7 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit lanes starting at a **byt
 ## INT32 vs FP32
 
 - **`WideVectorArithmetic.FP32`**: lane multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
-- **`WideVectorArithmetic.INT32`**: lane multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per lane. The `AGG.*` aggregation instructions use signed 32-bit arithmetic when the lane format is INT32.
+- **`WideVectorArithmetic.INT32`**: lane multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per lane. The **`AGG.*`** aggregation instructions reduce lanes as 32-bit signed integers (wrap semantics) when the lane format is INT32.
 
 ## Related documentation
 

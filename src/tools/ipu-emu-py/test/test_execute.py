@@ -937,25 +937,45 @@ BKPT;;
         assert result == 9999, f"expected max=9999 (from slot 127), got {result}"
 
     def test_agg_max_first_ignores_garbage_dest(self):
-        """AGG.MAX.FIRST: existing dest value is NOT used as a seed."""
+        """AGG.MAX.FIRST: existing dest value is NOT used as a seed.
+
+        Dest is placed outside the active lane range and pre-loaded with a
+        large garbage value; a seeded implementation would return it, the
+        clean-init implementation must return the max of the active lanes.
+        """
         state = _make_state(
             """\
-AGG.MAX.FIRST LR0 1;;
+AGG.MAX.FIRST LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
-        state.regfile.set_lr(0, 127)
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
-        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 99)[0] if False else struct.pack("<i", 5))[0])
-        # dest starts at 5; all lanes are 5; max = 5 regardless of garbage
-        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 5))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 5
+        assert result == 5, f"expected max of active lanes = 5 (not seed 9999), got {result}"
+
+    def test_agg_max_first_zero_active_writes_identity_seed(self):
+        """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(0)  # no active lanes
+        state.regfile.set_lr(0, 7)
+        state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(7)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
 
     def test_agg_max_first_masks_tail(self):
         """AGG.MAX.FIRST: tail lanes beyond valid_elements are excluded."""
@@ -1211,12 +1231,12 @@ BKPT;;
 
 
 # ============================================================================
-# MULT.VE.CR and MULT.VE.AAQ
+# MULT.VE.CR
 # ============================================================================
 
 
-class TestMultVeCrAaq:
-    """Tests for MULT.VE.CR and MULT.VE.AAQ instructions."""
+class TestMultVeCr:
+    """Tests for the MULT.VE.CR instruction."""
 
     # ------------------------------------------------------------------
     # MULT.VE.CR

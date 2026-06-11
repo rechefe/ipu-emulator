@@ -642,7 +642,7 @@ INSTRUCTION_SPEC = {
         },
         "AGG.SUM.FIRST": {
             "operands": [
-                {"name": "lr_dest_idx", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
                 {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
@@ -652,23 +652,23 @@ INSTRUCTION_SPEC = {
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
-                syntax="AGG.SUM.FIRST lr_dest_idx full_xmem_row",
+                syntax="AGG.SUM.FIRST dest_slot, full_xmem_row",
                 operands=[
-                    "lr_dest_idx: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
                     "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "dest = LR[lr_dest_idx] % 128. "
+                    "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = sum(R_ACC[0..n-1])."
                 ),
-                example="AGG.SUM.FIRST LR0 0;;",
+                example="AGG.SUM.FIRST LR0, 0;;",
             ),
             "execute_fn": "execute_agg_sum_first",
         },
         "AGG.SUM": {
             "operands": [
-                {"name": "lr_dest_idx", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
                 {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
@@ -678,23 +678,23 @@ INSTRUCTION_SPEC = {
                     "(running cross-cycle accumulation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
-                syntax="AGG.SUM lr_dest_idx full_xmem_row",
+                syntax="AGG.SUM dest_slot, full_xmem_row",
                 operands=[
-                    "lr_dest_idx: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
                     "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "dest = LR[lr_dest_idx] % 128. "
+                    "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = sum(R_ACC[0..n-1]) + R_ACC[dest]."
                 ),
-                example="AGG.SUM LR0 0;;",
+                example="AGG.SUM LR0, 0;;",
             ),
             "execute_fn": "execute_agg_sum",
         },
         "AGG.MAX.FIRST": {
             "operands": [
-                {"name": "lr_dest_idx", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
                 {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
@@ -704,23 +704,24 @@ INSTRUCTION_SPEC = {
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
-                syntax="AGG.MAX.FIRST lr_dest_idx full_xmem_row",
+                syntax="AGG.MAX.FIRST dest_slot, full_xmem_row",
                 operands=[
-                    "lr_dest_idx: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
                     "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "dest = LR[lr_dest_idx] % 128. "
-                    "R_ACC[dest] = max(R_ACC[0..n-1])."
+                    "dest = LR[dest_slot] % 128. "
+                    "R_ACC[dest] = max(R_ACC[0..n-1]); when n = 0 the identity seed "
+                    "(INT32_MIN for integer lanes, -inf for float lanes) is written."
                 ),
-                example="AGG.MAX.FIRST LR0 0;;",
+                example="AGG.MAX.FIRST LR0, 0;;",
             ),
             "execute_fn": "execute_agg_max_first",
         },
         "AGG.MAX": {
             "operands": [
-                {"name": "lr_dest_idx", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
                 {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
@@ -730,17 +731,17 @@ INSTRUCTION_SPEC = {
                     "(running cross-cycle max). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
-                syntax="AGG.MAX lr_dest_idx full_xmem_row",
+                syntax="AGG.MAX dest_slot, full_xmem_row",
                 operands=[
-                    "lr_dest_idx: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
                     "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "dest = LR[lr_dest_idx] % 128. "
+                    "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = max(R_ACC[0..n-1], R_ACC[dest])."
                 ),
-                example="AGG.MAX LR0 0;;",
+                example="AGG.MAX LR0, 0;;",
             ),
             "execute_fn": "execute_agg_max",
         },
