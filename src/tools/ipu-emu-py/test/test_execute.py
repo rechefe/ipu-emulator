@@ -814,383 +814,267 @@ BKPT;;
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
 
-    def test_acc_add_aaq_standalone(self):
-        """ACC.ADD.AAQ: R_ACC[i] += aaq (no mult_res involved)."""
+    def test_agg_sum_first_basic(self):
+        """AGG.SUM.FIRST: sum all 128 lanes and write to R_ACC[dest] (clean init)."""
         state = _make_state(
             """\
-ACC.ADD.AAQ aaq1;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 10)
-        state.regfile.set_aaq(1, 5)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 15, f"word {i}: expected 15 (10+5), got {w}"
-
-    def test_acc_sub_aaq(self):
-        """ACC.SUB.AAQ: R_ACC[i] -= aaq (no mult_res involved)."""
-        state = _make_state(
-            """\
-ACC.SUB.AAQ aaq0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 20)
-        state.regfile.set_aaq(0, 7)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 13, f"word {i}: expected 13 (20-7), got {w}"
-
-    def test_acc_sub_aaq_negative_result(self):
-        """ACC.SUB.AAQ: result wraps correctly when aaq > acc (signed int32)."""
-        state = _make_state(
-            """\
-ACC.SUB.AAQ aaq2;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 3)
-        state.regfile.set_aaq(2, 8)
-        run_until_complete(state)
-        for i in range(128):
-            raw = state.regfile.get_r_acc_word(i)
-            w = struct.unpack("<i", struct.pack("<I", raw))[0]
-            assert w == -5, f"word {i}: expected -5 (3-8), got {w}"
-
-    def test_acc_max_aaq_standalone(self):
-        """ACC.MAX.AAQ: R_ACC[i] = max(R_ACC[i], aaq) (no mult_res involved)."""
-        state = _make_state(
-            """\
-ACC.MAX.AAQ aaq1;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 5 if i % 2 == 0 else 15)
-        state.regfile.set_aaq(1, 10)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            expected = 10 if i % 2 == 0 else 15
-            assert w == expected, f"word {i}: expected {expected}, got {w}"
-
-    def test_acc_int_aaq(self):
-        """ACC.INT.AAQ: R_ACC[i] = aaq, ignoring previous R_ACC."""
-        state = _make_state(
-            """\
-ACC.INT.AAQ aaq0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
-        state.regfile.set_aaq(0, 42)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 42, f"word {i}: expected 42, got {w}"
-
-    def test_acc_agg_sum_value(self):
-        """agg sum value: sum of 128 r_acc words, identity post fn, store to aaq0."""
-        import struct
-
-        state = _make_state(
-            """\
-agg sum value cr0 aaq0 0;;
+AGG.SUM.FIRST LR0 1;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
         state.set_cr_dstructure(128)
-        # r_acc: set each word to 1, so sum = 128
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
-        state.regfile.set_aaq(0, 0)
-
         run_until_complete(state)
-        # Sum of 128 ones = 128
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 128))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 128, f"expected sum=128, got {result}"
 
-    def test_acc_agg_max_value(self):
-        """agg max value: max of 128 r_acc words and current aaq, store to aaq1."""
-        import struct
+    def test_agg_sum_first_ignores_existing_dest(self):
+        """AGG.SUM.FIRST: existing value at dest is NOT added to the result (clean initialisation).
 
+        Dest is placed outside the active lane range so its value is excluded from the sum
+        but would be added as a seed in the non-FIRST variant.
+        """
         state = _make_state(
             """\
-agg max value cr0 aaq1 0;;
+AGG.SUM.FIRST LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
-        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 20))[0])  # 20 > 14
-
-        run_until_complete(state)
-        # Max of r_acc is 14, but aaq1 was 20, so max(..., 20) = 20
-        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 20))[0]
-
-    def test_acc_agg_max_value_updates_when_larger(self):
-        """agg max value: when r_acc has a value larger than aaq, aaq is updated."""
-        import struct
-
-        state = _make_state(
-            """\
-agg max value cr0 aaq0 0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
-        state.regfile.set_r_acc_word(10, struct.unpack("<I", struct.pack("<i", 100))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
-
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
-
-    def test_acc_agg_sum_value_cr(self):
-        """agg sum value_cr: result = sum(r_acc) * cr[cr_idx]."""
-        import struct
-
-        state = _make_state(
-            """\
-agg sum value_cr cr2 aaq2 0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.set_cr_dstructure(4)  # only lanes 0..3 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
-        state.regfile.set_cr(2, struct.unpack("<I", struct.pack("<i", 3))[0])
-        state.regfile.set_aaq(2, 0)
-
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
-        # sum = 128, 128 * 3 = 384
-        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 384))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        # sum of active lanes 0..3 = 4; existing dest (9999) is NOT added
+        assert result == 4, f"expected sum=4 (not 4+9999), got {result}"
 
-    def test_agg_first_max_ignores_previous_aaq(self):
-        """agg.first max: ignores the previous (garbage) AAQ value, takes max of r_acc only."""
-        import struct
-
+    def test_agg_sum_first_uses_valid_elements(self):
+        """AGG.SUM.FIRST: only active prefix contributes; tail is excluded."""
         state = _make_state(
             """\
-agg.first max value cr0 aaq0 0;;
+AGG.SUM.FIRST LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.set_cr_dstructure(4)
+        state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
-        # Set aaq0 to a large "garbage" value that would win against r_acc if included
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 9999))[0])
-
+            v = 10 if i < 4 else 1000
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         run_until_complete(state)
-        # Max of r_acc is 14; previous aaq (9999) must be ignored
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 14))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 40, f"expected sum of 4 tens = 40, got {result}"
 
-    def test_agg_first_max_selects_correct_max(self):
-        """agg.first max: correctly selects the max value from r_acc words."""
-        import struct
-
+    def test_agg_sum_first_full_xmem_row_overrides_valid_elements(self):
+        """AGG.SUM.FIRST with full_xmem_row=1 uses all 128 lanes regardless of CR15."""
         state = _make_state(
             """\
-agg.first max value cr0 aaq1 0;;
+AGG.SUM.FIRST LR0 1;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=4)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
+
+    def test_agg_sum_accumulates(self):
+        """AGG.SUM: sum of active lanes is ADDED to existing R_ACC[dest] (running accumulation).
+
+        Dest is placed outside the active lane range so it acts as a pure accumulator
+        that is not double-counted in the sum.
+        """
+        state = _make_state(
+            """\
+AGG.SUM LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 50))[0])
+        run_until_complete(state)
+        # sum(R_ACC[0..63]) = 64; R_ACC[127] was 50 → result = 64 + 50 = 114
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 114, f"expected 64+50=114, got {result}"
+
+    def test_agg_max_first_basic(self):
+        """AGG.MAX.FIRST: max of all 128 lanes, no seed from dest."""
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 1;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
         state.set_cr_dstructure(128)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 9999, f"expected max=9999 (from slot 127), got {result}"
+
+    def test_agg_max_first_ignores_garbage_dest(self):
+        """AGG.MAX.FIRST: existing dest value is NOT used as a seed.
+
+        Dest is placed outside the active lane range and pre-loaded with a
+        large garbage value; a seeded implementation would return it, the
+        clean-init implementation must return the max of the active lanes.
+        """
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
-        state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
-        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 0))[0])
-
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
-        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 77))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 5, f"expected max of active lanes = 5 (not seed 9999), got {result}"
 
-    def test_agg_first_sum_same_as_agg_sum(self):
-        """agg.first sum: behaves identically to agg sum (previous aaq not involved in sum)."""
-        import struct
-
+    def test_agg_max_first_zero_active_writes_identity_seed(self):
+        """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
         state = _make_state(
             """\
-agg.first sum value cr0 aaq2 0;;
+AGG.MAX.FIRST LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 2))[0])
-        state.regfile.set_aaq(2, struct.unpack("<I", struct.pack("<i", 9999))[0])
-
+        state.set_cr_dstructure(0)  # no active lanes
+        state.regfile.set_lr(0, 7)
+        state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
         run_until_complete(state)
-        # Sum of 128 twos = 256; previous aaq value irrelevant
-        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 256))[0]
+        raw = state.regfile.get_r_acc_word(7)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
 
-    def test_agg_sum_masks_inactive_lanes(self):
-        """agg sum: only first valid_elements r_acc words contribute (tail masked out)."""
-        import struct
-
+    def test_agg_max_first_masks_tail(self):
+        """AGG.MAX.FIRST: tail lanes beyond valid_elements are excluded."""
         state = _make_state(
             """\
-agg sum value cr0 aaq0 0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(3)
-        for i in range(128):
-            v = 10 if i < 3 else 1000
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, 0)
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 30))[0]
-
-    def test_agg_sum_valid_elements_from_cr15(self):
-        """agg sum: valid_elements comes from CR15 bits[7:0] (dstructure register)."""
-        import struct
-
-        state = _make_state(
-            """\
-agg sum value cr0 aaq0 0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(100)
-        for i in range(128):
-            v = 1 if i < 100 else 500
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, 0)
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
-
-    def test_agg_max_masks_tail_large_values(self):
-        """agg max: masked-out lanes cannot beat AAQ; feedback still applies over active set."""
-        import struct
-
-        state = _make_state(
-            """\
-agg max value cr0 aaq0 0;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(100)
-        for i in range(128):
-            v = 5 if i < 100 else 9999
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 50))[0])
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 50))[0]
-
-    def test_agg_first_max_masks_tail(self):
-        """agg.first max: only active prefix participates; tail spikes ignored."""
-        import struct
-
-        state = _make_state(
-            """\
-agg.first max value cr0 aaq0 0;;
+AGG.MAX.FIRST LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
         state.set_cr_dstructure(50)
+        state.regfile.set_lr(0, 127)
         for i in range(128):
-            v = 3 if i < 50 else 200
+            v = 3 if i < 50 else 9999
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
         run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 3))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 3, f"expected max of active prefix = 3, got {result}"
 
-    def test_agg_full_xmem_row_1_ignores_valid_elements(self):
-        """agg full_xmem_row=1: uses all 128 lanes even when CR15.valid_elements < 128."""
-        import struct
-
+    def test_agg_max_seed_wins(self):
+        """AGG.MAX: existing dest value beats all active lanes — dest unchanged."""
         state = _make_state(
             """\
-agg sum value cr0 aaq0 1;;
+AGG.MAX LR0 1;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
+        state.set_cr_dstructure(128)
+        state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 99))[0])
         run_until_complete(state)
-        result = struct.unpack("<i", struct.pack("<I", state.regfile.get_aaq(0)))[0]
-        assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 99, f"expected seed 99 to remain (beats all lanes=10), got {result}"
 
-    def test_agg_full_xmem_row_0_uses_valid_elements(self):
-        """agg full_xmem_row=0: uses only CR15.valid_elements lanes."""
-        import struct
-
+    def test_agg_max_lane_wins(self):
+        """AGG.MAX: an active lane beats the existing dest — dest updated."""
         state = _make_state(
             """\
-agg sum value cr0 aaq0 0;;
+AGG.MAX LR0 0;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
+        state.set_cr_dstructure(100)
+        state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            v = 5 if i < 100 else 1
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
         run_until_complete(state)
-        result = struct.unpack("<i", struct.pack("<I", state.regfile.get_aaq(0)))[0]
-        assert result == 4, f"expected sum of 4 lanes = 4, got {result}"
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_first_full_xmem_row_1_ignores_valid_elements(self):
-        """agg.first full_xmem_row=1: uses all 128 lanes even when CR15.valid_elements < 128."""
-        import struct
+    def test_agg_and_activate_same_cycle_use_snapshot(self):
+        """AGG.SUM.FIRST in ACC slot and ACTIVATE in AAQ slot issued together.
 
+        Both must read from the cycle-start snapshot, not from each other's
+        write. ACTIVATE writes POST_AAQ_REG; AGG writes r_acc[dest].
+        Neither's output should be influenced by the other's write in the
+        same cycle.
+        """
         state = _make_state(
             """\
-agg.first sum value cr0 aaq1 1;;
+AGG.SUM.FIRST LR0 1; ACTIVATE relu 1;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
+        state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
+        # Fill lanes: all 3.0 as float32 for ACTIVATE; values = 3 as int32 for AGG
+        import struct as _struct
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            # Store int32(3) — used by AGG.SUM.FIRST
+            state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
+
         run_until_complete(state)
-        result = struct.unpack("<i", struct.pack("<I", state.regfile.get_aaq(1)))[0]
-        assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
 
-    def test_agg_first_full_xmem_row_0_uses_valid_elements(self):
-        """agg.first full_xmem_row=0: uses only CR15.valid_elements lanes."""
-        import struct
+        # AGG.SUM.FIRST must have summed the snapshot r_acc (128 lanes × 3 = 384)
+        # NOT the post-ACTIVATE live state
+        raw_agg = state.regfile.get_r_acc_word(0)
+        agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
+        assert agg_result == 384, f"AGG saw wrong r_acc: expected 384, got {agg_result}"
 
-        state = _make_state(
-            """\
-agg.first sum value cr0 aaq1 0;;
-BKPT;;
-"""
+        # ACTIVATE relu must have applied relu to the snapshot r_acc (all lanes 3 → 3)
+        # NOT the post-AGG r_acc where lane 0 = 384.
+        # In INT8 mode ACTIVATE writes int32 to post_aaq_reg.
+        post = state.regfile.raw("post_aaq_reg")
+        lane0_post = _struct.unpack_from("<i", post, 0)[0]
+        assert lane0_post == 3, (
+            f"ACTIVATE saw wrong r_acc lane 0: expected 3, got {lane0_post}"
         )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
-        run_until_complete(state)
-        result = struct.unpack("<i", struct.pack("<I", state.regfile.get_aaq(1)))[0]
-        assert result == 4, f"expected sum of 4 lanes = 4, got {result}"
 
 
 # ============================================================================
@@ -1347,12 +1231,12 @@ BKPT;;
 
 
 # ============================================================================
-# MULT.VE.CR and MULT.VE.AAQ
+# MULT.VE.CR
 # ============================================================================
 
 
-class TestMultVeCrAaq:
-    """Tests for MULT.VE.CR and MULT.VE.AAQ instructions."""
+class TestMultVeCr:
+    """Tests for the MULT.VE.CR instruction."""
 
     # ------------------------------------------------------------------
     # MULT.VE.CR
@@ -1500,92 +1384,6 @@ BKPT;;
         for i in range(12, 128):  # padded (>=512): 3.0 * 1.0 = 3.0
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 3.0) < 0.1, f"word {i} (padded): expected 3.0, got {val}"
-
-    # ------------------------------------------------------------------
-    # MULT.VE.AAQ
-    # ------------------------------------------------------------------
-
-    def test_mult_ve_aaq_int8(self):
-        """MULT.VE.AAQ INT8: scalar from AAQ × RC elements."""
-        # AAQ scalar byte = 5, RC elements = all 3 → each result = 15
-        cyclic_data = bytes([3] * 512)
-
-        state = _make_state("""\
-SET lr0 cr8;;
-SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq0;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 0})
-        state.dtype = DType.INT8
-        state.regfile.set_aaq(0, 5)  # low byte = 5
-        state.xmem.write_address(0x1000, cyclic_data)
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 15, f"acc word {i}: expected 15, got {val}"
-
-    def test_mult_ve_aaq_boundary_padding(self):
-        """MULT.VE.AAQ: elements beyond RC boundary are padded with int8 1."""
-        scalar = 2
-        in_bounds = 112  # offset=400, 512-400=112 in bounds, 16 padded
-
-        state = _make_state("""\
-RESET_ACC;;
-SET lr2 cr8;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq1;
-ACC;;
-BKPT;;
-""",
-            cr={8: 400, 9: 0})
-        state.dtype = DType.INT8
-        state.regfile.set_aaq(1, scalar)
-        # Fill the full 512-byte cyclic register directly
-        state.regfile.set_r_cyclic_at(0, bytes([10] * 512))
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(in_bounds):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 10, f"word {i}: expected {scalar * 10}, got {val}"
-        for i in range(in_bounds, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
-
-    def test_mult_ve_aaq_no_boundary(self):
-        """MULT.VE.AAQ: when cyclic_offset+128 <= 512, no padding applied."""
-        cyclic_data = bytes([7] * 512)
-        scalar = 3
-
-        state = _make_state("""\
-SET lr0 cr8;;
-SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq2;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 0})
-        state.dtype = DType.INT8
-        state.regfile.set_aaq(2, scalar)
-        state.xmem.write_address(0x1000, cyclic_data)
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 7, f"acc word {i}: expected {scalar * 7}, got {val}"
 
     # ------------------------------------------------------------------
     # Backward compatibility: existing instructions unaffected

@@ -67,7 +67,7 @@ def test_msb_to_lsb_slot_order():
     positions: list[int] = []
     for slot in COMPOUND_LAYOUT_SLOT_ORDER:
         # Match slot title lines from union_layout_svg._render_slot, not opcode
-        # substrings (e.g. MULT.VE.AAQ must not satisfy slot "aaq").
+        # substrings (e.g. STR_POST_AAQ_REG must not satisfy slot "aaq").
         needle = f">{slot.upper()} "
         pos = svg.find(needle)
         if pos == -1:

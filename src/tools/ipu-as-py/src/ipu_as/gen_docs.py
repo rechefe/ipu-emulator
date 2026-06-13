@@ -38,7 +38,6 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**. `cr15` is "
         "reserved and is not a valid operand."
     ),
-    "AaqRegIdx": "AAQ register selector: **`aaq0`** … **`aaq3`**.",
     "ElementsInRow": (
         "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
         "`ipu_common`)."
@@ -50,14 +49,6 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "VerticalStride": (
         "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
         "`acc_stride_enums`)."
-    ),
-    "AggMode": (
-        "AAQ-slot immediate: aggregation mode for the `AGG` / `AGG.FIRST` instructions (sum / max family); see "
-        "`acc_agg_enums`."
-    ),
-    "PostFn": (
-        "AAQ-slot immediate: post-aggregation function selector (identity, inverse sqrt, etc.); "
-        "see `acc_agg_enums`."
     ),
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, "
@@ -128,7 +119,6 @@ def generate_assembly_syntax_md(output_path: Path) -> None:
     mult_vals = ", ".join(f"`{v}`" for v in enums.get("MultStageRegField", []))
     lr_vals = enums.get("LrRegField", [])
     cr_vals = enums.get("CrRegField", [])
-    aaq_vals = ", ".join(f"`{v}`" for v in enums.get("AaqRegField", []))
     lr_span = f"`{lr_vals[0]}`–`{lr_vals[-1]}`" if lr_vals else ""
     cr_span = f"`{cr_vals[0]}`–`{cr_vals[-1]}`" if cr_vals else ""
 
@@ -193,7 +183,6 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | {lr_span} | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
 | Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`cr0`** / **`cr1`** are often 0 and 1. See [CrIdx](operand-types.md#cridx). |
-| AAQ | {aaq_vals} | Activation / quantization registers. See [AaqRegIdx](operand-types.md#aaqregidx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
@@ -216,14 +205,12 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
         mult_vals=mult_vals,
         lr_span=lr_span,
         cr_span=cr_span,
-        aaq_vals=aaq_vals,
     )
 
     masking_section = """
 ## Masking
 
-Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`,
-`MULT.VE.AAQ`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
+Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
 corresponding mask bit is **1** are **zeroed** before accumulation; lanes whose bit is **0** pass
 through unchanged. A mask of all-ones suppresses every lane; a mask of all-zeros leaves every lane
 active.

@@ -372,47 +372,18 @@ ALU lanes (`SET`/`ADD`/`SUB`/`INCR_MOD_POW2`); see §5.
 
 ## 9. Hazards
 
-CTRL is responsible for resolving the one architecturally-visible
-hazard in the pipeline: a **RAW (read-after-write) hazard** from the
-AAQ stage to the MULT or ACC stage.
+Earlier revisions resolved a **RAW (read-after-write) hazard** from the
+AAQ stage to the MULT or ACC stage: the AAQ stage wrote scalar result
+registers (`aaq0`–`aaq3`) in the RF that MULT (`MULT.VE.AAQ`) and ACC
+(`ACC.*.AAQ`) could consume as source operands, and CTRL inserted bubble
+cycles until the in-flight AAQ write committed.
 
-The AAQ stage writes scalar result registers in the RF. Both MULT and
-ACC can consume those same RF registers as source operands. If a MULT
-or ACC instruction tries to read an AAQ-written register before the
-AAQ write has committed to the RF, the consumer would observe stale
-data.
-
-### 9.1 Detection
-
-CTRL tracks the destination RF index of every AAQ write that is still
-in flight (within the architectural AAQ-to-RF latency window). Before
-dispatching `inst$_vliw`, CTRL compares the source RF indices in the
-MULT and ACC slot fields against those in-flight AAQ destinations. A
-match indicates a hazard on that slot.
-
-### 9.2 Resolution — Bubble Insertion
-
-When CTRL detects a hazard it stalls the pipeline by inserting one or
-more **bubble cycles** until the offending AAQ write is guaranteed to
-have committed:
-
-- `inst$_vliw` is **held** — PC does not advance and the dual IMEM
-  prefetch is paused, so the same VLIW remains in `inst $` while the
-  bubbles are issued.
-- All four dispatch buses (`mult_vliw_bus`, `acc_vliw_bus`,
-  `aaq_vliw_bus`, `str_vliw_bus`) carry an **all-NOP encoding** for
-  their respective slots, so the chain does no useful work for the
-  bubble cycle(s).
-- `xmem_read_en` is deasserted for the bubble cycle(s), suppressing
-  the XMEM read.
-- LR writes are also held (no LR-lane commits this cycle).
-
-CTRL resumes normal dispatch on the cycle after the offending AAQ
-write has committed; the MULT/ACC consumer then sees the up-to-date
-RF value.
-
-The number of bubble cycles required is fixed by the architectural
-AAQ-to-RF write latency.
+The AAQ scalar register file and all of its consumers have been removed
+from the ISA — cross-lane aggregation is now performed in the **ACC slot**
+(`AGG.SUM` / `AGG.SUM.FIRST` / `AGG.MAX` / `AGG.MAX.FIRST`), which reads and
+writes `r_acc` entirely within the ACC stage. With no cross-stage RF
+write-back path remaining, this hazard no longer arises and CTRL performs
+no hazard interlocks.
 
 ## 10. ISA — Instruction Reference
 

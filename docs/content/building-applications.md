@@ -29,7 +29,7 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: AGG, AGG.FIRST, and ACTIVATE read this implicitly.
+    # CR15 dstructure: AGG.*, ACTIVATE, and AAQ read this when full_xmem_row=0.
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
@@ -41,12 +41,15 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, the selected dstructure lane count is implicit:
+In assembly, the selected dstructure lane count is implicit when
+`full_xmem_row=0`:
 
 ```asm
-AGG sum, value, CR2, AAQ0;;
-ACTIVATE relu;;
+AGG.SUM LR0, 0;;
+ACTIVATE relu, 0;;
 ```
+
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the explicit `full_xmem_row` operand — `0` reads from `CR15.valid_elements`, `1` always uses 128 lanes.
 
 ## Wide-vector debug mode (optional)
 
@@ -59,15 +62,15 @@ The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires a
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu;;
+ACTIVATE relu, 0;;
 ```
 
-- **Syntax:** `ACTIVATE` *activation_fn*, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `CR15.valid_elements`, the same implicit dstructure field used by `AGG` and `AGG.FIRST`.
+- **Syntax:** `ACTIVATE activation_fn, full_xmem_row`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). With `full_xmem_row=0` the active lane count comes from `CR15.valid_elements`, the same implicit dstructure field used by the `AGG.*` instructions; `full_xmem_row=1` always uses all 128 lanes.
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
-- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`AGG`** / **`AGG.FIRST`** still reduce **`R_ACC`**; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
+- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
 - **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated lanes into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same lane layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
 - **`AAQ`** (INT8 mode) quantizes the **wide lanes currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide lanes) then **`AAQ`** (quantize in place into the same register’s byte prefix).

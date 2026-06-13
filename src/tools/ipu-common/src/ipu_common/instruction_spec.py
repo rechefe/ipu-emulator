@@ -427,7 +427,7 @@ INSTRUCTION_SPEC = {
     # =========================================================================
     # MULT Slot (Multiply Instructions)
     # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
-    #          MULT.VE.CR=4, MULT.VE.AAQ=5, MULT.EE.RR=6
+    #          MULT.VE.CR=4, MULT.EE.RR=5
     # =========================================================================
     "mult": {
         "MULT.EE": {
@@ -539,29 +539,6 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_mult_ve_cr",
         },
-        "MULT.VE.AAQ": {
-            "operands": [
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Vector-Element Multiply (AAQ scalar)",
-                summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from an AAQ register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="MULT.VE.AAQ cyclic_offset, mask_offset, mask_shift, aaq_rf_idx",
-                operands=[
-                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of R_MASK)",
-                    "mask_shift: index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end)",
-                    "aaq_rf_idx: AAQ register whose low byte supplies the fixed scalar multiplier (AAQ0–AAQ3)",
-                ],
-                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; MULT_RES[i] = AAQ[aaq_rf_idx][0] * rb",
-                example="MULT.VE.AAQ LR0, 0, LR15, AAQ1;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes selected lanes in `MULT_RES` before accumulation. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
-            ),
-            "execute_fn": "execute_mult_ve_aaq",
-        },
         "MULT.EE.RR": {
             "operands": [
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
@@ -591,7 +568,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.STRIDE=4, ACC.ADD.AAQ=5, ACC.SUB.AAQ=6, ACC.MAX.AAQ=7, ACC.INT.AAQ=8
+    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.STRIDE=4, AGG.SUM.FIRST=5, AGG.SUM=6, AGG.MAX.FIRST=7, AGG.MAX=8
     # =========================================================================
     "acc": {
         "ACC": {
@@ -663,75 +640,116 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_acc_stride",
         },
-        "ACC.ADD.AAQ": {
+        "AGG.SUM.FIRST": {
             "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Add AAQ",
-                summary="Add the selected AAQ register to each accumulator lane (no multiply result involved).",
-                syntax="ACC.ADD.AAQ aaq_rf_idx",
+                title="Aggregate Sum (First)",
+                summary=(
+                    "Sum active R_ACC lanes and write the result into R_ACC at the slot given by LR. "
+                    "The current value at the destination slot is NOT included in the sum (clean initialisation). "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                ),
+                syntax="AGG.SUM.FIRST dest_slot, full_xmem_row",
                 operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
-                operation="for i in [0, 128): R_ACC[i] += AAQ_REGS[aaq_rf_idx]",
-                example="ACC.ADD.AAQ AAQ0;;",
+                operation=(
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "dest = LR[dest_slot] % 128. "
+                    "R_ACC[dest] = sum(R_ACC[0..n-1])."
+                ),
+                example="AGG.SUM.FIRST LR0, 0;;",
             ),
-            "execute_fn": "execute_acc_aaq_add",
+            "execute_fn": "execute_agg_sum_first",
         },
-        "ACC.SUB.AAQ": {
+        "AGG.SUM": {
             "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Subtract AAQ",
-                summary="Subtract the selected AAQ register from each accumulator lane (no multiply result involved).",
-                syntax="ACC.SUB.AAQ aaq_rf_idx",
+                title="Aggregate Sum",
+                summary=(
+                    "Sum active R_ACC lanes and ADD the result to R_ACC at the slot given by LR "
+                    "(running cross-cycle accumulation). "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                ),
+                syntax="AGG.SUM dest_slot, full_xmem_row",
                 operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
-                operation="for i in [0, 128): R_ACC[i] -= AAQ_REGS[aaq_rf_idx]",
-                example="ACC.SUB.AAQ AAQ0;;",
+                operation=(
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "dest = LR[dest_slot] % 128. "
+                    "R_ACC[dest] = sum(R_ACC[0..n-1]) + R_ACC[dest]."
+                ),
+                example="AGG.SUM LR0, 0;;",
             ),
-            "execute_fn": "execute_acc_aaq_sub",
+            "execute_fn": "execute_agg_sum",
         },
-        "ACC.MAX.AAQ": {
+        "AGG.MAX.FIRST": {
             "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Max AAQ",
-                summary="For each lane set R_ACC[i] = max(R_ACC[i], AAQ_REGS[aaq_rf_idx]) (no multiply result involved).",
-                syntax="ACC.MAX.AAQ aaq_rf_idx",
+                title="Aggregate Max (First)",
+                summary=(
+                    "Find the maximum of active R_ACC lanes and write it into R_ACC at the slot given by LR. "
+                    "The current value at the destination slot is NOT used as a seed (clean initialisation). "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                ),
+                syntax="AGG.MAX.FIRST dest_slot, full_xmem_row",
                 operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
-                operation="for i in [0, 128): R_ACC[i] = max(R_ACC[i], AAQ_REGS[aaq_rf_idx])",
-                example="ACC.MAX.AAQ AAQ0;;",
+                operation=(
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "dest = LR[dest_slot] % 128. "
+                    "R_ACC[dest] = max(R_ACC[0..n-1]); when n = 0 the identity seed "
+                    "(INT32_MIN for integer lanes, -inf for float lanes) is written."
+                ),
+                example="AGG.MAX.FIRST LR0, 0;;",
             ),
-            "execute_fn": "execute_acc_aaq_max",
+            "execute_fn": "execute_agg_max_first",
         },
-        "ACC.INT.AAQ": {
+        "AGG.MAX": {
             "operands": [
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "full_xmem_row", "type": "FullXmemRow"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Initialise from AAQ",
-                summary="Set every accumulator lane to the selected AAQ register value (previous R_ACC ignored).",
-                syntax="ACC.INT.AAQ aaq_rf_idx",
+                title="Aggregate Max",
+                summary=(
+                    "Find the maximum of active R_ACC lanes seeded with the current destination slot value "
+                    "(running cross-cycle max). "
+                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                ),
+                syntax="AGG.MAX dest_slot, full_xmem_row",
                 operands=[
-                    "aaq_rf_idx: AAQ register index (AAQ0–AAQ3)",
+                    "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
+                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
                 ],
-                operation="for i in [0, 128): R_ACC[i] = AAQ_REGS[aaq_rf_idx]",
-                example="ACC.INT.AAQ AAQ0;;",
+                operation=(
+                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "dest = LR[dest_slot] % 128. "
+                    "R_ACC[dest] = max(R_ACC[0..n-1], R_ACC[dest])."
+                ),
+                example="AGG.MAX LR0, 0;;",
             ),
-            "execute_fn": "execute_acc_aaq_init",
+            "execute_fn": "execute_agg_max",
         },
     },
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: AAQ_NOP=0, AGG=1, AGG.FIRST=2, AAQ=3, ACTIVATE=4
+    # Opcode = position: AAQ_NOP=0, AAQ=1, ACTIVATE=2
     # =========================================================================
     "aaq": {
         "AAQ_NOP": {
@@ -743,74 +761,6 @@ INSTRUCTION_SPEC = {
                 operands=[],
             ),
             "execute_fn": "execute_aaq_nop",
-        },
-        "AGG": {
-            "operands": [
-                {"name": "agg_mode", "type": "AggMode"},
-                {"name": "post_fn", "type": "PostFn"},
-                {"name": "cr_idx", "type": "CrIdx"},
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulator Aggregate",
-                summary=(
-                    "Collapse R_ACC lanes into one value (SUM or MAX); apply post function; "
-                    "store to selected AAQ register. "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
-                ),
-                syntax="AGG agg_mode, post_fn, cr_idx, aaq_rf_idx, full_xmem_row",
-                operands=[
-                    "agg_mode: sum or max",
-                    "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "cr_idx: CR register for value_cr post function (CR0–CR14)",
-                    "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
-                ],
-                operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "If sum: v = sum(R_ACC[0..n-1]). "
-                    "If max: v = max(R_ACC[0..n-1], AAQ[aaq_rf_idx]). "
-                    "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
-                    "AAQ[aaq_rf_idx] = result."
-                ),
-                example="AGG sum, value, CR0, AAQ0, 0;;",
-            ),
-            "execute_fn": "execute_agg",
-        },
-        "AGG.FIRST": {
-            "operands": [
-                {"name": "agg_mode", "type": "AggMode"},
-                {"name": "post_fn", "type": "PostFn"},
-                {"name": "cr_idx", "type": "CrIdx"},
-                {"name": "aaq_rf_idx", "type": "AaqRegIdx"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
-            ],
-            "doc": InstructionDoc(
-                title="Accumulator Aggregate First",
-                summary=(
-                    "Like AGG, but for MAX mode ignores the previous AAQ register value, "
-                    "avoiding contamination from uninitialized data. "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
-                ),
-                syntax="AGG.FIRST agg_mode, post_fn, cr_idx, aaq_rf_idx, full_xmem_row",
-                operands=[
-                    "agg_mode: sum or max",
-                    "post_fn: value, value_cr, inv, or inv_sqrt",
-                    "cr_idx: CR register for value_cr post function (CR0–CR14)",
-                    "aaq_rf_idx: AAQ register to store result (AAQ0–AAQ3)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
-                ],
-                operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "If sum: v = sum(R_ACC[0..n-1]). "
-                    "If max: v = max(R_ACC[0..n-1]) (previous AAQ value is NOT included). "
-                    "Apply post_fn(v): value→v, value_cr→v*cr[cr_idx], inv→1/v, inv_sqrt→1/sqrt(v). "
-                    "AAQ[aaq_rf_idx] = result."
-                ),
-                example="AGG.FIRST max, value, CR0, AAQ0, 0;;",
-            ),
-            "execute_fn": "execute_agg_first",
         },
         "AAQ": {
             "operands": [
@@ -1285,12 +1235,9 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "LrIdx",
         "CrIdx",
         "LcrIdx",
-        "AaqRegIdx",
         "ElementsInRow",
         "HorizontalStride",
         "VerticalStride",
-        "AggMode",
-        "PostFn",
         "LrModPow2KImmediate",
         "MultMaskOffsetImmediate",
         "ActivationFn",
