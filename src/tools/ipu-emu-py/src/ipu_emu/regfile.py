@@ -75,6 +75,9 @@ class RegFile:
                 allow_read_only=True,
             )
 
+        # R_MASK defaults to all-ones: bit=1 means lane active, bit=0 means deactivated.
+        self._storage["r_mask"][:] = b"\xff" * len(self._storage["r_mask"])
+
     # -- helpers ------------------------------------------------------------
 
     def _resolve(self, name: str) -> str:

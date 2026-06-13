@@ -373,7 +373,7 @@ class Ipu:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
-        Lanes in mult_res where the resulting mask bit is 1 are zeroed.
+        Lanes in mult_res where the resulting mask bit is 0 are zeroed.
         """
         if self._wide_vector_active():
             return
@@ -403,10 +403,10 @@ class Ipu:
             for _ in range(shift):
                 mask_int = (mask_int << 1) & pv & _128_BIT_MASK
 
-        # Zero out mult_res where mask bit is set
+        # Zero out mult_res where mask bit is clear (lane deactivated)
         mult_res = self.state.regfile.raw("mult_res")
         for i in range(R_REG_SIZE):
-            if (mask_int >> i) & 1:
+            if not ((mask_int >> i) & 1):
                 struct.pack_into("<I", mult_res, i * 4, 0)
 
     # -----------------------------------------------------------------------

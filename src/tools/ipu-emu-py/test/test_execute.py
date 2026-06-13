@@ -408,7 +408,7 @@ BKPT;;
         assert stored == state.regfile.get_r_acc_bytes()
 
     def test_mask_affects_multiplication(self):
-        """First 64 bits of mask set → first 64 mult_res words zeroed."""
+        """First 64 bits of mask set → first 64 mult_res words active, rest zeroed."""
         r0_data = bytes([2] * 128)
         cyclic_data = bytes([3] * 512)
         # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
@@ -442,9 +442,9 @@ BKPT;;
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
         for i in range(64):
-            assert words[i] == 0, f"word {i} should be masked to 0"
-        for i in range(64, 128):
             assert words[i] == 6, f"word {i} should be 6"
+        for i in range(64, 128):
+            assert words[i] == 0, f"word {i} should be masked to 0"
 
     def test_mask_with_shift(self):
         """Mask slot 1, shift_idx=+1 → 32 bits in slot 1 shift left by 1 (bits 1–32 masked out)."""
@@ -480,11 +480,11 @@ BKPT;;
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
-        assert words[0] == 20, "word 0 should be 20 (not masked)"
+        assert words[0] == 0, "word 0 should be 0 (deactivated)"
         for i in range(1, 33):
-            assert words[i] == 0, f"word {i} should be masked to 0"
+            assert words[i] == 20, f"word {i} should be 20 (active)"
         for i in range(33, 128):
-            assert words[i] == 20, f"word {i} should be 20"
+            assert words[i] == 0, f"word {i} should be 0 (deactivated)"
 
 
 # ============================================================================
@@ -1599,10 +1599,10 @@ BKPT;;
             assert val == 9, f"acc word {i}: expected 9 (r1 3×3, not r0), got {val}"
 
     def test_mult_ee_rr_mask_zeroes_lanes(self):
-        """mask_offset/mask_shift still gate lanes (first 64 masked → 0)."""
+        """mask_offset/mask_shift still gate lanes (first 64 active, rest zeroed)."""
         r0_data = bytes([3] * 128)   # squared → 9
         mask_data = bytearray(128)
-        for i in range(8):           # 64 bits set → first 64 lanes masked
+        for i in range(8):           # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
 
         state = _make_state("""\
@@ -1625,10 +1625,10 @@ BKPT;;
         acc_raw = state.regfile.raw("r_acc")
         for i in range(64):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 0, f"word {i} should be masked to 0, got {val}"
+            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
         for i in range(64, 128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
+            assert val == 0, f"word {i} should be masked to 0, got {val}"
 
 
 # ============================================================================
@@ -1697,60 +1697,60 @@ BKPT;;
     # ------------------------------------------------------------------
 
     def test_idx_0_base_mask_unchanged(self):
-        """idx=0: base mask used as-is; only lane 32 is suppressed."""
+        """idx=0: base mask used as-is; only lane 32 is active, all others suppressed."""
         acc = self._run_mask_shift(1 << 32, shift_idx=0, partition=0)
-        assert self._suppressed(acc, 32)
+        assert not self._suppressed(acc, 32)
         for i in range(128):
             if i != 32:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_minus1_shifts_right_by_1(self):
         """idx=−1: base mask shifts right by 1; bit 32 → bit 31."""
         acc = self._run_mask_shift(1 << 32, shift_idx=-1, partition=0)
-        assert self._suppressed(acc, 31)
+        assert not self._suppressed(acc, 31)
         for i in range(128):
             if i != 31:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_minus2_shifts_right_by_2(self):
         """idx=−2: base mask shifts right twice; bit 32 → bit 30."""
         acc = self._run_mask_shift(1 << 32, shift_idx=-2, partition=0)
-        assert self._suppressed(acc, 30)
+        assert not self._suppressed(acc, 30)
         for i in range(128):
             if i != 30:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_minus3_shifts_right_by_3(self):
         """idx=−3: base mask shifts right three times; bit 32 → bit 29."""
         acc = self._run_mask_shift(1 << 32, shift_idx=-3, partition=0)
-        assert self._suppressed(acc, 29)
+        assert not self._suppressed(acc, 29)
         for i in range(128):
             if i != 29:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_plus1_shifts_left_by_1(self):
         """idx=+1: base mask shifts left by 1; bit 32 → bit 33."""
         acc = self._run_mask_shift(1 << 32, shift_idx=+1, partition=0)
-        assert self._suppressed(acc, 33)
+        assert not self._suppressed(acc, 33)
         for i in range(128):
             if i != 33:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_plus2_shifts_left_by_2(self):
         """idx=+2: base mask shifts left twice; bit 32 → bit 34."""
         acc = self._run_mask_shift(1 << 32, shift_idx=+2, partition=0)
-        assert self._suppressed(acc, 34)
+        assert not self._suppressed(acc, 34)
         for i in range(128):
             if i != 34:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_idx_plus3_shifts_left_by_3(self):
         """idx=+3: base mask shifts left three times; bit 32 → bit 35."""
         acc = self._run_mask_shift(1 << 32, shift_idx=+3, partition=0)
-        assert self._suppressed(acc, 35)
+        assert not self._suppressed(acc, 35)
         for i in range(128):
             if i != 35:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     # ------------------------------------------------------------------
     # partition=2 (2 partitions of 64): verify boundary enforcement
@@ -1761,23 +1761,23 @@ BKPT;;
 
         With partition=2 (step=64), bit 63 is the last element of partition 0.
         Shifting left by 1 would move it to bit 64 (start of partition 1),
-        but partition_vector[64]=0 clears it → no suppression occurs.
+        but partition_vector[64]=0 clears it → mask = 0 → all lanes deactivated.
         """
         acc = self._run_mask_shift(1 << 63, shift_idx=+1, partition=2)
         for i in range(128):
-            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_right_shift_stays_within_partition(self):
         """A bit inside partition 1 shifts freely within partition 1.
 
         With partition=2, bit 65 shifted right by 1 → bit 64 (still inside partition 1).
-        inverse_partition_vector[64]=1, so the bit is NOT cleared → lane 64 is suppressed.
+        inverse_partition_vector[64]=1, so the bit is NOT cleared → lane 64 is active.
         """
         acc = self._run_mask_shift(1 << 65, shift_idx=-1, partition=2)
-        assert self._suppressed(acc, 64)
+        assert not self._suppressed(acc, 64)
         for i in range(128):
             if i != 64:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_shift_stays_within_partition(self):
         """A bit inside partition 0 shifts freely within partition 0.
@@ -1785,22 +1785,22 @@ BKPT;;
         With partition=2, bit 33 shifted left by 1 → bit 34 (still in partition 0).
         """
         acc = self._run_mask_shift(1 << 33, shift_idx=+1, partition=2)
-        assert self._suppressed(acc, 34)
+        assert not self._suppressed(acc, 34)
         for i in range(128):
             if i != 34:
-                assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_partition_4_boundary_constraint(self):
-        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross."""
+        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross → all lanes deactivated."""
         acc = self._run_mask_shift(1 << 31, shift_idx=+1, partition=4)
         for i in range(128):
-            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed (partition 4)"
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 4)"
 
     def test_partition_8_boundary_constraint(self):
-        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross."""
+        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross → all lanes deactivated."""
         acc = self._run_mask_shift(1 << 15, shift_idx=+1, partition=8)
         for i in range(128):
-            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed (partition 8)"
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 8)"
 
     def test_sequential_and_enforced_on_each_step(self):
         """Sequential AND is applied after EACH shift step, not just at the end.
@@ -1808,13 +1808,13 @@ BKPT;;
         With partition=2, shift_idx=−2, using inverse_partition_vector (0 at end of each group):
           step 1: (1<<65 >> 1) = 1<<64; inverse_pv[64]=1 → 1<<64 (not cleared)
           step 2: (1<<64 >> 1) = 1<<63; inverse_pv[63]=0 → 0 (cleared at end of group 0)
-        Result: no lanes suppressed (bit cleared at second step).
+        Result: all lanes deactivated (bit cleared at second step → mask = 0).
         Without the per-step AND, a 2-bit right shift of bit 65 would land at 63
         and survive since inverse_pv[63] is never checked in a single-step AND.
         """
         acc = self._run_mask_shift(1 << 65, shift_idx=-2, partition=2)
         for i in range(128):
-            assert not self._suppressed(acc, i), f"lane {i} should not be suppressed"
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
 
 # ============================================================================
