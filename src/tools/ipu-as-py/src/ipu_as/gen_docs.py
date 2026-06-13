@@ -211,9 +211,9 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
 ## Masking
 
 Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
-corresponding mask bit is **1** are **zeroed** before accumulation; lanes whose bit is **0** pass
-through unchanged. A mask of all-ones suppresses every lane; a mask of all-zeros leaves every lane
-active.
+corresponding mask bit is **1** are **active** and pass through to accumulation; lanes whose bit is
+**0** are **zeroed** (deactivated). A mask of all-ones leaves every lane active (the reset default);
+a mask of all-zeros deactivates every lane.
 
 ### R_MASK register
 
@@ -300,28 +300,28 @@ MULT.EE R0, LR2, 3, LR4; ACC;;
 ### Worked examples
 
 Both examples load **all-ones** (`0xFF…FF`, 128 bits) into the selected `R_MASK` slot. At
-`mask_shift = 0` every mask bit is 1, so every lane is suppressed. Each shift step carries one
-extra bit from **1 to 0**, opening one more lane to pass through to accumulation.
+`mask_shift = 0` every mask bit is 1, so every lane is active. Each shift step clears one
+boundary bit to **0**, deactivating one lane at a time.
 
-The tables show **active lanes** — those whose derived mask bit is **0** and therefore contribute
+The tables show **active lanes** — those whose derived mask bit is **1** and therefore contribute
 to accumulation.
 
 #### Example 1 — no partitioning (`partition = 0`)
 
 With `partition = 0` the partition vector is all-ones, so shifts slide freely across all 128 lanes.
 
-| `mask_shift` | Active lanes (mask bit = 0) |
+| `mask_shift` | Active lanes (mask bit = 1) |
 |:---:|---|
-| `−3` | 125, 126, 127 |
-| `−2` | 126, 127 |
-| `−1` | 127 |
-| `0` | *(none — all suppressed)* |
-| `+1` | 0 |
-| `+2` | 0, 1 |
-| `+3` | 0, 1, 2 |
+| `−3` | 0–124 |
+| `−2` | 0–125 |
+| `−1` | 0–126 |
+| `0` | 0–127 *(all active)* |
+| `+1` | 1–127 |
+| `+2` | 2–127 |
+| `+3` | 3–127 |
 
-Positive shifts open lanes from the low end (lane 0 first); negative shifts open lanes from the
-high end (lane 127 first). Each step adds exactly one active lane.
+Positive shifts deactivate lanes from the low end (lane 0 first); negative shifts deactivate lanes
+from the high end (lane 127 first). Each step removes exactly one active lane.
 
 #### Example 2 — two partitions of 64 lanes each (`partition = 2`)
 
@@ -333,17 +333,17 @@ With `partition = 2` the 128 lanes are split into **group 0** (lanes 0–63) and
 
 | `mask_shift` | Group 0 active (lanes 0–63) | Group 1 active (lanes 64–127) |
 |:---:|---|---|
-| `−3` | 61, 62, 63 | 125, 126, 127 |
-| `−2` | 62, 63 | 126, 127 |
-| `−1` | 63 | 127 |
-| `0` | *(none)* | *(none)* |
-| `+1` | 0 | 64 |
-| `+2` | 0, 1 | 64, 65 |
-| `+3` | 0, 1, 2 | 64, 65, 66 |
+| `−3` | 0–60 | 64–124 |
+| `−2` | 0–61 | 64–125 |
+| `−1` | 0–62 | 64–126 |
+| `0` | 0–63 *(all)* | 64–127 *(all)* |
+| `+1` | 1–63 | 65–127 |
+| `+2` | 2–63 | 66–127 |
+| `+3` | 3–63 | 67–127 |
 
-**Positive shifts** open lanes from the **start** of each group (lane 0 and lane 64).
-**Negative shifts** open lanes from the **end** of each group (lane 63 and lane 127).
-Each step adds exactly one lane per group — a perfectly symmetric sliding window.
+**Positive shifts** deactivate lanes from the **start** of each group (lane 0 and lane 64).
+**Negative shifts** deactivate lanes from the **end** of each group (lane 63 and lane 127).
+Each step removes exactly one lane per group — a perfectly symmetric sliding window.
 
 """
 
