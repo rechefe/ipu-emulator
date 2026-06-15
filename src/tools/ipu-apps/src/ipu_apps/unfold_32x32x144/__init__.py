@@ -117,7 +117,7 @@ class Unfold32x32x144App(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
         _load_input(state, self.input_path)
         _load_ones(state, self.dtype)
         # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432)

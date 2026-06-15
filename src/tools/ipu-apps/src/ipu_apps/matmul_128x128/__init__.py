@@ -104,7 +104,7 @@ class MatMul128x128App(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
         # Load A row-major: M rows of K bytes each
         load_binary_to_xmem(state, self.input_path, INPUT_BASE_ADDR, K, M)
         # Transpose W (N×K output-major) → T (K rows of 128B) in XMEM

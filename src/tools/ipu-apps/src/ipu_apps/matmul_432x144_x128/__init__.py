@@ -115,7 +115,7 @@ class MatMul432x144x128App(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
         state.regfile.set_cr(0, DATA_BASE)

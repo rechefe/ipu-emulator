@@ -68,7 +68,7 @@ class ResidualAdd256x144App(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
 
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
