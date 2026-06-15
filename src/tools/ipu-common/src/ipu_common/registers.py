@@ -82,7 +82,9 @@ REGISTER_DEFINITIONS = {
     # narrower quantized export buffer instead. **`ACTIVATE`** writes activated wide
     # lanes (sourced from `r_acc`) here. **`AAQ`** (INT8) reads those wide lanes and
     # replaces the register with 128 clamped INT8 bytes plus a cleared tail.
-    # **`STR_POST_AAQ_REG`** stores the full **512 bytes** to XMEM (see `ipu.py`).
+    # **`STR_POST_AAQ_REG`** stores to XMEM at the active mode's element width:
+    # the leading **128 bytes** (the INT8 lanes from `AAQ`) in INT8 mode, or the
+    # full **512 bytes** in wide-vector (FP32/INT32) mode (see `ipu.py`).
     "post_aaq_reg": {
         "kind": RegKind.AAQ,
         "vector": True,

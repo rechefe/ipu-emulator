@@ -1932,22 +1932,55 @@ class TestAaqQuantize:
         assert result[:48] == bytearray([1] * 48), "first 48 lanes should be quantized"
         assert result[48:] == bytearray(464), "remaining bytes should be zero"
 
-    def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
-        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
+    def test_str_post_aaq_reg_int8_writes_leading_128_to_xmem(self):
+        """INT8 mode: STR_POST_AAQ_REG stores only the 128 packed INT8 bytes.
+
+        Full path: AAQ packs the INT8 lanes into post_aaq_reg[0:128], then
+        STR_POST_AAQ_REG drains exactly those 128 bytes so they round-trip as a
+        128-byte input chunk.
+        """
         state = IpuState()
         state.dtype = DType.INT8
-        self._set_acc_words(state, [i << 24 for i in range(128)])
+        # Wide int32 lanes spanning the clamp range; AAQ clamps to [-128, 127].
+        self._set_acc_words(state, [i - 64 for i in range(128)])
         state.regfile.set_cr(8, 0x4000)
 
         encoded = assemble(
             """\
 SET lr0 cr8;;
+aaq 1;;
 str_post_aaq_reg lr0 cr0;;
 BKPT;;
 """
         )
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+
+        # Exactly 128 INT8 bytes written; nothing beyond.
+        stored = state.xmem.read_address(0x4000, 128)
+        assert stored == bytearray((i - 64) & 0xFF for i in range(128))
+        assert state.xmem.read_address(0x4000 + 128, 384) == bytearray(384)
+
+    def test_str_post_aaq_reg_wide_mode_writes_full_512_to_xmem(self):
+        """Wide-vector (FP32) mode: STR_POST_AAQ_REG stores the full 512 bytes."""
+        from ipu_emu.execute import decode_instruction_word
+        from ipu_emu.emulator import load_program, run_until_complete
+        from ipu_emu.ipu_state import WideVectorArithmetic
+
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        )
+        state.dtype = DType.INT8  # mode byte; wide flag overrides element width
+        # Distinct FP32 lanes across all 512 bytes (no zero pad).
+        post = struct.pack("<128f", *[float(i + 1) for i in range(128)])
+        state.regfile.set_post_aaq_reg(bytearray(post))
+        state.regfile.set_cr(8, 0x4000)
+
+        encoded = assemble("SET lr0 cr8;;\nstr_post_aaq_reg lr0 cr0;;\nBKPT;;")
         decoded = [decode_instruction_word(w) for w in encoded]
         load_program(state, decoded)
         run_until_complete(state)

@@ -278,15 +278,20 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Store Post-AAQ register",
                 summary=(
-                    "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
-                    "the buffer is **512 bytes** (128×32-bit lanes) until quantization export is finalized."
+                    "Write **`POST_AAQ_REG`** to external memory at the active mode's element width. "
+                    "In **INT8** mode the 128 packed INT8 lanes from `AAQ` are written (**128 bytes**), "
+                    "so a result round-trips as a 128-byte input load for a later pass. In **wide-vector** "
+                    "(FP32/INT32) debug mode the lanes are 4 bytes wide and the full **512 bytes** are written."
                 ),
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR14)",
                 ],
-                operation="Memory[offset + base] = POST_AAQ_REG (512 bytes); interim staging register",
+                operation=(
+                    "Memory[offset + base] = POST_AAQ_REG[0:128] (INT8 mode, after AAQ) "
+                    "or POST_AAQ_REG (512 bytes, wide-vector mode)"
+                ),
                 example="STR_POST_AAQ_REG LR0, CR0;;",
             ),
             "execute_fn": "execute_str_post_aaq_reg",
