@@ -21,7 +21,12 @@ CR_READ_ONLY_INITIAL_VALUES = {
 REGISTER_WORD_BITS = 32
 REGISTER_WORD_VALUE_MASK = (1 << REGISTER_WORD_BITS) - 1
 
-LR_CR_SCALAR_BITS = 20
+# 21 bits so LR/CR can address the full 2 MB of XMEM (XMEM_SIZE_BYTES = 1 << 21).
+# At 20 bits the mask is 0xFFFFF (1 MB), which silently truncates any base/offset
+# in the upper half of XMEM (>= 0x100000) at register-write time, leaving that half
+# unreachable. Matching the addressable range (1 << BITS) to the physical XMEM size
+# keeps every representable address valid and the whole memory reachable.
+LR_CR_SCALAR_BITS = 21
 LR_CR_SCALAR_VALUE_MASK = (1 << LR_CR_SCALAR_BITS) - 1
 
 DSTRUCTURE_VALID_ELEMENTS_BITS = 8
