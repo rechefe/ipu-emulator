@@ -43,8 +43,12 @@ def _ensure_ndim(arr: np.ndarray, expected: Union[int, tuple[int, ...]], name: s
         )
 
 
-def _validate_and_cast_to_bytes(arr: np.ndarray, dtype: DType) -> bytes:
-    """Convert a validated numpy array into raw IPU wire bytes for ``dtype``.
+def cast_to_wire_bytes(arr: np.ndarray, dtype: DType) -> bytes:
+    """Convert a numpy array (any shape) into raw IPU wire bytes for ``dtype``.
+
+    Shape-agnostic — the array is flattened in C order; callers index the
+    result themselves. Works for weights (4D), reordered taps (3D), or a 1D
+    bias, so none of them need a synthetic reshape.
 
     Contract:
       - ``DType.INT8`` requires ``arr.dtype == np.int8``.
@@ -103,7 +107,7 @@ def pack_conv_weights_dense(
 
     fpb = _fpb(kernel_size)
     k2 = kernel_size * kernel_size
-    raw = _validate_and_cast_to_bytes(weights, dtype)
+    raw = cast_to_wire_bytes(weights, dtype)
     # raw indexing: raw[((f*in_ch + ic)*K + dr)*K + dc] == raw[(f*in_ch + ic)*k2 + tap]
 
     blocks_per_filter = math.ceil(in_ch / fpb)
@@ -149,7 +153,7 @@ def pack_depthwise_weights_dense(
 
     fpb = _fpb(kernel_size)
     k2 = kernel_size * kernel_size
-    raw = _validate_and_cast_to_bytes(weights, dtype)
+    raw = cast_to_wire_bytes(weights, dtype)
     # raw indexing: raw[c*k2 + tap]
 
     num_blocks = math.ceil(channels / fpb)
@@ -207,7 +211,7 @@ def pack_pointwise_weights_universal(
         )
     num_batches = out_channels // (2 * oc_per_reg)
 
-    raw = _validate_and_cast_to_bytes(w, dtype)
+    raw = cast_to_wire_bytes(w, dtype)
     # raw indexing: raw[oc * in_channels + ic]
 
     total_size = num_batches * 2 * num_groups * 128
@@ -242,7 +246,7 @@ def pack_pointwise_weights_8x8(
     if out_channels < 2 or out_channels % 2 != 0:
         raise ValueError(f"out_channels must be even and >= 2, got {out_channels}")
 
-    raw = _validate_and_cast_to_bytes(w, dtype)
+    raw = cast_to_wire_bytes(w, dtype)
     # raw indexing: raw[oc * in_channels + ic]
 
     ic_pairs = in_channels // 2

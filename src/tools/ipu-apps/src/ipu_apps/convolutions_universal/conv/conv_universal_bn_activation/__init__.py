@@ -24,13 +24,16 @@ Kernel super-block layout (FPB=28, +1 bias byte):
 
 Usage::
 
-    from ipu_apps.convolutions_universal.conv.conv_universal import ConvUniversalApp
+    from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
+        ConvUniversalBnActivationApp,
+    )
 
     # Numpy weights form (preferred):
-    app = ConvUniversalApp(
-        inst_path="conv_universal.bin",
+    app = ConvUniversalBnActivationApp(
+        inst_path="conv_universal_bn_activation.bin",
         input_path="input.bin",
         kernel=weights_nhwc,      # np.ndarray [out_ch, in_ch, 3, 3]
+        bias=bias_int8,           # np.ndarray [out_ch], folded BN bias (INT8)
         output_path="output.bin",
         dtype="INT8",
         rows=32, cols=32, in_channels=16, out_channels=16,
@@ -51,14 +54,11 @@ from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
+    CHUNK_BYTES,
     parse_dtype,
-    build_border_mask_data,
     dump_outputs,
 )
-from ipu_apps.convolutions_universal.weights import (  # noqa: F401
-    pack_conv_weights_dense,  # kept for API compat
-    _validate_and_cast_to_bytes,
-)
+from ipu_apps.convolutions_universal.weights import cast_to_wire_bytes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -75,11 +75,11 @@ KERNEL_BASE_ADDR = 0x100000
 MASK_BASE_ADDR = 0x180000     # single mask blob (slots 0/3/6)
 OUTPUT_BASE_ADDR = 0x1C0000
 
-OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output filter per chunk (int8)
+OUTPUT_CHUNK_BYTES = CHUNK_BYTES  # bytes per output filter per chunk (int8)
 
-FPB = 28  # channels per 256-byte super-block (K=3 dense, R0+R1 shared index)
-SUPER_BLOCK_BYTES = 256  # = 2 * 128 (R0 half + R1 half)
-HALF_FPB = 14            # channels per 128-byte half (R0 or R1)
+SUPER_BLOCK_BYTES = 2 * CHUNK_BYTES  # 256 = R0 half + R1 half
+HALF_FPB = CHUNK_BYTES // 9          # 14: channels per 128-byte half (9 taps each)
+FPB = 2 * HALF_FPB                   # 28: channels per super-block (R0+R1 shared index)
 
 
 BIAS_BYTE_OFFSET = 1  # super-block byte 0 is the bias; channels start at byte 1
@@ -155,10 +155,8 @@ def _pack_conv_weights_fpb28(
         raise ValueError(f"expected last dim=9 (taps), got {k2}")
     if bias.shape != (out_ch,):
         raise ValueError(f"bias must have shape ({out_ch},), got {bias.shape}")
-    raw = _validate_and_cast_to_bytes(
-        weights_reordered.reshape(out_ch, in_ch, 3, 3), dtype
-    )
-    bias_bytes = _validate_and_cast_to_bytes(bias.reshape(out_ch, 1, 1, 1), dtype)
+    raw = cast_to_wire_bytes(weights_reordered, dtype)
+    bias_bytes = cast_to_wire_bytes(bias, dtype)
     # raw indexing: byte for filter f, channel ic, tap t = raw[(f*in_ch+ic)*9 + t]
 
     super_blocks_per_filter = math.ceil(in_ch / FPB)
@@ -195,7 +193,8 @@ class ConvUniversalBnActivationApp(IpuApp):
         output_path:  Optional path to write output.
         dtype:        Data type string or :class:`DType`.
         rows:         Spatial height.
-        cols:         Spatial width (power of 2, 16-64).
+        cols:         Spatial width; one of {16, 32, 64} (one packed row per
+                      mask partition group).
         in_channels:  Number of input channels (>= 1).
         out_channels: Number of output channels (>= 1).
     """
@@ -254,7 +253,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_chunks = num_chunks
-        self.in_group_stride = in_channels * 128
+        self.in_group_stride = in_channels * CHUNK_BYTES
         self.blocks_per_filter = math.ceil(in_channels / FPB)
         self.total_kernel_bytes = out_channels * self.blocks_per_filter * SUPER_BLOCK_BYTES
 
@@ -294,7 +293,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         input_data = self.input_path.read_bytes()
         state.xmem.write_address(INPUT_BASE_ADDR, input_data)
 
-        # Pack and load kernel (dense FPB=14 layout)
+        # Pack and load kernel (dense FPB=28 super-block layout)
         kernel_packed = self._pack_kernel()
         state.xmem.write_address(KERNEL_BASE_ADDR, kernel_packed)
 
@@ -313,7 +312,6 @@ class ConvUniversalBnActivationApp(IpuApp):
             64: Partition.P2,   # 2 groups of 64 lanes
             32: Partition.P4,   # 4 groups of 32 lanes
             16: Partition.P8,   # 8 groups of 16 lanes
-            8:  Partition.P16,  # 16 groups of 8 lanes
         }
         if self.cols not in cols_to_partition:
             raise ValueError(
@@ -341,7 +339,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         # Set parameter CR registers
         state.regfile.set_cr(4, self.cols)
         state.regfile.set_cr(6, self.in_group_stride)
-        state.regfile.set_cr(7, FPB * 128)  # channel group size = 28 * 128 = 3584
+        state.regfile.set_cr(7, FPB * CHUNK_BYTES)  # channel group size = 28 * 128 = 3584
         state.regfile.set_cr(8, self.total_kernel_bytes)
         # cr11 = chunk-loop limit = (num_chunks - 1) * in_group_stride
         # Used by asm to compare lr8 (chunk base addr) against chunk limit,
@@ -350,12 +348,12 @@ class ConvUniversalBnActivationApp(IpuApp):
 
         # Constants used by the asm. CR0 is the read-only zero constant (master ISA),
         # which the asm now uses for "SET lr<n> cr0".
-        state.regfile.set_cr(12, 128)
-        state.regfile.set_cr(13, 256)
+        state.regfile.set_cr(12, CHUNK_BYTES)        # 128
+        state.regfile.set_cr(13, SUPER_BLOCK_BYTES)  # 256
         # cr14 = end-of-9 walking-pointer step: brings lr_walk from this ch's
         # tap-9 offset (lr_read + cols + 1) to next ch's tap-1 offset
-        # ((lr_read + 256) - cols - 1), i.e. +(256 - 2*cols - 2).
-        state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
+        # ((lr_read + SUPER_BLOCK_BYTES) - cols - 1), i.e. +(SUPER_BLOCK_BYTES - 2*cols - 2).
+        state.regfile.set_cr(14, (SUPER_BLOCK_BYTES - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

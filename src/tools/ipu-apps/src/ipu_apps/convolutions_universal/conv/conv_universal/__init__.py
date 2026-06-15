@@ -5,7 +5,7 @@ configuration (spatial >= 16x16, in_channels >= 1).
 
 Dimensions are passed at construction time; the harness computes all derived
 constants, builds the correct masks for the spatial size, packs kernels into
-dense FPB=14 blocks, and sets CR0-CR9.
+dense FPB=28 super-blocks, and sets CR0-CR9.
 
 Kernel super-block layout (FPB=28):
   One 256-byte super-block holds up to 28 input-channel slots of one output
@@ -47,14 +47,12 @@ from ipu_emu.ipu_config import encode_dstructure, Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
+    CHUNK_BYTES,
     parse_dtype,
     build_border_mask_data,
     dump_outputs,
 )
-from ipu_apps.convolutions_universal.weights import (  # noqa: F401
-    pack_conv_weights_dense,  # kept for API compat
-    _validate_and_cast_to_bytes,
-)
+from ipu_apps.convolutions_universal.weights import cast_to_wire_bytes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -67,11 +65,11 @@ MASK_BASE_ADDR = 0x180000
 ZERO_BASE_ADDR = 0x180080  # 128 bytes of zeros (vertical-border off-image row)
 OUTPUT_BASE_ADDR = 0x1C0000
 
-OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output filter per chunk (int8)
+OUTPUT_CHUNK_BYTES = CHUNK_BYTES  # bytes per output filter per chunk (int8)
 
-FPB = 28  # channels per 256-byte super-block (K=3 dense, R0+R1 shared index)
-SUPER_BLOCK_BYTES = 256  # = 2 * 128 (R0 half + R1 half)
-HALF_FPB = 14            # channels per 128-byte half (R0 or R1)
+SUPER_BLOCK_BYTES = 2 * CHUNK_BYTES  # 256 = R0 half + R1 half
+HALF_FPB = CHUNK_BYTES // 9          # 14: channels per 128-byte half (9 taps each)
+FPB = 2 * HALF_FPB                   # 28: channels per super-block (R0+R1 shared index)
 
 
 def _pack_conv_weights_fpb28(
@@ -91,9 +89,7 @@ def _pack_conv_weights_fpb28(
     out_ch, in_ch, k2 = weights_reordered.shape
     if k2 != 9:
         raise ValueError(f"expected last dim=9 (taps), got {k2}")
-    raw = _validate_and_cast_to_bytes(
-        weights_reordered.reshape(out_ch, in_ch, 3, 3), dtype
-    )
+    raw = cast_to_wire_bytes(weights_reordered, dtype)
     # raw indexing: byte for filter f, channel ic, tap t = raw[(f*in_ch+ic)*9 + t]
 
     super_blocks_per_filter = math.ceil(in_ch / FPB)
@@ -129,7 +125,8 @@ class ConvUniversalApp(IpuApp):
         output_path:  Optional path to write output.
         dtype:        Data type string or :class:`DType`.
         rows:         Spatial height.
-        cols:         Spatial width (power of 2, 16-128).
+        cols:         Spatial width; one of {16, 32, 64} (one packed row per
+                      mask partition group). cols=128 lives in a separate binary.
         in_channels:  Number of input channels (>= 1).
         out_channels: Number of output channels (>= 1).
     """
@@ -178,7 +175,7 @@ class ConvUniversalApp(IpuApp):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_chunks = num_chunks
-        self.in_group_stride = in_channels * 128
+        self.in_group_stride = in_channels * CHUNK_BYTES
         self.blocks_per_filter = math.ceil(in_channels / FPB)
         self.total_kernel_bytes = out_channels * self.blocks_per_filter * SUPER_BLOCK_BYTES
 
@@ -218,13 +215,13 @@ class ConvUniversalApp(IpuApp):
         input_data = self.input_path.read_bytes()
         state.xmem.write_address(INPUT_BASE_ADDR, input_data)
 
-        # Pack and load kernel (dense FPB=14 layout)
+        # Pack and load kernel (dense FPB=28 super-block layout)
         kernel_packed = self._pack_kernel()
         state.xmem.write_address(KERNEL_BASE_ADDR, kernel_packed)
 
-        # Load mask data ("3 masks overall" scheme: slot0=keep-all,
-        # slots 1/2 = zero-all for the top/bottom off-image rows).
-        mask_data = build_border_mask_data(self.cols)
+        # Load mask data: only slot 0 (all-ones) is used; left/right columns are
+        # zeroed at runtime by mask_shift, top/bottom rows by the cr9 zero region.
+        mask_data = build_border_mask_data()
         state.xmem.write_address(MASK_BASE_ADDR, mask_data)
 
         # CR15 dstructure: partition so each partition group is exactly one
@@ -276,12 +273,12 @@ class ConvUniversalApp(IpuApp):
 
         # Constants used by the asm. CR0 is the read-only zero constant (master ISA),
         # which the asm now uses for "SET lr<n> cr0".
-        state.regfile.set_cr(12, 128)
-        state.regfile.set_cr(13, 256)
+        state.regfile.set_cr(12, CHUNK_BYTES)        # 128
+        state.regfile.set_cr(13, SUPER_BLOCK_BYTES)  # 256
         # cr14 = end-of-9 walking-pointer step: brings lr_walk from this ch's
         # tap-9 offset (lr_read + cols + 1) to next ch's tap-1 offset
-        # ((lr_read + 256) - cols - 1), i.e. +(256 - 2*cols - 2).
-        state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
+        # ((lr_read + SUPER_BLOCK_BYTES) - cols - 1), i.e. +(SUPER_BLOCK_BYTES - 2*cols - 2).
+        state.regfile.set_cr(14, (SUPER_BLOCK_BYTES - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

@@ -11,7 +11,11 @@ clamps — NOT torch's scale/zero-point quantized ops, which model a different
 This complements the numpy ipu-math oracle in test_conv_universal_bn_activation
 by checking the convolution math against an independent framework.
 
-Skipped automatically if torch is not installed.
+CI status: this test is a **local-only cross-check** and is NOT CI-gated. The
+CI environment does not install ``torch``, so ``importorskip`` skips it there,
+and it is deliberately omitted from the Bazel ``BUILD`` test targets. The
+numpy ipu-math reference test (``test_conv_universal_bn_activation.py``) is the
+CI gate for this app; run this PyTorch cross-check locally with torch installed.
 """
 
 from __future__ import annotations

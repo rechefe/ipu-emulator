@@ -13,14 +13,19 @@ from typing import TYPE_CHECKING, Union
 
 from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import dump_xmem_to_binary
+from ipu_emu.ipu_config import DEFAULT_VALID_ELEMENTS
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-# -- Shared constants --------------------------------------------------------
+# -- Shared constants (derived from IPU architecture parameters) -------------
 
-CHUNK_BYTES = 128
-ACC_CHUNK_BYTES = 512  # 128 lanes × 4 bytes (INT32 accumulator)
+# One output chunk holds DEFAULT_VALID_ELEMENTS lanes at 1 byte/lane (INT8/FP8).
+CHUNK_BYTES = DEFAULT_VALID_ELEMENTS                 # 128
+INT32_ELEMENT_BYTES = 4
+ACC_CHUNK_BYTES = CHUNK_BYTES * INT32_ELEMENT_BYTES  # 512 (INT32 accumulator)
+# Mask register: one 128-bit slot per CHUNK_BYTES lanes, packed 8 lanes/byte.
+MASK_SLOT_BYTES = CHUNK_BYTES // 8                   # 16
 
 # -- Shared dtype parsing ----------------------------------------------------
 
@@ -48,8 +53,8 @@ def parse_dtype(dtype: Union[str, DType]) -> DType:
 
 # -- Shared mask builder (universal 3x3 conv / depthwise) --------------------
 
-def build_border_mask_data(cols: int) -> bytes:
-    """Build the 128-byte mask register data (mask-shift scheme).
+def build_border_mask_data() -> bytes:
+    """Build the mask register data for the conv_universal mask-shift scheme.
 
     Mask polarity (matches upstream ``_mult_mask_and_shift``): a mask bit of
     **1 KEEPS** the lane, **0 ZEROES** it.
@@ -68,12 +73,12 @@ def build_border_mask_data(cols: int) -> bytes:
       slot 0: all ones  -> KEEP every lane (the only slot used; kc via shift)
       slots 1-7: unused (left zero)
 
-    ``cols`` is retained for API/signature stability (callers still pass it) but
-    no longer affects the slot contents.
+    The mask content is independent of ``cols`` (the shift handles columns), so
+    this takes no parameters.
     """
-    mask = bytearray(128)
+    mask = bytearray(CHUNK_BYTES)
     # slot 0: all ones -> keep every lane (shift applies the kc edge zero)
-    for byte_idx in range(0, 16):
+    for byte_idx in range(MASK_SLOT_BYTES):
         mask[byte_idx] = 0xFF
     return bytes(mask)
 
