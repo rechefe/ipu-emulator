@@ -1065,9 +1065,29 @@ class Ipu:
                 struct.pack_into("<f", post_buf, i * 4, float(y))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
-        """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
+        """Store **POST_AAQ_REG** to XMEM, at the active mode's element width.
+
+        The store width tracks the only stage that narrows lanes, ``AAQ``:
+
+        - **INT8 (narrow) mode**: ``AAQ`` has packed the 128 quantized INT8 lanes
+          into ``post_aaq_reg[0:128]`` (the trailing 384 bytes are zero). The
+          INT8 output is therefore exactly **128 bytes** (1 byte/lane), so only
+          those are written. This lets a result round-trip as a 128-byte input
+          load (``LDR_MULT_REG``) for a later compute pass. Run ``AAQ`` first.
+
+        - **Wide-vector debug mode** (FP32 / INT32 analysis, e.g. softmax or FP8
+          multi-pass): lanes stay 4 bytes wide (``AAQ`` is a no-op) and the full
+          **512 bytes** are written, matching the 4-byte/lane element width that
+          a wide-mode ``LDR_MULT_REG`` reads back.
+        """
         addr = offset + base
-        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
+        post_aaq = self.state.regfile.raw("post_aaq_reg")
+        if self.state.dtype == DType.INT8 and not self._wide_vector_active():
+            # INT8 narrow mode: drain only the 128 packed INT8 bytes from AAQ.
+            self.state.xmem.write_address(addr, bytes(post_aaq[:128]))
+        else:
+            # Wide-vector / non-INT8: 4-byte lanes; write the full 512 bytes.
+            self.state.xmem.write_address(addr, bytes(post_aaq))
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
