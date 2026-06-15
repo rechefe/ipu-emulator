@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
@@ -43,14 +42,12 @@ def get_operand_type_bits() -> dict[str, int]:
     """Return the bit-width for each operand type string used in instruction_spec."""
     lr_count: int = REGISTER_DEFINITIONS["lr"]["count"]
     cr_count: int = REGISTER_DEFINITIONS["cr"]["count"]
-    aaq_count: int = REGISTER_DEFINITIONS["aaq"]["count"]
 
     return {
         "MultStageReg": 2,  # MultStageRegField overrides bits() → 2
         "LrIdx": (lr_count - 1).bit_length(),
         "CrIdx": (cr_count - 1).bit_length(),
         "LcrIdx": (lr_count + cr_count - 1).bit_length(),
-        "AaqRegIdx": (aaq_count - 1).bit_length(),
         "AddSubSrcB": 6,  # 6-bit: 0-31 register codes, 32-63 IMM5
         "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
         "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
@@ -59,9 +56,8 @@ def get_operand_type_bits() -> dict[str, int]:
         "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),
         "HorizontalStride": _enum_bits(HORIZONTAL_STRIDE_NAMES),
         "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
-        "AggMode": _enum_bits(AGG_MODE_NAMES),
-        "PostFn": _enum_bits(POST_FN_NAMES),
         "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
+        "FullXmemRow": 1,
     }
 
 

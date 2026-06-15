@@ -19,7 +19,6 @@ src/tools/
 ├── ipu-common/src/ipu_common/    # Shared definitions (single source of truth)
 │   ├── instruction_spec.py       # ALL instruction definitions live here
 │   ├── registers.py              # ALL register definitions live here
-│   ├── acc_agg_enums.py          # Aggregation mode / post-function enums
 │   ├── acc_stride_enums.py       # Stride control enums
 │   └── types.py                  # RegDtype, RegKind, RegDescriptor
 ├── ipu-as-py/src/ipu_as/         # Assembler
@@ -33,7 +32,7 @@ src/tools/
 │   ├── execute.py                # VLIW decode + dispatch
 │   ├── regfile.py                # Register file
 │   ├── xmem.py                   # 2 MB external memory
-│   ├── ipu_math.py               # Typed math (INT8, FP8_E4M3, FP8_E5M2)
+│   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
 │   └── debug_cli.py              # Interactive debugger
 └── ipu-apps/src/ipu_apps/        # Sample applications
     └── fully_connected/          # FC neural network layer example
@@ -70,7 +69,7 @@ Every cycle executes one **compound instruction** — multiple independent slots
 LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
-- Slots: `break`, `xmem`, `mult`, `acc`, `aaq`, `lr` (×3), `cond`
+- Binary layout (MSB → LSB): `cond`, `lr` (×3), `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break`
 - Separated by `;`, terminated by `;;`
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
@@ -83,27 +82,28 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | `R_CYCLIC` | 512 bytes | Cyclic-access variant of `R0` |
 | `R_MASK` | 128 bytes | Bit mask register |
 | `R_ACC` | 512 bytes (128×INT32) | Accumulator |
-| `AAQ0`–`AAQ3` | 32-bit each | Activation & Quantization results |
 | `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
 | `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
 
-`CR15` is reserved for data type selection (INT8 / FP8_E4M3 / FP8_E5M2).
+`CR15` is reserved for the dstructure configuration register (`valid_elements` and `partition`). Data type selection lives on `IpuState.dtype` in the Python emulator.
 
 ### Instruction Slots
 
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
-| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `STR_POST_AAQ_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
-| MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
-| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into `R_ACC` |
-| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | **`AGG`** uses **`R_ACC`**. **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
+| LOAD | `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG` | First-stage memory loads (feeds multiply) |
+| STORE | `STR_POST_AAQ_REG` | Last-stage memory store (drains `POST_AAQ_REG`) |
+| ACC_STORE | `STR_ACC_REG` | **Simulation-only** — store `R_ACC` to external memory |
+| MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.EE.RR` | 8-bit vector multiply |
+| ACC | `ACC`, `ACC.FIRST`, `ACC.STRIDE`, `RESET_ACC`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST` | Accumulate into `R_ACC`; in-place aggregation (sum/max) writing a single slot of `R_ACC` |
+| AAQ | `AAQ`, `ACTIVATE` | **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
 | LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`CR`** register) |
 | COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `FullXmemRow`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
 
 ---
 
@@ -113,7 +113,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
    ```python
    "MY_INST": {
        "operands": [
-           {"name": "dest", "type": "AaqRegIdx"},
+           {"name": "dest", "type": "LrIdx", "read": "snapshot"},
            {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
        ],
        "doc": InstructionDoc(summary="...", ...),
@@ -124,7 +124,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 2. **Implement the handler in `ipu.py`:**
    ```python
    def execute_my_inst(self, *, dest: int, src: bytearray) -> None:
-       # dest is resolved to an index; src is the register bytes
+       # dest is resolved to the LR value; src is the register bytes
        ...
    ```
    - Use `*,` (keyword-only args)
@@ -149,8 +149,8 @@ def _run(asm_code: str) -> IpuState:
     return state
 
 def test_my_instruction():
-    state = _run("MY_INST AAQ0 R0;;")
-    assert state.regfile.get_aaq(0) == expected
+    state = _run("MY_INST LR0 R0;;")
+    assert state.regfile.get_lr(0) == expected
 ```
 
 Bazel test targets:
@@ -216,6 +216,6 @@ Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.
 - **Never duplicate instruction metadata** — assembler and emulator both read `instruction_spec.py`
 - **Operand names in `execute_*` must exactly match** the names in `instruction_spec.py`
 - **Read-before-write**: slots with `"read": "snapshot"` see pre-cycle register values
-- **`CR15`** is reserved — never use it for application data
+- **`CR15`** is reserved for dstructure configuration — never use it for application data
 - The build system is **Bazel** — use `bazel build/test/run`, not pip/python directly
-- Data types (INT8, FP8_E4M3, FP8_E5M2) affect how register bytes are interpreted in math ops
+- Data types (`DType.INT8`, `DType.E4`, `DType.E5`, etc.) affect how register bytes are interpreted in math ops

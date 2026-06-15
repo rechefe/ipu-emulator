@@ -15,7 +15,6 @@ from ipu_common.acc_stride_enums import (
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
-from ipu_common.acc_agg_enums import AGG_MODE_NAMES, POST_FN_NAMES
 
 
 class LrModPow2KImmediate(ipu_token.IpuToken):
@@ -102,21 +101,9 @@ from ipu_common.activations import ACTIVATION_FN_NAMES
 class ActivationFnField(ipu_token.EnumToken):
     """Activation keyword for ``ACTIVATE`` (names from ``ACTIVATION_FN_NAMES``)."""
 
-    _TOKEN_ALIASES: dict[str, str] = {"swish": "silu"}
-
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(ACTIVATION_FN_NAMES)
-
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        raw = token.token.value.lower()
-        if raw in self._TOKEN_ALIASES:
-            t = token.token
-            token = ipu_token.AnnotatedToken(
-                lark.Token(t.type, self._TOKEN_ALIASES[raw], t.line, t.column),
-                token.instr_id,
-            )
-        super().__init__(token)
 
 
 # Encoding matches LcrIdx for register indices 0–31; values ≥32 encode IMM5 (payload in low 5 bits).
@@ -144,6 +131,10 @@ class AddSubSrcBField(ipu_token.IpuToken):
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         raw = self.token.value.lower()
+        if raw == "cr15":
+            self._raise_error(
+                "CR15 is reserved for dstructure configuration and cannot be used as an ISA operand"
+            )
         if raw in _ADD_SUB_SRC_B_REGS:
             self._encoded = _ADD_SUB_SRC_B_REGS.index(raw)
             return
@@ -151,7 +142,7 @@ class AddSubSrcBField(ipu_token.IpuToken):
             imm = int(self.token.value, 0)
         except ValueError:
             self._raise_error(
-                "Expected lr0–lr15, cr0–cr15, or an unsigned 5-bit immediate (0–31)"
+                "Expected lr0–lr15, cr0–cr14, or an unsigned 5-bit immediate (0–31)"
             )
         if not (0 <= imm <= 31):
             self._raise_error(f"Immediate operand must be in range [0, 31], got {imm}")
@@ -193,20 +184,29 @@ class VerticalStrideField(ipu_token.EnumToken):
         return list(VERTICAL_STRIDE_NAMES)
 
 
-# ---------------------------------------------------------------------------
-# acc.agg operand enums (instruction-specific)
-# Single source of truth: ipu_common.acc_agg_enums
-# ---------------------------------------------------------------------------
+class FullXmemRowField(ipu_token.IpuToken):
+    """1-bit flag on AAQ: 1=always 128 elements (full row), 0=use CR15.valid_elements."""
 
-class AggModeField(ipu_token.EnumToken):
-    """Aggregation mode: sum or max."""
     @classmethod
-    def enum_array(cls) -> list[str]:
-        return list(AGG_MODE_NAMES)
+    def bits(cls) -> int:
+        return 1
 
-
-class PostFnField(ipu_token.EnumToken):
-    """Post function: value, value_cr, inv, inv_sqrt."""
     @classmethod
-    def enum_array(cls) -> list[str]:
-        return list(POST_FN_NAMES)
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        if self.int not in (0, 1):
+            self._raise_error("full_xmem_row must be 0 or 1")
+
+    def encode(self) -> int:
+        return self.int
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return str(value & 1)

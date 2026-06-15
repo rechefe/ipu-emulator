@@ -14,6 +14,43 @@ Each IPU application is a subpackage under `ipu_apps/` containing:
 
 Everything lives together in one directory.
 
+## Configure the IPU before execution
+
+Application setup is responsible for loading data and selecting the IPU
+configuration that the assembly program reads. Keep this in the Python
+`setup()` hook so assembly remains focused on compute instructions. See
+[IPU Configuration](ipu-configuration.md) for the full register layout.
+
+```python
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_emu.ipu_math import DType
+
+def setup(self, state: IpuState) -> None:
+    # dtype is emulator-only state, not a CR register.
+    state.dtype = DType.INT8
+
+    # CR15 dstructure: AGG.*, ACTIVATE, and AAQ read this when full_xmem_row=0.
+    state.set_cr_dstructure(valid_elements=128, partition=0)
+
+    # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
+    state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+    state.regfile.set_cr(3, 128)  # stride
+    state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)
+
+    # LR/CR values are 20-bit scalars; mask wrapped constants explicitly.
+    state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
+```
+
+In assembly, the selected dstructure lane count is implicit when
+`full_xmem_row=0`:
+
+```asm
+AGG.SUM LR0, 0;;
+ACTIVATE relu, 0;;
+```
+
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the explicit `full_xmem_row` operand — `0` reads from `CR15.valid_elements`, `1` always uses 128 lanes.
+
 ## Wide-vector debug mode (optional)
 
 The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
@@ -22,26 +59,26 @@ The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 
 
 The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same twelve activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE LR0 relu;;
+ACTIVATE relu, 0;;
 ```
 
-- **Syntax:** `ACTIVATE` *valid_elements* *activation_fn*, where *valid_elements* is an `LR`/`CR` selector (same lane-count semantics as `AGG`) and *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `leaky_relu`, `sigmoid`, `tanh`, `gelu`, `silu`, `softplus`, `elu`, `prelu`, `exp2`). The assembler also accepts **`swish`** as an alias for **`silu`**.
+- **Syntax:** `ACTIVATE activation_fn, full_xmem_row`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). With `full_xmem_row=0` the active lane count comes from `CR15.valid_elements`, the same implicit dstructure field used by the `AGG.*` instructions; `full_xmem_row=1` always uses all 128 lanes.
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
-- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`AGG`** / **`AGG.FIRST`** still reduce **`R_ACC`**; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
+- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
 - **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated lanes into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same lane layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
 - **`AAQ`** (INT8 mode) quantizes the **wide lanes currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide lanes) then **`AAQ`** (quantize in place into the same register’s byte prefix).
 - **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
-### Virtual α in the emulator (leaky_relu, elu, prelu)
+### Virtual α in the emulator (elu)
 
-The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (fields `leaky_relu_alpha`, `elu_alpha`, `prelu_alpha`). If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_LEAKY_ALPHA`, `DEFAULT_ELU_ALPHA`, `DEFAULT_PRELU_ALPHA`).
+The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (field `elu_alpha`). If you do not set it, it is initialized from the default float in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`).
 
 Configure α the same way you think about dtype on state — **not via CR**:
 
@@ -49,24 +86,24 @@ Configure α the same way you think about dtype on state — **not via CR**:
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_test
 
-state = IpuState(leaky_relu_alpha=0.05, elu_alpha=1.0, prelu_alpha=0.3)
+state = IpuState(elu_alpha=1.0)
 # or after construction:
-state.set_activation_alphas(leaky_relu_alpha=0.05)
+state.set_activation_alphas(elu_alpha=1.0)
 
 # High-level harness (optional kwargs mirror IpuState):
 state, cycles = run_test(
     inst_path="prog.bin",
     setup=my_setup,
-    leaky_relu_alpha=0.05,
+    elu_alpha=1.0,
 )
 ```
 
 Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
 
 ```python
-app = MyApp(inst_path="prog.bin", leaky_relu_alpha=0.05)
-state, cycles = app.run()  # uses 0.05
-state, cycles = app.run(leaky_relu_alpha=0.1)  # uses 0.1 for this run
+app = MyApp(inst_path="prog.bin", elu_alpha=1.0)
+state, cycles = app.run()  # uses 1.0
+state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
 ```
 
 Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) when you need different α values in the same process.
@@ -422,6 +459,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 
@@ -442,8 +480,8 @@ def parse_dtype(dtype_str: str) -> DType:
     """Parse a dtype string into a DType enum value."""
     dtype_map = {
         "INT8": DType.INT8,
-        "FP8_E4M3": DType.FP8_E4M3,
-        "FP8_E5M2": DType.FP8_E5M2,
+        "FP8_E4M3": DType.E4,
+        "FP8_E5M2": DType.E5,
     }
     dt = dtype_map.get(dtype_str)
     if dt is None:
@@ -496,13 +534,13 @@ class FullyConnectedApp(IpuApp):
 
     def setup(self, state: "IpuState") -> None:
         """Load inputs and weights, set control registers."""
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
+        state.set_cr_dstructure(valid_elements=INPUT_NEURONS, partition=0)
         load_binary_to_xmem(
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
         )
         _load_and_transpose_weights(state, self.weights_path)
-        state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
+        # CR0 is permanently 0; CR1 is permanently 1.
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, 128)
         state.regfile.set_cr(4, 1)
@@ -511,8 +549,8 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(6, 0)
         state.regfile.set_cr(7, 1280)
         state.regfile.set_cr(8, 0)
-        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
-        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
+        state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
+        state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)
         state.regfile.set_cr(11, 127)
         state.regfile.set_cr(12, 0)
 
@@ -575,7 +613,7 @@ if __name__ == "__main__":
 **Key observations:**
 - The `setup()` method transcodes weights (transpose for cache efficiency) and loads both inputs and weights into XMEM
 - Control registers point the assembly code to the base addresses: `CR0=inputs`, `CR1=weights_transposed`, `CR2=outputs`
-- The dtype is configurable (INT8, FP8_E4M3, FP8_E5M2) and passed to the IPU state
+- The dtype is configurable (for example INT8, FP8_E4M3, FP8_E5M2), parsed to `DType`, and copied to `IpuState.dtype`
 - The assembly program is written to operate on transposed weights for better performance
 - All paths are resolved by Bazel and passed via environment variables
 

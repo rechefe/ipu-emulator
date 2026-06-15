@@ -1,6 +1,14 @@
+import warnings
+
 import ipu_as.inst as inst
 import ipu_as.utils as utils
-from ipu_common.instruction_spec import SLOT_COUNT
+from ipu_common.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+    is_hardware_slot,
+)
+from ipu_common.union_layout_svg import render_union_layout_svg
 
 
 INST_SEPARATOR = ";"
@@ -48,6 +56,13 @@ class CompoundInst:
                         f"Too many instructions of type {inst_type.__name__} (max {available_slots})\n"
                         f"At: {instruction['opcode'].get_location_string()}"
                     )
+
+            if not is_hardware_slot(inst_type._slot_type_name()):
+                warnings.warn(
+                    f"{instruction['opcode'].token.value} uses the simulation-only "
+                    f"{inst_type._slot_type_name()} slot (not implemented in real IPU hardware)",
+                    stacklevel=4,
+                )
         return address
 
     def _fill_out_nop(self, address: int):
@@ -58,23 +73,22 @@ class CompoundInst:
 
     @classmethod
     def instruction_types(cls) -> list[type[inst.Inst]]:
-        # Define the instruction slots in order (with duplicates for multiple instances)
-        # Order matters for encoding/decoding
-        # BreakInst is first to ensure it runs before any side effects
-        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth)
+        # Instruction slots in MSB → LSB list order (encode places the last entry at LSB).
+        # Execution order (break first, then LR, …) is handled in ipu.py, not here.
+        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth).
         _slot_to_inst = {
-            "break": inst.BreakInst,
-            "xmem": inst.XmemInst,
+            "cond": inst.CondInst,
+            "lr": inst.LrInst,
+            "load": inst.LoadInst,
+            "store": inst.StoreInst,
+            "acc_store": inst.AccStoreInst,
             "mult": inst.MultInst,
             "acc": inst.AccInst,
             "aaq": inst.AaqInst,
-            "lr": inst.LrInst,
-            "cond": inst.CondInst,
+            "break": inst.BreakInst,
         }
-        # Order defines bit layout: break, xmem, mult, acc, aaq, lr(×N), cond (N = SLOT_COUNT["lr"])
-        _slot_order = ["break", "xmem", "mult", "acc", "aaq", "lr", "cond"]
         result = []
-        for slot in _slot_order:
+        for slot in COMPOUND_LAYOUT_SLOT_ORDER:
             result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
         return result
 
@@ -147,16 +161,40 @@ class CompoundInst:
         return list(reversed(fields))
 
     @classmethod
-    def generate_fields_svg(cls) -> str:
+    def generate_union_layout_svg(cls) -> str:
+        """Render the per-slot union field layout as inline SVG.
+
+        Slot order matches the binary layout (MSB → LSB) so the picture lines
+        up with what an encoded VLIW word looks like in memory.  Multiplicity
+        (e.g. ``lr`` ×3) is annotated in each slot's title.
         """
-        Generate an SVG visualization of instruction fields organized in 32-bit rows.
-        Shows bits from bottom to top: Row 0 (31:0), Row 1 (63:32), Row 2 (95:64), Row 3 (127:96)
-        Each instruction type gets a unique color.
+        seen: list[str] = []
+        slot_counts: dict[str, int] = {}
+        for inst_type in cls.instruction_types():
+            slot = inst_type._slot_type_name()
+            if slot not in slot_counts:
+                seen.append(slot)
+            slot_counts[slot] = slot_counts.get(slot, 0) + 1
+        return render_union_layout_svg(
+            SLOT_UNIONS,
+            slot_order=seen,
+            slot_counts=slot_counts,
+        )
+
+    @classmethod
+    def generate_struct_layout_svg(cls) -> str:
+        """Render the full compound-instruction word as bit rows of 32.
+
+        Shows every operand token in its actual bit position, coloured by the
+        owning slot.  Complements ``generate_union_layout_svg`` by giving the
+        whole-word picture (what an encoded VLIW word looks like in memory)
+        without folding cross-opcode field sharing.
         """
-        # Single source of truth: instruction type → (color, display label)
         legend_entries = [
             (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
-            (inst.XmemInst, "#FF6B6B", "XmemInst (Extended Memory)"),
+            (inst.LoadInst, "#FF6B6B", "LoadInst (Memory Load)"),
+            (inst.StoreInst, "#E74C3C", "StoreInst (Memory Store)"),
+            (inst.AccStoreInst, "#C0392B", "AccStoreInst (STR_ACC_REG, simulation-only)"),
             (inst.MultInst, "#4ECDC4", "MultInst (Multiply)"),
             (inst.AccInst, "#45B7D1", "AccInst (Accumulator)"),
             (inst.AaqInst, "#9B59B6", "AaqInst (Activation and Quantization)"),
@@ -166,48 +204,36 @@ class CompoundInst:
         color_map = {inst_type: color for inst_type, color, _ in legend_entries}
 
         inst_types_list = cls.instruction_types()
-        
-        # Build list of fields with their bit positions
+
         fields_with_positions = []
         current_bit = 0
-        
-        # Iterate through instructions in reverse order (to match encoding: last inst at LSB)
         for inst_type in reversed(inst_types_list):
-            all_tokens = inst_type.all_tokens()
-            # Iterate through tokens in reverse order (to match encoding: opcode at MSB of instruction)
-            for token_type in reversed(all_tokens):
+            for token_type in reversed(inst_type.all_tokens()):
                 token_bits = token_type.bits()
                 token_name = utils.camel_case_to_snake_case(token_type.__name__)
-                display_name = _smart_abbreviate_field_name(token_name, 0)
-                
                 fields_with_positions.append({
-                    "name": display_name,
+                    "name": _smart_abbreviate_field_name(token_name),
                     "bits": token_bits,
                     "start_bit": current_bit,
                     "end_bit": current_bit + token_bits - 1,
                     "color": color_map.get(inst_type, "#CCCCCC"),
-                    "token_type": inst_type.__name__,
                 })
                 current_bit += token_bits
-        
-        # SVG dimensions and styling
-        bits_per_width = 24  # pixels per bit (doubled for wider layout)
-        row_height = 80  # Increased to fit multiple text lines
+
+        bits_per_width = 24
+        row_height = 80
         padding = 20
-        row_width = 32 * bits_per_width  # 32 bits per row
+        row_width = 32 * bits_per_width
         font_size_title = 14
         font_size_label = 8
         font_size_bits = 7
-        
         total_bits = cls.bits()
-        num_rows = (total_bits + 31) // 32  # Round up to nearest 32
-        
-        # Calculate height with space for color legend
-        legend_height = 20 + len(legend_entries) * 15  # header line + one row per legend entry
-        svg_width = row_width + padding * 2 + 80  # Extra space for bit labels
+        num_rows = (total_bits + 31) // 32
+
+        legend_height = 20 + len(legend_entries) * 15
+        svg_width = row_width + padding * 2 + 80
         svg_height = (num_rows * row_height) + font_size_title * 4 + padding * 3 + legend_height
 
-        # Start building SVG
         svg_lines = [
             f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">',
             '  <defs>',
@@ -219,228 +245,113 @@ class CompoundInst:
             '    </style>',
             '  </defs>',
             f'  <rect x="0" y="0" width="{svg_width}" height="{svg_height}" fill="white" stroke="none"/>',
-        ]
-
-        # Add title
-        svg_lines.append(
             f'  <text x="{svg_width/2}" y="{padding + font_size_title}" '
             f'text-anchor="middle" class="inst-title">'
-            f'{cls.__name__} Layout - {cls.bits()} total bits</text>'
-        )
+            f'{cls.__name__} Layout - {cls.bits()} total bits</text>',
+        ]
 
-        # Draw rows from top to bottom (highest bits first)
         for row_idx in range(num_rows - 1, -1, -1):
             row_start_bit = row_idx * 32
             row_end_bit = min(row_start_bit + 31, total_bits - 1)
             display_row_idx = num_rows - 1 - row_idx
-            
             current_y = padding + font_size_title * 2.5 + (display_row_idx * row_height)
             current_x = padding + 60
-            
-            # Draw row background and label
             svg_lines.append(
                 f'  <rect x="{current_x}" y="{current_y}" '
                 f'width="{row_width}" height="{row_height}" '
                 f'fill="white" stroke="black" stroke-width="2"/>'
             )
-            
-            # Add bit range label on the left
             svg_lines.append(
                 f'  <text x="{padding + 30}" y="{current_y + row_height/2 + font_size_label/2}" '
                 f'text-anchor="end" class="bit-range">[{row_end_bit}:{row_start_bit}]</text>'
             )
-            
-            # Add bit position labels across the top (right-to-left: high bits on left)
+
             bit_label_y = current_y + 12
-            
-            # For partial rows, shift them to the right to align with full rows
             bits_in_row = row_end_bit - row_start_bit + 1
             row_offset = (32 - bits_in_row) * bits_per_width
-            
             for bit_pos in range(row_end_bit, row_start_bit - 1, -1):
-                # Centered positioning: center the number in each bit's space, right-aligned with offset
                 bit_x = current_x + row_offset + (row_end_bit - bit_pos + 0.5) * bits_per_width
                 svg_lines.append(
                     f'  <text x="{bit_x}" y="{bit_label_y}" text-anchor="middle" '
                     f'class="field-label" style="font-size: 6px; fill: #000000; font-weight: bold;">{bit_pos}</text>'
                 )
-            
-            # Draw fields in this row
+
             for field in fields_with_positions:
-                if field["start_bit"] <= row_end_bit and field["end_bit"] >= row_start_bit:
-                    # Calculate position within row (right-to-left: high bits on left, low bits on right)
-                    field_start = max(field["start_bit"], row_start_bit)
-                    field_end = min(field["end_bit"], row_end_bit)
-                    
-                    # Reverse positioning with consistent bits_per_width and row offset for partial rows
-                    field_width_px = (field_end - field_start + 1) * bits_per_width
-                    field_x = current_x + row_offset + (row_end_bit - field_end) * bits_per_width
-                    
-                    # Draw field block
-                    svg_lines.append(
-                        f'  <rect x="{field_x}" y="{current_y}" '
-                        f'width="{field_width_px}" height="{row_height}" '
-                        f'fill="{field["color"]}" stroke="black" stroke-width="1" opacity="0.85"/>'
-                    )
-                    
-                    # Add field label with text wrapping support
-                    field_center_x = field_x + field_width_px / 2
-                    field_center_y = current_y + row_height / 2
-                    
-                    # Split field name into words - put one word per line for consistency
-                    words = field["name"].split()
-                    text_lines = []
-                    
-                    # Create consistent wrapping: one word per line
-                    for word in words:
-                        # Further split long words (e.g., "stage_reg_r" is already split, but handle others)
-                        if len(word) > 10:
-                            # Abbreviate very long words
-                            if word.startswith('immediate'):
-                                text_lines.append('imm')
-                            elif word.startswith('opcode'):
-                                text_lines.append('op')
-                            elif word.startswith('stage'):
-                                text_lines.append('stg')
-                            else:
-                                text_lines.append(word[:5])
+                if field["start_bit"] > row_end_bit or field["end_bit"] < row_start_bit:
+                    continue
+                field_start = max(field["start_bit"], row_start_bit)
+                field_end = min(field["end_bit"], row_end_bit)
+                field_width_px = (field_end - field_start + 1) * bits_per_width
+                field_x = current_x + row_offset + (row_end_bit - field_end) * bits_per_width
+                svg_lines.append(
+                    f'  <rect x="{field_x}" y="{current_y}" '
+                    f'width="{field_width_px}" height="{row_height}" '
+                    f'fill="{field["color"]}" stroke="black" stroke-width="1" opacity="0.85"/>'
+                )
+                field_center_x = field_x + field_width_px / 2
+                field_center_y = current_y + row_height / 2
+
+                text_lines = []
+                for word in field["name"].split():
+                    if len(word) > 10:
+                        if word.startswith('immediate'):
+                            text_lines.append('imm')
+                        elif word.startswith('opcode'):
+                            text_lines.append('op')
+                        elif word.startswith('stage'):
+                            text_lines.append('stg')
                         else:
-                            text_lines.append(word)
-                    
-                    # Render text lines centered vertically
-                    line_height = 11
-                    total_text_height = len(text_lines) * line_height
-                    start_y = field_center_y - total_text_height / 2
-                    
-                    for i, line in enumerate(text_lines):
-                        svg_lines.append(
-                            f'  <text x="{field_center_x}" y="{start_y + i * line_height}" '
-                            f'text-anchor="middle" class="field-label">'
-                            f'{line}</text>'
-                        )
-                    
-                    # Add bit range label at bottom
-                    bit_label_y = field_center_y + total_text_height / 2 + 3
+                            text_lines.append(word[:5])
+                    else:
+                        text_lines.append(word)
+
+                line_height = 11
+                total_text_height = len(text_lines) * line_height
+                start_y = field_center_y - total_text_height / 2
+                for i, line in enumerate(text_lines):
                     svg_lines.append(
-                        f'  <text x="{field_center_x}" y="{bit_label_y}" '
-                        f'text-anchor="middle" class="field-label" style="font-weight: bold;">'
-                        f'[{field["end_bit"]}:{field["start_bit"]}]</text>'
+                        f'  <text x="{field_center_x}" y="{start_y + i * line_height}" '
+                        f'text-anchor="middle" class="field-label">{line}</text>'
                     )
-        
-        # Add color legend at the bottom of the SVG
+                svg_lines.append(
+                    f'  <text x="{field_center_x}" y="{field_center_y + total_text_height / 2 + 3}" '
+                    f'text-anchor="middle" class="field-label" style="font-weight: bold;">'
+                    f'[{field["end_bit"]}:{field["start_bit"]}]</text>'
+                )
+
         legend_y = padding + font_size_title * 2.5 + (num_rows * row_height) + 20
-        svg_lines.append(f'  <text x="{padding + 60}" y="{legend_y}" class="inst-label" style="font-weight: bold;">Instruction Type Colors:</text>')
-        
-        legend_item_y = legend_y + 15
-        legend_item_height = 15
+        svg_lines.append(
+            f'  <text x="{padding + 60}" y="{legend_y}" class="inst-label" '
+            f'style="font-weight: bold;">Instruction Type Colors:</text>'
+        )
         color_box_size = 12
-        
         for i, (_, color, label) in enumerate(legend_entries):
             x_pos = padding + 60
-            y_pos = legend_item_y + (i * legend_item_height)
-            
-            # Draw color box
+            y_pos = legend_y + 15 + i * 15
             svg_lines.append(
                 f'  <rect x="{x_pos}" y="{y_pos - color_box_size + 2}" '
                 f'width="{color_box_size}" height="{color_box_size}" '
                 f'fill="{color}" stroke="black" stroke-width="1" opacity="0.85"/>'
             )
-            
-            # Add label
             svg_lines.append(
                 f'  <text x="{x_pos + color_box_size + 8}" y="{y_pos + 2}" '
                 f'class="field-label" style="font-size: 9px;">{label}</text>'
             )
-        
-        svg_lines.append('</svg>')
 
+        svg_lines.append('</svg>')
         return '\n'.join(svg_lines)
 
 
-def _smart_abbreviate_field_name(name: str, available_width_px: float) -> str:
-    """
-    Format field names for display by converting class names to readable labels.
-    For example: AccInstOpcode -> Acc Inst Opcode
-    """
-    # Remove "Field" suffix if present
+def _smart_abbreviate_field_name(name: str) -> str:
+    """Convert a snake_case token-class name into a readable space-separated label."""
+    import re
+
     if name.endswith("_field"):
         name = name[:-6]
     if name.endswith("_type"):
         name = name[:-5]
-    
-    # Convert snake_case to Title Case
-    # First handle the case where we have camelCase embedded in snake_case
-    parts = name.split('_')
-    formatted_parts = []
-    
-    for part in parts:
-        # Split camelCase into separate words
-        import re
-        # Insert space before uppercase letters (camelCase handling)
+    formatted_parts: list[str] = []
+    for part in name.split('_'):
         words = re.findall('[A-Z][a-z]*|[a-z]+', part)
-        if words:
-            formatted_parts.extend(words)
-        else:
-            formatted_parts.append(part)
-    
-    # Join with spaces and title case
-    display_name = ' '.join(formatted_parts)
-    
-    return display_name
-
-
-def _create_multiline_text_elements(
-    text: str, center_x: float, start_y: float, line_height: int, font_size: int, 
-    max_width_px: float, bold: bool = False
-) -> list[str]:
-    """
-    Create multiple text elements for a string that needs to wrap across multiple lines.
-    Returns list of SVG text element strings.
-    """
-    # Estimate characters per line (roughly 6-7 pixels per character at 6px font)
-    chars_per_line = max(2, int(max_width_px / 5.5))
-    
-    # Split text into words
-    words = text.split()
-    lines = []
-    current_line = []
-    
-    for word in words:
-        test_line = ' '.join(current_line + [word])
-        if len(test_line) <= chars_per_line:
-            current_line.append(word)
-        else:
-            if current_line:
-                lines.append(' '.join(current_line))
-            current_line = [word]
-    
-    if current_line:
-        lines.append(' '.join(current_line))
-    
-    # If no space split worked, try splitting by underscore
-    if len(lines) == 1 and '_' in text:
-        words = text.split('_')
-        lines = []
-        current_line = []
-        for word in words:
-            test_line = '_'.join(current_line + [word])
-            if len(test_line) <= chars_per_line:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append('_'.join(current_line))
-                current_line = [word]
-        if current_line:
-            lines.append('_'.join(current_line))
-    
-    # Create text elements for each line - use small font
-    text_elements = []
-    for i, line in enumerate(lines):
-        y_pos = start_y + (i * line_height)
-        bold_style = "font-weight: bold;" if bold else ""
-        text_elements.append(
-            f'  <text x="{center_x}" y="{y_pos}" text-anchor="middle" '
-            f'class="field-name" style="font-size: 6px; {bold_style}">{line}</text>'
-        )
-    
-    return text_elements
+        formatted_parts.extend(words if words else [part])
+    return ' '.join(formatted_parts)

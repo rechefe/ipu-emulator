@@ -1,7 +1,12 @@
 """Tests for the union layout solver."""
 from __future__ import annotations
 
-from ipu_common.instruction_spec import INSTRUCTION_SPEC, SLOT_UNIONS
+from ipu_common.instruction_spec import (
+    INSTRUCTION_SPEC,
+    SLOT_METADATA,
+    SLOT_UNIONS,
+    is_hardware_slot,
+)
 from ipu_common.union_layout import compute_slot_layouts, get_operand_type_bits
 
 
@@ -73,5 +78,13 @@ def test_lr_slot_sharing():
 
 def test_all_slots_present():
     """All expected slots are computed."""
-    expected = {"xmem", "lr", "mult", "acc", "aaq", "cond", "break"}
+    expected = {"load", "store", "acc_store", "lr", "mult", "acc", "aaq", "cond", "break"}
     assert set(SLOT_UNIONS.keys()) == expected
+
+
+def test_acc_store_slot_marked_non_hardware():
+    """The acc_store slot is flagged simulation-only in SLOT_METADATA."""
+    assert SLOT_METADATA["acc_store"]["hardware"] is False
+    assert is_hardware_slot("load")
+    assert is_hardware_slot("store")
+    assert not is_hardware_slot("acc_store")

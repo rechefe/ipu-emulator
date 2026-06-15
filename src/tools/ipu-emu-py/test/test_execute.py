@@ -38,9 +38,7 @@ def _make_state(
     asm_code: str,
     *,
     cr: dict[int, int] | None = None,
-    leaky_relu_alpha: float | None = None,
     elu_alpha: float | None = None,
-    prelu_alpha: float | None = None,
 ) -> IpuState:
     """Assemble *asm_code* and return a ready-to-run IpuState.
 
@@ -50,11 +48,7 @@ def _make_state(
     """
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState(
-        leaky_relu_alpha=leaky_relu_alpha,
-        elu_alpha=elu_alpha,
-        prelu_alpha=prelu_alpha,
-    )
+    state = IpuState(elu_alpha=elu_alpha)
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -66,18 +60,14 @@ def _run(
     asm_code: str,
     *,
     cr: dict[int, int] | None = None,
-    leaky_relu_alpha: float | None = None,
     elu_alpha: float | None = None,
-    prelu_alpha: float | None = None,
     max_cycles: int = 100_000,
 ) -> IpuState:
     """Assemble, load, run, and return the final state."""
     state = _make_state(
         asm_code,
         cr=cr,
-        leaky_relu_alpha=leaky_relu_alpha,
         elu_alpha=elu_alpha,
-        prelu_alpha=prelu_alpha,
     )
     run_until_complete(state, max_cycles)
     return state
@@ -105,12 +95,12 @@ BKPT;;
 
     def test_direct_access(self):
         state = IpuState()
-        state.regfile.set_lr(11, 0xDEADBEEF)
-        state.regfile.set_lr(5, 0x12345678)
-        assert state.regfile.get_lr(11) == 0xDEADBEEF
-        assert state.regfile.get_lr(5) == 0x12345678
-        state.regfile.set_cr(0, 0xABCDEF00)
-        assert state.regfile.get_cr(0) == 0xABCDEF00
+        state.regfile.set_lr(11, 0xBEEF)
+        state.regfile.set_lr(5, 0x12345)
+        assert state.regfile.get_lr(11) == 0xBEEF
+        assert state.regfile.get_lr(5) == 0x12345
+        state.regfile.set_cr(2, 0xABCDE)
+        assert state.regfile.get_cr(2) == 0xABCDE
 
     def test_add_lr_lr(self):
         state = _run("""\
@@ -165,7 +155,7 @@ BKPT;;
             cr={8: 45})
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
+        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFF
 
     def test_sub_lr_lr_imm5(self):
         state = _run("""\
@@ -397,8 +387,28 @@ BKPT;;
         loaded = state.regfile.get_r_mask()
         assert loaded == bytearray(mask_data)
 
+    def test_concurrent_load_and_store_same_cycle(self):
+        """Load and store in one VLIW bundle: load resolves before store."""
+        addr = 0x1000
+        old_data = bytes([i & 0xFF for i in range(128)])
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+STR_ACC_REG lr0 cr0;;
+BKPT;;
+""",
+            cr={8: addr})
+        state.xmem.write_address(addr, old_data)
+        state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
+        run_until_complete(state)
+
+        # Load saw pre-store memory; store overwrote memory afterward.
+        assert state.regfile.get_r(0) == bytearray(old_data)
+        stored = state.xmem.read_address(addr, 512)
+        assert stored == state.regfile.get_r_acc_bytes()
+
     def test_mask_affects_multiplication(self):
-        """First 64 bits of mask set → first 64 mult_res words zeroed."""
+        """First 64 bits of mask set → first 64 mult_res words active, rest zeroed."""
         r0_data = bytes([2] * 128)
         cyclic_data = bytes([3] * 512)
         # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
@@ -432,15 +442,15 @@ BKPT;;
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
         for i in range(64):
-            assert words[i] == 0, f"word {i} should be masked to 0"
-        for i in range(64, 128):
             assert words[i] == 6, f"word {i} should be 6"
+        for i in range(64, 128):
+            assert words[i] == 0, f"word {i} should be masked to 0"
 
     def test_mask_with_shift(self):
-        """Mask index 1, shift left 16 → bits 16-47 masked out."""
+        """Mask slot 1, shift_idx=+1 → 32 bits in slot 1 shift left by 1 (bits 1–32 masked out)."""
         r0_data = bytes([5] * 128)
         cyclic_data = bytes([4] * 512)
-        # Mask index 1 is at bytes 16..31; set first 4 bytes = 32 bits
+        # Mask slot 1 is at bytes 16..31; set first 4 bytes = 32 bits (lanes 0–31 of slot 1)
         mask_data = bytearray(128)
         for i in range(16, 20):
             mask_data[i] = 0xFF
@@ -462,7 +472,7 @@ SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16, 13: 16384})
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 1, 13: 16384})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -470,12 +480,11 @@ BKPT;;
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
-        for i in range(16):
-            assert words[i] == 20, f"word {i} should be 20"
-        for i in range(16, 48):
-            assert words[i] == 0, f"word {i} should be masked to 0"
-        for i in range(48, 128):
-            assert words[i] == 20, f"word {i} should be 20"
+        assert words[0] == 0, "word 0 should be 0 (deactivated)"
+        for i in range(1, 33):
+            assert words[i] == 20, f"word {i} should be 20 (active)"
+        for i in range(33, 128):
+            assert words[i] == 0, f"word {i} should be 0 (deactivated)"
 
 
 # ============================================================================
@@ -577,7 +586,6 @@ SET lr2 cr10;;
 BKPT;;
 """,
             cr={8: 10, 9: 0, 10: 1})
-        state.regfile.set_cr(1, 20)
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 
@@ -688,7 +696,7 @@ SET lr0 cr8;;
     def test_br_cr(self):
         """br accepts a CR register as the branch target address."""
         state = _make_state("""\
-BR cr0;;
+BR cr2;;
 SET lr0 cr8;;
 BKPT;;
 br_cr_target:
@@ -700,7 +708,7 @@ BKPT;;
         target_addr = ipu_labels.get_address(
             type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
         )
-        state.regfile.set_cr(0, target_addr)
+        state.regfile.set_cr(2, target_addr)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == 1
 
@@ -720,31 +728,6 @@ class TestAccumulator:
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 0
 
-    def test_acc_add_aaq(self):
-        """ACC.ADD_AAQ adds the selected AAQ register (32-bit) to each of the 128 accumulator words."""
-        state = _make_state(
-            """\
-RESET_ACC;;
-ACC.ADD_AAQ aaq1;;
-BKPT;;
-"""
-        )
-        # INT8 dtype (cr15 = 0)
-        state.regfile.set_cr(15, DType.INT8)
-        # mult_res = 2 in each word; acc starts at 0
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 0)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        # aaq1 = 100 (added to every word)
-        state.regfile.set_aaq(1, 100)
-        run_until_complete(state)
-        # Each word should be 0 + 2 + 100 = 102
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 102, f"word {i}: expected 102, got {w}"
-
     def test_acc_first(self):
         """ACC.FIRST sets r_acc to mult_res without adding previous r_acc."""
         state = _make_state(
@@ -753,7 +736,7 @@ ACC.FIRST;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         # Pre-fill acc with garbage; ACC.FIRST should ignore it
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
@@ -764,89 +747,6 @@ BKPT;;
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 7, f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
 
-    def test_acc_add_aaq_first(self):
-        """ACC.ADD_AAQ.FIRST sets r_acc to mult_res + aaq (no previous sum)."""
-        state = _make_state(
-            """\
-ACC.ADD_AAQ.FIRST aaq2;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 3)
-        state.regfile.set_aaq(2, 10)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 13, f"word {i}: expected 13 (3+10), got {w}"
-
-    def test_acc_max(self):
-        """ACC.MAX sets r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg)."""
-        state = _make_state(
-            """\
-ACC.MAX aaq1;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        # r_acc: 1, mult_res: 2, aaq1: 3 → max(1,2,3)=3
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 1)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        state.regfile.set_aaq(1, 3)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 3, f"word {i}: expected max(1,2,3)=3, got {w}"
-
-    def test_acc_max_signed(self):
-        """ACC.MAX treats register values as signed int32; negative values compare correctly."""
-        state = _make_state(
-            """\
-ACC.MAX aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        # r_acc: -10, mult_res: 2, aaq0: 5 → max(-10, 2, 5) = 5 (signed comparison)
-        acc_buf = state.regfile.raw("r_acc")
-        for i in range(128):
-            struct.pack_into("<i", acc_buf, i * 4, -10)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 2)
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 5))[0])
-        run_until_complete(state)
-        for i in range(128):
-            val = struct.unpack_from("<i", state.regfile.raw("r_acc"), i * 4)[0]
-            assert val == 5, f"word {i}: expected max(-10, 2, 5)=5 (signed), got {val}"
-
-    def test_acc_max_first(self):
-        """ACC.MAX.FIRST sets r_acc[i] = max(mult_res[i], aaq_reg); previous r_acc ignored."""
-        state = _make_state(
-            """\
-ACC.MAX.FIRST aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 9999)  # should be ignored
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 5)
-        state.regfile.set_aaq(0, 10)
-        run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 10, f"word {i}: expected max(5,10)=10, got {w}"
-
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
         state = _make_state("""\
@@ -855,7 +755,7 @@ ACC.STRIDE 8 off off lr0;;
 BKPT;;
 """,
             cr={8: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         mult_buf = state.regfile.raw("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
@@ -872,7 +772,7 @@ ACC.STRIDE 8 on off lr0;;
 BKPT;;
 """,
             cr={8: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         mult_buf = state.regfile.raw("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
@@ -894,7 +794,7 @@ BKPT;;
 """,
             cr={8: 1})
         # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on, no expand → 64 elements.
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 0)
         mult_buf = state.regfile.raw("mult_res")
@@ -914,224 +814,267 @@ BKPT;;
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
 
-    def test_acc_agg_sum_value(self):
-        """agg sum value: sum of 128 r_acc words, identity post fn, store to aaq0."""
-        import struct
-
+    def test_agg_sum_first_basic(self):
+        """AGG.SUM.FIRST: sum all 128 lanes and write to R_ACC[dest] (clean init)."""
         state = _make_state(
             """\
-agg sum value lr1 cr0 aaq0;;
+AGG.SUM.FIRST LR0 1;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
-        # r_acc: set each word to 1, so sum = 128
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
-        state.regfile.set_aaq(0, 0)
-
         run_until_complete(state)
-        # Sum of 128 ones = 128
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 128))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 128, f"expected sum=128, got {result}"
 
-    def test_acc_agg_max_value(self):
-        """agg max value: max of 128 r_acc words and current aaq, store to aaq1."""
-        import struct
+    def test_agg_sum_first_ignores_existing_dest(self):
+        """AGG.SUM.FIRST: existing value at dest is NOT added to the result (clean initialisation).
 
+        Dest is placed outside the active lane range so its value is excluded from the sum
+        but would be added as a seed in the non-FIRST variant.
+        """
         state = _make_state(
             """\
-agg max value lr1 cr0 aaq1;;
+AGG.SUM.FIRST LR0 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
-        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 20))[0])  # 20 > 14
-
-        run_until_complete(state)
-        # Max of r_acc is 14, but aaq1 was 20, so max(..., 20) = 20
-        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 20))[0]
-
-    def test_acc_agg_max_value_updates_when_larger(self):
-        """agg max value: when r_acc has a value larger than aaq, aaq is updated."""
-        import struct
-
-        state = _make_state(
-            """\
-agg max value lr1 cr0 aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
-        state.regfile.set_r_acc_word(10, struct.unpack("<I", struct.pack("<i", 100))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
-
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
-
-    def test_acc_agg_sum_value_cr(self):
-        """agg sum value_cr: result = sum(r_acc) * cr[cr_idx]."""
-        import struct
-
-        state = _make_state(
-            """\
-agg sum value_cr lr1 cr1 aaq2;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(4)  # only lanes 0..3 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
-        state.regfile.set_cr(1, struct.unpack("<I", struct.pack("<i", 3))[0])
-        state.regfile.set_aaq(2, 0)
-
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
-        # sum = 128, 128 * 3 = 384
-        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 384))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        # sum of active lanes 0..3 = 4; existing dest (9999) is NOT added
+        assert result == 4, f"expected sum=4 (not 4+9999), got {result}"
 
-    def test_agg_first_max_ignores_previous_aaq(self):
-        """agg.first max: ignores the previous (garbage) AAQ value, takes max of r_acc only."""
-        import struct
-
+    def test_agg_sum_first_uses_valid_elements(self):
+        """AGG.SUM.FIRST: only active prefix contributes; tail is excluded."""
         state = _make_state(
             """\
-agg.first max value lr1 cr0 aaq0;;
+AGG.SUM.FIRST LR0 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(4)
+        state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10 + (i % 5)))[0])
-        # Set aaq0 to a large "garbage" value that would win against r_acc if included
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 9999))[0])
-
+            v = 10 if i < 4 else 1000
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         run_until_complete(state)
-        # Max of r_acc is 14; previous aaq (9999) must be ignored
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 14))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 40, f"expected sum of 4 tens = 40, got {result}"
 
-    def test_agg_first_max_selects_correct_max(self):
-        """agg.first max: correctly selects the max value from r_acc words."""
-        import struct
-
+    def test_agg_sum_first_full_xmem_row_overrides_valid_elements(self):
+        """AGG.SUM.FIRST with full_xmem_row=1 uses all 128 lanes regardless of CR15."""
         state = _make_state(
             """\
-agg.first max value lr1 cr0 aaq1;;
+AGG.SUM.FIRST LR0 1;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=4)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
+
+    def test_agg_sum_accumulates(self):
+        """AGG.SUM: sum of active lanes is ADDED to existing R_ACC[dest] (running accumulation).
+
+        Dest is placed outside the active lane range so it acts as a pure accumulator
+        that is not double-counted in the sum.
+        """
+        state = _make_state(
+            """\
+AGG.SUM LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 50))[0])
+        run_until_complete(state)
+        # sum(R_ACC[0..63]) = 64; R_ACC[127] was 50 → result = 64 + 50 = 114
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 114, f"expected 64+50=114, got {result}"
+
+    def test_agg_max_first_basic(self):
+        """AGG.MAX.FIRST: max of all 128 lanes, no seed from dest."""
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 1;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 9999, f"expected max=9999 (from slot 127), got {result}"
+
+    def test_agg_max_first_ignores_garbage_dest(self):
+        """AGG.MAX.FIRST: existing dest value is NOT used as a seed.
+
+        Dest is placed outside the active lane range and pre-loaded with a
+        large garbage value; a seeded implementation would return it, the
+        clean-init implementation must return the max of the active lanes.
+        """
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 5, f"expected max of active lanes = 5 (not seed 9999), got {result}"
+
+    def test_agg_max_first_zero_active_writes_identity_seed(self):
+        """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(0)  # no active lanes
+        state.regfile.set_lr(0, 7)
+        state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(7)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
+
+    def test_agg_max_first_masks_tail(self):
+        """AGG.MAX.FIRST: tail lanes beyond valid_elements are excluded."""
+        state = _make_state(
+            """\
+AGG.MAX.FIRST LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(50)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            v = 3 if i < 50 else 9999
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 3, f"expected max of active prefix = 3, got {result}"
+
+    def test_agg_max_seed_wins(self):
+        """AGG.MAX: existing dest value beats all active lanes — dest unchanged."""
+        state = _make_state(
+            """\
+AGG.MAX LR0 1;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 99))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 99, f"expected seed 99 to remain (beats all lanes=10), got {result}"
+
+    def test_agg_max_lane_wins(self):
+        """AGG.MAX: an active lane beats the existing dest — dest updated."""
+        state = _make_state(
+            """\
+AGG.MAX LR0 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(100)
+        state.regfile.set_lr(0, 127)
+        for i in range(128):
+            v = 5 if i < 100 else 1
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
-        state.regfile.set_aaq(1, struct.unpack("<I", struct.pack("<i", 0))[0])
-
+        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
         run_until_complete(state)
-        assert state.regfile.get_aaq(1) == struct.unpack("<I", struct.pack("<i", 77))[0]
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<i", struct.pack("<I", raw))[0]
+        assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_first_sum_same_as_agg_sum(self):
-        """agg.first sum: behaves identically to agg sum (previous aaq not involved in sum)."""
-        import struct
+    def test_agg_and_activate_same_cycle_use_snapshot(self):
+        """AGG.SUM.FIRST in ACC slot and ACTIVATE in AAQ slot issued together.
 
+        Both must read from the cycle-start snapshot, not from each other's
+        write. ACTIVATE writes POST_AAQ_REG; AGG writes r_acc[dest].
+        Neither's output should be influenced by the other's write in the
+        same cycle.
+        """
         state = _make_state(
             """\
-agg.first sum value lr1 cr0 aaq2;;
+AGG.SUM.FIRST LR0 1; ACTIVATE relu 1;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 128)
+        state.dtype = DType.INT8
+        state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
+        # Fill lanes: all 3.0 as float32 for ACTIVATE; values = 3 as int32 for AGG
+        import struct as _struct
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 2))[0])
-        state.regfile.set_aaq(2, struct.unpack("<I", struct.pack("<i", 9999))[0])
+            # Store int32(3) — used by AGG.SUM.FIRST
+            state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
-        # Sum of 128 twos = 256; previous aaq value irrelevant
-        assert state.regfile.get_aaq(2) == struct.unpack("<I", struct.pack("<i", 256))[0]
 
-    def test_agg_sum_masks_inactive_lanes(self):
-        """agg sum: only first valid_elements r_acc words contribute (tail masked out)."""
-        import struct
+        # AGG.SUM.FIRST must have summed the snapshot r_acc (128 lanes × 3 = 384)
+        # NOT the post-ACTIVATE live state
+        raw_agg = state.regfile.get_r_acc_word(0)
+        agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
+        assert agg_result == 384, f"AGG saw wrong r_acc: expected 384, got {agg_result}"
 
-        state = _make_state(
-            """\
-agg sum value lr1 cr0 aaq0;;
-BKPT;;
-"""
+        # ACTIVATE relu must have applied relu to the snapshot r_acc (all lanes 3 → 3)
+        # NOT the post-AGG r_acc where lane 0 = 384.
+        # In INT8 mode ACTIVATE writes int32 to post_aaq_reg.
+        post = state.regfile.raw("post_aaq_reg")
+        lane0_post = _struct.unpack_from("<i", post, 0)[0]
+        assert lane0_post == 3, (
+            f"ACTIVATE saw wrong r_acc lane 0: expected 3, got {lane0_post}"
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 3)
-        for i in range(128):
-            v = 10 if i < 3 else 1000
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, 0)
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 30))[0]
-
-    def test_agg_sum_valid_elements_from_cr(self):
-        """agg sum: valid_elements may be read from a CR register (LcrIdx encoding)."""
-        import struct
-
-        state = _make_state(
-            """\
-agg sum value cr2 cr0 aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_cr(2, 100)
-        for i in range(128):
-            v = 1 if i < 100 else 500
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, 0)
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 100))[0]
-
-    def test_agg_max_masks_tail_large_values(self):
-        """agg max: masked-out lanes cannot beat AAQ; feedback still applies over active set."""
-        import struct
-
-        state = _make_state(
-            """\
-agg max value lr1 cr0 aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 100)
-        for i in range(128):
-            v = 5 if i < 100 else 9999
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 50))[0])
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 50))[0]
-
-    def test_agg_first_max_masks_tail(self):
-        """agg.first max: only active prefix participates; tail spikes ignored."""
-        import struct
-
-        state = _make_state(
-            """\
-agg.first max value lr1 cr0 aaq0;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(1, 50)
-        for i in range(128):
-            v = 3 if i < 50 else 200
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_aaq(0, struct.unpack("<I", struct.pack("<i", 0))[0])
-        run_until_complete(state)
-        assert state.regfile.get_aaq(0) == struct.unpack("<I", struct.pack("<i", 3))[0]
 
 
 # ============================================================================
@@ -1275,7 +1218,7 @@ BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
         # Set dtype to E4 (fp8_e4)
-        state.set_cr_dtype(DType.E4)
+        state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -1288,12 +1231,12 @@ BKPT;;
 
 
 # ============================================================================
-# MULT.VE.CR and MULT.VE.AAQ
+# MULT.VE.CR
 # ============================================================================
 
 
-class TestMultVeCrAaq:
-    """Tests for MULT.VE.CR and MULT.VE.AAQ instructions."""
+class TestMultVeCr:
+    """Tests for the MULT.VE.CR instruction."""
 
     # ------------------------------------------------------------------
     # MULT.VE.CR
@@ -1311,13 +1254,13 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr1;
+MULT.VE.CR lr2 0 lr4 cr3;
 ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_cr(1, 3)  # scalar = low byte = 3
+        state.dtype = DType.INT8
+        state.regfile.set_cr(3, 3)  # scalar = low byte = 3
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
@@ -1343,7 +1286,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -1369,7 +1312,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 450, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.regfile.set_cr(3, scalar)
         # Fill the full 512-byte cyclic register directly
         state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
@@ -1402,7 +1345,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.E4)
+        state.dtype = DType.E4
         state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -1428,7 +1371,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 500, 9: 0})
-        state.regfile.set_cr(15, DType.E5)
+        state.dtype = DType.E5
         state.regfile.set_cr(6, scalar_fp8)  # scalar = 3.0
         # Fill the full 512-byte cyclic register directly with 2.0 in fp8_e5
         state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
@@ -1441,92 +1384,6 @@ BKPT;;
         for i in range(12, 128):  # padded (>=512): 3.0 * 1.0 = 3.0
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 3.0) < 0.1, f"word {i} (padded): expected 3.0, got {val}"
-
-    # ------------------------------------------------------------------
-    # MULT.VE.AAQ
-    # ------------------------------------------------------------------
-
-    def test_mult_ve_aaq_int8(self):
-        """MULT.VE.AAQ INT8: scalar from AAQ × RC elements."""
-        # AAQ scalar byte = 5, RC elements = all 3 → each result = 15
-        cyclic_data = bytes([3] * 512)
-
-        state = _make_state("""\
-SET lr0 cr8;;
-SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq0;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_aaq(0, 5)  # low byte = 5
-        state.xmem.write_address(0x1000, cyclic_data)
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 15, f"acc word {i}: expected 15, got {val}"
-
-    def test_mult_ve_aaq_boundary_padding(self):
-        """MULT.VE.AAQ: elements beyond RC boundary are padded with int8 1."""
-        scalar = 2
-        in_bounds = 112  # offset=400, 512-400=112 in bounds, 16 padded
-
-        state = _make_state("""\
-RESET_ACC;;
-SET lr2 cr8;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq1;
-ACC;;
-BKPT;;
-""",
-            cr={8: 400, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_aaq(1, scalar)
-        # Fill the full 512-byte cyclic register directly
-        state.regfile.set_r_cyclic_at(0, bytes([10] * 512))
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(in_bounds):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 10, f"word {i}: expected {scalar * 10}, got {val}"
-        for i in range(in_bounds, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
-
-    def test_mult_ve_aaq_no_boundary(self):
-        """MULT.VE.AAQ: when cyclic_offset+128 <= 512, no padding applied."""
-        cyclic_data = bytes([7] * 512)
-        scalar = 3
-
-        state = _make_state("""\
-SET lr0 cr8;;
-SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr9;;
-MULT.VE.AAQ lr2 0 lr4 aaq2;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_aaq(2, scalar)
-        state.xmem.write_address(0x1000, cyclic_data)
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 7, f"acc word {i}: expected {scalar * 7}, got {val}"
 
     # ------------------------------------------------------------------
     # Backward compatibility: existing instructions unaffected
@@ -1549,7 +1406,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -1578,7 +1435,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -1610,7 +1467,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 450, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
         run_until_complete(state)
@@ -1641,7 +1498,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 450, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
         run_until_complete(state)
@@ -1676,7 +1533,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 4352, 10: 8192, 11: 0, 12: 128})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x1100, bytes(r1_data))
         state.xmem.write_address(0x2000, cyclic_data)
@@ -1705,7 +1562,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         run_until_complete(state)
 
@@ -1731,7 +1588,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 4352, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x1100, r1_data)
         run_until_complete(state)
@@ -1742,10 +1599,10 @@ BKPT;;
             assert val == 9, f"acc word {i}: expected 9 (r1 3×3, not r0), got {val}"
 
     def test_mult_ee_rr_mask_zeroes_lanes(self):
-        """mask_offset/mask_shift still gate lanes (first 64 masked → 0)."""
+        """mask_offset/mask_shift still gate lanes (first 64 active, rest zeroed)."""
         r0_data = bytes([3] * 128)   # squared → 9
         mask_data = bytearray(128)
-        for i in range(8):           # 64 bits set → first 64 lanes masked
+        for i in range(8):           # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
 
         state = _make_state("""\
@@ -1760,7 +1617,7 @@ ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
         run_until_complete(state)
@@ -1768,10 +1625,196 @@ BKPT;;
         acc_raw = state.regfile.raw("r_acc")
         for i in range(64):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 0, f"word {i} should be masked to 0, got {val}"
+            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
         for i in range(64, 128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
+            assert val == 0, f"word {i} should be masked to 0, got {val}"
+
+
+# ============================================================================
+# Sequential shift-and-AND mask generation (issue #99)
+# ============================================================================
+
+
+class TestMaskShiftSequential:
+    """Sequential shift-and-AND mask generation for mult mask_shift operand.
+
+    mask_shift_idx ∈ [−3, +3] selects from 7 pre-generated masks:
+      idx 0  → base mask (unmodified)
+      idx −k → shift right k times, AND with partition_vector after each step
+      idx +k → shift left  k times, AND with partition_vector after each step
+
+    The partition_vector is derived from CR15.partition (0 = no partitioning).
+    """
+
+    _R0_ADDR = 0x1000   # xmem address for R0 data
+    _MASK_ADDR = 0x2000  # xmem address for mask data
+    _R0_CR = 8           # CR holding R0 xmem address
+    _MASK_CR = 9         # CR holding mask xmem address
+    _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
+
+    _ASM = """\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr3 cr9;;
+LDR_MULT_MASK_REG lr3 cr0;;
+RESET_ACC;;
+SET lr5 cr2;;
+MULT.EE.RR r0 0 lr5;
+ACC;;
+BKPT;;
+"""
+
+    def _run_mask_shift(
+        self,
+        base_mask_bits: int,
+        *,
+        shift_idx: int,
+        partition: int = 0,
+    ) -> bytearray:
+        """Run MULT.EE.RR with given 128-bit base mask and mask_shift_idx; return r_acc."""
+        mask_bytes = base_mask_bits.to_bytes(16, byteorder="little") + bytes(112)
+        state = _make_state(
+            self._ASM,
+            cr={
+                self._R0_CR: self._R0_ADDR,
+                self._MASK_CR: self._MASK_ADDR,
+                self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
+            },
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=128, partition=partition)
+        state.xmem.write_address(self._R0_ADDR, bytes([2] * 128))
+        state.xmem.write_address(self._MASK_ADDR, mask_bytes)
+        run_until_complete(state)
+        return state.regfile.raw("r_acc")
+
+    def _suppressed(self, acc_raw: bytearray, lane: int) -> bool:
+        return struct.unpack_from("<i", acc_raw, lane * 4)[0] == 0
+
+    # ------------------------------------------------------------------
+    # shift indices with partition=0 (no partitioning — unconstrained shift)
+    # ------------------------------------------------------------------
+
+    def test_idx_0_base_mask_unchanged(self):
+        """idx=0: base mask used as-is; only lane 32 is active, all others suppressed."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=0, partition=0)
+        assert not self._suppressed(acc, 32)
+        for i in range(128):
+            if i != 32:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_minus1_shifts_right_by_1(self):
+        """idx=−1: base mask shifts right by 1; bit 32 → bit 31."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-1, partition=0)
+        assert not self._suppressed(acc, 31)
+        for i in range(128):
+            if i != 31:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_minus2_shifts_right_by_2(self):
+        """idx=−2: base mask shifts right twice; bit 32 → bit 30."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-2, partition=0)
+        assert not self._suppressed(acc, 30)
+        for i in range(128):
+            if i != 30:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_minus3_shifts_right_by_3(self):
+        """idx=−3: base mask shifts right three times; bit 32 → bit 29."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=-3, partition=0)
+        assert not self._suppressed(acc, 29)
+        for i in range(128):
+            if i != 29:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_plus1_shifts_left_by_1(self):
+        """idx=+1: base mask shifts left by 1; bit 32 → bit 33."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+1, partition=0)
+        assert not self._suppressed(acc, 33)
+        for i in range(128):
+            if i != 33:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_plus2_shifts_left_by_2(self):
+        """idx=+2: base mask shifts left twice; bit 32 → bit 34."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+2, partition=0)
+        assert not self._suppressed(acc, 34)
+        for i in range(128):
+            if i != 34:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_idx_plus3_shifts_left_by_3(self):
+        """idx=+3: base mask shifts left three times; bit 32 → bit 35."""
+        acc = self._run_mask_shift(1 << 32, shift_idx=+3, partition=0)
+        assert not self._suppressed(acc, 35)
+        for i in range(128):
+            if i != 35:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    # ------------------------------------------------------------------
+    # partition=2 (2 partitions of 64): verify boundary enforcement
+    # ------------------------------------------------------------------
+
+    def test_left_shift_cleared_at_partition_boundary(self):
+        """A bit at the last position of partition 0 cannot shift into partition 1.
+
+        With partition=2 (step=64), bit 63 is the last element of partition 0.
+        Shifting left by 1 would move it to bit 64 (start of partition 1),
+        but partition_vector[64]=0 clears it → mask = 0 → all lanes deactivated.
+        """
+        acc = self._run_mask_shift(1 << 63, shift_idx=+1, partition=2)
+        for i in range(128):
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_right_shift_stays_within_partition(self):
+        """A bit inside partition 1 shifts freely within partition 1.
+
+        With partition=2, bit 65 shifted right by 1 → bit 64 (still inside partition 1).
+        inverse_partition_vector[64]=1, so the bit is NOT cleared → lane 64 is active.
+        """
+        acc = self._run_mask_shift(1 << 65, shift_idx=-1, partition=2)
+        assert not self._suppressed(acc, 64)
+        for i in range(128):
+            if i != 64:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_shift_stays_within_partition(self):
+        """A bit inside partition 0 shifts freely within partition 0.
+
+        With partition=2, bit 33 shifted left by 1 → bit 34 (still in partition 0).
+        """
+        acc = self._run_mask_shift(1 << 33, shift_idx=+1, partition=2)
+        assert not self._suppressed(acc, 34)
+        for i in range(128):
+            if i != 34:
+                assert self._suppressed(acc, i), f"lane {i} should be suppressed"
+
+    def test_partition_4_boundary_constraint(self):
+        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross → all lanes deactivated."""
+        acc = self._run_mask_shift(1 << 31, shift_idx=+1, partition=4)
+        for i in range(128):
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 4)"
+
+    def test_partition_8_boundary_constraint(self):
+        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross → all lanes deactivated."""
+        acc = self._run_mask_shift(1 << 15, shift_idx=+1, partition=8)
+        for i in range(128):
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 8)"
+
+    def test_sequential_and_enforced_on_each_step(self):
+        """Sequential AND is applied after EACH shift step, not just at the end.
+
+        With partition=2, shift_idx=−2, using inverse_partition_vector (0 at end of each group):
+          step 1: (1<<65 >> 1) = 1<<64; inverse_pv[64]=1 → 1<<64 (not cleared)
+          step 2: (1<<64 >> 1) = 1<<63; inverse_pv[63]=0 → 0 (cleared at end of group 0)
+        Result: all lanes deactivated (bit cleared at second step → mask = 0).
+        Without the per-step AND, a 2-bit right shift of bit 65 would land at 63
+        and survive since inverse_pv[63] is never checked in a single-step AND.
+        """
+        acc = self._run_mask_shift(1 << 65, shift_idx=-2, partition=2)
+        for i in range(128):
+            assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
 
 # ============================================================================
@@ -1793,10 +1836,10 @@ class TestAaqQuantize:
     def test_aaq_basic_truncation(self):
         """Values that fit in int8 after >> 24: e.g. 1 << 24 → byte 1."""
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         self._set_acc_words(state, [i << 24 for i in range(128)])
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1812,10 +1855,10 @@ class TestAaqQuantize:
     def test_aaq_all_zeros(self):
         """All-zero accumulator quantizes to all-zero bytes."""
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         self._set_acc_words(state, [0] * 128)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1829,11 +1872,11 @@ class TestAaqQuantize:
         # 0x7FFFFFFF >> 24 = 127, which is already at the boundary — no clamp needed.
         # Use 0x7F000000 (127 << 24) and 0x80000000 (-128 << 24 in signed) for boundary.
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         values = [0x7F000000] * 64 + [0x7FFFFFFF] * 64
         self._set_acc_words(state, values)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1851,10 +1894,10 @@ class TestAaqQuantize:
         """Negative accumulator values truncate correctly."""
         # -1 << 24 = 0xFF000000 (signed int32: -16777216); >> 24 = -1 → 0xFF as byte
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         self._set_acc_words(state, [(-1) << 24] * 128)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1869,15 +1912,51 @@ class TestAaqQuantize:
     def test_aaq_requires_int8_mode(self):
         """aaq raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
-        state = _make_state("aaq;;\nBKPT;;")
-        state.set_cr_dtype(DType.E4)
+        state = _make_state("aaq 0;;\nBKPT;;")
+        state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
+
+    def test_aaq_full_xmem_row_1_ignores_valid_elements(self):
+        """full_xmem_row=1 always quantizes all 128 lanes even if CR15.valid_elements < 128."""
+        state = IpuState()
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=64)
+        self._set_acc_words(state, [1 << 24] * 128)
+
+        encoded = assemble("aaq 1;;\nBKPT;;")
+        from ipu_emu.execute import decode_instruction_word
+        from ipu_emu.emulator import load_program, run_until_complete
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+
+        result = state.regfile.get_post_aaq_reg()
+        assert result[:128] == bytearray([1] * 128), "all 128 lanes should be quantized"
+        assert result[128:] == bytearray(384)
+
+    def test_aaq_full_xmem_row_0_uses_valid_elements(self):
+        """full_xmem_row=0 quantizes only CR15.valid_elements lanes; rest are zeroed."""
+        state = IpuState()
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=48)
+        self._set_acc_words(state, [1 << 24] * 128)
+
+        encoded = assemble("aaq 0;;\nBKPT;;")
+        from ipu_emu.execute import decode_instruction_word
+        from ipu_emu.emulator import load_program, run_until_complete
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+
+        result = state.regfile.get_post_aaq_reg()
+        assert result[:48] == bytearray([1] * 48), "first 48 lanes should be quantized"
+        assert result[48:] == bytearray(464), "remaining bytes should be zero"
 
     def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
         """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
         self._set_acc_words(state, [i << 24 for i in range(128)])
         state.regfile.set_cr(8, 0x4000)
 
@@ -1900,7 +1979,7 @@ BKPT;;
     def test_STR_ACC_REG_emits_warning(self):
         """STR_ACC_REG emits a UserWarning about being debug-only."""
         state = IpuState()
-        state.regfile.set_cr(15, DType.INT8)
+        state.dtype = DType.INT8
 
         encoded = assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
@@ -1935,12 +2014,12 @@ class TestActivate:
     def test_activate_relu_int32(self):
         state = _make_state(
             """\
-ACTIVATE lr0 relu;;
+ACTIVATE relu 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(0, 128)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -9))[0]
         )
@@ -1954,12 +2033,12 @@ BKPT;;
     def test_activate_masks_inactive_lanes(self):
         state = _make_state(
             """\
-ACTIVATE lr0 relu;;
+ACTIVATE relu 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(0, 2)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(2)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -5))[0]
         )
@@ -1989,16 +2068,15 @@ BKPT;;
         for i in range(2, 128):
             assert _post_aaq_lane_i32(state, i) == 99_999
 
-
     def test_activate_identity_keyword_is_noop(self):
         state = _make_state(
             """\
-ACTIVATE lr0 identity;;
+ACTIVATE identity 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(1)
         raw = struct.unpack("<I", struct.pack("<i", -42))[0]
         state.regfile.set_r_acc_word(0, raw)
         run_until_complete(state)
@@ -2008,12 +2086,12 @@ BKPT;;
     def test_activate_sigmoid_float_lane(self):
         state = _make_state(
             """\
-ACTIVATE lr0 sigmoid;;
+ACTIVATE sigmoid 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2026,12 +2104,12 @@ BKPT;;
         for fid, name in enumerate(ACTIVATION_FN_NAMES):
             state = _make_state(
                 f"""\
-ACTIVATE lr0 {name};;
+ACTIVATE {name} 0;;
 BKPT;;
 """
             )
-            state.regfile.set_cr(15, DType.E4)
-            state.regfile.set_lr(0, 1)
+            state.dtype = DType.E4
+            state.set_cr_dstructure(1)
             state.regfile.set_r_acc_word(
                 0, struct.unpack("<I", struct.pack("<f", x))[0]
             )
@@ -2043,12 +2121,12 @@ BKPT;;
     def test_activate_exp2_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 exp2;;
+ACTIVATE exp2 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
         )
@@ -2059,101 +2137,70 @@ BKPT;;
     def test_activate_gelu_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 gelu;;
+ACTIVATE gelu 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         x = 1.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - apply_activation(6, x)) < 1e-5
+        assert abs(out - apply_activation(5, x)) < 1e-5
 
-    def test_activate_swish_alias_matches_silu(self):
-        state = _make_state(
-            """\
-ACTIVATE lr0 swish;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
-        x = 0.5
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out_swish = _post_aaq_lane_f32(state, 0)
-
-        st2 = _make_state(
-            """\
-ACTIVATE lr0 silu;;
-BKPT;;
-"""
-        )
-        st2.regfile.set_cr(15, DType.E4)
-        st2.regfile.set_lr(0, 1)
-        st2.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(st2)
-        out_silu = _post_aaq_lane_f32(st2, 0)
-        assert abs(out_swish - out_silu) < 1e-7
-
-    def test_activate_leaky_relu_respects_ipu_state_alpha(self):
+    def test_activate_elu_respects_ipu_state_alpha(self):
         """``IpuState`` α overrides module defaults for ``ACTIVATE`` (not CR)."""
         x = -1.0
         alpha = 0.5
         state = _make_state(
             """\
-ACTIVATE lr0 leaky_relu;;
+ACTIVATE elu 0;;
 BKPT;;
 """,
-            leaky_relu_alpha=alpha,
+            elu_alpha=alpha,
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        exp = apply_activation(7, x, elu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
-    def test_activate_leaky_relu_after_set_activation_alphas(self):
+    def test_activate_elu_after_set_activation_alphas(self):
         x = -2.0
         alpha = 0.125
         state = _make_state(
             """\
-ACTIVATE lr0 leaky_relu;;
+ACTIVATE elu 0;;
 BKPT;;
 """
         )
-        state.set_activation_alphas(leaky_relu_alpha=alpha)
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.set_activation_alphas(elu_alpha=alpha)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(3, x, leaky_relu_alpha=alpha)
+        exp = apply_activation(7, x, elu_alpha=alpha)
         assert abs(out - exp) < 1e-5
 
-    def test_activate_valid_elements_from_cr(self):
+    def test_activate_valid_elements_from_cr15(self):
         state = _make_state(
             """\
-ACTIVATE cr3 relu;;
+ACTIVATE relu 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.INT8)
-        state.regfile.set_cr(3, 1)
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -8))[0]
         )
@@ -2168,16 +2215,48 @@ BKPT;;
         assert _post_aaq_lane_i32(state, 0) == 0
         assert _post_aaq_lane_i32(state, 1) == 0
 
-    def test_activate_inv_sqrt_float_positive(self):
-        """inv_sqrt on a positive FP32 lane gives 1/sqrt(x)."""
+    def test_activate_reciprocal_float(self):
         state = _make_state(
             """\
-ACTIVATE lr0 inv_sqrt;;
+ACTIVATE reciprocal 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
+        x = 4.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert abs(out - 0.25) < 1e-6
+
+    def test_activate_reciprocal_zero_input(self):
+        state = _make_state(
+            """\
+ACTIVATE reciprocal 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        assert out == 0.0
+
+    def test_activate_rsqrt_float(self):
+        state = _make_state(
+            """\
+ACTIVATE rsqrt 0;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         x = 4.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -2186,16 +2265,15 @@ BKPT;;
         out = _post_aaq_lane_f32(state, 0)
         assert abs(out - 0.5) < 1e-6
 
-    def test_activate_inv_sqrt_zero_returns_zero(self):
-        """inv_sqrt(0) → 0 (corner case: no division by zero)."""
+    def test_activate_rsqrt_nonpositive_input(self):
         state = _make_state(
             """\
-ACTIVATE lr0 inv_sqrt;;
+ACTIVATE rsqrt 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2203,60 +2281,36 @@ BKPT;;
         out = _post_aaq_lane_f32(state, 0)
         assert out == 0.0
 
-    def test_activate_inv_sqrt_negative_returns_zero(self):
-        """inv_sqrt(x) → 0 for x < 0 (same convention as agg inv_sqrt post-fn)."""
+    def test_activate_full_xmem_row_1_ignores_valid_elements(self):
+        """ACTIVATE full_xmem_row=1: activates all 128 lanes even when CR15.valid_elements < 128."""
         state = _make_state(
             """\
-ACTIVATE lr0 inv_sqrt;;
+ACTIVATE relu 1;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", -9.0))[0]
-        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=4)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
         run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert out == 0.0
+        for i in range(128):
+            assert _post_aaq_lane_i32(state, i) == i + 1, f"lane {i} should be activated"
 
-    def test_activate_inv_sqrt_per_lane_not_global(self):
-        """inv_sqrt is applied per lane — result differs from inv_sqrt(sum)."""
+    def test_activate_full_xmem_row_0_uses_valid_elements(self):
+        """ACTIVATE full_xmem_row=0: activates only CR15.valid_elements lanes; rest unchanged."""
         state = _make_state(
             """\
-ACTIVATE lr0 inv_sqrt;;
+ACTIVATE relu 0;;
 BKPT;;
 """
         )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 2)
-        vals = [1.0, 9.0]
-        for i, v in enumerate(vals):
-            state.regfile.set_r_acc_word(
-                i, struct.unpack("<I", struct.pack("<f", v))[0]
-            )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=4)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
         run_until_complete(state)
-        assert abs(_post_aaq_lane_f32(state, 0) - 1.0) < 1e-6
-        assert abs(_post_aaq_lane_f32(state, 1) - (1.0 / 3.0)) < 1e-6
-
-    def test_activate_inv_sqrt_matches_apply_activation(self):
-        """ACTIVATE inv_sqrt matches ipu_common apply_activation for all 128 lanes."""
-        state = _make_state(
-            """\
-ACTIVATE lr0 inv_sqrt;;
-BKPT;;
-"""
-        )
-        state.regfile.set_cr(15, DType.E4)
-        state.regfile.set_lr(0, 128)
-        xs = [(i + 1) * 0.25 for i in range(128)]
-        for i, x in enumerate(xs):
-            state.regfile.set_r_acc_word(
-                i, struct.unpack("<I", struct.pack("<f", x))[0]
-            )
-        run_until_complete(state)
-        fn_id = ACTIVATION_FN_NAMES.index("inv_sqrt")
-        for i, x in enumerate(xs):
-            got = _post_aaq_lane_f32(state, i)
-            exp = apply_activation(fn_id, x)
-            assert abs(got - exp) < 1e-5, f"lane {i}: got {got}, expected {exp}"
+        for i in range(4):
+            assert _post_aaq_lane_i32(state, i) == i + 1, f"lane {i} should be activated"
+        for i in range(4, 128):
+            assert _post_aaq_lane_i32(state, i) == 0, f"lane {i} should be untouched (zero)"

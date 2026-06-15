@@ -240,9 +240,7 @@ def run_test(
     max_cycles: int = 1_000_000,
     debug_callback: DebugCallback | None = None,
     state: IpuState | None = None,
-    leaky_relu_alpha: float | None = None,
     elu_alpha: float | None = None,
-    prelu_alpha: float | None = None,
 ) -> tuple[IpuState, int]:
     """Full test harness matching the C ``emulator__run_test`` pattern.
 
@@ -254,23 +252,15 @@ def run_test(
 
     Returns ``(state, cycles)`` so callers can inspect final state.
 
-    Optional ``leaky_relu_alpha`` / ``elu_alpha`` / ``prelu_alpha`` configure the
-    emulator-only activation α values (same idea as dtype setup, but not via CR).
-    They are applied when constructing a new ``IpuState``; if *state* is passed,
-    non-``None`` α arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
+    Optional ``elu_alpha`` configures the emulator-only activation α value
+    (same idea as dtype setup, but not via CR). It is applied when constructing
+    a new ``IpuState``; if *state* is passed, a non-``None`` α argument is
+    forwarded to :meth:`IpuState.set_activation_alphas`.
     """
     if state is None:
-        state = IpuState(
-            leaky_relu_alpha=leaky_relu_alpha,
-            elu_alpha=elu_alpha,
-            prelu_alpha=prelu_alpha,
-        )
-    elif any(v is not None for v in (leaky_relu_alpha, elu_alpha, prelu_alpha)):
-        state.set_activation_alphas(
-            leaky_relu_alpha=leaky_relu_alpha,
-            elu_alpha=elu_alpha,
-            prelu_alpha=prelu_alpha,
-        )
+        state = IpuState(elu_alpha=elu_alpha)
+    elif elu_alpha is not None:
+        state.set_activation_alphas(elu_alpha=elu_alpha)
     load_program_from_binary(state, inst_path)
 
     if setup is not None:

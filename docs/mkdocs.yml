@@ -67,6 +67,7 @@ nav:
       - Debugging: debugging.md
   - Programming the IPU:
       - Building Applications: building-applications.md
+      - IPU Configuration: ipu-configuration.md
       - Wide-vector debug mode: wide-vector-debug-mode.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
@@ -78,6 +79,7 @@ nav:
       - Cache Unit Specification: specs/cache-unit.md
       - AAQ Stage Specification: specs/stage-aaq.md
       - Control Stage Specification: specs/stage-control.md
+      - RISC-V Host Integration: specs/riscv-host-integration.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition

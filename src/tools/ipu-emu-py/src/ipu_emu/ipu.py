@@ -23,7 +23,8 @@ from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_math import ipu_mult, ipu_add, dtype_one_byte, DType
+from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
+from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -36,16 +37,6 @@ from ipu_common.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
-)
-from ipu_common.acc_agg_enums import (
-    AGG_MODE_SUM,
-    AGG_MODE_MAX,
-    POST_FN_VALUE,
-    POST_FN_VALUE_CR,
-    POST_FN_INV,
-    POST_FN_INV_SQRT,
-    get_agg_mode,
-    get_post_fn,
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
@@ -89,22 +80,22 @@ _TYPE_FIELD_SUFFIX = {
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
     "AddSubSrcB": "add_sub_src_b_field",
-    "AaqRegIdx": "aaq_reg_field",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
     "VerticalStride": "vertical_stride_field",
-    "AggMode": "agg_mode_field",
-    "PostFn": "post_fn_field",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
+    "FullXmemRow": "full_xmem_row_field",
 }
 
 # Field prefix for each slot type (matches compound_inst naming)
 _SLOT_FIELD_PREFIX = {
-    "xmem": "xmem_inst",
+    "load": "load_inst",
+    "store": "store_inst",
+    "acc_store": "acc_store_inst",
     "mult": "mult_inst",
     "acc": "acc_inst",
     "aaq": "aaq_inst",
@@ -230,17 +221,6 @@ class Ipu:
                 f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}"
             )
 
-    def _wide_pack_aaq_bits(self, fmt: str, result_val: float | int) -> int:
-        """Pack agg/aaq scalar result for ``set_aaq`` (uint32 bit pattern)."""
-        if fmt == "<f":
-            return struct.unpack("<I", struct.pack("<f", float(result_val)))[0]
-        if isinstance(result_val, float):
-            ri = int(round(result_val))
-        else:
-            ri = int(result_val)
-        ri = max(-0x80000000, min(0x7FFFFFFF, ri))
-        return ri & 0xFFFFFFFF
-
     def _wide_unpack_lane_tuple(self, buf: bytes | bytearray) -> tuple[float, ...] | tuple[int, ...]:
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             return struct.unpack_from("<128f", buf, 0)
@@ -256,11 +236,10 @@ class Ipu:
             return float(a) + float(b)
         return ipu_add(int(a), int(b), DType.INT8)
 
-    def _wide_aaq_scalar(self, aaq_rf_idx: int) -> float | int:
-        raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
+    def _wide_sub_lane(self, a: float | int, b: float | int) -> float | int:
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            return struct.unpack("<f", struct.pack("<I", raw))[0]
-        return struct.unpack("<i", struct.pack("<I", raw))[0]
+            return float(a) - float(b)
+        return ipu_sub(int(a), int(b), DType.INT8)
 
     def _wide_cr_scalar_byte_as_int32(self, cr_idx: int) -> int:
         """Low byte of CR as signed int32 lane (CR itself is not widened)."""
@@ -282,7 +261,7 @@ class Ipu:
         """Struct format for r_acc / agg when wide-vector debug is on."""
         if self._wide_vector_active():
             return "<f" if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         return "<i" if dtype == DType.INT8 else "<f"
 
     # -----------------------------------------------------------------------
@@ -338,48 +317,112 @@ class Ipu:
         else:
             return raw_value
 
-    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
-        """Apply mask-and-shift to mult_res, zeroing masked-out positions.
+    @staticmethod
+    def _build_partition_vector(num_partitions: int) -> int:
+        """Build the left-shift partition vector (0 at the START of each group).
 
-        Args:
-            mask_idx: Mask slot index 0–7 from instruction immediate (selects 128-bit slice of r_mask)
-            shift: Shift amount value (already resolved from LR)
+        Used for positive mask_shift indices (+1, +2, +3).
+        num_partitions must be in VALID_PARTITION_VALUES.
+        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
+        num_partitions=P: P groups of R_REG_SIZE/P lanes; bit 0 of each group is 0.
+        """
+        assert isinstance(num_partitions, Partition), (
+            f"partition must be a Partition enum value, got {num_partitions!r}"
+        )
+        if num_partitions == 0:
+            return (1 << R_REG_SIZE) - 1
+        step = R_REG_SIZE // num_partitions
+        result = 0
+        for i in range(R_REG_SIZE):
+            if i % step != 0:
+                result |= (1 << i)
+        return result
+
+    @staticmethod
+    def _build_inverse_partition_vector(num_partitions: int) -> int:
+        """Build the right-shift partition vector (0 at the END of each group).
+
+        Used for negative mask_shift indices (−1, −2, −3).
+        num_partitions must be in VALID_PARTITION_VALUES.
+        num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
+        num_partitions=P: P groups of R_REG_SIZE/P lanes; last bit of each group is 0.
+        """
+        assert isinstance(num_partitions, Partition), (
+            f"partition must be a Partition enum value, got {num_partitions!r}"
+        )
+        if num_partitions == 0:
+            return (1 << R_REG_SIZE) - 1
+        step = R_REG_SIZE // num_partitions
+        result = 0
+        for i in range(R_REG_SIZE):
+            if i % step != step - 1:
+                result |= (1 << i)
+        return result
+
+    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
+        """Apply sequential shift-and-AND mask generation, then gate mult_res.
+
+        ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
+        The slot mask M is taken from R_MASK slot ``mask_idx``, then shifted
+        sequentially (one bit per step):
+          idx 0  → M (unmodified)
+          idx +k → shift left  k times, ANDing with partition_vector after each step
+          idx −k → shift right k times, ANDing with inverse_partition_vector after each step
+
+        Two partition vectors, both derived from CR15.partition:
+          partition_vector         — 0 at the START of each group (used for left shifts)
+          inverse_partition_vector — 0 at the END   of each group (used for right shifts)
+
+        Lanes in mult_res where the resulting mask bit is 0 are zeroed.
         """
         if self._wide_vector_active():
             return
 
-        # Interpret shift as signed int32
-        if shift >= 0x80000000:
-            shift = shift - 0x100000000
+        # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
+        if shift >= (1 << (LR_CR_SCALAR_BITS - 1)):
+            shift = shift - (1 << LR_CR_SCALAR_BITS)
+        shift = max(-3, min(3, shift))
 
-        # The mask register is 128 bytes = 1024 bits.
-        # It is accessed as an array of __uint128_t masks (8 masks of 128 bits each).
-        # mask_idx selects which 128-bit mask to use.
+        # Extract 128-bit base mask from the selected R_MASK slot
         mask_bytes = self.state.regfile.get_r_mask()
-        mask_slot = mask_idx % (R_REG_SIZE // 16)  # 128/16 = 8 slots of 128-bit
-        # Extract 128-bit mask from the mask register
+        mask_slot = mask_idx % (R_REG_SIZE // 16)  # 8 slots of 128 bits each
         offset = mask_slot * 16
-        mask_int = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little")
+        _128_BIT_MASK = (1 << R_REG_SIZE) - 1
+        base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        # Apply shift
-        if shift > 0:
-            mask_int <<= shift
-        elif shift < 0:
-            mask_int >>= -shift
+        num_partitions = self.state.get_config_partition()
 
-        # Zero out mult_res where mask bit is set
+        # Generate the shifted mask via sequential shift-and-AND
+        mask_int = base_mask
+        if shift < 0:
+            pv = self._build_inverse_partition_vector(num_partitions)
+            for _ in range(-shift):
+                mask_int = (mask_int >> 1) & pv
+        elif shift > 0:
+            pv = self._build_partition_vector(num_partitions)
+            for _ in range(shift):
+                mask_int = (mask_int << 1) & pv & _128_BIT_MASK
+
+        # Zero out mult_res where mask bit is clear (lane deactivated)
         mult_res = self.state.regfile.raw("mult_res")
         for i in range(R_REG_SIZE):
-            if (mask_int >> i) & 1:
-                # Zero the uint32 word at position i
+            if not ((mask_int >> i) & 1):
                 struct.pack_into("<I", mult_res, i * 4, 0)
 
     # -----------------------------------------------------------------------
-    # XMEM Instruction Handlers
+    # Memory slot instruction handlers (load / store / acc_store)
     # -----------------------------------------------------------------------
 
-    def execute_xmem_nop(self) -> None:
-        """Execute XMEM_NOP: No operation."""
+    def execute_load_nop(self) -> None:
+        """Execute LOAD_NOP: No operation."""
+        pass
+
+    def execute_store_nop(self) -> None:
+        """Execute STORE_NOP: No operation."""
+        pass
+
+    def execute_acc_store_nop(self) -> None:
+        """Execute ACC_STORE_NOP: No operation."""
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
@@ -551,7 +594,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
 
         for i in range(R_REG_SIZE):
@@ -585,7 +628,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(ra[i], ra[i], dtype)
@@ -641,7 +684,7 @@ class Ipu:
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
         rc_buf = self.state.regfile.raw("r_cyclic")
         one_byte = dtype_one_byte(dtype)
@@ -696,7 +739,7 @@ class Ipu:
         non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
         padded with the dtype-specific encoding of 1 instead of wrapping.
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -734,52 +777,6 @@ class Ipu:
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
 
-    def execute_mult_ve_aaq(self, *, cyclic_offset: int, mask_offset: int,
-                            mask_shift: int, aaq_rf_idx: int) -> None:
-        """Execute MULT.VE.AAQ: AAQ scalar × r_cyclic elements with boundary padding.
-
-        Multiplies the low byte of AAQ[aaq_rf_idx] against each byte of
-        RC[cyclic_offset : cyclic_offset+128]. Non-cyclic: elements where
-        cyclic_offset+i >= R_CYCLIC_SIZE are padded with the dtype-specific
-        encoding of 1 instead of wrapping.
-        """
-        dtype = self.state.get_cr_dtype()
-        mult_res = self.state.regfile.raw("mult_res")
-
-        if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
-            rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                one = 1.0
-                for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
-                    struct.pack_into("<f", mult_res, i * 4, float(aaq_lane) * rb_lane)
-            else:
-                one = 1
-                for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
-                    struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(int(aaq_lane), rb_lane)
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
-
-        scalar_byte = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFF
-        rc_buf = self.state.regfile.raw("r_cyclic")
-        one_byte = dtype_one_byte(dtype)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
-
-        for i in range(R_REG_SIZE):
-            pos = cyclic_offset + i
-            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
-            result = ipu_mult(scalar_byte, rb_byte, dtype)
-            struct.pack_into(fmt, mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
     # -----------------------------------------------------------------------
     # ACC Instruction Handlers
     # -----------------------------------------------------------------------
@@ -794,7 +791,7 @@ class Ipu:
 
     def execute_acc(self) -> None:
         """Execute ACC: Accumulate mult_res into accumulator."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
@@ -811,7 +808,7 @@ class Ipu:
 
     def execute_acc_first(self) -> None:
         """Execute ACC.FIRST: Set r_acc to multiply result (no previous sum)."""
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -819,82 +816,6 @@ class Ipu:
         for i in range(R_REG_SIZE):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
-
-    def execute_acc_add_aaq(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.ADD_AAQ: Accumulate mult_res, then add aaq[aaq_rf_idx] to each of the 128 accumulator words."""
-        dtype = self.state.get_cr_dtype()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self.snapshot.raw("r_acc")
-        fmt = self._acc_agg_lane_fmt()
-        if self._wide_vector_active():
-            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
-        else:
-            aaq_lane = self.state.regfile.get_aaq(aaq_rf_idx)
-
-        for i in range(R_REG_SIZE):
-            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            if self._wide_vector_active():
-                result = self._wide_add_lane(self._wide_add_lane(acc_val, mult_val), aaq_lane)
-            else:
-                result = ipu_add(ipu_add(acc_val, mult_val, dtype), aaq_lane, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_add_aaq_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.ADD_AAQ.FIRST: Set r_acc to mult_res + aaq[aaq_rf_idx] (no previous sum)."""
-        dtype = self.state.get_cr_dtype()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        fmt = self._acc_agg_lane_fmt()
-        if self._wide_vector_active():
-            aaq_lane = self._wide_aaq_scalar(aaq_rf_idx)
-        else:
-            aaq_lane = self.state.regfile.get_aaq(aaq_rf_idx)
-
-        for i in range(R_REG_SIZE):
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            if self._wide_vector_active():
-                result = self._wide_add_lane(mult_val, aaq_lane)
-            else:
-                result = ipu_add(mult_val, aaq_lane, dtype)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_max(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.MAX: r_acc[i] = max(r_acc[i], mult_res[i], aaq_reg[aaq_rf_idx]).
-
-        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
-        """
-        dtype = self.state.get_cr_dtype()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self.snapshot.raw("r_acc")
-        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        fmt = self._acc_agg_lane_fmt()
-        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-
-        for i in range(R_REG_SIZE):
-            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = max(acc_val, mult_val, aaq_val)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
-
-    def execute_acc_max_first(self, *, aaq_rf_idx: int) -> None:
-        """Execute ACC.MAX.FIRST: r_acc[i] = max(mult_res[i], aaq_reg[aaq_rf_idx]). Previous r_acc ignored.
-
-        All register values are interpreted as signed (int32 for INT8 dtype, float32 for FP8).
-        """
-        dtype = self.state.get_cr_dtype()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-        fmt = self._acc_agg_lane_fmt()
-        aaq_val = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-
-        for i in range(R_REG_SIZE):
-            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
-            result = max(mult_val, aaq_val)
-            struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_stride(
         self,
@@ -946,7 +867,7 @@ class Ipu:
                 out_indices.extend(after_h[start : start + effective_row_len])
 
         base = (offset % 4) * 32
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -963,195 +884,95 @@ class Ipu:
         pass
 
     def _agg_active_lane_count(self, valid_elements: int) -> int:
-        """Number of r_acc words included in agg / agg.first (clamped)."""
+        """Number of r_acc words included in aggregation (clamped to 128)."""
         n_words = R_ACC_SIZE // 4
         v = int(valid_elements) & 0xFFFFFFFF
         return min(v, n_words)
 
-    def _agg_reduce_raw(
-        self,
-        *,
-        agg_mode: int,
-        fmt: str,
-        acc_buf: bytearray,
-        valid_elements: int,
-        aaq_rf_idx: int,
-        include_aaq_in_max: bool,
+    @staticmethod
+    def _to_int32(val: int) -> int:
+        v = int(val) & 0xFFFFFFFF
+        return v - 0x100000000 if v >= 0x80000000 else v
+
+    def _agg_sum_lanes(self, fmt: str, snap_acc: bytearray, active: int) -> float | int:
+        total: float | int = 0.0 if fmt == "<f" else 0
+        for i in range(active):
+            total += struct.unpack_from(fmt, snap_acc, i * 4)[0]
+        return total
+
+    def _agg_max_lanes(
+        self, fmt: str, snap_acc: bytearray, active: int, seed: float | int
     ) -> float | int:
-        """Reduce r_acc[0:active) with SUM or MAX; optional AAQ feedback in MAX mode."""
-        active = self._agg_active_lane_count(valid_elements)
-        if get_agg_mode(agg_mode) == AGG_MODE_SUM:
-            total: float | int = 0 if fmt == "<i" else 0.0
-            for i in range(active):
-                total += struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            return total
-        if include_aaq_in_max:
-            aaq_raw = self.state.regfile.get_aaq(aaq_rf_idx) & 0xFFFFFFFF
-            best = struct.unpack(fmt, struct.pack("<I", aaq_raw))[0]
-            for i in range(active):
-                v = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-                if v > best:
-                    best = v
-            return best
-        if active == 0:
-            return -2147483648 if fmt == "<i" else float("-inf")
-        best = struct.unpack_from(fmt, acc_buf, 0)[0]
-        for i in range(1, active):
-            v = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+        best = seed
+        for i in range(active):
+            v = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             if v > best:
                 best = v
         return best
 
-    def execute_agg(
-        self,
-        *,
-        agg_mode: int,
-        post_fn: int,
-        valid_elements: int,
-        cr_idx: int,
-        aaq_rf_idx: int,
-    ) -> None:
-        """Execute AGG: Collapse r_acc words to one value (SUM or MAX), apply post function, store to AAQ.
+    def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+        """Execute AGG.SUM.FIRST: sum active R_ACC lanes, write to R_ACC[dest] (clean init)."""
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        fmt = self._acc_agg_lane_fmt()
+        snap_acc = self.snapshot.raw("r_acc")
+        active = self._agg_active_lane_count(valid_elements)
+        result = self._agg_sum_lanes(fmt, snap_acc, active)
+        dest = int(dest_slot) % (R_ACC_SIZE // 4)
+        if fmt == "<i":
+            result = self._to_int32(result)
+        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-        For MAX, the current value of the target AAQ register is included in the max (no update if already max).
-        Only the first ``valid_elements`` lanes (clamped to 128) participate in the tree.
+    def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
+        """Execute AGG.SUM: sum active R_ACC lanes and add to R_ACC[dest] (running accumulation)."""
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        fmt = self._acc_agg_lane_fmt()
+        snap_acc = self.snapshot.raw("r_acc")
+        active = self._agg_active_lane_count(valid_elements)
+        dest = int(dest_slot) % (R_ACC_SIZE // 4)
+        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
+        partial = self._agg_sum_lanes(fmt, snap_acc, active)
+        if fmt == "<f":
+            result: float | int = float(partial) + float(snap_dest)
+        else:
+            result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
+        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+
+    def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+        """Execute AGG.MAX.FIRST: max of active R_ACC lanes, write to R_ACC[dest] (no seed).
+
+        When no lanes are active (valid_elements=0) the identity seed
+        (INT32_MIN / -inf) is written, so the destination is always defined.
         """
-        dtype = self.state.get_cr_dtype()
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
+        snap_acc = self.snapshot.raw("r_acc")
+        active = self._agg_active_lane_count(valid_elements)
+        seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
+        result = self._agg_max_lanes(fmt, snap_acc, active, seed)
+        dest = int(dest_slot) % (R_ACC_SIZE // 4)
+        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-        raw_result = self._agg_reduce_raw(
-            agg_mode=agg_mode,
-            fmt=fmt,
-            acc_buf=acc_buf,
-            valid_elements=valid_elements,
-            aaq_rf_idx=aaq_rf_idx,
-            include_aaq_in_max=True,
-        )
-
-        # Apply post function
-        fn = get_post_fn(post_fn)
-        if fn == POST_FN_VALUE:
-            result_val = raw_result
-        elif fn == POST_FN_VALUE_CR:
-            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
-            cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
-            if fmt == "<i":
-                result_val = int(raw_result) * int(cr_scalar)
-                p = result_val & 0xFFFFFFFF
-                result_val = p - 0x100000000 if p >= 0x80000000 else p
-            else:
-                result_val = raw_result * cr_scalar
-        elif fn == POST_FN_INV:
-            if dtype == DType.INT8 and not self._wide_vector_active():
-                # Integer path: avoid div by zero; use float then store as float bits
-                f = float(raw_result)
-                result_val = 1.0 / f if f != 0 else 0.0
-                # Store as float32 bit pattern
-                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
-                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
-                return
-            else:
-                if fmt == "<i":
-                    ri = int(raw_result)
-                    result_val = 0 if ri == 0 else int(round(1.0 / float(ri)))
-                else:
-                    result_val = 1.0 / raw_result if raw_result != 0 else 0.0
-        elif fn == POST_FN_INV_SQRT:
-            if dtype == DType.INT8 and not self._wide_vector_active():
-                f = float(raw_result)
-                result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
-                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
-                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
-                return
-            else:
-                if fmt == "<i":
-                    ri = int(raw_result)
-                    result_val = (
-                        int(round(1.0 / (float(ri) ** 0.5))) if ri > 0 else 0
-                    )
-                else:
-                    result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
-        else:
-            result_val = raw_result
-
-        self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
-
-    def execute_agg_first(
-        self,
-        *,
-        agg_mode: int,
-        post_fn: int,
-        valid_elements: int,
-        cr_idx: int,
-        aaq_rf_idx: int,
-    ) -> None:
-        """Execute AGG.FIRST: like AGG but for MAX mode ignores previous AAQ value."""
-        dtype = self.state.get_cr_dtype()
+    def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
+        """Execute AGG.MAX: max of active R_ACC lanes seeded with R_ACC[dest] (running max)."""
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
+        snap_acc = self.snapshot.raw("r_acc")
+        active = self._agg_active_lane_count(valid_elements)
+        dest = int(dest_slot) % (R_ACC_SIZE // 4)
+        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
+        result = self._agg_max_lanes(fmt, snap_acc, active, snap_dest)
+        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-        raw_result = self._agg_reduce_raw(
-            agg_mode=agg_mode,
-            fmt=fmt,
-            acc_buf=acc_buf,
-            valid_elements=valid_elements,
-            aaq_rf_idx=aaq_rf_idx,
-            include_aaq_in_max=False,
-        )
-
-        fn = get_post_fn(post_fn)
-        if fn == POST_FN_VALUE:
-            result_val = raw_result
-        elif fn == POST_FN_VALUE_CR:
-            cr_val = self.state.regfile.get_cr(cr_idx) & 0xFFFFFFFF
-            cr_scalar = struct.unpack(fmt, struct.pack("<I", cr_val))[0]
-            if fmt == "<i":
-                result_val = int(raw_result) * int(cr_scalar)
-                p = result_val & 0xFFFFFFFF
-                result_val = p - 0x100000000 if p >= 0x80000000 else p
-            else:
-                result_val = raw_result * cr_scalar
-        elif fn == POST_FN_INV:
-            if dtype == DType.INT8 and not self._wide_vector_active():
-                f = float(raw_result)
-                result_val = 1.0 / f if f != 0 else 0.0
-                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
-                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
-                return
-            else:
-                if fmt == "<i":
-                    ri = int(raw_result)
-                    result_val = 0 if ri == 0 else int(round(1.0 / float(ri)))
-                else:
-                    result_val = 1.0 / raw_result if raw_result != 0 else 0.0
-        elif fn == POST_FN_INV_SQRT:
-            if dtype == DType.INT8 and not self._wide_vector_active():
-                f = float(raw_result)
-                result_val = 1.0 / (f ** 0.5) if f > 0 else 0.0
-                out_bits = struct.unpack("<I", struct.pack("<f", result_val))[0]
-                self.state.regfile.set_aaq(aaq_rf_idx, out_bits)
-                return
-            else:
-                if fmt == "<i":
-                    ri = int(raw_result)
-                    result_val = (
-                        int(round(1.0 / (float(ri) ** 0.5))) if ri > 0 else 0
-                    )
-                else:
-                    result_val = 1.0 / (raw_result ** 0.5) if raw_result > 0 else 0.0
-        else:
-            result_val = raw_result
-
-        self.state.regfile.set_aaq(aaq_rf_idx, self._wide_pack_aaq_bits(fmt, result_val))
-
-    def execute_aaq(self) -> None:
+    def execute_aaq(self, *, full_xmem_row: int) -> None:
         """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
         Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
-        ``r_acc``), typically filled by ``ACTIVATE``. Each 32-bit lane is truncated
-        then clamped to INT8 and stored in the **first 128 bytes** of
-        ``post_aaq_reg``; the wide-lane tail is cleared.
+        ``r_acc``), typically filled by ``ACTIVATE``. Each active 32-bit lane is
+        truncated then clamped to INT8 and stored in the leading bytes of
+        ``post_aaq_reg``; the remainder is zeroed.
+
+        ``full_xmem_row=1``: always process all 128 lanes.
+        ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
 
         Requires INT8 mode.
 
@@ -1159,9 +980,13 @@ class Ipu:
         ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
         to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
         """
-        dtype = self.state.get_cr_dtype()
+        dtype = self.state.dtype
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
+
+        active = 128 if full_xmem_row else self._agg_active_lane_count(
+            self.state.get_config_valid_elements()
+        )
 
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
@@ -1169,12 +994,12 @@ class Ipu:
             src_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(128):
+                for i in range(active):
                     val = struct.unpack_from("<f", src_buf, i * 4)[0]
                     clamped = max(-128, min(127, int(round(val))))
                     result[i] = clamped & 0xFF
             else:
-                for i in range(128):
+                for i in range(active):
                     val = struct.unpack_from("<i", src_buf, i * 4)[0]
                     truncated = val >> 24
                     clamped = max(-128, min(127, truncated))
@@ -1184,27 +1009,29 @@ class Ipu:
 
         src_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
-        for i in range(128):
+        for i in range(active):
             val = struct.unpack_from("<i", src_buf, i * 4)[0]
             truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
             clamped = max(-128, min(127, truncated))
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_activate(self, *, valid_elements: int, activation_fn: int) -> None:
-        """Apply element-wise activation to the first ``valid_elements`` lanes.
+    def execute_activate(self, *, activation_fn: int, full_xmem_row: int) -> None:
+        """Apply element-wise activation to active lanes.
 
         Reads each active lane from ``r_acc`` and writes the result into the same
         lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
         Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
         unchanged.
 
-        ``activation_fn`` is the encoded enum index (0–11) from the instruction word.
+        ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
+        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
         """
-        fn_id = int(activation_fn) & 0xFFFFFFFF
+        fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
+        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
+        acc_buf = self.snapshot.raw("r_acc")
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
         for i in range(active):
@@ -1212,9 +1039,7 @@ class Ipu:
             y = apply_activation(
                 fn_id,
                 float(raw),
-                leaky_relu_alpha=self.state.leaky_relu_alpha,
                 elu_alpha=self.state.elu_alpha,
-                prelu_alpha=self.state.prelu_alpha,
             )
             if fmt == "<i":
                 yi = int(round(y))
@@ -1308,7 +1133,7 @@ class Ipu:
         5. Calls the handler with named keyword arguments
 
         Args:
-            slot_type: Slot type ("xmem", "mult", "acc", "cond", "break")
+            slot_type: Slot type ("load", "store", "acc_store", "mult", "acc", "cond", "break")
             inst: Decoded instruction dict (field_name → int value)
 
         Returns:
@@ -1340,10 +1165,11 @@ class Ipu:
         elif slot_type == "acc":
             if instruction_name != "ACC_NOP":
                 stats.acc_active_cycles += 1
-        elif slot_type == "xmem":
-            if instruction_name in {"LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", "LDR_MULT_MASK_REG"}:
+        elif slot_type == "load":
+            if instruction_name != "LOAD_NOP":
                 stats.xmem_reads += 1
-            elif instruction_name in {"STR_ACC_REG", "STR_POST_AAQ_REG"}:
+        elif slot_type in {"store", "acc_store"}:
+            if instruction_name not in {"STORE_NOP", "ACC_STORE_NOP"}:
                 stats.xmem_writes += 1
 
         # Call handler with named arguments
@@ -1360,7 +1186,8 @@ class Ipu:
         1. Fetch instruction at program counter
         2. Snapshot the register file
         3. Execute BREAK first (before side effects)
-        4. Execute XMEM, LR, MULT, ACC, COND in parallel from the snapshot
+        4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
+           (load before store; same-cycle load+store: load resolves first)
 
         Returns:
             BreakResult.BREAK if break condition occurred, CONTINUE otherwise
@@ -1384,10 +1211,12 @@ class Ipu:
 
         # Execute all other slots using the snapshot
         self._dispatch_lr_slots(inst)  # LR has multiple sub-slots
-        self.dispatch_instruction("xmem", inst)
+        self.dispatch_instruction("load", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
+        self.dispatch_instruction("store", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)
 
         return BreakResult.CONTINUE
@@ -1410,8 +1239,10 @@ class Ipu:
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)
-        self.dispatch_instruction("xmem", inst)
+        self.dispatch_instruction("load", inst)
         self.dispatch_instruction("mult", inst)
         self.dispatch_instruction("acc", inst)
         self.dispatch_instruction("aaq", inst)
+        self.dispatch_instruction("store", inst)
+        self.dispatch_instruction("acc_store", inst)
         self.dispatch_instruction("cond", inst)

@@ -3,7 +3,7 @@
 Mirrors the C test harness that:
 1. Loads input activations and weights into XMEM
 2. Transposes weights
-3. Sets CR registers for base addresses and dtype
+3. Sets CR registers for base addresses and IpuState dtype
 4. Runs the assembly program
 5. Dumps output activations from XMEM
 
@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -55,16 +56,22 @@ def parse_dtype(dtype_str: str) -> DType:
 
     - ``'int8'`` → :attr:`DType.INT8` (integer mode)
     - ``'fp8_e0'`` → :attr:`DType.INT8` (alias; treated as integer mode, not a float format)
-    - ``'fp8_eX'`` where X is 1–7 → FP8 with X exponent bits (e.g. ``'fp8_e4'``)
+    - ``'fp8_eX'`` where X is 1-7 -> FP8 with X exponent bits (e.g. ``'fp8_e4'``)
+    - ``'fp8_e4m3'`` / ``'fp8_e5m2'`` -> aliases for ``fp8_e4`` / ``fp8_e5``
     """
     s = dtype_str.lower().strip()
     if s in ("int8", "fp8_e0"):
         return DType.INT8
+    if s in ("fp8_e4m3", "e4m3"):
+        return DType.E4
+    if s in ("fp8_e5m2", "e5m2"):
+        return DType.E5
     m = re.fullmatch(r"fp8_e([1-7])", s)
     if m:
         return DType(int(m.group(1)))
     raise ValueError(
-        f"Invalid dtype '{dtype_str}'. Use 'int8' or 'fp8_eX' where X is 0–7."
+        f"Invalid dtype '{dtype_str}'. Use 'int8', 'fp8_eX', "
+        "'fp8_e4m3', or 'fp8_e5m2'."
     )
 
 
@@ -111,13 +118,13 @@ class FullyConnectedApp(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.set_cr_dtype(int(self.dtype))
+        state.dtype = self.dtype
         load_binary_to_xmem(
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
         )
         _load_and_transpose_weights(state, self.weights_path)
-        state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
+        # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
+        # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
         state.regfile.set_cr(3, 128)
@@ -127,10 +134,14 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(6, 0)
         state.regfile.set_cr(7, 1280)
         state.regfile.set_cr(8, 0)
-        state.regfile.set_cr(9, (-128) & 0xFFFFFFFF)
-        state.regfile.set_cr(10, (-1) & 0xFFFFFFFF)
-        state.regfile.set_cr(11, 127)
+        # Pre-decremented by one VLIW step because ADD runs before LDR/MULT within a cycle.
+        # The 20-bit wraparound on the first ADD gives the correct starting values (0 for
+        # both lr4 offset and lr5 element index on the first effective iteration).
+        state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)   # lr4 cyclic offset: pre-decremented
+        state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)    # lr5 counter: pre-decremented
+        state.regfile.set_cr(11, 127)                # BNE exit condition
         state.regfile.set_cr(12, 0)
+        state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)  # moved from cr1 (CR1 is now locked)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
