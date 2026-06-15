@@ -1833,11 +1833,12 @@ class TestAaqQuantize:
         state.regfile.set_r_acc_bytes(buf)
         state.regfile.set_post_aaq_reg(bytearray(buf))
 
-    def test_aaq_basic_truncation(self):
-        """Values that fit in int8 after >> 24: e.g. 1 << 24 → byte 1."""
+    def test_aaq_basic_clamp(self):
+        """Direct clamp: values already in [-128, 127] pass through unchanged."""
         state = IpuState()
         state.dtype = DType.INT8
-        self._set_acc_words(state, [i << 24 for i in range(128)])
+        # Lanes 0..127 hold the signed value (i - 64): -64..63, all in range.
+        self._set_acc_words(state, [i - 64 for i in range(128)])
 
         encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
@@ -1848,7 +1849,7 @@ class TestAaqQuantize:
 
         result = state.regfile.get_post_aaq_reg()
         for i in range(128):
-            expected = i if i < 128 else i - 256
+            expected = i - 64
             assert result[i] == (expected & 0xFF), f"byte {i}: expected {expected & 0xFF}, got {result[i]}"
         assert result[128:] == bytearray(384), "tail of POST_AAQ_REG should be cleared"
 
@@ -1868,12 +1869,31 @@ class TestAaqQuantize:
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_aaq_positive_clamp(self):
-        """Large positive values clamp to 127 after truncation."""
-        # 0x7FFFFFFF >> 24 = 127, which is already at the boundary — no clamp needed.
-        # Use 0x7F000000 (127 << 24) and 0x80000000 (-128 << 24 in signed) for boundary.
+        """Direct clamp: values above 127 saturate to 127."""
         state = IpuState()
         state.dtype = DType.INT8
-        values = [0x7F000000] * 64 + [0x7FFFFFFF] * 64
+        # 127 stays 127; large positive int32 saturates to 127.
+        values = [127] * 64 + [0x7FFFFFFF] * 64
+        self._set_acc_words(state, values)
+
+        encoded = assemble("aaq 0;;\nBKPT;;")
+        from ipu_emu.execute import decode_instruction_word
+        from ipu_emu.emulator import load_program, run_until_complete
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+
+        result = state.regfile.get_post_aaq_reg()
+        for i in range(128):
+            assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
+        assert result[128:] == bytearray(384)
+
+    def test_aaq_negative_values(self):
+        """Direct clamp: in-range negatives pass through; below -128 saturates to -128."""
+        state = IpuState()
+        state.dtype = DType.INT8
+        # -1 stays -1 (0xFF); large negative int32 saturates to -128 (0x80).
+        values = [-1] * 64 + [-(1 << 30)] * 64
         self._set_acc_words(state, values)
 
         encoded = assemble("aaq 0;;\nBKPT;;")
@@ -1885,28 +1905,9 @@ class TestAaqQuantize:
 
         result = state.regfile.get_post_aaq_reg()
         for i in range(64):
-            assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
-        for i in range(64, 128):
-            assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
-        assert result[128:] == bytearray(384)
-
-    def test_aaq_negative_values(self):
-        """Negative accumulator values truncate correctly."""
-        # -1 << 24 = 0xFF000000 (signed int32: -16777216); >> 24 = -1 → 0xFF as byte
-        state = IpuState()
-        state.dtype = DType.INT8
-        self._set_acc_words(state, [(-1) << 24] * 128)
-
-        encoded = assemble("aaq 0;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
-        run_until_complete(state)
-
-        result = state.regfile.get_post_aaq_reg()
-        for i in range(128):
             assert result[i] == 0xFF, f"byte {i}: expected 0xFF (-1), got {result[i]}"
+        for i in range(64, 128):
+            assert result[i] == 0x80, f"byte {i}: expected 0x80 (-128), got {result[i]}"
         assert result[128:] == bytearray(384)
 
     def test_aaq_requires_int8_mode(self):
@@ -1922,7 +1923,7 @@ class TestAaqQuantize:
         state = IpuState()
         state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=64)
-        self._set_acc_words(state, [1 << 24] * 128)
+        self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
 
         encoded = assemble("aaq 1;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
@@ -1940,7 +1941,7 @@ class TestAaqQuantize:
         state = IpuState()
         state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=48)
-        self._set_acc_words(state, [1 << 24] * 128)
+        self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
 
         encoded = assemble("aaq 0;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word

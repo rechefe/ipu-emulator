@@ -783,7 +783,9 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "For i in [0, n): POST_AAQ_REG[i] = clamp(trunc(POST_AAQ_REG wide lane i), -128, 127). "
+                    "For i in [0, n): POST_AAQ_REG[i] = clamp(POST_AAQ_REG wide lane i, -128, 127) "
+                    "(interim direct INT8 clamp of the post-ACTIVATE lane; a future per-128-element "
+                    "requantize will scale lanes into INT8 range before this step and supersede the clamp). "
                     "POST_AAQ_REG[n..511] = 0."
                 ),
                 example="AAQ 1;;",

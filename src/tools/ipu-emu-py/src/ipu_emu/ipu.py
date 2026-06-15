@@ -968,8 +968,23 @@ class Ipu:
 
         Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
         ``r_acc``), typically filled by ``ACTIVATE``. Each active 32-bit lane is
-        truncated then clamped to INT8 and stored in the leading bytes of
-        ``post_aaq_reg``; the remainder is zeroed.
+        clamped to the INT8 range ``[-128, 127]`` and stored in the leading bytes
+        of ``post_aaq_reg``; the remainder is zeroed.
+
+        Quantization is an **interim direct clamp** of the post-``ACTIVATE``
+        accumulator lane: ``out[i] = clamp(lane[i], -128, 127)``.  The previous
+        ``lane >> 24`` truncation was the shift half of a fixed-point requantize
+        whose per-lane multiply half is not implemented, so on a real INT8
+        convolution accumulator (magnitudes well below ``2**24``) it produced an
+        all-zero result.
+
+        This clamp is a placeholder, not the final design.  The intended future
+        quantization is a full per-128-element (per-lane) requantize — applied
+        after ``ACTIVATE`` and before write-back to memory — that scales each
+        lane so the result is guaranteed to land in INT8 range; that stage
+        subsumes (and will replace) this clamp.  Until it lands, clamping keeps
+        the ``ACTIVATE`` -> ``AAQ`` path producing usable INT8 output instead of
+        all zeros.
 
         ``full_xmem_row=1``: always process all 128 lanes.
         ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
@@ -1001,8 +1016,7 @@ class Ipu:
             else:
                 for i in range(active):
                     val = struct.unpack_from("<i", src_buf, i * 4)[0]
-                    truncated = val >> 24
-                    clamped = max(-128, min(127, truncated))
+                    clamped = max(-128, min(127, val))
                     result[i] = clamped & 0xFF
             self.state.regfile.set_post_aaq_reg(result + bytearray(384))
             return
@@ -1011,8 +1025,7 @@ class Ipu:
         result = bytearray(128)
         for i in range(active):
             val = struct.unpack_from("<i", src_buf, i * 4)[0]
-            truncated = val >> 24  # arithmetic right-shift: keeps top 8 bits, range [-128, 127]
-            clamped = max(-128, min(127, truncated))
+            clamped = max(-128, min(127, val))  # direct INT8 clamp (no >>24 truncation)
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
