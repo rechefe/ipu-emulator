@@ -1,223 +1,91 @@
-"""Generate test data for the layernorm_256x144 app.
+"""Generate test data for the layernorm_256x144 app (wide-vector FP32 mode).
 
-The kernel runs in INT8 mode (required by the aaq instruction).
-Inputs are FP8_E4M3-encoded bytes, treated as raw integer bytes by
-INT8 arithmetic.  All results are garbage — the reference replicates
-the exact same garbage for bit-exact matching with the emulator.
+Reference: output[ch, tg, i] = γ[ch] × (x[ch,tg,i] − μ[tg,i]) / σ[tg,i] + β[ch]
+where μ and σ are computed over the channel axis for each token independently.
+No epsilon — matches the inv_sqrt hardware which handles numerical stability internally.
 
-The 5 aaq truncation points are marked TODO(fp8_aaq).
-
-Output layout: (N_CH*N_TG) rows × N_TPG int32 words = 512 bytes/row.
-  Row index for (ch, tg) = ch*2 + tg.
-  Only word 7 (lane 7) of each row is non-zero; all others are 0.
-  This matches assembly behavior: step4 runs inside the token loop and
-  str_acc_reg overwrites all 512 bytes each iteration, leaving only the
-  last token's lane (global_tok=127 → lr12=7 → lane=7) non-zero.
+Data layout written to file: rows in order (ch*N_TG + tg) for ch=0..143, tg=0,1.
+Each row: N_TPG float32 values zero-padded to 128 → 512 bytes.
 """
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes
-
 N_CH  = 144
 N_TG  = 2
-N_TPG = 128   # tokens per group (SIMD width)
-
-DTYPE = DType.INT8   # run mode required by aaq
+N_TPG = 128
 
 
-def _fp8_one() -> int:
-    return int.from_bytes(fp32_to_fp8_bytes(np.array([1.0],  dtype=np.float32), DType.E4), "little")
+def reference_layernorm(
+    x: np.ndarray,
+    gamma: np.ndarray,
+    beta: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute LayerNorm and return (output, mean, var, inv_std).
 
-def _fp8_neg_one() -> int:
-    return int.from_bytes(fp32_to_fp8_bytes(np.array([-1.0], dtype=np.float32), DType.E4), "little")
-
-
-# ---------------------------------------------------------------------------
-# Emulator operation replicas
-# ---------------------------------------------------------------------------
-
-def _agg_sum_value(acc_vals: list[int]) -> int:
-    """Replicate execute_agg(sum, value) in INT8 mode.
-
-    INT8 fmt='<i': result = sum of all acc words, stored as int32 bits → uint32.
-    Sum of 128 lanes each ≤ 144×127² ≈ 2.3M → total ≤ 297M, fits in int32.
+    x:     [N_CH, N_TG, N_TPG] float32
+    gamma: [N_CH]               float32
+    beta:  [N_CH]               float32
+    Returns output [N_CH, N_TG, N_TPG] float32.
     """
-    raw = sum(acc_vals)
-    return struct.unpack("<I", struct.pack("<i", raw))[0]
+    mean = x.mean(axis=0)                         # [N_TG, N_TPG]
+    centered = x - mean                            # [N_CH, N_TG, N_TPG]
+    var = (centered ** 2).mean(axis=0)             # [N_TG, N_TPG]
+    inv_std = np.where(var > 0.0, 1.0 / np.sqrt(var), 0.0).astype(np.float32)
+    normalized = centered * inv_std                # [N_CH, N_TG, N_TPG]
+    output = gamma[:, None, None] * normalized + beta[:, None, None]
+    return output.astype(np.float32), mean.astype(np.float32), var.astype(np.float32), inv_std
 
 
-def _agg_sum_inv_sqrt_int8(acc_vals: list[int]) -> int:
-    """Replicate execute_agg(sum, inv_sqrt) in INT8 mode.
-
-    INT8 early-return: f = float(sum), result = 1/sqrt(f), stored as float32 bits.
-    """
-    f = float(sum(acc_vals))
-    result = 1.0 / (f ** 0.5) if f > 0 else 0.0
-    return struct.unpack("<I", struct.pack("<f", result))[0]
-
-
-def _aaq_quantize(acc_int32: int) -> int:
-    """Replicate execute_aaq on one accumulator word (INT8 mode).
-
-    val >> 24 (arithmetic), clamped to [-128, 127], returned as uint8.
-    """
-    signed = struct.unpack("<i", struct.pack("<I", acc_int32 & 0xFFFFFFFF))[0]
-    return max(-128, min(127, signed >> 24)) & 0xFF
-
-
-def _mult_ve_aaq(aaq_raw: int, rc_byte: int) -> int:
-    """Replicate mult.ve.aaq for one lane: ipu_mult(aaq&0xFF, rc_byte)."""
-    return ipu_mult(aaq_raw & 0xFF, rc_byte, DTYPE)
-
-
-# ---------------------------------------------------------------------------
-# Reference
-# ---------------------------------------------------------------------------
-
-def _reference_layernorm(
-    x_bytes: bytes,
-    gamma_bytes: bytes,
-    beta_bytes: bytes,
-) -> bytes:
-    """Replicate the assembly kernel instruction-by-instruction in INT8 mode.
-
-    Mask isolates each token lane during steps 1-3 and phases A/B of step 4.
-    Phase C/D (mult.ev) also applies the mask: only the current token's lane
-    survives, so each token's output uses its own temp_b[t] value.
-
-    Input layout:   x[ch, tg, tok] at byte (ch*N_TG + tg)*N_TPG + tok
-    Output layout:  row (ch*2+tg) at word offset (ch*2+tg)*N_TPG,
-                    N_TPG int32 words little-endian.
-    """
-    one     = _fp8_one()
-    neg_one = _fp8_neg_one()
-
-    output = bytearray(N_CH * N_TG * N_TPG * 4)
-
-    for tg in range(N_TG):
-
-        def x_at(ch: int, t: int) -> int:
-            return x_bytes[(ch * N_TG + tg) * N_TPG + t]
-
-        # ----------------------------------------------------------------
-        # Steps 1–3: per-token stats (aaq0, aaq1, aaq3 per token)
-        # The mask zeroes all lanes except t, so agg sees only lane t's value.
-        # ----------------------------------------------------------------
-        aaq0 = [0] * N_TPG   # mean (uint32 bits)
-        aaq1 = [0] * N_TPG   # -mean (uint32 bits)
-        aaq3 = [0] * N_TPG   # inv_std (float32 bits as uint32)
-
-        for t in range(N_TPG):
-            # Step 1: Σ x[ch,t] × one, accumulate in lane t only
-            acc1 = 0
-            for ch in range(N_CH):
-                acc1 = ipu_add(acc1, ipu_mult(x_at(ch, t), one, DTYPE), DTYPE)
-            # agg sees [0, ..., acc1 at t, ..., 0]
-            aaq0[t] = _agg_sum_value([acc1 if i == t else 0 for i in range(N_TPG)])
-            aaq1[t] = _agg_sum_value([acc1 if i == t else 0 for i in range(N_TPG)])
-
-            # Step 2: Σ x[ch,t]², accumulate in lane t only
-            acc2 = 0
-            for ch in range(N_CH):
-                acc2 = ipu_add(acc2, ipu_mult(x_at(ch, t), x_at(ch, t), DTYPE), DTYPE)
-            aaq2_t = _agg_sum_value([acc2 if i == t else 0 for i in range(N_TPG)])
-
-            # Step 3a: mult.ve.aaq aaq0[t] × ones[t]; acc.first; aaq → TEMP_BASE+0
-            # TODO(fp8_aaq)
-            prod3a   = _mult_ve_aaq(aaq0[t], one)      # scalar × ones[t]
-            temp0_3a = _aaq_quantize(prod3a)
-
-            # Step 3b: mean × neg_one; acc.first; aaq → TEMP_BASE+128
-            # TODO(fp8_aaq)
-            prod3b   = ipu_mult(temp0_3a, neg_one, DTYPE)
-            temp1_3b = _aaq_quantize(prod3b)
-
-            # Step 3c: mean × (-mean); acc.first
-            prod3c = ipu_mult(temp0_3a, temp1_3b, DTYPE)
-
-            # Step 3d: mult.ve.aaq aaq2 × ones[t]; acc
-            prod3d = _mult_ve_aaq(aaq2_t, one)
-            var_t  = ipu_add(prod3c, prod3d, DTYPE)
-
-            # agg sum inv_sqrt
-            aaq3[t] = _agg_sum_inv_sqrt_int8([var_t if i == t else 0 for i in range(N_TPG)])
-
-        # ----------------------------------------------------------------
-        # Step 4: per-channel affine
-        #
-        # Assembly runs step4 INSIDE the token loop: for each token (batch, tok)
-        # it writes str_acc_reg (all 512 bytes) for every channel, with only
-        # SIMD lane=tok non-zero (mask in mult.ee/mult.ve.aaq/mult.ev).
-        # Each subsequent token overwrites all channel rows, so after all 128
-        # tokens only the last token's lane survives.
-        #
-        # Last token: batch=15, tok=7 → lr12=7 → lane 7 is non-zero everywhere.
-        # aaq1/aaq3 registers hold last token's values (no reset between tokens).
-        # Use aaq1[N_TPG-1] and aaq3[N_TPG-1]; write only at lane position 7.
-        # ----------------------------------------------------------------
-        last_t    = N_TPG - 1          # global token 127 → lr12 = 7, SIMD lane = 7
-        lane      = last_t % 8         # = 7
-        last_aaq1 = aaq1[last_t]
-        last_aaq3 = aaq3[last_t]
-
-        for ch in range(N_CH):
-            # Phase A: x[ch, lane] − mean  (last token's mean scalar)
-            # aaq truncation #3 // TODO(fp8_aaq)
-            prod_a = ipu_mult(x_at(ch, lane), one, DTYPE)
-            c1     = ipu_add(prod_a, last_aaq1, DTYPE)
-            temp_a = _aaq_quantize(c1)
-
-            # Phase B: (x-mean) × inv_std  (last token's inv_std scalar)
-            # aaq truncation #4 // TODO(fp8_aaq)
-            prod_b = _mult_ve_aaq(last_aaq3, temp_a)
-            temp_b = _aaq_quantize(prod_b)
-
-            # Phase C: normalized × γ[ch]
-            gam_ch = gamma_bytes[ch]
-            acc_c  = ipu_mult(temp_b, gam_ch, DTYPE)
-
-            # Phase D: ones × β[ch]; acc
-            bet_ch = beta_bytes[ch]
-            acc_d  = ipu_add(acc_c, ipu_mult(one, bet_ch, DTYPE), DTYPE)
-
-            # str_acc_reg writes 512 bytes; only lane `lane` is non-zero.
-            out_row = ch * 2 + tg
-            struct.pack_into("<i", output, (out_row * N_TPG + lane) * 4, acc_d)
-
-    return bytes(output)
+def _pack_fp32_row(arr: np.ndarray) -> bytes:
+    """Pack 1-D float32 array into a 512-byte row (zero-padded to 128 lanes)."""
+    assert arr.ndim == 1 and len(arr) <= 128
+    padded = np.zeros(128, dtype=np.float32)
+    padded[: len(arr)] = arr
+    return padded.tobytes()
 
 
 def main() -> None:
-    out_dir  = Path(__file__).parent / "test_data_format"
-    dtype_dir = out_dir / "fp8_e4m3"
-    dtype_dir.mkdir(parents=True, exist_ok=True)
-
     rng = np.random.RandomState(42)
-    x_fp32     = rng.uniform(-1.0, 1.0, size=(N_CH, N_TG, N_TPG)).astype(np.float32)
-    gamma_fp32 = rng.uniform(0.5,  1.5,  size=N_CH).astype(np.float32)
-    beta_fp32  = rng.uniform(-0.5, 0.5,  size=N_CH).astype(np.float32)
+    out_dir = Path(__file__).parent / "test_data_format" / "wide_fp32"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    x_bytes     = fp32_to_fp8_bytes(x_fp32.reshape(-1), DType.E4)
-    gamma_bytes = fp32_to_fp8_bytes(gamma_fp32,          DType.E4)
-    beta_bytes  = fp32_to_fp8_bytes(beta_fp32,           DType.E4)
+    x     = rng.randn(N_CH, N_TG, N_TPG).astype(np.float32)
+    gamma = rng.randn(N_CH).astype(np.float32) * 0.5 + 1.0
+    beta  = rng.randn(N_CH).astype(np.float32) * 0.1
 
-    print("Generating layernorm_256x144 test data...")
-    golden = _reference_layernorm(x_bytes, gamma_bytes, beta_bytes)
+    # Write input: N_CH × N_TG rows in (ch*N_TG + tg) order, each 512 bytes
+    input_bytes = b"".join(
+        _pack_fp32_row(x[ch, tg])
+        for ch in range(N_CH)
+        for tg in range(N_TG)
+    )
+    (out_dir / "input_x_fp32.bin").write_bytes(input_bytes)
 
-    (dtype_dir / "input_fp8_e4m3.bin").write_bytes(x_bytes)
-    (dtype_dir / "gamma_fp8_e4m3.bin").write_bytes(gamma_bytes)
-    (dtype_dir / "beta_fp8_e4m3.bin").write_bytes(beta_bytes)
-    (dtype_dir / "out_fp8_e4m3_acc_int32.bin").write_bytes(golden)
+    # Write γ and β as raw float32 arrays (N_CH values × 4 bytes = 576 B)
+    (out_dir / "gamma_fp32.bin").write_bytes(gamma.astype(np.float32).tobytes())
+    (out_dir / "beta_fp32.bin").write_bytes(beta.astype(np.float32).tobytes())
 
-    print(f"  [fp8_e4m3] x={len(x_bytes)}B  gamma={len(gamma_bytes)}B  "
-          f"beta={len(beta_bytes)}B  golden={len(golden)}B")
-    print("Done.")
+    # Compute and write golden output
+    output, mean, var, inv_std = reference_layernorm(x, gamma, beta)
+    golden_bytes = b"".join(
+        _pack_fp32_row(output[ch, tg])
+        for ch in range(N_CH)
+        for tg in range(N_TG)
+    )
+    (out_dir / "output_fp32.bin").write_bytes(golden_bytes)
+
+    print(f"Generated {N_CH} channels × {N_TG} tg × {N_TPG} tokens")
+    print(f"  input:  {len(input_bytes)} B")
+    print(f"  gamma:  {len(gamma.tobytes())} B")
+    print(f"  beta:   {len(beta.tobytes())} B")
+    print(f"  output: {len(golden_bytes)} B")
+    print(f"  mean range:    [{mean.min():.4f}, {mean.max():.4f}]")
+    print(f"  var range:     [{var.min():.4f}, {var.max():.4f}]")
+    print(f"  inv_std range: [{inv_std.min():.4f}, {inv_std.max():.4f}]")
 
 
 if __name__ == "__main__":
