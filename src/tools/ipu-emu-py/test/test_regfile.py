@@ -47,15 +47,17 @@ class TestRegFileScalars:
         rf.set_cr(1, 0xFFFFFF)  # write is silently ignored
         assert rf.get_cr(1) == 1
 
-    def test_cr_20bit_mask(self):
+    def test_cr_scalar_mask(self):
         rf = RegFile()
-        rf.set_cr(3, 0x1FFFFF)  # 21 bits — should be masked to 20 bits
+        # A value one bit wider than the scalar field is masked down to the field.
+        rf.set_cr(3, (LR_CR_SCALAR_VALUE_MASK << 1) | 1)
         assert rf.get_cr(3) == LR_CR_SCALAR_VALUE_MASK
 
-    def test_lr_overflow_wraps_to_20bit(self):
+    def test_lr_overflow_wraps_to_scalar_width(self):
         rf = RegFile()
-        rf.set_lr(0, 0x1_0000_0001)  # > 20 bits
-        assert rf.get_lr(0) == 1  # only low 20 bits kept
+        # Set a value above the scalar field plus low bit 1; only the field is kept.
+        rf.set_lr(0, (1 << 32) | 1)
+        assert rf.get_lr(0) == 1  # only the low LR_CR_SCALAR_BITS kept
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()
