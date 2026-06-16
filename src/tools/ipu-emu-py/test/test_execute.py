@@ -21,6 +21,7 @@ from ipu_emu.emulator import (
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 
 from ipu_as.lark_tree import assemble, parse
 
@@ -155,7 +156,7 @@ BKPT;;
             cr={8: 45})
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFF
+        assert state.regfile.get_lr(5) == (45 - 200) & LR_CR_SCALAR_VALUE_MASK
 
     def test_sub_lr_lr_imm5(self):
         state = _run("""\

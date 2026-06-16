@@ -70,3 +70,39 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- conv_universal apps (3x3 conv, walking-pointer) -----------------------
+#
+# These tests assemble the .asm in-process (assemble_to_bin_file in the test
+# fixture), so the app .asm files are provided as data; no pre-assembled .bin
+# target is needed.  The PyTorch cross-validation test
+# (test_conv_universal_bn_activation_pytorch.py) is intentionally NOT declared
+# here: it requires `torch`, which is not in the CI environment, so it would
+# importorskip and report false coverage.  The numpy-reference tests below are
+# the CI gate; the PyTorch test is a local-only cross-check (see its docstring).
+
+py_pytest_test(
+    name = "test_conv_universal",
+    srcs = ["test/test_conv_universal.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_universal/conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_conv_universal_bn_activation",
+    srcs = ["test/test_conv_universal_bn_activation.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_universal_bn_activation/conv_universal_bn_activation.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)

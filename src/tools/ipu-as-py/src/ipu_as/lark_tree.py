@@ -60,6 +60,12 @@ class ASTBuilder(lark.Transformer):
 
 
 def parse(text: str) -> list[dict[str, any]]:
+    # Reset the module-global label registry so repeated assemble() calls in a
+    # single process don't raise "label defined for the second time". Each parse
+    # is a self-contained translation unit; the label table must not leak across
+    # calls. (App harnesses, tests, and benchmarks assemble several .asm files in
+    # one process rather than spawning a fresh process per file.)
+    ipu_label.reset_labels()
     # Check if text contains Jinja statements and preprocess if needed
     if any(marker in text for marker in ['{{', '{%', '{#']):
         template = jinja2.Template(text)
