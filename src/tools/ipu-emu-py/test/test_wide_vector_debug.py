@@ -86,8 +86,8 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE identity;;
+aaq;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
@@ -116,8 +116,8 @@ RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE identity;;
+aaq;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -372,7 +372,7 @@ class TestWideVectorAgg:
         acc = bytearray(512)
         struct.pack_into("<128i", acc, 0, *([4] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.INT32, acc
+            "AGG.SUM.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.INT32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
@@ -382,7 +382,7 @@ class TestWideVectorAgg:
         acc = bytearray(512)
         struct.pack_into("<128f", acc, 0, *([0.5] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+            "AGG.SUM.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
@@ -393,7 +393,7 @@ class TestWideVectorAgg:
         struct.pack_into("<128f", acc, 0, *([1.0] * 128))
         struct.pack_into("<f", acc, 3 * 4, 7.5)
         st = self._run_agg(
-            "AGG.MAX.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+            "AGG.MAX.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)

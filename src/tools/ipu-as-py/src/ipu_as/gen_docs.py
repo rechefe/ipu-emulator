@@ -22,10 +22,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "LR value after earlier slots in the same cycle."
     ),
     "CrIdx": (
-        "Constant-register index: **`cr0`** … **`cr14`**. CRs are **read-only** in assembly; the "
-        "harness initializes them (e.g. base pointers, strides). `cr15` is reserved for dstructure "
-        "configuration and is not a valid ISA operand. **`SET`** in the LR slot "
-        "copies the full **32-bit** CR value into an LR."
+        "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the "
+        "harness initializes them (e.g. base pointers, strides). **`SET`** in the LR slot "
+        "copies the full **32-bit** CR value into an LR. **Note:** `cr15` is only valid as `cr_idx` "
+        "when the same instruction's `cr_dstructure` is not also `CR15` — the assembler raises an "
+        "error if both operands resolve to `CR15` in the same instruction."
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
@@ -68,10 +69,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
-    "FullXmemRow": (
-        "1-bit control flag on **`AAQ`**: **`1`** = always process all **128 lanes** (full XMEM row, "
-        "ignores ``CR15.valid_elements``); **`0`** = process only the first ``CR15.valid_elements`` "
-        "lanes (clamped to 128) and zero the rest. Defaults to **`1`** for backward compatibility."
+    "CrDstructureIdx": (
+        "CR register index (**`CR0`**–**`CR15`**, including **`CR15`**) whose encoded dstructure "
+        "value supplies configuration for the instruction: ``valid_elements`` (active lane count, "
+        "clamped to 128) for ACC/AAQ instructions, and ``partition`` (mask-shift group boundary) "
+        "for MULT instructions. Defaults to **`CR15`** when omitted; **4 bits** in the binary word."
     ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "

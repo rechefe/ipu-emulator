@@ -24,7 +24,13 @@ from typing import Any
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
-from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
+from ipu_emu.ipu_config import (
+    REGISTER_WORD_VALUE_MASK,
+    LR_CR_SCALAR_BITS,
+    Partition,
+    get_config_valid_elements,
+    get_config_partition,
+)
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -79,6 +85,7 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
+    "CrDstructureIdx": "cr_dstructure_idx_field",
     "AddSubSrcB": "add_sub_src_b_field",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
@@ -88,7 +95,6 @@ _TYPE_FIELD_SUFFIX = {
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
-    "FullXmemRow": "full_xmem_row_field",
 }
 
 # Field prefix for each slot type (matches compound_inst naming)
@@ -288,7 +294,7 @@ class Ipu:
         """
         if op_type == "LrIdx":
             return source.get_lr(raw_value)
-        elif op_type == "CrIdx":
+        elif op_type in ("CrIdx", "CrDstructureIdx"):
             return source.get_cr(raw_value)
         elif op_type == "LcrIdx":
             if raw_value < LR_REG_COUNT:
@@ -359,7 +365,7 @@ class Ipu:
                 result |= (1 << i)
         return result
 
-    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
+    def _mult_mask_and_shift(self, mask_idx: int, shift: int, cr_dstructure_value: int) -> None:
         """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
         ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
@@ -369,7 +375,7 @@ class Ipu:
           idx +k → shift left  k times, ANDing with partition_vector after each step
           idx −k → shift right k times, ANDing with inverse_partition_vector after each step
 
-        Two partition vectors, both derived from CR15.partition:
+        Two partition vectors, both derived from the partition field of cr_dstructure_value:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
@@ -390,7 +396,7 @@ class Ipu:
         _128_BIT_MASK = (1 << R_REG_SIZE) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        num_partitions = self.state.get_config_partition()
+        num_partitions = get_config_partition(cr_dstructure_value)
 
         # Generate the shifted mask via sequential shift-and-AND
         mask_int = base_mask
@@ -575,7 +581,7 @@ class Ipu:
         pass
 
     def execute_mult_ee(self, *, ra: bytearray | int, cyclic_offset: int,
-                        mask_offset: int, mask_shift: int) -> None:
+                        mask_offset: int, mask_shift: int, cr_dstructure: int) -> None:
         """Execute MULT.EE: Element-wise multiplication."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -591,7 +597,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_vals[i]), int(rb_vals[i]))
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
             return
 
         dtype = self.state.dtype
@@ -601,10 +607,10 @@ class Ipu:
             result = ipu_mult(ra[i], rb[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
 
     def execute_mult_ee_rr(self, *, ra: bytearray | int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_dstructure: int) -> None:
         """Execute MULT.EE.RR: multi-element multiply of a mult-stage register by itself.
 
         ``ra`` selects the MEE mode: R0 → r0-by-r0, R1 → r1-by-r1. Each lane is
@@ -625,7 +631,7 @@ class Ipu:
                         "<i", mult_res, i * 4,
                         self._wide_imult32(int(ra_vals[i]), int(ra_vals[i])),
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
             return
 
         dtype = self.state.dtype
@@ -634,7 +640,7 @@ class Ipu:
             result = ipu_mult(ra[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
 
     def _execute_mult_ve_variant(
         self,
@@ -644,6 +650,7 @@ class Ipu:
         mask_offset: int,
         mask_shift: int,
         fixed_idx: int,
+        cr_dstructure: int,
     ) -> None:
         """Shared mult.ve.cyclic / mult.ve.padded implementation."""
         raw = cyclic_offset & 0xFFFFFFFF
@@ -681,7 +688,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_fixed), rb_lane)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
             return
 
         dtype = self.state.dtype
@@ -706,10 +713,11 @@ class Ipu:
                 result = ipu_mult(ra_fixed, rb_byte, dtype)
                 struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
 
     def execute_mult_ve_cyclic(self, *, cyclic_offset: int,
-                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
+                               mask_offset: int, mask_shift: int, fixed_idx: int,
+                               cr_dstructure: int) -> None:
         """Execute MULT.VE.CYCLIC: fixed r0/r1 element × r_cyclic row with cyclic addressing."""
         self._execute_mult_ve_variant(
             pad_128_ones=False,
@@ -717,10 +725,12 @@ class Ipu:
             mask_offset=mask_offset,
             mask_shift=mask_shift,
             fixed_idx=fixed_idx,
+            cr_dstructure=cr_dstructure,
         )
 
     def execute_mult_ve_padded(self, *, cyclic_offset: int,
-                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
+                               mask_offset: int, mask_shift: int, fixed_idx: int,
+                               cr_dstructure: int) -> None:
         """Execute MULT.VE.PADDED: fixed r0/r1 element × r_cyclic row with boundary padding."""
         self._execute_mult_ve_variant(
             pad_128_ones=True,
@@ -728,10 +738,11 @@ class Ipu:
             mask_offset=mask_offset,
             mask_shift=mask_shift,
             fixed_idx=fixed_idx,
+            cr_dstructure=cr_dstructure,
         )
 
     def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
-                           mask_shift: int, cr_idx: int) -> None:
+                           mask_shift: int, cr_idx: int, cr_dstructure: int) -> None:
         """Execute MULT.VE.CR: CR scalar × r_cyclic elements with boundary padding.
 
         Multiplies the low byte of CR[cr_idx] against each byte of
@@ -761,7 +772,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(cr_scalar, rb_lane)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
             return
 
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
@@ -775,7 +786,7 @@ class Ipu:
             result = ipu_mult(scalar_byte, rb_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_dstructure)
 
     # -----------------------------------------------------------------------
     # ACC Instruction Handlers
@@ -910,9 +921,9 @@ class Ipu:
                 best = v
         return best
 
-    def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum_first(self, *, dest_slot: int, cr_dstructure: int) -> None:
         """Execute AGG.SUM.FIRST: sum active R_ACC lanes, write to R_ACC[dest] (clean init)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = get_config_valid_elements(cr_dstructure)
         fmt = self._acc_agg_lane_fmt()
         snap_acc = self.snapshot.raw("r_acc")
         active = self._agg_active_lane_count(valid_elements)
@@ -922,9 +933,9 @@ class Ipu:
             result = self._to_int32(result)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum(self, *, dest_slot: int, cr_dstructure: int) -> None:
         """Execute AGG.SUM: sum active R_ACC lanes and add to R_ACC[dest] (running accumulation)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = get_config_valid_elements(cr_dstructure)
         fmt = self._acc_agg_lane_fmt()
         snap_acc = self.snapshot.raw("r_acc")
         active = self._agg_active_lane_count(valid_elements)
@@ -937,13 +948,13 @@ class Ipu:
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max_first(self, *, dest_slot: int, cr_dstructure: int) -> None:
         """Execute AGG.MAX.FIRST: max of active R_ACC lanes, write to R_ACC[dest] (no seed).
 
         When no lanes are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = get_config_valid_elements(cr_dstructure)
         fmt = self._acc_agg_lane_fmt()
         snap_acc = self.snapshot.raw("r_acc")
         active = self._agg_active_lane_count(valid_elements)
@@ -952,9 +963,9 @@ class Ipu:
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max(self, *, dest_slot: int, cr_dstructure: int) -> None:
         """Execute AGG.MAX: max of active R_ACC lanes seeded with R_ACC[dest] (running max)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = get_config_valid_elements(cr_dstructure)
         fmt = self._acc_agg_lane_fmt()
         snap_acc = self.snapshot.raw("r_acc")
         active = self._agg_active_lane_count(valid_elements)
@@ -963,7 +974,7 @@ class Ipu:
         result = self._agg_max_lanes(fmt, snap_acc, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_aaq(self, *, full_xmem_row: int) -> None:
+    def execute_aaq(self, *, cr_dstructure: int) -> None:
         """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
         Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
@@ -986,8 +997,7 @@ class Ipu:
         the ``ACTIVATE`` -> ``AAQ`` path producing usable INT8 output instead of
         all zeros.
 
-        ``full_xmem_row=1``: always process all 128 lanes.
-        ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
+        ``cr_dstructure``: CR register whose valid_elements field gives the active lane count.
 
         Requires INT8 mode.
 
@@ -999,9 +1009,7 @@ class Ipu:
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
 
-        active = 128 if full_xmem_row else self._agg_active_lane_count(
-            self.state.get_config_valid_elements()
-        )
+        active = self._agg_active_lane_count(get_config_valid_elements(cr_dstructure))
 
         if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
@@ -1029,7 +1037,7 @@ class Ipu:
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_activate(self, *, activation_fn: int, full_xmem_row: int) -> None:
+    def execute_activate(self, *, activation_fn: int, cr_dstructure: int) -> None:
         """Apply element-wise activation to active lanes.
 
         Reads each active lane from ``r_acc`` and writes the result into the same
@@ -1038,10 +1046,10 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
+        ``cr_dstructure``: CR register whose valid_elements field gives the active lane count.
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = get_config_valid_elements(cr_dstructure)
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.snapshot.raw("r_acc")

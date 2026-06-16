@@ -36,6 +36,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
+    "CrDstructureIdx": reg.CrDstructureIdxField,
     "AddSubSrcB": immediate.AddSubSrcBField,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
@@ -44,7 +45,6 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
-    "FullXmemRow": immediate.FullXmemRowField,
     "Label": ipu_token.LabelToken,
 }
 
@@ -88,16 +88,45 @@ class Inst:
         struct_entry = struct_table[struct_names[opcode_idx]]
         operand_types = self._operand_types_from_struct(struct_entry)
 
-        if len(inst["operands"]) != len(operand_types):
+        n_provided = len(inst["operands"])
+        n_expected = len(operand_types)
+        # A trailing CrDstructureIdx operand is optional: when omitted it
+        # defaults to CR15 via _get_full_token_list → CrDstructureIdxField.default().
+        _optional_tail = (
+            n_provided == n_expected - 1
+            and operand_types
+            and operand_types[-1] is reg.CrDstructureIdxField
+        )
+        if not _optional_tail and n_provided != n_expected:
             raise ValueError(
-                f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
-                f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
+                f"Instruction {inst['opcode'].token.value} expects {n_expected} operands, "
+                f"got {n_provided}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
             )
 
         self.operands = [
             op_type(op) for op_type, op in zip(operand_types, inst["operands"])
         ]
         self.specific_operand_types = operand_types
+
+        # CrRegField=CR15 conflicts with CrDstructureIdx=CR15: they would both
+        # read CR15 for different purposes in the same instruction.
+        _cr_idx_is_cr15 = any(
+            op.encode() == 15
+            for op, t in zip(self.operands, operand_types)
+            if t is reg.CrRegField
+        )
+        _cr_dstruct_is_cr15 = _optional_tail or any(
+            op.encode() == 15
+            for op, t in zip(self.operands, operand_types)
+            if t is reg.CrDstructureIdxField
+        )
+        if _cr_idx_is_cr15 and _cr_dstruct_is_cr15:
+            raise ValueError(
+                f"Instruction {inst['opcode'].token.value}: CR15 cannot be used as cr_idx "
+                f"when cr_dstructure is also CR15 (explicitly or by default) — "
+                f"the same register would serve two conflicting roles.\n"
+                f"In Line {self.opcode.token.line}, Column {self.opcode.token.column}"
+            )
 
     def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
         full_token_list = [None for _ in range(1 + len(self.operand_types()))]
