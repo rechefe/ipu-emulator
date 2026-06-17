@@ -1570,13 +1570,17 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 6, f"acc word {i}: expected 6 (2×3), got {val}"
 
-    def test_mult_ve_cr_cr15_cr_idx_conflicts_with_explicit_cr15_dstructure(self):
-        """Assembler raises ValueError when cr_idx=CR15 and cr_dstructure=CR15 explicitly."""
-        import pytest
+    def test_mult_ve_cr_same_cr_idx_and_cr_dstructure_raises(self):
+        """Assembler raises ValueError when cr_idx and cr_dstructure are the same register."""
         from ipu_as.lark_tree import parse
         from ipu_as.compound_inst import CompoundInst
+        # CR15 as both
         ast = parse("MULT.VE.CR lr0 0 lr0 CR15 CR15;;\nBKPT;;")
         with pytest.raises(ValueError, match="conflicting roles"):
+            [CompoundInst(instr).encode() for instr in ast]
+        # Any other register — CR5 as both
+        ast = parse("MULT.VE.CR lr0 0 lr0 CR5 CR5;;\nBKPT;;")
+        with pytest.raises(ValueError, match="CR5.*conflicting roles"):
             [CompoundInst(instr).encode() for instr in ast]
 
 

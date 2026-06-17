@@ -100,7 +100,7 @@ class Inst:
         ]
         self.specific_operand_types = operand_types
 
-        # CR15 cannot serve as both cr_idx and cr_dstructure in the same instruction.
+        # cr_idx and cr_dstructure cannot be the same register in the same instruction.
         spec_operands = INSTRUCTION_SPEC[self._slot_type_name()].get(
             struct_names[opcode_idx], {}
         ).get("operands", [])
@@ -110,11 +110,11 @@ class Inst:
         if (
             _cr_idx_pos is not None
             and _cr_dst_pos is not None
-            and self.operands[_cr_idx_pos].encode() == 15
-            and self.operands[_cr_dst_pos].encode() == 15
+            and self.operands[_cr_idx_pos].encode() == self.operands[_cr_dst_pos].encode()
         ):
+            cr_num = self.operands[_cr_idx_pos].encode()
             raise ValueError(
-                f"Instruction {inst['opcode'].token.value}: CR15 cannot be used as both "
+                f"Instruction {inst['opcode'].token.value}: CR{cr_num} cannot be used as both "
                 f"cr_idx and cr_dstructure — the same register would serve two conflicting roles.\n"
                 f"In Line {self.opcode.token.line}, Column {self.opcode.token.column}"
             )
