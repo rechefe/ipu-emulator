@@ -72,6 +72,7 @@ nav:
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:
+      - Instruction format: instruction-format.md
       - Assembly Syntax: assembly-syntax.md
       - Operand types: operand-types.md
       - Instruction Reference: instructions.md

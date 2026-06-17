@@ -1,0 +1,23 @@
+/* Auto-generated from instruction_spec.py — do not edit. */
+#ifndef IPU_INST_H
+#define IPU_INST_H
+
+#include <stdint.h>
+
+{% for enum_name in enums -%}
+typedef enum {
+{%- for value, name in enums[enum_name] %}
+    {{ enum_name | upper }}_{{ name | upper }} = {{ value }},
+{%- endfor %}
+} {{ enum_name }}_t;
+
+{% endfor -%}
+typedef struct {
+{%- for name, bits in inst_bit_fields %}
+    uint32_t {{ name }} : {{ bits }};
+{%- endfor %}
+} ipu_compound_inst_t;
+
+#define IPU_COMPOUND_INST_WIDTH {{ compound_width }}
+
+#endif /* IPU_INST_H */
