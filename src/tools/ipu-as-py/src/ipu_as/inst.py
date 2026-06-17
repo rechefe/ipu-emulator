@@ -9,7 +9,6 @@ from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
     InstructionDoc,
-    SLOT_COUNT,
     SLOT_UNIONS,
     is_hardware_slot,
 )
@@ -252,7 +251,7 @@ class Inst:
             inst_class = slot_to_class.get(slot)
             if inst_class is None:
                 continue
-            seen.extend([inst_class] * SLOT_COUNT.get(slot, 1))
+            seen.append(inst_class)
         # Any subclasses not in COMPOUND_LAYOUT_SLOT_ORDER (should not happen).
         for subclass in cls.__subclasses__():
             if subclass not in seen:
