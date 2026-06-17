@@ -24,20 +24,17 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "CrIdx": (
         "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the "
         "harness initializes them (e.g. base pointers, strides). **`SET`** in the LR slot "
-        "copies the full **32-bit** CR value into an LR. **Note:** `cr15` is only valid as `cr_idx` "
-        "when the same instruction's `cr_dstructure` is not also `CR15` — the assembler raises an "
-        "error if both operands resolve to `CR15` in the same instruction."
+        "copies the full **32-bit** CR value into an LR. **Note:** in `MULT.VE.CR`, `cr_idx` and "
+        "`cr_dstructure` cannot both be `CR15` — the assembler raises an error."
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
-        "`**cr0`–`cr14`** in the usual combined ordering used by the assembler. `cr15` is reserved "
-        "and is not a valid operand."
+        "**`cr0`–`cr15`** in the usual combined ordering used by the assembler."
     ),
     "AddSubSrcB": (
-        "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr14`**, "
+        "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
         "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
-        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**. `cr15` is "
-        "reserved and is not a valid operand."
+        "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
     ),
     "ElementsInRow": (
         "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
@@ -69,12 +66,6 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
-    "CrDstructureIdx": (
-        "CR register index (**`CR0`**–**`CR15`**, including **`CR15`**) whose encoded dstructure "
-        "value supplies configuration for the instruction: ``valid_elements`` (active lane count, "
-        "clamped to 128) for ACC/AAQ instructions, and ``partition`` (mask-shift group boundary) "
-        "for MULT instructions. Defaults to **`CR15`** when omitted; **4 bits** in the binary word."
-    ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
         "(e.g. `loop`, `+3`)."

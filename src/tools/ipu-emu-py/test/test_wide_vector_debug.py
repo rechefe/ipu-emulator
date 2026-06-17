@@ -14,6 +14,7 @@ import pytest
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import EmulatorError
+from ipu_emu.ipu_config import encode_dstructure
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -59,7 +60,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
+MULT.EE r0 lr2 0 lr2 CR15;;
 acc.first;;
 BKPT;;
 """
@@ -83,11 +84,11 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
+MULT.EE r0 lr2 0 lr2 CR15;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity;;
-aaq;;
+ACTIVATE identity CR15;;
+aaq CR15;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
@@ -104,6 +105,7 @@ BKPT;;
             wide_vector_quantize_output=True,
         )
         state.dtype = DType.INT8
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         state.xmem.write_address(0x1000, r0)
         state.xmem.write_address(0x2000, rc)
         asm = """\
@@ -113,11 +115,11 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
+MULT.EE r0 lr2 0 lr2 CR15;;
 acc.first;;
 SET lr0 cr9;;
-ACTIVATE identity;;
-aaq;;
+ACTIVATE identity CR15;;
+aaq CR15;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -147,7 +149,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
+MULT.EE r0 lr2 0 lr2 CR15;;
 acc.first;;
 BKPT;;
 """
@@ -193,7 +195,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
 RESET_ACC;;
-MULT.EE {which} lr3 0 lr3;;
+MULT.EE {which} lr3 0 lr3 CR15;;
 acc.first;;
 BKPT;;
 """
@@ -235,7 +237,7 @@ SET lr4 cr10;;
 LDR_MULT_REG r0 lr4 cr0;;
 SET lr5 cr11;;
 RESET_ACC;;
-MULT.EE r0 lr5 0 lr5;;
+MULT.EE r0 lr5 0 lr5 CR15;;
 acc.first;;
 BKPT;;
 """
@@ -264,7 +266,7 @@ class TestWideVectorPadding:
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.VE.CR lr0 0 lr2 cr2;;
+MULT.VE.CR lr0 0 lr2 cr2 CR15;;
 RESET_ACC;;
 acc.first;;
 BKPT;;
@@ -300,7 +302,7 @@ LDR_MULT_REG r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.VE.CYCLIC lr0 0 lr2 lr3;;
+MULT.VE.CYCLIC lr0 0 lr2 lr3 CR15;;
 RESET_ACC;;
 acc.first;;
 BKPT;;
@@ -336,7 +338,7 @@ LDR_MULT_REG r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.VE.PADDED lr0 0 lr2 lr3;;
+MULT.VE.PADDED lr0 0 lr2 lr3 CR15;;
 RESET_ACC;;
 acc.first;;
 BKPT;;
@@ -360,7 +362,7 @@ class TestWideVectorAgg:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=arithmetic)
         st.dtype = DType.INT8
         st.regfile.set_r_acc_bytes(acc)
-        st.set_cr_dstructure(128)
+        st.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
@@ -372,7 +374,7 @@ class TestWideVectorAgg:
         acc = bytearray(512)
         struct.pack_into("<128i", acc, 0, *([4] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.INT32, acc
+            "AGG.SUM.FIRST LR0 CR15;;\nBKPT;;\n", WideVectorArithmetic.INT32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
@@ -382,7 +384,7 @@ class TestWideVectorAgg:
         acc = bytearray(512)
         struct.pack_into("<128f", acc, 0, *([0.5] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+            "AGG.SUM.FIRST LR0 CR15;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
@@ -393,7 +395,7 @@ class TestWideVectorAgg:
         struct.pack_into("<128f", acc, 0, *([1.0] * 128))
         struct.pack_into("<f", acc, 3 * 4, 7.5)
         st = self._run_agg(
-            "AGG.MAX.FIRST LR0;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
+            "AGG.MAX.FIRST LR0 CR15;;\nBKPT;;\n", WideVectorArithmetic.FP32, acc
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
@@ -417,7 +419,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr9;;
 RESET_ACC;;
-MULT.EE r0 lr3 0 lr3;;
+MULT.EE r0 lr3 0 lr3 CR15;;
 BKPT;;
 """
         encoded = assemble(asm)

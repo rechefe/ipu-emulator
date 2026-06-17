@@ -9,7 +9,6 @@ CR_REGISTER_NAME = "cr"
 
 CR_ZERO_REG_INDEX = 0
 CR_ONE_REG_INDEX = 1
-CR_DSTRUCTURE_REG_INDEX = 15
 
 CR_ZERO_REG_VALUE = 0
 CR_ONE_REG_VALUE = 1
@@ -34,7 +33,7 @@ DEFAULT_VALID_ELEMENTS = 128
 
 
 class Partition(IntEnum):
-    """Valid CR15.partition values. Controls how the 128 lanes are grouped for mask shifts."""
+    """Valid dstructure partition values. Controls how the 128 lanes are grouped for mask shifts."""
     P0  = 0   # no partitioning — all 128 lanes in one group
     P2  = 2   # 2 groups of 64 lanes
     P4  = 4   # 4 groups of 32 lanes
@@ -47,7 +46,7 @@ DEFAULT_PARTITION = Partition.P0
 
 @dataclass(frozen=True)
 class DStructureConfig:
-    """Decoded CR15 dstructure configuration."""
+    """Decoded dstructure configuration from a CR register."""
 
     valid_elements: int = DEFAULT_VALID_ELEMENTS
     partition: Partition = DEFAULT_PARTITION
@@ -58,7 +57,7 @@ class DStructureConfig:
         yield self.partition
 
     def to_register_value(self) -> int:
-        """Pack this dstructure into the CR15 register word."""
+        """Pack this dstructure into a CR register word."""
         return encode_dstructure(
             valid_elements=self.valid_elements,
             partition=self.partition,
@@ -69,7 +68,7 @@ DEFAULT_DSTRUCTURE = DStructureConfig()
 
 
 def encode_dstructure(*, valid_elements: int, partition: Partition | int = DEFAULT_PARTITION) -> int:
-    """Pack dstructure fields into the CR15 register value."""
+    """Pack dstructure fields into a CR register value."""
     partition = Partition(partition)   # validates and converts; raises ValueError if invalid
     valid = int(valid_elements) & DSTRUCTURE_VALID_ELEMENTS_MASK
     part = int(partition) & DSTRUCTURE_PARTITION_MASK
@@ -77,7 +76,7 @@ def encode_dstructure(*, valid_elements: int, partition: Partition | int = DEFAU
 
 
 def decode_dstructure(value: int) -> DStructureConfig:
-    """Decode a CR15 register value into named dstructure fields."""
+    """Decode a CR register value into named dstructure fields."""
     word = int(value) & LR_CR_SCALAR_VALUE_MASK
     return DStructureConfig(
         valid_elements=word & DSTRUCTURE_VALID_ELEMENTS_MASK,

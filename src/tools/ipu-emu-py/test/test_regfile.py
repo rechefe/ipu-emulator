@@ -9,7 +9,6 @@ import pytest
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_config import (
-    CR_DSTRUCTURE_REG_INDEX,
     DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     LR_CR_SCALAR_VALUE_MASK,
@@ -293,25 +292,21 @@ class TestIpuState:
         state.dtype = DType.E4
         assert state.dtype == DType.E4
 
-    def test_cr15_default_dstructure(self):
+    def test_cr15_no_special_initialization(self):
         state = IpuState()
-        valid_elements, partition = state.get_cr_dstructure()
-        assert valid_elements == 128
-        assert partition == 0
+        assert state.regfile.get_cr(15) == 0  # no auto-init; caller must configure
 
     def test_set_cr_dstructure(self):
         state = IpuState()
-        state.set_cr_dstructure(64, 2)
-        config = state.get_cr_dstructure()
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=64, partition=2))
+        config = decode_dstructure(state.regfile.get_cr(15))
         assert config.valid_elements == 64
         assert config.partition == 2
-        assert state.get_config_valid_elements() == 64
-        assert state.get_config_partition() == 2
 
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
-        state.set_cr_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1)
-        assert state.get_cr_dstructure().valid_elements == 0
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1))
+        assert decode_dstructure(state.regfile.get_cr(15)).valid_elements == 0
 
     def test_cr_dstructure_invalid_partition_raises(self):
         with pytest.raises(ValueError, match="not a valid Partition"):
@@ -323,13 +318,11 @@ class TestIpuState:
         assert decoded.valid_elements == 17
         assert decoded.partition == 4
 
-    def test_cr_dstructure_uses_config_register(self):
+    def test_cr_dstructure_encode_decode(self):
         state = IpuState()
-        state.set_cr_dstructure(7, 4)
-        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == encode_dstructure(
-            valid_elements=7,
-            partition=4,
-        )
+        expected = encode_dstructure(valid_elements=7, partition=4)
+        state.regfile.set_cr(15, expected)
+        assert state.regfile.get_cr(15) == expected
 
     def test_load_store_r_reg_xmem(self):
         """Load data into XMEM, then load into R register, verify."""

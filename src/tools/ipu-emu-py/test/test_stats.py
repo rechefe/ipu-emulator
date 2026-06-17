@@ -88,7 +88,7 @@ class TestStatsCountedDuringExecution:
         # MULT.EE syntax: ra, cyclic_offset(LR), mask_offset(imm), mask_shift(LR)
         asm = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr0;MULT.EE r0 lr0 0 lr0;;
+LDR_MULT_REG r0 lr0 cr0;MULT.EE r0 lr0 0 lr0 CR15;;
 BKPT;;
 """
         state = IpuState()

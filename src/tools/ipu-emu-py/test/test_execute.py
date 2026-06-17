@@ -27,6 +27,7 @@ from ipu_as.lark_tree import assemble, parse
 from ipu_as.compound_inst import CompoundInst
 
 from ipu_common.activations import ACTIVATION_FN_NAMES, apply_activation
+from ipu_emu.ipu_config import encode_dstructure
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ def _make_state(
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
     state = IpuState(elu_alpha=elu_alpha)
+    state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -340,7 +342,7 @@ SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
 RESET_ACC;;
-MULT.EE r1 lr0 0 lr0;
+MULT.EE r1 lr0 0 lr0 CR15;
 ACC;;
 SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
@@ -427,7 +429,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 0 lr5;
+MULT.EE r0 lr6 0 lr5 CR15;
 ACC;;
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
@@ -466,7 +468,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr12;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 1 lr5;
+MULT.EE r0 lr6 1 lr5 CR15;
 ACC;;
 SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
@@ -818,12 +820,12 @@ BKPT;;
         """AGG.SUM.FIRST: sum all 128 lanes and write to R_ACC[dest] (clean init)."""
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0;;
+AGG.SUM.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -840,12 +842,12 @@ BKPT;;
         """
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0;;
+AGG.SUM.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(4)  # only lanes 0..3 active
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=4))  # only lanes 0..3 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -860,12 +862,12 @@ BKPT;;
         """AGG.SUM.FIRST: only active prefix contributes; tail is excluded."""
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0;;
+AGG.SUM.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(4)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=4))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 10 if i < 4 else 1000
@@ -877,7 +879,6 @@ BKPT;;
 
     def test_agg_sum_first_non_default_cr_register(self):
         """AGG.SUM.FIRST uses the specified cr_dstructure register, not necessarily CR15."""
-        from ipu_emu.ipu_config import encode_dstructure
         state = _make_state(
             """\
 AGG.SUM.FIRST LR0 CR5;;
@@ -885,7 +886,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)  # CR15 = 4 active lanes
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=4))  # CR15 = 4 active lanes
         state.regfile.set_cr(5, encode_dstructure(valid_elements=128))  # CR5 = 128
         state.regfile.set_lr(0, 127)
         for i in range(128):
@@ -903,12 +904,12 @@ BKPT;;
         """
         state = _make_state(
             """\
-AGG.SUM LR0;;
+AGG.SUM LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=64))  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
@@ -923,12 +924,12 @@ BKPT;;
         """AGG.MAX.FIRST: max of all 128 lanes, no seed from dest."""
         state = _make_state(
             """\
-AGG.MAX.FIRST LR0;;
+AGG.MAX.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
@@ -947,12 +948,12 @@ BKPT;;
         """
         state = _make_state(
             """\
-AGG.MAX.FIRST LR0;;
+AGG.MAX.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=64))  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
@@ -966,12 +967,12 @@ BKPT;;
         """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
         state = _make_state(
             """\
-AGG.MAX.FIRST LR0;;
+AGG.MAX.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(0)  # no active lanes
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=0))  # no active lanes
         state.regfile.set_lr(0, 7)
         state.regfile.set_r_acc_word(7, struct.unpack("<I", struct.pack("<i", 1234))[0])
         run_until_complete(state)
@@ -983,12 +984,12 @@ BKPT;;
         """AGG.MAX.FIRST: tail lanes beyond valid_elements are excluded."""
         state = _make_state(
             """\
-AGG.MAX.FIRST LR0;;
+AGG.MAX.FIRST LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(50)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=50))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 3 if i < 50 else 9999
@@ -1003,12 +1004,12 @@ BKPT;;
         """AGG.MAX: existing dest value beats all active lanes — dest unchanged."""
         state = _make_state(
             """\
-AGG.MAX LR0;;
+AGG.MAX LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
@@ -1022,12 +1023,12 @@ BKPT;;
         """AGG.MAX: an active lane beats the existing dest — dest updated."""
         state = _make_state(
             """\
-AGG.MAX LR0;;
+AGG.MAX LR0 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(100)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=100))
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 5 if i < 100 else 1
@@ -1049,7 +1050,7 @@ BKPT;;
         """
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0; ACTIVATE relu;;
+AGG.SUM.FIRST LR0 CR15; ACTIVATE relu CR15;;
 BKPT;;
 """
         )
@@ -1214,7 +1215,7 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 0 lr5;
+MULT.EE r0 lr6 0 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1256,7 +1257,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr3;
+MULT.VE.CR lr2 0 lr4 cr3 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1283,7 +1284,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr2;
+MULT.VE.CR lr2 0 lr4 cr2 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1309,7 +1310,7 @@ BKPT;;
 RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr3;
+MULT.VE.CR lr2 0 lr4 cr3 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1342,7 +1343,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr5;
+MULT.VE.CR lr2 0 lr4 cr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1368,7 +1369,7 @@ BKPT;;
 RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr6;
+MULT.VE.CR lr2 0 lr4 cr6 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1403,7 +1404,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;
+MULT.EE r0 lr2 0 lr2 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1432,7 +1433,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.VE.CYCLIC lr2 0 lr2 lr2;
+MULT.VE.CYCLIC lr2 0 lr2 lr2 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1464,7 +1465,7 @@ RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr10;;
 SET lr5 cr10;;
-MULT.VE.CYCLIC lr2 0 lr4 lr5;
+MULT.VE.CYCLIC lr2 0 lr4 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1495,7 +1496,7 @@ RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr10;;
 SET lr5 cr10;;
-MULT.VE.PADDED lr2 0 lr4 lr5;
+MULT.VE.PADDED lr2 0 lr4 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1530,7 +1531,7 @@ SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 SET lr3 cr12;;
-MULT.VE.CYCLIC lr2 0 lr2 lr3;
+MULT.VE.CYCLIC lr2 0 lr2 lr3 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1578,15 +1579,6 @@ BKPT;;
         with pytest.raises(ValueError, match="conflicting roles"):
             [CompoundInst(instr).encode() for instr in ast]
 
-    def test_mult_ve_cr_cr15_cr_idx_conflicts_with_default_dstructure(self):
-        """Assembler raises ValueError when cr_idx=CR15 and cr_dstructure omitted (defaults to CR15)."""
-        import pytest
-        from ipu_as.lark_tree import parse
-        from ipu_as.compound_inst import CompoundInst
-        ast = parse("MULT.VE.CR lr0 0 lr0 CR15;;\nBKPT;;")
-        with pytest.raises(ValueError, match="conflicting roles"):
-            [CompoundInst(instr).encode() for instr in ast]
-
 
 class TestMultEeRr:
     """MULT.EE.RR — multi-element execution (MEE): r0-by-r0 or r1-by-r1."""
@@ -1600,7 +1592,7 @@ SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 RESET_ACC;;
 SET lr5 cr9;;
-MULT.EE.RR r0 0 lr5;
+MULT.EE.RR r0 0 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1626,7 +1618,7 @@ SET lr1 cr9;;
 LDR_MULT_REG r1 lr1 cr0;;
 RESET_ACC;;
 SET lr5 cr10;;
-MULT.EE.RR r1 0 lr5;
+MULT.EE.RR r1 0 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1655,7 +1647,7 @@ SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr10;;
-MULT.EE.RR r0 0 lr5;
+MULT.EE.RR r0 0 lr5 CR15;
 ACC;;
 BKPT;;
 """,
@@ -1703,7 +1695,7 @@ SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr2;;
-MULT.EE.RR r0 0 lr5;
+MULT.EE.RR r0 0 lr5 CR15;
 ACC;;
 BKPT;;
 """
@@ -1726,7 +1718,7 @@ BKPT;;
             },
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=128, partition=partition)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128, partition=partition))
         state.xmem.write_address(self._R0_ADDR, bytes([2] * 128))
         state.xmem.write_address(self._MASK_ADDR, mask_bytes)
         run_until_complete(state)
@@ -1880,10 +1872,11 @@ class TestAaqQuantize:
         """Direct clamp: values already in [-128, 127] pass through unchanged."""
         state = IpuState()
         state.dtype = DType.INT8
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         # Lanes 0..127 hold the signed value (i - 64): -64..63, all in range.
         self._set_acc_words(state, [i - 64 for i in range(128)])
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq CR15;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1902,7 +1895,7 @@ class TestAaqQuantize:
         state.dtype = DType.INT8
         self._set_acc_words(state, [0] * 128)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq CR15;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1915,11 +1908,12 @@ class TestAaqQuantize:
         """Direct clamp: values above 127 saturate to 127."""
         state = IpuState()
         state.dtype = DType.INT8
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         # 127 stays 127; large positive int32 saturates to 127.
         values = [127] * 64 + [0x7FFFFFFF] * 64
         self._set_acc_words(state, values)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq CR15;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1935,11 +1929,12 @@ class TestAaqQuantize:
         """Direct clamp: in-range negatives pass through; below -128 saturates to -128."""
         state = IpuState()
         state.dtype = DType.INT8
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         # -1 stays -1 (0xFF); large negative int32 saturates to -128 (0x80).
         values = [-1] * 64 + [-(1 << 30)] * 64
         self._set_acc_words(state, values)
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq CR15;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -1956,17 +1951,16 @@ class TestAaqQuantize:
     def test_aaq_requires_int8_mode(self):
         """aaq raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
-        state = _make_state("aaq;;\nBKPT;;")
+        state = _make_state("aaq CR15;;\nBKPT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
     def test_aaq_non_default_cr_register(self):
         """aaq reads valid_elements from the specified cr_dstructure, not necessarily CR15."""
-        from ipu_emu.ipu_config import encode_dstructure
         state = IpuState()
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=64)  # CR15 = 64 (would truncate to 64 lanes)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=64))  # CR15 = 64 (would truncate to 64 lanes)
         state.regfile.set_cr(5, encode_dstructure(valid_elements=128))  # CR5 = 128
         self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
 
@@ -1985,10 +1979,10 @@ class TestAaqQuantize:
         """aaq CR15 quantizes only CR15.valid_elements lanes; rest are zeroed."""
         state = IpuState()
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=48)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=48))
         self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
 
-        encoded = assemble("aaq;;\nBKPT;;")
+        encoded = assemble("aaq CR15;;\nBKPT;;")
         from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
         decoded = [decode_instruction_word(w) for w in encoded]
@@ -2060,12 +2054,12 @@ class TestActivate:
     def test_activate_relu_int32(self):
         state = _make_state(
             """\
-ACTIVATE relu;;
+ACTIVATE relu CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=128))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -9))[0]
         )
@@ -2079,12 +2073,12 @@ BKPT;;
     def test_activate_masks_inactive_lanes(self):
         state = _make_state(
             """\
-ACTIVATE relu;;
+ACTIVATE relu CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(2)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=2))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -5))[0]
         )
@@ -2117,12 +2111,12 @@ BKPT;;
     def test_activate_identity_keyword_is_noop(self):
         state = _make_state(
             """\
-ACTIVATE identity;;
+ACTIVATE identity CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         raw = struct.unpack("<I", struct.pack("<i", -42))[0]
         state.regfile.set_r_acc_word(0, raw)
         run_until_complete(state)
@@ -2132,12 +2126,12 @@ BKPT;;
     def test_activate_sigmoid_float_lane(self):
         state = _make_state(
             """\
-ACTIVATE sigmoid;;
+ACTIVATE sigmoid CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2150,12 +2144,12 @@ BKPT;;
         for fid, name in enumerate(ACTIVATION_FN_NAMES):
             state = _make_state(
                 f"""\
-ACTIVATE {name};;
+ACTIVATE {name} CR15;;
 BKPT;;
 """
             )
             state.dtype = DType.E4
-            state.set_cr_dstructure(1)
+            state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
             state.regfile.set_r_acc_word(
                 0, struct.unpack("<I", struct.pack("<f", x))[0]
             )
@@ -2167,12 +2161,12 @@ BKPT;;
     def test_activate_exp2_float(self):
         state = _make_state(
             """\
-ACTIVATE exp2;;
+ACTIVATE exp2 CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
         )
@@ -2183,12 +2177,12 @@ BKPT;;
     def test_activate_gelu_float(self):
         state = _make_state(
             """\
-ACTIVATE gelu;;
+ACTIVATE gelu CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         x = 1.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -2203,13 +2197,13 @@ BKPT;;
         alpha = 0.5
         state = _make_state(
             """\
-ACTIVATE elu;;
+ACTIVATE elu CR15;;
 BKPT;;
 """,
             elu_alpha=alpha,
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
@@ -2223,13 +2217,13 @@ BKPT;;
         alpha = 0.125
         state = _make_state(
             """\
-ACTIVATE elu;;
+ACTIVATE elu CR15;;
 BKPT;;
 """
         )
         state.set_activation_alphas(elu_alpha=alpha)
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
         )
@@ -2241,12 +2235,12 @@ BKPT;;
     def test_activate_valid_elements_from_cr15(self):
         state = _make_state(
             """\
-ACTIVATE relu;;
+ACTIVATE relu CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<i", -8))[0]
         )
@@ -2264,12 +2258,12 @@ BKPT;;
     def test_activate_reciprocal_float(self):
         state = _make_state(
             """\
-ACTIVATE reciprocal;;
+ACTIVATE reciprocal CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         x = 4.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -2281,12 +2275,12 @@ BKPT;;
     def test_activate_reciprocal_zero_input(self):
         state = _make_state(
             """\
-ACTIVATE reciprocal;;
+ACTIVATE reciprocal CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2297,12 +2291,12 @@ BKPT;;
     def test_activate_rsqrt_float(self):
         state = _make_state(
             """\
-ACTIVATE rsqrt;;
+ACTIVATE rsqrt CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         x = 4.0
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", x))[0]
@@ -2314,12 +2308,12 @@ BKPT;;
     def test_activate_rsqrt_nonpositive_input(self):
         state = _make_state(
             """\
-ACTIVATE rsqrt;;
+ACTIVATE rsqrt CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.E4
-        state.set_cr_dstructure(1)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=1))
         state.regfile.set_r_acc_word(
             0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
         )
@@ -2329,7 +2323,6 @@ BKPT;;
 
     def test_activate_non_default_cr_register(self):
         """ACTIVATE uses the specified cr_dstructure register, not necessarily CR15."""
-        from ipu_emu.ipu_config import encode_dstructure
         state = _make_state(
             """\
 ACTIVATE relu CR5;;
@@ -2337,7 +2330,7 @@ BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)  # CR15 = 4 (would only activate 4 lanes)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=4))  # CR15 = 4 (would only activate 4 lanes)
         state.regfile.set_cr(5, encode_dstructure(valid_elements=128))  # CR5 = 128
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
@@ -2349,12 +2342,12 @@ BKPT;;
         """ACTIVATE CR15 activates only CR15.valid_elements lanes; rest unchanged."""
         state = _make_state(
             """\
-ACTIVATE relu;;
+ACTIVATE relu CR15;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
+        state.regfile.set_cr(15, encode_dstructure(valid_elements=4))
         for i in range(128):
             state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
         run_until_complete(state)

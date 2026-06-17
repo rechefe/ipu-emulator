@@ -14,14 +14,6 @@ from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 from ipu_common import activations as _activations
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import (
-    CR_DSTRUCTURE_REG_INDEX,
-    DEFAULT_DSTRUCTURE,
-    DStructureConfig,
-    Partition,
-    decode_dstructure,
-    encode_dstructure,
-)
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
@@ -66,11 +58,6 @@ class IpuState:
         # Arithmetic data type — not stored in a CR register (emulator-only).
         self.dtype: DType = dtype
 
-        self.set_cr_dstructure(
-            valid_elements=DEFAULT_DSTRUCTURE.valid_elements,
-            partition=DEFAULT_DSTRUCTURE.partition,
-        )
-
         # --- Emulator-only wide-vector debug mode (GitHub issue #33) ------------
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
@@ -81,31 +68,6 @@ class IpuState:
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         self.elu_alpha: float = (
             float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
-        )
-
-    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
-
-    def get_cr_dstructure(self) -> DStructureConfig:
-        """Read CR15 as decoded dstructure configuration fields."""
-        return decode_dstructure(self.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX))
-
-    def get_config_valid_elements(self) -> int:
-        """Return the active lane count from the CR15 dstructure register."""
-        return self.get_cr_dstructure().valid_elements
-
-    def get_config_partition(self) -> int:
-        """Return the partition field from the CR15 dstructure register."""
-        return self.get_cr_dstructure().partition
-
-    def set_cr_dstructure(
-        self,
-        valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
-        partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
-    ) -> None:
-        """Write CR15 as dstructure configuration fields."""
-        self.regfile.set_cr(
-            CR_DSTRUCTURE_REG_INDEX,
-            encode_dstructure(valid_elements=valid_elements, partition=partition),
         )
 
     def set_activation_alphas(

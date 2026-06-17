@@ -36,7 +36,6 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
-    "CrDstructureIdx": reg.CrDstructureIdxField,
     "AddSubSrcB": immediate.AddSubSrcBField,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
@@ -90,14 +89,7 @@ class Inst:
 
         n_provided = len(inst["operands"])
         n_expected = len(operand_types)
-        # A trailing CrDstructureIdx operand is optional: when omitted it
-        # defaults to CR15 via _get_full_token_list → CrDstructureIdxField.default().
-        _optional_tail = (
-            n_provided == n_expected - 1
-            and operand_types
-            and operand_types[-1] is reg.CrDstructureIdxField
-        )
-        if not _optional_tail and n_provided != n_expected:
+        if n_provided != n_expected:
             raise ValueError(
                 f"Instruction {inst['opcode'].token.value} expects {n_expected} operands, "
                 f"got {n_provided}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
@@ -108,23 +100,22 @@ class Inst:
         ]
         self.specific_operand_types = operand_types
 
-        # CrRegField=CR15 conflicts with CrDstructureIdx=CR15: they would both
-        # read CR15 for different purposes in the same instruction.
-        _cr_idx_is_cr15 = any(
-            op.encode() == 15
-            for op, t in zip(self.operands, operand_types)
-            if t is reg.CrRegField
-        )
-        _cr_dstruct_is_cr15 = _optional_tail or any(
-            op.encode() == 15
-            for op, t in zip(self.operands, operand_types)
-            if t is reg.CrDstructureIdxField
-        )
-        if _cr_idx_is_cr15 and _cr_dstruct_is_cr15:
+        # CR15 cannot serve as both cr_idx and cr_dstructure in the same instruction.
+        spec_operands = INSTRUCTION_SPEC[self._slot_type_name()].get(
+            struct_names[opcode_idx], {}
+        ).get("operands", [])
+        op_names = [op["name"] for op in spec_operands]
+        _cr_idx_pos = next((i for i, n in enumerate(op_names) if n == "cr_idx"), None)
+        _cr_dst_pos = next((i for i, n in enumerate(op_names) if n == "cr_dstructure"), None)
+        if (
+            _cr_idx_pos is not None
+            and _cr_dst_pos is not None
+            and self.operands[_cr_idx_pos].encode() == 15
+            and self.operands[_cr_dst_pos].encode() == 15
+        ):
             raise ValueError(
-                f"Instruction {inst['opcode'].token.value}: CR15 cannot be used as cr_idx "
-                f"when cr_dstructure is also CR15 (explicitly or by default) — "
-                f"the same register would serve two conflicting roles.\n"
+                f"Instruction {inst['opcode'].token.value}: CR15 cannot be used as both "
+                f"cr_idx and cr_dstructure — the same register would serve two conflicting roles.\n"
                 f"In Line {self.opcode.token.line}, Column {self.opcode.token.column}"
             )
 

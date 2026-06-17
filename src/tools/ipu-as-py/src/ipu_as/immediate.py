@@ -114,7 +114,7 @@ _ADD_SUB_SRC_B_IMM_BASE = 32
 
 
 class AddSubSrcBField(ipu_token.IpuToken):
-    """Second source for ``add`` / ``sub``: lr0–lr15, cr0–cr15, or unsigned IMM5 (0–31).
+    """Second source for ``add`` / ``sub``: lr0–lr15, cr0–cr15 (including cr15), or unsigned IMM5 (0–31).
 
     Encoded in 6 bits: register indices use the same mapping as ``LcrIdx`` (0–31);
     immediates use ``32 + imm``.
@@ -131,10 +131,6 @@ class AddSubSrcBField(ipu_token.IpuToken):
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         raw = self.token.value.lower()
-        if raw == "cr15":
-            self._raise_error(
-                "CR15 is reserved for dstructure configuration and cannot be used as an ISA operand"
-            )
         if raw in _ADD_SUB_SRC_B_REGS:
             self._encoded = _ADD_SUB_SRC_B_REGS.index(raw)
             return
@@ -142,7 +138,7 @@ class AddSubSrcBField(ipu_token.IpuToken):
             imm = int(self.token.value, 0)
         except ValueError:
             self._raise_error(
-                "Expected lr0–lr15, cr0–cr14, or an unsigned 5-bit immediate (0–31)"
+                "Expected lr0–lr15, cr0–cr15, or an unsigned 5-bit immediate (0–31)"
             )
         if not (0 <= imm <= 31):
             self._raise_error(f"Immediate operand must be in range [0, 31], got {imm}")

@@ -85,7 +85,6 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
-    "CrDstructureIdx": "cr_dstructure_idx_field",
     "AddSubSrcB": "add_sub_src_b_field",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
@@ -294,7 +293,7 @@ class Ipu:
         """
         if op_type == "LrIdx":
             return source.get_lr(raw_value)
-        elif op_type in ("CrIdx", "CrDstructureIdx"):
+        elif op_type == "CrIdx":
             return source.get_cr(raw_value)
         elif op_type == "LcrIdx":
             if raw_value < LR_REG_COUNT:
