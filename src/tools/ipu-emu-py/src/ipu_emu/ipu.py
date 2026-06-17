@@ -79,7 +79,7 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
-    "AddSubSrcB": "add_sub_src_b_field",
+    "LrIncDecImmediate": "lr_inc_dec_immediate",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
     "VerticalStride": "vertical_stride_field",
@@ -278,7 +278,6 @@ class Ipu:
         - LrIdx → source.get_lr(idx) → uint32 value
         - CrIdx → source.get_cr(idx) → uint32 value
         - LcrIdx → LR if idx < LR_REG_COUNT, else CR → uint32 value
-        - AddSubSrcB → like LcrIdx for codes 0–31; codes ≥ 32 → unsigned IMM5 (low 5 bits)
         - MultStageReg → register bytes via _MULT_STAGE_MAP → bytearray
 
         Args:
@@ -295,13 +294,6 @@ class Ipu:
                 return source.get_lr(raw_value)
             else:
                 return source.get_cr(raw_value - LR_REG_COUNT)
-        elif op_type == "AddSubSrcB":
-            # 6-bit encoding: 0–31 same as LcrIdx; 32–63 → unsigned IMM5 (low 5 bits).
-            if raw_value >= 32:
-                return raw_value & 31
-            if raw_value < LR_REG_COUNT:
-                return source.get_lr(raw_value)
-            return source.get_cr(raw_value - LR_REG_COUNT)
         elif op_type == "MultStageReg":
             if raw_value > 1:
                 raise EmulatorError(
@@ -492,12 +484,24 @@ class Ipu:
         self.state.regfile.set_lr(reg, src & 0xFFFFFFFF)
 
     def execute_lr_add(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute ADD: uint32 ``dest = src_a + src_b`` (``src_b`` may be an immediate)."""
+        """Execute ADD: uint32 ``dest = src_a + src_b``."""
         self.state.regfile.set_lr(dest, (src_a + src_b) & 0xFFFFFFFF)
 
     def execute_lr_sub(self, *, dest: int, src_a: int, src_b: int) -> None:
-        """Execute SUB: uint32 ``dest = src_a - src_b`` (``src_b`` may be an immediate)."""
+        """Execute SUB: uint32 ``dest = src_a - src_b``."""
         self.state.regfile.set_lr(dest, (src_a - src_b) & 0xFFFFFFFF)
+
+    def execute_lr_inc(self, *, dest: int, imm: int) -> None:
+        """Execute INC: uint32 ``dest = dest + imm`` (read-modify-write)."""
+        assert self.snapshot is not None
+        cur = self.snapshot.get_lr(dest)
+        self.state.regfile.set_lr(dest, (cur + imm) & 0xFFFFFFFF)
+
+    def execute_lr_dec(self, *, dest: int, imm: int) -> None:
+        """Execute DEC: uint32 ``dest = dest - imm`` (read-modify-write)."""
+        assert self.snapshot is not None
+        cur = self.snapshot.get_lr(dest)
+        self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
     def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
         """INCR_MOD_POW2: dest <- (dest + step) mod 2^k.
@@ -535,16 +539,9 @@ class Ipu:
             field_map = _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)]
             kwargs = {name: inst[field_key] for name, field_key in field_map.items()}
 
-            # Unfilled LR slots encode ``ADD lrX lrX 0`` (IMM5 0 → encoding 32): identity, no write.
-            if inst_name == "ADD":
-                sb = kwargs.get("src_b")
-                if (
-                    kwargs.get("dest") == kwargs.get("src_a")
-                    and isinstance(sb, int)
-                    and sb >= 32
-                    and (sb & 31) == 0
-                ):
-                    continue
+            # Unfilled LR slots encode ``INC lrX 0``: identity, no write.
+            if inst_name in ("INC", "DEC") and kwargs.get("imm") == 0:
+                continue
 
             # Auto-resolve 'read' operands to register values.
             read_types = _INSTRUCTION_READ_TYPES.get(("lr", inst_name), {})

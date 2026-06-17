@@ -97,13 +97,13 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.EE.RR` | 8-bit vector multiply |
 | ACC | `ACC`, `ACC.FIRST`, `ACC.STRIDE`, `RESET_ACC`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST` | Accumulate into `R_ACC`; in-place aggregation (sum/max) writing a single slot of `R_ACC` |
 | AAQ | `AAQ`, `ACTIVATE` | **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
-| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`CR`** register) |
+| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC` | Scalar loop register ops (`SET` copies from a **`CR`** register; `INC`/`DEC` read-modify-write with union-derived immediate) |
 | COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `FullXmemRow`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `LrIncDecImmediate`, `FullXmemRow`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
 
 ---
 
