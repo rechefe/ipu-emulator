@@ -86,8 +86,8 @@ class TestRegisterOperations:
     def test_add_imm_accumulates_lr(self):
         state = _run("""\
 SET lr11 cr8;;
-ADD lr11 lr11 5;;
-ADD lr11 lr11 3;;
+INC lr11 5;;
+INC lr11 3;;
 BKPT;;
 """,
             cr={8: 10})
@@ -130,10 +130,11 @@ BKPT;;
     def test_add_lr_lr_imm5(self):
         state = _run("""\
 SET lr1 cr8;;
-ADD lr4 lr1 11;;
+SET lr2 cr9;;
+ADD lr4 lr1 lr2;;
 BKPT;;
 """,
-            cr={8: 200})
+            cr={8: 200, 9: 11})
         assert state.regfile.get_lr(4) == 211
 
     def test_sub_lr_lr(self):
@@ -160,10 +161,11 @@ BKPT;;
     def test_sub_lr_lr_imm5(self):
         state = _run("""\
 SET lr2 cr8;;
-SUB lr3 lr2 30;;
+SET lr4 cr9;;
+SUB lr3 lr2 lr4;;
 BKPT;;
 """,
-            cr={8: 100})
+            cr={8: 100, 9: 30})
         assert state.regfile.get_lr(3) == 70
 
 
@@ -254,6 +256,46 @@ BKPT;;
         assert state.regfile.get_lr(6) == 128
 
 
+class TestIncDec:
+    def test_inc_dest(self):
+        state = _run("""\
+SET lr5 cr8;;
+INC lr5 7;;
+BKPT;;
+""",
+            cr={8: 100})
+        assert state.regfile.get_lr(5) == 107
+
+    def test_dec_dest(self):
+        state = _run("""\
+SET lr5 cr8;;
+DEC lr5 30;;
+BKPT;;
+""",
+            cr={8: 100})
+        assert state.regfile.get_lr(5) == 70
+
+    def test_inc_dec_same_cycle(self):
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+INC lr0 5;;
+DEC lr1 2;;
+BKPT;;
+""",
+            cr={8: 10, 9: 20})
+        assert state.regfile.get_lr(0) == 15
+        assert state.regfile.get_lr(1) == 18
+
+    def test_decode_inc_imm_operand_field(self):
+        """``INC`` immediate uses the union-derived LrIncDecImmediate field."""
+        encoded = assemble("INC lr2 7;; BKPT;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2
+        assert d["lr_inst_0_token_1_lcr_reg_field"] == 7  # imm in shared lcr field
+
+
 # ============================================================================
 # Three LR sub-slots per VLIW (SLOT_COUNT["lr"] == 3)
 # ============================================================================
@@ -288,23 +330,23 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
-        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
         assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
-        assert d["lr_inst_1_token_1_add_sub_src_b_field"] == 9   # src = cr9
+        assert d["lr_inst_1_token_1_lcr_reg_field"] == 9   # src = cr9
         assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
-        assert d["lr_inst_2_token_1_add_sub_src_b_field"] == 10  # src = cr10
+        assert d["lr_inst_2_token_1_lcr_reg_field"] == 10  # src = cr10
         assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
 
-    def test_decode_add_imm_operand_field(self):
-        """``add`` third operand uses AddSubSrcBField; IMM5 encodes as 32 + value."""
-        encoded = assemble("ADD lr2 lr1 7;; BKPT;;")
+    def test_decode_add_lcr_operand_field(self):
+        """``ADD`` third operand uses LcrRegField (register-only)."""
+        encoded = assemble("ADD lr2 lr1 cr7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
         assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
-        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 32 + 7  # src_b = IMM5(7)
+        assert d["lr_inst_0_token_1_lcr_reg_field"] == 16 + 7  # src_b = cr7
 
 
 # ============================================================================
@@ -658,7 +700,7 @@ BKPT;;
         state = _make_state("""\
 SET lr0 cr8;;
 cr_loop_start:
-ADD lr0 lr0 1;;
+INC lr0 1;;
 BNE lr0 cr5 cr_loop_start;;
 BKPT;;
 """,
@@ -673,7 +715,7 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr2 cr8;;
 loop_start:
-ADD lr0 lr0 1;;
+INC lr0 1;;
 BNE lr0 lr1 loop_start;;
 BKPT;;
 """,
@@ -1184,7 +1226,7 @@ class TestDecodeRoundtrip:
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
-        assert d["lr_inst_0_token_1_add_sub_src_b_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
 
 
 # ============================================================================
