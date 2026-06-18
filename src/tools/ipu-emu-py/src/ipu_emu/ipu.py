@@ -719,16 +719,6 @@ class Ipu:
             fixed_idx=fixed_idx,
         )
 
-    def execute_mult_ve_padded(self, *, cyclic_offset: int,
-                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute MULT.VE.PADDED: fixed r0/r1 element × r_cyclic row with boundary padding."""
-        self._execute_mult_ve_variant(
-            pad_128_ones=True,
-            cyclic_offset=cyclic_offset,
-            mask_offset=mask_offset,
-            mask_shift=mask_shift,
-            fixed_idx=fixed_idx,
-        )
 
     def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
                            mask_shift: int, cr_idx: int) -> None:
@@ -784,10 +774,6 @@ class Ipu:
     def execute_acc_nop(self) -> None:
         """Execute ACC_NOP: No operation."""
         pass
-
-    def execute_reset_acc(self) -> None:
-        """Execute RESET_ACC: Reset accumulator to zero."""
-        self.state.regfile.set_r_acc_bytes(bytearray(R_ACC_SIZE))
 
     def execute_acc(self) -> None:
         """Execute ACC: Accumulate mult_res into accumulator."""

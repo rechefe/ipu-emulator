@@ -339,7 +339,6 @@ LDR_MULT_REG r1 lr13 cr0;;
 SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
-RESET_ACC;;
 MULT.EE r1 lr0 0 lr0;
 ACC;;
 SET lr0 cr11;;
@@ -424,7 +423,6 @@ SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.EE r0 lr6 0 lr5;
@@ -463,7 +461,6 @@ SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr12;;
 SET lr6 cr10;;
 MULT.EE r0 lr6 1 lr5;
@@ -719,15 +716,6 @@ BKPT;;
 
 
 class TestAccumulator:
-    def test_reset(self):
-        state = _make_state("RESET_ACC;;\nBKPT;;")
-        # Pre-fill acc words with non-zero
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 12345)
-        run_until_complete(state)
-        for i in range(128):
-            assert state.regfile.get_r_acc_word(i) == 0
-
     def test_acc_first(self):
         """ACC.FIRST sets r_acc to mult_res without adding previous r_acc."""
         state = _make_state(
@@ -1209,7 +1197,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.EE r0 lr6 0 lr5;
@@ -1251,7 +1238,6 @@ class TestMultVeCr:
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.VE.CR lr2 0 lr4 cr3;
@@ -1278,7 +1264,6 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.VE.CR lr2 0 lr4 cr2;
@@ -1304,7 +1289,6 @@ BKPT;;
         pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         state = _make_state("""\
-RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.VE.CR lr2 0 lr4 cr3;
@@ -1337,7 +1321,6 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.VE.CR lr2 0 lr4 cr5;
@@ -1363,7 +1346,6 @@ BKPT;;
         scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
 
         state = _make_state("""\
-RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.VE.CR lr2 0 lr4 cr6;
@@ -1400,7 +1382,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;
 ACC;;
 BKPT;;
@@ -1429,7 +1410,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.VE.CYCLIC lr2 0 lr2 lr2;
 ACC;;
 BKPT;;
@@ -1458,7 +1438,6 @@ BKPT;;
         state = _make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr10;;
 SET lr5 cr10;;
@@ -1477,40 +1456,6 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
 
-    def test_mult_ve_padded_boundary(self):
-        """MULT.VE.PADDED: elements past RC byte 511 use dtype 1."""
-        rc_fill = 4
-        scalar = 5
-        pad_start = 62  # 512 - 450 = 62 elements in bounds before padding
-
-        r0_data = bytearray(128)
-        r0_data[0] = scalar
-
-        state = _make_state("""\
-SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr10;;
-SET lr5 cr10;;
-MULT.VE.PADDED lr2 0 lr4 lr5;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 450, 10: 0})
-        state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, bytes(r0_data))
-        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(pad_start):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
-        for i in range(pad_start, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
-
     def test_mult_ve_r1_scalar(self):
         """MULT.VE.CYCLIC: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
         r0_data = bytearray(128)  # all zeros — must not be picked
@@ -1526,7 +1471,6 @@ LDR_MULT_REG r1 lr0 cr0;;
 SET lr1 cr10;;
 SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 SET lr3 cr12;;
 MULT.VE.CYCLIC lr2 0 lr2 lr3;
 ACC;;
@@ -1555,7 +1499,6 @@ class TestMultEeRr:
         state = _make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
-RESET_ACC;;
 SET lr5 cr9;;
 MULT.EE.RR r0 0 lr5;
 ACC;;
@@ -1581,7 +1524,6 @@ SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 LDR_MULT_REG r1 lr1 cr0;;
-RESET_ACC;;
 SET lr5 cr10;;
 MULT.EE.RR r1 0 lr5;
 ACC;;
@@ -1610,7 +1552,6 @@ SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr10;;
 MULT.EE.RR r0 0 lr5;
 ACC;;
@@ -1658,7 +1599,6 @@ SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr2;;
 MULT.EE.RR r0 0 lr5;
 ACC;;

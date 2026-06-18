@@ -58,7 +58,6 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 BKPT;;
@@ -82,7 +81,6 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
@@ -112,7 +110,6 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 SET lr0 cr9;;
@@ -146,7 +143,6 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.EE r0 lr2 0 lr2;;
 acc.first;;
 BKPT;;
@@ -192,7 +188,6 @@ SET lr3 cr9;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-RESET_ACC;;
 MULT.EE {which} lr3 0 lr3;;
 acc.first;;
 BKPT;;
@@ -234,7 +229,6 @@ LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
 SET lr4 cr10;;
 LDR_MULT_REG r0 lr4 cr0;;
 SET lr5 cr11;;
-RESET_ACC;;
 MULT.EE r0 lr5 0 lr5;;
 acc.first;;
 BKPT;;
@@ -265,7 +259,6 @@ class TestWideVectorPadding:
 SET lr0 cr6;;
 SET lr2 cr7;;
 MULT.VE.CR lr0 0 lr2 cr2;;
-RESET_ACC;;
 acc.first;;
 BKPT;;
 """
@@ -301,7 +294,6 @@ SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
 MULT.VE.CYCLIC lr0 0 lr2 lr3;;
-RESET_ACC;;
 acc.first;;
 BKPT;;
 """
@@ -313,42 +305,6 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
         for i in range(32, 128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
-
-    def test_mult_ve_fp32_wide_padded_past_boundary(self) -> None:
-        """MULT.VE.PADDED (wide FP32): lanes past byte 511 use ×1."""
-        buf = bytearray(512)
-        for k in range(32):
-            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
-        for k in range(96):
-            struct.pack_into("<f", buf, k * 4, 5.0)
-        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.dtype = DType.INT8
-        st.regfile.set_cr(0, 0)
-        st.regfile.set_r_cyclic_at(0, buf)
-        st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
-        st.regfile.set_cr(10, 0x1000)
-        st.regfile.set_cr(6, 384)
-        st.regfile.set_cr(7, 0)
-        st.regfile.set_cr(8, 0)
-        asm = """\
-SET lr4 cr10;;
-LDR_MULT_REG r0 lr4 cr0;;
-SET lr0 cr6;;
-SET lr2 cr7;;
-SET lr3 cr8;;
-MULT.VE.PADDED lr0 0 lr2 lr3;;
-RESET_ACC;;
-acc.first;;
-BKPT;;
-"""
-        encoded = assemble(asm)
-        load_program(st, [decode_instruction_word(w) for w in encoded])
-        run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
-        for i in range(32):
-            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
-        for i in range(32, 128):
-            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
 
 
 class TestWideVectorAgg:
@@ -416,7 +372,6 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr9;;
-RESET_ACC;;
 MULT.EE r0 lr3 0 lr3;;
 BKPT;;
 """

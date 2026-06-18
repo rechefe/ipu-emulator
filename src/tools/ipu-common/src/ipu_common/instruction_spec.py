@@ -426,8 +426,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
-    #          MULT.VE.CR=4, MULT.EE.RR=5
+    # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT_NOP=2, MULT.VE.CR=3, MULT.EE.RR=4
     # =========================================================================
     "mult": {
         "MULT.EE": {
@@ -479,32 +478,6 @@ INSTRUCTION_SPEC = {
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ve_cyclic",
-        },
-        "MULT.VE.PADDED": {
-            "operands": [
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-                {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
-            ],
-            "doc": InstructionDoc(
-                title="Vector-Element Multiply (padded RC)",
-                summary=(
-                    "Same scalar × RC row as `MULT.VE.CYCLIC`, but indices at or past the 512-byte RC "
-                    "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
-                ),
-                syntax="MULT.VE.PADDED cyclic_offset, mask_offset, mask_shift, fixed_idx",
-                operands=[
-                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into `R_CYCLIC`; out-of-range lanes use dtype 1.",
-                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in `R_MASK`.",
-                    "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`fixed_idx`: **`LR0`**…**`LR15`** (value read live) — scalar index into **`R0`**/**`R1`**.",
-                ],
-                operation="For i in [0, 128): rb = R_CYCLIC[cyclic_offset + i] if in bounds else dtype_one; scalar from R0/R1; MULT_RES[i] = scalar * rb (then mask/shift).",
-                example="MULT.VE.PADDED LR0, 0, LR2, LR3;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
-            ),
-            "execute_fn": "execute_mult_ve_padded",
         },
         "MULT_NOP": {
             "operands": [],
@@ -568,7 +541,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.STRIDE=4, AGG.SUM.FIRST=5, AGG.SUM=6, AGG.MAX.FIRST=7, AGG.MAX=8
+    # Opcode = position: ACC=0, ACC.FIRST=1, ACC_NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
     # =========================================================================
     "acc": {
         "ACC": {
@@ -593,17 +566,6 @@ INSTRUCTION_SPEC = {
                 example="ACC.FIRST;;",
             ),
             "execute_fn": "execute_acc_first",
-        },
-        "RESET_ACC": {
-            "operands": [],
-            "doc": InstructionDoc(
-                title="Reset Accumulator",
-                summary="Reset accumulator to zero.",
-                syntax="RESET_ACC",
-                operands=[],
-                operation="R_ACC = 0",
-            ),
-            "execute_fn": "execute_reset_acc",
         },
         "ACC_NOP": {
             "operands": [],

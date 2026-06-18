@@ -210,7 +210,7 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
     masking_section = """
 ## Masking
 
-Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
+Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.CR`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
 corresponding mask bit is **1** are **active** and pass through to accumulation; lanes whose bit is
 **0** are **zeroed** (deactivated). A mask of all-ones leaves every lane active (the reset default);
 a mask of all-zeros deactivates every lane.
