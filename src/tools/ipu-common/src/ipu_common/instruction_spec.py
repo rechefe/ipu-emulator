@@ -220,9 +220,9 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR14)",
-                    "index: Index inside cyclic register (LR0–LR15)",
+                    "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries. Any other value raises an error.",
                 ],
-                operation="R_CYCLIC[index % 512:128] = Memory[offset + base]",
+                operation="R_CYCLIC[index .. index+127] = Memory[offset + base]   # index ∈ {0, 128, 256, 384}",
             ),
             "execute_fn": "execute_ldr_cyclic_mult_reg",
         },

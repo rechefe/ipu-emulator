@@ -414,6 +414,20 @@ BKPT;;
         loaded = state.regfile.get_r_cyclic_at(0, 128)
         assert loaded == bytearray(cyclic_data)
 
+    def test_cyclic_register_load_invalid_index_raises(self):
+        """index must be one of the four R_CYCLIC slot boundaries — no implicit wrap."""
+        from ipu_emu.ipu import EmulatorError
+
+        state = _make_state("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+BKPT;;
+""",
+            cr={8: 20480, 9: 64})
+        with pytest.raises(EmulatorError, match="index must be one of"):
+            run_until_complete(state)
+
     def test_mask_register_load(self):
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
         state = _make_state("""\

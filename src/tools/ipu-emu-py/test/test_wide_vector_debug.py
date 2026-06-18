@@ -207,44 +207,26 @@ BKPT;;
 
 
 class TestWideVectorCyclicIndex:
-    """``LDR_CYCLIC_MULT_REG`` must honour ``index`` in wide mode (512-byte chunk)."""
+    """``LDR_CYCLIC_MULT_REG`` loads the full 512-byte chunk in wide mode, so
+    ``index`` must be 0 — any other value must raise, not silently wrap."""
 
-    def test_ldr_cyclic_nonzero_index_fp32(self) -> None:
-        zeros = struct.pack("<128f", *([0.0] * 128))
-        nines = struct.pack("<128f", *([9.0] * 128))
+    def test_ldr_cyclic_nonzero_index_raises_fp32(self) -> None:
         twos = struct.pack("<128f", *([2.0] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
-        st.xmem.write_address(0x2000, zeros)
-        st.xmem.write_address(0x2200, nines)
         st.xmem.write_address(0x1000, twos)
-        st.regfile.set_cr(6, 0x2000)
-        st.regfile.set_cr(7, 0)
-        st.regfile.set_cr(8, 0x2200)
-        st.regfile.set_cr(9, 512)
-        st.regfile.set_cr(10, 0x1000)
-        st.regfile.set_cr(11, 512)
+        st.regfile.set_cr(6, 0x1000)
+        st.regfile.set_cr(7, 512)
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-SET lr2 cr8;;
-SET lr3 cr9;;
-LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-SET lr4 cr10;;
-LDR_MULT_REG r0 lr4 cr0;;
-SET lr5 cr11;;
-RESET_ACC;;
-MULT.EE r0 lr5 0 lr5;;
-acc.first;;
 BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
-        run_until_complete(st)
-        acc = st.regfile.raw("r_acc")
-        for i in range(128):
-            assert struct.unpack_from("<f", acc, i * 4)[0] == pytest.approx(18.0), f"lane {i}"
+        with pytest.raises(EmulatorError, match="index must be 0"):
+            run_until_complete(st)
 
 
 class TestWideVectorPadding:
