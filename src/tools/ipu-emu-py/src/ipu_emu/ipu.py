@@ -775,10 +775,6 @@ class Ipu:
         """Execute ACC_NOP: No operation."""
         pass
 
-    def execute_reset_acc(self) -> None:
-        """Execute RESET_ACC: Reset accumulator to zero."""
-        self.state.regfile.set_r_acc_bytes(bytearray(R_ACC_SIZE))
-
     def execute_acc(self) -> None:
         """Execute ACC: Accumulate mult_res into accumulator."""
         dtype = self.state.dtype

@@ -381,7 +381,6 @@ LDR_MULT_REG r1 lr13 cr0;;
 SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
-RESET_ACC;;
 MULT.RC.VV lr0 r1 0 lr0;
 ACC;;
 SET lr0 cr11;;
@@ -480,7 +479,6 @@ SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5;
@@ -519,7 +517,6 @@ SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr12;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 1 lr5;
@@ -771,15 +768,6 @@ BKPT;;
 
 
 class TestAccumulator:
-    def test_reset(self):
-        state = _make_state("RESET_ACC;;\nBKPT;;")
-        # Pre-fill acc words with non-zero
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 12345)
-        run_until_complete(state)
-        for i in range(128):
-            assert state.regfile.get_r_acc_word(i) == 0
-
     def test_acc_first(self):
         """ACC.FIRST sets r_acc to mult_res without adding previous r_acc."""
         state = _make_state(
@@ -1261,7 +1249,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5;
@@ -1303,7 +1290,6 @@ class TestMultRcVe:
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4;
@@ -1330,7 +1316,6 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr2 0 lr4;
@@ -1355,7 +1340,6 @@ BKPT;;
         scalar = 7
 
         state = _make_state("""\
-RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4;
@@ -1385,7 +1369,6 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr5 0 lr4;
@@ -1411,7 +1394,6 @@ BKPT;;
         scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
 
         state = _make_state("""\
-RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr6 0 lr4;
@@ -1445,7 +1427,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.RC.VV lr2 r0 0 lr2;
 ACC;;
 BKPT;;
@@ -1473,7 +1454,6 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 MULT.RC.VE lr2 lr2 0 lr2;
 ACC;;
 BKPT;;
@@ -1504,7 +1484,6 @@ LDR_MULT_REG r1 lr0 cr0;;
 SET lr1 cr10;;
 SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
 SET lr3 cr12;;
 MULT.RC.VE lr2 lr3 0 lr2;
 ACC;;
@@ -1534,7 +1513,6 @@ class TestMultRcVs:
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-RESET_ACC;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5;
 ACC;;
@@ -1555,7 +1533,6 @@ BKPT;;
         cyclic_data = bytes([3] * 512)
 
         state = _make_state("""\
-RESET_ACC;;
 SET lr2 cr10;;
 SET lr5 cr11;;
 MULT.RC.VS lr2 0 lr5;
@@ -1585,7 +1562,6 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr3 cr10;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5;
 ACC;;
@@ -1634,7 +1610,6 @@ SET lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
-RESET_ACC;;
 SET lr5 cr2;;
 MULT.RC.VS lr1 0 lr5;
 ACC;;
