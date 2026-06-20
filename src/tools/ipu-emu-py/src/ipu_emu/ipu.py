@@ -1104,18 +1104,6 @@ class Ipu:
         s2 = self._to_signed_32(reg2)
         self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
 
-    def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
-        """Execute BNZ: Branch if not zero."""
-        self.state.program_counter = label if test_reg != 0 else self.state.program_counter + 1
-
-    def execute_bz(self, *, test_reg: int, base_reg: int, label: int) -> None:
-        """Execute BZ: Branch if zero."""
-        self.state.program_counter = label if test_reg == 0 else self.state.program_counter + 1
-
-    def execute_b(self, *, label: int) -> None:
-        """Execute B: Unconditional branch."""
-        self.state.program_counter = label
-
     def execute_br(self, *, reg: int) -> None:
         """Execute BR: Branch to register value."""
         self.state.program_counter = reg

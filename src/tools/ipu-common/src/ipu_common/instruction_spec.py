@@ -873,7 +873,10 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
-    # Opcode = position: BEQ=0, BNE=1, BLT=2, BNZ=3, BZ=4, B=5, BR=6, BKPT=7
+    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5
+    # BNZ, BZ, and B are pseudo-instructions (see PSEUDO_INSTRUCTION_SPEC):
+    # they're each exactly expressible via BEQ/BNE against CR0 (always zero),
+    # so they don't need their own opcode.
     # =========================================================================
     "cond": {
         "BEQ": {
@@ -955,60 +958,6 @@ INSTRUCTION_SPEC = {
                 example="BGE LR0, CR1, ge;;",
             ),
             "execute_fn": "execute_bge",
-        },
-        "BNZ": {
-            "operands": [
-                {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "label", "type": "Label"},
-            ],
-            "doc": InstructionDoc(
-                title="Branch if Not Zero",
-                summary="Branch if test register not equal to base register.",
-                syntax="BNZ test_reg, base_reg, label",
-                operands=[
-                    "test_reg: Register to test (LR0–LR15 or CR0–CR14)",
-                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR14)",
-                    "label: Branch target label",
-                ],
-                operation="if (test_reg != base_reg) PC = label",
-                example="BNZ LR3, LR0, loop;;",
-            ),
-            "execute_fn": "execute_bnz",
-        },
-        "BZ": {
-            "operands": [
-                {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "base_reg", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "label", "type": "Label"},
-            ],
-            "doc": InstructionDoc(
-                title="Branch if Zero",
-                summary="Branch if test register equals base register.",
-                syntax="BZ test_reg, base_reg, label",
-                operands=[
-                    "test_reg: Register to test (LR0–LR15 or CR0–CR14)",
-                    "base_reg: Base comparison register (LR0–LR15 or CR0–CR14)",
-                    "label: Branch target label",
-                ],
-                operation="if (test_reg == base_reg) PC = label",
-                example="BZ LR0, LR1, zero;;",
-            ),
-            "execute_fn": "execute_bz",
-        },
-        "B": {
-            "operands": [
-                {"name": "label", "type": "Label"},
-            ],
-            "doc": InstructionDoc(
-                title="Unconditional Branch",
-                summary="Always branch to label.",
-                syntax="B label",
-                operands=["label: Branch target label"],
-                operation="PC = label",
-                example="B start;;",
-            ),
-            "execute_fn": "execute_b",
         },
         "BR": {
             "operands": [
@@ -1451,6 +1400,25 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             operation="if (reg != 0) PC = label",
             example="BNZ LR0, loop;;",
             notes="Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.",
+        ),
+    },
+    "B": {
+        "operands": [
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BEQ",
+            "args": ["CR0", "CR0", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Unconditional Branch (pseudo)",
+            summary="Always branch to label.",
+            syntax="B label",
+            operands=["label: Branch target label"],
+            operation="PC = label",
+            example="B start;;",
+            notes="Expands to `BEQ CR0, CR0, label`. CR0 always equals itself, so the branch is always taken.",
         ),
     },
 }

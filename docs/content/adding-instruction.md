@@ -308,11 +308,9 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
 ### Resolution and disambiguation
 
 A pseudo-instruction is matched by **name + operand count**
-(`find_pseudo_instruction`). This means a pseudo-instruction can share a
-name with a real instruction of a *different* arity without ambiguity — for
-example, the 2-operand pseudo `BZ reg, label` coexists with the 3-operand
-real hardware `BZ test_reg, base_reg, label`; the assembler picks whichever
-matches the operand count the caller wrote.
+(`find_pseudo_instruction`). This means a pseudo-instruction could share a
+name with a real instruction of a *different* arity without ambiguity — the
+assembler picks whichever matches the operand count the caller wrote.
 
 If a name matches a pseudo-instruction but the operand count doesn't match
 any definition (and no real instruction shares that name either), the

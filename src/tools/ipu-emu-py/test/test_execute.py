@@ -635,7 +635,7 @@ BKPT;;
     def test_bnz(self):
         state = _run("""\
 SET lr0 cr8;;
-BNZ lr0 lr0 nonzero_branch;;
+BNZ lr0 nonzero_branch;;
 SET lr2 cr9;;
 BKPT;;
 nonzero_branch:
@@ -648,7 +648,7 @@ BKPT;;
     def test_bz(self):
         state = _run("""\
 SET lr0 cr8;;
-BZ lr0 lr0 zero_branch;;
+BZ lr0 zero_branch;;
 SET lr2 cr8;;
 BKPT;;
 zero_branch:
@@ -702,38 +702,6 @@ BKPT;;
 """,
             cr={8: 5, 9: 0, 10: 1})
         state.regfile.set_cr(2, 10)
-        run_until_complete(state)
-        assert state.regfile.get_lr(2) == 1
-
-    def test_bnz_lr_cr(self):
-        """bnz branches when test_reg is not zero (CR as base_reg)."""
-        state = _make_state("""\
-SET lr0 cr8;;
-BNZ lr0 cr0 bnz_cr_branch;;
-SET lr2 cr9;;
-BKPT;;
-bnz_cr_branch:
-SET lr2 cr10;;
-BKPT;;
-""",
-            cr={8: 5, 9: 0, 10: 1})
-        state.regfile.set_cr(0, 0)
-        run_until_complete(state)
-        assert state.regfile.get_lr(2) == 1
-
-    def test_bz_lr_cr(self):
-        """bz branches when test_reg is zero (CR as base_reg)."""
-        state = _make_state("""\
-SET lr0 cr8;;
-BZ lr0 cr0 bz_cr_branch;;
-SET lr2 cr8;;
-BKPT;;
-bz_cr_branch:
-SET lr2 cr9;;
-BKPT;;
-""",
-            cr={8: 0, 9: 1})
-        state.regfile.set_cr(0, 0)
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 

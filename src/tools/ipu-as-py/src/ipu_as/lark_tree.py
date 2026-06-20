@@ -25,10 +25,10 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
     """Expand pseudo-instructions into their real-instruction equivalents.
 
     Matched by (opcode name, operand count) via ``find_pseudo_instruction``,
-    so names shared with a real instruction of a different arity (e.g. the
-    2-operand pseudo BZ vs. the 3-operand hardware BZ) are disambiguated
-    automatically. Pseudo-instructions never reach ``CompoundInst`` —
-    by the time this returns, every instruction is a real one.
+    so a pseudo-instruction can share a name with a real instruction of a
+    different arity without ambiguity. Pseudo-instructions never reach
+    ``CompoundInst`` — by the time this returns, every instruction is a
+    real one.
     """
     expanded = []
     for instr in instructions:

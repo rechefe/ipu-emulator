@@ -637,15 +637,25 @@ class CondInst(Inst):
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
+        # B is a pseudo-instruction (expands to BEQ CR0, CR0, label), so the
+        # cond-slot filler is written directly as the real BEQ it expands to:
+        # CR0 always equals itself, so this branches to the very next
+        # instruction, i.e. falls through like a NOP.
         return CondInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "B", line=0, column=0), instr_id=addr
+                    token=lark.Token("TOKEN", "BEQ", line=0, column=0), instr_id=addr
                 ),
                 "operands": [
                     ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "CR0", line=0, column=0), instr_id=addr
+                    ),
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "CR0", line=0, column=0), instr_id=addr
+                    ),
+                    ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "+1", line=0, column=0), instr_id=addr
-                    )
+                    ),
                 ],
             }
         )
