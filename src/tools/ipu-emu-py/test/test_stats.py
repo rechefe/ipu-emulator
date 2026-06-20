@@ -85,10 +85,10 @@ class TestStatsCountedDuringExecution:
 
     def test_mult_active_counted(self):
         # LDR_MULT_REG (1 read) + MULT.EE in one cycle, then BKPT
-        # MULT.EE syntax: ra, cyclic_offset(LR), mask_offset(imm), mask_shift(LR)
+        # MULT.EE syntax: ra_idx(LR), cr_idx(CR), mask_offset(imm), mask_shift(LR)
         asm = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr0;MULT.EE r0 lr0 0 lr0;;
+LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0;;
 BKPT;;
 """
         state = IpuState()

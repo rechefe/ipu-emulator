@@ -371,7 +371,7 @@ BKPT;;
         assert r1_data == bytearray(test_data)
 
     def test_store_to_memory(self):
-        """INT8: r1=all-2, cyclic=all-3, MULT.EE → acc should be 6 per word."""
+        """INT8: r1=all-2, cyclic=all-3, MULT.RC.VV → acc should be 6 per word."""
         r1_data = bytes([2] * 128)
         cyclic_data = bytes([3] * 512)
 
@@ -382,7 +382,7 @@ SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
 RESET_ACC;;
-MULT.EE r1 lr0 0 lr0;
+MULT.RC.VV lr0 r1 0 lr0;
 ACC;;
 SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
@@ -483,7 +483,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 0 lr5;
+MULT.RC.VV lr6 r0 0 lr5;
 ACC;;
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
@@ -522,7 +522,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr12;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 1 lr5;
+MULT.RC.VV lr6 r0 1 lr5;
 ACC;;
 SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
@@ -1264,7 +1264,7 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.EE r0 lr6 0 lr5;
+MULT.RC.VV lr6 r0 0 lr5;
 ACC;;
 BKPT;;
 """,
@@ -1283,19 +1283,19 @@ BKPT;;
 
 
 # ============================================================================
-# MULT.VE.CR
+# MULT.RC.VE
 # ============================================================================
 
 
-class TestMultVeCr:
-    """Tests for the MULT.VE.CR instruction."""
+class TestMultRcVe:
+    """Tests for the MULT.RC.VE instruction."""
 
     # ------------------------------------------------------------------
-    # MULT.VE.CR
+    # MULT.RC.VE with a CR-encoded scalar source
     # ------------------------------------------------------------------
 
-    def test_mult_ve_cr_int8(self):
-        """MULT.VE.CR INT8: scalar from CR × RC elements."""
+    def test_mult_rc_ve_cr_int8(self):
+        """MULT.RC.VE INT8: scalar from CR × RC elements."""
         # CR scalar byte = 3, RC elements = all 2 → each result = 3*2 = 6
         cyclic_data = bytes([2] * 512)
 
@@ -1306,7 +1306,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr3;
+MULT.RC.VE lr2 cr3 0 lr4;
 ACC;;
 BKPT;;
 """,
@@ -1321,8 +1321,8 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 6, f"acc word {i}: expected 6, got {val}"
 
-    def test_mult_ve_cr_negative_int8(self):
-        """MULT.VE.CR INT8: signed negative scalar × positive RC elements."""
+    def test_mult_rc_ve_cr_negative_int8(self):
+        """MULT.RC.VE INT8: signed negative scalar × positive RC elements."""
         # CR scalar byte = 0xFE = -2 (signed int8), RC elements = 5 → result = -10
         cyclic_data = bytes([5] * 512)
 
@@ -1333,7 +1333,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr2;
+MULT.RC.VE lr2 cr2 0 lr4;
 ACC;;
 BKPT;;
 """,
@@ -1348,18 +1348,17 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == -10, f"acc word {i}: expected -10, got {val}"
 
-    def test_mult_ve_cr_boundary_padding(self):
-        """MULT.VE.CR: elements beyond RC boundary (512 bytes) are padded with int8 1."""
-        # cyclic_offset = 450, so first 62 bytes come from RC, remaining 66 are padded with 1
-        rc_fill = 4  # RC filled with 4
+    def test_mult_rc_ve_cr_wraps_at_rc_boundary(self):
+        """MULT.RC.VE: RC indices wrap modulo 512 (cyclic, no padding)."""
+        # rc_idx = 450, so bytes 450..511 then 0..65 of RC are used — all rc_fill.
+        rc_fill = 4
         scalar = 7
-        pad_start = 62  # 512 - 450 = 62 elements in bounds
 
         state = _make_state("""\
 RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr3;
+MULT.RC.VE lr2 cr3 0 lr4;
 ACC;;
 BKPT;;
 """,
@@ -1371,15 +1370,12 @@ BKPT;;
         run_until_complete(state)
 
         acc_raw = state.regfile.raw("r_acc")
-        for i in range(pad_start):
+        for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
-        for i in range(pad_start, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
 
-    def test_mult_ve_cr_fp8e4m3(self):
-        """MULT.VE.CR fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
+    def test_mult_rc_ve_cr_fp8e4m3(self):
+        """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
         from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
         one_fp8 = _float32_to_fp8_scalar(1.0, 4)
@@ -1392,7 +1388,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr5;
+MULT.RC.VE lr2 cr5 0 lr4;
 ACC;;
 BKPT;;
 """,
@@ -1407,8 +1403,8 @@ BKPT;;
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 1.0) < 0.01, f"acc word {i}: expected 1.0, got {val}"
 
-    def test_mult_ve_cr_boundary_padding_fp8e5m2(self):
-        """MULT.VE.CR fp8_e5: boundary elements padded with FP8 1.0."""
+    def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
+        """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
         from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
         two_fp8 = _float32_to_fp8_scalar(2.0, 5)
@@ -1418,7 +1414,7 @@ BKPT;;
 RESET_ACC;;
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.VE.CR lr2 0 lr4 cr6;
+MULT.RC.VE lr2 cr6 0 lr4;
 ACC;;
 BKPT;;
 """,
@@ -1430,19 +1426,16 @@ BKPT;;
         run_until_complete(state)
 
         acc_raw = state.regfile.raw("r_acc")
-        for i in range(12):  # in-bounds (500..511): 3.0 * 2.0 = 6.0
+        for i in range(128):  # wraps modulo 512: every word reads 2.0 → 3.0 * 2.0 = 6.0
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 6.0) < 0.1, f"word {i}: expected 6.0, got {val}"
-        for i in range(12, 128):  # padded (>=512): 3.0 * 1.0 = 3.0
-            val = struct.unpack_from("<f", acc_raw, i * 4)[0]
-            assert abs(val - 3.0) < 0.1, f"word {i} (padded): expected 3.0, got {val}"
 
     # ------------------------------------------------------------------
-    # Backward compatibility: existing instructions unaffected
+    # MULT.RC.VV / MULT.RC.VE behave correctly alongside each other
     # ------------------------------------------------------------------
 
-    def test_backward_compat_mult_ee(self):
-        """MULT.EE still works correctly after adding new mult variants."""
+    def test_mult_rc_vv_still_works(self):
+        """MULT.RC.VV still works correctly after adding MULT.RC.VE."""
         r0_data = bytes([4] * 128)
         cyclic_data = bytes([5] * 512)
 
@@ -1453,7 +1446,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;
+MULT.RC.VV lr2 r0 0 lr2;
 ACC;;
 BKPT;;
 """,
@@ -1468,12 +1461,11 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 20, f"acc word {i}: expected 20, got {val}"
 
-    def test_backward_compat_mult_ve(self):
-        """MULT.VE.CYCLIC still works correctly after adding new mult variants."""
+    def test_mult_rc_ve_lr_scalar(self):
+        """MULT.RC.VE: src as LR uses the LR's value to index into R0 (combined Ra buffer)."""
         cyclic_data = bytes([6] * 512)
-        r0_data = bytes([0] * 128)
-        r0_data = bytearray(r0_data)
-        r0_data[0] = 3  # fixed_idx=0 → r0[0] = 3
+        r0_data = bytearray(128)
+        r0_data[0] = 3  # LR value 0 → Ra[0] = 3
 
         state = _make_state("""\
 SET lr0 cr8;;
@@ -1482,7 +1474,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
-MULT.VE.CYCLIC lr2 0 lr2 lr2;
+MULT.RC.VE lr2 lr2 0 lr2;
 ACC;;
 BKPT;;
 """,
@@ -1497,77 +1489,11 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
 
-    def test_mult_ve_cyclic_wrap_at_rc_boundary(self):
-        """MULT.VE.CYCLIC: RC indices wrap modulo 512."""
-        # cyclic_offset = 450, so without wrap we'd read past 512; with wrap, bytes
-        # 450..511 then 0..65 of RC are used — all rc_fill.
-        rc_fill = 4
-        scalar = 5
-
-        r0_data = bytearray(128)
-        r0_data[0] = scalar  # fixed_idx=0 → r0[0] = 5
-
-        state = _make_state("""\
-SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr10;;
-SET lr5 cr10;;
-MULT.VE.CYCLIC lr2 0 lr4 lr5;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 450, 10: 0})
-        state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, bytes(r0_data))
-        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
-
-    def test_mult_ve_padded_boundary(self):
-        """MULT.VE.PADDED: elements past RC byte 511 use dtype 1."""
-        rc_fill = 4
-        scalar = 5
-        pad_start = 62  # 512 - 450 = 62 elements in bounds before padding
-
-        r0_data = bytearray(128)
-        r0_data[0] = scalar
-
-        state = _make_state("""\
-SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-RESET_ACC;;
-SET lr2 cr9;;
-SET lr4 cr10;;
-SET lr5 cr10;;
-MULT.VE.PADDED lr2 0 lr4 lr5;
-ACC;;
-BKPT;;
-""",
-            cr={8: 4096, 9: 450, 10: 0})
-        state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, bytes(r0_data))
-        state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
-        run_until_complete(state)
-
-        acc_raw = state.regfile.raw("r_acc")
-        for i in range(pad_start):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
-        for i in range(pad_start, 128):
-            val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == scalar * 1, f"word {i} (padded): expected {scalar}, got {val}"
-
-    def test_mult_ve_r1_scalar(self):
-        """MULT.VE.CYCLIC: fixed_idx in [128, 255] addresses R1[fixed_idx - 128] instead of R0."""
+    def test_mult_rc_ve_r1_scalar(self):
+        """MULT.RC.VE: src LR value in [128, 255] addresses R1[value - 128] instead of R0."""
         r0_data = bytearray(128)  # all zeros — must not be picked
         r1_data = bytearray(128)
-        r1_data[0] = 7  # fixed_idx=128 → r1[0] = 7
+        r1_data[0] = 7  # LR value=128 → r1[0] = 7
         cyclic_data = bytes([4] * 512)
 
         state = _make_state("""\
@@ -1580,7 +1506,7 @@ SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 RESET_ACC;;
 SET lr3 cr12;;
-MULT.VE.CYCLIC lr2 0 lr2 lr3;
+MULT.RC.VE lr2 lr3 0 lr2;
 ACC;;
 BKPT;;
 """,
@@ -1597,25 +1523,26 @@ BKPT;;
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
 
 
-class TestMultEeRr:
-    """MULT.EE.RR — multi-element execution (MEE): r0-by-r0 or r1-by-r1."""
+class TestMultRcVs:
+    """MULT.RC.VS — self-multiply (square) of RC vector elements."""
 
-    def test_mult_ee_rr_r0_by_r0(self):
-        """MEE mode R0: each lane multiplied by itself (4 × 4 = 16)."""
-        r0_data = bytes([4] * 128)
+    def test_mult_rc_vs_squares_rc(self):
+        """Each RC lane multiplied by itself (4 × 4 = 16)."""
+        cyclic_data = bytes([4] * 512)
 
         state = _make_state("""\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 RESET_ACC;;
 SET lr5 cr9;;
-MULT.EE.RR r0 0 lr5;
+MULT.RC.VS lr1 0 lr5;
 ACC;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
         state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.raw("r_acc")
@@ -1623,54 +1550,50 @@ BKPT;;
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 16, f"acc word {i}: expected 16 (4×4), got {val}"
 
-    def test_mult_ee_rr_r1_by_r1(self):
-        """MEE mode R1 squares r1 (3 × 3 = 9); r0 holds a decoy value."""
-        r0_data = bytes([9] * 128)   # decoy — must be ignored when ra=R1
-        r1_data = bytes([3] * 128)
+    def test_mult_rc_vs_wraps_at_boundary(self):
+        """rc_idx near the 512-byte boundary wraps cyclically (3 × 3 = 9)."""
+        cyclic_data = bytes([3] * 512)
 
         state = _make_state("""\
-SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-SET lr1 cr9;;
-LDR_MULT_REG r1 lr1 cr0;;
 RESET_ACC;;
-SET lr5 cr10;;
-MULT.EE.RR r1 0 lr5;
+SET lr2 cr10;;
+SET lr5 cr11;;
+MULT.RC.VS lr2 0 lr5;
 ACC;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 4352, 10: 0})
+            cr={10: 450, 11: 0})
         state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, r0_data)
-        state.xmem.write_address(0x1100, r1_data)
+        state.regfile.set_r_cyclic_at(0, cyclic_data)
         run_until_complete(state)
 
         acc_raw = state.regfile.raw("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
-            assert val == 9, f"acc word {i}: expected 9 (r1 3×3, not r0), got {val}"
+            assert val == 9, f"acc word {i}: expected 9 (3×3), got {val}"
 
-    def test_mult_ee_rr_mask_zeroes_lanes(self):
+    def test_mult_rc_vs_mask_zeroes_lanes(self):
         """mask_offset/mask_shift still gate lanes (first 64 active, rest zeroed)."""
-        r0_data = bytes([3] * 128)   # squared → 9
+        cyclic_data = bytes([3] * 512)   # squared → 9
         mask_data = bytearray(128)
         for i in range(8):           # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
 
         state = _make_state("""\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-SET lr3 cr9;;
+SET lr1 cr9;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+SET lr3 cr10;;
 LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
-SET lr5 cr10;;
-MULT.EE.RR r0 0 lr5;
+SET lr5 cr9;;
+MULT.RC.VS lr1 0 lr5;
 ACC;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 4096, 9: 0, 10: 8192})
         state.dtype = DType.INT8
-        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x1000, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
         run_until_complete(state)
 
@@ -1699,20 +1622,21 @@ class TestMaskShiftSequential:
     The partition_vector is derived from CR15.partition (0 = no partitioning).
     """
 
-    _R0_ADDR = 0x1000   # xmem address for R0 data
+    _RC_ADDR = 0x1000   # xmem address for R_CYCLIC data
     _MASK_ADDR = 0x2000  # xmem address for mask data
-    _R0_CR = 8           # CR holding R0 xmem address
+    _RC_CR = 8           # CR holding R_CYCLIC xmem address
     _MASK_CR = 9         # CR holding mask xmem address
     _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
 
     _ASM = """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr0;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
 RESET_ACC;;
 SET lr5 cr2;;
-MULT.EE.RR r0 0 lr5;
+MULT.RC.VS lr1 0 lr5;
 ACC;;
 BKPT;;
 """
@@ -1724,19 +1648,19 @@ BKPT;;
         shift_idx: int,
         partition: int = 0,
     ) -> bytearray:
-        """Run MULT.EE.RR with given 128-bit base mask and mask_shift_idx; return r_acc."""
+        """Run MULT.RC.VS with given 128-bit base mask and mask_shift_idx; return r_acc."""
         mask_bytes = base_mask_bits.to_bytes(16, byteorder="little") + bytes(112)
         state = _make_state(
             self._ASM,
             cr={
-                self._R0_CR: self._R0_ADDR,
+                self._RC_CR: self._RC_ADDR,
                 self._MASK_CR: self._MASK_ADDR,
                 self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
             },
         )
         state.dtype = DType.INT8
         state.set_cr_dstructure(valid_elements=128, partition=partition)
-        state.xmem.write_address(self._R0_ADDR, bytes([2] * 128))
+        state.xmem.write_address(self._RC_ADDR, bytes([2] * 512))
         state.xmem.write_address(self._MASK_ADDR, mask_bytes)
         run_until_complete(state)
         return state.regfile.raw("r_acc")
