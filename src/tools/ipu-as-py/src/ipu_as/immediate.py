@@ -152,14 +152,14 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 # ---------------------------------------------------------------------------
 
 class ElementsInRowField(ipu_token.EnumToken):
-    """Elements per row: 8, 16, 32, or 64."""
+    """Elements per row: 16, 32, or 64."""
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(ELEMENTS_IN_ROW_NAMES)
 
 
 class HorizontalStrideField(ipu_token.EnumToken):
-    """Horizontal stride: enabled(1), inverted(2), expand(3). Bits 0..2."""
+    """Horizontal stride: off, on, or on_inv."""
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(HORIZONTAL_STRIDE_NAMES)

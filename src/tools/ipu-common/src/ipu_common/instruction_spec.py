@@ -661,16 +661,17 @@ INSTRUCTION_SPEC = {
                 summary="Reorder the multiplication result into R_ACC using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
                 syntax="ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset",
                 operands=[
-                    "elements_in_row: Elements per row (8, 16, 32, or 64)",
-                    "horizontal_stride: Horizontal stride mode (enabled, inverted, expand)",
+                    "elements_in_row: Elements per row (16, 32, or 64; minimum is 16)",
+                    "horizontal_stride: Horizontal stride mode (off, on, on_inv)",
                     "vertical_stride: Vertical stride mode (enabled, inverted)",
                     "offset: LR register; value % 4 gives start index in RACC (0, 32, 64, or 96)",
                 ],
                 operation=(
-                    "Decimate MULT_RES as rows×cols; apply horizontal stride (take every 2nd column, optional expand); "
-                    "then vertical stride (take every 2nd row). Write result into R_ACC[start:start+N] where start = (offset%4)*32, N = 32|64|128."
+                    "Decimate MULT_RES as rows×cols; apply horizontal stride (take every 2nd column); "
+                    "then vertical stride (take every 2nd row). Write result into R_ACC[start:start+N] where start = (offset%4)*32, N = 32|64|128. "
+                    "When a data structure has fewer than 8 elements, hardware pads to 16 automatically (not programmable)."
                 ),
-                example="ACC.STRIDE 8, off, off, LR0;;",
+                example="ACC.STRIDE 16, off, off, LR0;;",
             ),
             "execute_fn": "execute_acc_stride",
         },

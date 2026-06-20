@@ -803,7 +803,7 @@ BKPT;;
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
         state = _make_state("""\
 SET lr0 cr8;;
-ACC.STRIDE 8 off off lr0;;
+ACC.STRIDE 16 off off lr0;;
 BKPT;;
 """,
             cr={8: 0})
@@ -816,11 +816,11 @@ BKPT;;
             w = state.regfile.get_r_acc_word(i)
             assert w == i, f"word {i}: expected {i}, got {w}"
 
-    def test_acc_stride_horizontal_no_expand(self):
-        """ACC.STRIDE with horizontal on, no expand: take every 2nd column → 64 elements at r_acc[0:64]."""
+    def test_acc_stride_horizontal(self):
+        """ACC.STRIDE with horizontal on: take every 2nd column → 64 elements at r_acc[0:64]."""
         state = _make_state("""\
 SET lr0 cr8;;
-ACC.STRIDE 8 on off lr0;;
+ACC.STRIDE 16 on off lr0;;
 BKPT;;
 """,
             cr={8: 0})
@@ -829,11 +829,11 @@ BKPT;;
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
         run_until_complete(state)
-        # Rows of 8: even columns 0,2,4,6 → indices 0,2,4,6, 8,10,12,14, ...
+        # Rows of 16: even columns 0,2,4,...,14 → 8 per row × 8 rows = 64 elements
         for out_i in range(64):
-            row = out_i // 4
-            col = (out_i % 4) * 2
-            expected = row * 8 + col
+            row = out_i // 8
+            col = (out_i % 8) * 2
+            expected = row * 16 + col
             w = state.regfile.get_r_acc_word(out_i)
             assert w == expected, f"out[{out_i}]: expected {expected}, got {w}"
 
@@ -841,11 +841,11 @@ BKPT;;
         """ACC.STRIDE with offset: (lr0 % 4)*32 is start index; 64 elements written at r_acc[32:96]."""
         state = _make_state("""\
 SET lr0 cr8;;
-ACC.STRIDE 8 on off lr0;;
+ACC.STRIDE 16 on off lr0;;
 BKPT;;
 """,
             cr={8: 1})
-        # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on, no expand → 64 elements.
+        # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on → 64 elements.
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 0)
@@ -857,9 +857,9 @@ BKPT;;
             w = state.regfile.get_r_acc_word(i)
             assert w == 0, f"word {i} (before start): expected 0, got {w}"
         for out_i in range(64):
-            row = out_i // 4
-            col = (out_i % 4) * 2
-            expected_src = row * 8 + col
+            row = out_i // 8
+            col = (out_i % 8) * 2
+            expected_src = row * 16 + col
             w = state.regfile.get_r_acc_word(32 + out_i)
             assert w == 100 + expected_src, f"word {32 + out_i}: expected {100 + expected_src}, got {w}"
         for i in range(96, 128):

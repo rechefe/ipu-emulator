@@ -40,12 +40,13 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "constant. Valid range: **`0`** to **`2^W − 1`**."
     ),
     "ElementsInRow": (
-        "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
-        "`ipu_common`)."
+        "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
+        "**`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_common`."
     ),
     "HorizontalStride": (
-        "ACC-slot immediate: **horizontal stride** bit pattern for `ACC.STRIDE` (see "
-        "`acc_stride_enums`)."
+        "ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, "
+        "**`on`**, **`on_inv`**. Expand padding is fixed hardware behaviour and is not programmable. "
+        "See `acc_stride_enums` in `ipu_common`."
     ),
     "VerticalStride": (
         "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
