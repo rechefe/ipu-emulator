@@ -14,10 +14,10 @@ An instruction is stored as a ``dict[str, int]`` whose keys match the
 C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
 
     {
-        "break_inst_token_0_break_inst_opcode": 2,   # BREAK_NOP
-        "load_inst_token_0_load_inst_opcode": 3,     # LOAD_NOP
-        "store_inst_token_0_store_inst_opcode": 1,   # STORE_NOP
-        "acc_store_inst_token_0_acc_store_inst_opcode": 1,   # ACC_STORE_NOP
+        "break_inst_token_0_break_inst_opcode": 2,   # NOP (break slot)
+        "load_inst_token_0_load_inst_opcode": 3,     # NOP (load slot)
+        "store_inst_token_0_store_inst_opcode": 1,   # NOP (store slot)
+        "acc_store_inst_token_0_acc_store_inst_opcode": 1,   # NOP (acc_store slot)
         ...
     }
 

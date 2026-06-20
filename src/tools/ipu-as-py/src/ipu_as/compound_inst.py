@@ -28,11 +28,26 @@ class CompoundInst:
         inst_types_list = self.instruction_types()
 
         for instruction in instructions["instructions"]:
-            inst_type = inst.Inst.find_inst_type_by_opcode(
-                instruction["opcode"].token.value
-            )
+            opcode_str = instruction["opcode"].token.value
             if address is None:
                 address = instruction["opcode"].instr_id
+
+            # NOP is context-aware: fill the next available unfilled slot.
+            if opcode_str.lower() == "nop":
+                slot_filled = False
+                for i, expected_type in enumerate(inst_types_list):
+                    if self.instructions[i] is None:
+                        self.instructions[i] = expected_type(instruction)
+                        slot_filled = True
+                        break
+                if not slot_filled:
+                    raise ValueError(
+                        f"NOP: all slots are already filled\n"
+                        f"At: {instruction['opcode'].get_location_string()}"
+                    )
+                continue
+
+            inst_type = inst.Inst.find_inst_type_by_opcode(opcode_str)
 
             # Find the first available slot for this instruction type
             slot_filled = False
