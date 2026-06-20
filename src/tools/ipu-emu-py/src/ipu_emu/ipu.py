@@ -67,6 +67,10 @@ R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
+# R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
+# must land exactly on a slot boundary — no implicit wraparound.
+R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
+
 
 # ---------------------------------------------------------------------------
 # Operand extraction: maps instruction_spec operand names → inst dict field keys
@@ -454,18 +458,21 @@ class Ipu:
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
         """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic."""
         addr = offset + base
-        assert index % R_REG_SIZE == 0, (
-            f"LR index for cyclic load must be aligned to {R_REG_SIZE}: got {index}"
-        )
         if self._wide_vector_active():
-            assert index % R_CYCLIC_SIZE == 0, (
-                f"Wide-vector debug: cyclic load index must be aligned to {R_CYCLIC_SIZE}, "
-                f"got {index}"
-            )
+            if index != 0:
+                raise EmulatorError(
+                    f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads the full "
+                    f"{R_CYCLIC_SIZE}-byte r_cyclic register, so index must be 0; got {index}"
+                )
             data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
             self.state.regfile.set_r_cyclic_at(index, data)
             return
 
+        if index not in R_CYCLIC_VALID_INDICES:
+            raise EmulatorError(
+                f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
+                f"(R_CYCLIC slot boundaries); got {index}"
+            )
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
         self.state.regfile.set_r_cyclic_at(index, data)
 
