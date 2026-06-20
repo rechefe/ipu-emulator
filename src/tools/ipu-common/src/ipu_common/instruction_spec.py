@@ -96,6 +96,9 @@ __all__ = [
     "get_operand_names_and_types",
     "is_hardware_slot",
     "validate_instruction_spec",
+    "PSEUDO_INSTRUCTION_SPEC",
+    "find_pseudo_instruction",
+    "validate_pseudo_instruction_spec",
 ]
 
 
@@ -933,6 +936,26 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_blt",
         },
+        "BGE": {
+            "operands": [
+                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "label", "type": "Label"},
+            ],
+            "doc": InstructionDoc(
+                title="Branch if Greater or Equal",
+                summary="Branch if first register is greater than or equal to second.",
+                syntax="BGE reg1, reg2, label",
+                operands=[
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                    "label: Branch target label",
+                ],
+                operation="if (reg1 >= reg2) PC = label",
+                example="BGE LR0, CR1, ge;;",
+            ),
+            "execute_fn": "execute_bge",
+        },
         "BNZ": {
             "operands": [
                 {"name": "test_reg", "type": "LcrIdx", "read": "snapshot"},
@@ -1291,6 +1314,164 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
 
 
 # ===========================================================================
+# Pseudo-Instruction Specification (assembler-only — no opcode, no execute_fn)
+# ===========================================================================
+#
+# Pseudo-instructions are aliases that the assembler expands into a real
+# INSTRUCTION_SPEC entry at compile time. They are NEVER assigned an opcode
+# and NEVER appear in the binary, so they need no emulator handler — only
+# an "expands_to" mapping onto an existing real instruction.
+#
+# Looked up by (name, operand count): this lets a pseudo-instruction share
+# a name with a real instruction of a different arity without ambiguity
+# (e.g. the 2-operand pseudo "BZ reg, label" below vs. the 3-operand real
+# hardware "BZ test_reg, base_reg, label").
+#
+# Structure:
+#     PSEUDO_INSTRUCTION_SPEC = {
+#         "name": {
+#             "operands": [{"name": "reg1", "type": "LcrIdx"}, ...],
+#             "expands_to": {
+#                 "slot": "cond",
+#                 "instruction": "BLT",
+#                 "args": ["reg2", "reg1", "label"],
+#                     # Real instruction's operands, in order. Each entry is
+#                     # either a name from this pseudo's own "operands" list
+#                     # (substituted with the caller's actual token), or a
+#                     # literal register name such as "CR0" (assumed to
+#                     # always hold zero, used to derive BZ/BNZ from
+#                     # BEQ/BNE).
+#             },
+#             "doc": InstructionDoc(...),
+#         },
+#         ...
+#     }
+
+PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
+    "BGT": {
+        "operands": [
+            {"name": "reg1", "type": "LcrIdx"},
+            {"name": "reg2", "type": "LcrIdx"},
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BLT",
+            "args": ["reg2", "reg1", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Branch if Greater Than (pseudo)",
+            summary="Branch if first register is greater than second.",
+            syntax="BGT reg1, reg2, label",
+            operands=[
+                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "label: Branch target label",
+            ],
+            operation="if (reg1 > reg2) PC = label",
+            example="BGT LR0, LR1, bigger;;",
+            notes=(
+                "Expands to `BLT reg2, reg1, label` at assemble time "
+                "(operands swapped). Identical encoding and runtime cost "
+                "to a hand-written BLT."
+            ),
+        ),
+    },
+    "BLE": {
+        "operands": [
+            {"name": "reg1", "type": "LcrIdx"},
+            {"name": "reg2", "type": "LcrIdx"},
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BGE",
+            "args": ["reg2", "reg1", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Branch if Less or Equal (pseudo)",
+            summary="Branch if first register is less than or equal to second.",
+            syntax="BLE reg1, reg2, label",
+            operands=[
+                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "label: Branch target label",
+            ],
+            operation="if (reg1 <= reg2) PC = label",
+            example="BLE LR0, LR1, smaller_or_equal;;",
+            notes=(
+                "Expands to `BGE reg2, reg1, label` at assemble time "
+                "(operands swapped), exactly mirroring how BGT expands to "
+                "BLT. Identical encoding and runtime cost to a hand-written "
+                "BGE."
+            ),
+        ),
+    },
+    "BZ": {
+        "operands": [
+            {"name": "reg", "type": "LcrIdx"},
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BEQ",
+            "args": ["reg", "CR0", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Branch if Zero (pseudo)",
+            summary="Branch if register is zero. Assumes CR0 always holds zero.",
+            syntax="BZ reg, label",
+            operands=[
+                "reg: Register to test (LR0–LR15 or CR0–CR14)",
+                "label: Branch target label",
+            ],
+            operation="if (reg == 0) PC = label",
+            example="BZ LR0, done;;",
+            notes="Expands to `BEQ reg, CR0, label`. Assumes CR0 always holds 0.",
+        ),
+    },
+    "BNZ": {
+        "operands": [
+            {"name": "reg", "type": "LcrIdx"},
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BNE",
+            "args": ["reg", "CR0", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Branch if Not Zero (pseudo)",
+            summary="Branch if register is not zero. Assumes CR0 always holds zero.",
+            syntax="BNZ reg, label",
+            operands=[
+                "reg: Register to test (LR0–LR15 or CR0–CR14)",
+                "label: Branch target label",
+            ],
+            operation="if (reg != 0) PC = label",
+            example="BNZ LR0, loop;;",
+            notes="Expands to `BNE reg, CR0, label`. Assumes CR0 always holds 0.",
+        ),
+    },
+}
+
+
+def find_pseudo_instruction(name: str, arg_count: int) -> dict | None:
+    """Look up a pseudo-instruction definition by name and operand count.
+
+    Matching is case-insensitive on the name AND requires an exact operand
+    count match, so a pseudo-instruction never shadows a real instruction
+    of a different arity sharing the same name. Returns None if no
+    pseudo-instruction matches.
+    """
+    lowered = name.lower()
+    for pseudo_name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
+        if pseudo_name.lower() == lowered and len(pseudo_def["operands"]) == arg_count:
+            return pseudo_def
+    return None
+
+
+# ===========================================================================
 # Validation
 # ===========================================================================
 
@@ -1377,8 +1558,92 @@ def validate_instruction_spec() -> None:
                 )
 
 
+def validate_pseudo_instruction_spec() -> None:
+    """Validate pseudo-instruction specification consistency.
+
+    Checks:
+    - Each pseudo-instruction has 'operands', 'expands_to', and 'doc'
+    - No pseudo-instruction defines 'execute_fn' (they never reach the
+      emulator — only the assembler expands them)
+    - Operands have name/type fields with a recognized type
+    - 'expands_to' references a real slot + instruction that actually
+      exists in INSTRUCTION_SPEC, with a matching operand count
+    - Each 'expands_to.args' entry is either one of this pseudo's own
+      operand names or a literal string (e.g. "CR0")
+
+    Raises ValueError if validation fails.
+    """
+    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
+        if "operands" not in pseudo_def:
+            raise ValueError(f"pseudo.{name}: missing 'operands' field")
+        if "expands_to" not in pseudo_def:
+            raise ValueError(f"pseudo.{name}: missing 'expands_to' field")
+        if "doc" not in pseudo_def:
+            raise ValueError(f"pseudo.{name}: missing 'doc' field")
+        if "execute_fn" in pseudo_def:
+            raise ValueError(
+                f"pseudo.{name}: pseudo-instructions must not define "
+                f"'execute_fn' — they expand to a real instruction at "
+                f"assemble time and never reach the emulator"
+            )
+
+        operands = pseudo_def["operands"]
+        if not isinstance(operands, list):
+            raise ValueError(f"pseudo.{name}: 'operands' must be a list of dicts")
+
+        operand_names = set()
+        for operand in operands:
+            if "name" not in operand or "type" not in operand:
+                raise ValueError(
+                    f"pseudo.{name}: each operand needs a 'name' and 'type'"
+                )
+            if operand["type"] not in VALID_OPERAND_TYPES:
+                raise ValueError(
+                    f"pseudo.{name}: operand '{operand['name']}' has invalid "
+                    f"type '{operand['type']}'"
+                )
+            operand_names.add(operand["name"])
+
+        if not isinstance(pseudo_def["doc"], InstructionDoc):
+            raise ValueError(f"pseudo.{name}: 'doc' must be InstructionDoc instance")
+
+        expansion = pseudo_def["expands_to"]
+        if not isinstance(expansion, dict):
+            raise ValueError(f"pseudo.{name}: 'expands_to' must be a dict")
+
+        slot = expansion.get("slot")
+        real_instruction = expansion.get("instruction")
+        args = expansion.get("args")
+
+        if slot not in INSTRUCTION_SPEC:
+            raise ValueError(
+                f"pseudo.{name}: expands_to.slot '{slot}' is not a valid slot"
+            )
+        try:
+            real_def = get_instruction(slot, real_instruction)
+        except KeyError:
+            raise ValueError(
+                f"pseudo.{name}: expands_to.instruction '{real_instruction}' "
+                f"not found in slot '{slot}'"
+            )
+
+        if not isinstance(args, list):
+            raise ValueError(f"pseudo.{name}: 'expands_to.args' must be a list")
+        if len(args) != len(real_def["operands"]):
+            raise ValueError(
+                f"pseudo.{name}: expands_to.args has {len(args)} entries but "
+                f"{slot}.{real_instruction} takes {len(real_def['operands'])} operands"
+            )
+        for arg in args:
+            if not isinstance(arg, str):
+                raise ValueError(
+                    f"pseudo.{name}: expands_to.args entries must be strings"
+                )
+
+
 # Validate on import
 validate_instruction_spec()
+validate_pseudo_instruction_spec()
 
 # Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
 from ipu_common.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402

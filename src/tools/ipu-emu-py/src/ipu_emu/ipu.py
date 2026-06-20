@@ -1098,6 +1098,12 @@ class Ipu:
         s2 = self._to_signed_32(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
+    def execute_bge(self, *, reg1: int, reg2: int, label: int) -> None:
+        """Execute BGE: Branch if greater or equal (signed comparison)."""
+        s1 = self._to_signed_32(reg1)
+        s2 = self._to_signed_32(reg2)
+        self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
+
     def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
         """Execute BNZ: Branch if not zero."""
         self.state.program_counter = label if test_reg != 0 else self.state.program_counter + 1

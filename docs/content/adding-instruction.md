@@ -233,6 +233,107 @@ echo "MY_NEW_INSTRUCTION r0 r1 r0;;" | bazel run //src/tools/ipu-as-py:ipu-as --
 bazel test //...
 ```
 
+## Adding a Pseudo-Instruction
+
+Some assembly mnemonics don't need any new hardware behavior — they're just a
+more convenient way of writing an existing instruction. For example, `BGT
+reg1, reg2, label` is exactly `BLT reg2, reg1, label` with the operands
+swapped: there's no new opcode, no new emulator behavior, just a friendlier
+name. These are **pseudo-instructions**, declared in
+`PSEUDO_INSTRUCTION_SPEC` (in the same `instruction_spec.py` file as
+`INSTRUCTION_SPEC`).
+
+Pseudo-instructions are expanded by the assembler at compile time, before a
+compound instruction is encoded. They:
+
+- **Never get an opcode** — they don't occupy a slot, so they're never
+  assigned one
+- **Never need an `execute_fn`** — the emulator never sees them; only the
+  real instruction they expand into appears in the binary
+- **Cost nothing at runtime** — the expansion happens once, in the assembler
+
+### Declaring a pseudo-instruction
+
+Add an entry to `PSEUDO_INSTRUCTION_SPEC`:
+
+```python
+PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
+    "BGT": {
+        "operands": [
+            {"name": "reg1", "type": "LcrIdx"},
+            {"name": "reg2", "type": "LcrIdx"},
+            {"name": "label", "type": "Label"},
+        ],
+        "expands_to": {
+            "slot": "cond",
+            "instruction": "BLT",
+            "args": ["reg2", "reg1", "label"],
+        },
+        "doc": InstructionDoc(
+            title="Branch if Greater Than (pseudo)",
+            summary="Branch if first register is greater than second.",
+            syntax="BGT reg1, reg2, label",
+            operands=[
+                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "label: Branch target label",
+            ],
+            operation="if (reg1 > reg2) PC = label",
+            example="BGT LR0, LR1, bigger;;",
+        ),
+    },
+}
+```
+
+**Key fields:**
+
+- **`operands`**: the pseudo-instruction's own operand list, exactly like a
+  real instruction's `operands` (same `name`/`type` rules).
+- **`expands_to`**: how to rewrite the pseudo into a real instruction:
+  - `slot` — the real instruction's slot (e.g. `"cond"`)
+  - `instruction` — the real instruction's name in `INSTRUCTION_SPEC`
+  - `args` — the real instruction's operands, in order. Each entry is
+    either one of this pseudo's own operand names (substituted with
+    whatever the caller wrote) or a literal register name such as `"CR0"`
+    (useful when a pseudo-instruction hard-codes a register — e.g. `BZ reg,
+    label` expands to `BEQ reg, CR0, label`, assuming `CR0` always holds
+    zero).
+- **`doc`**: an `InstructionDoc`, same as for real instructions — this is
+  what generates the pseudo-instruction's entry in the programmer-facing
+  guide.
+- **No `execute_fn`** — adding one is a validation error
+  (`validate_pseudo_instruction_spec` rejects it), since pseudo-instructions
+  never reach the emulator.
+
+### Resolution and disambiguation
+
+A pseudo-instruction is matched by **name + operand count**
+(`find_pseudo_instruction`). This means a pseudo-instruction can share a
+name with a real instruction of a *different* arity without ambiguity — for
+example, the 2-operand pseudo `BZ reg, label` coexists with the 3-operand
+real hardware `BZ test_reg, base_reg, label`; the assembler picks whichever
+matches the operand count the caller wrote.
+
+If a name matches a pseudo-instruction but the operand count doesn't match
+any definition (and no real instruction shares that name either), the
+assembler raises a clear error naming the expected operands instead of a
+generic "instruction not found" message.
+
+### Testing a pseudo-instruction
+
+Verify that the pseudo-instruction assembles to the **exact same binary** as
+its hand-written real-instruction expansion:
+
+```python
+from ipu_as.lark_tree import assemble
+
+def test_bgt_matches_hand_written_blt():
+    assert assemble("BGT lr0 lr1 +1;;") == assemble("BLT lr1 lr0 +1;;")
+```
+
+See `src/tools/ipu-as-py/test/test_assemble.py` for more examples, including
+tests for arity disambiguation and misuse errors.
+
 ## Summary
 
 1. **Add to `instruction_spec.py`** — define operands, docs, and `execute_fn`

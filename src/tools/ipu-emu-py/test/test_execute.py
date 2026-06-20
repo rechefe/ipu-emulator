@@ -604,6 +604,34 @@ BKPT;;
             cr={8: 5, 9: 6, 10: 0, 11: 1})
         assert state.regfile.get_lr(2) == 1
 
+    def test_bge(self):
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+BGE lr0 lr1 ge_branch;;
+SET lr2 cr10;;
+BKPT;;
+ge_branch:
+SET lr2 cr11;;
+BKPT;;
+""",
+            cr={8: 6, 9: 5, 10: 0, 11: 1})
+        assert state.regfile.get_lr(2) == 1
+
+    def test_bge_not_taken(self):
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+BGE lr0 lr1 ge_branch_not_taken;;
+SET lr2 cr10;;
+BKPT;;
+ge_branch_not_taken:
+SET lr2 cr11;;
+BKPT;;
+""",
+            cr={8: 5, 9: 6, 10: 1, 11: 0})
+        assert state.regfile.get_lr(2) == 1
+
     def test_bnz(self):
         state = _run("""\
 SET lr0 cr8;;
