@@ -468,85 +468,79 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: MULT.EE=0, MULT.VE.CYCLIC=1, MULT.VE.PADDED=2, MULT_NOP=3,
-    #          MULT.VE.CR=4, MULT.EE.RR=5
+    # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, MULT_NOP=3,
+    #          MULT.VE=4, MULT.EE=5
     # =========================================================================
     "mult": {
-        "MULT.EE": {
+        "MULT.RC.VV": {
             "operands": [
+                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Element-wise Multiply",
-                summary="Multiply elements of two registers element by element.",
-                syntax="MULT.EE ra, cyclic_offset, mask_offset, mask_shift",
+                title="RC Vector × Ra Vector Multiply",
+                summary="Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise.",
+                syntax="MULT.RC.VV rc_idx, ra, mask_offset, mask_shift",
                 operands=[
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
-                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`**.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(ra[i], R_CYCLIC[cyclic_offset + i]); then apply mask and shift.",
-                example="MULT.EE R0, LR0, 0, LR2;;",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift.",
+                example="MULT.RC.VV LR0, R0, 0, LR2;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
-            "execute_fn": "execute_mult_ee",
+            "execute_fn": "execute_mult_rc_vv",
         },
-        "MULT.VE.CYCLIC": {
+        "MULT.RC.VE": {
             "operands": [
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
+                {"name": "src", "type": "LcrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-                {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Vector-Element Multiply (cyclic RC)",
+                title="RC Vector × Scalar Multiply",
                 summary=(
-                    "Multiply a fixed element from R0 or R1 against R_CYCLIC[cyclic_offset:cyclic_offset+128]. "
-                    "`fixed_idx` 0..127 selects `R0[fixed_idx]`, 128..255 selects `R1[fixed_idx - 128]`. "
-                    "R_CYCLIC is addressed cyclically modulo 512 elements (no padding with 1 past the boundary)."
+                    "Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is "
+                    "either a single element of R0/R1 (selected by an LR value) or a CR register value."
                 ),
-                syntax="MULT.VE.CYCLIC cyclic_offset, mask_offset, mask_shift, fixed_idx",
+                syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift",
                 operands=[
-                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (reduced mod 512).",
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
+                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR14`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`fixed_idx`: **`LR0`**…**`LR15`** (value read live) — scalar index into **`R0`**/**`R1`**.",
                 ],
-                operation="For i in [0, 128): rb = R_CYCLIC[(cyclic_offset + i) % 512]; scalar from R0/R1 via fixed_idx; MULT_RES[i] = scalar * rb (then mask/shift).",
-                example="MULT.VE.CYCLIC LR0, 0, LR2, LR3;;",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift.",
+                example="MULT.RC.VE LR0, LR3, 0, LR2;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
-            "execute_fn": "execute_mult_ve_cyclic",
+            "execute_fn": "execute_mult_rc_ve",
         },
-        "MULT.VE.PADDED": {
+        "MULT.RC.VS": {
             "operands": [
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
+                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
-                {"name": "fixed_idx", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Vector-Element Multiply (padded RC)",
-                summary=(
-                    "Same scalar × RC row as `MULT.VE.CYCLIC`, but indices at or past the 512-byte RC "
-                    "boundary within the 128-element window use a dtype-specific 1 instead of wrapping."
-                ),
-                syntax="MULT.VE.PADDED cyclic_offset, mask_offset, mask_shift, fixed_idx",
+                title="RC Vector Self-Multiply (Square)",
+                summary="Square R_CYCLIC[rc_idx:rc_idx+128] element-wise.",
+                syntax="MULT.RC.VS rc_idx, mask_offset, mask_shift",
                 operands=[
-                    "`cyclic_offset`: **`LR0`**…**`LR15`** — base byte offset into `R_CYCLIC`; out-of-range lanes use dtype 1.",
-                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in `R_MASK`.",
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`fixed_idx`: **`LR0`**…**`LR15`** (value read live) — scalar index into **`R0`**/**`R1`**.",
                 ],
-                operation="For i in [0, 128): rb = R_CYCLIC[cyclic_offset + i] if in bounds else dtype_one; scalar from R0/R1; MULT_RES[i] = scalar * rb (then mask/shift).",
-                example="MULT.VE.PADDED LR0, 0, LR2, LR3;;",
+                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift.",
+                example="MULT.RC.VS LR0, 0, LR2;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
-            "execute_fn": "execute_mult_ve_padded",
+            "execute_fn": "execute_mult_rc_vs",
         },
         "MULT_NOP": {
             "operands": [],
@@ -558,53 +552,51 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_mult_nop",
         },
-        "MULT.VE.CR": {
+        "MULT.VE": {
             "operands": [
-                {"name": "cyclic_offset", "type": "LrIdx", "read": "live"},
-                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "ra_idx", "type": "LrIdx", "read": "live"},
                 {"name": "cr_idx", "type": "CrIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="Vector-Element Multiply (CR scalar)",
-                summary="Multiply each element of RC[cyclic_offset:cyclic_offset+128] by a scalar from a CR register. Elements beyond RC boundary are treated as 1 (dtype-specific).",
-                syntax="MULT.VE.CR cyclic_offset, mask_offset, mask_shift, cr_idx",
-                operands=[
-                    "cyclic_offset: Base offset into RC (cyclic register); non-cyclic — out-of-bounds elements are padded with 1",
-                    "mask_offset: Immediate mask slot 0–7 (128-bit slice of R_MASK)",
-                    "mask_shift: index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end)",
-                    "cr_idx: CR register whose low byte supplies the fixed scalar multiplier (CR0–CR14)",
-                ],
-                operation="For i in [0,128): rb = RC[cyclic_offset+i] if in bounds else dtype_one; MULT_RES[i] = CR[cr_idx][0] * rb",
-                example="MULT.VE.CR LR0, 0, LR15, CR3;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
-            ),
-            "execute_fn": "execute_mult_ve_cr",
-        },
-        "MULT.EE.RR": {
-            "operands": [
-                {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Multi-Element Multiply (register by register)",
-                summary=(
-                    "Multi-element execution (MEE): multiply a mult-stage register "
-                    "element by element against itself. `ra` selects the execution "
-                    "mode — **`R0`** gives r0-by-r0, **`R1`** gives r1-by-r1."
-                ),
-                syntax="MULT.EE.RR ra, mask_offset, mask_shift",
+                title="Ra Vector × CR Scalar Multiply",
+                summary="Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise.",
+                syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift",
                 operands=[
-                    "`ra`: **`R0`** | **`R1`** — selects the MEE mode; the chosen register is both multiplicand and multiplier (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
-                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`r_mask`**.",
+                    "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
+                    "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                 ],
-                operation="For each lane i: mult_res[i] = ipu_mult(ra[i], ra[i]); then apply mask and shift.",
-                example="MULT.EE.RR R0, 0, LR2;;",
+                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift.",
+                example="MULT.VE LR0, CR3, 0, LR2;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
-            "execute_fn": "execute_mult_ee_rr",
+            "execute_fn": "execute_mult_ve",
+        },
+        "MULT.EE": {
+            "operands": [
+                {"name": "ra_idx", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "CrIdx"},
+                {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+            ],
+            "doc": InstructionDoc(
+                title="Ra Element × CR Scalar Multiply (broadcast)",
+                summary="Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes.",
+                syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift",
+                operands=[
+                    "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
+                    "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
+                    "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
+                    "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                ],
+                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift.",
+                example="MULT.EE LR0, CR3, 0, LR2;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+            ),
+            "execute_fn": "execute_mult_ee",
         },
     },
 
