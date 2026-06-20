@@ -167,8 +167,8 @@ BKPT;;
         # Three pure-LR instructions: no mult/acc/xmem
         asm = """\
 SET lr0 cr0;;
-ADD lr1 lr0 1;;
-ADD lr2 lr1 1;;
+ADD lr1 lr0 cr1;;
+ADD lr2 lr1 cr1;;
 BKPT;;
 """
         state = _run(asm)

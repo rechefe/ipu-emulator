@@ -26,7 +26,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIdx": LR0–LR15 (LrRegField)  
   - "CrIdx": CR0–CR15 (CrRegField); used both for scalar-source registers and for the cr_dstructure register index
   - "LcrIdx": LR0–LR15 or CR0–CR14 (LcrRegField)
-  - "AddSubSrcB": second operand for ADD/SUB — LR, CR, or unsigned IMM5 (AddSubSrcBField; 6-bit encoding)
+  - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
   - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
@@ -220,9 +220,9 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "offset: Offset register (LR0–LR15)",
                     "base: Base address register (CR0–CR14)",
-                    "index: Index inside cyclic register (LR0–LR15)",
+                    "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries. Any other value raises an error.",
                 ],
-                operation="R_CYCLIC[index % 512:128] = Memory[offset + base]",
+                operation="R_CYCLIC[index .. index+127] = Memory[offset + base]   # index ∈ {0, 128, 256, 384}",
             ),
             "execute_fn": "execute_ldr_cyclic_mult_reg",
         },
@@ -332,7 +332,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3
+    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5
     # =========================================================================
     "lr": {
         "SET": {
@@ -357,22 +357,21 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
                 {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
+                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Add",
                 summary=(
-                    "Add two sources (second source may be an LR, CR, or 5-bit unsigned immediate) "
-                    "and store the result in the destination LR."
+                    "Add two register sources and store the result in the destination LR."
                 ),
                 syntax="ADD dest, src_a, src_b",
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15, CR0–CR14, or unsigned immediate 0–31",
+                    "src_b: Second source — LR0–LR15 or CR0–CR14",
                 ],
                 operation="dest = src_a + src_b",
-                example="ADD LR0, LR1, LR2;;\nADD LR3, LR1, CR5;;\nADD LR4, LR1, 7;;",
+                example="ADD LR0, LR1, LR2;;\nADD LR3, LR1, CR5;;",
             ),
             "execute_fn": "execute_lr_add",
         },
@@ -380,22 +379,22 @@ INSTRUCTION_SPEC = {
             "operands": [
                 {"name": "dest", "type": "LrIdx"},
                 {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "AddSubSrcB", "read": "snapshot"},
+                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Subtract",
                 summary=(
-                    "Subtract the second source from the first (second source may be an LR, CR, "
-                    "or 5-bit unsigned immediate) and store the result in the destination LR."
+                    "Subtract the second source from the first and store the result "
+                    "in the destination LR."
                 ),
                 syntax="SUB dest, src_a, src_b",
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15, CR0–CR14, or unsigned immediate 0–31",
+                    "src_b: Second source — LR0–LR15 or CR0–CR14",
                 ],
                 operation="dest = src_a - src_b",
-                example="SUB LR0, LR1, LR2;;\nSUB LR3, LR1, CR5;;\nSUB LR4, LR1, 7;;",
+                example="SUB LR0, LR1, LR2;;\nSUB LR3, LR1, CR5;;",
             ),
             "execute_fn": "execute_lr_sub",
         },
@@ -421,6 +420,46 @@ INSTRUCTION_SPEC = {
                 example="INCR_MOD_POW2 LR2, LR3, 4;;",
             ),
             "execute_fn": "execute_lr_incr_mod_pow2",
+        },
+        "INC": {
+            "operands": [
+                {"name": "dest", "type": "LrIdx"},
+                {"name": "imm", "type": "LrIncDecImmediate"},
+            ],
+            "doc": InstructionDoc(
+                title="Increment",
+                summary=(
+                    "Add an unsigned immediate to the destination LR (read-modify-write)."
+                ),
+                syntax="INC dest, imm",
+                operands=[
+                    "dest: Destination local register (LR0–LR15); also the implicit source",
+                    "imm: Unsigned immediate; range 0 to 2^W − 1 where W is derived from the LR slot union layout",
+                ],
+                operation="dest = dest + imm",
+                example="INC LR0, 7;;",
+            ),
+            "execute_fn": "execute_lr_inc",
+        },
+        "DEC": {
+            "operands": [
+                {"name": "dest", "type": "LrIdx"},
+                {"name": "imm", "type": "LrIncDecImmediate"},
+            ],
+            "doc": InstructionDoc(
+                title="Decrement",
+                summary=(
+                    "Subtract an unsigned immediate from the destination LR (read-modify-write)."
+                ),
+                syntax="DEC dest, imm",
+                operands=[
+                    "dest: Destination local register (LR0–LR15); also the implicit source",
+                    "imm: Unsigned immediate; range 0 to 2^W − 1 where W is derived from the LR slot union layout",
+                ],
+                operation="dest = dest - imm",
+                example="DEC LR0, 3;;",
+            ),
+            "execute_fn": "execute_lr_dec",
         },
     },
     
@@ -1077,7 +1116,7 @@ def extract_opcodes() -> Dict[str, List[str]]:
     Example:
         {
             "load": ["LDR_MULT_REG", "LDR_CYCLIC_MULT_REG", ...],
-            "lr": ["SET", "ADD", "SUB", "INCR_MOD_POW2"],
+            "lr": ["SET", "ADD", "SUB", "INCR_MOD_POW2", "INC", "DEC"],
             ...
         }
     """
@@ -1250,11 +1289,16 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "HorizontalStride",
         "VerticalStride",
         "LrModPow2KImmediate",
+        "LrIncDecImmediate",
         "MultMaskOffsetImmediate",
         "ActivationFn",
         "BreakImmediate",
         "Label",
+<<<<<<< ours
         "AddSubSrcB",
+=======
+        "FullXmemRow",
+>>>>>>> theirs
     }
 )
 

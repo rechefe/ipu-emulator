@@ -29,12 +29,23 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
+<<<<<<< ours
         "**`cr0`–`cr15`** in the usual combined ordering used by the assembler."
     ),
     "AddSubSrcB": (
         "Second source for **`ADD`** / **`SUB`** in the LR slot: **`lr0`–`lr15`**, **`cr0`–`cr15`**, "
         "or an **unsigned 5-bit immediate** (`0`–`31`). Encoded in **6 bits**: **`0`–`31`** use the "
         "same ordering as **`LcrIdx`**; **`32`–`63`** encode immediates as **`32 + imm`**."
+=======
+        "`**cr0`–`cr14`** in the usual combined ordering used by the assembler. `cr15` is reserved "
+        "and is not a valid operand. Used as **`src_b`** on **`ADD`**/**`SUB`** and as **`step`** on "
+        "**`INCR_MOD_POW2`**."
+    ),
+    "LrIncDecImmediate": (
+        "Unsigned immediate for **`INC`** / **`DEC`** in the LR slot. The bit width **W** is not "
+        "hardcoded — it is derived from the LR slot union layout so the total slot width stays "
+        "constant. Valid range: **`0`** to **`2^W − 1`**."
+>>>>>>> theirs
     ),
     "ElementsInRow": (
         "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
@@ -136,7 +147,7 @@ label:                          # Labels end with a colon
     LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
     MULT.EE r0 lr1 0 lr3;        # MULT: element-wise multiply
     ACC;                         # ACC: accumulate
-    ADD lr0 lr0 1;               # LR: bump address (increment via ADD)
+    INC lr0 1;               # LR: bump address (increment via INC)
     BNE lr0 lr1 next;            # COND: branch
     ;;
 ```
@@ -163,7 +174,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; ADD lr0 lr0 1; BNE lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -187,7 +198,7 @@ The **`mem_bypass`** vector may still exist in the **emulator regfile** for debu
 start:
     SET lr0 cr0;;
 loop:
-    ADD lr0 lr0 1;;
+    INC lr0 1;;
     BNE lr0 lr1 loop;;
     BKPT;;
 ```
