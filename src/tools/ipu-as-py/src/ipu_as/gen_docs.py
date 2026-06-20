@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import VALID_OPERAND_TYPES
+from ipu_common.instruction_spec import PSEUDO_INSTRUCTION_SPEC, VALID_OPERAND_TYPES
 from ipu_common.registers import create_assembler_reg_enums
 
 # Long-form reference for each operand type string in instruction_spec (single source: VALID_OPERAND_TYPES).
@@ -417,28 +417,64 @@ def generate_instruction_docs(output_path: Path) -> None:
     print(f"Generated documentation at {output_path}")
 
 
+def generate_programmer_guide_md(output_path: Path) -> None:
+    """Generate the programmer-facing pseudo-instruction/alias reference."""
+    from ipu_as.inst import Inst
+
+    content = ["# Programmer's Guide: Pseudo-Instructions\n"]
+    content.append(
+        "Pseudo-instructions are assembly mnemonics that the assembler "
+        "expands into a real instruction at compile time. They never get "
+        "an opcode and never appear in the binary, so they cost nothing at "
+        "runtime — see [Adding a pseudo-instruction](adding-instruction.md#adding-a-pseudo-instruction) "
+        "for how they're declared. This page is **generated** from "
+        "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
+    )
+
+    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
+        expansion = pseudo_def["expands_to"]
+        lines = Inst._render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+        lines.append("")
+        lines.append(
+            f"**Expands to:** `{expansion['instruction']}` "
+            f"({expansion['slot']} slot), arguments `{', '.join(expansion['args'])}`"
+        )
+        content.append("\n".join(lines))
+        content.append("\n---\n")
+
+    output_path.write_text("\n".join(content))
+    print(f"Generated programmer's guide at {output_path}")
+
+
 def generate_all_docs(
     instructions_path: Path,
     operand_types_path: Path,
     assembly_syntax_path: Path,
+    programmer_guide_path: Path,
 ) -> None:
     """Regenerate all MkDocs pages owned by the assembler toolchain."""
     generate_operand_types_md(operand_types_path)
     generate_assembly_syntax_md(assembly_syntax_path)
     generate_instruction_docs(instructions_path)
+    generate_programmer_guide_md(programmer_guide_path)
 
 
 if __name__ == "__main__":
     argv = sys.argv[1:]
-    if len(argv) == 3:
-        generate_all_docs(Path(argv[0]), Path(argv[1]), Path(argv[2]))
+    if len(argv) == 4:
+        generate_all_docs(Path(argv[0]), Path(argv[1]), Path(argv[2]), Path(argv[3]))
     elif len(argv) == 1:
         d = Path(argv[0])
         d.mkdir(parents=True, exist_ok=True)
-        generate_all_docs(d / "instructions.md", d / "operand-types.md", d / "assembly-syntax.md")
+        generate_all_docs(
+            d / "instructions.md",
+            d / "operand-types.md",
+            d / "assembly-syntax.md",
+            d / "programmer-guide.md",
+        )
     else:
         print(
-            "Usage: gen_docs.py <instructions.md> <operand-types.md> <assembly-syntax.md>\n"
+            "Usage: gen_docs.py <instructions.md> <operand-types.md> <assembly-syntax.md> <programmer-guide.md>\n"
             "   or: gen_docs.py <output_directory>/",
             file=sys.stderr,
         )

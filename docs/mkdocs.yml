@@ -75,6 +75,7 @@ nav:
       - Assembly Syntax: assembly-syntax.md
       - Operand types: operand-types.md
       - Instruction Reference: instructions.md
+      - Programmer's Guide: programmer-guide.md
   - Specs:
       - Cache Unit Specification: specs/cache-unit.md
       - AAQ Stage Specification: specs/stage-aaq.md

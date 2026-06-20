@@ -174,7 +174,7 @@ XMEM read-address port, and the APB slave.
 | `LR_LANES` | `3` | Independent LR sub-slots per VLIW word. |
 | `LR_REG_COUNT` | `16` | `LR0`–`LR15`. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
-| `BRANCH_COND_COUNT` | `7` | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`. |
+| `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`. `BGT`, `BLE`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
 | `LR_OP_COUNT` | `6` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`. |
 | `SET_IMM_BITS` | `5` | Combined `src5` operand: bit 4 selects mode; bits [3:0] are a CR index *or* a signed 4-bit immediate. |
 | `XMEM_ADDR_W` | *impl* | Width of `xmem_read_addr`. Sized to address the external XMEM address space (= log2 of XMEM word count). |
@@ -242,7 +242,7 @@ the current cycle's VLIW, and the internal program counter (`PC`).
   next_PC   = taken ? target_pc : (PC + 1)
   PC      <= next_PC                       // every cycle
   ```
-  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BNZ`/`BZ`/`B`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
+  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BGE`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
 - **Reset:** `rst` initialises `PC` to 0.
 - **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is the computed branch target on branch cycles, don't-care otherwise).
 
@@ -254,7 +254,7 @@ Per cycle CTRL resolves the *next-cycle* value of `inst $`:
 // Cycle N: inst $ already holds the VLIW at the current PC and is being executed.
 // CTRL runs in parallel:
 
-is_branch = inst$.cond.op is one of {BEQ, BNE, BLT, BNZ, BZ, B, BR}
+is_branch = inst$.cond.op is one of {BEQ, BNE, BLT, BGE, BR}
 
 if is_branch:
     // Issue BOTH speculative reads in parallel this cycle
@@ -500,8 +500,8 @@ Shared evaluation pseudo-code (applies to every cond mnemonic):
 ```text
 // All operands read from {LR | CR}
 a = read_lcr(reg1_idx)
-b = read_lcr(reg2_idx)        // BNZ/BZ rename to test_reg/base_reg; same wiring
-taken = evaluate(op, a, b)    // op-specific condition below; B/BR are unconditional
+b = read_lcr(reg2_idx)
+taken = evaluate(op, a, b)    // op-specific condition below; BR is unconditional
 
 if op == BR:
     next_pc = read_lcr(reg_idx)
@@ -513,9 +513,14 @@ else:
 branch_taken = taken
 ```
 
-`reg`, `reg1`, `reg2`, `test_reg`, `base_reg` are `LcrIdx` operands — any of
-`LR0`–`LR15` or `CR0`–`CR15`. `label` is a relative offset resolved by the
-assembler.
+`reg`, `reg1`, `reg2` are `LcrIdx` operands — any of `LR0`–`LR15` or
+`CR0`–`CR15`. `label` is a relative offset resolved by the assembler.
+
+> **Assembler pseudo-instructions.** `BGT`, `BLE`, `BZ`, `BNZ`, and `B` are
+> not real hardware opcodes — the assembler expands them into one of the
+> opcodes below (operand-swapped or with a register hard-coded to `CR0`)
+> at compile time, so they cost nothing at runtime and never appear in the
+> binary. See the Programmer's Guide for their exact expansions.
 
 #### 10.2.1 `BEQ` — Branch if Equal
 
@@ -544,35 +549,15 @@ assembler.
 - **Operation:** `if (signed(reg1) < signed(reg2)) pc ← label else pc ← pc + 1`.
 - **Example:** `BLT LR0 CR1 smaller;;`.
 
-#### 10.2.4 `BNZ` — Branch if Not Zero (semantic name)
+#### 10.2.4 `BGE` — Branch if Greater or Equal
 
-- **Summary:** Branch to `label` if `test_reg` differs from `base_reg`. Convenience form of `BNE` named for the common case where `base_reg = CR0` (the constant-zero register).
-- **Syntax:** `BNZ test_reg base_reg label`
-- **Operands:**
-  - `test_reg` — register to test (`LR0`–`LR15` or `CR0`–`CR15`).
-  - `base_reg` — base comparison register (typically `CR0` to test against zero).
-  - `label` — branch target label.
-- **Operation:** `if (test_reg != base_reg) pc ← label else pc ← pc + 1`.
-- **Example:** `BNZ LR3 CR0 loop;;`.
+- **Summary:** Signed greater-or-equal comparison; branch to `label` if `reg1 >= reg2`.
+- **Syntax:** `BGE reg1 reg2 label`
+- **Operands:** identical to `BEQ`.
+- **Operation:** `if (signed(reg1) >= signed(reg2)) pc ← label else pc ← pc + 1`.
+- **Example:** `BGE LR0 CR1 ge;;`.
 
-#### 10.2.5 `BZ` — Branch if Zero (semantic name)
-
-- **Summary:** Branch to `label` if `test_reg` equals `base_reg`. Convenience form of `BEQ` named for the common case where `base_reg = CR0`.
-- **Syntax:** `BZ test_reg base_reg label`
-- **Operands:** identical to `BNZ`.
-- **Operation:** `if (test_reg == base_reg) pc ← label else pc ← pc + 1`.
-- **Example:** `BZ LR0 CR0 zero;;`.
-
-#### 10.2.6 `B` — Unconditional Branch
-
-- **Summary:** Always branch to `label`.
-- **Syntax:** `B label`
-- **Operands:**
-  - `label` — branch target label.
-- **Operation:** `pc ← label`.
-- **Example:** `B start;;`.
-
-#### 10.2.7 `BR` — Branch Register
+#### 10.2.5 `BR` — Branch Register
 
 - **Summary:** Always branch to the address held in a register. The only branch whose target is **not** encoded in the instruction word.
 - **Syntax:** `BR reg`
@@ -594,7 +579,5 @@ assembler.
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
 | COND | `BLT`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
-| COND | `BNZ`            | `test_reg base_reg label`| branch if `test_reg != base_reg` |
-| COND | `BZ`             | `test_reg base_reg label`| branch if `test_reg == base_reg` |
-| COND | `B`              | `label`                  | unconditional `pc ← label` |
+| COND | `BGE`            | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
 | COND | `BR`             | `reg`                    | unconditional `pc ← reg` |
