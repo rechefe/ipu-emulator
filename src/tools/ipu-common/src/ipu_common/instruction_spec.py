@@ -602,7 +602,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, RESET_ACC=2, ACC_NOP=3, ACC.STRIDE=4, AGG.SUM.FIRST=5, AGG.SUM=6, AGG.MAX.FIRST=7, AGG.MAX=8
+    # Opcode = position: ACC=0, ACC.FIRST=1, ACC_NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
     # =========================================================================
     "acc": {
         "ACC": {
@@ -627,17 +627,6 @@ INSTRUCTION_SPEC = {
                 example="ACC.FIRST;;",
             ),
             "execute_fn": "execute_acc_first",
-        },
-        "RESET_ACC": {
-            "operands": [],
-            "doc": InstructionDoc(
-                title="Reset Accumulator",
-                summary="Reset accumulator to zero.",
-                syntax="RESET_ACC",
-                operands=[],
-                operation="R_ACC = 0",
-            ),
-            "execute_fn": "execute_reset_acc",
         },
         "ACC_NOP": {
             "operands": [],

@@ -102,15 +102,10 @@ BKPT;;
 
     def test_acc_active_counted(self):
         asm = """\
-RESET_ACC;;
 ACC;;
 BKPT;;
 """
         state = _run(asm)
-        assert state.stats.acc_active_cycles >= 1
-
-    def test_reset_acc_is_active(self):
-        state = _run("RESET_ACC;;BKPT;;")
         assert state.stats.acc_active_cycles >= 1
 
     def test_xmem_read_counted(self):
@@ -134,7 +129,6 @@ BKPT;;
     def test_xmem_write_counted(self):
         # STR_ACC_REG writes to xmem
         asm = """\
-RESET_ACC;;
 STR_ACC_REG lr0 cr1;;
 BKPT;;
 """
@@ -152,11 +146,11 @@ BKPT;;
         assert state.stats.xmem_reads == 0
 
     def test_multiple_cycles_accumulate(self):
-        # 3 independent RESET_ACC cycles, then BKPT
+        # 3 independent ACC cycles, then BKPT
         asm = """\
-RESET_ACC;;
-RESET_ACC;;
-RESET_ACC;;
+ACC;;
+ACC;;
+ACC;;
 BKPT;;
 """
         state = _run(asm)
