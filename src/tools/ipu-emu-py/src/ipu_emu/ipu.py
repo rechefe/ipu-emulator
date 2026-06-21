@@ -819,7 +819,7 @@ class Ipu:
         elements_per_row = get_elements_per_row(elements_in_row)
         num_rows = R_REG_SIZE // elements_per_row
 
-        h_enabled, h_inverted, h_expand = get_horizontal_stride_bits(horizontal_stride)
+        h_enabled, h_inverted = get_horizontal_stride_bits(horizontal_stride)
         v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
 
         # Build list of source indices (0..127) or -1 for zero padding
@@ -835,12 +835,8 @@ class Ipu:
                     indices_in_row = [base + 1 + 2 * j for j in range(half)]
                 else:
                     indices_in_row = [base + 2 * j for j in range(half)]
-                if h_expand:
-                    after_h.extend(indices_in_row)
-                    after_h.extend([-1] * (elements_per_row - half))
-                else:
-                    after_h.extend(indices_in_row)
-            effective_row_len = elements_per_row if h_expand else half
+                after_h.extend(indices_in_row)
+            effective_row_len = half
 
         num_rows_after_h = len(after_h) // effective_row_len
         if not v_enabled:

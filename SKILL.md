@@ -105,6 +105,8 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3; ACC; ADD LR0, LR0, 1; BNE
 
 `MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `LrIncDecImmediate`, `FullXmemRow`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
 
+`ACC.STRIDE` operand enums (see `acc_stride_enums.py`): `ElementsInRow` = **`16`**, **`32`**, **`64`**; `HorizontalStride` = **`off`**, **`on`**, **`on_inv`** (expand is fixed hardware behaviour, not programmable).
+
 ---
 
 ## How to Add a New Instruction
