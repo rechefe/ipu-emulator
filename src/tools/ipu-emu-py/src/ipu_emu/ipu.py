@@ -1075,10 +1075,24 @@ class Ipu:
             return value - 0x100000000
         return value
 
+    @staticmethod
+    def _to_signed_scalar(value: int) -> int:
+        """Interpret an unsigned LR/CR scalar value as signed (20-bit width).
+
+        TEMP LOCAL PATCH (ZDlinear, not for upstream): LR/CR registers are
+        LR_CR_SCALAR_BITS (20) wide, so a stored -1 reads back as 0xFFFFF. Sign-
+        extend at the scalar width so BLT compares negative loop counters
+        correctly. The real fix belongs in master; see the filed emulator issue.
+        """
+        if value >= (1 << (LR_CR_SCALAR_BITS - 1)):
+            return value - (1 << LR_CR_SCALAR_BITS)
+        return value
+
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute BLT: Branch if less than (signed comparison)."""
-        s1 = self._to_signed_32(reg1)
-        s2 = self._to_signed_32(reg2)
+        # TEMP LOCAL PATCH: use 20-bit sign extension (was _to_signed_32 at bit 31).
+        s1 = self._to_signed_scalar(reg1)
+        s2 = self._to_signed_scalar(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
     def execute_bnz(self, *, test_reg: int, base_reg: int, label: int) -> None:
