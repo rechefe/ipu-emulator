@@ -45,8 +45,8 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "HorizontalStride": (
         "ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, "
-        "**`on`**, **`on_inv`**. Expand padding is fixed hardware behaviour and is not programmable. "
-        "See `acc_stride_enums` in `ipu_common`."
+        "**`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding "
+        "is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_common`."
     ),
     "VerticalStride": (
         "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "

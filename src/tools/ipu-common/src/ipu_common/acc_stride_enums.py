@@ -38,10 +38,6 @@ HORIZONTAL_STRIDE_NAMES: tuple[str, ...] = (
     "on",         # 1: enabled, not inverted
     "on_inv",     # 2: enabled, inverted
     "reserved3",
-    "reserved4",
-    "reserved5",
-    "reserved6",
-    "reserved7",
 )
 
 
