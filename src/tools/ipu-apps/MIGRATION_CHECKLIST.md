@@ -44,8 +44,8 @@ Pre-merge WIP saved at `9b2b095`. Activation conflict resolved by **adopting mas
 | matmul_144x288_x128 | ✅ PASS | warning only |
 | residual_add_256x144 | ✅ PASS | warning only |
 | unfold_32x32x144 | ✅ PASS | uses ACC.STRIDE — re-verify semantics on DGX |
-| **layernorm_128x16** | ❌ FAIL | `ACTIVATE lr8 inv_sqrt` → `rsqrt` + flag |
-| **layernorm_256x144** | ❌ FAIL | same; also uncommitted WIP rewrite in flight |
+| layernorm_128x16 | ✅ PASS | `ACTIVATE rsqrt 1` + GAMMA off CR1→CR11; test passes |
+| layernorm_256x144 | ✅ PASS | same fix; WIP rewrite already in HEAD; test passes |
 
 ## ⚠️ Assembling ≠ running correctly
 
@@ -96,9 +96,21 @@ For EACH kernel:
 6. **residual_add_256x144** — uses AGG? verify.
 7. **unfold_32x32x144** — ACC.STRIDE; highest risk of semantic drift; verify bit-encoding still matches.
 
-## layernorm fix recipe (apply to both layernorm kernels)
-- `ACTIVATE lr8 inv_sqrt;;` → `ACTIVATE rsqrt, 0;;` (or `rsqrt, 1` if always 128 lanes)
-- Verify any `AAQ ...` calls use new `AAQ <full_xmem_row>` form
-- gen_test_data.py / __init__.py: rename any `inv_sqrt` references to `rsqrt` for clarity
-  (the reference math `1/sqrt(var)` is unchanged)
-- Re-run pytest on DGX for all 3 dtypes
+## layernorm fix recipe (APPLIED 2026-06-21 — both kernels pass locally)
+- `ACTIVATE lr8 inv_sqrt;;` → `ACTIVATE rsqrt 1;;`
+  - NOTE: the assembler grammar uses **space-separated** operands, NOT commas. The
+    docs/spec `ACTIVATE rsqrt, 1` form fails to parse ("No terminal matches ','").
+    Use `ACTIVATE rsqrt 1` (1 = full 128 lanes; lr8=128 was the old valid_elements arg).
+  - The old `lr8` valid_elements operand is gone → its `SET lr8 cr14` startup is now
+    dead and was removed from both kernels.
+- GAMMA_BASE was on read-only CR1. Both kernels had `cr11 = const 0` (a free CR) used
+  only as the zero source for `SET lrX cr11`. Fix: point those SETs at the **hardwired
+  CR0 (=0)** instead, freeing CR11 to hold GAMMA_BASE. Then redirect the γ-load
+  `LDR_MULT_REG r0 lr? cr1` → `cr11`. (DATA_BASE=0x0 so CR0 stays correct.)
+- No `AAQ`/`ACC.ADD_AAQ`/`AGG` instructions appear in either layernorm — they reduce
+  via MULT.EE/MULT.EE.RR + ACC with a ones-vector. No AGG signature changes needed.
+- Both are **wide-FP32 debug-mode** kernels: a single `test_*_wide_fp32` test (NOT
+  3-dtype parametrized). Both pass locally (atol/rtol 1e-4 vs numpy reference).
+  Util: 128x16 = 37.5% mult, 256x144 = 42.7% mult (in the 37–43% baseline).
+- These rely on the local TEMP BLT 20-bit sign-extend patch (commit 8983bc0); they will
+  only pass on DGX once the upstream BLT fix lands. Re-run on DGX after that.

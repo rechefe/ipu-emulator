@@ -2,7 +2,7 @@
 
 Reference: output[ch, i] = γ[ch] × (x[ch,i] − μ[i]) / σ[i] + β[ch]
 where μ[i] = mean over channels, σ[i] = std over channels (no epsilon —
-matches the inv_sqrt hardware which handles numerical stability internally).
+matches the rsqrt activation which handles numerical stability internally).
 """
 
 from __future__ import annotations

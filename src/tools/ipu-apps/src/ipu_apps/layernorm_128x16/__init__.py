@@ -83,8 +83,11 @@ class LayerNorm128x16App(IpuApp):
         state.xmem.write_address(INV_N_BASE,      bytearray(inv_n))
 
         # CR registers
+        # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants in the new
+        # architecture; writes are silently dropped. DATA_BASE is 0x0 so CR0 is fine,
+        # and GAMMA_BASE moved off CR1 to CR11 (CR11's old const-zero role is served
+        # by the hardwired CR0).
         state.regfile.set_cr(0,  DATA_BASE)
-        state.regfile.set_cr(1,  GAMMA_BASE)
         state.regfile.set_cr(2,  BETA_BASE)
         state.regfile.set_cr(3,  ONES_BASE)
         state.regfile.set_cr(4,  NEG_INV_N_BASE)
@@ -94,7 +97,7 @@ class LayerNorm128x16App(IpuApp):
         state.regfile.set_cr(8,  TEMP_BASE)
         state.regfile.set_cr(9,  INVSTD_BASE)
         state.regfile.set_cr(10, OUTPUT_BASE)
-        state.regfile.set_cr(11, 0)      # const zero
+        state.regfile.set_cr(11, GAMMA_BASE)   # moved off read-only CR1
         state.regfile.set_cr(12, N_CH)
         state.regfile.set_cr(13, ROW_BYTES)
         state.regfile.set_cr(14, N_TPG)

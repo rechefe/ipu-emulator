@@ -14,8 +14,8 @@
 #   (d) r_cyclic live: LDR_CYCLIC + MULT in same cycle → cyclic is immediately visible
 #
 # CRs:
-#   cr0  = DATA_BASE        = 0x00000
-#   cr1  = GAMMA_BASE       = 0x24000
+#   cr0  = DATA_BASE        = 0x00000  (hardwired 0; also the const-zero source)
+#   cr1  = 1  (read-only hardwired constant; not used for a base)
 #   cr2  = BETA_BASE        = 0x24400
 #   cr3  = ONES_BASE        = 0x24800
 #   cr4  = NEG_INV_N_BASE   = 0x24A00
@@ -25,7 +25,7 @@
 #   cr8  = TEMP_BASE        = 0x37000
 #   cr9  = INVSTD_BASE      = 0x37200
 #   cr10 = OUTPUT_BASE      = 0x37400
-#   cr11 = 0                (const zero)
+#   cr11 = GAMMA_BASE       = 0x24000  (moved off read-only CR1)
 #   cr12 = 144              (N_CH)
 #   cr13 = 512              (row stride within one tg)
 #   cr14 = 128              (valid_elements; r1 base offset for MULT.VE.CYCLIC)
@@ -39,20 +39,18 @@
 #   lr1  = 0    (mask_shift=0)
 #   lr6  = 144  (N_CH loop bound)
 #   lr7  = 1024 (data stride per channel = N_TG*512)
-#   lr8  = 128  (valid_elements for ACTIVATE)
 #   lr11 = 2    (N_TG loop bound)
 #   lr12 = 512  (scratch/output row stride)
 # Per-step temporaries:
 #   lr2, lr3 (offsets), lr5 (ch counter), lr9 (tg counter), lr10 (tg byte offset)
 #   lr9, lr13, lr14 (fixed_idx in step 6)
 
-    SET     lr0  cr11;;
-    SET     lr1  cr11;;
+    SET     lr0  cr0;;
+    SET     lr1  cr0;;
     SET     lr6  cr12;;
     SET     lr7  cr13;;
     ADD     lr7  lr7  lr7;;            # lr7 = 1024 (data stride = N_TG × 512)
-    SET     lr8  cr14;;
-    SET     lr11 cr11;;
+    SET     lr11 cr0;;
     ADD     lr11 lr11 2;;              # lr11 = 2  (N_TG)
     SET     lr12 cr13;;                # lr12 = 512 (scratch/output stride)
 
@@ -62,9 +60,9 @@
 # lr10 = tg byte offset into data (0 or 512)
 # ─────────────────────────────────────────────────────────────────────────────
 
-    SET     lr9  cr11;;
+    SET     lr9  cr0;;
     ADD     lr9  lr9  1;;              # lr9 = 1  (tg counter, BLT reads snap)
-    SET     lr10 cr11;;                # lr10 = 0  (tg byte offset)
+    SET     lr10 cr0;;                # lr10 = 0  (tg byte offset)
 
 tg_loop:
 
@@ -79,10 +77,10 @@ tg_loop:
     RESET_ACC;;
     LDR_MULT_REG        r0 lr0 cr4;;   # r0 ← -1/N
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2  lr7;;            # lr2 = -1024
     ADD     lr2  lr2  lr10;;           # lr2 = tg_offset - 1024
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
 step1_loop:
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
@@ -100,12 +98,12 @@ step1_loop:
     LDR_MULT_REG        r0 lr0 cr3;;
     LDR_MULT_REG        r1 lr0 cr6;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2  lr7;;
     ADD     lr2  lr2  lr10;;
-    SET     lr3  cr11;;
+    SET     lr3  cr0;;
     SUB     lr3  lr3  lr12;;           # lr3 = -512 (centered stride)
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
 step2_loop:
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
@@ -121,9 +119,9 @@ step2_loop:
 
     RESET_ACC;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2  lr12;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
 step3_loop:
     LDR_MULT_REG        r0 lr2 cr7; ADD lr2 lr2 lr12;;
@@ -133,13 +131,13 @@ step3_loop:
     STR_ACC_REG         lr0 cr8;;
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE inv_sqrt
+# Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr8;;
     LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
 
-    ACTIVATE            lr8 inv_sqrt;;
+    ACTIVATE            rsqrt 1;;
     STR_POST_AAQ_REG    lr0 cr9;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,9 +148,9 @@ step3_loop:
 
     LDR_MULT_REG        r0 lr0 cr9;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2  lr12;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
 step5_loop:
     LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
@@ -181,17 +179,17 @@ step5_loop:
 # ─────────────────────────────────────────────────────────────────────────────
 
     # ---- Sub-loop A: ch=0..127 ----
-    LDR_MULT_REG        r0 lr0 cr1;;   # r0 ← γ row 0
+    LDR_MULT_REG        r0 lr0 cr11;;  # r0 ← γ row 0
     LDR_MULT_REG        r1 lr0 cr2;;   # r1 ← β row 0
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2  lr12;;           # normalized read ptr = -512
-    SET     lr3  cr11;;
+    SET     lr3  cr0;;
     SUB     lr3  lr3  lr7;;            # output write ptr = -1024
     ADD     lr3  lr3  lr10;;           # = tg_offset - 1024
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
-    SET     lr13 cr11;;                # fixed_idx γ = 0
+    SET     lr13 cr0;;                # fixed_idx γ = 0
     SET     lr14 cr14;;                # fixed_idx β = 128
 
     # loop bound for sub-loop A: 128 channels
@@ -205,17 +203,17 @@ step6A_loop:
     ADD     lr5  lr5  1; BLT lr5 lr15 step6A_loop;;
 
     # ---- Sub-loop B: ch=128..143 (16 channels) ----
-    LDR_MULT_REG        r0 lr12 cr1;;  # r0 ← γ row 1 (offset=512)
+    LDR_MULT_REG        r0 lr12 cr11;; # r0 ← γ row 1 (offset=512)
     LDR_MULT_REG        r1 lr12 cr2;;  # r1 ← β row 1
 
     # lr2 and lr3 carry over from sub-loop A (already at ch=128 positions)
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5  1;;
-    SET     lr13 cr11;;                # fixed_idx γ = 0 (row 1 starts at lane 0)
+    SET     lr13 cr0;;                # fixed_idx γ = 0 (row 1 starts at lane 0)
     SET     lr14 cr14;;                # fixed_idx β = 128
 
     # bound for sub-loop B: 16 channels
-    SET     lr15 cr11;;
+    SET     lr15 cr0;;
     ADD     lr15 lr15 16;;             # lr15 = 16
 
 step6B_loop:

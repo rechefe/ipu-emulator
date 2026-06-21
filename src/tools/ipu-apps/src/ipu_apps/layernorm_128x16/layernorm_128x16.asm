@@ -15,8 +15,8 @@
 #   (d) r_cyclic as row data: LDR_CYCLIC in same cycle as MULT → live visible to MULT
 #
 # CRs:
-#   cr0  = DATA_BASE        = 0x00000
-#   cr1  = GAMMA_BASE       = 0x02000
+#   cr0  = DATA_BASE        = 0x00000  (hardwired 0; also the const-zero source)
+#   cr1  = 1  (read-only hardwired constant; not used for a base)
 #   cr2  = BETA_BASE        = 0x02200
 #   cr3  = ONES_BASE        = 0x02400
 #   cr4  = NEG_INV_N_BASE   = 0x02600
@@ -26,7 +26,7 @@
 #   cr8  = TEMP_BASE        = 0x04E00
 #   cr9  = INVSTD_BASE      = 0x05000
 #   cr10 = OUTPUT_BASE      = 0x05200
-#   cr11 = 0   (const zero)
+#   cr11 = GAMMA_BASE      = 0x02000  (moved off read-only CR1)
 #   cr12 = 16  (N_CH)
 #   cr13 = 512 (row stride)
 #   cr14 = 128 (valid_elements; r1 base offset for MULT.VE.CYCLIC)
@@ -36,14 +36,12 @@
 #   lr1 = 0   (mask_shift=0)
 #   lr6 = 16  (N_CH loop bound)
 #   lr7 = 512 (row stride)
-#   lr8 = 128 (valid_elements for ACTIVATE)
 # Per-step temporaries: lr2, lr3 (offsets), lr5 (counter), lr9, lr10 (fixed_idx)
 
-    SET     lr0  cr11;;
-    SET     lr1  cr11;;
+    SET     lr0  cr0;;
+    SET     lr1  cr0;;
     SET     lr6  cr12;;
     SET     lr7  cr13;;
-    SET     lr8  cr14;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 1: -μ[i] = Σ_ch  x[ch,i] × (-1/N)
@@ -55,9 +53,9 @@
     RESET_ACC;;
     LDR_MULT_REG        r0 lr0 cr4;;   # r0 ← -1/N
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;             # lr2 = -512
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5 1;;               # lr5 = 1  (BLT reads snapshot; loop runs N_CH times)
 step1_loop:
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
@@ -78,11 +76,11 @@ step1_loop:
     LDR_MULT_REG        r0 lr0 cr3;;   # r0 ← ONES
     LDR_MULT_REG        r1 lr0 cr6;;   # r1 ← -μ
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;
-    SET     lr3  cr11;;
+    SET     lr3  cr0;;
     SUB     lr3  lr3 lr7;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5 1;;
 step2_loop:
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
@@ -100,9 +98,9 @@ step2_loop:
 
     RESET_ACC;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5 1;;
 step3_loop:
     LDR_MULT_REG        r0 lr2 cr7; ADD lr2 lr2 lr7;;
@@ -112,13 +110,13 @@ step3_loop:
     STR_ACC_REG         lr0 cr8;;      # TEMP_BASE = Σ(x-μ)²
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE inv_sqrt
+# Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr8;;
     LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
 
-    ACTIVATE            lr8 inv_sqrt;;
+    ACTIVATE            rsqrt 1;;
     STR_POST_AAQ_REG    lr0 cr9;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,9 +130,9 @@ step3_loop:
 
     LDR_MULT_REG        r0 lr0 cr9;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5 1;;
 step5_loop:
     LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
@@ -155,16 +153,16 @@ step5_loop:
 #   D: ADD lr5; BLT
 # ─────────────────────────────────────────────────────────────────────────────
 
-    LDR_MULT_REG        r0 lr0 cr1;;
+    LDR_MULT_REG        r0 lr0 cr11;;
     LDR_MULT_REG        r1 lr0 cr2;;
 
-    SET     lr2  cr11;;
+    SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;
-    SET     lr3  cr11;;
+    SET     lr3  cr0;;
     SUB     lr3  lr3 lr7;;
-    SET     lr5  cr11;;
+    SET     lr5  cr0;;
     ADD     lr5  lr5 1;;
-    SET     lr9  cr11;;               # fixed_idx γ = 0
+    SET     lr9  cr0;;               # fixed_idx γ = 0
     SET     lr10 cr14;;               # fixed_idx β = 128
 
 step6_loop:

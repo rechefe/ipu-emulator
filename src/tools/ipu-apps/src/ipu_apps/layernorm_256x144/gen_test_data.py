@@ -2,7 +2,7 @@
 
 Reference: output[ch, tg, i] = γ[ch] × (x[ch,tg,i] − μ[tg,i]) / σ[tg,i] + β[ch]
 where μ and σ are computed over the channel axis for each token independently.
-No epsilon — matches the inv_sqrt hardware which handles numerical stability internally.
+No epsilon — matches the rsqrt activation which handles numerical stability internally.
 
 Data layout written to file: rows in order (ch*N_TG + tg) for ch=0..143, tg=0,1.
 Each row: N_TPG float32 values zero-padded to 128 → 512 bytes.
