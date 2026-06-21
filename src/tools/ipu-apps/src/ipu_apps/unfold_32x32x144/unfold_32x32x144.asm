@@ -34,7 +34,7 @@
 #
 # CRs:
 #   cr0  = SRC_BASE + 0×144×128   (stripe 0 tg=0 base, ch 0..143)
-#   cr1  = SRC_BASE + 1×144×128   (stripe 1 tg=0 base)
+#   cr13 = SRC_BASE + 1×144×128   (stripe 1 tg=0 base; moved off read-only CR1)
 #   cr2  = SRC_BASE + 2×144×128   (stripe 2 tg=0 base)
 #   cr3  = SRC_BASE + 3×144×128   (stripe 3 tg=0 base)
 #   cr4  = SRC_BASE + 4×144×128   (stripe 0 tg=1 base)
@@ -89,7 +89,7 @@ ch_loop:
     # tg=0: stripes 0..3 with cr0..cr3
     RESET_ACC;;
     LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr1; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr1;;
     LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr2;;
     LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr3;;
     STR_ACC_REG         lr8 cr9;;           # TL tg=0 → DST_TL + ch×2×512
@@ -107,7 +107,7 @@ ch_loop:
     # -----------------------------------------------------------------------
     RESET_ACC;;
     LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr1; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
     LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr2;;
     LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr3;;
     STR_ACC_REG         lr8 cr10;;          # TR tg=0
@@ -124,7 +124,7 @@ ch_loop:
     # -----------------------------------------------------------------------
     RESET_ACC;;
     LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr1; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
     LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr2;;
     LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr3;;
     STR_ACC_REG         lr8 cr11;;          # BL tg=0
@@ -141,7 +141,7 @@ ch_loop:
     # -----------------------------------------------------------------------
     RESET_ACC;;
     LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr1; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
     LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr2;;
     LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr3;;
     STR_ACC_REG         lr8 cr12;;          # BR tg=0

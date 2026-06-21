@@ -120,9 +120,13 @@ class Unfold32x32x144App(IpuApp):
         state.dtype = self.dtype
         _load_input(state, self.input_path)
         _load_ones(state, self.dtype)
-        # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432)
+        # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432).
+        # CR1 (≡1) is a read-only hardwired constant on the new architecture —
+        # writes are silently dropped — so the stripe-1 base goes to CR13 (free)
+        # instead. cr0=SRC_BASE+0 is 0x0 (harmless no-op). See Bug #2.
         for s in range(N_STRIPES):
-            state.regfile.set_cr(s, SRC_BASE + s * _STRIPE_BYTES)
+            cr_idx = 13 if s == 1 else s
+            state.regfile.set_cr(cr_idx, SRC_BASE + s * _STRIPE_BYTES)
         # cr8: ones base (for r_cyclic loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE)
         # cr9..cr12: per-stream destination bases (TL, TR, BL, BR)
