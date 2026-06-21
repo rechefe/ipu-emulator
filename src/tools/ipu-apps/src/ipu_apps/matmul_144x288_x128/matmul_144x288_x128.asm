@@ -20,7 +20,7 @@
 #   for width=128 starting at index 0: lr5_start=-1, lr6=126
 #   exit cycle lands on live index 127 (the last real term), lr4 advances 128 times total.
 #
-# CRs: cr0=DATA_BASE, cr1=WEIGHTS_BASE, cr2=WEIGHTS_BASE+128, cr3=WEIGHTS_BASE+256,
+# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE (moved off read-only CR1), cr2=WEIGHTS_BASE+128, cr3=WEIGHTS_BASE+256,
 #       cr4=OUTPUT_BASE (tg=0), cr5=OUTPUT_BASE+N_OUT*512 (tg=1)
 #       cr6=-256 (tg=0 data startup), cr7=-128 (tg=1 data startup)
 #       cr8=-1   (per-chunk fixed_idx startup)
@@ -42,7 +42,7 @@
 
 j_loop:
     RESET_ACC;;
-    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr1;;  # tg=0 startup; r0 = W[j, 0..127]
+    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;  # tg=0 startup; r0 = W[j, 0..127]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
 
 k_chunk0_tg0:
@@ -64,7 +64,7 @@ k_chunk2_tg0:
     STR_ACC_REG lr7 cr4;;                   # store 512B → OUTPUT[j, tg=0]
 
     RESET_ACC;;
-    SET lr4 cr7; LDR_MULT_REG r0 lr8 cr1;;  # tg=1 startup; r0 = W[j, 0..127]
+    SET lr4 cr7; LDR_MULT_REG r0 lr8 cr9;;  # tg=1 startup; r0 = W[j, 0..127]
     SET lr5 cr8;;
 
 k_chunk0_tg1:

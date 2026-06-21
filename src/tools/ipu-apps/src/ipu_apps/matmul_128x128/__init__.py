@@ -109,8 +109,12 @@ class MatMul128x128App(IpuApp):
         load_binary_to_xmem(state, self.input_path, INPUT_BASE_ADDR, K, M)
         # Transpose W (N×K output-major) → T (K rows of 128B) in XMEM
         _load_and_transpose_weights(state, self.weights_path)
+        # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants on the new
+        # architecture — writes are silently dropped. INPUT_BASE_ADDR is 0x0, so
+        # cr0 still reads the correct input base; the weights base is moved to
+        # CR11 (a free CR) instead of CR1. See MIGRATION_CHECKLIST.md Bug #2.
         state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(1, WEIGHTS_BASE_ADDR)
+        state.regfile.set_cr(11, WEIGHTS_BASE_ADDR)
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
         state.regfile.set_cr(3, 1)
         state.regfile.set_cr(4, 128)

@@ -9,8 +9,9 @@
 #   New shape: A[m] in r0 (loaded once per row), T[k] rows in r_cyclic per inner step.
 #
 # Memory layout (set via CR registers):
-#   cr0 = input  base  (A: 128 rows x 128 bytes padded = 16384 bytes)
-#   cr1 = weights base (T: 64 rows x 128 bytes = 8192 bytes; T[k] = col k of W)
+#   cr0  = input  base (A: 128 rows x 128 bytes padded = 16384 bytes)
+#   cr11 = weights base (T: 64 rows x 128 bytes = 8192 bytes; T[k] = col k of W)
+#          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes)
 #   cr3 = 1      (ADD step for fixed_idx)
 #   cr4 = 128    (ADD step for weight/input strides)
@@ -40,7 +41,7 @@ row_loop:
     SET                 lr6 cr10;;       # K-1 = 63
 
 k_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
     ADD                 lr4 lr4 lr13;
     ADD                 lr5 lr5 lr12;
     MULT.VE.CYCLIC      lr15 0 lr15 lr5;

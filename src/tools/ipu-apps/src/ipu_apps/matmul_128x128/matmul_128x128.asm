@@ -10,8 +10,9 @@
 #              MULT.VE.CYCLIC selects scalar A[m][k] from r0 via fixed_idx=k.
 #
 # Memory layout (set via CR registers):
-#   cr0 = input  base  (A: 128 rows x 128 bytes = 16384 bytes)
-#   cr1 = weights base (T: 128 rows x 128 bytes = 16384 bytes; T[k] = col k of W)
+#   cr0  = input  base (A: 128 rows x 128 bytes = 16384 bytes)
+#   cr11 = weights base (T: 128 rows x 128 bytes = 16384 bytes; T[k] = col k of W)
+#          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes, 128 x int32/fp32 per row)
 #   cr3 = 1      (ADD step for fixed_idx)
 #   cr4 = 128    (ADD step for weight/input strides)
@@ -51,7 +52,7 @@ row_loop:
     SET                 lr6 cr10;;       # BLT: exit when snap >= 127; last live = 127
 
 k_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;   # XMEM: r_cyclic[0] = T[k][0..127]
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;  # XMEM: r_cyclic[0] = T[k][0..127]
     ADD                 lr4 lr4 lr13;    # LR0 : weight offset += 128
     ADD                 lr5 lr5 lr12;    # LR1 : fixed_idx += 1
     MULT.VE.CYCLIC      lr15 0 lr15 lr5; # MULT: A[m][live k] × T[k][0..127]

@@ -12,7 +12,7 @@
 #   MULT.VE.CYCLIC: r0[fixed_idx] x r_cyclic[:] → 128 outputs per cycle.
 #   k=0..127 uses r0[k]; k=128..143 uses r1[k-128] (fixed_idx=128..143 auto-reads r1).
 #
-# CRs: cr0=DATA_BASE, cr1=WEIGHTS_BASE, cr2=WEIGHTS_BASE+128,
+# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE (moved off read-only CR1), cr2=WEIGHTS_BASE+128,
 #       cr3=OUTPUT_BASE (tg=0), cr4=OUTPUT_BASE+N_OUT*512 (tg=1)
 #       cr5=-256 (tg=0 data startup), cr6=-128 (tg=1 data startup)
 #       cr7=-1 (k-loop1 fixed_idx startup), cr8=127 (k-loop2 fixed_idx startup)
@@ -34,7 +34,7 @@
 #   OUTPUT:  2 × 432 × 512 B = 442 368 B  (0x30000..0x9BFFF)
 
 j_loop:
-    LDR_MULT_REG r0 lr8 cr1;;          # r0[0..127] = W[j, 0..127]
+    LDR_MULT_REG r0 lr8 cr9;;          # r0[0..127] = W[j, 0..127]
     LDR_MULT_REG r1 lr8 cr2;;          # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
