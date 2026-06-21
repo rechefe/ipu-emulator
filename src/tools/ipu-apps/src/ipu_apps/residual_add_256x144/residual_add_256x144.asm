@@ -22,7 +22,7 @@
 #
 # CRs:
 #   cr0 = A_BASE      = 0x00000
-#   cr1 = B_BASE      = 0x10000
+#   cr9 = B_BASE      = 0x10000   (moved off read-only CR1)
 #   cr2 = ONES_BASE   = 0x20000  (128 bytes of dtype-1.0, loaded by harness)
 #   cr3 = OUTPUT_BASE = 0x30000
 #   cr4 = 0    (const zero)
@@ -57,7 +57,7 @@ row_loop:
     # Cycle 1: r_acc = A[r] × 1.0  (live ADD lr2 fires first → live lr2 = r*128)
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
     # Cycle 2: r_acc += B[r] × 1.0
-    LDR_CYCLIC_MULT_REG lr3 cr1 lr0; ADD lr3 lr3 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr3 cr9 lr0; ADD lr3 lr3 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
     # Cycle 3: store (do NOT ADD lr4 here: STR_ACC_REG reads lr4 live)
     STR_ACC_REG         lr4 cr3; ADD lr5 lr5 1;;
     # Cycle 4: advance output ptr; BLT reads snap lr5 = already-incremented

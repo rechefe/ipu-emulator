@@ -76,8 +76,12 @@ class ResidualAdd256x144App(IpuApp):
         state.xmem.write_address(B_BASE, bytearray(raw_b))
         state.xmem.write_address(ONES_BASE, _ones_bytes(self.dtype))
 
+        # CR1 (≡1) is a read-only hardwired constant on the new architecture —
+        # writes are silently dropped. B_BASE is moved to CR9 (free). cr0=A_BASE
+        # is 0x0 (harmless no-op, matches hardwired 0). See MIGRATION_CHECKLIST.md
+        # Bug #2.
         state.regfile.set_cr(0, A_BASE)
-        state.regfile.set_cr(1, B_BASE)
+        state.regfile.set_cr(9, B_BASE)
         state.regfile.set_cr(2, ONES_BASE)
         state.regfile.set_cr(3, OUTPUT_BASE)
         state.regfile.set_cr(4, 0)
