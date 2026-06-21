@@ -1072,22 +1072,22 @@ class Ipu:
         self.state.program_counter = label if reg1 != reg2 else self.state.program_counter + 1
 
     @staticmethod
-    def _to_signed_32(value: int) -> int:
-        """Interpret an unsigned 32-bit value as signed."""
-        if value >= 0x80000000:
-            return value - 0x100000000
+    def _to_signed_reg(value: int) -> int:
+        """Sign-extend a value at the LR/CR register width (20 bits)."""
+        if value >= (1 << (LR_CR_SCALAR_BITS - 1)):
+            return value - (1 << LR_CR_SCALAR_BITS)
         return value
 
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute BLT: Branch if less than (signed comparison)."""
-        s1 = self._to_signed_32(reg1)
-        s2 = self._to_signed_32(reg2)
+        s1 = self._to_signed_reg(reg1)
+        s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
     def execute_bge(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute BGE: Branch if greater or equal (signed comparison)."""
-        s1 = self._to_signed_32(reg1)
-        s2 = self._to_signed_32(reg2)
+        s1 = self._to_signed_reg(reg1)
+        s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
 
     def execute_br(self, *, reg: int) -> None:

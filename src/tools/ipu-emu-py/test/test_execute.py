@@ -705,6 +705,36 @@ BKPT;;
         run_until_complete(state)
         assert state.regfile.get_lr(2) == 1
 
+    def test_blt_negative_counter(self):
+        """BLT sign-extends at 20 bits: -1 < 0 must branch (issue #142)."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+BLT lr0 lr1 neg_branch;;
+SET lr2 cr10;;
+BKPT;;
+neg_branch:
+SET lr2 cr11;;
+BKPT;;
+""",
+            cr={8: -1, 9: 0, 10: 0, 11: 1})
+        assert state.regfile.get_lr(2) == 1
+
+    def test_bge_negative_not_taken(self):
+        """BGE sign-extends at 20 bits: -1 >= 0 must not branch (issue #142)."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+BGE lr0 lr1 neg_ge_branch;;
+SET lr2 cr10;;
+BKPT;;
+neg_ge_branch:
+SET lr2 cr11;;
+BKPT;;
+""",
+            cr={8: -1, 9: 0, 10: 1, 11: 0})
+        assert state.regfile.get_lr(2) == 1
+
     def test_loop_with_cr_limit(self):
         """Loop using bne against a CR constant instead of an LR."""
         state = _make_state("""\
