@@ -6,7 +6,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import PSEUDO_INSTRUCTION_SPEC, VALID_OPERAND_TYPES
+from ipu_common.instruction_spec import (
+    PSEUDO_INSTRUCTION_SPEC,
+    VALID_OPERAND_TYPES,
+    SLOT_COUNT,
+    SLOT_METADATA,
+    COMPOUND_LAYOUT_SLOT_ORDER,
+)
 from ipu_common.registers import create_assembler_reg_enums
 
 # Long-form reference for each operand type string in instruction_spec (single source: VALID_OPERAND_TYPES).
@@ -382,6 +388,36 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
     print(f"Generated assembly syntax page at {output_path}")
 
 
+def _generate_slots_section() -> str:
+    """Generate the Slots overview section from instruction_spec metadata."""
+    lines: list[str] = [
+        "## Slots\n",
+        "A VLIW instruction word encodes one sub-instruction per slot. "
+        "Slots are grouped into pipeline stages that execute sequentially within a cycle: "
+        "**CTRL** (COND + LR run concurrently; LOAD address is resolved here and the data feeds MULT) "
+        "→ **MULT** → **ACC** → **AAQ** → **STORE**. "
+        "`ACC_STORE` and `BREAK` are simulation-only. "
+        "Any omitted slot is filled with `NOP` by the assembler automatically.\n",
+        "| Slot | Count | Description |",
+        "|------|------:|-------------|",
+    ]
+    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
+        count = SLOT_COUNT[slot]
+        meta = SLOT_METADATA.get(slot, {})
+        description = meta.get("description", "")
+        lines.append(f"| `{slot.upper()}` | {count} | {description} |")
+    lines += [
+        "",
+        "### `NOP` — No Operation\n",
+        "**Syntax:** `NOP`\n",
+        "No operation. Every slot accepts `NOP`. "
+        "The assembler fills any omitted slot with `NOP` automatically. "
+        "When written explicitly in a compound instruction, `NOP` is assigned to "
+        "the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).\n",
+    ]
+    return "\n".join(lines)
+
+
 def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
     from ipu_as.inst import Inst
@@ -393,6 +429,8 @@ def generate_instruction_docs(output_path: Path) -> None:
         "`instruction_spec.py`. Operand **types** link to the shared "
         "[operand type reference](operand-types.md).\n"
     )
+
+    content.append(_generate_slots_section())
 
     content.append("## Compound Instruction Layout\n")
     content.append(

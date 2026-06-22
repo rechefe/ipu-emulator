@@ -410,15 +410,15 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_load_nop(self) -> None:
-        """Execute LOAD_NOP: No operation."""
+        """Execute NOP in load slot: No operation."""
         pass
 
     def execute_store_nop(self) -> None:
-        """Execute STORE_NOP: No operation."""
+        """Execute NOP in store slot: No operation."""
         pass
 
     def execute_acc_store_nop(self) -> None:
-        """Execute ACC_STORE_NOP: No operation."""
+        """Execute NOP in acc_store slot: No operation."""
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
@@ -528,6 +528,10 @@ class Ipu:
         mask = (1 << k_exp) - 1
         self.state.regfile.set_lr(dest, ((cur + step_u) & 0xFFFFFFFF) & mask)
 
+    def execute_lr_nop(self) -> None:
+        """Execute NOP in LR slot: No operation."""
+        pass
+
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
         """Dispatch all LR sub-slots with conflict detection.
 
@@ -545,10 +549,6 @@ class Ipu:
             inst_name, spec = get_instruction_by_opcode("lr", opcode)
             field_map = _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)]
             kwargs = {name: inst[field_key] for name, field_key in field_map.items()}
-
-            # Unfilled LR slots encode ``INC lrX 0``: identity, no write.
-            if inst_name in ("INC", "DEC") and kwargs.get("imm") == 0:
-                continue
 
             # Auto-resolve 'read' operands to register values.
             read_types = _INSTRUCTION_READ_TYPES.get(("lr", inst_name), {})
@@ -575,7 +575,7 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_mult_nop(self) -> None:
-        """Execute MULT_NOP: No operation."""
+        """Execute NOP in mult slot: No operation."""
         pass
 
     def _mult_resolve_lcr_scalar(self, src: int) -> int:
@@ -772,7 +772,7 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def execute_acc_nop(self) -> None:
-        """Execute ACC_NOP: No operation."""
+        """Execute NOP in acc slot: No operation."""
         pass
 
     def execute_acc(self) -> None:
@@ -862,7 +862,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
     def execute_aaq_nop(self) -> None:
-        """Execute AAQ_NOP: No operation for AAQ slot."""
+        """Execute NOP in aaq slot: No operation."""
         pass
 
     def _agg_active_lane_count(self, valid_elements: int) -> int:
@@ -1090,12 +1090,16 @@ class Ipu:
         """Execute BKPT: Breakpoint (halt execution)."""
         self.state.program_counter = INST_MEM_SIZE  # halt
 
+    def execute_cond_nop(self) -> None:
+        """Execute NOP in cond slot: No operation; advance PC."""
+        self.state.program_counter += 1
+
     # -----------------------------------------------------------------------
     # BREAK Instruction Handlers
     # -----------------------------------------------------------------------
 
     def execute_break_nop(self) -> BreakResult:
-        """Execute BREAK_NOP: No operation."""
+        """Execute NOP in break slot: No operation."""
         return BreakResult.CONTINUE
 
     def execute_break(self) -> BreakResult:
@@ -1149,16 +1153,16 @@ class Ipu:
         # Update run statistics
         stats = self.state.stats
         if slot_type == "mult":
-            if instruction_name != "MULT_NOP":
+            if instruction_name != "NOP":
                 stats.mult_active_cycles += 1
         elif slot_type == "acc":
-            if instruction_name != "ACC_NOP":
+            if instruction_name != "NOP":
                 stats.acc_active_cycles += 1
         elif slot_type == "load":
-            if instruction_name != "LOAD_NOP":
+            if instruction_name != "NOP":
                 stats.xmem_reads += 1
         elif slot_type in {"store", "acc_store"}:
-            if instruction_name not in {"STORE_NOP", "ACC_STORE_NOP"}:
+            if instruction_name != "NOP":
                 stats.xmem_writes += 1
 
         # Call handler with named arguments

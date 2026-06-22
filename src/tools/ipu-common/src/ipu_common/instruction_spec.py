@@ -167,8 +167,16 @@ COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
 
 # Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
 # not implemented in real IPU hardware (excluded from HW codegen).
-SLOT_METADATA: dict[str, dict[str, bool]] = {
-    "acc_store": {"hardware": False},
+SLOT_METADATA: dict[str, dict] = {
+    "load":      {"description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."},
+    "store":     {"description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."},
+    "acc_store": {"hardware": False, "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware."},
+    "mult":      {"description": "Multiply-stage instructions: element-wise and vector multiply operations."},
+    "acc":       {"description": "Accumulation instructions for combining multiply results into R_ACC."},
+    "aaq":       {"description": "Activation and quantization: aggregate R_ACC into AAQ registers; quantize POST_AAQ_REG."},
+    "lr":        {"description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."},
+    "cond":      {"description": "Conditional and unconditional branches; control flow based on register comparisons."},
+    "break":     {"description": "Debug break: halts execution or enters debug mode."},
 }
 
 
@@ -246,12 +254,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
-        "LOAD_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (LOAD)",
+                title="No Operation",
                 summary="No operation for load slot.",
-                syntax="LOAD_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_load_nop",
@@ -283,12 +291,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_str_post_aaq_reg",
         },
-        "STORE_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (STORE)",
+                title="No Operation",
                 summary="No operation for store slot.",
-                syntax="STORE_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_store_nop",
@@ -321,12 +329,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_str_acc_reg",
         },
-        "ACC_STORE_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (ACC_STORE)",
+                title="No Operation",
                 summary="No operation for acc_store slot (simulation-only).",
-                syntax="ACC_STORE_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_acc_store_nop",
@@ -335,7 +343,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5
+    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5, NOP=6
     # =========================================================================
     "lr": {
         "SET": {
@@ -464,11 +472,21 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_lr_dec",
         },
+        "NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation",
+                summary="No operation for LR slot.",
+                syntax="NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_lr_nop",
+        },
     },
-    
+
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, MULT_NOP=3,
+    # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, NOP=3,
     #          MULT.VE=4, MULT.EE=5
     # =========================================================================
     "mult": {
@@ -542,12 +560,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_mult_rc_vs",
         },
-        "MULT_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (MULT)",
+                title="No Operation",
                 summary="No operation for multiply slot.",
-                syntax="MULT_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_mult_nop",
@@ -602,7 +620,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, ACC_NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
+    # Opcode = position: ACC=0, ACC.FIRST=1, NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
     # =========================================================================
     "acc": {
         "ACC": {
@@ -628,12 +646,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_acc_first",
         },
-        "ACC_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (ACC)",
+                title="No Operation",
                 summary="No operation for accumulator slot.",
-                syntax="ACC_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_acc_nop",
@@ -773,15 +791,15 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: AAQ_NOP=0, AAQ=1, ACTIVATE=2
+    # Opcode = position: NOP=0, AAQ=1, ACTIVATE=2
     # =========================================================================
     "aaq": {
-        "AAQ_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (AAQ)",
+                title="No Operation",
                 summary="No operation for AAQ slot.",
-                syntax="AAQ_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_aaq_nop",
@@ -855,7 +873,7 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
-    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5
+    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5, NOP=6
     # BNZ, BZ, and B are pseudo-instructions (see PSEUDO_INSTRUCTION_SPEC):
     # they're each exactly expressible via BEQ/BNE against CR0 (always zero),
     # so they don't need their own opcode.
@@ -965,11 +983,21 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_bkpt",
         },
+        "NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation",
+                summary="No operation for COND slot; advances PC by one.",
+                syntax="NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_cond_nop",
+        },
     },
 
     # =========================================================================
     # BREAK Slot (Break Instructions)
-    # Opcode = position: BREAK=0, BREAK.IFEQ=1, BREAK_NOP=2
+    # Opcode = position: BREAK=0, BREAK.IFEQ=1, NOP=2
     # =========================================================================
     "break": {
         "BREAK": {
@@ -1001,12 +1029,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_break_ifeq",
         },
-        "BREAK_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (BREAK)",
+                title="No Operation",
                 summary="No operation for BREAK slot.",
-                syntax="BREAK_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_break_nop",
