@@ -89,6 +89,11 @@ class ResidualAdd256x144App(IpuApp):
         state.regfile.set_cr(6, N_ROWS)
         state.regfile.set_cr(7, ROW_BYTES)
         state.regfile.set_cr(8, OUTPUT_ROW_BYTES)
+        # cr10 = the value 1.0 encoded in the active dtype, as a scalar byte.
+        # MULT.RC.VE multiplies r_cyclic by this CR scalar (ipu_mult interprets the
+        # low byte as a dtype value), so A[r]/B[r] pass through unchanged. CR1's
+        # integer 1 only works for INT8; FP8 needs the encoded 1.0 byte.
+        state.regfile.set_cr(10, _ones_bytes(self.dtype)[0])
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

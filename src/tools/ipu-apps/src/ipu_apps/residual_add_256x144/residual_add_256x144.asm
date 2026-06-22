@@ -55,11 +55,12 @@
 
 row_loop:
     # Cycle 1: r_acc = A[r] × 1.0  (live ADD lr2 fires first → live lr2 = r*128)
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
+    #   MULT.RC.VE r_cyclic[0] × CR10(=dtype 1.0) → A[r] passed through (replaces MULT.EE ones).
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VE lr0 cr10 0 lr0; ACC.FIRST;;
     # Cycle 2: r_acc += B[r] × 1.0
-    LDR_CYCLIC_MULT_REG lr3 cr9 lr0; ADD lr3 lr3 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr3 cr9 lr0; ADD lr3 lr3 lr7; MULT.RC.VE lr0 cr10 0 lr0; ACC;;
     # Cycle 3: store (do NOT ADD lr4 here: STR_ACC_REG reads lr4 live)
-    STR_ACC_REG         lr4 cr3; ADD lr5 lr5 1;;
+    STR_ACC_REG         lr4 cr3; ADD lr5 lr5 cr1;;
     # Cycle 4: advance output ptr; BLT reads snap lr5 = already-incremented
     ADD                 lr4 lr4 lr8; BLT lr5 lr6 row_loop;;
 
