@@ -20,7 +20,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "MultStageReg": (
         "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; "
         "the field is **two bits** wide (encoding `2` is reserved). Used as the destination of "
-        "`LDR_MULT_REG` and as the **`ra`** operand of `MULT.EE`."
+        "`LDR_MULT_REG` and as the **`ra`** operand of `MULT.RC.VV`."
     ),
     "LrIdx": (
         "Loop register index: resolves to **`lr0`** … **`lr15`**. Often used for addresses, strides, "
@@ -36,8 +36,9 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
         "`**cr0`–`cr14`** in the usual combined ordering used by the assembler. `cr15` is reserved "
-        "and is not a valid operand. Used as **`src_b`** on **`ADD`**/**`SUB`** and as **`step`** on "
-        "**`INCR_MOD_POW2`**."
+        "and is not a valid operand. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on "
+        "**`INCR_MOD_POW2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an "
+        "element from `R0`/`R1`; a CR's low byte is the scalar directly)."
     ),
     "LrIncDecImmediate": (
         "Unsigned immediate for **`INC`** / **`DEC`** in the LR slot. The bit width **W** is not "
@@ -45,12 +46,13 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "constant. Valid range: **`0`** to **`2^W − 1`**."
     ),
     "ElementsInRow": (
-        "ACC-slot immediate: encoded **elements-per-row** selector (see `acc_stride_enums` in "
-        "`ipu_common`)."
+        "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
+        "**`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_common`."
     ),
     "HorizontalStride": (
-        "ACC-slot immediate: **horizontal stride** bit pattern for `ACC.STRIDE` (see "
-        "`acc_stride_enums`)."
+        "ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, "
+        "**`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding "
+        "is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_common`."
     ),
     "VerticalStride": (
         "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
@@ -147,14 +149,14 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 # Comments start with # or //
 label:                          # Labels end with a colon
     LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
-    MULT.EE r0 lr1 0 lr3;        # MULT: element-wise multiply
+    MULT.RC.VV lr1 r0 0 lr3;     # MULT: element-wise multiply
     ACC;                         # ACC: accumulate
     INC lr0 1;               # LR: bump address (increment via INC)
     BNE lr0 lr1 next;            # COND: branch
     ;;
 ```
 
-By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.EE`, `LDR_MULT_REG`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
+By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LDR_MULT_REG`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
 
 ## Compound instructions
 
@@ -176,7 +178,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.EE r0 lr1 0 lr3; ACC; INC lr0 1; BNE lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3; ACC; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -216,7 +218,7 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
     masking_section = """
 ## Masking
 
-Multiply instructions (`MULT.EE`, `MULT.EE.RR`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
+Multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
 corresponding mask bit is **1** are **active** and pass through to accumulation; lanes whose bit is
 **0** are **zeroed** (deactivated). A mask of all-ones leaves every lane active (the reset default);
 a mask of all-zeros deactivates every lane.
@@ -298,7 +300,7 @@ LDR_MULT_REG R0, LR0, CR0;;
 LDR_CYCLIC_MULT_REG LR2, CR0, LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.EE R0, LR2, 3, LR4; ACC;;
+MULT.RC.VV LR2, R0, 3, LR4; ACC;;
 ```
 
 `3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index.

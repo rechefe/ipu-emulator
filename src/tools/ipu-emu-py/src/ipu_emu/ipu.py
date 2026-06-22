@@ -23,7 +23,7 @@ from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
-from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
+from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
@@ -578,205 +578,191 @@ class Ipu:
         """Execute NOP in mult slot: No operation."""
         pass
 
-    def execute_mult_ee(self, *, ra: bytearray | int, cyclic_offset: int,
-                        mask_offset: int, mask_shift: int) -> None:
-        """Execute MULT.EE: Element-wise multiplication."""
-        mult_res = self.state.regfile.raw("mult_res")
+    def _mult_resolve_lcr_scalar(self, src: int) -> int:
+        """Resolve an LcrIdx ``src`` field that addresses a *byte* scalar.
 
-        if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-            ra_vals = self._debug_ra_lane_vals(ra)
-            rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into("<f", mult_res, i * 4, float(ra_vals[i]) * float(rb_vals[i]))
-            else:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(int(ra_vals[i]), int(rb_vals[i]))
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
-
-        dtype = self.state.dtype
-        rb = self.state.regfile.get_r_cyclic_at(cyclic_offset, R_REG_SIZE)
-
-        for i in range(R_REG_SIZE):
-            result = ipu_mult(ra[i], rb[i], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
-    def execute_mult_ee_rr(self, *, ra: bytearray | int,
-                           mask_offset: int, mask_shift: int) -> None:
-        """Execute MULT.EE.RR: multi-element multiply of a mult-stage register by itself.
-
-        ``ra`` selects the MEE mode: R0 → r0-by-r0, R1 → r1-by-r1. Each lane is
-        multiplied by itself (element-wise square), then masked and shifted.
+        If ``src`` encodes an LR, the LR's stored value is itself used as an
+        index (mod 256) into the combined Ra buffer (``R0`` ++ ``R1``). If
+        ``src`` encodes a CR, the CR's low byte is the scalar directly.
         """
-        mult_res = self.state.regfile.raw("mult_res")
+        if src < LR_REG_COUNT:
+            idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
+            r_buf = self.state.regfile.raw("r")
+            return r_buf[idx]
+        cr_idx = src - LR_REG_COUNT
+        return self.state.regfile.get_cr(cr_idx) & 0xFF
 
-        if self._wide_vector_active():
-            ra_vals = self._debug_ra_lane_vals(ra)
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into(
-                        "<f", mult_res, i * 4, float(ra_vals[i]) * float(ra_vals[i])
-                    )
-            else:
-                for i in range(R_REG_SIZE):
-                    struct.pack_into(
-                        "<i", mult_res, i * 4,
-                        self._wide_imult32(int(ra_vals[i]), int(ra_vals[i])),
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
-
-        dtype = self.state.dtype
-
-        for i in range(R_REG_SIZE):
-            result = ipu_mult(ra[i], ra[i], dtype)
-            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
-    def _execute_mult_ve_variant(
-        self,
-        *,
-        pad_128_ones: bool,
-        cyclic_offset: int,
-        mask_offset: int,
-        mask_shift: int,
-        fixed_idx: int,
-    ) -> None:
-        """Shared mult.ve.cyclic / mult.ve.padded implementation."""
-        raw = cyclic_offset & 0xFFFFFFFF
-        co_cyclic = raw % R_CYCLIC_SIZE
-
-        mult_res = self.state.regfile.raw("mult_res")
-
-        if self._wide_vector_active():
-            co_wb = raw if pad_128_ones else co_cyclic
-            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", co_wb)
+    def _mult_resolve_lcr_scalar_wide(self, src: int) -> float | int:
+        """Wide-vector counterpart of ``_mult_resolve_lcr_scalar``."""
+        if src < LR_REG_COUNT:
+            idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
             r0_vals = self._debug_ra_lane_vals(0)
             r1_vals = self._debug_ra_lane_vals(1)
-            rb_vals = self._debug_rb_lane_vals(co_wb, self.state.regfile)
-            if fixed_idx < R_REG_SIZE:
-                ra_fixed = r0_vals[fixed_idx % R_REG_SIZE]
-            else:
-                ra_fixed = r1_vals[(fixed_idx - R_REG_SIZE) % R_REG_SIZE]
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                one = 1.0
-                for i in range(R_REG_SIZE):
-                    pos = co_wb + i * 4
-                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
-                        rb_lane = one
-                    else:
-                        rb_lane = float(rb_vals[i])
-                    struct.pack_into("<f", mult_res, i * 4, float(ra_fixed) * rb_lane)
-            else:
-                one = 1
-                for i in range(R_REG_SIZE):
-                    pos = co_wb + i * 4
-                    if pad_128_ones and pos + 4 > R_CYCLIC_SIZE:
-                        rb_lane = one
-                    else:
-                        rb_lane = int(rb_vals[i])
-                    struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(int(ra_fixed), rb_lane)
-                    )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
-            return
+            return r0_vals[idx] if idx < R_REG_SIZE else r1_vals[idx - R_REG_SIZE]
+        cr_idx = src - LR_REG_COUNT
+        cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+        if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+            return float(cr_scalar)
+        return cr_scalar
 
-        dtype = self.state.dtype
-        r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
-        rc_buf = self.state.regfile.raw("r_cyclic")
-        one_byte = dtype_one_byte(dtype)
-        fmt = "<i" if dtype == DType.INT8 else "<f"
-
-        ra_fixed = r_buf[fixed_idx % (2 * R_REG_SIZE)]
-
-        if pad_128_ones:
-            for i in range(R_REG_SIZE):
-                pos = raw + i
-                rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
-                result = ipu_mult(ra_fixed, rb_byte, dtype)
-                struct.pack_into(fmt, mult_res, i * 4, result)
-        else:
-            base = co_cyclic
-            for i in range(R_REG_SIZE):
-                pos = base + i
-                rb_byte = rc_buf[pos % R_CYCLIC_SIZE]
-                result = ipu_mult(ra_fixed, rb_byte, dtype)
-                struct.pack_into(fmt, mult_res, i * 4, result)
-
-        self._mult_mask_and_shift(mask_offset, mask_shift)
-
-    def execute_mult_ve_cyclic(self, *, cyclic_offset: int,
-                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute MULT.VE.CYCLIC: fixed r0/r1 element × r_cyclic row with cyclic addressing."""
-        self._execute_mult_ve_variant(
-            pad_128_ones=False,
-            cyclic_offset=cyclic_offset,
-            mask_offset=mask_offset,
-            mask_shift=mask_shift,
-            fixed_idx=fixed_idx,
-        )
-
-    def execute_mult_ve_padded(self, *, cyclic_offset: int,
-                               mask_offset: int, mask_shift: int, fixed_idx: int) -> None:
-        """Execute MULT.VE.PADDED: fixed r0/r1 element × r_cyclic row with boundary padding."""
-        self._execute_mult_ve_variant(
-            pad_128_ones=True,
-            cyclic_offset=cyclic_offset,
-            mask_offset=mask_offset,
-            mask_shift=mask_shift,
-            fixed_idx=fixed_idx,
-        )
-
-    def execute_mult_ve_cr(self, *, cyclic_offset: int, mask_offset: int,
-                           mask_shift: int, cr_idx: int) -> None:
-        """Execute MULT.VE.CR: CR scalar × r_cyclic elements with boundary padding.
-
-        Multiplies the low byte of CR[cr_idx] against each byte of
-        RC[cyclic_offset : cyclic_offset+128]. Like mult.ve.padded, this is
-        non-cyclic: elements where cyclic_offset+i >= R_CYCLIC_SIZE are
-        padded with the dtype-specific encoding of 1 instead of wrapping.
-        """
-        dtype = self.state.dtype
+    def execute_mult_rc_vv(self, *, rc_idx: int, ra: bytearray | int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-            cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
-            rb_vals = self._debug_rb_lane_vals(cyclic_offset, self.state.regfile)
+            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
+            ra_vals = self._debug_ra_lane_vals(ra)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                scalar_f = float(cr_scalar)
-                one = 1.0
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = float(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
-                    struct.pack_into("<f", mult_res, i * 4, scalar_f * rb_lane)
+                    struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(ra_vals[i]))
             else:
-                one = 1
                 for i in range(R_REG_SIZE):
-                    pos = cyclic_offset + i * 4
-                    rb_lane = int(rb_vals[i]) if pos + 4 <= R_CYCLIC_SIZE else one
                     struct.pack_into(
-                        "<i", mult_res, i * 4, self._wide_imult32(cr_scalar, rb_lane)
+                        "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(ra_vals[i]))
                     )
             self._mult_mask_and_shift(mask_offset, mask_shift)
             return
 
-        scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
-        rc_buf = self.state.regfile.raw("r_cyclic")
-        one_byte = dtype_one_byte(dtype)
+        dtype = self.state.dtype
+        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(rc[i], ra[i], dtype)
+            struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_rc_ve(self, *, rc_idx: int, src: int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
+            scalar = self._mult_resolve_lcr_scalar_wide(src)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                scalar_f = float(scalar)
+                for i in range(R_REG_SIZE):
+                    struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * scalar_f)
+            else:
+                scalar_i = int(scalar)
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), scalar_i)
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.dtype
+        scalar_byte = self._mult_resolve_lcr_scalar(src)
+        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
-            pos = cyclic_offset + i
-            rb_byte = rc_buf[pos] if pos < R_CYCLIC_SIZE else one_byte
-            result = ipu_mult(scalar_byte, rb_byte, dtype)
+            result = ipu_mult(rc[i], scalar_byte, dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_rc_vs(self, *, rc_idx: int,
+                           mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(rb_vals[i]))
+            else:
+                for i in range(R_REG_SIZE):
+                    struct.pack_into(
+                        "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(rb_vals[i]))
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.dtype
+        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            result = ipu_mult(rc[i], rc[i], dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ve(self, *, ra_idx: int, cr_idx: int,
+                        mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            r0_vals = self._debug_ra_lane_vals(0)
+            r1_vals = self._debug_ra_lane_vals(1)
+            cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                scalar_f = float(cr_scalar)
+                for i in range(R_REG_SIZE):
+                    pos = (ra_idx + i) % (2 * R_REG_SIZE)
+                    ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+                    struct.pack_into("<f", mult_res, i * 4, float(ra_lane) * scalar_f)
+            else:
+                for i in range(R_REG_SIZE):
+                    pos = (ra_idx + i) % (2 * R_REG_SIZE)
+                    ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+                    struct.pack_into(
+                        "<i", mult_res, i * 4, self._wide_imult32(int(ra_lane), cr_scalar)
+                    )
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.dtype
+        scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
+        r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        for i in range(R_REG_SIZE):
+            pos = (ra_idx + i) % (2 * R_REG_SIZE)
+            result = ipu_mult(r_buf[pos], scalar_byte, dtype)
+            struct.pack_into(fmt, mult_res, i * 4, result)
+
+        self._mult_mask_and_shift(mask_offset, mask_shift)
+
+    def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
+                        mask_offset: int, mask_shift: int) -> None:
+        """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 lanes."""
+        mult_res = self.state.regfile.raw("mult_res")
+
+        if self._wide_vector_active():
+            r0_vals = self._debug_ra_lane_vals(0)
+            r1_vals = self._debug_ra_lane_vals(1)
+            cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
+            pos = ra_idx % (2 * R_REG_SIZE)
+            ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                result = float(ra_lane) * float(cr_scalar)
+                for i in range(R_REG_SIZE):
+                    struct.pack_into("<f", mult_res, i * 4, result)
+            else:
+                result = self._wide_imult32(int(ra_lane), cr_scalar)
+                for i in range(R_REG_SIZE):
+                    struct.pack_into("<i", mult_res, i * 4, result)
+            self._mult_mask_and_shift(mask_offset, mask_shift)
+            return
+
+        dtype = self.state.dtype
+        scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
+        r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
+        fmt = "<i" if dtype == DType.INT8 else "<f"
+
+        ra_byte = r_buf[ra_idx % (2 * R_REG_SIZE)]
+        result = ipu_mult(ra_byte, scalar_byte, dtype)
+        for i in range(R_REG_SIZE):
             struct.pack_into(fmt, mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift)
@@ -788,10 +774,6 @@ class Ipu:
     def execute_acc_nop(self) -> None:
         """Execute NOP in acc slot: No operation."""
         pass
-
-    def execute_reset_acc(self) -> None:
-        """Execute RESET_ACC: Reset accumulator to zero."""
-        self.state.regfile.set_r_acc_bytes(bytearray(R_ACC_SIZE))
 
     def execute_acc(self) -> None:
         """Execute ACC: Accumulate mult_res into accumulator."""
@@ -837,7 +819,7 @@ class Ipu:
         elements_per_row = get_elements_per_row(elements_in_row)
         num_rows = R_REG_SIZE // elements_per_row
 
-        h_enabled, h_inverted, h_expand = get_horizontal_stride_bits(horizontal_stride)
+        h_enabled, h_inverted = get_horizontal_stride_bits(horizontal_stride)
         v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
 
         # Build list of source indices (0..127) or -1 for zero padding
@@ -853,12 +835,8 @@ class Ipu:
                     indices_in_row = [base + 1 + 2 * j for j in range(half)]
                 else:
                     indices_in_row = [base + 2 * j for j in range(half)]
-                if h_expand:
-                    after_h.extend(indices_in_row)
-                    after_h.extend([-1] * (elements_per_row - half))
-                else:
-                    after_h.extend(indices_in_row)
-            effective_row_len = elements_per_row if h_expand else half
+                after_h.extend(indices_in_row)
+            effective_row_len = half
 
         num_rows_after_h = len(after_h) // effective_row_len
         if not v_enabled:
@@ -915,26 +893,26 @@ class Ipu:
         return best
 
     def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.SUM.FIRST: sum active R_ACC lanes, write to R_ACC[dest] (clean init)."""
+        """Execute AGG.SUM.FIRST: sum active MULT_RES lanes, write to R_ACC[dest] (clean init)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
-        result = self._agg_sum_lanes(fmt, snap_acc, active)
+        result = self._agg_sum_lanes(fmt, mult_res, active)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         if fmt == "<i":
             result = self._to_int32(result)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.SUM: sum active R_ACC lanes and add to R_ACC[dest] (running accumulation)."""
+        """Execute AGG.SUM: sum active MULT_RES lanes and add to R_ACC[dest] (running accumulation)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
-        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
-        partial = self._agg_sum_lanes(fmt, snap_acc, active)
+        snap_dest = struct.unpack_from(fmt, self.snapshot.raw("r_acc"), dest * 4)[0]
+        partial = self._agg_sum_lanes(fmt, mult_res, active)
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
         else:
@@ -942,29 +920,29 @@ class Ipu:
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.MAX.FIRST: max of active R_ACC lanes, write to R_ACC[dest] (no seed).
+        """Execute AGG.MAX.FIRST: max of active MULT_RES lanes, write to R_ACC[dest] (no seed).
 
         When no lanes are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
-        result = self._agg_max_lanes(fmt, snap_acc, active, seed)
+        result = self._agg_max_lanes(fmt, mult_res, active, seed)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.MAX: max of active R_ACC lanes seeded with R_ACC[dest] (running max)."""
+        """Execute AGG.MAX: max of active MULT_RES lanes seeded with R_ACC[dest] (running max)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
-        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
-        result = self._agg_max_lanes(fmt, snap_acc, active, snap_dest)
+        snap_dest = struct.unpack_from(fmt, self.snapshot.raw("r_acc"), dest * 4)[0]
+        result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_aaq(self, *, full_xmem_row: int) -> None:
@@ -1086,22 +1064,22 @@ class Ipu:
         self.state.program_counter = label if reg1 != reg2 else self.state.program_counter + 1
 
     @staticmethod
-    def _to_signed_32(value: int) -> int:
-        """Interpret an unsigned 32-bit value as signed."""
-        if value >= 0x80000000:
-            return value - 0x100000000
+    def _to_signed_reg(value: int) -> int:
+        """Sign-extend a value at the LR/CR register width (20 bits)."""
+        if value >= (1 << (LR_CR_SCALAR_BITS - 1)):
+            return value - (1 << LR_CR_SCALAR_BITS)
         return value
 
     def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute BLT: Branch if less than (signed comparison)."""
-        s1 = self._to_signed_32(reg1)
-        s2 = self._to_signed_32(reg2)
+        s1 = self._to_signed_reg(reg1)
+        s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
     def execute_bge(self, *, reg1: int, reg2: int, label: int) -> None:
         """Execute BGE: Branch if greater or equal (signed comparison)."""
-        s1 = self._to_signed_32(reg1)
-        s2 = self._to_signed_32(reg2)
+        s1 = self._to_signed_reg(reg1)
+        s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
 
     def execute_br(self, *, reg: int) -> None:

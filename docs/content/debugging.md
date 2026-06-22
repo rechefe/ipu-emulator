@@ -11,7 +11,6 @@ Add `BREAK` instructions where you want execution to pause:
 ```asm
 main_loop:
     BREAK ;;              # Unconditional break
-    RESET_ACC;;
     LDR_CYCLIC_MULT_REG lr0 cr0 lr15;;
 ```
 
@@ -230,7 +229,7 @@ IPU Debug - Break at PC=3
   ...
 
 === Current Instruction ===
-  BREAK.IFEQ lr0 0; RESET_ACC; MULT_NOP; ACC_NOP; B lr0 lr0 @4;;
+  BREAK.IFEQ lr0 0; MULT_NOP; ACC_NOP; B lr0 lr0 @4;;
 
 debug >>> get lr1
 lr1 = 1280 (0x500)
