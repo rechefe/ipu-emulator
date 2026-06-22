@@ -57,6 +57,7 @@ def get_operand_type_bits() -> dict[str, int]:
         "MultStageReg": 2,  # MultStageRegField overrides bits() → 2
         "LrIdx": (lr_count - 1).bit_length(),
         "CrIdx": (cr_count - 1).bit_length(),
+        "DstructureCrIdx": (cr_count - 1).bit_length(),
         "LcrIdx": (lr_count + cr_count - 1).bit_length(),
         # Width 0 at layout time — the shared union field width is set in
         # finalize_derived_operand_bits() after packing.
@@ -69,7 +70,6 @@ def get_operand_type_bits() -> dict[str, int]:
         "HorizontalStride": _enum_bits(HORIZONTAL_STRIDE_NAMES),
         "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
         "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
-        "FullXmemRow": 1,
     }
 
 

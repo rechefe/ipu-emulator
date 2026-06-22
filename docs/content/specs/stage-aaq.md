@@ -59,8 +59,7 @@ flowchart LR
             r_acc  ─────>│                                      │
        act_cr_idx  ─────>│                                      │
             dtype  ─────>│                                      │
-   valid_elements  ─────>│                                      │
-    full_xmem_row  ─────>│                                      │
+           cr_idx  ─────>│                                      │
                          └──────────────────────────────────────┘
 ```
 
@@ -75,8 +74,7 @@ flowchart LR
 | `r_acc` | `input logic [127:0][31:0]` | 128-lane accumulator (128 × 32-bit). |
 | `act_cr_idx` | `input logic [3:0]` | CR register index whose value selects the activation function (see §7.0). |
 | `dtype` | `input logic [2:0]` | Global data type forwarded from outside configuration; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
-| `valid_elements` | `input logic [7:0]` | Active lane count. Sourced from `CR15.valid_elements` (bits [7:0] of the CR15 dstructure register). Ignored when `full_xmem_row` = 1. |
-| `full_xmem_row` | `input logic [0:0]` | Lane-count override. 1 = always use all 128 lanes (ignore `valid_elements`); 0 = use `valid_elements`. Applies to `AAQ` and `ACTIVATE`. |
+| `cr_idx` | `input logic [3:0]` | CR register selecting the dstructure configuration (`valid_elements`, bits [7:0]) used for lane gating. Defaults to CR15 when the operand is omitted. Applies to `AAQ` and `ACTIVATE`. |
 
 ### 3.2 Outputs
 
@@ -121,7 +119,7 @@ The function is selected at runtime by reading the CR register indexed by
 ```text
 // Applied to all valid lanes before quantization
 activation_fn = cr[act_cr_idx]
-n             = 128 if full_xmem_row else min(valid_elements, 128)
+n             = min(cr[cr_idx].valid_elements, 128)
 POST_AAQ_REG[i]  = activation_fn(r_acc[i])   for i in 0..n-1
 POST_AAQ_REG[n..127] = 0
 ```
@@ -148,8 +146,8 @@ Earlier revisions of this stage owned the cross-lane sum/max reduction
 (`agg` / `agg.first`) and a 4 × 32-bit scalar register file (`aaq0`–`aaq3`)
 with post functions. That functionality has been replaced by the ACC-slot
 `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, and `AGG.MAX.FIRST` instructions,
-which reduce `r_acc[0..n-1]` (with `n` selected by `full_xmem_row` /
-`CR15.valid_elements` exactly as in §3.1) and write the scalar result into
+which reduce `r_acc[0..n-1]` (with `n` selected by the instruction's `cr_idx`
+operand, defaulting to CR15, exactly as in §3.1) and write the scalar result into
 the `r_acc` slot given by an LR register. The AAQ stage no longer holds a
 register file and exposes no RF feedback to the MULT or ACC stages.
 
@@ -161,7 +159,7 @@ lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte result to
 
 ```text
 // dtype must be DType.INT8; POST_AAQ_REG lanes are FP32
-n = 128 if full_xmem_row else min(CR15.valid_elements, 128)
+n = min(cr[cr_idx].valid_elements, 128)
 for i in 0..n-1:
     val            = POST_AAQ_REG[i]        // FP32
     aaq_result[i]  = clamp(round(val), -128, 127)
@@ -197,8 +195,8 @@ duplicated here.
 
 The AAQ slot is resolved by CTRL and forwarded down the dispatch chain;
 the stage does not read the CR/LR register files itself (see the
-Control Stage spec, §5). The active lane count is determined by `full_xmem_row`:
-`1` = always 128, `0` = `CR15.valid_elements` at cycle start.
+Control Stage spec, §5). The active lane count is determined by the `cr_idx`
+operand: `valid_elements` from the selected CR's dstructure configuration at cycle start (default CR15).
 
 ### 8.1 `AAQ_NOP` — No Operation
 
@@ -210,35 +208,35 @@ Control Stage spec, §5). The active lane count is determined by `full_xmem_row`
 
 ### 8.2 `AAQ` — Quantize Accumulator
 
-- **Summary:** Quantize wide lanes in `POST_AAQ_REG` to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode. The `full_xmem_row` flag controls how many lanes are active.
-- **Syntax:** `AAQ full_xmem_row`
+- **Summary:** Quantize wide lanes in `POST_AAQ_REG` to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode. The optional `cr_idx` operand selects which CR's dstructure configuration controls how many lanes are active.
+- **Syntax:** `AAQ[ cr_idx]`
 - **Operands:**
-  - `full_xmem_row`: `1` = always process all 128 lanes (full XMEM row, ignores `CR15.valid_elements`); `0` = process only the first `CR15.valid_elements` lanes (clamped to 128) and zero the rest. Defaults to `0`.
+  - `cr_idx`: CR0…CR15 supplying `valid_elements` (clamped to 128). Defaults to CR15 when omitted.
 - **Operation:**
   ```text
   // requires dtype == DType.INT8
-  n = 128 if full_xmem_row else min(CR15.valid_elements, 128)
+  n = min(cr[cr_idx].valid_elements, 128)
   for i in 0..n-1:
       aaq_result[i] = clamp(trunc(POST_AAQ_REG[i]), -128, 127)
   aaq_result[n..127] = 0
   ```
   The Quantization block appends 12 bits of metadata to the 1024-bit payload (see §7.2).
-- **Example:** `AAQ 1;;` (full row), `AAQ 0;;` (use `CR15.valid_elements`).
+- **Example:** `AAQ CR3;;` (use `CR3.valid_elements`), `AAQ;;` (use `CR15.valid_elements`).
 - **Notes:** `aaq_result` must be flushed with `XMEM.STORE_AAQ_RESULT offset base` before the next `AAQ` overwrites it (see §7.2).
 
 ### 8.3 `ACTIVATE` — Apply Activation Function
 
 - **Summary:** Apply an element-wise activation function to the active lanes of `r_acc` and write the activated 32-bit lanes into `POST_AAQ_REG`. `r_acc` is not modified.
-- **Syntax:** `ACTIVATE activation_fn, full_xmem_row`
+- **Syntax:** `ACTIVATE activation_fn[, cr_idx]`
 - **Operands:**
   - `activation_fn` — activation keyword (see §7.0): `identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`.
-  - `full_xmem_row` — `1` = always use 128 lanes; `0` = use `CR15.valid_elements`.
+  - `cr_idx` — CR0…CR15 supplying `valid_elements` (clamped to 128). Defaults to CR15 when omitted.
 - **Operation:**
   ```text
-  n = 128 if full_xmem_row else min(CR15.valid_elements, 128)
+  n = min(cr[cr_idx].valid_elements, 128)
   POST_AAQ_REG[i] = activation_fn(r_acc[i])   for i in 0..n-1
   ```
-- **Example:** `ACTIVATE relu, 0;;`
+- **Example:** `ACTIVATE relu, CR3;;`
 - **Notes:** Reads `r_acc` from the cycle-start snapshot, so an ACC-slot instruction (e.g. `AGG.*`) issued in the same VLIW word does not affect the activated values.
 
 ### 8.4 Summary Table
@@ -246,5 +244,5 @@ Control Stage spec, §5). The active lane count is determined by `full_xmem_row`
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AAQ | `AAQ_NOP`   | —                              | no state change |
-| AAQ | `AAQ`       | `full_xmem_row`                | `aaq_result[0..n-1] = clamp(trunc(POST_AAQ_REG[i]), -128, 127)`, n = 128 if full_xmem_row else CR15.valid_elements |
-| AAQ | `ACTIVATE`  | `activation_fn, full_xmem_row` | `POST_AAQ_REG[0..n-1] = activation_fn(r_acc[i])`, n = 128 if full_xmem_row else CR15.valid_elements |
+| AAQ | `AAQ`       | `[cr_idx]`                | `aaq_result[0..n-1] = clamp(trunc(POST_AAQ_REG[i]), -128, 127)`, n = cr[cr_idx].valid_elements (default CR15) |
+| AAQ | `ACTIVATE`  | `activation_fn[, cr_idx]` | `POST_AAQ_REG[0..n-1] = activation_fn(r_acc[i])`, n = cr[cr_idx].valid_elements (default CR15) |

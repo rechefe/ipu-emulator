@@ -76,10 +76,12 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
-    "FullXmemRow": (
-        "1-bit control flag on **`AAQ`**: **`1`** = always process all **128 lanes** (full XMEM row, "
-        "ignores ``CR15.valid_elements``); **`0`** = process only the first ``CR15.valid_elements`` "
-        "lanes (clamped to 128) and zero the rest. Defaults to **`1`** for backward compatibility."
+    "DstructureCrIdx": (
+        "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the "
+        "**valid element mask** / dstructure configuration (`valid_elements`, `partition`) for "
+        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `AAQ`, and `ACTIVATE`. Unlike "
+        "**`CrIdx`**, **`cr15`** is allowed here — it's the default dstructure register and is "
+        "used when the operand is omitted."
     ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "

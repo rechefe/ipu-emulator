@@ -685,105 +685,109 @@ INSTRUCTION_SPEC = {
         "AGG.SUM.FIRST": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Sum (First)",
                 summary=(
                     "Sum active R_ACC lanes and write the result into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted)."
                 ),
-                syntax="AGG.SUM.FIRST dest_slot, full_xmem_row",
+                syntax="AGG.SUM.FIRST dest_slot[, cr_idx]",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = sum(R_ACC[0..n-1])."
                 ),
-                example="AGG.SUM.FIRST LR0, 0;;",
+                example="AGG.SUM.FIRST LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_sum_first",
         },
         "AGG.SUM": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Sum",
                 summary=(
                     "Sum active R_ACC lanes and ADD the result to R_ACC at the slot given by LR "
                     "(running cross-cycle accumulation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted)."
                 ),
-                syntax="AGG.SUM dest_slot, full_xmem_row",
+                syntax="AGG.SUM dest_slot[, cr_idx]",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = sum(R_ACC[0..n-1]) + R_ACC[dest]."
                 ),
-                example="AGG.SUM LR0, 0;;",
+                example="AGG.SUM LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_sum",
         },
         "AGG.MAX.FIRST": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Max (First)",
                 summary=(
                     "Find the maximum of active R_ACC lanes and write it into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted)."
                 ),
-                syntax="AGG.MAX.FIRST dest_slot, full_xmem_row",
+                syntax="AGG.MAX.FIRST dest_slot[, cr_idx]",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = max(R_ACC[0..n-1]); when n = 0 the identity seed "
                     "(INT32_MIN for integer lanes, -inf for float lanes) is written."
                 ),
-                example="AGG.MAX.FIRST LR0, 0;;",
+                example="AGG.MAX.FIRST LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_max_first",
         },
         "AGG.MAX": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Max",
                 summary=(
                     "Find the maximum of active R_ACC lanes seeded with the current destination slot value "
                     "(running cross-cycle max). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted)."
                 ),
-                syntax="AGG.MAX dest_slot, full_xmem_row",
+                syntax="AGG.MAX dest_slot[, cr_idx]",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = max(R_ACC[0..n-1], R_ACC[dest])."
                 ),
-                example="AGG.MAX LR0, 0;;",
+                example="AGG.MAX LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_max",
         },
@@ -806,7 +810,7 @@ INSTRUCTION_SPEC = {
         },
         "AAQ": {
             "operands": [
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="AAQ Quantize",
@@ -815,57 +819,57 @@ INSTRUCTION_SPEC = {
                     "to INT8, storing clamped bytes in the **leading 128 bytes** of **`POST_AAQ_REG`** "
                     "and clearing the rest of the register. Wide lanes are normally produced by "
                     "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode. "
-                    "``full_xmem_row=1`` always processes all 128 lanes; "
-                    "``full_xmem_row=0`` uses ``CR15.valid_elements`` as the active lane count."
+                    "The active lane count comes from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted)."
                 ),
-                syntax="AAQ full_xmem_row",
+                syntax="AAQ[ cr_idx]",
                 operands=[
-                    "full_xmem_row: 1 = always 128 lanes (full XMEM row); 0 = use CR15.valid_elements lane count",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
                     "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "For i in [0, n): POST_AAQ_REG[i] = clamp(POST_AAQ_REG wide lane i, -128, 127) "
                     "(interim direct INT8 clamp of the post-ACTIVATE lane; a future per-128-element "
                     "requantize will scale lanes into INT8 range before this step and supersede the clamp). "
                     "POST_AAQ_REG[n..511] = 0."
                 ),
-                example="AAQ 1;;",
+                example="AAQ CR3;;",
             ),
             "execute_fn": "execute_aaq",
         },
         "ACTIVATE": {
             "operands": [
                 {"name": "activation_fn", "type": "ActivationFn"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Activation",
                 summary=(
                     "Read active lanes from ``r_acc``, apply the selected element-wise activation, "
                     "and write results into the same lane indices of ``POST_AAQ_REG`` (``r_acc`` is unchanged). "
-                    "``full_xmem_row=1`` always activates all 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements. "
+                    "The active lane count comes from ``cr_idx``'s dstructure configuration "
+                    "(defaults to CR15 when omitted). "
                     "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
                     "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
                     "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                syntax="ACTIVATE activation_fn, full_xmem_row",
+                syntax="ACTIVATE activation_fn[, cr_idx]",
                 operands=[
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128) "
-                    "and k = encoded activation index. "
+                    "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
                     "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
                     "activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                example="ACTIVATE relu, 0;;",
+                example="ACTIVATE relu, CR3;;",
             ),
             "execute_fn": "execute_activate",
         },
@@ -1267,7 +1271,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "ActivationFn",
         "BreakImmediate",
         "Label",
-        "FullXmemRow",
+        "DstructureCrIdx",
     }
 )
 

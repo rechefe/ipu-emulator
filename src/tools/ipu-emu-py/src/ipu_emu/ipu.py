@@ -92,7 +92,7 @@ _TYPE_FIELD_SUFFIX = {
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
-    "FullXmemRow": "full_xmem_row_field",
+    "DstructureCrIdx": "dstructure_cr_reg_field",
 }
 
 # Field prefix for each slot type (matches compound_inst naming)
@@ -892,9 +892,9 @@ class Ipu:
                 best = v
         return best
 
-    def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM.FIRST: sum active MULT_RES lanes, write to R_ACC[dest] (clean init)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -904,9 +904,9 @@ class Ipu:
             result = self._to_int32(result)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM: sum active MULT_RES lanes and add to R_ACC[dest] (running accumulation)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -919,13 +919,13 @@ class Ipu:
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX.FIRST: max of active MULT_RES lanes, write to R_ACC[dest] (no seed).
 
         When no lanes are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -934,9 +934,9 @@ class Ipu:
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX: max of active MULT_RES lanes seeded with R_ACC[dest] (running max)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -945,7 +945,7 @@ class Ipu:
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_aaq(self, *, full_xmem_row: int) -> None:
+    def execute_aaq(self, *, cr_idx: int) -> None:
         """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
 
         Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
@@ -968,8 +968,8 @@ class Ipu:
         the ``ACTIVATE`` -> ``AAQ`` path producing usable INT8 output instead of
         all zeros.
 
-        ``full_xmem_row=1``: always process all 128 lanes.
-        ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
+        Active lane count is taken from ``cr_idx``'s ``valid_elements``
+        (clamped to 128); ``cr_idx`` defaults to ``CR15``.
 
         Requires INT8 mode.
 
@@ -981,8 +981,8 @@ class Ipu:
         if dtype != DType.INT8:
             raise EmulatorError("AAQ instruction requires INT8 mode")
 
-        active = 128 if full_xmem_row else self._agg_active_lane_count(
-            self.state.get_config_valid_elements()
+        active = self._agg_active_lane_count(
+            self.state.get_dstructure_for(cr_idx).valid_elements
         )
 
         if self._wide_vector_active():
@@ -1011,7 +1011,7 @@ class Ipu:
             result[i] = clamped & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_activate(self, *, activation_fn: int, full_xmem_row: int) -> None:
+    def execute_activate(self, *, activation_fn: int, cr_idx: int) -> None:
         """Apply element-wise activation to active lanes.
 
         Reads each active lane from ``r_acc`` and writes the result into the same
@@ -1020,10 +1020,10 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
+        Lane count is taken from ``cr_idx``'s ``valid_elements`` (defaults to CR15).
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.snapshot.raw("r_acc")

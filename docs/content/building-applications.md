@@ -29,7 +29,7 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: AGG.*, ACTIVATE, and AAQ read this when full_xmem_row=0.
+    # CR15 dstructure: AGG.*, ACTIVATE, and AAQ read this by default (cr_idx omitted).
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
@@ -41,15 +41,17 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, the selected dstructure lane count is implicit when
-`full_xmem_row=0`:
+In assembly, the dstructure lane count comes from `CR15` by default, or from an
+explicit `cr_idx` operand:
 
 ```asm
-AGG.SUM LR0, 0;;
-ACTIVATE relu, 0;;
+AGG.SUM LR0;;
+ACTIVATE relu;;
+AGG.SUM LR0, CR3;;
+ACTIVATE relu, CR3;;
 ```
 
-For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the explicit `full_xmem_row` operand — `0` reads from `CR15.valid_elements`, `1` always uses 128 lanes.
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the optional `cr_idx` operand — it reads `valid_elements` from the named CR register, defaulting to `CR15` when omitted.
 
 ## Wide-vector debug mode (optional)
 
@@ -62,10 +64,10 @@ The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires a
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu, 0;;
+ACTIVATE relu;;
 ```
 
-- **Syntax:** `ACTIVATE activation_fn, full_xmem_row`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). With `full_xmem_row=0` the active lane count comes from `CR15.valid_elements`, the same implicit dstructure field used by the `AGG.*` instructions; `full_xmem_row=1` always uses all 128 lanes.
+- **Syntax:** `ACTIVATE activation_fn[, cr_idx]`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` defaults to `CR15` when omitted.
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)

@@ -97,6 +97,14 @@ class IpuState:
         """Return the partition field from the CR15 dstructure register."""
         return self.get_cr_dstructure().partition
 
+    def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
+        """Decode the dstructure configuration from an arbitrary CR register.
+
+        Lets mult/acc/aaq stage instructions select which CR supplies their
+        valid element mask and dstructure info, instead of being hard-coded to CR15.
+        """
+        return decode_dstructure(self.regfile.get_cr(cr_idx))
+
     def set_cr_dstructure(
         self,
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
