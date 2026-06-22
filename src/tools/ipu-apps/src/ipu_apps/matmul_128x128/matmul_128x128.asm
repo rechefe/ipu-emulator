@@ -43,22 +43,30 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    RESET_ACC;;
-
     LDR_MULT_REG        r0 lr0 cr0;;     # r0 = A[m][0..127]
 
     SET                 lr4 cr8;;        # first live = 0 = T[k=0]
     SET                 lr5 cr9;;        # first live = 0
-    SET                 lr6 cr10;;       # BLT: exit when snap >= 127; last live = 127
+    SET                 lr6 cr10;;       # BNE: exit when live k == 127; last live = 127
+
+    # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;  # XMEM: r_cyclic[0] = T[k][0..127]
+    ADD                 lr4 lr4 lr13;    # LR0 : weight offset += 128
+    ADD                 lr5 lr5 lr12;    # LR1 : fixed_idx += 1
+    MULT.RC.VE          lr15 lr5 0 lr15; # MULT: A[m][live k] × T[k][0..127]
+    ACC.FIRST;                           # ACC : seed accumulator (= reset + accumulate)
+    BNE                 lr5 lr6 k_loop;; # if K>1 run remaining k; else fall through
+    B                   after_k_loop;;
 
 k_loop:
     LDR_CYCLIC_MULT_REG lr4 cr11 lr15;  # XMEM: r_cyclic[0] = T[k][0..127]
     ADD                 lr4 lr4 lr13;    # LR0 : weight offset += 128
     ADD                 lr5 lr5 lr12;    # LR1 : fixed_idx += 1
-    MULT.VE.CYCLIC      lr15 0 lr15 lr5; # MULT: A[m][live k] × T[k][0..127]
+    MULT.RC.VE          lr15 lr5 0 lr15; # MULT: A[m][live k] × T[k][0..127]
     ACC;                                 # ACC : accumulate
-    BLT                 lr5 lr6 k_loop;; # loop while snap k < 127
+    BNE                 lr5 lr6 k_loop;; # loop while live k != 127
 
+after_k_loop:
     STR_ACC_REG         lr7 cr2;;        # store 512 B → C[m]
     ADD                 lr7 lr7 lr14;    # out ptr += 512
     ADD                 lr0 lr0 lr13;;   # input ptr += 128
