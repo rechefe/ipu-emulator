@@ -32,22 +32,30 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    RESET_ACC;;
-
     LDR_MULT_REG        r0 lr0 cr0;;
 
     SET                 lr4 cr8;;
     SET                 lr5 cr9;;
     SET                 lr6 cr10;;
 
+    # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
+    ADD                 lr4 lr4 lr13;
+    ADD                 lr5 lr5 lr12;
+    MULT.RC.VE          lr15 lr5 0 lr15;
+    ACC.FIRST;
+    BNE                 lr5 lr6 k_loop;;
+    B                   after_k_loop;;
+
 k_loop:
     LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
     ADD                 lr4 lr4 lr13;
     ADD                 lr5 lr5 lr12;
-    MULT.VE.CYCLIC      lr15 0 lr15 lr5;
+    MULT.RC.VE          lr15 lr5 0 lr15;
     ACC;
-    BLT                 lr5 lr6 k_loop;;
+    BNE                 lr5 lr6 k_loop;;
 
+after_k_loop:
     STR_ACC_REG         lr7 cr2;;
     ADD                 lr7 lr7 lr14;    # +256: pack N=64 outputs contiguously
     ADD                 lr0 lr0 lr13;;
