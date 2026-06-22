@@ -893,26 +893,26 @@ class Ipu:
         return best
 
     def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.SUM.FIRST: sum active R_ACC lanes, write to R_ACC[dest] (clean init)."""
+        """Execute AGG.SUM.FIRST: sum active MULT_RES lanes, write to R_ACC[dest] (clean init)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
-        result = self._agg_sum_lanes(fmt, snap_acc, active)
+        result = self._agg_sum_lanes(fmt, mult_res, active)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         if fmt == "<i":
             result = self._to_int32(result)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.SUM: sum active R_ACC lanes and add to R_ACC[dest] (running accumulation)."""
+        """Execute AGG.SUM: sum active MULT_RES lanes and add to R_ACC[dest] (running accumulation)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
-        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
-        partial = self._agg_sum_lanes(fmt, snap_acc, active)
+        snap_dest = struct.unpack_from(fmt, self.snapshot.raw("r_acc"), dest * 4)[0]
+        partial = self._agg_sum_lanes(fmt, mult_res, active)
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
         else:
@@ -920,29 +920,29 @@ class Ipu:
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.MAX.FIRST: max of active R_ACC lanes, write to R_ACC[dest] (no seed).
+        """Execute AGG.MAX.FIRST: max of active MULT_RES lanes, write to R_ACC[dest] (no seed).
 
         When no lanes are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
-        result = self._agg_max_lanes(fmt, snap_acc, active, seed)
+        result = self._agg_max_lanes(fmt, mult_res, active, seed)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
-        """Execute AGG.MAX: max of active R_ACC lanes seeded with R_ACC[dest] (running max)."""
+        """Execute AGG.MAX: max of active MULT_RES lanes seeded with R_ACC[dest] (running max)."""
         valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
         fmt = self._acc_agg_lane_fmt()
-        snap_acc = self.snapshot.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
-        snap_dest = struct.unpack_from(fmt, snap_acc, dest * 4)[0]
-        result = self._agg_max_lanes(fmt, snap_acc, active, snap_dest)
+        snap_dest = struct.unpack_from(fmt, self.snapshot.raw("r_acc"), dest * 4)[0]
+        result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_aaq(self, *, full_xmem_row: int) -> None:

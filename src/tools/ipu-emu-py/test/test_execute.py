@@ -885,7 +885,7 @@ BKPT;;
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
 
     def test_agg_sum_first_basic(self):
-        """AGG.SUM.FIRST: sum all 128 lanes and write to R_ACC[dest] (clean init)."""
+        """AGG.SUM.FIRST: sum all 128 MULT_RES lanes and write to R_ACC[dest] (clean init)."""
         state = _make_state(
             """\
 AGG.SUM.FIRST LR0 1;;
@@ -896,17 +896,17 @@ BKPT;;
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 128, f"expected sum=128, got {result}"
 
     def test_agg_sum_first_ignores_existing_dest(self):
-        """AGG.SUM.FIRST: existing value at dest is NOT added to the result (clean initialisation).
+        """AGG.SUM.FIRST: existing R_ACC[dest] is NOT added to the result (clean initialisation).
 
-        Dest is placed outside the active lane range so its value is excluded from the sum
-        but would be added as a seed in the non-FIRST variant.
+        Dest is placed outside the active lane range so its value would be added
+        as a seed in the non-FIRST variant, but must be ignored here.
         """
         state = _make_state(
             """\
@@ -918,16 +918,16 @@ BKPT;;
         state.set_cr_dstructure(4)  # only lanes 0..3 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        # sum of active lanes 0..3 = 4; existing dest (9999) is NOT added
+        # sum of active MULT_RES lanes 0..3 = 4; existing dest (9999) is NOT added
         assert result == 4, f"expected sum=4 (not 4+9999), got {result}"
 
     def test_agg_sum_first_uses_valid_elements(self):
-        """AGG.SUM.FIRST: only active prefix contributes; tail is excluded."""
+        """AGG.SUM.FIRST: only active MULT_RES prefix contributes; tail is excluded."""
         state = _make_state(
             """\
 AGG.SUM.FIRST LR0 0;;
@@ -939,14 +939,14 @@ BKPT;;
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 10 if i < 4 else 1000
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 40, f"expected sum of 4 tens = 40, got {result}"
 
     def test_agg_sum_first_full_xmem_row_overrides_valid_elements(self):
-        """AGG.SUM.FIRST with full_xmem_row=1 uses all 128 lanes regardless of CR15."""
+        """AGG.SUM.FIRST with full_xmem_row=1 uses all 128 MULT_RES lanes regardless of CR15."""
         state = _make_state(
             """\
 AGG.SUM.FIRST LR0 1;;
@@ -957,14 +957,14 @@ BKPT;;
         state.set_cr_dstructure(valid_elements=4)
         state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
 
     def test_agg_sum_accumulates(self):
-        """AGG.SUM: sum of active lanes is ADDED to existing R_ACC[dest] (running accumulation).
+        """AGG.SUM: sum of active MULT_RES lanes is ADDED to existing R_ACC[dest] (running acc).
 
         Dest is placed outside the active lane range so it acts as a pure accumulator
         that is not double-counted in the sum.
@@ -979,16 +979,16 @@ BKPT;;
         state.set_cr_dstructure(64)  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 1))[0])
         state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 50))[0])
         run_until_complete(state)
-        # sum(R_ACC[0..63]) = 64; R_ACC[127] was 50 → result = 64 + 50 = 114
+        # sum(MULT_RES[0..63]) = 64; R_ACC[127] was 50 → result = 64 + 50 = 114
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 114, f"expected 64+50=114, got {result}"
 
     def test_agg_max_first_basic(self):
-        """AGG.MAX.FIRST: max of all 128 lanes, no seed from dest."""
+        """AGG.MAX.FIRST: max of all 128 MULT_RES lanes, no seed from dest."""
         state = _make_state(
             """\
 AGG.MAX.FIRST LR0 1;;
@@ -999,19 +999,19 @@ BKPT;;
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
-        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 5 + (i % 10)))[0])
+        state.regfile.set_mult_res_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 9999, f"expected max=9999 (from slot 127), got {result}"
+        assert result == 9999, f"expected max=9999 (from MULT_RES slot 127), got {result}"
 
     def test_agg_max_first_ignores_garbage_dest(self):
-        """AGG.MAX.FIRST: existing dest value is NOT used as a seed.
+        """AGG.MAX.FIRST: existing R_ACC[dest] is NOT used as a seed.
 
         Dest is placed outside the active lane range and pre-loaded with a
         large garbage value; a seeded implementation would return it, the
-        clean-init implementation must return the max of the active lanes.
+        clean-init implementation must return the max of the active MULT_RES lanes.
         """
         state = _make_state(
             """\
@@ -1023,12 +1023,12 @@ BKPT;;
         state.set_cr_dstructure(64)  # only lanes 0..63 active
         state.regfile.set_lr(0, 127)  # dest = R_ACC[127], outside active range
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 5))[0])
         state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 9999))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 5, f"expected max of active lanes = 5 (not seed 9999), got {result}"
+        assert result == 5, f"expected max of active MULT_RES lanes = 5 (not R_ACC seed 9999), got {result}"
 
     def test_agg_max_first_zero_active_writes_identity_seed(self):
         """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
@@ -1048,7 +1048,7 @@ BKPT;;
         assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
 
     def test_agg_max_first_masks_tail(self):
-        """AGG.MAX.FIRST: tail lanes beyond valid_elements are excluded."""
+        """AGG.MAX.FIRST: MULT_RES tail lanes beyond valid_elements are excluded."""
         state = _make_state(
             """\
 AGG.MAX.FIRST LR0 0;;
@@ -1060,15 +1060,14 @@ BKPT;;
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 3 if i < 50 else 9999
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 3, f"expected max of active prefix = 3, got {result}"
+        assert result == 3, f"expected max of active MULT_RES prefix = 3, got {result}"
 
     def test_agg_max_seed_wins(self):
-        """AGG.MAX: existing dest value beats all active lanes — dest unchanged."""
+        """AGG.MAX: existing R_ACC[dest] seed beats all active MULT_RES lanes — dest unchanged."""
         state = _make_state(
             """\
 AGG.MAX LR0 1;;
@@ -1079,15 +1078,15 @@ BKPT;;
         state.set_cr_dstructure(128)
         state.regfile.set_lr(0, 127)
         for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", 10))[0])
         state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 99))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
-        assert result == 99, f"expected seed 99 to remain (beats all lanes=10), got {result}"
+        assert result == 99, f"expected seed 99 to remain (beats all MULT_RES lanes=10), got {result}"
 
     def test_agg_max_lane_wins(self):
-        """AGG.MAX: an active lane beats the existing dest — dest updated."""
+        """AGG.MAX: an active MULT_RES lane beats the existing R_ACC[dest] seed — dest updated."""
         state = _make_state(
             """\
 AGG.MAX LR0 0;;
@@ -1099,8 +1098,8 @@ BKPT;;
         state.regfile.set_lr(0, 127)
         for i in range(128):
             v = 5 if i < 100 else 1
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
-        state.regfile.set_r_acc_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
+        state.regfile.set_mult_res_word(63, struct.unpack("<I", struct.pack("<i", 77))[0])
         state.regfile.set_r_acc_word(127, struct.unpack("<I", struct.pack("<i", 3))[0])
         run_until_complete(state)
         raw = state.regfile.get_r_acc_word(127)
@@ -1110,10 +1109,8 @@ BKPT;;
     def test_agg_and_activate_same_cycle_use_snapshot(self):
         """AGG.SUM.FIRST in ACC slot and ACTIVATE in AAQ slot issued together.
 
-        Both must read from the cycle-start snapshot, not from each other's
-        write. ACTIVATE writes POST_AAQ_REG; AGG writes r_acc[dest].
-        Neither's output should be influenced by the other's write in the
-        same cycle.
+        AGG reads from MULT_RES (live) and writes r_acc[dest].
+        ACTIVATE reads from the cycle-start snapshot of r_acc (not the AGG write).
         """
         state = _make_state(
             """\
@@ -1123,19 +1120,19 @@ BKPT;;
         )
         state.dtype = DType.INT8
         state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
-        # Fill lanes: all 3.0 as float32 for ACTIVATE; values = 3 as int32 for AGG
         import struct as _struct
         for i in range(128):
-            # Store int32(3) — used by AGG.SUM.FIRST
+            # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
+            state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
+            # r_acc lanes = 3 (source for ACTIVATE snapshot)
             state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
 
-        # AGG.SUM.FIRST must have summed the snapshot r_acc (128 lanes × 3 = 384)
-        # NOT the post-ACTIVATE live state
+        # AGG.SUM.FIRST must have summed MULT_RES (128 lanes × 3 = 384) into r_acc[0]
         raw_agg = state.regfile.get_r_acc_word(0)
         agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
-        assert agg_result == 384, f"AGG saw wrong r_acc: expected 384, got {agg_result}"
+        assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
 
         # ACTIVATE relu must have applied relu to the snapshot r_acc (all lanes 3 → 3)
         # NOT the post-AGG r_acc where lane 0 = 384.
