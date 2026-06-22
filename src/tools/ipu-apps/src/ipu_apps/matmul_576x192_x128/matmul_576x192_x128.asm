@@ -41,24 +41,29 @@
 #   OUTPUT:  576 rows x 256 B  = 147 456 B (0x40000..0x63FFF, +256B spill)
 
 j_loop:
-    RESET_ACC;;
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, 0..127]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
 
-k_chunk0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
-    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_chunk0;;
+    # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 k_chunk0;;
+    B after_chunk0;;
 
+k_chunk0:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk0;;
+
+after_chunk0:
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, 128..191]+zeros
 
 k_chunk1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
-    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr11 k_chunk1;;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr11 k_chunk1;;
 
     STR_ACC_REG lr7 cr3;;                    # store 512B -> OUTPUT[j] (first 256B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed, 256B)
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 1;;        # next j: weight offset += W_STRIDE, j++
+    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j: weight offset += W_STRIDE, j++
     BLT lr9 lr10 j_loop;;
 
 end:
