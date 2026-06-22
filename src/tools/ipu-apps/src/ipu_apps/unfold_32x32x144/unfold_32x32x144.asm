@@ -11,11 +11,12 @@
 #   4 streams × 288 rows × 512 bytes (128 FP32 words per row).
 #   Stream s, ch c, tg t: at DST_s + (c×2 + t) × 512.
 #
-# New kernel: MULT.EE replaces MULT.EV mem_bypass (mem_bypass removed in PR #69).
-#   Old shape: stripe row in mem_bypass (vector), ones scalar from r_cyclic via cyclic index.
-#   New shape: stripe row in r0 (via LDR_MULT_REG r0), ones preloaded into r_cyclic once.
-#              MULT.EE r0 lr0 0 lr0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
+# Pass-through multiply: MULT.RC.VV (post-merge; was MULT.EE, itself replacing
+#   MULT.EV mem_bypass removed in PR #69).
+#   stripe row in r0 (via LDR_MULT_REG r0), ones preloaded into r_cyclic once.
+#              MULT.RC.VV lr0 r0 0 lr0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
 #   r_cyclic[0..127] = 1.0 (loaded once at startup, never overwritten in the loop).
+#   RESET_ACC removed: the 4 ACC.STRIDE calls direct-write all 4 r_acc slots.
 #
 # Stream definitions (acc.stride mode with elements_in_row=32):
 #   128 elements from one stripe = 4 rows × 32 cols
@@ -87,70 +88,62 @@ ch_loop:
     # Stream TL  (h=on=even cols,  v=on=even rows)
     # -----------------------------------------------------------------------
     # tg=0: stripes 0..3 with cr0..cr3
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr3;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr0;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr1;;
+    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr2;;
+    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr3;;
     STR_ACC_REG         lr8 cr9;;           # TL tg=0 → DST_TL + ch×2×512
 
     # tg=1: stripes 4..7 with cr4..cr7
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr4; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on lr3;;
+    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr0;;
+    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr1;;
+    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr2;;
+    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on lr3;;
     STR_ACC_REG         lr9 cr9;;           # TL tg=1 → DST_TL + ch×1024 + 512
 
     # -----------------------------------------------------------------------
     # Stream TR  (h=on_inv=odd cols,  v=on=even rows)
     # -----------------------------------------------------------------------
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr3;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr0;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
+    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr2;;
+    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr3;;
     STR_ACC_REG         lr8 cr10;;          # TR tg=0
 
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr4; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on lr3;;
+    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr0;;
+    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr1;;
+    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr2;;
+    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on lr3;;
     STR_ACC_REG         lr9 cr10;;          # TR tg=1
 
     # -----------------------------------------------------------------------
     # Stream BL  (h=on=even cols,  v=on_inv=odd rows)
     # -----------------------------------------------------------------------
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr3;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr2;;
+    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr3;;
     STR_ACC_REG         lr8 cr11;;          # BL tg=0
 
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr4; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on on_inv lr3;;
+    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr2;;
+    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on on_inv lr3;;
     STR_ACC_REG         lr9 cr11;;          # BL tg=1
 
     # -----------------------------------------------------------------------
     # Stream BR  (h=on_inv=odd cols,  v=on_inv=odd rows)
     # -----------------------------------------------------------------------
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr3;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr2;;
+    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr3;;
     STR_ACC_REG         lr8 cr12;;          # BR tg=0
 
-    RESET_ACC;;
-    LDR_MULT_REG r0 lr4 cr4; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.EE r0 lr0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr3;;
+    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr2;;
+    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0; ACC.STRIDE 32 on_inv on_inv lr3;;
     STR_ACC_REG         lr9 cr12;;          # BR tg=1
 
     # -----------------------------------------------------------------------
@@ -158,7 +151,7 @@ ch_loop:
     # -----------------------------------------------------------------------
     ADD                 lr4 lr4 lr5;;            # src offset: next channel (+128)
     ADD                 lr8 lr8 lr6; ADD lr9 lr9 lr6;;  # dst offsets: +1024 per channel
-    ADD                 lr10 lr10 1;;
+    ADD                 lr10 lr10 cr1;;
     BLT                 lr10 lr11 ch_loop;;      # loop while ch < 144
 
 end:
