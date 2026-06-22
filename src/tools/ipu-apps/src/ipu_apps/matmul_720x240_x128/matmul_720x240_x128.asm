@@ -1,0 +1,47 @@
+# Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]   (Layer 5 QKV)
+#
+# Single token group (N_TOK=16 <= 128): one accumulate+store pass per output j.
+#
+# D: channel-major [K=240 channels, 128 tokens]  (16 valid, padded to 128)
+#    Row k at DATA_BASE + k*128
+# W: output-major [720 out_ch, 240 in_ch], NO transposition; 2 chunks of <=128 bytes
+#    W[j, 0..127] at WEIGHTS_BASE + j*256 + 0
+#    W[j, 128..239] at WEIGHTS_BASE + j*256 + 128 (padded to 128)
+# C: channel-major [720 out_ch, 16 tokens] FP32, packed at OUTPUT_BASE + j*64
+#
+# lr4 (data ptr) advances continuously by 128 across chunks; lr5 reset to -1 per chunk.
+# Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
+#
+# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
+# LRs: lr0=0, lr2=128 (data stride), lr3=64 (output stride), lr6=126 (width-128 bound),
+#      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=720 (j limit),
+#      lr11=110 (tail-chunk bound, width=112), lr12=256 (W_STRIDE)
+#
+# Memory layout:
+#   DATA:    240 x 128 B      =   30720 B (0x00000..0x077FF)
+#   WEIGHTS: 720 rows x 256 B =  184320 B (0x10000..0x3CFFF)
+#   OUTPUT:  720 rows x 64 B =   46080 B (0x40000..0x4B3FF)
+
+j_loop:
+    RESET_ACC;;
+    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
+    SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
+
+k_chunk0:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr6 k_chunk0;;
+
+    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, chunk1]
+
+k_chunk1:
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 1;
+    MULT.VE.CYCLIC lr0 0 lr0 lr5; ACC; BLT lr5 lr11 k_chunk1;;
+
+    STR_ACC_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
+    ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
+
+    ADD lr8 lr8 lr12; ADD lr9 lr9 1;;        # next j
+    BLT lr9 lr10 j_loop;;
+
+end:
+    BKPT;;

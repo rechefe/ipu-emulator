@@ -774,3 +774,475 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- matmul_576x192_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_576x192_x128/matmul_576x192_x128.asm",
+])
+
+filegroup(
+    name = "matmul_576x192_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_576x192_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_576x192_x128",
+    src = "src/ipu_apps/matmul_576x192_x128/matmul_576x192_x128.asm",
+)
+
+py_binary(
+    name = "matmul_576x192_x128",
+    srcs = ["src/ipu_apps/matmul_576x192_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_576x192_x128/__main__.py",
+    data = [
+        ":assemble_matmul_576x192_x128.bin",
+        ":matmul_576x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+        "MATMUL_576X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_576x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_576x192_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_576x192_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_576x192_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_576x192_x128",
+    size = "large",
+    srcs = ["test/test_matmul_576x192_x128.py"],
+    data = [
+        ":assemble_matmul_576x192_x128.bin",
+        ":matmul_576x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+        "MATMUL_576X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_576x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_192x192_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_192x192_x128/matmul_192x192_x128.asm",
+])
+
+filegroup(
+    name = "matmul_192x192_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_192x192_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_192x192_x128",
+    src = "src/ipu_apps/matmul_192x192_x128/matmul_192x192_x128.asm",
+)
+
+py_binary(
+    name = "matmul_192x192_x128",
+    srcs = ["src/ipu_apps/matmul_192x192_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_192x192_x128/__main__.py",
+    data = [
+        ":assemble_matmul_192x192_x128.bin",
+        ":matmul_192x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_192X192_X128_INST_BIN": "$(rootpath :assemble_matmul_192x192_x128.bin)",
+        "MATMUL_192X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_192x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_192x192_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_192x192_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_192x192_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_192x192_x128",
+    size = "large",
+    srcs = ["test/test_matmul_192x192_x128.py"],
+    data = [
+        ":assemble_matmul_192x192_x128.bin",
+        ":matmul_192x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_192X192_X128_INST_BIN": "$(rootpath :assemble_matmul_192x192_x128.bin)",
+        "MATMUL_192X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_192x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_384x192_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_384x192_x128/matmul_384x192_x128.asm",
+])
+
+filegroup(
+    name = "matmul_384x192_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_384x192_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_384x192_x128",
+    src = "src/ipu_apps/matmul_384x192_x128/matmul_384x192_x128.asm",
+)
+
+py_binary(
+    name = "matmul_384x192_x128",
+    srcs = ["src/ipu_apps/matmul_384x192_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_384x192_x128/__main__.py",
+    data = [
+        ":assemble_matmul_384x192_x128.bin",
+        ":matmul_384x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_384X192_X128_INST_BIN": "$(rootpath :assemble_matmul_384x192_x128.bin)",
+        "MATMUL_384X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_384x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_384x192_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_384x192_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_384x192_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_384x192_x128",
+    size = "large",
+    srcs = ["test/test_matmul_384x192_x128.py"],
+    data = [
+        ":assemble_matmul_384x192_x128.bin",
+        ":matmul_384x192_x128_test_data",
+    ],
+    env = {
+        "MATMUL_384X192_X128_INST_BIN": "$(rootpath :assemble_matmul_384x192_x128.bin)",
+        "MATMUL_384X192_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_384x192_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_192x384_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_192x384_x128/matmul_192x384_x128.asm",
+])
+
+filegroup(
+    name = "matmul_192x384_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_192x384_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_192x384_x128",
+    src = "src/ipu_apps/matmul_192x384_x128/matmul_192x384_x128.asm",
+)
+
+py_binary(
+    name = "matmul_192x384_x128",
+    srcs = ["src/ipu_apps/matmul_192x384_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_192x384_x128/__main__.py",
+    data = [
+        ":assemble_matmul_192x384_x128.bin",
+        ":matmul_192x384_x128_test_data",
+    ],
+    env = {
+        "MATMUL_192X384_X128_INST_BIN": "$(rootpath :assemble_matmul_192x384_x128.bin)",
+        "MATMUL_192X384_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_192x384_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_192x384_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_192x384_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_192x384_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_192x384_x128",
+    size = "large",
+    srcs = ["test/test_matmul_192x384_x128.py"],
+    data = [
+        ":assemble_matmul_192x384_x128.bin",
+        ":matmul_192x384_x128_test_data",
+    ],
+    env = {
+        "MATMUL_192X384_X128_INST_BIN": "$(rootpath :assemble_matmul_192x384_x128.bin)",
+        "MATMUL_192X384_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_192x384_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_720x240_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_720x240_x128/matmul_720x240_x128.asm",
+])
+
+filegroup(
+    name = "matmul_720x240_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_720x240_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_720x240_x128",
+    src = "src/ipu_apps/matmul_720x240_x128/matmul_720x240_x128.asm",
+)
+
+py_binary(
+    name = "matmul_720x240_x128",
+    srcs = ["src/ipu_apps/matmul_720x240_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_720x240_x128/__main__.py",
+    data = [
+        ":assemble_matmul_720x240_x128.bin",
+        ":matmul_720x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_720X240_X128_INST_BIN": "$(rootpath :assemble_matmul_720x240_x128.bin)",
+        "MATMUL_720X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_720x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_720x240_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_720x240_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_720x240_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_720x240_x128",
+    size = "large",
+    srcs = ["test/test_matmul_720x240_x128.py"],
+    data = [
+        ":assemble_matmul_720x240_x128.bin",
+        ":matmul_720x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_720X240_X128_INST_BIN": "$(rootpath :assemble_matmul_720x240_x128.bin)",
+        "MATMUL_720X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_720x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_240x240_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_240x240_x128/matmul_240x240_x128.asm",
+])
+
+filegroup(
+    name = "matmul_240x240_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_240x240_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_240x240_x128",
+    src = "src/ipu_apps/matmul_240x240_x128/matmul_240x240_x128.asm",
+)
+
+py_binary(
+    name = "matmul_240x240_x128",
+    srcs = ["src/ipu_apps/matmul_240x240_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_240x240_x128/__main__.py",
+    data = [
+        ":assemble_matmul_240x240_x128.bin",
+        ":matmul_240x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_240X240_X128_INST_BIN": "$(rootpath :assemble_matmul_240x240_x128.bin)",
+        "MATMUL_240X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_240x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_240x240_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_240x240_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_240x240_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_240x240_x128",
+    size = "large",
+    srcs = ["test/test_matmul_240x240_x128.py"],
+    data = [
+        ":assemble_matmul_240x240_x128.bin",
+        ":matmul_240x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_240X240_X128_INST_BIN": "$(rootpath :assemble_matmul_240x240_x128.bin)",
+        "MATMUL_240X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_240x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_480x240_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_480x240_x128/matmul_480x240_x128.asm",
+])
+
+filegroup(
+    name = "matmul_480x240_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_480x240_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_480x240_x128",
+    src = "src/ipu_apps/matmul_480x240_x128/matmul_480x240_x128.asm",
+)
+
+py_binary(
+    name = "matmul_480x240_x128",
+    srcs = ["src/ipu_apps/matmul_480x240_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_480x240_x128/__main__.py",
+    data = [
+        ":assemble_matmul_480x240_x128.bin",
+        ":matmul_480x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_480X240_X128_INST_BIN": "$(rootpath :assemble_matmul_480x240_x128.bin)",
+        "MATMUL_480X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_480x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_480x240_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_480x240_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_480x240_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_480x240_x128",
+    size = "large",
+    srcs = ["test/test_matmul_480x240_x128.py"],
+    data = [
+        ":assemble_matmul_480x240_x128.bin",
+        ":matmul_480x240_x128_test_data",
+    ],
+    env = {
+        "MATMUL_480X240_X128_INST_BIN": "$(rootpath :assemble_matmul_480x240_x128.bin)",
+        "MATMUL_480X240_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_480x240_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- matmul_240x480_x128 app ------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/matmul_240x480_x128/matmul_240x480_x128.asm",
+])
+
+filegroup(
+    name = "matmul_240x480_x128_test_data",
+    srcs = glob(["src/ipu_apps/matmul_240x480_x128/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_matmul_240x480_x128",
+    src = "src/ipu_apps/matmul_240x480_x128/matmul_240x480_x128.asm",
+)
+
+py_binary(
+    name = "matmul_240x480_x128",
+    srcs = ["src/ipu_apps/matmul_240x480_x128/__main__.py"],
+    main = "src/ipu_apps/matmul_240x480_x128/__main__.py",
+    data = [
+        ":assemble_matmul_240x480_x128.bin",
+        ":matmul_240x480_x128_test_data",
+    ],
+    env = {
+        "MATMUL_240X480_X128_INST_BIN": "$(rootpath :assemble_matmul_240x480_x128.bin)",
+        "MATMUL_240X480_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_240x480_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_matmul_240x480_x128_test_data",
+    srcs = ["src/ipu_apps/matmul_240x480_x128/gen_test_data.py"],
+    main = "src/ipu_apps/matmul_240x480_x128/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_matmul_240x480_x128",
+    size = "large",
+    srcs = ["test/test_matmul_240x480_x128.py"],
+    data = [
+        ":assemble_matmul_240x480_x128.bin",
+        ":matmul_240x480_x128_test_data",
+    ],
+    env = {
+        "MATMUL_240X480_X128_INST_BIN": "$(rootpath :assemble_matmul_240x480_x128.bin)",
+        "MATMUL_240X480_X128_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/matmul_240x480_x128/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
