@@ -14,7 +14,6 @@
 {%- set lr_sb_off = "lr12" -%}
 {%- set lr_shift_p1 = "lr13" -%}
 {%- set lr_scratch = "lr14" -%}
-{%- set lr_bias_pad = "lr15" -%}
 {%- set cr_zero = "cr0" -%}
 {%- set cr_out_base = "cr2" -%}
 {%- set cr_mask_base = "cr3" -%}
@@ -44,7 +43,7 @@
 #   At each new input channel lr_read advances by +256 mod 512.
 #
 # WALKING POINTER lr3 (= lr_walk):
-#   Single offset that walks through 9 mult.ve.cyclic taps:
+#   Single offset that walks through 9 MULT.RC.VE taps:
 #     tap 1 (kr=-1 kc=-1): lr_read - cols - 1
 #     tap 2 (kr=-1 kc= 0): lr_read - cols
 #     tap 3 (kr=-1 kc=+1): lr_read - cols + 1
@@ -56,7 +55,7 @@
 #     tap 9 (kr=+1 kc=+1): lr_read + cols + 1
 #
 #   Convention: at tap K, the LR sub-slot writes lr3 = (tap K-1's offset)
-#   + step.  mult.ve.cyclic at tap K reads lr3 LIVE = tap K's offset.
+#   + step.  MULT.RC.VE at tap K reads lr3 LIVE = tap K's offset.
 #   Steps: tap 1: +cr14 (= 256-2cols-2, end-of-9 from prev ch's tap 9);
 #          taps 4, 7: +lr1 (= cols - 2);
 #          all other taps: +1.
@@ -111,6 +110,7 @@
 #   lr12 = kernel super-block offset
 #   lr13 = scratch
 #   lr14 = scratch
+#   (lr15 free)
 #
 # Mask scheme (mask shift for L/R, composite slots for vertical borders):
 #   Left/right edge columns are zeroed by mask_shift (NOT by slots), with
@@ -137,16 +137,9 @@
     SET                 {{ lr_chunk_base }} {{ cr_zero }};
     SET                 {{ lr_out_ptr }} {{ cr_zero }};;
 
-    sub                 {{ lr_cols_m2 }} {{ lr_cols_m2 }} 2;          # {{ lr_cols_m2 }} = cols - 2 (permanent)
-    add                 {{ lr_shift_p1 }} {{ lr_zero }} 1;         # {{ lr_shift_p1 }} = +1 (mask_shift for kc=-1, permanent)
-    sub                 {{ lr_shift_m1 }} {{ lr_zero }} 1;;         # {{ lr_shift_m1 }}  = -1 (mask_shift for kc=+1, permanent)
-
-    # lr15 = 512 = R_CYCLIC size: a padded cyclic_offset >= 512 makes every lane
-    # of mult.ve.padded read the dtype-1 pad, so "bias_byte * 1" broadcasts the
-    # filter bias across all 128 lanes for the per-filter bias seed. (lr15 is a
-    # permanent constant, never clobbered by the tap bodies.)
-    SET                 {{ lr_bias_pad }} {{ cr_sb_bytes }};;         # {{ lr_bias_pad }} = 256
-    add                 {{ lr_bias_pad }} {{ lr_bias_pad }} {{ cr_sb_bytes }};;    # {{ lr_bias_pad }} = 512
+    DEC                 {{ lr_cols_m2 }} 2;                           # {{ lr_cols_m2 }} = cols - 2 (permanent)
+    SET                 {{ lr_shift_p1 }} 1;                         # {{ lr_shift_p1 }} = +1 (mask_shift for kc=-1, permanent)
+    SET                 {{ lr_shift_m1 }} -1;;                       # {{ lr_shift_m1 }} = -1 (mask_shift for kc=+1, permanent)
 
 # ===========================================================================
 # Section 1: Chunk 0 (top border) — kr=-1 row is zeros (loaded from cr9).
@@ -159,7 +152,7 @@ g0_filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    mult.ve.padded      {{ lr_bias_pad }} 0 {{ lr_zero }} {{ lr_zero }};   # bias = R0[0] * 1 (all lanes via pad)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
     acc.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
@@ -191,7 +184,7 @@ g0_ch_loop:
     # lr3 = 1 (seed for -255: next cycle sub lr3 lr3 cr13 → 1-256 = -255).
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
-    add                 {{ lr_walk }} {{ lr_zero }} 1;
+    SET                 {{ lr_walk }} 1;
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -228,69 +221,69 @@ g0_tap_body:
     #     data; row-0 lanes are masked to 0 and rows 1+ take their real
     #     above-neighbour from the kr=0 slot via the walking pointer.
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 3 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
-    mult.ve.cyclic      {{ lr_walk }} 3 {{ lr_zero }} {{ lr_kern_idx }};
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_zero }};
     acc;;
 
     # --- tap 3: kr=-1 kc=+1.  slot 3 + kc=+1 shift (lr9).  lr2 += cr12 for tap 4.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 3 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 4: kr=0 kc=-1.  Load NEXT ch kr=0 → slot lr5 (= lr_read+256).
     #     XMEM offset = lr2 LIVE (post-tap-3 = lr8+lr10(N+1)).
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_read }} {{ cr_sb_bytes }};
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 5.  lr5 += cr12 → lr_read+384.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 6.  lr10 += cr12 (loop counter).
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 7: kr=+1 kc=-1.  Load NEXT ch kr=+1 → slot lr5 (= lr_read+384).
     #     XMEM offset = lr14 (= lr2 + cr6 = lr8+lr10(N+1)+cr6).
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 8.  Rotate lr_read for next iter.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_read }} {{ cr_sb_bytes }} 9;
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 9: kr=+1 kc=+1.  Compute lr_write for NEXT iter's tap 1.
     #     aaq quantizes r_acc -> aaq_result (fires every iter; only last matters).
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_write }} {{ lr_read }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} g0_tap_body;;
 
@@ -339,7 +332,7 @@ filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    mult.ve.padded      {{ lr_bias_pad }} 0 {{ lr_zero }} {{ lr_zero }};   # bias = R0[0] * 1 (all lanes via pad)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
     acc.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
@@ -362,7 +355,7 @@ ch_loop:
     # Cy 2: lr_write = 128; ext = lr2+cr6 (kr=+1).  lr3 = 1 (seed for -255).
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
-    add                 {{ lr_walk }} {{ lr_zero }} 1;
+    SET                 {{ lr_walk }} 1;
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -380,68 +373,68 @@ mn_tap_body:
 
     # --- tap 1: kr=-1 kc=-1.  Load this ch kr=-1 ext = lr8+lr10(N)-cr6 = lr2-cr6.
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 2.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 3.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 4: NEXT ch kr=0 ext = lr2 LIVE.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_read }} {{ cr_sb_bytes }};
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 5.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 6.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 7: NEXT ch kr=+1 ext = lr2+cr6.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 8: rotate lr_read.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_read }} {{ cr_sb_bytes }} 9;
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 9: prep lr5 for next iter tap 1.
     #     aaq fires every iter; only the final aaq_result (after all in_ch) matters.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_write }} {{ lr_read }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} mn_tap_body;;
 
@@ -491,7 +484,7 @@ gN_filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    mult.ve.padded      {{ lr_bias_pad }} 0 {{ lr_zero }} {{ lr_zero }};   # bias = R0[0] * 1 (all lanes via pad)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
     acc.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
@@ -517,7 +510,7 @@ gN_ch_loop:
     # chunk's own base (lr2, valid) instead of a zero chunk; the bottom row's lanes
     # are masked to 0 on the kr=+1 taps (slots 3/4/5), rows above read real data.
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
-    add                 {{ lr_walk }} {{ lr_zero }} 1;
+    SET                 {{ lr_walk }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};;
 
     # Cy 3: lr3 = 1-256 = -255; lr5 = 128+256 = 384.
@@ -537,45 +530,45 @@ gN_tap_body:
 
     # --- tap 1: this ch kr=-1 from cr10.
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 2.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 3.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 4: NEXT ch kr=0 from cr10.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_read }} {{ cr_sb_bytes }};
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 5.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_write }} {{ lr_write }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
     # --- tap 6.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 0 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom border: slot 6 zeros the last packed row
@@ -583,23 +576,23 @@ gN_tap_body:
     #     Load the kr=+1 slot with this chunk's own base (lr2, valid) — there is
     #     no chunk below; the bottom row's lanes are masked by slot 6.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    mult.ve.cyclic      {{ lr_walk }} 6 {{ lr_shift_p1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_p1 }};
     acc;;
 
     # --- tap 8: kr=+1 kc=0.  slot 6 = bottom row only.  Rotate lr_read.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_read }} {{ cr_sb_bytes }} 9;
-    mult.ve.cyclic      {{ lr_walk }} 6 {{ lr_zero }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_zero }};
     acc;;
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift (lr9).  Prep lr5 for next iter.
-    add                 {{ lr_walk }} {{ lr_walk }} 1;
-    add                 {{ lr_kern_idx }} {{ lr_kern_idx }} 1;
+    INC                 {{ lr_walk }} 1;
+    INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_write }} {{ lr_read }} {{ cr_chunk_bytes }};
-    mult.ve.cyclic      {{ lr_walk }} 6 {{ lr_shift_m1 }} {{ lr_kern_idx }};
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_m1 }};
     acc;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} gN_tap_body;;
 
