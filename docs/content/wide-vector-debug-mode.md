@@ -49,7 +49,7 @@ The high-level helper [`run_test`](https://github.com/rechefe/ipu-emulator/blob/
 While **addresses are still byte addresses**, wide mode changes how much data some loads consume per instruction:
 
 - **`LDR_MULT_REG`** reads **512 elements** from XMEM (128×FP32 or 128×INT32, depending on `wide_vector_arithmetic`) into internal staging for **`R0` or `R1` only**. The architectural 128-element `r` register in the regfile is not the source for mult operands in this mode.
-- **`LDR_CYCLIC_MULT_REG`** reads **512 elements** into `r_cyclic` at the given **`index`**, which must be **aligned to 512** (same rule as 128-element alignment in normal mode, scaled to the wide chunk).
+- **`LDR_CYCLIC_MULT_REG`** reads **512 elements** into `r_cyclic` at the given **`index`**, which loads the entire register in one shot, so **`index` must be `0`**. (In normal mode `index` must be one of the four 128-element slot boundaries — `0`, `128`, `256`, `384`; any other value raises an error.)
 
 Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
 
@@ -57,13 +57,13 @@ Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
 
 Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit lanes starting at a **byte offset**:
 
-- **`cyclic_offset`** and **`fixed_cyclic_idx`** passed to mult instructions must be **4-byte aligned**. Unaligned values raise `EmulatorError` so you do not silently mis-read lane boundaries.
+- **`rc_idx`** (and any LR-encoded `src`/`ra_idx` used to further index into Ra) passed to mult instructions must be **4-byte aligned**. Unaligned values raise `EmulatorError` so you do not silently mis-read lane boundaries.
 
 ## Semantics that differ from normal mode
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 lanes.
 - **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full lane results remain in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 512 elements of accumulator data.
-- **LR and CR** are **not** widened; scalars such as **`MULT.VE.CR`** still use the **low byte** of a CR as a signed value in the wide path.
+- **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32
 

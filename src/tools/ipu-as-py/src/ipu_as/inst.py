@@ -9,7 +9,6 @@ from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
     InstructionDoc,
-    SLOT_COUNT,
     SLOT_UNIONS,
     is_hardware_slot,
 )
@@ -36,7 +35,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
     "LcrIdx": reg.LcrRegField,
-    "AddSubSrcB": immediate.AddSubSrcBField,
+    "LrIncDecImmediate": immediate.LrIncDecImmediate,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
     "VerticalStride": immediate.VerticalStrideField,
@@ -252,7 +251,7 @@ class Inst:
             inst_class = slot_to_class.get(slot)
             if inst_class is None:
                 continue
-            seen.extend([inst_class] * SLOT_COUNT.get(slot, 1))
+            seen.append(inst_class)
         # Any subclasses not in COMPOUND_LAYOUT_SLOT_ORDER (should not happen).
         for subclass in cls.__subclasses__():
             if subclass not in seen:
@@ -597,14 +596,10 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "ADD", line=0, column=0),
+                    token=lark.Token("TOKEN", "INC", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [
-                    ipu_token.AnnotatedToken(
-                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
-                        instr_id=addr,
-                    ),
                     ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "lr0", line=0, column=0),
                         instr_id=addr,
@@ -642,15 +637,25 @@ class CondInst(Inst):
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
+        # B is a pseudo-instruction (expands to BEQ CR0, CR0, label), so the
+        # cond-slot filler is written directly as the real BEQ it expands to:
+        # CR0 always equals itself, so this branches to the very next
+        # instruction, i.e. falls through like a NOP.
         return CondInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "B", line=0, column=0), instr_id=addr
+                    token=lark.Token("TOKEN", "BEQ", line=0, column=0), instr_id=addr
                 ),
                 "operands": [
                     ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "CR0", line=0, column=0), instr_id=addr
+                    ),
+                    ipu_token.AnnotatedToken(
+                        token=lark.Token("TOKEN", "CR0", line=0, column=0), instr_id=addr
+                    ),
+                    ipu_token.AnnotatedToken(
                         token=lark.Token("TOKEN", "+1", line=0, column=0), instr_id=addr
-                    )
+                    ),
                 ],
             }
         )

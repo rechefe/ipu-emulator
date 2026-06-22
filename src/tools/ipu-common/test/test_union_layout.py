@@ -76,6 +76,25 @@ def test_lr_slot_sharing():
     )
 
 
+def test_lr_slot_opcode_bits():
+    """Six LR opcodes require a 3-bit opcode field."""
+    assert SLOT_UNIONS["lr"].opcode_bits == 3
+
+
+def test_lr_slot_total_width_unchanged():
+    """LR sub-instruction stays 17 bits after INC/DEC and opcode growth."""
+    su = SLOT_UNIONS["lr"]
+    total = su.opcode_bits + sum(f.bits for f in su.fields)
+    assert total == 17, f"Expected 17-bit LR slot, got {total}"
+
+
+def test_lr_inc_dec_imm_width_derived():
+    """INC/DEC immediate width is derived from the union layout (5 bits)."""
+    from ipu_common.lr_inc_dec_imm import LR_INC_DEC_IMM_FIELD_BITS
+
+    assert LR_INC_DEC_IMM_FIELD_BITS == 5
+
+
 def test_all_slots_present():
     """All expected slots are computed."""
     expected = {"load", "store", "acc_store", "lr", "mult", "acc", "aaq", "cond", "break"}
