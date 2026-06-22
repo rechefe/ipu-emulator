@@ -50,8 +50,8 @@
     SET     lr6  cr12;;
     SET     lr7  cr13;;
     ADD     lr7  lr7  lr7;;            # lr7 = 1024 (data stride = N_TG × 512)
-    SET     lr11 cr0;;
-    ADD     lr11 lr11 2;;              # lr11 = 2  (N_TG)
+    SET     lr11 cr1;;
+    ADD     lr11 lr11 cr1;;            # lr11 = 2  (N_TG); built from CR1(=1)
     SET     lr12 cr13;;                # lr12 = 512 (scratch/output stride)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
     SET     lr9  cr0;;
-    ADD     lr9  lr9  1;;              # lr9 = 1  (tg counter, BLT reads snap)
+    ADD     lr9  lr9  cr1;;              # lr9 = 1  (tg counter, BLT reads snap)
     SET     lr10 cr0;;                # lr10 = 0  (tg byte offset)
 
 tg_loop:
@@ -74,17 +74,22 @@ tg_loop:
 # ADD lr2 lr2 lr7 (=1024) fires first → live = ch*1024 + tg*512 on iteration ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    RESET_ACC;;
     LDR_MULT_REG        r0 lr0 cr4;;   # r0 ← -1/N
 
     SET     lr2  cr0;;
     SUB     lr2  lr2  lr7;;            # lr2 = -1024
     ADD     lr2  lr2  lr10;;           # lr2 = tg_offset - 1024
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
+
+    # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step1_loop;;
+    B       step1_done;;
 step1_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC;;
-    ADD     lr5  lr5  1; BLT lr5 lr6 step1_loop;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step1_loop;;
+step1_done:
 
     STR_ACC_REG         lr0 cr6;;      # NEG_MEAN_BASE = -μ
 
@@ -104,12 +109,12 @@ step1_loop:
     SET     lr3  cr0;;
     SUB     lr3  lr3  lr12;;           # lr3 = -512 (centered stride)
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
 step2_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.EE r1 lr0 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VV lr0 r1 0 lr1; ACC;;
     STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr12;;
-    ADD     lr5  lr5  1; BLT lr5 lr6 step2_loop;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 3: Σ_ch (centered[ch,i])²    using MULT.EE.RR
@@ -117,16 +122,21 @@ step2_loop:
 # lr2 = -512 (centered read ptr). Two cycles per ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    RESET_ACC;;
-
     SET     lr2  cr0;;
     SUB     lr2  lr2  lr12;;
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
+
+    # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
+    # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): load centered[ch]
+    # into r_cyclic, then square it in place.
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VS lr0 0 lr1; ACC.FIRST;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step3_loop;;
+    B       step3_done;;
 step3_loop:
-    LDR_MULT_REG        r0 lr2 cr7; ADD lr2 lr2 lr12;;
-    MULT.EE.RR          r0 0 lr1; ACC;;
-    ADD     lr5  lr5  1; BLT lr5 lr6 step3_loop;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VS lr0 0 lr1; ACC;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step3_loop;;
+step3_done:
 
     STR_ACC_REG         lr0 cr8;;
 
@@ -135,7 +145,7 @@ step3_loop:
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr8;;
-    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
 
     ACTIVATE            rsqrt 1;;
     STR_POST_AAQ_REG    lr0 cr9;;
@@ -151,11 +161,11 @@ step3_loop:
     SET     lr2  cr0;;
     SUB     lr2  lr2  lr12;;
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
 step5_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.EE r0 lr0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
     STR_ACC_REG         lr2 cr7;;
-    ADD     lr5  lr5  1; BLT lr5 lr6 step5_loop;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr6 step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: output[ch,i] = γ[ch] × normalized[ch,i] + β[ch]
@@ -188,7 +198,7 @@ step5_loop:
     SUB     lr3  lr3  lr7;;            # output write ptr = -1024
     ADD     lr3  lr3  lr10;;           # = tg_offset - 1024
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
     SET     lr13 cr0;;                # fixed_idx γ = 0
     SET     lr14 cr14;;                # fixed_idx β = 128
 
@@ -197,10 +207,10 @@ step5_loop:
     SET     lr15 cr14;;                # lr15 = 128
 
 step6A_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.VE.CYCLIC lr0 0 lr1 lr13; ACC.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.VE.CYCLIC lr0 0 lr1 lr14; ACC;;
-    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 1; ADD lr14 lr14 1;;
-    ADD     lr5  lr5  1; BLT lr5 lr15 step6A_loop;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VE lr0 lr13 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr14 0 lr1; ACC;;
+    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 cr1; ADD lr14 lr14 cr1;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr15 step6A_loop;;
 
     # ---- Sub-loop B: ch=128..143 (16 channels) ----
     LDR_MULT_REG        r0 lr12 cr11;; # r0 ← γ row 1 (offset=512)
@@ -208,26 +218,29 @@ step6A_loop:
 
     # lr2 and lr3 carry over from sub-loop A (already at ch=128 positions)
     SET     lr5  cr0;;
-    ADD     lr5  lr5  1;;
+    ADD     lr5  lr5  cr1;;
     SET     lr13 cr0;;                # fixed_idx γ = 0 (row 1 starts at lane 0)
     SET     lr14 cr14;;                # fixed_idx β = 128
 
-    # bound for sub-loop B: 16 channels
-    SET     lr15 cr0;;
-    ADD     lr15 lr15 16;;             # lr15 = 16
+    # bound for sub-loop B: 16 channels (built by doubling CR1: 1→2→4→8→16)
+    SET     lr15 cr1;;
+    ADD     lr15 lr15 lr15;;           # 2
+    ADD     lr15 lr15 lr15;;           # 4
+    ADD     lr15 lr15 lr15;;           # 8
+    ADD     lr15 lr15 lr15;;           # 16
 
 step6B_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.VE.CYCLIC lr0 0 lr1 lr13; ACC.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.VE.CYCLIC lr0 0 lr1 lr14; ACC;;
-    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 1; ADD lr14 lr14 1;;
-    ADD     lr5  lr5  1; BLT lr5 lr15 step6B_loop;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VE lr0 lr13 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr14 0 lr1; ACC;;
+    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 cr1; ADD lr14 lr14 cr1;;
+    ADD     lr5  lr5  cr1; BLT lr5 lr15 step6B_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Advance tg
 # ─────────────────────────────────────────────────────────────────────────────
 
     ADD     lr10 lr10 lr12;;           # tg_offset += 512
-    ADD     lr9  lr9  1; BLT lr9  lr11 tg_loop;;
+    ADD     lr9  lr9  cr1; BLT lr9  lr11 tg_loop;;
 
 end:
     BKPT;;
