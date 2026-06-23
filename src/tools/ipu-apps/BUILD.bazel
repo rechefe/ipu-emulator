@@ -1246,3 +1246,239 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- attn_scores_km_256x36 app (Agent D: kQᵀ → key-major scores) -------------
+
+exports_files([
+    "src/ipu_apps/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+])
+
+filegroup(
+    name = "attn_scores_km_256x36_test_data",
+    srcs = glob(["src/ipu_apps/attn_scores_km_256x36/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_attn_scores_km_256x36",
+    src = "src/ipu_apps/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_256x36",
+    srcs = ["src/ipu_apps/attn_scores_km_256x36/__main__.py"],
+    main = "src/ipu_apps/attn_scores_km_256x36/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_256x36.bin",
+        ":attn_scores_km_256x36_test_data",
+    ],
+    env = {
+        "ATTN_SCORES_KM_256X36_INST_BIN": "$(rootpath :assemble_attn_scores_km_256x36.bin)",
+        "ATTN_SCORES_KM_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_scores_km_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_attn_scores_km_256x36_test_data",
+    srcs = ["src/ipu_apps/attn_scores_km_256x36/gen_test_data.py"],
+    main = "src/ipu_apps/attn_scores_km_256x36/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_256x36",
+    size = "large",
+    srcs = ["test/test_attn_scores_km_256x36.py"],
+    data = [
+        ":assemble_attn_scores_km_256x36.bin",
+        ":attn_scores_km_256x36_test_data",
+    ],
+    env = {
+        "ATTN_SCORES_KM_256X36_INST_BIN": "$(rootpath :assemble_attn_scores_km_256x36.bin)",
+        "ATTN_SCORES_KM_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_scores_km_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_256x36 app (Agent C) ----------------------------------------
+
+exports_files([
+    "src/ipu_apps/qk_scores_256x36/qk_scores_256x36.asm",
+])
+
+filegroup(
+    name = "qk_scores_256x36_test_data",
+    srcs = glob(["src/ipu_apps/qk_scores_256x36/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_qk_scores_256x36",
+    src = "src/ipu_apps/qk_scores_256x36/qk_scores_256x36.asm",
+)
+
+py_binary(
+    name = "qk_scores_256x36",
+    srcs = ["src/ipu_apps/qk_scores_256x36/__main__.py"],
+    main = "src/ipu_apps/qk_scores_256x36/__main__.py",
+    data = [
+        ":assemble_qk_scores_256x36.bin",
+        ":qk_scores_256x36_test_data",
+    ],
+    env = {
+        "QK_SCORES_256X36_INST_BIN": "$(rootpath :assemble_qk_scores_256x36.bin)",
+        "QK_SCORES_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/qk_scores_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_qk_scores_256x36_test_data",
+    srcs = ["src/ipu_apps/qk_scores_256x36/gen_test_data.py"],
+    main = "src/ipu_apps/qk_scores_256x36/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_256x36",
+    size = "large",
+    srcs = ["test/test_qk_scores_256x36.py"],
+    data = [
+        ":assemble_qk_scores_256x36.bin",
+        ":qk_scores_256x36_test_data",
+    ],
+    env = {
+        "QK_SCORES_256X36_INST_BIN": "$(rootpath :assemble_qk_scores_256x36.bin)",
+        "QK_SCORES_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/qk_scores_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_256x36 app (Agent A: attn@V AGG kernel) -------------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_256x36/attn_v_256x36.asm",
+])
+
+filegroup(
+    name = "attn_v_256x36_test_data",
+    srcs = glob(["src/ipu_apps/attn_v_256x36/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_attn_v_256x36",
+    src = "src/ipu_apps/attn_v_256x36/attn_v_256x36.asm",
+)
+
+py_binary(
+    name = "attn_v_256x36",
+    srcs = ["src/ipu_apps/attn_v_256x36/__main__.py"],
+    main = "src/ipu_apps/attn_v_256x36/__main__.py",
+    data = [
+        ":assemble_attn_v_256x36.bin",
+        ":attn_v_256x36_test_data",
+    ],
+    env = {
+        "ATTN_V_256X36_INST_BIN": "$(rootpath :assemble_attn_v_256x36.bin)",
+        "ATTN_V_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_attn_v_256x36_test_data",
+    srcs = ["src/ipu_apps/attn_v_256x36/gen_test_data.py"],
+    main = "src/ipu_apps/attn_v_256x36/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_256x36",
+    size = "large",
+    srcs = ["test/test_attn_v_256x36.py"],
+    data = [
+        ":assemble_attn_v_256x36.bin",
+        ":attn_v_256x36_test_data",
+    ],
+    env = {
+        "ATTN_V_256X36_INST_BIN": "$(rootpath :assemble_attn_v_256x36.bin)",
+        "ATTN_V_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_256x36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_36 app (attn@V key-major broadcast) -----------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_bcast_36/attn_v_bcast_36.asm",
+])
+
+filegroup(
+    name = "attn_v_bcast_36_test_data",
+    srcs = glob(["src/ipu_apps/attn_v_bcast_36/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_36",
+    src = "src/ipu_apps/attn_v_bcast_36/attn_v_bcast_36.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_36",
+    srcs = ["src/ipu_apps/attn_v_bcast_36/__main__.py"],
+    main = "src/ipu_apps/attn_v_bcast_36/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_36.bin",
+        ":attn_v_bcast_36_test_data",
+    ],
+    env = {
+        "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
+        "ATTN_V_BCAST_36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_bcast_36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_attn_v_bcast_36_test_data",
+    srcs = ["src/ipu_apps/attn_v_bcast_36/gen_test_data.py"],
+    main = "src/ipu_apps/attn_v_bcast_36/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_36",
+    size = "large",
+    srcs = ["test/test_attn_v_bcast_36.py"],
+    data = [
+        ":assemble_attn_v_bcast_36.bin",
+        ":attn_v_bcast_36_test_data",
+    ],
+    env = {
+        "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
+        "ATTN_V_BCAST_36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_bcast_36/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
