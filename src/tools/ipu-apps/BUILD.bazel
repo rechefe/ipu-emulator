@@ -106,3 +106,29 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_pointwise_conv_unified",
+    srcs = ["test/test_pointwise_conv_unified.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/pointwise/pointwise_conv_unified/pointwise_conv_unified.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_pointwise_conv_unified_bn_activation",
+    srcs = ["test/test_pointwise_conv_unified_bn_activation.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/pointwise/pointwise_conv_unified_bn_activation/pointwise_conv_unified_bn_activation.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
