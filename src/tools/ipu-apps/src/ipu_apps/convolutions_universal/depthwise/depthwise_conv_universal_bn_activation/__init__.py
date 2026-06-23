@@ -9,12 +9,17 @@ walking-pointer / rotating-cyclic-slot pipeline, with three additions
     Batch-norm is assumed already folded into the depthwise weights + this bias.
   * **ReLU activation** — applied via ``ACTIVATE relu`` before quantization.
   * **Mask-based borders** — the top/bottom out-of-bounds rows are zeroed with
-    partition-composite mask slots instead of loading a zero chunk into the
-    cyclic register (no zero region).
+    a single 3-slot mask blob (slots 0/3/6) instead of loading a zero chunk into
+    the cyclic register (no zero region); left/right edge columns are applied at
+    runtime by mask_shift (CR15 partition = cols), mirroring conv.
 
-Per-channel budget: **10 cyc/ch** = 1 bias-seed cycle + 9 weight taps (the base
-app runs 9 cyc/ch with no bias). The deferred-store pipeline (store the previous
-channel's quantized result while the current channel computes) is preserved.
+Per-channel budget: **11 cyc/ch** = 1 bias-seed cycle + 9 weight taps + 1
+standalone ACTIVATE cycle (the base app runs 9 cyc/ch with no bias). The extra
+ACTIVATE cycle is a placeholder: ACTIVATE reads the cycle-start snapshot of
+``r_acc``, so it must run a cycle after tap 9's final ``acc`` rather than fused
+into it; a future revision folds it back once ACTIVATE reads ``r_acc`` live,
+restoring 10 cyc/ch. The deferred-store pipeline (store the previous channel's
+quantized result while the current channel computes) is preserved.
 
 Kernel super-block layout (FPB=25, stride 10):
   Depthwise produces one output PER channel, so each channel needs its OWN bias
@@ -56,6 +61,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
@@ -63,7 +69,8 @@ from ipu_apps.convolutions_universal import (
     dump_outputs,
 )
 # Reuse the conv_universal_bn_activation mask-blob builder so the two apps share
-# one border-mask implementation.
+# one border-mask implementation: a single 128-byte blob (slots 0/3/6) where
+# left/right edge columns are applied at runtime via mask_shift (CR15 partition).
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     build_border_mask_blob,
 )
@@ -75,11 +82,12 @@ if TYPE_CHECKING:
 
 INPUT_BASE_ADDR = 0x000000
 KERNEL_BASE_ADDR = 0x110000
-# Border handling is done entirely with masks (no zero region). Two 128-byte
-# mask blobs: TOP composites (chunk-0 / g0 section) and BOTTOM composites
-# (reloaded into R_MASK for the last-chunk / gN section).
-MASK_TOP_BASE_ADDR = 0x120000
-MASK_BOTTOM_BASE_ADDR = 0x120080
+# Border handling is done entirely with masks (no zero region). A single
+# 128-byte blob carries all three slots (0=none, 3=top-row zero, 6=bottom-row
+# zero); the g0 section selects slot 3 and the gN section selects slot 6, so no
+# mid-program R_MASK reload is needed.  Left/right edge columns are applied at
+# runtime by mask_shift (CR15 partition = cols).
+MASK_BASE_ADDR = 0x120000
 OUTPUT_BASE_ADDR = 0x130000
 
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output channel per chunk (int8)
@@ -195,25 +203,48 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         )
         state.xmem.write_address(KERNEL_BASE_ADDR, kernel_packed)
 
-        # Border masks: TOP blob for the g0 section, BOTTOM blob reloaded into
-        # R_MASK for the gN section. No zero region.
-        state.xmem.write_address(MASK_TOP_BASE_ADDR, build_border_mask_blob(self.cols, "top"))
-        state.xmem.write_address(MASK_BOTTOM_BASE_ADDR, build_border_mask_blob(self.cols, "bottom"))
+        # Border mask: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
+        # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
+        # slot 3, the gN section selects slot 6 — no mid-program R_MASK reload.
+        # Left/right edge columns are applied at runtime by mask_shift (CR15
+        # partition below).  No zero region.
+        state.xmem.write_address(MASK_BASE_ADDR, build_border_mask_blob(self.cols))
+
+        # CR15 dstructure: partition so each partition group is exactly one
+        # packed spatial row (group size == cols).  The asm's mask_shift then
+        # injects the left/right edge-column zero at each packed-row boundary.
+        cols_to_partition = {
+            64: Partition.P2,   # 2 groups of 64 lanes
+            32: Partition.P4,   # 4 groups of 32 lanes
+            16: Partition.P8,   # 8 groups of 16 lanes
+        }
+        if self.cols not in cols_to_partition:
+            raise ValueError(
+                f"depthwise_conv_universal_bn_activation mask-shift scheme requires "
+                f"cols in {sorted(cols_to_partition)} (one packed row per partition "
+                f"group); got cols={self.cols}"
+            )
+        state.set_cr_dstructure(
+            valid_elements=128,
+            partition=cols_to_partition[self.cols],
+        )
 
         # CR map (master ISA: CR0 = read-only 0, CR1 = read-only 1, CR15 = dstructure).
         # Relocate the input/kernel bases off CR0/CR1 (mirroring
         # conv_universal_bn_activation), keeping CR0 free as the read-only zero
         # constant used by "SET lr<n>, cr0":
         #   CR10 = INPUT_BASE (cyclic-load base), CR5 = KERNEL_BASE,
-        #   CR3 = TOP mask blob, CR9 = BOTTOM mask blob (gN reload base).
+        #   CR3 = mask blob (single blob, slots 0/3/6).
         state.regfile.set_cr(10, INPUT_BASE_ADDR)
         state.regfile.set_cr(5, KERNEL_BASE_ADDR)
         # cr2 is pre-biased by -128 for the deferred store (asm advances lr7
         # BEFORE the XMEM store at tap 2; store writes to lr7_advanced + cr2 =
         # lr7_old + OUTPUT_BASE_ADDR).
         state.regfile.set_cr(2, (OUTPUT_BASE_ADDR - 128) & 0xFFFFFFFF)
-        state.regfile.set_cr(3, MASK_TOP_BASE_ADDR)
-        state.regfile.set_cr(9, MASK_BOTTOM_BASE_ADDR)
+        state.regfile.set_cr(3, MASK_BASE_ADDR)
+        # cr9 = 384: slot-pointer step (+384 mod 512) for the running write
+        # pointer lr5 (was the BOTTOM mask base; no reload needed now).
+        state.regfile.set_cr(9, 384)
 
         # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
