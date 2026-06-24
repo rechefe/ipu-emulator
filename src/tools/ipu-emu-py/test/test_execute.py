@@ -382,7 +382,7 @@ SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
 MULT.RC.VV lr0 r1 0 lr0;
-ACC;;
+ACC.ADD;;
 SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
@@ -482,7 +482,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5;
-ACC;;
+ACC.ADD;;
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
@@ -520,7 +520,7 @@ LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr12;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 1 lr5;
-ACC;;
+ACC.ADD;;
 SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
@@ -798,16 +798,16 @@ BKPT;;
 
 
 class TestAccumulator:
-    def test_acc_first(self):
-        """ACC.FIRST sets r_acc to mult_res without adding previous r_acc."""
+    def test_acc_add_first(self):
+        """ACC.ADD.FIRST sets r_acc to mult_res without adding previous r_acc."""
         state = _make_state(
             """\
-ACC.FIRST;;
+ACC.ADD.FIRST;;
 BKPT;;
 """
         )
         state.dtype = DType.INT8
-        # Pre-fill acc with garbage; ACC.FIRST should ignore it
+        # Pre-fill acc with garbage; ACC.ADD.FIRST should ignore it
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
         mult_buf = state.regfile.raw("mult_res")
@@ -816,6 +816,103 @@ BKPT;;
         run_until_complete(state)
         for i in range(128):
             assert state.regfile.get_r_acc_word(i) == 7, f"word {i}: expected 7, got {state.regfile.get_r_acc_word(i)}"
+
+    def test_acc_add_accumulates(self):
+        """ACC.ADD adds mult_res to existing r_acc (running sum)."""
+        state = _make_state(
+            """\
+ACC.ADD;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 10)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 3)
+        run_until_complete(state)
+        for i in range(128):
+            assert state.regfile.get_r_acc_word(i) == 13, f"word {i}: expected 13, got {state.regfile.get_r_acc_word(i)}"
+
+    def test_acc_max_takes_larger(self):
+        """ACC.MAX: each lane takes max(R_ACC[i], MULT_RES[i])."""
+        state = _make_state(
+            """\
+ACC.MAX;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            # alternate: even lanes R_ACC>MULT_RES, odd lanes R_ACC<MULT_RES
+            state.regfile.set_r_acc_word(i, 20 if i % 2 == 0 else 5)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 10)
+        run_until_complete(state)
+        for i in range(128):
+            expected = 20 if i % 2 == 0 else 10
+            got = state.regfile.get_r_acc_word(i)
+            assert got == expected, f"word {i}: expected {expected}, got {got}"
+
+    def test_acc_max_first_overwrites(self):
+        """ACC.MAX.FIRST: unconditionally overwrites R_ACC with MULT_RES (clean init)."""
+        state = _make_state(
+            """\
+ACC.MAX.FIRST;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 42)
+        run_until_complete(state)
+        for i in range(128):
+            got = state.regfile.get_r_acc_word(i)
+            assert got == 42, f"word {i}: expected 42, got {got}"
+
+    def test_acc_sub_subtracts(self):
+        """ACC.SUB: subtracts MULT_RES from each R_ACC lane (running subtract)."""
+        state = _make_state(
+            """\
+ACC.SUB;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 100)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 7)
+        run_until_complete(state)
+        for i in range(128):
+            got = state.regfile.get_r_acc_word(i)
+            assert got == 93, f"word {i}: expected 93, got {got}"
+
+    def test_acc_sub_first_negates(self):
+        """ACC.SUB.FIRST: sets each R_ACC lane to negated MULT_RES (clean init)."""
+        state = _make_state(
+            """\
+ACC.SUB.FIRST;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<i", mult_buf, i * 4, 5)
+        run_until_complete(state)
+        for i in range(128):
+            raw = state.regfile.get_r_acc_word(i)
+            got = struct.unpack("<i", struct.pack("<I", raw))[0]
+            assert got == -5, f"word {i}: expected -5, got {got}"
 
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
@@ -1279,7 +1376,7 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
@@ -1320,7 +1417,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
@@ -1346,7 +1443,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr2 0 lr4;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
@@ -1370,7 +1467,7 @@ BKPT;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 450, 9: 0})
@@ -1399,7 +1496,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr5 0 lr4;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
@@ -1424,7 +1521,7 @@ BKPT;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr6 0 lr4;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 500, 9: 0})
@@ -1455,7 +1552,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
@@ -1482,7 +1579,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VE lr2 lr2 0 lr2;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0})
@@ -1513,7 +1610,7 @@ SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr12;;
 MULT.RC.VE lr2 lr3 0 lr2;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 4352, 10: 8192, 11: 0, 12: 128})
@@ -1542,7 +1639,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0})
@@ -1563,7 +1660,7 @@ BKPT;;
 SET lr2 cr10;;
 SET lr5 cr11;;
 MULT.RC.VS lr2 0 lr5;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={10: 450, 11: 0})
@@ -1591,7 +1688,7 @@ SET lr3 cr10;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """,
             cr={8: 4096, 9: 0, 10: 8192})
@@ -1639,7 +1736,7 @@ SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr2;;
 MULT.RC.VS lr1 0 lr5;
-ACC;;
+ACC.ADD;;
 BKPT;;
 """
 

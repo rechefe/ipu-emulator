@@ -102,7 +102,7 @@ BKPT;;
 
     def test_acc_active_counted(self):
         asm = """\
-ACC;;
+ACC.ADD;;
 BKPT;;
 """
         state = _run(asm)
@@ -148,9 +148,9 @@ BKPT;;
     def test_multiple_cycles_accumulate(self):
         # 3 independent ACC cycles, then BKPT
         asm = """\
-ACC;;
-ACC;;
-ACC;;
+ACC.ADD;;
+ACC.ADD;;
+ACC.ADD;;
 BKPT;;
 """
         state = _run(asm)
