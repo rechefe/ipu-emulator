@@ -690,7 +690,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Sum (First)",
                 summary=(
-                    "Sum active R_ACC lanes and write the result into R_ACC at the slot given by LR. "
+                    "Sum active MULT_RES lanes and write the result into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
@@ -702,7 +702,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = sum(R_ACC[0..n-1])."
+                    "R_ACC[dest] = sum(MULT_RES[0..n-1])."
                 ),
                 example="AGG.SUM.FIRST LR0, 0;;",
             ),
@@ -716,7 +716,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Sum",
                 summary=(
-                    "Sum active R_ACC lanes and ADD the result to R_ACC at the slot given by LR "
+                    "Sum active MULT_RES lanes and ADD the result to R_ACC at the slot given by LR "
                     "(running cross-cycle accumulation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
@@ -728,7 +728,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = sum(R_ACC[0..n-1]) + R_ACC[dest]."
+                    "R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest]."
                 ),
                 example="AGG.SUM LR0, 0;;",
             ),
@@ -742,7 +742,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Max (First)",
                 summary=(
-                    "Find the maximum of active R_ACC lanes and write it into R_ACC at the slot given by LR. "
+                    "Find the maximum of active MULT_RES lanes and write it into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
@@ -754,7 +754,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = max(R_ACC[0..n-1]); when n = 0 the identity seed "
+                    "R_ACC[dest] = max(MULT_RES[0..n-1]); when n = 0 the identity seed "
                     "(INT32_MIN for integer lanes, -inf for float lanes) is written."
                 ),
                 example="AGG.MAX.FIRST LR0, 0;;",
@@ -769,7 +769,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Max",
                 summary=(
-                    "Find the maximum of active R_ACC lanes seeded with the current destination slot value "
+                    "Find the maximum of active MULT_RES lanes seeded with the current destination slot value "
                     "(running cross-cycle max). "
                     "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
                 ),
@@ -781,7 +781,7 @@ INSTRUCTION_SPEC = {
                 operation=(
                     "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = max(R_ACC[0..n-1], R_ACC[dest])."
+                    "R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])."
                 ),
                 example="AGG.MAX LR0, 0;;",
             ),
