@@ -775,8 +775,8 @@ class Ipu:
         """Execute NOP in acc slot: No operation."""
         pass
 
-    def execute_acc(self) -> None:
-        """Execute ACC: Accumulate mult_res into accumulator."""
+    def execute_acc_add(self) -> None:
+        """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
         dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -792,9 +792,8 @@ class Ipu:
                 result = ipu_add(acc_val, mult_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
-    def execute_acc_first(self) -> None:
-        """Execute ACC.FIRST: Set r_acc to multiply result (no previous sum)."""
-        dtype = self.state.dtype
+    def execute_acc_add_first(self) -> None:
+        """Execute ACC.ADD.FIRST: Set r_acc to multiply result (no previous sum)."""
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -802,6 +801,62 @@ class Ipu:
         for i in range(R_REG_SIZE):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
+    def execute_acc_max(self) -> None:
+        """Execute ACC.MAX: Each R_ACC lane takes max(R_ACC[i], MULT_RES[i])."""
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(acc_val, mult_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_max_first(self) -> None:
+        """Execute ACC.MAX.FIRST: Overwrite each R_ACC lane with MULT_RES (clean init for max)."""
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
+    def execute_acc_sub(self) -> None:
+        """Execute ACC.SUB: Subtract MULT_RES from each R_ACC lane (running subtract)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_sub_lane(acc_val, mult_val)
+            else:
+                result = ipu_sub(acc_val, mult_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_sub_first(self) -> None:
+        """Execute ACC.SUB.FIRST: Set each R_ACC lane to negated MULT_RES (clean init for subtract)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_sub_lane(0, mult_val)
+            else:
+                zero = 0 if self.state.dtype == DType.INT8 else 0.0
+                result = ipu_sub(zero, mult_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_stride(
         self,

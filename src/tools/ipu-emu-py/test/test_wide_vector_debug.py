@@ -59,7 +59,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -82,7 +82,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE identity 0;;
 aaq 0;;
@@ -111,7 +111,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE identity 0;;
 aaq 0;;
@@ -144,7 +144,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -189,7 +189,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
 MULT.RC.VV lr3 {which} 0 lr3;;
-acc.first;;
+acc.add.first;;
 BKPT;;
 """
             encoded = assemble(asm)
@@ -244,7 +244,7 @@ class TestWideVectorWrap:
 SET lr0 cr6;;
 SET lr2 cr7;;
 MULT.RC.VE lr0 cr2 0 lr2;;
-acc.first;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -279,7 +279,7 @@ SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
 MULT.RC.VE lr0 lr2 0 lr3;;
-acc.first;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)

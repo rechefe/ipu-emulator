@@ -620,31 +620,82 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
+    # Opcode = position: ACC.ADD=0, ACC.ADD.FIRST=1, ACC.MAX=2, ACC.MAX.FIRST=3,
+    #          ACC.SUB=4, ACC.SUB.FIRST=5, NOP=6, ACC.STRIDE=7,
+    #          AGG.SUM.FIRST=8, AGG.SUM=9, AGG.MAX.FIRST=10, AGG.MAX=11
     # =========================================================================
     "acc": {
-        "ACC": {
+        "ACC.ADD": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Accumulate",
-                summary="Accumulate multiply result.",
-                syntax="ACC",
+                title="Accumulate Add",
+                summary="Running add accumulation: add multiply result into each R_ACC lane.",
+                syntax="ACC.ADD",
                 operands=[],
-                operation="R_ACC += multiply_result",
+                operation="R_ACC[i] += MULT_RES[i]  # for each lane i",
+                example="ACC.ADD;;",
             ),
-            "execute_fn": "execute_acc",
+            "execute_fn": "execute_acc_add",
         },
-        "ACC.FIRST": {
+        "ACC.ADD.FIRST": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Accumulate First",
-                summary="Set accumulator to multiply result (do not ADD to previous R_ACC).",
-                syntax="ACC.FIRST",
+                title="Accumulate Add (First)",
+                summary="Clean-init add: overwrite each R_ACC lane with the multiply result (ignores previous R_ACC).",
+                syntax="ACC.ADD.FIRST",
                 operands=[],
-                operation="R_ACC = multiply_result",
-                example="ACC.FIRST;;",
+                operation="R_ACC[i] = MULT_RES[i]  # for each lane i",
+                example="ACC.ADD.FIRST;;",
             ),
-            "execute_fn": "execute_acc_first",
+            "execute_fn": "execute_acc_add_first",
+        },
+        "ACC.MAX": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Max",
+                summary="Running max accumulation: each R_ACC lane takes the max of its current value and the multiply result.",
+                syntax="ACC.MAX",
+                operands=[],
+                operation="R_ACC[i] = max(R_ACC[i], MULT_RES[i])  # for each lane i",
+                example="ACC.MAX;;",
+            ),
+            "execute_fn": "execute_acc_max",
+        },
+        "ACC.MAX.FIRST": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Max (First)",
+                summary="Clean-init max: overwrite each R_ACC lane unconditionally with the multiply result.",
+                syntax="ACC.MAX.FIRST",
+                operands=[],
+                operation="R_ACC[i] = MULT_RES[i]  # for each lane i (unconditional overwrite)",
+                example="ACC.MAX.FIRST;;",
+            ),
+            "execute_fn": "execute_acc_max_first",
+        },
+        "ACC.SUB": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Subtract",
+                summary="Running subtract accumulation: subtract the multiply result from each R_ACC lane each cycle.",
+                syntax="ACC.SUB",
+                operands=[],
+                operation="R_ACC[i] -= MULT_RES[i]  # for each lane i",
+                example="ACC.SUB;;",
+            ),
+            "execute_fn": "execute_acc_sub",
+        },
+        "ACC.SUB.FIRST": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Subtract (First)",
+                summary="Clean-init subtract: set each R_ACC lane to the negated multiply result.",
+                syntax="ACC.SUB.FIRST",
+                operands=[],
+                operation="R_ACC[i] = -MULT_RES[i]  # for each lane i",
+                example="ACC.SUB.FIRST;;",
+            ),
+            "execute_fn": "execute_acc_sub_first",
         },
         "NOP": {
             "operands": [],

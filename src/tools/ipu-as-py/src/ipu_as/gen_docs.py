@@ -150,7 +150,7 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 label:                          # Labels end with a colon
     LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
     MULT.RC.VV lr1 r0 0 lr3;     # MULT: element-wise multiply
-    ACC;                         # ACC: accumulate
+    ACC.ADD;                     # ACC: accumulate
     INC lr0 1;               # LR: bump address (increment via INC)
     BNE lr0 lr1 next;            # COND: branch
     ;;
@@ -178,7 +178,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3; ACC; INC lr0 1; BNE lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -300,7 +300,7 @@ LDR_MULT_REG R0, LR0, CR0;;
 LDR_CYCLIC_MULT_REG LR2, CR0, LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2, R0, 3, LR4; ACC;;
+MULT.RC.VV LR2, R0, 3, LR4; ACC.ADD;;
 ```
 
 `3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index.
