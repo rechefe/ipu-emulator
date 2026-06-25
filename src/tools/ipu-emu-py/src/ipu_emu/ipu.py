@@ -251,6 +251,9 @@ class Ipu:
         return b if b < 128 else b - 256
 
     def _debug_ra_lane_vals(self, mult_stage_enc: int) -> list[float | int]:
+        # Read R0/R1 wide lanes from the START-OF-CYCLE SNAPSHOT, so a same-cycle
+        # LDR_MULT_REG is NOT visible to the consuming mult (issue #157: Ra/Rc are
+        # snapshot, matching the hardware pipeline -- the load lands a cycle later).
         snap = self.state._debug_mult_stage_vectors_snap
         if mult_stage_enc in snap:
             return list(snap[mult_stage_enc])
@@ -586,8 +589,11 @@ class Ipu:
         ``src`` encodes a CR, the CR's low byte is the scalar directly.
         """
         if src < LR_REG_COUNT:
+            # The LR holds an INDEX into Ra -> read it LIVE (same-cycle LR writes
+            # are visible, like other mult index operands).  Only the Ra DATA is
+            # snapshot (issue #157): a same-cycle LDR_MULT_REG is not yet visible.
             idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
-            r_buf = self.state.regfile.raw("r")
+            r_buf = self.snapshot.raw("r")  # Ra (R0/R1) DATA from snapshot (issue #157)
             return r_buf[idx]
         cr_idx = src - LR_REG_COUNT
         return self.state.regfile.get_cr(cr_idx) & 0xFF
@@ -613,7 +619,7 @@ class Ipu:
         if self._wide_vector_active():
             self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
             ra_vals = self._debug_ra_lane_vals(ra)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(R_REG_SIZE):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(ra_vals[i]))
@@ -626,7 +632,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
 
         for i in range(R_REG_SIZE):
             result = ipu_mult(rc[i], ra[i], dtype)
@@ -642,7 +648,7 @@ class Ipu:
         if self._wide_vector_active():
             self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
             scalar = self._mult_resolve_lcr_scalar_wide(src)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 scalar_f = float(scalar)
                 for i in range(R_REG_SIZE):
@@ -658,7 +664,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self._mult_resolve_lcr_scalar(src)
-        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
@@ -674,7 +680,7 @@ class Ipu:
 
         if self._wide_vector_active():
             self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.state.regfile)
+            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(R_REG_SIZE):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(rb_vals[i]))
@@ -687,7 +693,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.state.regfile.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
@@ -723,7 +729,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
-        r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
+        r_buf = self.snapshot.raw("r")  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(R_REG_SIZE):
@@ -757,7 +763,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self.state.regfile.get_cr(cr_idx) & 0xFF
-        r_buf = self.state.regfile.raw("r")  # 256 bytes: [0:128]=r0, [128:256]=r1
+        r_buf = self.snapshot.raw("r")  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         ra_byte = r_buf[ra_idx % (2 * R_REG_SIZE)]
