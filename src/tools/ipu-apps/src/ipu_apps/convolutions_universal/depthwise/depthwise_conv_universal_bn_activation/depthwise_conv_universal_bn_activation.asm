@@ -138,17 +138,19 @@ g0_tap_body:
     # taps 1..9 = +10 total per channel = one 10-byte channel slot).  Bias's
     # MULT.EE reads Ra[lr6]*CR1=1, broadcasting the bias byte to all lanes.
     # lr3 is NOT walked here; tap 1 keeps the base's +cr14 walk.  aaq quantizes prev ch.
+    # Also pre-load this ch's kr=-1 (own valid base lr2) into slot lr5 here, one
+    # cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
     INC                 lr6 1;
+    ldr_cyclic_mult_reg lr2 cr10 lr5;
     MULT.EE             lr6 cr1 0 lr0;
     acc.first;
     aaq                 1;;
 
     # --- tap 1: kr=-1 kc=-1.  Top row out of bounds: slot 3; kc=-1 shift (lr9)
-    #     zeros the left edge column.  Load this ch kr=-1 with its own valid base
-    #     (lr2); row-0 lanes masked.  Walk +cr14 (as base).
+    #     zeros the left edge column.  kr=-1 (own valid base lr2) pre-loaded in
+    #     cyc 0; row-0 lanes masked.  Walk +cr14 (as base).
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    ldr_cyclic_mult_reg lr2 cr10 lr5;
     MULT.RC.VE          lr3 lr6 3 lr9;
     acc;;
 
@@ -299,17 +301,21 @@ mn_tap_body:
     # 11 cyc/ch (cyc10 = ACTIVATE).  All loads use cr10; no border masks (slot 0 + shift).
 
     # --- cyc 0: BIAS seed + quantize PREVIOUS channel (lr3 not walked here).
+    #     Also pre-load THIS-ch kr=-1 (ext = lr2-cr6) into its slot lr5 here, one
+    #     cycle before tap 1 reads it — under snapshot a same-cycle LDR is not
+    #     visible to the mult, and cyc-0's LOAD slot is free.  lr5 is already the
+    #     kr=-1 slot; lr2 already holds THIS-ch kr=0 ext.  Keeps 11 cyc/ch.
     INC                 lr6 1;
+    sub                 lr14 lr2 cr6;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.EE             lr6 cr1 0 lr0;
     acc.first;
     aaq                 1;;
 
-    # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  Load THIS-ch kr=-1
-    #     ext = lr2-cr6.  Walk +cr14.
+    # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
+    #     cyc 0.  Walk +cr14.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    sub                 lr14 lr2 cr6;
-    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr9;
     acc;;
 
@@ -449,17 +455,20 @@ gN_tap_body:
     # 11 cyc/ch (cyc10 = ACTIVATE).  NEXT-ch kr=-1/kr=0 from cr10; kr=+1 taps (7/8/9) masked (bottom).
 
     # --- cyc 0: BIAS seed + quantize PREVIOUS channel (lr3 not walked here).
+    #     Also pre-load THIS-ch kr=-1 (ext = lr2-cr6) into its slot lr5 here, one
+    #     cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
+    #     Keeps 11 cyc/ch.
     INC                 lr6 1;
+    sub                 lr14 lr2 cr6;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.EE             lr6 cr1 0 lr0;
     acc.first;
     aaq                 1;;
 
-    # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  Load THIS-ch kr=-1
-    #     ext = lr2-cr6.  Walk +cr14.
+    # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
+    #     cyc 0.  Walk +cr14.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    sub                 lr14 lr2 cr6;
-    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr9;
     acc;;
 
@@ -493,19 +502,21 @@ gN_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr0;
     acc;;
 
-    # --- tap 6: kc=+1 shift.
+    # --- tap 6: kc=+1 shift.  Also pre-load the kr=+1 slot (consumed by tap 7)
+    #     here, one cycle ahead (snapshot; tap 6's LOAD slot is free).  lr5 is
+    #     unchanged between here and tap 7, so it targets the same slot.  Bottom
+    #     border: load this ch's own valid base (lr2); bottom row's lanes masked.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr10 lr10 cr12;
+    ldr_cyclic_mult_reg lr2 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr13;
     acc;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom row out of bounds: slot 6; kc=-1 shift (lr9)
-    #     zeros the left edge column.  Load kr=+1 slot with this ch's own valid
-    #     base (lr2); bottom row's lanes masked.
+    #     zeros the left edge column.  kr=+1 chunk pre-loaded in tap 6's word.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
-    ldr_cyclic_mult_reg lr2 cr10 lr5;
     MULT.RC.VE          lr3 lr6 6 lr9;
     acc;;
 

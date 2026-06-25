@@ -199,7 +199,8 @@ g0_ch_loop:
     b                   g0_tap_body;;
 
 g0_tap_body:
-    # 9 cyc/ch body.  G0 specialization: kr=-1 taps mask out row 0 (top border).
+    # 10 cyc/ch body (kr=-1 load split into its own word for snapshot semantics).
+    # G0 specialization: kr=-1 taps mask out row 0 (top border).
     #
     # Per-cycle plan (LR1 walks lr3, LR2 advances lr6, LR3 = misc):
     #   tap 1: walk +cr14;  +lr6;  (free).  XMEM: load this ch kr=-1 from cr9 → slot lr5.
@@ -214,15 +215,17 @@ g0_tap_body:
     #   tap 8: walk +1;     +lr6;  incr_mod_pow2 lr4 cr13 9  (rotate lr_read).
     #   tap 9: walk +1;     +lr6;  sub lr5 lr4 cr12  (lr_write := lr_read(N+1)-128).
 
+    # kr=-1 load split into its own word (snapshot: visible to tap 1 next cycle).
+    # Top border: there is no chunk above the image, so load this chunk's own
+    # base (lr2, always a valid address) into the kr=-1 slot purely to give the
+    # lanes defined data; row-0 lanes are masked to 0 (slot 3) and rows 1+ take
+    # their real above-neighbour from the kr=0 slot via the walking pointer.
+    ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};;
+
     # --- tap 1: kr=-1 kc=-1.  Top border: slot 3 zeros row 0 (kr=-1 out of
-    #     bounds); kc=-1 shift (lr13) zeros the left edge column.  There is no
-    #     chunk above the image, so load this chunk's own base (lr2, always a
-    #     valid address) into the kr=-1 slot purely to give the lanes defined
-    #     data; row-0 lanes are masked to 0 and rows 1+ take their real
-    #     above-neighbour from the kr=0 slot via the walking pointer.
+    #     bounds); kc=-1 shift (lr13) zeros the left edge column.
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
     INC                 {{ lr_kern_idx }} 1;
-    ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_p1 }};
     acc;;
 
@@ -373,12 +376,19 @@ ch_loop:
 
 mn_tap_body:
     # All loads use cr10.
+    #
+    # tap 1 reads the kr=-1 slot that is loaded into the SAME slot (lr_write).
+    # Under snapshot semantics a same-cycle LDR is not visible to the mult, so
+    # the kr=-1 load is split into its own word HERE (one cycle before the tap-1
+    # mult), making the loaded chunk visible via the next cycle's snapshot.
+    # Costs +1 cyc/ch (10 instead of 9).  The kr=-1 slot is still free at this
+    # point (this iter's reads have not started).
+    sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
+    ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};;
 
-    # --- tap 1: kr=-1 kc=-1.  Load this ch kr=-1 ext = lr8+lr10(N)-cr6 = lr2-cr6.
+    # --- tap 1: kr=-1 kc=-1.  kr=-1 chunk loaded in the word above.
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
     INC                 {{ lr_kern_idx }} 1;
-    sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
-    ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
@@ -531,11 +541,13 @@ gN_ch_loop:
 gN_tap_body:
     # NEXT ch kr=-1 / kr=0 from cr10; NEXT ch kr=+1 from cr10 (real; bottom row masked).
 
-    # --- tap 1: this ch kr=-1 from cr10.
+    # kr=-1 load split into its own word (snapshot: visible to tap 1 next cycle).
+    sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
+    ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};;
+
+    # --- tap 1: this ch kr=-1 from cr10 (loaded in the word above).
     add                 {{ lr_walk }} {{ lr_walk }} {{ cr_walk_step }};
     INC                 {{ lr_kern_idx }} 1;
-    sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
-    ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
     acc;;
 
@@ -568,20 +580,23 @@ gN_tap_body:
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
     acc;;
 
-    # --- tap 6.
+    # --- tap 6.  Also pre-load the kr=+1 slot (consumed by tap 7) here, one
+    #     cycle ahead, so it is visible via next cycle's snapshot.  lr_write is
+    #     already the kr=+1 slot (= lr_read+384) at this point.  Bottom border:
+    #     load this chunk's own base (lr2, valid) — there is no chunk below; the
+    #     bottom row's lanes are masked by slot 6 on the kr=+1 taps.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
+    ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
     acc;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom border: slot 6 zeros the last packed row
     #     (kr=+1 out of bounds); kc=-1 shift (lr13) zeros the left edge column.
-    #     Load the kr=+1 slot with this chunk's own base (lr2, valid) — there is
-    #     no chunk below; the bottom row's lanes are masked by slot 6.
+    #     kr=+1 chunk pre-loaded in tap 6's word.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
-    ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_p1 }};
     acc;;
 
