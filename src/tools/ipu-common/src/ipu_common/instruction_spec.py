@@ -493,7 +493,7 @@ INSTRUCTION_SPEC = {
         "MULT.RC.VV": {
             "operands": [
                 {"name": "rc_idx", "type": "LrIdx", "read": "live"},
-                {"name": "ra", "type": "MultStageReg", "read": "live"},
+                {"name": "ra", "type": "MultStageReg", "read": "snapshot"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
