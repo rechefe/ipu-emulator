@@ -29,7 +29,8 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: AGG.*, ACTIVATE, and AAQ read this by default (cr_idx omitted).
+    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE/AAQ
+    # instructions name via their mandatory cr_idx operand.
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
@@ -41,17 +42,18 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, the dstructure lane count comes from `CR15` by default, or from an
-explicit `cr_idx` operand:
+In assembly, every `AGG.*`/`ACTIVATE`/`AAQ` instruction must name its
+dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
+no implicit default:
 
 ```asm
-AGG.SUM LR0;;
-ACTIVATE relu;;
+AGG.SUM LR0, CR15;;
+ACTIVATE relu, CR15;;
 AGG.SUM LR0, CR3;;
 ACTIVATE relu, CR3;;
 ```
 
-For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the optional `cr_idx` operand — it reads `valid_elements` from the named CR register, defaulting to `CR15` when omitted.
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
 ## Wide-vector debug mode (optional)
 
@@ -64,10 +66,10 @@ The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires a
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu;;
+ACTIVATE relu, CR15;;
 ```
 
-- **Syntax:** `ACTIVATE activation_fn[, cr_idx]`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` defaults to `CR15` when omitted.
+- **Syntax:** `ACTIVATE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)

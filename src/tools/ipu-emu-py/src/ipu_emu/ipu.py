@@ -969,7 +969,7 @@ class Ipu:
         all zeros.
 
         Active lane count is taken from ``cr_idx``'s ``valid_elements``
-        (clamped to 128); ``cr_idx`` defaults to ``CR15``.
+        (clamped to 128); the caller must name a CR register explicitly.
 
         Requires INT8 mode.
 
@@ -1020,7 +1020,8 @@ class Ipu:
         unchanged.
 
         ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        Lane count is taken from ``cr_idx``'s ``valid_elements`` (defaults to CR15).
+        Lane count is taken from ``cr_idx``'s ``valid_elements``; the caller
+        must name a CR register explicitly.
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements

@@ -8,7 +8,6 @@ Old code uses: from ipu_as.reg import MultStageRegField, LrRegField, etc.
 New code uses: from ipu_common.registers import create_regfile_schema, etc.
 """
 
-import lark
 import ipu_as.ipu_token as ipu_token
 from ipu_common.registers import create_assembler_reg_classes, create_assembler_reg_enums
 
@@ -71,13 +70,10 @@ class LcrRegField(_LcrRegFieldBase):
 class DstructureCrRegField(_CrRegFieldBase):
     """CR0–CR15 selector for an instruction's dstructure (valid-element mask) operand.
 
-    Unlike ``CrRegField``, CR15 is allowed here: it's the default dstructure
-    register, and this is the reserved use case CR15 exists for.
+    Unlike ``CrRegField``, CR15 is allowed here: it's the reserved use case
+    CR15 exists for. This operand is mandatory — every AGG.*/AAQ/ACTIVATE
+    instruction must name its dstructure CR explicitly (e.g. ``AAQ cr15;;``).
     """
-
-    @classmethod
-    def default(cls) -> "ipu_token.IpuToken":
-        return cls(ipu_token.AnnotatedToken(lark.Token("ENUM", "cr15"), 0))
 
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()

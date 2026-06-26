@@ -87,18 +87,14 @@ class Inst:
         struct_entry = struct_table[struct_names[opcode_idx]]
         operand_types = self._operand_types_from_struct(struct_entry)
 
-        if len(inst["operands"]) > len(operand_types):
+        if len(inst["operands"]) != len(operand_types):
             raise ValueError(
-                f"Instruction {inst['opcode'].token.value} expects at most {len(operand_types)} operands, "
+                f"Instruction {inst['opcode'].token.value} expects {len(operand_types)} operands, "
                 f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
             )
 
-        # Trailing operands omitted from the assembly source fall back to each
-        # operand type's default() (e.g. an omitted dstructure CR defaults to CR15).
         self.operands = [
             op_type(op) for op_type, op in zip(operand_types, inst["operands"])
-        ] + [
-            op_type.default() for op_type in operand_types[len(inst["operands"]):]
         ]
         self.specific_operand_types = operand_types
 

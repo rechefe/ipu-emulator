@@ -693,12 +693,12 @@ INSTRUCTION_SPEC = {
                     "Sum active R_ACC lanes and write the result into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
                     "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted)."
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.SUM.FIRST dest_slot[, cr_idx]",
+                syntax="AGG.SUM.FIRST dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128). "
@@ -720,12 +720,12 @@ INSTRUCTION_SPEC = {
                     "Sum active R_ACC lanes and ADD the result to R_ACC at the slot given by LR "
                     "(running cross-cycle accumulation). "
                     "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted)."
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.SUM dest_slot[, cr_idx]",
+                syntax="AGG.SUM dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128). "
@@ -747,12 +747,12 @@ INSTRUCTION_SPEC = {
                     "Find the maximum of active R_ACC lanes and write it into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
                     "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted)."
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.MAX.FIRST dest_slot[, cr_idx]",
+                syntax="AGG.MAX.FIRST dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128). "
@@ -775,12 +775,12 @@ INSTRUCTION_SPEC = {
                     "Find the maximum of active R_ACC lanes seeded with the current destination slot value "
                     "(running cross-cycle max). "
                     "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted)."
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.MAX dest_slot[, cr_idx]",
+                syntax="AGG.MAX dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128). "
@@ -820,11 +820,11 @@ INSTRUCTION_SPEC = {
                     "and clearing the rest of the register. Wide lanes are normally produced by "
                     "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode. "
                     "The active lane count comes from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted)."
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AAQ[ cr_idx]",
+                syntax="AAQ cr_idx",
                 operands=[
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
@@ -849,17 +849,17 @@ INSTRUCTION_SPEC = {
                     "Read active lanes from ``r_acc``, apply the selected element-wise activation, "
                     "and write results into the same lane indices of ``POST_AAQ_REG`` (``r_acc`` is unchanged). "
                     "The active lane count comes from ``cr_idx``'s dstructure configuration "
-                    "(defaults to CR15 when omitted). "
+                    "(any CR0-CR15; must be named explicitly). "
                     "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
                     "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
                     "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                syntax="ACTIVATE activation_fn[, cr_idx]",
+                syntax="ACTIVATE activation_fn, cr_idx",
                 operands=[
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
-                    "cr_idx: CR0…CR15 supplying valid_elements (default CR15)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
