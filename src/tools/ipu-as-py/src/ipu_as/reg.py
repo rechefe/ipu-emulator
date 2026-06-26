@@ -66,6 +66,15 @@ class LcrRegField(_LcrRegFieldBase):
         _reject_cr15(token, "LcrRegField")
         super().__init__(token)
 
+
+class DstructureCrRegField(_CrRegFieldBase):
+    """CR0–CR15 selector for an instruction's dstructure (valid-element mask) operand.
+
+    Unlike ``CrRegField``, CR15 is allowed here: it's the reserved use case
+    CR15 exists for. This operand is mandatory — every AGG.*/AAQ/ACTIVATE
+    instruction must name its dstructure CR explicitly (e.g. ``AAQ cr15;;``).
+    """
+
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()
 MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
@@ -86,6 +95,7 @@ __all__ = [
     "LrRegField",
     "CrRegField",
     "LcrRegField",
+    "DstructureCrRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",
     "LR_REG_FIELDS",

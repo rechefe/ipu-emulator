@@ -34,6 +34,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "MultStageReg": reg.MultStageRegField,
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
+    "DstructureCrIdx": reg.DstructureCrRegField,
     "LcrIdx": reg.LcrRegField,
     "LrIncDecImmediate": immediate.LrIncDecImmediate,
     "ElementsInRow": immediate.ElementsInRowField,
@@ -43,7 +44,6 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
-    "FullXmemRow": immediate.FullXmemRowField,
     "Label": ipu_token.LabelToken,
 }
 
