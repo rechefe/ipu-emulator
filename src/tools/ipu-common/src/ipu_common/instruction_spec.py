@@ -29,7 +29,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
-  - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
+  - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -173,7 +173,7 @@ SLOT_METADATA: dict[str, dict] = {
     "acc_store": {"hardware": False, "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware."},
     "mult":      {"description": "Multiply-stage instructions: element-wise and vector multiply operations."},
     "acc":       {"description": "Accumulation instructions for combining multiply results into R_ACC."},
-    "aaq":       {"description": "Activation and quantization: aggregate R_ACC into AAQ registers; quantize POST_AAQ_REG."},
+    "aaq":       {"description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."},
     "lr":        {"description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."},
     "cond":      {"description": "Conditional and unconditional branches; control flow based on register comparisons."},
     "break":     {"description": "Debug break: halts execution or enters debug mode."},
@@ -887,70 +887,40 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_aaq_nop",
         },
-        "AAQ": {
-            "operands": [
-                {"name": "cr_idx", "type": "DstructureCrIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="AAQ Quantize",
-                summary=(
-                    "Quantize wide lanes in **`POST_AAQ_REG`** (INT32 per lane in INT8 mode) "
-                    "to INT8, storing clamped bytes in the **leading 128 bytes** of **`POST_AAQ_REG`** "
-                    "and clearing the rest of the register. Wide lanes are normally produced by "
-                    "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode. "
-                    "The active lane count comes from ``cr_idx``'s dstructure configuration "
-                    "(any CR0-CR15; must be named explicitly)."
-                ),
-                syntax="AAQ cr_idx",
-                operands=[
-                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
-                ],
-                operation=(
-                    "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
-                    "Let n = min(CR[cr_idx].valid_elements, 128). "
-                    "For i in [0, n): POST_AAQ_REG[i] = clamp(POST_AAQ_REG wide lane i, -128, 127) "
-                    "(interim direct INT8 clamp of the post-ACTIVATE lane; a future per-128-element "
-                    "requantize will scale lanes into INT8 range before this step and supersede the clamp). "
-                    "POST_AAQ_REG[n..511] = 0."
-                ),
-                example="AAQ CR3;;",
-            ),
-            "execute_fn": "execute_aaq",
-        },
-        "ACTIVATE": {
+        "ACTIVATE.QUANTIZE": {
             "operands": [
                 {"name": "activation_fn", "type": "ActivationFn"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Activation",
+                title="Activate and Quantize",
                 summary=(
-                    "Read active lanes from ``r_acc``, apply the selected element-wise activation, "
-                    "and write results into the same lane indices of ``POST_AAQ_REG`` (``r_acc`` is unchanged). "
-                    "The active lane count comes from ``cr_idx``'s dstructure configuration "
-                    "(any CR0-CR15; must be named explicitly). "
-                    "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
-                    "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
+                    "Read active lanes from ``r_acc`` (snapshot), apply the selected element-wise activation, "
+                    "clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to "
+                    "the leading active-lane positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
+                    "``r_acc`` is not modified. Requires INT8 mode. "
+                    "The active lane count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
+                    "(any CR0–CR15; must be named explicitly). "
+                    "Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
-                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
-                    "docs/content/building-applications.md#activations-emulator."
+                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10)."
                 ),
-                syntax="ACTIVATE activation_fn, cr_idx",
+                syntax="ACTIVATE.QUANTIZE activation_fn, cr_idx",
                 operands=[
-                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
+                    "activation_fn: keyword naming the activation (see ACTIVATION_FN_NAMES)",
                     "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
+                    "Requires INT8 mode (IpuState.dtype == DType.INT8). "
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
-                    "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
-                    "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
-                    "activations behave as identity. "
-                    "α for elu is not an ISA operand; see "
-                    "docs/content/building-applications.md#activations-emulator."
+                    "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
+                    "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "
+                    "Clamping is a placeholder until a full per-lane requantize is implemented. "
+                    "α for elu is not an ISA operand; see docs/content/building-applications.md."
                 ),
-                example="ACTIVATE relu, CR3;;",
+                example="ACTIVATE.QUANTIZE relu, CR15;;",
             ),
-            "execute_fn": "execute_activate",
+            "execute_fn": "execute_activate_quantize",
         },
     },
 

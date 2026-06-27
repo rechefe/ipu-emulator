@@ -1205,15 +1205,15 @@ BKPT;;
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_and_activate_same_cycle_use_snapshot(self):
-        """AGG.SUM.FIRST in ACC slot and ACTIVATE in AAQ slot issued together.
+    def test_agg_and_activate_quantize_same_cycle_use_snapshot(self):
+        """AGG.SUM.FIRST in ACC slot and ACTIVATE.QUANTIZE in AAQ slot issued together.
 
         AGG reads from MULT_RES (live) and writes r_acc[dest].
-        ACTIVATE reads from the cycle-start snapshot of r_acc (not the AGG write).
+        ACTIVATE.QUANTIZE reads from the cycle-start snapshot of r_acc (not the AGG write).
         """
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0 cr15; ACTIVATE relu cr15;;
+AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
 """
         )
@@ -1223,7 +1223,7 @@ BKPT;;
         for i in range(128):
             # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
             state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-            # r_acc lanes = 3 (source for ACTIVATE snapshot)
+            # r_acc lanes = 3 (source for ACTIVATE.QUANTIZE snapshot)
             state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
@@ -1233,13 +1233,13 @@ BKPT;;
         agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
         assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
 
-        # ACTIVATE relu must have applied relu to the snapshot r_acc (all lanes 3 → 3)
+        # ACTIVATE.QUANTIZE relu must have applied relu to the snapshot r_acc (lane 0 = 3)
         # NOT the post-AGG r_acc where lane 0 = 384.
-        # In INT8 mode ACTIVATE writes int32 to post_aaq_reg.
+        # relu(3) = 3, clamped to INT8 byte = 3. Bytes [3, 0, 0, 0] read as int32 = 3.
         post = state.regfile.raw("post_aaq_reg")
-        lane0_post = _struct.unpack_from("<i", post, 0)[0]
-        assert lane0_post == 3, (
-            f"ACTIVATE saw wrong r_acc lane 0: expected 3, got {lane0_post}"
+        lane0_byte = post[0]
+        assert lane0_byte == 3, (
+            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 3, got {lane0_byte}"
         )
 
 
@@ -1895,149 +1895,189 @@ BKPT;;
 
 
 # ============================================================================
-# AAQ Quantization (aaq instruction + str_post_aaq_reg)
+# ACTIVATE.QUANTIZE (combined activation + INT8 quantize: r_acc → POST_AAQ_REG bytes)
 # ============================================================================
 
 
-class TestAaqQuantize:
-    """Tests for the aaq quantization instruction and STR_POST_AAQ_REG."""
+class TestActivateQuantize:
+    """ACTIVATE.QUANTIZE applies activation to r_acc and quantizes to INT8 bytes in POST_AAQ_REG."""
 
-    def _set_acc_words(self, state: IpuState, values: list[int]) -> None:
-        """Write a list of 128 signed INT32 values into r_acc."""
-        assert len(values) == 128
+    def test_relu_zeroes_negative_lane(self):
+        """relu(-9) = 0 → byte 0; r_acc is unchanged."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -9))[0])
+        run_until_complete(state)
+        assert struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0] == -9
+        assert state.regfile.get_post_aaq_reg()[0] == 0
+
+    def test_relu_passes_positive_lane(self):
+        """relu(5) = 5 → byte 5."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 5))[0])
+        run_until_complete(state)
+        assert state.regfile.get_post_aaq_reg()[0] == 5
+
+    def test_identity_clamp_positive(self):
+        """identity(200) saturates to 127 byte; identity(-200) saturates to 0x80 byte."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE identity cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 200))[0])
+        state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -200))[0])
+        run_until_complete(state)
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 127, f"expected 127, got {result[0]}"
+        assert result[1] == 0x80, f"expected 0x80 (-128), got {result[1]}"
+
+    def test_in_range_values_pass_through(self):
+        """Values in [-128, 127] are stored unchanged as bytes."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE identity cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
         buf = bytearray(512)
-        struct.pack_into("<128i", buf, 0, *values)
+        struct.pack_into("<128i", buf, 0, *[i - 64 for i in range(128)])
         state.regfile.set_r_acc_bytes(buf)
-        state.regfile.set_post_aaq_reg(bytearray(buf))
-
-    def test_aaq_basic_clamp(self):
-        """Direct clamp: values already in [-128, 127] pass through unchanged."""
-        state = IpuState()
-        state.dtype = DType.INT8
-        # Lanes 0..127 hold the signed value (i - 64): -64..63, all in range.
-        self._set_acc_words(state, [i - 64 for i in range(128)])
-
-        encoded = assemble("aaq cr15;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
         run_until_complete(state)
-
         result = state.regfile.get_post_aaq_reg()
         for i in range(128):
-            expected = i - 64
-            assert result[i] == (expected & 0xFF), f"byte {i}: expected {expected & 0xFF}, got {result[i]}"
-        assert result[128:] == bytearray(384), "tail of POST_AAQ_REG should be cleared"
-
-    def test_aaq_all_zeros(self):
-        """All-zero accumulator quantizes to all-zero bytes."""
-        state = IpuState()
-        state.dtype = DType.INT8
-        self._set_acc_words(state, [0] * 128)
-
-        encoded = assemble("aaq cr15;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
-        run_until_complete(state)
-
-        assert state.regfile.get_post_aaq_reg() == bytearray(512)
-
-    def test_aaq_positive_clamp(self):
-        """Direct clamp: values above 127 saturate to 127."""
-        state = IpuState()
-        state.dtype = DType.INT8
-        # 127 stays 127; large positive int32 saturates to 127.
-        values = [127] * 64 + [0x7FFFFFFF] * 64
-        self._set_acc_words(state, values)
-
-        encoded = assemble("aaq cr15;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
-        run_until_complete(state)
-
-        result = state.regfile.get_post_aaq_reg()
-        for i in range(128):
-            assert result[i] == 127, f"byte {i}: expected 127, got {result[i]}"
+            expected = (i - 64) & 0xFF
+            assert result[i] == expected, f"byte {i}: expected {expected}, got {result[i]}"
         assert result[128:] == bytearray(384)
 
-    def test_aaq_negative_values(self):
-        """Direct clamp: in-range negatives pass through; below -128 saturates to -128."""
-        state = IpuState()
-        state.dtype = DType.INT8
-        # -1 stays -1 (0xFF); large negative int32 saturates to -128 (0x80).
-        values = [-1] * 64 + [-(1 << 30)] * 64
-        self._set_acc_words(state, values)
-
-        encoded = assemble("aaq cr15;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
-        run_until_complete(state)
-
-        result = state.regfile.get_post_aaq_reg()
-        for i in range(64):
-            assert result[i] == 0xFF, f"byte {i}: expected 0xFF (-1), got {result[i]}"
-        for i in range(64, 128):
-            assert result[i] == 0x80, f"byte {i}: expected 0x80 (-128), got {result[i]}"
-        assert result[128:] == bytearray(384)
-
-    def test_aaq_requires_int8_mode(self):
-        """aaq raises EmulatorError when not in INT8 mode."""
+    def test_requires_int8_mode(self):
+        """Raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
-        state = _make_state("aaq cr15;;\nBKPT;;")
+        state = _make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
-    def test_aaq_uses_named_cr_register(self):
-        """AAQ naming CR3 quantizes all 128 lanes from CR3, ignoring CR15.valid_elements < 128."""
-        state = IpuState()
+    def test_inactive_lanes_zeroed(self):
+        """Inactive lanes (beyond valid_elements) are zeroed in POST_AAQ_REG."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr15;;
+BKPT;;
+"""
+        )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=64)
+        state.set_cr_dstructure(valid_elements=2)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", -5))[0])
+        state.regfile.set_r_acc_word(1, struct.unpack("<I", struct.pack("<i", -3))[0])
+        for i in range(2, 128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", 99))[0])
+        run_until_complete(state)
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 0, "relu(-5) = 0"
+        assert result[1] == 0, "relu(-3) = 0"
+        assert result[2:] == bytearray(510), "inactive lanes must be zeroed"
+
+    def test_uses_named_cr_register(self):
+        """CR3 with valid_elements=128 overrides CR15 with valid_elements=4."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr3;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(valid_elements=4)
         state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
-        self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
-
-        encoded = assemble("aaq cr3;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
+        # use values 1..127 (fit in INT8 after relu; value 0 maps to lane 127)
+        vals = [(i % 127) + 1 for i in range(128)]
+        for i, v in enumerate(vals):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", v))[0])
         run_until_complete(state)
-
         result = state.regfile.get_post_aaq_reg()
-        assert result[:128] == bytearray([1] * 128), "all 128 lanes should be quantized"
-        assert result[128:] == bytearray(384)
+        for i, v in enumerate(vals):
+            assert result[i] == v, f"lane {i}: expected {v}, got {result[i]}"
 
-    def test_aaq_cr15_uses_valid_elements(self):
-        """AAQ naming CR15 reads CR15.valid_elements lanes; rest are zeroed."""
-        state = IpuState()
+    def test_cr15_uses_valid_elements(self):
+        """CR15.valid_elements=4 → only 4 active lanes; rest zeroed."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr15;;
+BKPT;;
+"""
+        )
         state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=48)
-        self._set_acc_words(state, [1] * 128)  # in-range; direct clamp leaves 1 -> 1
-
-        encoded = assemble("aaq cr15;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
-        from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
-        load_program(state, decoded)
+        state.set_cr_dstructure(valid_elements=4)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
         run_until_complete(state)
-
         result = state.regfile.get_post_aaq_reg()
-        assert result[:48] == bytearray([1] * 48), "first 48 lanes should be quantized"
-        assert result[48:] == bytearray(464), "remaining bytes should be zero"
+        for i in range(4):
+            assert result[i] == i + 1, f"lane {i}: expected {i+1}"
+        assert result[4:] == bytearray(508), "inactive lanes must be zeroed"
+
+    def test_elu_respects_ipu_state_alpha(self):
+        """elu with IpuState alpha: elu(-1, alpha=0.5) quantized."""
+        x = -1
+        alpha = 0.5
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE elu cr15;;
+BKPT;;
+""",
+            elu_alpha=alpha,
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(1)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", x))[0])
+        run_until_complete(state)
+        expected = max(-128, min(127, int(round(apply_activation(7, float(x), elu_alpha=alpha)))))
+        assert state.regfile.get_post_aaq_reg()[0] == expected & 0xFF
+
+    def test_r_acc_not_modified(self):
+        """ACTIVATE.QUANTIZE does not modify r_acc."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE relu cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(128)
+        raw = struct.unpack("<I", struct.pack("<i", -42))[0]
+        state.regfile.set_r_acc_word(0, raw)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(0) == raw
+
+
+class TestPostAaqReg:
+    """Tests for STR_POST_AAQ_REG and STR_ACC_REG (store instructions)."""
 
     def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
         """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.dtype = DType.INT8
-        self._set_acc_words(state, [i << 24 for i in range(128)])
         state.regfile.set_cr(8, 0x4000)
+        data = bytearray(range(256)) * 2
+        state.regfile.set_post_aaq_reg(data)
 
         encoded = assemble(
             """\
@@ -2068,329 +2108,3 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
-
-
-# ============================================================================
-# ACTIVATE (element-wise: r_acc → POST_AAQ_REG, issue #77)
-# ============================================================================
-
-
-def _post_aaq_lane_i32(state: IpuState, lane: int) -> int:
-    buf = state.regfile.get_post_aaq_reg()
-    word = struct.unpack_from("<I", buf, lane * 4)[0]
-    return struct.unpack("<i", struct.pack("<I", word))[0]
-
-
-def _post_aaq_lane_f32(state: IpuState, lane: int) -> float:
-    buf = state.regfile.get_post_aaq_reg()
-    word = struct.unpack_from("<I", buf, lane * 4)[0]
-    return struct.unpack("<f", struct.pack("<I", word))[0]
-
-
-class TestActivate:
-    """ACTIVATE applies ipu_common.activations to r_acc lanes; results go to POST_AAQ_REG."""
-
-    def test_activate_relu_int32(self):
-        state = _make_state(
-            """\
-ACTIVATE relu cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(128)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<i", -9))[0]
-        )
-        run_until_complete(state)
-        assert (
-            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-            == -9
-        )
-        assert _post_aaq_lane_i32(state, 0) == 0
-
-    def test_activate_masks_inactive_lanes(self):
-        state = _make_state(
-            """\
-ACTIVATE relu cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(2)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<i", -5))[0]
-        )
-        state.regfile.set_r_acc_word(
-            1, struct.unpack("<I", struct.pack("<i", -3))[0]
-        )
-        sentinel = struct.unpack("<I", struct.pack("<i", 99_999))[0]
-        for i in range(2, 128):
-            state.regfile.set_r_acc_word(i, sentinel)
-        post = bytearray(512)
-        for i in range(2, 128):
-            struct.pack_into("<i", post, i * 4, 99_999)
-        state.regfile.set_post_aaq_reg(post)
-        run_until_complete(state)
-        assert (
-            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-            == -5
-        )
-        assert (
-            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(1)))[0]
-            == -3
-        )
-        for i in range(2, 128):
-            assert state.regfile.get_r_acc_word(i) == sentinel
-        assert _post_aaq_lane_i32(state, 0) == 0
-        assert _post_aaq_lane_i32(state, 1) == 0
-        for i in range(2, 128):
-            assert _post_aaq_lane_i32(state, i) == 99_999
-
-    def test_activate_identity_keyword_is_noop(self):
-        state = _make_state(
-            """\
-ACTIVATE identity cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(1)
-        raw = struct.unpack("<I", struct.pack("<i", -42))[0]
-        state.regfile.set_r_acc_word(0, raw)
-        run_until_complete(state)
-        assert state.regfile.get_r_acc_word(0) == raw
-        assert _post_aaq_lane_i32(state, 0) == struct.unpack("<i", struct.pack("<I", raw))[0]
-
-    def test_activate_sigmoid_float_lane(self):
-        state = _make_state(
-            """\
-ACTIVATE sigmoid cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - 0.5) < 1e-6
-
-    def test_activate_matches_reference_all_ids_float(self):
-        x = 0.25
-        for fid, name in enumerate(ACTIVATION_FN_NAMES):
-            state = _make_state(
-                f"""\
-ACTIVATE {name} cr15;;
-BKPT;;
-"""
-            )
-            state.dtype = DType.E4
-            state.set_cr_dstructure(1)
-            state.regfile.set_r_acc_word(
-                0, struct.unpack("<I", struct.pack("<f", x))[0]
-            )
-            run_until_complete(state)
-            got = _post_aaq_lane_f32(state, 0)
-            exp = apply_activation(fid, x)
-            assert abs(got - exp) < 1e-5, f"id={fid} got={got} exp={exp}"
-
-    def test_activate_exp2_float(self):
-        state = _make_state(
-            """\
-ACTIVATE exp2 cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", 3.0))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - 8.0) < 1e-5
-
-    def test_activate_gelu_float(self):
-        state = _make_state(
-            """\
-ACTIVATE gelu cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        x = 1.0
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - apply_activation(5, x)) < 1e-5
-
-    def test_activate_elu_respects_ipu_state_alpha(self):
-        """``IpuState`` α overrides module defaults for ``ACTIVATE`` (not CR)."""
-        x = -1.0
-        alpha = 0.5
-        state = _make_state(
-            """\
-ACTIVATE elu cr15;;
-BKPT;;
-""",
-            elu_alpha=alpha,
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(7, x, elu_alpha=alpha)
-        assert abs(out - exp) < 1e-5
-
-    def test_activate_elu_after_set_activation_alphas(self):
-        x = -2.0
-        alpha = 0.125
-        state = _make_state(
-            """\
-ACTIVATE elu cr15;;
-BKPT;;
-"""
-        )
-        state.set_activation_alphas(elu_alpha=alpha)
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        exp = apply_activation(7, x, elu_alpha=alpha)
-        assert abs(out - exp) < 1e-5
-
-    def test_activate_valid_elements_from_cr15(self):
-        state = _make_state(
-            """\
-ACTIVATE relu cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<i", -8))[0]
-        )
-        tail = struct.unpack("<I", struct.pack("<i", 123))[0]
-        state.regfile.set_r_acc_word(1, tail)
-        run_until_complete(state)
-        assert (
-            struct.unpack("<i", struct.pack("<I", state.regfile.get_r_acc_word(0)))[0]
-            == -8
-        )
-        assert state.regfile.get_r_acc_word(1) == tail
-        assert _post_aaq_lane_i32(state, 0) == 0
-        assert _post_aaq_lane_i32(state, 1) == 0
-
-    def test_activate_reciprocal_float(self):
-        state = _make_state(
-            """\
-ACTIVATE reciprocal cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        x = 4.0
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - 0.25) < 1e-6
-
-    def test_activate_reciprocal_zero_input(self):
-        state = _make_state(
-            """\
-ACTIVATE reciprocal cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert out == 0.0
-
-    def test_activate_rsqrt_float(self):
-        state = _make_state(
-            """\
-ACTIVATE rsqrt cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        x = 4.0
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", x))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert abs(out - 0.5) < 1e-6
-
-    def test_activate_rsqrt_nonpositive_input(self):
-        state = _make_state(
-            """\
-ACTIVATE rsqrt cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.E4
-        state.set_cr_dstructure(1)
-        state.regfile.set_r_acc_word(
-            0, struct.unpack("<I", struct.pack("<f", 0.0))[0]
-        )
-        run_until_complete(state)
-        out = _post_aaq_lane_f32(state, 0)
-        assert out == 0.0
-
-    def test_activate_uses_named_cr_register(self):
-        """ACTIVATE naming CR3 activates all 128 lanes from CR3, ignoring CR15.valid_elements < 128."""
-        state = _make_state(
-            """\
-ACTIVATE relu cr3;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
-        state.regfile.set_cr(3, encode_dstructure(valid_elements=128, partition=0))
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
-        run_until_complete(state)
-        for i in range(128):
-            assert _post_aaq_lane_i32(state, i) == i + 1, f"lane {i} should be activated"
-
-    def test_activate_cr15_uses_valid_elements(self):
-        """ACTIVATE naming CR15 reads CR15.valid_elements lanes; rest unchanged."""
-        state = _make_state(
-            """\
-ACTIVATE relu cr15;;
-BKPT;;
-"""
-        )
-        state.dtype = DType.INT8
-        state.set_cr_dstructure(valid_elements=4)
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", i + 1))[0])
-        run_until_complete(state)
-        for i in range(4):
-            assert _post_aaq_lane_i32(state, i) == i + 1, f"lane {i} should be activated"
-        for i in range(4, 128):
-            assert _post_aaq_lane_i32(state, i) == 0, f"lane {i} should be untouched (zero)"

@@ -73,7 +73,8 @@ BKPT;;
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
 
-    def test_aaq_noop_unless_quantize_flag(self) -> None:
+    def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
+        """ACTIVATE.QUANTIZE without wide_vector_quantize_output leaves POST_AAQ_REG all zero."""
         state = _run_wide(
             """\
 SET lr0 cr6;;
@@ -84,15 +85,15 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity cr15;;
-aaq cr15;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
         )
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
-    def test_aaq_quantize_fp32_acc_for_comparison(self) -> None:
+    def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
+        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc lanes to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
@@ -113,8 +114,7 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity cr15;;
-aaq cr15;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)

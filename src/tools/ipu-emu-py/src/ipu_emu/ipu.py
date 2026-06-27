@@ -1000,83 +1000,20 @@ class Ipu:
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_aaq(self, *, cr_idx: int) -> None:
-        """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
+    def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
+        """Apply element-wise activation then quantize to INT8.
 
-        Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
-        ``r_acc``), typically filled by ``ACTIVATE``. Each active 32-bit lane is
-        clamped to the INT8 range ``[-128, 127]`` and stored in the leading bytes
-        of ``post_aaq_reg``; the remainder is zeroed.
+        Reads each active lane from the cycle-start snapshot of ``r_acc``, applies
+        the selected activation, clamps to the INT8 range ``[-128, 127]``, and stores
+        the resulting bytes in the leading active-lane positions of ``post_aaq_reg``;
+        all remaining bytes are zeroed. ``r_acc`` is not modified.
 
-        Quantization is an **interim direct clamp** of the post-``ACTIVATE``
-        accumulator lane: ``out[i] = clamp(lane[i], -128, 127)``.  The previous
-        ``lane >> 24`` truncation was the shift half of a fixed-point requantize
-        whose per-lane multiply half is not implemented, so on a real INT8
-        convolution accumulator (magnitudes well below ``2**24``) it produced an
-        all-zero result.
+        The active lane count comes from ``cr_idx``'s decoded dstructure
+        ``valid_elements`` field; the caller must name a CR register explicitly.
 
-        This clamp is a placeholder, not the final design.  The intended future
-        quantization is a full per-128-element (per-lane) requantize — applied
-        after ``ACTIVATE`` and before write-back to memory — that scales each
-        lane so the result is guaranteed to land in INT8 range; that stage
-        subsumes (and will replace) this clamp.  Until it lands, clamping keeps
-        the ``ACTIVATE`` -> ``AAQ`` path producing usable INT8 output instead of
-        all zeros.
-
-        Active lane count is taken from ``cr_idx``'s ``valid_elements``
-        (clamped to 128); the caller must name a CR register explicitly.
-
-        Requires INT8 mode.
-
-        In wide-vector debug mode, ``aaq`` is normally a no-op (use
-        ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
-        to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
-        """
-        dtype = self.state.dtype
-        if dtype != DType.INT8:
-            raise EmulatorError("AAQ instruction requires INT8 mode")
-
-        active = self._agg_active_lane_count(
-            self.state.get_dstructure_for(cr_idx).valid_elements
-        )
-
-        if self._wide_vector_active():
-            if not self.state.wide_vector_quantize_output:
-                return
-            src_buf = self.state.regfile.raw("post_aaq_reg")
-            result = bytearray(128)
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(active):
-                    val = struct.unpack_from("<f", src_buf, i * 4)[0]
-                    clamped = max(-128, min(127, int(round(val))))
-                    result[i] = clamped & 0xFF
-            else:
-                for i in range(active):
-                    val = struct.unpack_from("<i", src_buf, i * 4)[0]
-                    clamped = max(-128, min(127, val))
-                    result[i] = clamped & 0xFF
-            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
-            return
-
-        src_buf = self.state.regfile.raw("post_aaq_reg")
-        result = bytearray(128)
-        for i in range(active):
-            val = struct.unpack_from("<i", src_buf, i * 4)[0]
-            clamped = max(-128, min(127, val))  # direct INT8 clamp (no >>24 truncation)
-            result[i] = clamped & 0xFF
-        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
-
-    def execute_activate(self, *, activation_fn: int, cr_idx: int) -> None:
-        """Apply element-wise activation to active lanes.
-
-        Reads each active lane from ``r_acc`` and writes the result into the same
-        lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
-        Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
-        unchanged.
-
-        ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        Lane count is taken from ``cr_idx``'s ``valid_elements``; the caller
-        must name a CR register explicitly.
+        Requires INT8 mode in normal operation. In wide-vector debug mode, activation
+        is always applied; quantization only occurs when ``state.wide_vector_quantize_output``
+        is set (enabling comparison with the real INT8 path).
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
@@ -1085,22 +1022,44 @@ class Ipu:
         acc_buf = self.snapshot.raw("r_acc")
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
+        if self._wide_vector_active():
+            for i in range(active):
+                raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+                y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
+                if fmt == "<i":
+                    yi = int(round(y))
+                    if yi < -2147483648:
+                        yi = -2147483648
+                    elif yi > 2147483647:
+                        yi = 2147483647
+                    struct.pack_into("<i", post_buf, i * 4, yi)
+                else:
+                    struct.pack_into("<f", post_buf, i * 4, float(y))
+
+            if not self.state.wide_vector_quantize_output:
+                return
+
+            result = bytearray(128)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(active):
+                    val = struct.unpack_from("<f", post_buf, i * 4)[0]
+                    result[i] = max(-128, min(127, int(round(val)))) & 0xFF
+            else:
+                for i in range(active):
+                    val = struct.unpack_from("<i", post_buf, i * 4)[0]
+                    result[i] = max(-128, min(127, val)) & 0xFF
+            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
+            return
+
+        if self.state.dtype != DType.INT8:
+            raise EmulatorError("ACTIVATE.QUANTIZE instruction requires INT8 mode")
+
+        result = bytearray(128)
         for i in range(active):
             raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            y = apply_activation(
-                fn_id,
-                float(raw),
-                elu_alpha=self.state.elu_alpha,
-            )
-            if fmt == "<i":
-                yi = int(round(y))
-                if yi < -2147483648:
-                    yi = -2147483648
-                elif yi > 2147483647:
-                    yi = 2147483647
-                struct.pack_into("<i", post_buf, i * 4, yi)
-            else:
-                struct.pack_into("<f", post_buf, i * 4, float(y))
+            y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
+            result[i] = max(-128, min(127, int(round(y)))) & 0xFF
+        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
         """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
