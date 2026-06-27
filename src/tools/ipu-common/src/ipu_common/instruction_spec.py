@@ -496,19 +496,25 @@ INSTRUCTION_SPEC = {
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector × Ra Vector Multiply",
-                summary="Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise.",
-                syntax="MULT.RC.VV rc_idx, ra, mask_offset, mask_shift",
+                summary=(
+                    "Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift.",
-                example="MULT.RC.VV LR0, R0, 0, LR2;;",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VV LR0, R0, 0, LR2, CR15;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vv",
@@ -519,22 +525,26 @@ INSTRUCTION_SPEC = {
                 {"name": "src", "type": "LcrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector × Scalar Multiply",
                 summary=(
                     "Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is "
-                    "either a single element of R0/R1 (selected by an LR value) or a CR register value."
+                    "either a single element of R0/R1 (selected by an LR value) or a CR register value. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift",
+                syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR14`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift.",
-                example="MULT.RC.VE LR0, LR3, 0, LR2;;",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VE LR0, LR3, 0, LR2, CR15;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_ve",
@@ -544,18 +554,24 @@ INSTRUCTION_SPEC = {
                 {"name": "rc_idx", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector Self-Multiply (Square)",
-                summary="Square R_CYCLIC[rc_idx:rc_idx+128] element-wise.",
-                syntax="MULT.RC.VS rc_idx, mask_offset, mask_shift",
+                summary=(
+                    "Square R_CYCLIC[rc_idx:rc_idx+128] element-wise. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors (must be given explicitly).",
                 ],
-                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift.",
-                example="MULT.RC.VS LR0, 0, LR2;;",
+                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VS LR0, 0, LR2, CR15;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vs",
@@ -576,19 +592,25 @@ INSTRUCTION_SPEC = {
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Ra Vector × CR Scalar Multiply",
-                summary="Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise.",
-                syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift",
+                summary=(
+                    "Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise. "
+                    "The partition used by mask_shift comes from dstructure_cr_idx's dstructure "
+                    "configuration (any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors (must be given explicitly).",
                 ],
-                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift.",
-                example="MULT.VE LR0, CR3, 0, LR2;;",
+                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                example="MULT.VE LR0, CR3, 0, LR2, CR15;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ve",
@@ -599,19 +621,25 @@ INSTRUCTION_SPEC = {
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Ra Element × CR Scalar Multiply (broadcast)",
-                summary="Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes.",
-                syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift",
+                summary=(
+                    "Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes. "
+                    "The partition used by mask_shift comes from dstructure_cr_idx's dstructure "
+                    "configuration (any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors (must be given explicitly).",
                 ],
-                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift.",
-                example="MULT.EE LR0, CR3, 0, LR2;;",
+                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                example="MULT.EE LR0, CR3, 0, LR2, CR15;;",
                 notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ee",

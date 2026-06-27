@@ -382,7 +382,7 @@ LDR_MULT_REG r1 lr13 cr0;;
 SET lr14 cr9;;
 SET lr15 cr10;;
 LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
-MULT.RC.VV lr0 r1 0 lr0;
+MULT.RC.VV lr0 r1 0 lr0 cr15;
 ACC.ADD;;
 SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
@@ -482,7 +482,7 @@ SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
@@ -520,7 +520,7 @@ SET lr3 cr11;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr12;;
 SET lr6 cr10;;
-MULT.RC.VV lr6 r0 1 lr5;
+MULT.RC.VV lr6 r0 1 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
@@ -1377,7 +1377,7 @@ SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr5 cr10;;
 SET lr6 cr10;;
-MULT.RC.VV lr6 r0 0 lr5;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1418,7 +1418,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr3 0 lr4;
+MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1444,7 +1444,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr2 0 lr4;
+MULT.RC.VE lr2 cr2 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1468,7 +1468,7 @@ BKPT;;
         state = _make_state("""\
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr3 0 lr4;
+MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1497,7 +1497,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr5 0 lr4;
+MULT.RC.VE lr2 cr5 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1522,7 +1522,7 @@ BKPT;;
         state = _make_state("""\
 SET lr2 cr8;;
 SET lr4 cr9;;
-MULT.RC.VE lr2 cr6 0 lr4;
+MULT.RC.VE lr2 cr6 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1553,7 +1553,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;
+MULT.RC.VV lr2 r0 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1580,7 +1580,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VE lr2 lr2 0 lr2;
+MULT.RC.VE lr2 lr2 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1611,7 +1611,7 @@ SET lr1 cr10;;
 SET lr2 cr11;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr12;;
-MULT.RC.VE lr2 lr3 0 lr2;
+MULT.RC.VE lr2 lr3 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1640,7 +1640,7 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr5 cr9;;
-MULT.RC.VS lr1 0 lr5;
+MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1661,7 +1661,7 @@ BKPT;;
         state = _make_state("""\
 SET lr2 cr10;;
 SET lr5 cr11;;
-MULT.RC.VS lr2 0 lr5;
+MULT.RC.VS lr2 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1689,7 +1689,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr3 cr10;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr9;;
-MULT.RC.VS lr1 0 lr5;
+MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
@@ -1737,7 +1737,7 @@ LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 SET lr3 cr9;;
 LDR_MULT_MASK_REG lr3 cr0;;
 SET lr5 cr2;;
-MULT.RC.VS lr1 0 lr5;
+MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """

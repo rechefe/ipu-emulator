@@ -355,7 +355,7 @@ class Ipu:
                 result |= (1 << i)
         return result
 
-    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
+    def _mult_mask_and_shift(self, mask_idx: int, shift: int, cr_idx: int) -> None:
         """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
         ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
@@ -365,7 +365,7 @@ class Ipu:
           idx +k → shift left  k times, ANDing with partition_vector after each step
           idx −k → shift right k times, ANDing with inverse_partition_vector after each step
 
-        Two partition vectors, both derived from CR15.partition:
+        Two partition vectors, both derived from CR[cr_idx].partition:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
@@ -386,7 +386,7 @@ class Ipu:
         _128_BIT_MASK = (1 << R_REG_SIZE) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        num_partitions = self.state.get_config_partition()
+        num_partitions = self.state.get_dstructure_for(cr_idx).partition
 
         # Generate the shifted mask via sequential shift-and-AND
         mask_int = base_mask
@@ -606,7 +606,7 @@ class Ipu:
         return cr_scalar
 
     def execute_mult_rc_vv(self, *, rc_idx: int, ra: bytearray | int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -622,7 +622,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(ra_vals[i]))
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -632,10 +632,10 @@ class Ipu:
             result = ipu_mult(rc[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_rc_ve(self, *, rc_idx: int, src: int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -653,7 +653,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), scalar_i)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -665,10 +665,10 @@ class Ipu:
             result = ipu_mult(rc[i], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_rc_vs(self, *, rc_idx: int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -683,7 +683,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(rb_vals[i]))
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -694,10 +694,10 @@ class Ipu:
             result = ipu_mult(rc[i], rc[i], dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_ve(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
+                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -718,7 +718,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_lane), cr_scalar)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
             return
 
         dtype = self.state.dtype
@@ -731,10 +731,10 @@ class Ipu:
             result = ipu_mult(r_buf[pos], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
 
     def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
+                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 lanes."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -752,7 +752,7 @@ class Ipu:
                 result = self._wide_imult32(int(ra_lane), cr_scalar)
                 for i in range(R_REG_SIZE):
                     struct.pack_into("<i", mult_res, i * 4, result)
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
             return
 
         dtype = self.state.dtype
@@ -765,7 +765,7 @@ class Ipu:
         for i in range(R_REG_SIZE):
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
 
     # -----------------------------------------------------------------------
     # ACC Instruction Handlers

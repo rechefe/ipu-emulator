@@ -66,7 +66,7 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3; ACC.ADD; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
+LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
 - Binary layout (MSB → LSB): `cond`, `lr` (×3), `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break`
