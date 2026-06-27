@@ -305,8 +305,6 @@ class TestIpuState:
         config = state.get_cr_dstructure()
         assert config.valid_elements == 64
         assert config.partition == 2
-        assert state.get_config_valid_elements() == 64
-        assert state.get_config_partition() == 2
 
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()

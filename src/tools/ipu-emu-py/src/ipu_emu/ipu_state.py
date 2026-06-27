@@ -89,14 +89,6 @@ class IpuState:
         """Read CR15 as decoded dstructure configuration fields."""
         return decode_dstructure(self.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX))
 
-    def get_config_valid_elements(self) -> int:
-        """Return the active lane count from the CR15 dstructure register."""
-        return self.get_cr_dstructure().valid_elements
-
-    def get_config_partition(self) -> int:
-        """Return the partition field from the CR15 dstructure register."""
-        return self.get_cr_dstructure().partition
-
     def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
         """Decode the dstructure configuration from an arbitrary CR register.
 

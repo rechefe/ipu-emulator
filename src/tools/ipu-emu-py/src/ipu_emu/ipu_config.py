@@ -85,11 +85,3 @@ def decode_dstructure(value: int) -> DStructureConfig:
     )
 
 
-def get_config_valid_elements(value: int) -> int:
-    """Return the active lane-count field from an encoded dstructure value."""
-    return decode_dstructure(value).valid_elements
-
-
-def get_config_partition(value: int) -> Partition:
-    """Return the partition field from an encoded dstructure value."""
-    return decode_dstructure(value).partition

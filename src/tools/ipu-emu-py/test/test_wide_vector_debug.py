@@ -58,7 +58,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 BKPT;;
 """
@@ -81,7 +81,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE identity cr15;;
@@ -110,7 +110,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE identity cr15;;
@@ -143,7 +143,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 BKPT;;
 """
@@ -188,7 +188,7 @@ SET lr3 cr9;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-MULT.RC.VV lr3 {which} 0 lr3;;
+MULT.RC.VV lr3 {which} 0 lr3 cr15;;
 acc.add.first;;
 BKPT;;
 """
@@ -243,7 +243,7 @@ class TestWideVectorWrap:
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.RC.VE lr0 cr2 0 lr2;;
+MULT.RC.VE lr0 cr2 0 lr2 cr15;;
 acc.add.first;;
 BKPT;;
 """
@@ -278,7 +278,7 @@ LDR_MULT_REG r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.RC.VE lr0 lr2 0 lr3;;
+MULT.RC.VE lr0 lr2 0 lr3 cr15;;
 acc.add.first;;
 BKPT;;
 """
@@ -357,7 +357,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr9;;
-MULT.RC.VV lr3 r0 0 lr3;;
+MULT.RC.VV lr3 r0 0 lr3 cr15;;
 BKPT;;
 """
         encoded = assemble(asm)

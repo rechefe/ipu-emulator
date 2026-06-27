@@ -79,9 +79,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "DstructureCrIdx": (
         "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the "
         "**valid element mask** / dstructure configuration (`valid_elements`, `partition`) for "
-        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `AAQ`, and `ACTIVATE`. Unlike "
-        "**`CrIdx`**, **`cr15`** is allowed here — it's the default dstructure register and is "
-        "used when the operand is omitted."
+        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `AAQ`, `ACTIVATE`, and the "
+        "masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, "
+        "`MULT.EE`). Unlike **`CrIdx`**, **`cr15`** is allowed here — it's the conventional "
+        "dstructure register — but the operand is always mandatory; there is no implicit "
+        "fallback to `cr15` when it is omitted."
     ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
@@ -151,7 +153,7 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 # Comments start with # or //
 label:                          # Labels end with a colon
     LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
-    MULT.RC.VV lr1 r0 0 lr3;     # MULT: element-wise multiply
+    MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
     ACC.ADD;                     # ACC: accumulate
     INC lr0 1;               # LR: bump address (increment via INC)
     BNE lr0 lr1 next;            # COND: branch
@@ -180,7 +182,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -267,7 +269,12 @@ outside [−3, +3] **clamp** to ±3.
 
 ### Partition vectors
 
-Both vectors are derived from `CR15.partition`. The valid values of P are **{0, 2, 4, 8, 16}**.
+Each masking multiply instruction takes a mandatory CR-index operand (`cr_idx` on `MULT.RC.VV` /
+`MULT.RC.VE` / `MULT.RC.VS`; `dstructure_cr_idx` on `MULT.VE` / `MULT.EE`, since those two already
+use `cr_idx` for the scalar multiplier) naming the CR register that supplies the dstructure
+configuration — there is no implicit default. Both vectors are derived from that named register's
+`partition` field (see [DstructureCrIdx](operand-types.md#dstructurecridx)). The valid values of P
+are **{0, 2, 4, 8, 16}**.
 With `partition = 0` both vectors are all-ones (no boundaries). With `partition = P` the 128 lanes
 are split into `P` equal groups of `128 / P` lanes:
 
@@ -288,8 +295,9 @@ For `partition = 4` (groups of 32):
 
 The AND at each step prevents mask bits from crossing the group boundary in either shift direction.
 
-`CR15` is reserved in assembly and is set by the host harness (see
-[CrIdx](operand-types.md#cridx)).
+`CR15` remains the conventional dstructure register and is set by the host harness, but it must
+still be named explicitly via the instruction's CR-index operand — there is no implicit fallback to
+`CR15` (see [DstructureCrIdx](operand-types.md#dstructurecridx)).
 
 ### Example
 
@@ -302,10 +310,11 @@ LDR_MULT_REG R0, LR0, CR0;;
 LDR_CYCLIC_MULT_REG LR2, CR0, LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2, R0, 3, LR4; ACC.ADD;;
+MULT.RC.VV LR2, R0, 3, LR4, CR15; ACC.ADD;;
 ```
 
-`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index.
+`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15` is the
+dstructure register supplying `partition` (any `CR0`–`CR15` may be named explicitly).
 
 ### Worked examples
 
