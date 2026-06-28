@@ -59,12 +59,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "`acc_stride_enums`)."
     ),
     "ActivationFn": (
-        "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, "
+        "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "
         "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
-        "and how **`POST_AAQ_REG`** (interim **512 B**) and **`STR_POST_AAQ_REG`** (store to XMEM) "
-        "are described in **Building Applications** "
-        "(`docs/content/building-applications.md#activations-emulator`)."
+        "is described in **Building Applications** "
+        "(`docs/content/building-applications.md`)."
     ),
     "LrModPow2KImmediate": (
         "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic "
@@ -79,7 +78,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "DstructureCrIdx": (
         "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the "
         "**valid element mask** / dstructure configuration (`valid_elements`, `partition`) for "
-        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `AAQ`, `ACTIVATE`, and the "
+        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the "
         "masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, "
         "`MULT.EE`). Unlike **`CrIdx`**, **`cr15`** is allowed here — it's the conventional "
         "dstructure register — but the operand is always mandatory; there is no implicit "
