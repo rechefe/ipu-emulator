@@ -27,7 +27,7 @@ from ipu_as.lark_tree import assemble, parse
 
 from ipu_as.compound_inst import CompoundInst
 
-from ipu_common.activations import ACTIVATION_FN_NAMES, apply_activation
+from ipu_common.activations import apply_activation
 
 
 # ---------------------------------------------------------------------------
@@ -2108,3 +2108,4 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+

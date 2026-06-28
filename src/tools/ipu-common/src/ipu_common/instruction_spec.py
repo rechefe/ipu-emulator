@@ -903,11 +903,11 @@ INSTRUCTION_SPEC = {
                     "(any CR0–CR15; must be named explicitly). "
                     "Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
-                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10)."
+                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11)."
                 ),
                 syntax="ACTIVATE.QUANTIZE activation_fn, cr_idx",
                 operands=[
-                    "activation_fn: keyword naming the activation (see ACTIVATION_FN_NAMES)",
+                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2, reciprocal, rsqrt, silu; see ACTIVATION_FN_NAMES)",
                     "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
@@ -916,7 +916,9 @@ INSTRUCTION_SPEC = {
                     "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
                     "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "
                     "Clamping is a placeholder until a full per-lane requantize is implemented. "
-                    "α for elu is not an ISA operand; see docs/content/building-applications.md."
+                    "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
+                    "α for elu is not an ISA operand; see "
+                    "docs/content/building-applications.md#activations-emulator."
                 ),
                 example="ACTIVATE.QUANTIZE relu, CR15;;",
             ),
