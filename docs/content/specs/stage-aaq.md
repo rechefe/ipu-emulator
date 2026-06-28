@@ -140,6 +140,7 @@ Supported activation functions:
 | 8 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 | 9 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
 | 10 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
+| 11 | `silu` | `f(x) = x · σ(x)` | Sigmoid Linear Unit; used in SwiGLU/Swish activations. |
 
 ### 7.1 Aggregation (moved to the ACC stage)
 
@@ -233,7 +234,7 @@ but is never assumed).
 - **Summary:** Apply an element-wise activation function to the active lanes of `r_acc` and write the activated 32-bit lanes into `POST_AAQ_REG`. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE activation_fn, cr_idx`
 - **Operands:**
-  - `activation_fn` — activation keyword (see §7.0): `identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`.
+  - `activation_fn` — activation keyword (see §7.0): `identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`.
   - `cr_idx` — `CR0`…`CR15` — dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
 - **Operation:**
   ```text
