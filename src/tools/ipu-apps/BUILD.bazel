@@ -132,3 +132,49 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- residual_add (FP32 wide-vector) --------------------------------------
+
+py_pytest_test(
+    name = "test_residual_add_conv_universal",
+    srcs = ["test/test_residual_add_conv_universal.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/residual_add/residual_add.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- softmax apps (FP32 wide-vector) ---------------------------------------
+#
+# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
+# the app .asm is provided as data; no pre-assembled .bin target is needed.
+
+py_pytest_test(
+    name = "test_softmax_rows",
+    srcs = ["test/test_softmax_rows.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_rows_partial",
+    srcs = ["test/test_softmax_rows_partial.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
