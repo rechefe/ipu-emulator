@@ -7,6 +7,7 @@ inline assembly into encoded instruction words, load them into an
 
 from __future__ import annotations
 
+import math
 import struct
 
 import numpy as np
@@ -2359,6 +2360,42 @@ BKPT;;
         run_until_complete(state)
         out = _post_aaq_lane_f32(state, 0)
         assert out == 0.0
+
+    def test_activate_silu_float(self):
+        state = _make_state(
+            """\
+ACTIVATE silu cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
+        x = 2.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        expected = x / (1.0 + math.exp(-x))
+        assert abs(out - expected) < 1e-5
+
+    def test_activate_silu_negative_input(self):
+        state = _make_state(
+            """\
+ACTIVATE silu cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.E4
+        state.set_cr_dstructure(1)
+        x = -1.0
+        state.regfile.set_r_acc_word(
+            0, struct.unpack("<I", struct.pack("<f", x))[0]
+        )
+        run_until_complete(state)
+        out = _post_aaq_lane_f32(state, 0)
+        expected = x / (1.0 + math.exp(-x))
+        assert abs(out - expected) < 1e-5
 
     def test_activate_uses_named_cr_register(self):
         """ACTIVATE naming CR3 activates all 128 lanes from CR3, ignoring CR15.valid_elements < 128."""

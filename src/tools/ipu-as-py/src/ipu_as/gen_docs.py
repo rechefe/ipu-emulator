@@ -60,7 +60,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, "
-        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2** "
+        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
         "and how **`POST_AAQ_REG`** (interim **512 B**) and **`STR_POST_AAQ_REG`** (store to XMEM) "
         "are described in **Building Applications** "

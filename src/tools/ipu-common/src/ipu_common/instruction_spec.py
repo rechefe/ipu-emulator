@@ -932,18 +932,18 @@ INSTRUCTION_SPEC = {
                     "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
                     "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
-                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
+                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11). For Python emulator calibration (virtual α), see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
                 syntax="ACTIVATE activation_fn, cr_idx",
                 operands=[
-                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
+                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2, reciprocal, rsqrt, silu; see ACTIVATION_FN_NAMES)",
                     "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
-                    "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
+                    "R_ACC is not modified. The selector uses four bits; encodings outside the twelve named "
                     "activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
