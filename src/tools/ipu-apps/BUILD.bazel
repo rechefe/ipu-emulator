@@ -178,3 +178,16 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_softmax_rows_long",
+    srcs = ["test/test_softmax_rows_long.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
