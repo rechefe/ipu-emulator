@@ -71,13 +71,13 @@ group_size_set:
 
 pass1_loop:
     LDR_MULT_REG  r0 {{lr_off}} cr10 ;;                 {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
-    MULT.RC.VV    {{lr_cyc}} r0 0 {{lr_cyc}} ;          {#- mult_res = c*x[r] -#}
-    AGG.MAX.FIRST {{lr_row}} 1 ;;                       {#- r_acc[r] = max lane -#}
+    MULT.RC.VV    {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;          {#- mult_res = c*x[r] -#}
+    AGG.MAX.FIRST {{lr_row}} cr15 ;;                       {#- r_acc[r] = max lane -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr8 ;;
     BLT {{lr_row}} {{lr_bound}} pass1_loop ;;
 
-    ACTIVATE identity 1 ;;
+    ACTIVATE.QUANTIZE identity cr15;;
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                  {#- MAXVEC_ADDR <- maxvec -#}
 
 {#- ===================================================================== -#}
@@ -95,13 +95,13 @@ pass1_loop:
 
 pass2_loop:
     LDR_MULT_REG r0 {{lr_off}} cr10 ;;                   {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
-    MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} ;           {#- mult_res = c*x[r] -#}
-    ACC.FIRST ;;                                         {#- r_acc = c*x[r] -#}
+    MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;           {#- mult_res = c*x[r] -#}
+    acc.add.first ;;                                         {#- r_acc = c*x[r] -#}
 
-    MULT.EE {{lr_max_idx}} cr11 0 {{lr_cyc}} ;          {#- mult_res = maxvec[r]*(-1) -#}
-    ACC ;;                                               {#- r_acc = c*x[r] - maxvec[r] -#}
+    MULT.EE {{lr_max_idx}} cr11 0 {{lr_cyc}} cr15 ;          {#- mult_res = maxvec[r]*(-1) -#}
+    acc.add ;;                                               {#- r_acc = c*x[r] - maxvec[r] -#}
 
-    ACTIVATE exp2 1 ;;
+    ACTIVATE.QUANTIZE exp2 cr15;;
     STR_POST_AAQ_REG {{lr_wr}} cr4 ;;                    {#- NUM[r] = 2^(...) -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -119,13 +119,13 @@ pass2_loop:
 
 pass3_loop:
     LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
-    MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} ;         {#- mult_res = num[r]*1.0 -#}
-    AGG.SUM.FIRST {{lr_row}} 1 ;;                        {#- r_acc[r] = SUM num[r] -#}
+    MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;         {#- mult_res = num[r]*1.0 -#}
+    AGG.SUM.FIRST {{lr_row}} cr15 ;;                        {#- r_acc[r] = SUM num[r] -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr8 ;;
     BLT {{lr_row}} {{lr_bound}} pass3_loop ;;
 
-    ACTIVATE reciprocal 1 ;;
+    ACTIVATE.QUANTIZE reciprocal cr15;;
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                   {#- RVEC_ADDR <- 1/sum -#}
 
 {#- ===================================================================== -#}
@@ -138,9 +138,9 @@ pass3_loop:
 
 pass4_loop:
     LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
-    MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} ;   {#- mult_res = num[r]*rvec[r] -#}
-    ACC.FIRST ;;
-    ACTIVATE identity 1 ;;
+    MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} cr15 ;   {#- mult_res = num[r]*rvec[r] -#}
+    acc.add.first ;;
+    ACTIVATE.QUANTIZE identity cr15;;
     STR_POST_AAQ_REG {{lr_off}} cr2 ;;                   {#- OUT[r] = softmax row -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;

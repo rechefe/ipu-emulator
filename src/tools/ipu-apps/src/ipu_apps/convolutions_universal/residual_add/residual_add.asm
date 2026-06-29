@@ -7,8 +7,8 @@
 #
 # Algorithm: use MULT.RC.VE with scalar = 1.0 (cr1 low byte = 1) to copy
 # each FP32 chunk into mult_res, then accumulate both into r_acc:
-#   acc.first  <- 1 * A[i]   (FP32)
-#   acc        <- 1 * B[i]
+#   acc.add.first  <- 1 * A[i]   (FP32)
+#   acc.add        <- 1 * B[i]
 #   result     <- r_acc = A[i] + B[i]   (FP32)
 #
 # Pipeline note (master ISA, issue #157): MULT reads r_cyclic from the
@@ -53,16 +53,16 @@ loop:
 # A is already in r_cyclic (loaded last cycle). Copy A -> r_acc, and load
 # B for this same channel into r_cyclic (lands next cycle).
     ldr_cyclic_mult_reg lr2 cr3 lr0;
-    mult.rc.ve          lr0 cr1 0 lr0;
-    acc.first;;
+    mult.rc.ve          lr0 cr1 0 lr0 cr15;
+    acc.add.first;;
 
 # B is now in r_cyclic. Accumulate B -> r_acc = A + B. Pre-load A of the
 # NEXT channel so it is ready for the next iteration's acc.first.
     add     lr2 lr2 cr5;;
 
     ldr_cyclic_mult_reg lr2 cr2 lr0;
-    mult.rc.ve          lr0 cr1 0 lr0;
-    acc;;
+    mult.rc.ve          lr0 cr1 0 lr0 cr15;
+    acc.add;;
 
 # Store FP32 accumulator (512 bytes per chunk). The output-pointer bump must
 # NOT share this word: LR runs before XMEM, so it would store to the wrong

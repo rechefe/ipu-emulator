@@ -176,6 +176,12 @@ class SoftmaxRowsApp(IpuApp):
         state.regfile.set_cr(12, LANES)      # 128: R1 base byte index for maxvec element select
         state.regfile.set_cr(13, self.rows)  # total row count (exact group sizing)
 
+        # Master ISA: AGG.*/ACTIVATE.QUANTIZE read the active-lane count from the
+        # named dstructure CR's valid_elements field (the old full_xmem_row=1
+        # shortcut is gone). The asm names CR15 on every AGG/ACTIVATE.QUANTIZE,
+        # so set CR15.valid_elements = 128 to process the full FP32 row.
+        state.set_cr_dstructure(valid_elements=LANES)
+
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(

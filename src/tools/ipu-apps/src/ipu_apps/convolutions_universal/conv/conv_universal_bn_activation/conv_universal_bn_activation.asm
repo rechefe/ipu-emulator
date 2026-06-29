@@ -153,8 +153,8 @@ g0_filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
-    acc.first;;                            # r_acc = bias (seed; conv taps add on top)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }} cr15;           # bias = R0[0] * CR1(=1), broadcast
+    acc.add.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
     add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
@@ -209,64 +209,64 @@ g0_tap_body:
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 2: kr=-1 kc=0.  slot 3, no shift.  Bump lr_off_zero to E'.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 3: kr=-1 kc=+1.  slot 3 + kc=+1 shift.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 5.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 6.  lr10 += cr12 (loop counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  Prefetch NEXT kr=0 (ext = E') into THIS dead kr=-1 slot.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 8.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 9: lr_write += 128 -> next iter tap-1 slot.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} g0_tap_body;;
 
     # Advance kernel offset; check for more channel groups.
@@ -274,8 +274,7 @@ g0_tap_body:
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} g0_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE relu 1;;        # conv+bias -> ReLU -> quantize
-    aaq 1;;
+    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
@@ -314,8 +313,8 @@ filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
-    acc.first;;                            # r_acc = bias (seed; conv taps add on top)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }} cr15;           # bias = R0[0] * CR1(=1), broadcast
+    acc.add.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
     add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
@@ -374,22 +373,22 @@ mn_tap_body:
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 2.  Bump lr_off_zero to E' = NEXT ch kr=0 ext (for taps 4/7 prefetch).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 3.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot
     #     (lr_write = lr_read+256 after the tap-3 +128).
@@ -397,43 +396,43 @@ mn_tap_body:
     INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 5.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 6.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  Prefetch NEXT kr=0 (ext = E' = lr_off_zero LIVE) into
     #     THIS dead kr=-1 slot (lr_write = lr_read+384 after the tap-5 +128).
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 8.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 9: lr_write += 128 -> next iter tap-1 slot (= next lr_read + 128).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} mn_tap_body;;
 
 mn_after_block:
@@ -441,8 +440,7 @@ mn_after_block:
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE relu 1;;        # conv+bias -> ReLU -> quantize
-    aaq 1;;
+    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
@@ -482,8 +480,8 @@ gN_filter_loop:
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
     SET                 {{ lr_ch_ctr }} {{ cr_zero }};
-    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }};           # bias = R0[0] * CR1(=1), broadcast
-    acc.first;;                            # r_acc = bias (seed; conv taps add on top)
+    MULT.EE             {{ lr_kern_idx }} cr1 0 {{ lr_zero }} cr15;           # bias = R0[0] * CR1(=1), broadcast
+    acc.add.first;;                            # r_acc = bias (seed; conv taps add on top)
 
     add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
     add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
@@ -535,73 +533,72 @@ gN_tap_body:
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 2.  Bump lr_off_zero to E'.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 3.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1.  Prefetch NEXT kr=-1 (ext = E' - cr6) into the SPARE slot.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     sub                 {{ lr_scratch }} {{ lr_off_zero }} {{ cr_group_stride }};
     ldr_cyclic_mult_reg {{ lr_scratch }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 5.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 6.  lr10 += cr12 (loop counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom border: slot 6 zeros the last packed row; kc=-1
     #     shift.  Prefetch NEXT kr=0 (ext = E') into THIS dead kr=-1 slot.
     add                 {{ lr_walk }} {{ lr_walk }} {{ lr_cols_m2 }};
     INC                 {{ lr_kern_idx }} 1;
     ldr_cyclic_mult_reg {{ lr_off_zero }} {{ cr_input_base }} {{ lr_write }};
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_p1 }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_p1 }} cr15;
+    acc.add;;
 
     # --- tap 8: kr=+1 kc=0.  slot 6 = bottom row only.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_zero }};
-    acc;;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_zero }} cr15;
+    acc.add;;
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift.  lr_write += 128 -> next tap-1 slot.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
     incr_mod_pow2       {{ lr_write }} {{ cr_chunk_bytes }} 9;
-    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_m1 }};
-    acc;
+    MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 6 {{ lr_shift_m1 }} cr15;
+    acc.add;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} gN_tap_body;;
 
     add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_bytes }};
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} gN_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE relu 1;;        # conv+bias -> ReLU -> quantize
-    aaq 1;;
+    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
