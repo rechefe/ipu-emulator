@@ -350,10 +350,14 @@ class ConvUniversalBnActivationApp(IpuApp):
         # which the asm now uses for "SET lr<n> cr0".
         state.regfile.set_cr(12, CHUNK_BYTES)        # 128
         state.regfile.set_cr(13, SUPER_BLOCK_BYTES)  # 256
-        # cr14 = end-of-9 walking-pointer step: brings lr_walk from this ch's
+        # cr9 = ring advance = 3 * CHUNK_BYTES = 384.  9-cyc role-rotating scheme:
+        # lr_read (kr=0 slot) advances -128 (= +384 mod 512) per channel.
+        state.regfile.set_cr(9, 3 * CHUNK_BYTES)     # 384
+        # cr14 = end-of-9 walking-pointer wrap step: brings lr_walk from this ch's
         # tap-9 offset (lr_read + cols + 1) to next ch's tap-1 offset
-        # ((lr_read + SUPER_BLOCK_BYTES) - cols - 1), i.e. +(SUPER_BLOCK_BYTES - 2*cols - 2).
-        state.regfile.set_cr(14, (SUPER_BLOCK_BYTES - 2 * self.cols - 2) & 0xFFFFFFFF)
+        # ((lr_read - CHUNK_BYTES) - cols - 1).  Under -128 rotation this is
+        # +(RING_ADV - 2*cols - 2) with RING_ADV = 384 (= -128 mod 512 + 512).
+        state.regfile.set_cr(14, (3 * CHUNK_BYTES - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
