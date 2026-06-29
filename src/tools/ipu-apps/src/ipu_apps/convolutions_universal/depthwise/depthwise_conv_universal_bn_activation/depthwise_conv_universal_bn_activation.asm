@@ -142,32 +142,31 @@ g0_tap_body:
     # cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
     INC                 lr6 1;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0;
-    acc.first;
-    aaq                 1;;
+    MULT.EE             lr6 cr1 0 lr0 cr15 ;
+    acc.add.first;;
 
     # --- tap 1: kr=-1 kc=-1.  Top row out of bounds: slot 3; kc=-1 shift (lr9)
     #     zeros the left edge column.  kr=-1 (own valid base lr2) pre-loaded in
     #     cyc 0; row-0 lanes masked.  Walk +cr14 (as base).
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    MULT.RC.VE          lr3 lr6 3 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 3 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr12;
     STR_POST_AAQ_REG    lr7 cr2;
-    MULT.RC.VE          lr3 lr6 3 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 3 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 3: kr=-1 kc=+1.  slot 3 + kc=+1 shift (lr13).  Advance lr2 → NEXT-ch kr=0 ext.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr2 lr2 cr12;
-    MULT.RC.VE          lr3 lr6 3 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 3 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1.  slot 0 + kc=-1 shift.  lr5 += 384 (mod 512) → R+256;
     #     load NEXT-ch kr=0 → slot lr5.
@@ -175,37 +174,37 @@ g0_tap_body:
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr9 9;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 5: kr=0 kc=0.  slot 0, no shift.  lr5 += 128 (mod 512) → R+384.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr12 9;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 6: kr=0 kc=+1.  slot 0 + kc=+1 shift.  Loop counter += 128.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr10 lr10 cr12;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  slot 0 + kc=-1 shift.  Load NEXT-ch kr=+1 → slot lr5 (= R+384).
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
     add                 lr14 lr2 cr6;
     ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 8: kr=+1 kc=0.  slot 0, no shift.  Rotate lr_read.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr4 cr13 9;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 9: kr=+1 kc=+1.  slot 0 + kc=+1 shift.  Final acc.  lr5 += 256
     #     (mod 512) → R+128 = next ch's R'-128 (its tap-1 kr=-1 slot).  lr6 now =
@@ -213,15 +212,15 @@ g0_tap_body:
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- cyc 10: ACTIVATE only.  ACTIVATE reads the cycle-start SNAPSHOT r_acc,
     #     which now holds tap 9's just-finalized accumulator (acc ran in the
     #     previous VLIW word).  This standalone cycle costs +1 cyc/ch (11 total);
     #     a future revision can fold ACTIVATE back into tap 9's acc once the
     #     emulator reads r_acc live there.  The per-channel loop branch lives here.
-    ACTIVATE            relu 1;
+    ACTIVATE.QUANTIZE relu cr15;
     blt                 lr10 lr11 g0_tap_body;;
 
     # All channels in this kernel-group done.  The last channel's ACTIVATE has
@@ -308,79 +307,78 @@ mn_tap_body:
     INC                 lr6 1;
     sub                 lr14 lr2 cr6;
     ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0;
-    acc.first;
-    aaq                 1;;
+    MULT.EE             lr6 cr1 0 lr0 cr15 ;
+    acc.add.first;;
 
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
     #     cyc 0.  Walk +cr14.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr12;
     STR_POST_AAQ_REG    lr7 cr2;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 3: kc=+1 shift (lr13).  Advance lr2 → NEXT-ch kr=0 ext.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr2 lr2 cr12;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1 shift.  NEXT-ch kr=0 ext = lr2 LIVE.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr9 9;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 5: kc=0, no shift.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr12 9;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 6: kc=+1 shift.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr10 lr10 cr12;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1 shift.  NEXT-ch kr=+1 ext = lr2+cr6.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
     add                 lr14 lr2 cr6;
     ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 8: kc=0, no shift.  rotate lr_read.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr4 cr13 9;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 9: kc=+1 shift.  Final acc; prep lr5 for next iter tap 1.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- cyc 10: ACTIVATE only (reads snapshot = tap 9's finalized r_acc).
     #     Standalone cycle (+1 cyc/ch); foldable into tap 9 later.  Loop branch here.
-    ACTIVATE            relu 1;
+    ACTIVATE.QUANTIZE relu cr15;
     blt                 lr10 lr11 mn_tap_body;;
 
     add                 lr12 lr12 cr13;
@@ -461,46 +459,45 @@ gN_tap_body:
     INC                 lr6 1;
     sub                 lr14 lr2 cr6;
     ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0;
-    acc.first;
-    aaq                 1;;
+    MULT.EE             lr6 cr1 0 lr0 cr15 ;
+    acc.add.first;;
 
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
     #     cyc 0.  Walk +cr14.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr12;
     STR_POST_AAQ_REG    lr7 cr2;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 3: kc=+1 shift (lr13).  Advance lr2 → NEXT-ch kr=0 ext.
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr2 lr2 cr12;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 4: kr=0 kc=-1 shift.  NEXT-ch kr=0 from cr10.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr9 9;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 5: kc=0, no shift.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr12 9;
-    MULT.RC.VE          lr3 lr6 0 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 6: kc=+1 shift.  Also pre-load the kr=+1 slot (consumed by tap 7)
     #     here, one cycle ahead (snapshot; tap 6's LOAD slot is free).  lr5 is
@@ -510,43 +507,43 @@ gN_tap_body:
     INC                 lr6 1;
     add                 lr10 lr10 cr12;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.RC.VE          lr3 lr6 0 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
+    acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom row out of bounds: slot 6; kc=-1 shift (lr9)
     #     zeros the left edge column.  kr=+1 chunk pre-loaded in tap 6's word.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
-    MULT.RC.VE          lr3 lr6 6 lr9;
-    acc;;
+    MULT.RC.VE          lr3 lr6 6 lr9 cr15 ;
+    acc.add;;
 
     # --- tap 8: kr=+1 kc=0.  slot 6 = bottom row only, no shift.  Rotate lr_read.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr4 cr13 9;
-    MULT.RC.VE          lr3 lr6 6 lr0;
-    acc;;
+    MULT.RC.VE          lr3 lr6 6 lr0 cr15 ;
+    acc.add;;
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift (lr13).  Final acc; prep lr5
     #     for next iter tap 1.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
-    MULT.RC.VE          lr3 lr6 6 lr13;
-    acc;;
+    MULT.RC.VE          lr3 lr6 6 lr13 cr15 ;
+    acc.add;;
 
     # --- cyc 10: ACTIVATE only (reads snapshot = tap 9's finalized r_acc).
     #     Standalone cycle (+1 cyc/ch); foldable into tap 9 later.  Loop branch here.
-    ACTIVATE            relu 1;
+    ACTIVATE.QUANTIZE relu cr15;
     blt                 lr10 lr11 gN_tap_body;;
 
     add                 lr12 lr12 cr13;
     blt                 lr10 cr6 gN_reload;;
 
 end:
-    # Epilogue: the very last channel's ACTIVATE has run (cyc 10), but its aaq +
-    # store are still pending.  Quantize it, advance lr7, and store.
-    aaq                 1;;
+    # Epilogue: the very last channel's ACTIVATE.QUANTIZE has run (cyc 10) and
+    # already wrote the quantized bytes to post_aaq_reg; its store is still
+    # pending.  Advance lr7 and store.
     add                 lr7 lr7 cr12;
     STR_POST_AAQ_REG    lr7 cr2;;
 
