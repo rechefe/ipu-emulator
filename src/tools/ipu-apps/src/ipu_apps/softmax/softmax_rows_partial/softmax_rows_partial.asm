@@ -4,7 +4,11 @@
     P logical rows share one 128-lane chunk. C_VEC=log2(e) resident in R0
     (broadcast); x-chunk in r_cyclic. Per partition p, MULT.RC.VV rc_idx=p*ps*4
     reads r_cyclic[p*ps + i]*R0[i] = c*x[p][i] into mult_res lanes 0..N-1; masked
-    AGG/ACTIVATE (CR15.valid_elements=N) act on those N lanes only.
+    AGG/ACTIVATE.QUANTIZE name CR15 (valid_elements=N) to act on those N lanes
+    only. The full-row drains (MAXVEC/RVEC/output chunk) instead name CR8, whose
+    value 128 decodes to valid_elements=128, so they cover the whole 128-lane
+    row vector. (Master ISA: every MULT/AGG/ACTIVATE.QUANTIZE names its
+    dstructure CR explicitly; the old full_xmem_row 0/1 lane-count flag is gone.)
 
     Addressing: cyclic/mult loads take (offset_lr, base_cr, index_lr); base CRs
     are fixed, the chunk byte offset walks in an LR. The partition slide rc_idx is
@@ -15,7 +19,8 @@
 
     CR map (CR0=0, CR1=1 read-only):
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
-      CR7=512 chunk stride  CR8=1  CR9=padded_rows  CR10=INPUT_BASE
+      CR7=512 chunk stride  CR8=128 (R1 byte-idx base; also full-row dstructure
+      CR: valid_elements=128)  CR9=padded_rows  CR10=INPUT_BASE
       CR11=0xFF(-1.0)  CR12=ps*4 partition stride  CR13=num_chunks  CR14=P
 ========================================================================== -#}
 
@@ -45,8 +50,8 @@ p1_chunk:
     SET {{lr_slide}} cr0 ;;
 
 p1_part:
-    MULT.RC.VV    {{lr_slide}} r0 0 {{lr_cyc}} ;          {#- c*x[p] at lanes 0..N-1 -#}
-    AGG.MAX.FIRST {{lr_row}} 0 ;;                          {#- masked -> maxvec[row] -#}
+    MULT.RC.VV    {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;          {#- c*x[p] at lanes 0..N-1 -#}
+    AGG.MAX.FIRST {{lr_row}} cr15 ;;                          {#- masked -> maxvec[row] -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_p}} {{lr_p}} cr1 ;;
@@ -55,7 +60,7 @@ p1_part:
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
     BLT {{lr_chunk}} cr13 p1_chunk ;;
 
-    ACTIVATE identity 1 ;;
+    ACTIVATE.QUANTIZE identity cr8;;
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                     {#- MAXVEC <- maxvec -#}
 
 {#- ===================================================================== -#}
@@ -76,11 +81,11 @@ p2_chunk:
     SET {{lr_slide}} cr0 ;;
 
 p2_part:
-    MULT.RC.VV {{lr_slide}} r0 0 {{lr_cyc}} ;            {#- c*x[p] -#}
-    ACC.FIRST ;;
-    MULT.EE {{lr_maxid}} cr11 0 {{lr_cyc}} ;             {#- maxvec[row]*(-1) -#}
-    ACC ;;
-    ACTIVATE exp2 0 ;;                                    {#- masked -> num[row] lanes 0..N-1 -#}
+    MULT.RC.VV {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;            {#- c*x[p] -#}
+    acc.add.first ;;
+    MULT.EE {{lr_maxid}} cr11 0 {{lr_cyc}} cr15 ;             {#- maxvec[row]*(-1) -#}
+    acc.add ;;
+    ACTIVATE.QUANTIZE exp2 cr15;;                                    {#- masked -> num[row] lanes 0..N-1 -#}
     STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
@@ -101,13 +106,13 @@ p2_part:
 
 p3_row:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;;      {#- r_cyclic = num[row] (snapshot: visible NEXT cycle) -#}
-    MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} ;           {#- *1.0 -#}
-    AGG.SUM.FIRST {{lr_row}} 0 ;;                          {#- masked -> sumvec[row] -#}
+    MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;           {#- *1.0 -#}
+    AGG.SUM.FIRST {{lr_row}} cr15 ;;                          {#- masked -> sumvec[row] -#}
     ADD {{lr_num}} {{lr_num}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} cr9 p3_row ;;
 
-    ACTIVATE reciprocal 1 ;;
+    ACTIVATE.QUANTIZE reciprocal cr8;;
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                     {#- RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
@@ -132,8 +137,8 @@ p4_chunk:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
     SET {{lr_slide}} cr0 ;;
     SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                  {#- rslide = 512 - 0 = 512 (->0) -#}
-    MULT.RC.VE {{lr_rslide}} {{lr_row}} 0 {{lr_cyc}} ;
-    ACC.FIRST ;;
+    MULT.RC.VE {{lr_rslide}} {{lr_row}} 0 {{lr_cyc}} cr15 ;
+    acc.add.first ;;
     SET {{lr_p}} cr1 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
@@ -144,8 +149,8 @@ p4_part:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;       {#- r_cyclic = num[row] -#}
     SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                  {#- rslide = 512 - p*ps*4 -#}
     {#- MULT reads lr_row LIVE; keep its increment OUT of this word (LR runs before MULT). -#}
-    MULT.RC.VE {{lr_rslide}} {{lr_row}} 0 {{lr_cyc}} ;    {#- num*rvec[row] placed at p*ps -#}
-    ACC ;;
+    MULT.RC.VE {{lr_rslide}} {{lr_row}} 0 {{lr_cyc}} cr15 ;    {#- num*rvec[row] placed at p*ps -#}
+    acc.add ;;
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
@@ -153,7 +158,7 @@ p4_part:
     BLT {{lr_p}} cr14 p4_part ;;
 
 p4_drain:
-    ACTIVATE identity 1 ;;
+    ACTIVATE.QUANTIZE identity cr8;;
     STR_POST_AAQ_REG {{lr_coff}} cr2 ;;                    {#- packed output chunk -#}
     ADD {{lr_coff}} {{lr_coff}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
