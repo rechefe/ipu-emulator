@@ -68,7 +68,6 @@ CVEC_ADDR = 0x40000          # C_VEC = log2(e), resident
 MAXVEC_ADDR = 0x40400        # per-row max (1 chunk)
 RVEC_ADDR = 0x40600          # per-row 1/sum (1 chunk)
 
-NEG_ONE_BYTE = 0xFF          # 0xFF -> signed -1 -> -1.0 in wide FP32
 LOG2E = math.log2(math.e)
 
 
@@ -160,7 +159,8 @@ class SoftmaxRowsPartialApp(IpuApp):
         state.regfile.set_cr(8, LANES)                # 128: R1 byte-index base for maxvec select
         state.regfile.set_cr(9, self.padded_rows)     # logical-row loop bound
         state.regfile.set_cr(10, INPUT_BASE_ADDR)     # input base
-        state.regfile.set_cr(11, NEG_ONE_BYTE)        # -1.0 subtract scalar
+        # CR11 is free: the x - maxvec subtract now uses ACC.SUB with CR1 (=1.0)
+        # as the MULT.EE scalar, so no dedicated -1.0 constant is needed.
         state.regfile.set_cr(12, self.ps * 4)         # partition byte stride (ps*4)
         state.regfile.set_cr(13, self.num_chunks)     # chunk loop bound
         state.regfile.set_cr(14, self.parts_per_chunk)  # P (partitions per chunk)

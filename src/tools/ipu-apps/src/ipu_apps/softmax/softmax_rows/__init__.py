@@ -81,8 +81,6 @@ CVEC_ADDR = 0x40000          # C_VEC     (resident log2(e) constant, 1 row)
 MAXVEC_ADDR = 0x40400        # maxvec    (staged per-row max, 1 row)
 RVEC_ADDR = 0x40600          # rvec      (staged per-row 1/sum, 1 row)
 
-NEG_ONE_BYTE = 0xFF          # CR low byte 0xFF -> signed -1 -> -1.0 in wide FP32
-
 LOG2E = math.log2(math.e)    # c = 1.4426950408889634
 
 
@@ -160,9 +158,9 @@ class SoftmaxRowsApp(IpuApp):
 
         # CR0 and CR1 are READ-ONLY: CR0 == 0 always, CR1 == 1 always.
         # We exploit both directly: CR0 is the zero source (cyclic index / init)
-        # and CR1 == 1 is the 1.0 identity scalar for the Pass 3 multiply.
-        # All writable CRs below hold integer addresses / strides / bounds, plus
-        # the small int FP32 scalar CR11 = -1.
+        # and CR1 == 1 is the 1.0 scalar, reused for both the Pass 3 identity
+        # multiply and the Pass 2 subtract (MULT.EE x CR1 then ACC.SUB).
+        # All writable CRs below hold integer addresses / strides / bounds.
         state.regfile.set_cr(2, self.output_base)
         state.regfile.set_cr(3, self.cvec_addr)
         state.regfile.set_cr(4, self.num_base)
@@ -172,7 +170,7 @@ class SoftmaxRowsApp(IpuApp):
         state.regfile.set_cr(8, 1)           # row-index increment
         state.regfile.set_cr(9, LANES)       # group cap = 128 rows (max per group)
         state.regfile.set_cr(10, self.input_base)  # input base (moved off read-only CR0)
-        state.regfile.set_cr(11, NEG_ONE_BYTE)  # 0xFF -> -1.0 scalar (Pass 2 subtract)
+        # CR11 is free: the c*x - maxvec subtract now uses ACC.SUB with CR1 (=1.0).
         state.regfile.set_cr(12, LANES)      # 128: R1 base byte index for maxvec element select
         state.regfile.set_cr(13, self.rows)  # total row count (exact group sizing)
 

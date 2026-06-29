@@ -31,7 +31,8 @@
       CR2  = OUTPUT_BASE            CR3  = CVEC_ADDR        CR4  = NUM_BASE
       CR5  = MAXVEC_ADDR            CR6  = RVEC_ADDR        CR7  = ROW_BYTES (512)
       CR8  = 1 (row incr)           CR9  = GROUP_CAP (128)  CR10 = INPUT_BASE
-      CR11 = 0xFF (-> -1.0 scalar)  CR12 = 128 (R1 byte base for maxvec select)
+      CR11 = free (was -1.0; ACC.SUB + CR1 replaced it)
+      CR12 = 128 (R1 byte base for maxvec select)
       CR13 = TOTAL_ROWS
 
     NOTE: input logits live at CR10; the literal 0 is CR0.
@@ -82,8 +83,8 @@ pass1_loop:
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[r] = 2^(c*x[r] - maxvec[r]).  Writes NUM region.         -#}
-{#-   k:   R0=x[r]; R1=maxvec row; mult_res=c*x[r]; ACC.FIRST              -#}
-{#-   k+1: mult_res = maxvec[r] * (-1) broadcast; ACC -> r_acc - maxvec[r] -#}
+{#-   k:   R0=x[r]; R1=maxvec row; mult_res=c*x[r]; ACC.ADD.FIRST          -#}
+{#-   k+1: mult_res = maxvec[r] (x CR1=1.0); ACC.SUB -> r_acc - maxvec[r]  -#}
 {#-   k+2: ACTIVATE exp2 (reads r_acc snapshot); store num[r]              -#}
 {#- ===================================================================== -#}
     LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
@@ -98,8 +99,8 @@ pass2_loop:
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;           {#- mult_res = c*x[r] -#}
     acc.add.first ;;                                         {#- r_acc = c*x[r] -#}
 
-    MULT.EE {{lr_max_idx}} cr11 0 {{lr_cyc}} cr15 ;          {#- mult_res = maxvec[r]*(-1) -#}
-    acc.add ;;                                               {#- r_acc = c*x[r] - maxvec[r] -#}
+    MULT.EE {{lr_max_idx}} cr1 0 {{lr_cyc}} cr15 ;           {#- mult_res = maxvec[r]*1.0 -#}
+    acc.sub ;;                                               {#- r_acc = c*x[r] - maxvec[r] -#}
 
     ACTIVATE.QUANTIZE exp2 cr15;;
     STR_POST_AAQ_REG {{lr_wr}} cr4 ;;                    {#- NUM[r] = 2^(...) -#}

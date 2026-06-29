@@ -21,7 +21,8 @@
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
       CR7=512 chunk stride  CR8=128 (R1 byte-idx base; also full-row dstructure
       CR: valid_elements=128)  CR9=padded_rows  CR10=INPUT_BASE
-      CR11=0xFF(-1.0)  CR12=ps*4 partition stride  CR13=num_chunks  CR14=P
+      CR11=free (was -1.0; ACC.SUB + CR1 replaced it)  CR12=ps*4 partition
+      stride  CR13=num_chunks  CR14=P
 ========================================================================== -#}
 
 {%- set lr_slide  = "lr0" -%}  {#- intra-register partition slide (0, ps*4, ...) -#}
@@ -83,8 +84,8 @@ p2_chunk:
 p2_part:
     MULT.RC.VV {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;            {#- c*x[p] -#}
     acc.add.first ;;
-    MULT.EE {{lr_maxid}} cr11 0 {{lr_cyc}} cr15 ;             {#- maxvec[row]*(-1) -#}
-    acc.add ;;
+    MULT.EE {{lr_maxid}} cr1 0 {{lr_cyc}} cr15 ;              {#- maxvec[row]*1.0 -#}
+    acc.sub ;;                                               {#- r_acc = c*x[p] - maxvec[row] -#}
     ACTIVATE.QUANTIZE exp2 cr15;;                                    {#- masked -> num[row] lanes 0..N-1 -#}
     STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
