@@ -30,7 +30,7 @@
       CR0  = 0  (zero source)       CR1  = 1   (-> 1.0 scalar, Pass 3 identity)
       CR2  = OUTPUT_BASE            CR3  = CVEC_ADDR        CR4  = NUM_BASE
       CR5  = MAXVEC_ADDR            CR6  = RVEC_ADDR        CR7  = ROW_BYTES (512)
-      CR8  = 1 (row incr)           CR9  = GROUP_CAP (128)  CR10 = INPUT_BASE
+      CR8  = free (was row incr; CR1=1 reused)  CR9 = GROUP_CAP (128)  CR10 = INPUT_BASE
       CR11 = free (was -1.0; ACC.SUB + CR1 replaced it)
       CR12 = 128 (R1 byte base for maxvec select)
       CR13 = TOTAL_ROWS
@@ -75,7 +75,7 @@ pass1_loop:
     MULT.RC.VV    {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;          {#- mult_res = c*x[r] -#}
     AGG.MAX.FIRST {{lr_row}} cr15 ;;                       {#- r_acc[r] = max lane -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
-    ADD {{lr_row}} {{lr_row}} cr8 ;;
+    ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} pass1_loop ;;
 
     ACTIVATE.QUANTIZE identity cr15;;
@@ -107,8 +107,8 @@ pass2_loop:
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_wr}} {{lr_wr}} cr7 ;
-    ADD {{lr_row}} {{lr_row}} cr8 ;;
-    ADD {{lr_max_idx}} {{lr_max_idx}} cr8 ;;             {#- next maxvec element -#}
+    ADD {{lr_row}} {{lr_row}} cr1 ;;
+    ADD {{lr_max_idx}} {{lr_max_idx}} cr1 ;;             {#- next maxvec element -#}
     BLT {{lr_row}} {{lr_bound}} pass2_loop ;;
 
 {#- ===================================================================== -#}
@@ -123,7 +123,7 @@ pass3_loop:
     MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;         {#- mult_res = num[r]*1.0 -#}
     AGG.SUM.FIRST {{lr_row}} cr15 ;;                        {#- r_acc[r] = SUM num[r] -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
-    ADD {{lr_row}} {{lr_row}} cr8 ;;
+    ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} pass3_loop ;;
 
     ACTIVATE.QUANTIZE reciprocal cr15;;
@@ -145,7 +145,7 @@ pass4_loop:
     STR_POST_AAQ_REG {{lr_off}} cr2 ;;                   {#- OUT[r] = softmax row -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
-    ADD {{lr_row}} {{lr_row}} cr8 ;;
+    ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} pass4_loop ;;
 
 {#- ---- advance: rows_done += bound; loop while done < total -------------- -#}

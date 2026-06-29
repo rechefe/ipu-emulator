@@ -167,7 +167,7 @@ class SoftmaxRowsApp(IpuApp):
         state.regfile.set_cr(5, self.maxvec_addr)
         state.regfile.set_cr(6, self.rvec_addr)
         state.regfile.set_cr(7, ROW_BYTES)   # row stride (512)
-        state.regfile.set_cr(8, 1)           # row-index increment
+        # CR8 is free: row/element increments now use CR1 (=1).
         state.regfile.set_cr(9, LANES)       # group cap = 128 rows (max per group)
         state.regfile.set_cr(10, self.input_base)  # input base (moved off read-only CR0)
         # CR11 is free: the c*x - maxvec subtract now uses ACC.SUB with CR1 (=1.0).
