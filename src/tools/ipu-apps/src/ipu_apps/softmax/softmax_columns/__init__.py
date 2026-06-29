@@ -13,14 +13,14 @@ ACC.MAX / ACC.ADD do the running reduce down the rows.
 with ``c = log2(e)`` resident in a 128-lane vector ``C_VEC`` (``2^(c*d)==e^d``,
 matching the IPU's native ``exp2`` activation).
 
-Layout (v1 -- width >= 128, pow2):
-  Each row has width ``W`` (a power of two, ``128 <= W <= 256`` after padding),
-  spanning ``cpr = W/128`` consecutive 512 B chunks. Row ``r``, chunk ``c`` lives
-  at ``(r*cpr + c)*512``. A non-pow2 input width is padded up to the next pow2
-  with **0.0**; those filler lanes are *separate columns* (never part of a real
-  column's reduce), computed harmlessly and dropped on read-back. ``rows`` is an
-  ordinary loop bound -- any count works (no group cap, unlike the row apps,
-  because the per-column scalars are full vectors, not packed-per-row).
+Layout (v1 -- width >= 128, any value):
+  Each row has width ``W`` padded up to the next multiple of 128, spanning
+  ``cpr = ceil(W/128)`` consecutive 512 B chunks (no upper width bound). Row
+  ``r``, chunk ``c`` lives at ``(r*cpr + c)*512``. A width that is not a multiple
+  of 128 is padded with **0.0**; those filler lanes are *separate columns* (never
+  part of a real column's reduce), computed harmlessly and dropped on read-back.
+  ``rows`` is an ordinary loop bound -- any count works (no group cap, unlike the
+  row apps, because the per-column scalars are full vectors, not packed-per-row).
 
 Per-chunk-column resident vectors ``cmax[c]`` / ``rvec[c]`` (one full 128-lane
 vector each) hold the column max / 1-over-sum for chunk-column ``c``. The four
@@ -66,7 +66,6 @@ if TYPE_CHECKING:
 LANES = 128                  # elements per chunk (fixed by the 128-lane datapath)
 CHUNK_BYTES = LANES * 4      # 512 bytes per FP32 chunk
 MIN_WIDTH = 128              # v1: width >= 128 (one or more whole chunks per row)
-MAX_WIDTH = 256              # v1: padded width cap
 
 INPUT_BASE_ADDR = 0x10000    # x   (input logits, FP32)
 # num / output bases and the resident vectors are placed per-instance (_layout).
@@ -74,16 +73,8 @@ INPUT_BASE_ADDR = 0x10000    # x   (input logits, FP32)
 LOG2E = math.log2(math.e)    # c = 1.4426950408889634
 
 
-def _next_pow2(n: int) -> int:
-    """Smallest power of two >= n."""
-    p = 1
-    while p < n:
-        p <<= 1
-    return p
-
-
 class SoftmaxColumnsApp(IpuApp):
-    """Column-softmax over ``rows`` x ``width`` FP32 logits (width pow2, >=128).
+    """Column-softmax over ``rows`` x ``width`` FP32 logits (width >= 128).
 
     Args:
         inst_path:   Path to the assembled instruction binary.
@@ -91,9 +82,10 @@ class SoftmaxColumnsApp(IpuApp):
                      row-major). ``width`` here is the *real* (unpadded) width.
         output_path: Optional path to write the softmax output (same shape).
         rows:        Number of rows (>= 1; any count -- ordinary loop bound).
-        width:       Real elements per row. Padded up to the next power of two in
-                     [128, 256] for the on-chip layout; padding lanes are dropped
-                     on read-back.
+        width:       Real elements per row (>= 128, no upper bound). Padded up to
+                     the next multiple of 128 for the on-chip layout, spanning
+                     ``cpr = ceil(width/128)`` chunks; padding lanes are dropped on
+                     read-back. (e.g. 300 -> 384/3 chunks, 460 -> 512/4 chunks.)
     """
 
     def __init__(self, *, rows: int, width: int, **kwargs) -> None:
@@ -110,14 +102,10 @@ class SoftmaxColumnsApp(IpuApp):
                 f"(sub-128 packed widths are a future extension)"
             )
 
-        self.padded_width = _next_pow2(self.width)
-        if self.padded_width > MAX_WIDTH:
-            raise ValueError(
-                f"padded width ({self.padded_width}) exceeds {MAX_WIDTH} "
-                f"(real width {self.width})"
-            )
-
-        self.chunks_per_row = self.padded_width // LANES   # cpr (1 or 2 in v1)
+        # Pad up to the next whole multiple of 128 so the row tiles into whole
+        # 512 B chunks; cpr grows freely (no upper width bound).
+        self.chunks_per_row = (self.width + LANES - 1) // LANES   # cpr = ceil(width/128)
+        self.padded_width = self.chunks_per_row * LANES
         self._layout()
 
     def _layout(self) -> None:

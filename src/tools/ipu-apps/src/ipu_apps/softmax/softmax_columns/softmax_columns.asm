@@ -19,7 +19,7 @@
     keeps the LDR in its own VLIW word, one word before the MULT that consumes it
     (exactly as softmax_rows does).
 
-    LAYOUT (v1, width >= 128, pow2):
+    LAYOUT (width >= 128, padded to a multiple of 128; cpr = ceil(W/128)):
       row r, chunk-column c at byte (r*cpr + c)*512 = r*row_stride + c*512.
       Loop OUTER over chunk-column c (0..cpr-1), INNER over rows r (0..rows-1).
       cmax[c] / rvec[c] are resident full chunks at BASE + c*512.

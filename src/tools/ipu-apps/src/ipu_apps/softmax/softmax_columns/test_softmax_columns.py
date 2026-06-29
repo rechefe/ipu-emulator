@@ -27,7 +27,10 @@ TEST_CONFIGS = [
     (128, 256, 3.0, 5),    # full 2-chunk width, many rows
     (64, 192, 50.0, 6),    # large |x| (stability), 192 -> 256
     (10, 129, 0.01, 7),    # near-uniform, 129 -> 256
-    (256, 256, 3.0, 8),    # max width, 256 rows (no row-group cap)
+    (256, 256, 3.0, 8),    # 256 rows (no row-group cap)
+    (32, 300, 4.0, 9),     # width 300 -> padded to 384 (3 chunks)
+    (16, 460, 3.0, 10),    # width 460 -> padded to 512 (4 chunks)
+    (8, 384, 50.0, 11),    # exact 3-chunk width, large |x|
 ]
 
 

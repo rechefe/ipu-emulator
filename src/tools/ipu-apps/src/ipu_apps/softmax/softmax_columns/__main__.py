@@ -34,7 +34,7 @@ def main() -> None:
     )
     parser.add_argument("--rows", type=int, default=64)
     parser.add_argument("--width", type=int, default=128,
-                        help="real elements per row (>=128; padded up to next pow2 <=256)")
+                        help="real elements per row (>=128; padded up to next multiple of 128)")
     parser.add_argument("--scale", type=float, default=5.0, help="logit magnitude")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-cycles", type=int, default=8_000_000)
