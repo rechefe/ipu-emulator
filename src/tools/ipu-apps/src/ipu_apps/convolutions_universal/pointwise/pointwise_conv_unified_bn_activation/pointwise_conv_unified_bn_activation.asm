@@ -112,8 +112,8 @@ oc_pair_loop:
     # acc.first; THEN load the real weights over r0.
     ldr_mult_reg        r0 lr12 cr10;;     # bias block -> r0 (bias at byte 0)
 
-    MULT.EE             lr7 cr1 0 lr7;     # bias = r0[0] * CR1(=1), broadcast
-    acc.first;;                            # r_acc = bias (conv taps add on top)
+    MULT.EE             lr7 cr1 0 lr7 cr15 ;     # bias = r0[0] * CR1(=1), broadcast
+    acc.add.first;;                            # r_acc = bias (conv taps add on top)
 
     ldr_mult_reg        r0 lr12 cr14;;     # load OC's pass-0 weights into r0
 
@@ -128,8 +128,8 @@ oc_pair_loop:
     # bias was already seeded via acc.first above.
     add                 lr15 lr4 cr9;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
@@ -137,8 +137,8 @@ oc_pair_loop:
 W1_FULL_A:
     add                 lr15 lr4 cr6;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
 # ---------------------------------------------------------------------------
 # Pipeline body — 4 cycles per iter, 4 ICs per iter
@@ -149,26 +149,26 @@ PIPELINE_BODY_A:
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_A;;
 
 # ---------------------------------------------------------------------------
@@ -187,20 +187,20 @@ LAST_EPILOGUE_A:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     # ACTIVATE (relu) applies ReLU to the just-finalized r_acc (conv + bias)
     # and copies it -> post_aaq_reg.  It reads the cycle-start snapshot of
@@ -210,13 +210,11 @@ LAST_EPILOGUE_A:
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    ACTIVATE            relu 1;;
+    ACTIVATE.QUANTIZE relu cr15;;
 
-    # aaq clamps post_aaq_reg -> 128 INT8 bytes; the store (same word, store slot
-    # runs after the aaq slot) drains them to XMEM.
+    # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr12;
-    aaq                 1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
     # Fall through to Half B section
@@ -236,8 +234,8 @@ HALF_B_GO:
     # r1's byte 0 = combined Ra index 128, so MULT.EE reads index lr5 (=128).
     ldr_mult_reg        r1 lr12 cr10;;     # bias block -> r1 (bias at byte 0)
 
-    MULT.EE             lr5 cr1 0 lr7;     # bias = r1[0] * CR1(=1), broadcast
-    acc.first;;                            # r_acc = bias
+    MULT.EE             lr5 cr1 0 lr7 cr15 ;     # bias = r1[0] * CR1(=1), broadcast
+    acc.add.first;;                            # r_acc = bias
 
     ldr_mult_reg        r1 lr12 cr14;;
 
@@ -249,8 +247,8 @@ HALF_B_GO:
 
     add                 lr15 lr4 cr9;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
@@ -258,34 +256,34 @@ HALF_B_GO:
 W1_FULL_B:
     add                 lr15 lr4 cr6;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
 PIPELINE_BODY_B:
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_B;;
 
 POST_BODY_B:
@@ -295,20 +293,20 @@ LAST_EPILOGUE_B:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     # ACTIVATE (relu): ReLU the finalized r_acc (conv + bias) -> post_aaq_reg,
     # one cycle after the final acc (reads snapshot).  Folded into the preload.
@@ -316,12 +314,11 @@ LAST_EPILOGUE_B:
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    ACTIVATE            relu 1;;
+    ACTIVATE.QUANTIZE relu cr15;;
 
-    # aaq clamps post_aaq_reg; store (same word) drains to XMEM.
+    # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr12;
-    aaq                 1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
 # ---------------------------------------------------------------------------
@@ -390,20 +387,20 @@ MID_EPILOGUE_A:
     # E1-E4 with reloads from lr13 (next pass's ich0..ich3)
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr13 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr9;
@@ -424,8 +421,8 @@ MID_EPILOGUE_A:
     # Last pass for this OC: use tail limit
     add                 lr15 lr4 cr9;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
@@ -433,8 +430,8 @@ MID_EPILOGUE_A:
 MP_A_FULL:
     add                 lr15 lr4 cr6;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     b                   PIPELINE_BODY_A;;
 
@@ -444,20 +441,20 @@ MID_EPILOGUE_B:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr13 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr9;
@@ -474,8 +471,8 @@ MID_EPILOGUE_B:
 
     add                 lr15 lr4 cr9;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
@@ -483,7 +480,7 @@ MID_EPILOGUE_B:
 MP_B_FULL:
     add                 lr15 lr4 cr6;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     b                   PIPELINE_BODY_B;;

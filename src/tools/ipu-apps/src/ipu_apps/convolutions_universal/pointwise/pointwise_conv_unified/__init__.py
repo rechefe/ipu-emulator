@@ -180,6 +180,12 @@ class PointwiseConvUnifiedApp(IpuApp):
         state.regfile.set_cr(13, 16384)  # input pass stride: 128 ICs * 128B
         # (pass-counter decrement constant 1 = read-only CR1; CR14 holds the kernel base.)
 
+        # Master ISA: ACTIVATE.QUANTIZE reads its active-lane count from the named
+        # dstructure CR's valid_elements field. The asm names CR15, so set
+        # CR15.valid_elements = 128 to quantize the full 128-lane output chunk.
+        # (Mults use mask_offset 0 / no masking, so partition is irrelevant.)
+        state.set_cr_dstructure(valid_elements=128)
+
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_rows = self.row_groups * self.out_channels

@@ -104,8 +104,8 @@ oc_pair_loop:
     # num_passes == 1 (only the tail pass)
     add                 lr15 lr4 cr9;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc.first;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add.first;;
 
     blt                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
@@ -113,8 +113,8 @@ oc_pair_loop:
 W1_FULL_A:
     add                 lr15 lr4 cr6;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc.first;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add.first;;
 
 # ---------------------------------------------------------------------------
 # Pipeline body — 4 cycles per iter, 4 ICs per iter
@@ -125,26 +125,26 @@ PIPELINE_BODY_A:
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_A;;
 
 # ---------------------------------------------------------------------------
@@ -163,36 +163,34 @@ LAST_EPILOGUE_A:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
-    # ACTIVATE (identity) copies the just-finalized r_acc -> post_aaq_reg.  It
-    # reads the cycle-start snapshot of r_acc, so it must run a cycle AFTER the
-    # final acc (above), not fused with it.  Folded into the existing preload
-    # word (the aaq slot was free).
+    # ACTIVATE.QUANTIZE (identity) activates + quantizes the just-finalized r_acc
+    # -> 128 INT8 bytes in post_aaq_reg.  It reads the cycle-start snapshot of
+    # r_acc, so it must run a cycle AFTER the final acc (above), not fused with
+    # it.  Folded into the existing preload word (the aaq slot was free).
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    ACTIVATE            identity 1;;
+    ACTIVATE.QUANTIZE identity cr15;;
 
-    # aaq clamps post_aaq_reg -> 128 INT8 bytes; the store (same word, store slot
-    # runs after the aaq slot) drains them to XMEM.
+    # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr12;
-    aaq                 1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
     # Fall through to Half B section
@@ -218,8 +216,8 @@ HALF_B_GO:
 
     add                 lr15 lr4 cr9;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc.first;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add.first;;
 
     blt                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
@@ -227,34 +225,34 @@ HALF_B_GO:
 W1_FULL_B:
     add                 lr15 lr4 cr6;
     add                 lr14 lr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc.first;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add.first;;
 
 PIPELINE_BODY_B:
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_B;;
 
 POST_BODY_B:
@@ -264,33 +262,33 @@ LAST_EPILOGUE_B:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr0 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
-    # ACTIVATE (identity): copy finalized r_acc -> post_aaq_reg, one cycle after
-    # the final acc (reads snapshot).  Folded into the existing preload word.
+    # ACTIVATE.QUANTIZE (identity): activate + quantize finalized r_acc ->
+    # 128 INT8 bytes in post_aaq_reg, one cycle after the final acc (reads
+    # snapshot).  Folded into the existing preload word.
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
-    ACTIVATE            identity 1;;
+    ACTIVATE.QUANTIZE identity cr15;;
 
-    # aaq clamps post_aaq_reg; store (same word) drains to XMEM.
+    # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr12;
-    aaq                 1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
 # ---------------------------------------------------------------------------
@@ -359,20 +357,20 @@ MID_EPILOGUE_A:
     # E1-E4 with reloads from lr13 (next pass's ich0..ich3)
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr13 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr9;
@@ -393,8 +391,8 @@ MID_EPILOGUE_A:
     # Last pass for this OC: use tail limit
     add                 lr15 lr4 cr9;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
@@ -402,8 +400,8 @@ MID_EPILOGUE_A:
 MP_A_FULL:
     add                 lr15 lr4 cr6;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     b                   PIPELINE_BODY_A;;
 
@@ -413,20 +411,20 @@ MID_EPILOGUE_B:
 
     INC                 lr4 1;
     ldr_cyclic_mult_reg lr13 cr0 lr7;
-    MULT.RC.VE          lr6 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr6;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
-    MULT.RC.VE          lr8 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
-    MULT.RC.VE          lr9 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 lr9;
@@ -443,8 +441,8 @@ MID_EPILOGUE_B:
 
     add                 lr15 lr4 cr9;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     blt                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
@@ -452,7 +450,7 @@ MID_EPILOGUE_B:
 MP_B_FULL:
     add                 lr15 lr4 cr6;
     add                 lr14 lr13 lr9;
-    MULT.RC.VE          lr7 lr4 0 lr7;
-    acc;;
+    MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
+    acc.add;;
 
     b                   PIPELINE_BODY_B;;
