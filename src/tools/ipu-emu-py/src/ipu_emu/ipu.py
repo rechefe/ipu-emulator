@@ -92,7 +92,7 @@ _TYPE_FIELD_SUFFIX = {
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
-    "FullXmemRow": "full_xmem_row_field",
+    "DstructureCrIdx": "dstructure_cr_reg_field",
 }
 
 # Field prefix for each slot type (matches compound_inst naming)
@@ -358,7 +358,7 @@ class Ipu:
                 result |= (1 << i)
         return result
 
-    def _mult_mask_and_shift(self, mask_idx: int, shift: int) -> None:
+    def _mult_mask_and_shift(self, mask_idx: int, shift: int, cr_idx: int) -> None:
         """Apply sequential shift-and-AND mask generation, then gate mult_res.
 
         ``shift`` is interpreted as ``mask_shift_idx`` ∈ [−3, +3] (clamped).
@@ -368,7 +368,7 @@ class Ipu:
           idx +k → shift left  k times, ANDing with partition_vector after each step
           idx −k → shift right k times, ANDing with inverse_partition_vector after each step
 
-        Two partition vectors, both derived from CR15.partition:
+        Two partition vectors, both derived from CR[cr_idx].partition:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
@@ -389,7 +389,7 @@ class Ipu:
         _128_BIT_MASK = (1 << R_REG_SIZE) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        num_partitions = self.state.get_config_partition()
+        num_partitions = self.state.get_dstructure_for(cr_idx).partition
 
         # Generate the shifted mask via sequential shift-and-AND
         mask_int = base_mask
@@ -612,7 +612,7 @@ class Ipu:
         return cr_scalar
 
     def execute_mult_rc_vv(self, *, rc_idx: int, ra: bytearray | int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -628,7 +628,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(ra_vals[i]))
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -638,10 +638,10 @@ class Ipu:
             result = ipu_mult(rc[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_rc_ve(self, *, rc_idx: int, src: int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -659,7 +659,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), scalar_i)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -671,10 +671,10 @@ class Ipu:
             result = ipu_mult(rc[i], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_rc_vs(self, *, rc_idx: int,
-                           mask_offset: int, mask_shift: int) -> None:
+                           mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -689,7 +689,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(rb_vals[i]))
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
             return
 
         dtype = self.state.dtype
@@ -700,10 +700,10 @@ class Ipu:
             result = ipu_mult(rc[i], rc[i], dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, cr_idx)
 
     def execute_mult_ve(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
+                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -724,7 +724,7 @@ class Ipu:
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_lane), cr_scalar)
                     )
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
             return
 
         dtype = self.state.dtype
@@ -737,10 +737,10 @@ class Ipu:
             result = ipu_mult(r_buf[pos], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
 
     def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
-                        mask_offset: int, mask_shift: int) -> None:
+                        mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 lanes."""
         mult_res = self.state.regfile.raw("mult_res")
 
@@ -758,7 +758,7 @@ class Ipu:
                 result = self._wide_imult32(int(ra_lane), cr_scalar)
                 for i in range(R_REG_SIZE):
                     struct.pack_into("<i", mult_res, i * 4, result)
-            self._mult_mask_and_shift(mask_offset, mask_shift)
+            self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
             return
 
         dtype = self.state.dtype
@@ -771,7 +771,7 @@ class Ipu:
         for i in range(R_REG_SIZE):
             struct.pack_into(fmt, mult_res, i * 4, result)
 
-        self._mult_mask_and_shift(mask_offset, mask_shift)
+        self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
 
     # -----------------------------------------------------------------------
     # ACC Instruction Handlers
@@ -781,8 +781,8 @@ class Ipu:
         """Execute NOP in acc slot: No operation."""
         pass
 
-    def execute_acc(self) -> None:
-        """Execute ACC: Accumulate mult_res into accumulator."""
+    def execute_acc_add(self) -> None:
+        """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
         dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -798,9 +798,8 @@ class Ipu:
                 result = ipu_add(acc_val, mult_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
-    def execute_acc_first(self) -> None:
-        """Execute ACC.FIRST: Set r_acc to multiply result (no previous sum)."""
-        dtype = self.state.dtype
+    def execute_acc_add_first(self) -> None:
+        """Execute ACC.ADD.FIRST: Set r_acc to multiply result (no previous sum)."""
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -808,6 +807,62 @@ class Ipu:
         for i in range(R_REG_SIZE):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
+    def execute_acc_max(self) -> None:
+        """Execute ACC.MAX: Each R_ACC lane takes max(R_ACC[i], MULT_RES[i])."""
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            result = max(acc_val, mult_val)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_max_first(self) -> None:
+        """Execute ACC.MAX.FIRST: Overwrite each R_ACC lane with MULT_RES (clean init for max)."""
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            struct.pack_into(fmt, acc_buf, i * 4, mult_val)
+
+    def execute_acc_sub(self) -> None:
+        """Execute ACC.SUB: Subtract MULT_RES from each R_ACC lane (running subtract)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        snap_acc = self.snapshot.raw("r_acc")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_sub_lane(acc_val, mult_val)
+            else:
+                result = ipu_sub(acc_val, mult_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
+
+    def execute_acc_sub_first(self) -> None:
+        """Execute ACC.SUB.FIRST: Set each R_ACC lane to negated MULT_RES (clean init for subtract)."""
+        dtype = self.state.dtype
+        acc_buf = self.state.regfile.raw("r_acc")
+        mult_res = self.state.regfile.raw("mult_res")
+        fmt = self._acc_agg_lane_fmt()
+
+        for i in range(R_REG_SIZE):
+            mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
+            if self._wide_vector_active():
+                result = self._wide_sub_lane(0, mult_val)
+            else:
+                zero = 0 if self.state.dtype == DType.INT8 else 0.0
+                result = ipu_sub(zero, mult_val, dtype)
+            struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_stride(
         self,
@@ -898,9 +953,9 @@ class Ipu:
                 best = v
         return best
 
-    def execute_agg_sum_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM.FIRST: sum active MULT_RES lanes, write to R_ACC[dest] (clean init)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -910,9 +965,9 @@ class Ipu:
             result = self._to_int32(result)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_sum(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_sum(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM: sum active MULT_RES lanes and add to R_ACC[dest] (running accumulation)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -925,13 +980,13 @@ class Ipu:
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max_first(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX.FIRST: max of active MULT_RES lanes, write to R_ACC[dest] (no seed).
 
         When no lanes are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -940,9 +995,9 @@ class Ipu:
         dest = int(dest_slot) % (R_ACC_SIZE // 4)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_agg_max(self, *, dest_slot: int, full_xmem_row: int) -> None:
+    def execute_agg_max(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX: max of active MULT_RES lanes seeded with R_ACC[dest] (running max)."""
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
         active = self._agg_active_lane_count(valid_elements)
@@ -951,106 +1006,66 @@ class Ipu:
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_aaq(self, *, full_xmem_row: int) -> None:
-        """Execute AAQ: Quantize wide lanes in ``POST_AAQ_REG`` (128 × 32-bit) → leading bytes.
+    def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
+        """Apply element-wise activation then quantize to INT8.
 
-        Source is the **512-byte** ``post_aaq_reg`` buffer (same lane layout as
-        ``r_acc``), typically filled by ``ACTIVATE``. Each active 32-bit lane is
-        clamped to the INT8 range ``[-128, 127]`` and stored in the leading bytes
-        of ``post_aaq_reg``; the remainder is zeroed.
+        Reads each active lane from the cycle-start snapshot of ``r_acc``, applies
+        the selected activation, clamps to the INT8 range ``[-128, 127]``, and stores
+        the resulting bytes in the leading active-lane positions of ``post_aaq_reg``;
+        all remaining bytes are zeroed. ``r_acc`` is not modified.
 
-        Quantization is an **interim direct clamp** of the post-``ACTIVATE``
-        accumulator lane: ``out[i] = clamp(lane[i], -128, 127)``.  The previous
-        ``lane >> 24`` truncation was the shift half of a fixed-point requantize
-        whose per-lane multiply half is not implemented, so on a real INT8
-        convolution accumulator (magnitudes well below ``2**24``) it produced an
-        all-zero result.
+        The active lane count comes from ``cr_idx``'s decoded dstructure
+        ``valid_elements`` field; the caller must name a CR register explicitly.
 
-        This clamp is a placeholder, not the final design.  The intended future
-        quantization is a full per-128-element (per-lane) requantize — applied
-        after ``ACTIVATE`` and before write-back to memory — that scales each
-        lane so the result is guaranteed to land in INT8 range; that stage
-        subsumes (and will replace) this clamp.  Until it lands, clamping keeps
-        the ``ACTIVATE`` -> ``AAQ`` path producing usable INT8 output instead of
-        all zeros.
-
-        ``full_xmem_row=1``: always process all 128 lanes.
-        ``full_xmem_row=0``: process only ``CR15.valid_elements`` lanes (clamped to 128).
-
-        Requires INT8 mode.
-
-        In wide-vector debug mode, ``aaq`` is normally a no-op (use
-        ``STR_ACC_REG`` to dump ``r_acc``). Set ``state.wide_vector_quantize_output``
-        to quantize from ``post_aaq_reg`` wide lanes for comparison with the real path.
-        """
-        dtype = self.state.dtype
-        if dtype != DType.INT8:
-            raise EmulatorError("AAQ instruction requires INT8 mode")
-
-        active = 128 if full_xmem_row else self._agg_active_lane_count(
-            self.state.get_config_valid_elements()
-        )
-
-        if self._wide_vector_active():
-            if not self.state.wide_vector_quantize_output:
-                return
-            src_buf = self.state.regfile.raw("post_aaq_reg")
-            result = bytearray(128)
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(active):
-                    val = struct.unpack_from("<f", src_buf, i * 4)[0]
-                    clamped = max(-128, min(127, int(round(val))))
-                    result[i] = clamped & 0xFF
-            else:
-                for i in range(active):
-                    val = struct.unpack_from("<i", src_buf, i * 4)[0]
-                    clamped = max(-128, min(127, val))
-                    result[i] = clamped & 0xFF
-            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
-            return
-
-        src_buf = self.state.regfile.raw("post_aaq_reg")
-        result = bytearray(128)
-        for i in range(active):
-            val = struct.unpack_from("<i", src_buf, i * 4)[0]
-            clamped = max(-128, min(127, val))  # direct INT8 clamp (no >>24 truncation)
-            result[i] = clamped & 0xFF
-        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
-
-    def execute_activate(self, *, activation_fn: int, full_xmem_row: int) -> None:
-        """Apply element-wise activation to active lanes.
-
-        Reads each active lane from ``r_acc`` and writes the result into the same
-        lane of ``post_aaq_reg`` (512-byte wide staging). ``r_acc`` is not modified.
-        Lanes at indices ``>=`` the active lane count in ``post_aaq_reg`` are left
-        unchanged.
-
-        ``activation_fn`` is the encoded enum index (0–8) from the instruction word.
-        full_xmem_row=1: always use 128 lanes. full_xmem_row=0: lane count from CR15.valid_elements.
+        Requires INT8 mode in normal operation. In wide-vector debug mode, activation
+        is always applied; quantization only occurs when ``state.wide_vector_quantize_output``
+        is set (enabling comparison with the real INT8 path).
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
-        valid_elements = 128 if full_xmem_row else self.state.get_config_valid_elements()
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.snapshot.raw("r_acc")
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
+        if self._wide_vector_active():
+            for i in range(active):
+                raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+                y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
+                if fmt == "<i":
+                    yi = int(round(y))
+                    if yi < -2147483648:
+                        yi = -2147483648
+                    elif yi > 2147483647:
+                        yi = 2147483647
+                    struct.pack_into("<i", post_buf, i * 4, yi)
+                else:
+                    struct.pack_into("<f", post_buf, i * 4, float(y))
+
+            if not self.state.wide_vector_quantize_output:
+                return
+
+            result = bytearray(128)
+            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
+                for i in range(active):
+                    val = struct.unpack_from("<f", post_buf, i * 4)[0]
+                    result[i] = max(-128, min(127, int(round(val)))) & 0xFF
+            else:
+                for i in range(active):
+                    val = struct.unpack_from("<i", post_buf, i * 4)[0]
+                    result[i] = max(-128, min(127, val)) & 0xFF
+            self.state.regfile.set_post_aaq_reg(result + bytearray(384))
+            return
+
+        if self.state.dtype != DType.INT8:
+            raise EmulatorError("ACTIVATE.QUANTIZE instruction requires INT8 mode")
+
+        result = bytearray(128)
         for i in range(active):
             raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            y = apply_activation(
-                fn_id,
-                float(raw),
-                elu_alpha=self.state.elu_alpha,
-            )
-            if fmt == "<i":
-                yi = int(round(y))
-                if yi < -2147483648:
-                    yi = -2147483648
-                elif yi > 2147483647:
-                    yi = 2147483647
-                struct.pack_into("<i", post_buf, i * 4, yi)
-            else:
-                struct.pack_into("<f", post_buf, i * 4, float(y))
+            y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
+            result[i] = max(-128, min(127, int(round(y)))) & 0xFF
+        self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
         """Store **POST_AAQ_REG** to XMEM, at the active mode's element width.

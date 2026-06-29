@@ -58,8 +58,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -73,7 +73,8 @@ BKPT;;
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
 
-    def test_aaq_noop_unless_quantize_flag(self) -> None:
+    def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
+        """ACTIVATE.QUANTIZE without wide_vector_quantize_output leaves POST_AAQ_REG all zero."""
         state = _run_wide(
             """\
 SET lr0 cr6;;
@@ -81,18 +82,18 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
         )
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
-    def test_aaq_quantize_fp32_acc_for_comparison(self) -> None:
+    def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
+        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc lanes to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
@@ -110,11 +111,10 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -143,8 +143,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -188,8 +188,8 @@ SET lr3 cr9;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-MULT.RC.VV lr3 {which} 0 lr3;;
-acc.first;;
+MULT.RC.VV lr3 {which} 0 lr3 cr15;;
+acc.add.first;;
 BKPT;;
 """
             encoded = assemble(asm)
@@ -243,8 +243,8 @@ class TestWideVectorWrap:
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.RC.VE lr0 cr2 0 lr2;;
-acc.first;;
+MULT.RC.VE lr0 cr2 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -278,8 +278,8 @@ LDR_MULT_REG r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.RC.VE lr0 lr2 0 lr3;;
-acc.first;;
+MULT.RC.VE lr0 lr2 0 lr3 cr15;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -313,7 +313,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.INT32, mult_res
+            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.INT32, mult_res
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
@@ -323,7 +323,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
         st = self._run_agg(
-            "AGG.SUM.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
+            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
@@ -334,7 +334,7 @@ class TestWideVectorAgg:
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)
         st = self._run_agg(
-            "AGG.MAX.FIRST LR0 0;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
+            "AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
         )
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
@@ -357,7 +357,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr9;;
-MULT.RC.VV lr3 r0 0 lr3;;
+MULT.RC.VV lr3 r0 0 lr3 cr15;;
 BKPT;;
 """
         encoded = assemble(asm)
