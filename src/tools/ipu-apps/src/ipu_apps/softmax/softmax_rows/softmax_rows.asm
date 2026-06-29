@@ -30,9 +30,10 @@
       CR0  = 0  (zero source)       CR1  = 1   (-> 1.0 scalar, Pass 3 identity)
       CR2  = OUTPUT_BASE            CR3  = CVEC_ADDR        CR4  = NUM_BASE
       CR5  = MAXVEC_ADDR            CR6  = RVEC_ADDR        CR7  = ROW_BYTES (512)
-      CR8  = free (was row incr; CR1=1 reused)  CR9 = GROUP_CAP (128)  CR10 = INPUT_BASE
+      CR8  = free (was row incr; CR1=1 reused)
+      CR9  = 128 (GROUP_CAP; also R1 byte base for maxvec select)  CR10 = INPUT_BASE
       CR11 = free (was -1.0; ACC.SUB + CR1 replaced it)
-      CR12 = 128 (R1 byte base for maxvec select)
+      CR12 = free (was 128; CR9 reused)
       CR13 = TOTAL_ROWS
 
     NOTE: input logits live at CR10; the literal 0 is CR0.
@@ -92,7 +93,7 @@ pass1_loop:
     ADD {{lr_off}} {{lr_gbase}} cr0 ;
     ADD {{lr_wr}}  {{lr_gbase}} cr0 ;
     SET {{lr_row}} cr0 ;;
-    SET {{lr_max_idx}} cr12 ;;                          {#- lr_max_idx = 128 (R1[0] = maxvec[0]) -#}
+    SET {{lr_max_idx}} cr9 ;;                           {#- lr_max_idx = 128 (R1[0] = maxvec[0]); CR9 = 128 -#}
 
 pass2_loop:
     LDR_MULT_REG r0 {{lr_off}} cr10 ;;                   {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}

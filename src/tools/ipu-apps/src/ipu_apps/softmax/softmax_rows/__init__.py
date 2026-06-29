@@ -168,10 +168,12 @@ class SoftmaxRowsApp(IpuApp):
         state.regfile.set_cr(6, self.rvec_addr)
         state.regfile.set_cr(7, ROW_BYTES)   # row stride (512)
         # CR8 is free: row/element increments now use CR1 (=1).
-        state.regfile.set_cr(9, LANES)       # group cap = 128 rows (max per group)
+        # CR9 = 128: group cap (max rows/group) AND the R1 byte-index base for
+        # the Pass-2 maxvec element select (both just need the constant 128).
+        state.regfile.set_cr(9, LANES)
         state.regfile.set_cr(10, self.input_base)  # input base (moved off read-only CR0)
         # CR11 is free: the c*x - maxvec subtract now uses ACC.SUB with CR1 (=1.0).
-        state.regfile.set_cr(12, LANES)      # 128: R1 base byte index for maxvec element select
+        # CR12 is free: the maxvec byte-index base now reuses CR9 (=128).
         state.regfile.set_cr(13, self.rows)  # total row count (exact group sizing)
 
         # Master ISA: AGG.*/ACTIVATE.QUANTIZE read the active-lane count from the
