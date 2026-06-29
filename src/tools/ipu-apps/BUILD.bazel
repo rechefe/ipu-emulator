@@ -191,3 +191,16 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_softmax_columns",
+    srcs = ["test/test_softmax_columns.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
