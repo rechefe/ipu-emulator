@@ -1,0 +1,39 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+platform(
+    name = "riscv32",
+    constraint_values = [
+        "@platforms//cpu:riscv32",
+        "@platforms//os:none",
+    ],
+)
+
+rust_library(
+    name = "ipu_pac",
+    srcs = ["//src/tools/ipu-ctrl-rdl:ipu_pac_rs"],
+    crate_name = "ipu_pac",
+    edition = "2021",
+)
+
+rust_library(
+    name = "ipu_rt",
+    srcs = ["ipu-rt/src/lib.rs"],
+    crate_name = "ipu_rt",
+    edition = "2021",
+    deps = [":ipu_pac"],
+)
+
+rust_binary(
+    name = "firmware",
+    srcs = ["firmware/src/main.rs"],
+    edition = "2021",
+    platform = "//src/firmware:riscv32",
+    linker_script = ":linker.ld",
+    rustc_flags = [
+        "-C",
+        "panic=abort",
+    ],
+    deps = [":ipu_rt"],
+)

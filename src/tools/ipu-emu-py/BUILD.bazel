@@ -17,6 +17,7 @@ py_library(
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-common:ipu_common_lib",
+        "//src/tools/ipu-ctrl-rdl:ipu_ctrl_regs",
     ] + get_requirements(requirement),
 )
 
@@ -86,6 +87,52 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_engine",
+    srcs = ["test/test_engine.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_host_ctrl",
+    srcs = ["test/test_host_ctrl.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-ctrl-rdl:ipu_ctrl_regs",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_riscv_host",
+    srcs = ["test/test_riscv_host.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-ctrl-rdl:ipu_ctrl_regs",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_host_e2e",
+    srcs = ["test/test_host_e2e.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-ctrl-rdl:ipu_ctrl_regs",
         requirement("pytest"),
     ],
 )

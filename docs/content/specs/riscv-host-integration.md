@@ -1,13 +1,10 @@
 # RISC-V Host Integration (Design Spec)
 
 !!! note "Status"
-    **Proposal / design spec.** This page describes a planned *big feature*: an
-    emulated RISC-V host core that drives the IPU emulator through a
-    memory-mapped control register block. The register block is the single
-    source of truth (authored in **SystemRDL**), and is the same definition
-    used by the Python emulator, the on-device **Rust** driver, and the
-    generated documentation. The implementation is tracked as an epic and a
-    set of sub-issues — see [§9 Implementation Plan](#9-implementation-plan).
+    **Implemented.** An emulated RISC-V host can drive the IPU emulator through
+    the SystemRDL-defined control register block. Codegen, MMIO model, steppable
+    engine, Unicorn bridge, Rust firmware (`riscv32imc-unknown-none-elf`), and
+    end-to-end parity tests are wired under Bazel.
 
 ## 1. Motivation
 

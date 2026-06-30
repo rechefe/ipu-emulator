@@ -1,0 +1,106 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_ctrl_rdl_pyproject//:deps.bzl", "get_requirements")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+py_library(
+    name = "ipu_ctrl_rdl_lib",
+    srcs = glob(["src/ipu_ctrl_rdl/**/*.py"]),
+    data = glob(["src/ipu_ctrl_rdl/templates/*.j2"]),
+    imports = ["src"],
+    deps = get_requirements(requirement),
+)
+
+py_binary(
+    name = "codegen",
+    srcs = ["src/ipu_ctrl_rdl/codegen.py"],
+    main = "src/ipu_ctrl_rdl/codegen.py",
+    imports = ["src"],
+    deps = [":ipu_ctrl_rdl_lib"],
+)
+
+genrule(
+    name = "ipu_ctrl_regs_py",
+    srcs = ["//src/hw:ipu_ctrl.rdl"],
+    outs = ["ipu_ctrl_regs.py"],
+    tools = [
+        ":codegen",
+        "//src/tools/ipu-as-py:print_inst_aligned_bytes",
+    ],
+    cmd = """
+INST_BYTES_FILE=$$(mktemp)
+$(location //src/tools/ipu-as-py:print_inst_aligned_bytes) $$INST_BYTES_FILE
+$(location :codegen) \
+    --rdl $(location //src/hw:ipu_ctrl.rdl) \
+    --imem-depth 1024 \
+    --inst-aligned-bytes-file $$INST_BYTES_FILE \
+    --python-out $@
+rm -f $$INST_BYTES_FILE
+""",
+)
+
+genrule(
+    name = "ipu_pac_rs",
+    srcs = ["//src/hw:ipu_ctrl.rdl"],
+    outs = ["lib.rs"],
+    tools = [
+        ":codegen",
+        "//src/tools/ipu-as-py:print_inst_aligned_bytes",
+    ],
+    cmd = """
+INST_BYTES_FILE=$$(mktemp)
+$(location //src/tools/ipu-as-py:print_inst_aligned_bytes) $$INST_BYTES_FILE
+$(location :codegen) \
+    --rdl $(location //src/hw:ipu_ctrl.rdl) \
+    --imem-depth 1024 \
+    --inst-aligned-bytes-file $$INST_BYTES_FILE \
+    --rust-out $@
+rm -f $$INST_BYTES_FILE
+""",
+)
+
+genrule(
+    name = "ipu_ctrl_html",
+    srcs = ["//src/hw:ipu_ctrl.rdl"],
+    outs = ["ipu_ctrl_html.stamp"],
+    tags = ["manual", "docs"],
+    tools = [
+        ":codegen",
+        "//src/tools/ipu-as-py:print_inst_aligned_bytes",
+    ],
+    cmd = """
+INST_BYTES_FILE=$$(mktemp)
+HTML_DIR=$$(dirname $@)/html
+mkdir -p $$HTML_DIR
+$(location //src/tools/ipu-as-py:print_inst_aligned_bytes) $$INST_BYTES_FILE
+$(location :codegen) \
+    --rdl $(location //src/hw:ipu_ctrl.rdl) \
+    --imem-depth 1024 \
+    --inst-aligned-bytes-file $$INST_BYTES_FILE \
+    --html-out $$HTML_DIR
+rm -f $$INST_BYTES_FILE
+touch $@
+""",
+)
+
+py_library(
+    name = "ipu_ctrl_regs",
+    srcs = [":ipu_ctrl_regs_py"],
+    imports = ["."],
+)
+
+py_pytest_test(
+    name = "test_codegen",
+    srcs = ["test/test_codegen.py"],
+    data = ["//src/hw:ipu_ctrl.rdl"],
+    imports = ["src"],
+    deps = [
+        ":ipu_ctrl_rdl_lib",
+        ":ipu_ctrl_regs",
+        requirement("pytest"),
+    ],
+)

@@ -67,20 +67,22 @@ def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
 
     Raises ``RuntimeError`` if *max_cycles* is exceeded (likely infinite loop).
     """
-    cycles = 0
+    from ipu_emu.engine import IpuEngine
+
+    engine = IpuEngine(state)
+    engine.set_max_cycles(max_cycles)
     while not state.is_halted:
-        if cycles >= max_cycles:
+        if engine.cycles >= max_cycles:
             raise RuntimeError(
                 f"Exceeded {max_cycles} cycles — possible infinite loop "
                 f"(PC={state.program_counter})"
             )
         result = execute_next_instruction(state)
         if result == BreakResult.BREAK:
-            # In "run" mode, skip the break and execute the instruction anyway
             execute_instruction_skip_break(state)
-        cycles += 1
-    state.stats.total_cycles = cycles
-    return cycles
+        engine.ctrl.cycles += 1
+        state.stats.total_cycles = engine.ctrl.cycles
+    return engine.ctrl.cycles
 
 
 def run_with_debug(

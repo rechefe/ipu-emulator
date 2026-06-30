@@ -1,0 +1,51 @@
+# Generated from src/hw/ipu_ctrl.rdl — do not edit by hand.
+
+"""IPU host-control register offsets, masks, and enums."""
+
+from __future__ import annotations
+
+# Host address map (see docs/content/specs/riscv-host-integration.md)
+RAM_BASE = {{ "0x%08X" | format(model.ram_base) }}
+RAM_SIZE = {{ "0x%08X" | format(model.ram_size) }}
+MMIO_BASE = {{ "0x%08X" | format(model.ctrl_base) }}
+MMIO_SIZE = {{ "0x%08X" | format(mmio_size) }}
+IMEM_BASE = {{ "0x%08X" | format(imem_base) }}
+IMEM_DEPTH = {{ model.imem_depth }}
+INST_ALIGNED_BYTES = {{ model.inst_aligned_bytes }}
+IMEM_MAP_SIZE = {{ imem_map_size }}
+
+{% for reg in model.registers %}
+# {{ reg.name }} @ {{ "0x%03X" | format(reg.offset) }}
+REG_{{ reg.name | upper }}_OFFSET = {{ "0x%03X" | format(reg.offset) }}
+REG_{{ reg.name | upper }}_ABS = {{ "0x%08X" | format(reg.absolute_offset) }}
+{% for f in reg.fields %}
+REG_{{ reg.name | upper }}_{{ f.name | upper }}_MASK = {{ "0x%08X" | format(f.mask) }}
+REG_{{ reg.name | upper }}_{{ f.name | upper }}_SHIFT = {{ f.low }}
+{% if f.singlepulse %}
+REG_{{ reg.name | upper }}_{{ f.name | upper }}_PULSE = 1 << {{ f.low }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+{% for enum in model.enums %}
+class {{ enum.py_class_name }}:
+{% for entry in enum.entries %}
+    {{ entry.name }} = {{ entry.value }}
+{% endfor %}
+
+{% endfor %}
+
+# Convenience aliases for control pulses
+CTRL_START_PULSE = REG_CTRL_START_PULSE
+CTRL_HALT_PULSE = REG_CTRL_HALT_PULSE
+CTRL_STEP_PULSE = REG_CTRL_STEP_PULSE
+CTRL_RESET_PULSE = REG_CTRL_RESET_CMD_PULSE
+CTRL_IMEM_SWAP_PULSE = REG_CTRL_IMEM_SWAP_PULSE
+CTRL_CONT_PULSE = REG_CTRL_CONT_PULSE
+
+# CR register indices mapped to offsets
+CR_REG_OFFSETS = {
+{% for reg in model.registers if reg.name.startswith('cr') and reg.name[2:].isdigit() %}
+    {{ reg.name[2:] }}: REG_{{ reg.name | upper }}_OFFSET,
+{% endfor %}
+}
