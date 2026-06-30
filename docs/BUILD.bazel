@@ -61,6 +61,7 @@ genrule(
         ":doc_sources",
         ":generate_mkdocs_md",
         ":generate_release_log",
+        "//src/tools/ipu-ctrl-rdl:register_map_html",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -104,6 +105,10 @@ genrule(
         done
 
         ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
+
+        mkdir -p $(@D)/docs_temp/content/specs/ipu-ctrl-regmap
+        tar -xf $$ORIGDIR/$(location //src/tools/ipu-ctrl-rdl:register_map_html) \
+            -C $(@D)/docs_temp/content/specs/ipu-ctrl-regmap
 
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
         cd $(@D)/docs_temp
