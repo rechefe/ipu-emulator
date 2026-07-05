@@ -1205,11 +1205,13 @@ BKPT;;
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_and_activate_quantize_same_cycle_use_snapshot(self):
+    def test_agg_and_activate_quantize_same_cycle_sees_live_r_acc(self):
         """AGG.SUM.FIRST in ACC slot and ACTIVATE.QUANTIZE in AAQ slot issued together.
 
-        AGG reads from MULT_RES (live) and writes r_acc[dest].
-        ACTIVATE.QUANTIZE reads from the cycle-start snapshot of r_acc (not the AGG write).
+        AGG reads from MULT_RES (live) and writes r_acc[dest]. Since the ACC
+        slot dispatches before the AAQ slot within the same VLIW cycle,
+        ACTIVATE.QUANTIZE must see that same-cycle write to r_acc, not the
+        cycle-start snapshot.
         """
         state = _make_state(
             """\
@@ -1223,7 +1225,7 @@ BKPT;;
         for i in range(128):
             # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
             state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-            # r_acc lanes = 3 (source for ACTIVATE.QUANTIZE snapshot)
+            # r_acc lanes = 3 (overwritten at lane 0 by AGG.SUM.FIRST before ACTIVATE.QUANTIZE reads it)
             state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
@@ -1233,13 +1235,13 @@ BKPT;;
         agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
         assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
 
-        # ACTIVATE.QUANTIZE relu must have applied relu to the snapshot r_acc (lane 0 = 3)
-        # NOT the post-AGG r_acc where lane 0 = 384.
-        # relu(3) = 3, clamped to INT8 byte = 3. Bytes [3, 0, 0, 0] read as int32 = 3.
+        # ACTIVATE.QUANTIZE relu must see the post-AGG r_acc (lane 0 = 384), not
+        # the cycle-start snapshot value (3).
+        # relu(384) = 384, clamped to INT8 byte range = 127.
         post = state.regfile.raw("post_aaq_reg")
         lane0_byte = post[0]
-        assert lane0_byte == 3, (
-            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 3, got {lane0_byte}"
+        assert lane0_byte == 127, (
+            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 127, got {lane0_byte}"
         )
 
 

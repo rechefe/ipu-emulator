@@ -1003,7 +1003,7 @@ class Ipu:
     def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
         """Apply element-wise activation then quantize to INT8.
 
-        Reads each active lane from the cycle-start snapshot of ``r_acc``, applies
+        Reads each active lane from the live ``r_acc`` register file, applies
         the selected activation, clamps to the INT8 range ``[-128, 127]``, and stores
         the resulting bytes in the leading active-lane positions of ``post_aaq_reg``;
         all remaining bytes are zeroed. ``r_acc`` is not modified.
@@ -1019,7 +1019,7 @@ class Ipu:
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.snapshot.raw("r_acc")
+        acc_buf = self.state.regfile.raw("r_acc")
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
         if self._wide_vector_active():
