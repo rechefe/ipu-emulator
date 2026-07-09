@@ -58,9 +58,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -74,7 +73,8 @@ BKPT;;
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
 
-    def test_aaq_noop_unless_quantize_flag(self) -> None:
+    def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
+        """ACTIVATE.QUANTIZE without wide_vector_quantize_output leaves POST_AAQ_REG all zero."""
         state = _run_wide(
             """\
 SET lr0 cr6;;
@@ -82,19 +82,18 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """,
             cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
         )
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
-    def test_aaq_quantize_fp32_acc_for_comparison(self) -> None:
+    def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
+        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc lanes to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
@@ -112,12 +111,10 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity 0;;
-aaq 0;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -146,9 +143,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-RESET_ACC;;
-MULT.EE r0 lr2 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000)
@@ -192,9 +188,8 @@ SET lr3 cr9;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_MULT_REG r1 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-RESET_ACC;;
-MULT.EE {which} lr3 0 lr3;;
-acc.first;;
+MULT.RC.VV lr3 {which} 0 lr3 cr15;;
+acc.add.first;;
 BKPT;;
 """
             encoded = assemble(asm)
@@ -207,54 +202,38 @@ BKPT;;
 
 
 class TestWideVectorCyclicIndex:
-    """``LDR_CYCLIC_MULT_REG`` must honour ``index`` in wide mode (512-byte chunk)."""
+    """``LDR_CYCLIC_MULT_REG`` loads the full 512-byte chunk in wide mode, so
+    ``index`` must be 0 — any other value must raise, not silently wrap."""
 
-    def test_ldr_cyclic_nonzero_index_fp32(self) -> None:
-        zeros = struct.pack("<128f", *([0.0] * 128))
-        nines = struct.pack("<128f", *([9.0] * 128))
+    def test_ldr_cyclic_nonzero_index_raises_fp32(self) -> None:
         twos = struct.pack("<128f", *([2.0] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
-        st.xmem.write_address(0x2000, zeros)
-        st.xmem.write_address(0x2200, nines)
         st.xmem.write_address(0x1000, twos)
-        st.regfile.set_cr(6, 0x2000)
-        st.regfile.set_cr(7, 0)
-        st.regfile.set_cr(8, 0x2200)
-        st.regfile.set_cr(9, 512)
-        st.regfile.set_cr(10, 0x1000)
-        st.regfile.set_cr(11, 512)
+        st.regfile.set_cr(6, 0x1000)
+        st.regfile.set_cr(7, 512)
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-SET lr2 cr8;;
-SET lr3 cr9;;
-LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
-SET lr4 cr10;;
-LDR_MULT_REG r0 lr4 cr0;;
-SET lr5 cr11;;
-RESET_ACC;;
-MULT.EE r0 lr5 0 lr5;;
-acc.first;;
 BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
-        run_until_complete(st)
-        acc = st.regfile.raw("r_acc")
-        for i in range(128):
-            assert struct.unpack_from("<f", acc, i * 4)[0] == pytest.approx(18.0), f"lane {i}"
+        with pytest.raises(EmulatorError, match="index must be 0"):
+            run_until_complete(st)
 
 
-class TestWideVectorPadding:
-    """Lanes past the r_cyclic byte window use padding (×1) in wide FP32 mode."""
+class TestWideVectorWrap:
+    """RC lanes past byte 511 wrap cyclically (no padding) in wide FP32 mode."""
 
-    def test_mult_ve_cr_fp32_boundary_padding(self) -> None:
-        # cyclic_offset=384 (aligned): lane 31 ends at byte 508; lane 32 starts at 512 → pad.
+    def test_mult_rc_ve_fp32_cr_scalar_wraps(self) -> None:
+        # rc_idx=384 (aligned): lane 31 ends at byte 508; lane 32 starts at 512 → wraps to byte 0.
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+        for k in range(96):
+            struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
@@ -264,45 +243,8 @@ class TestWideVectorPadding:
         asm = """\
 SET lr0 cr6;;
 SET lr2 cr7;;
-MULT.VE.CR lr0 0 lr2 cr2;;
-RESET_ACC;;
-acc.first;;
-BKPT;;
-"""
-        encoded = assemble(asm)
-        load_program(st, [decode_instruction_word(w) for w in encoded])
-        run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
-        for i in range(32):
-            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
-        for i in range(32, 128):
-            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
-
-    def test_mult_ve_fp32_wide_cyclic_past_boundary(self) -> None:
-        """MULT.VE.CYCLIC (wide FP32): RC lanes wrap at 512 bytes."""
-        buf = bytearray(512)
-        for k in range(32):
-            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
-        for k in range(96):
-            struct.pack_into("<f", buf, k * 4, 5.0)
-        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        st.dtype = DType.INT8
-        st.regfile.set_cr(0, 0)
-        st.regfile.set_r_cyclic_at(0, buf)
-        st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
-        st.regfile.set_cr(10, 0x1000)
-        st.regfile.set_cr(6, 384)
-        st.regfile.set_cr(7, 0)
-        st.regfile.set_cr(8, 0)
-        asm = """\
-SET lr4 cr10;;
-LDR_MULT_REG r0 lr4 cr0;;
-SET lr0 cr6;;
-SET lr2 cr7;;
-SET lr3 cr8;;
-MULT.VE.CYCLIC lr0 0 lr2 lr3;;
-RESET_ACC;;
-acc.first;;
+MULT.RC.VE lr0 cr2 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -314,8 +256,8 @@ BKPT;;
         for i in range(32, 128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
-    def test_mult_ve_fp32_wide_padded_past_boundary(self) -> None:
-        """MULT.VE.PADDED (wide FP32): lanes past byte 511 use ×1."""
+    def test_mult_rc_ve_fp32_lr_scalar_wraps(self) -> None:
+        """MULT.RC.VE (wide FP32, LR-encoded src): RC lanes wrap at 512 bytes."""
         buf = bytearray(512)
         for k in range(32):
             struct.pack_into("<f", buf, 384 + k * 4, 3.0)
@@ -336,9 +278,8 @@ LDR_MULT_REG r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
-MULT.VE.PADDED lr0 0 lr2 lr3;;
-RESET_ACC;;
-acc.first;;
+MULT.RC.VE lr0 lr2 0 lr3 cr15;;
+acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
@@ -348,26 +289,55 @@ BKPT;;
         for i in range(32):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
         for i in range(32, 128):
-            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(2.0), f"lane {i}"
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
 
-class TestWideVectorAggInt32:
-    def test_agg_sum_inv_int32_wide(self) -> None:
-        """agg sum inv with INT32 wide lanes: 128×4 = 512 → inv rounds to int32 bits."""
-        acc = bytearray(512)
-        struct.pack_into("<128i", acc, 0, *([4] * 128))
-        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+class TestWideVectorAgg:
+    """Wide-vector coverage for the ACC-slot AGG.* instructions."""
+
+    def _run_agg(
+        self, asm: str, arithmetic: WideVectorArithmetic, mult_res: bytearray
+    ) -> IpuState:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=arithmetic)
         st.dtype = DType.INT8
-        st.regfile.set_r_acc_bytes(acc)
+        st.regfile.set_mult_res_bytes(mult_res)
         st.set_cr_dstructure(128)
-        asm = """\
-agg sum inv cr0 aaq0 0;;
-BKPT;;
-"""
+        st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
         run_until_complete(st)
-        assert st.regfile.get_aaq(0) == 0  # 1/512 rounds to 0 as int32
+        return st
+
+    def test_agg_sum_first_int32_wide(self) -> None:
+        """AGG.SUM.FIRST with INT32 wide lanes: 128×4 = 512 written to dest lane."""
+        mult_res = bytearray(512)
+        struct.pack_into("<128i", mult_res, 0, *([4] * 128))
+        st = self._run_agg(
+            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.INT32, mult_res
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
+
+    def test_agg_sum_first_fp32_wide(self) -> None:
+        """AGG.SUM.FIRST with FP32 wide lanes: 128×0.5 = 64.0 written to dest lane."""
+        mult_res = bytearray(512)
+        struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
+        st = self._run_agg(
+            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
+
+    def test_agg_max_first_fp32_wide(self) -> None:
+        """AGG.MAX.FIRST with FP32 wide lanes picks the largest lane."""
+        mult_res = bytearray(512)
+        struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
+        struct.pack_into("<f", mult_res, 3 * 4, 7.5)
+        st = self._run_agg(
+            "AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", WideVectorArithmetic.FP32, mult_res
+        )
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
 
 
 class TestWideVectorAlignment:
@@ -387,8 +357,7 @@ SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 SET lr3 cr9;;
-RESET_ACC;;
-MULT.EE r0 lr3 0 lr3;;
+MULT.RC.VV lr3 r0 0 lr3 cr15;;
 BKPT;;
 """
         encoded = assemble(asm)

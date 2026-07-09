@@ -16,7 +16,9 @@ from ipu_common.instruction_spec import create_assembler_opcodes
 _opcode_classes = create_assembler_opcodes()
 
 # Export classes with their original names
-XmemInstOpcode = _opcode_classes["XmemInstOpcode"]
+LoadInstOpcode = _opcode_classes["LoadInstOpcode"]
+StoreInstOpcode = _opcode_classes["StoreInstOpcode"]
+AccStoreInstOpcode = _opcode_classes["AccStoreInstOpcode"]
 LrInstOpcode = _opcode_classes["LrInstOpcode"]
 MultInstOpcode = _opcode_classes["MultInstOpcode"]
 AccInstOpcode = _opcode_classes["AccInstOpcode"]
@@ -25,19 +27,23 @@ CondInstOpcode = _opcode_classes["CondInstOpcode"]
 BreakInstOpcode = _opcode_classes["BreakInstOpcode"]
 
 # Export base Opcode class (parent of all the above)
-Opcode = XmemInstOpcode.__bases__[0]
+Opcode = LoadInstOpcode.__bases__[0]
 
 
 def validate_unique_opcodes() -> None:
     """Validate that all opcodes are unique across all Opcode subclasses.
-    
-    This is a sanity check to ensure INSTRUCTION_SPEC has no duplicates.
+
+    NOP is intentionally shared across all slot classes; the assembler resolves
+    it to the correct slot by context. All other opcodes must be globally unique.
     """
+    SHARED_OPCODES = {"NOP"}
     opcodes_subclasses = Opcode.__subclasses__()
     opcode_to_class = {}
 
     for cls in opcodes_subclasses:
         for opcode in cls.enum_array():
+            if opcode in SHARED_OPCODES:
+                continue
             if opcode in opcode_to_class:
                 existing_class = opcode_to_class[opcode]
                 raise AssertionError(

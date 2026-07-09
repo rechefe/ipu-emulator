@@ -19,7 +19,6 @@ src/tools/
 ├── ipu-common/src/ipu_common/    # Shared definitions (single source of truth)
 │   ├── instruction_spec.py       # ALL instruction definitions live here
 │   ├── registers.py              # ALL register definitions live here
-│   ├── acc_agg_enums.py          # Aggregation mode / post-function enums
 │   ├── acc_stride_enums.py       # Stride control enums
 │   └── types.py                  # RegDtype, RegKind, RegDescriptor
 ├── ipu-as-py/src/ipu_as/         # Assembler
@@ -67,10 +66,10 @@ Same principle applies to **`registers.py`** for register definitions.
 Every cycle executes one **compound instruction** — multiple independent slots in parallel:
 
 ```asm
-LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
+LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, LR0, 1; BNE LR0, LR1, next;;
 ```
 
-- Binary layout (MSB → LSB): `cond`, `lr` (×3), `xmem`, `mult`, `acc`, `aaq`, `break`
+- Binary layout (MSB → LSB): `cond`, `lr` (×3), `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break`
 - Separated by `;`, terminated by `;;`
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
@@ -83,7 +82,6 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 | `R_CYCLIC` | 512 bytes | Cyclic-access variant of `R0` |
 | `R_MASK` | 128 bytes | Bit mask register |
 | `R_ACC` | 512 bytes (128×INT32) | Accumulator |
-| `AAQ0`–`AAQ3` | 32-bit each | Activation & Quantization results |
 | `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
 | `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
 
@@ -93,17 +91,21 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 
 | Slot | Instructions | Purpose |
 |------|-------------|---------|
-| XMEM | `LDR_MULT_REG`, `STR_ACC_REG`, `STR_POST_AAQ_REG`, `LDR_CYCLIC_MULT_REG`, … | Memory load/store |
-| MULT | `MULT.EE`, `MULT.VE.CYCLIC`, `MULT.VE.PADDED`, `MULT.VE.CR`, `MULT.VE.AAQ`, … | 8-bit vector multiply |
-| ACC | `ACC`, `ACC.STRIDE`, `ACC.MAX`, `ACC.MAX.FIRST`, `RESET_ACC` | Accumulate into `R_ACC` |
-| AAQ | `AGG` / `AGG.FIRST` (sum/max + post-fn + `valid_elements` mask), `AAQ`, `ACTIVATE` | **`AGG`** uses **`R_ACC`**. **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
-| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2` | Scalar loop register ops (`SET` copies from a **`CR`** register) |
-| COND | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`, `BKPT` | Branches |
+| LOAD | `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG` | First-stage memory loads (feeds multiply) |
+| STORE | `STR_POST_AAQ_REG` | Last-stage memory store (drains `POST_AAQ_REG`) |
+| ACC_STORE | `STR_ACC_REG` | **Simulation-only** — store `R_ACC` to external memory |
+| MULT | `MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE` | 8-bit vector multiply |
+| ACC | `ACC.ADD`, `ACC.ADD.FIRST`, `ACC.MAX`, `ACC.MAX.FIRST`, `ACC.SUB`, `ACC.SUB.FIRST`, `ACC.STRIDE`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST` | Accumulate into `R_ACC`; AGG instructions reduce `MULT_RES` lanes (sum/max) into a single slot of `R_ACC` |
+| AAQ | `AAQ`, `ACTIVATE` | **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
+| LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC` | Scalar loop register ops (`SET` copies from a **`CR`** register; `INC`/`DEC` read-modify-write with union-derived immediate) |
+| COND | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`, `BKPT` | Branches. `BGT`, `BLE`, `BZ`, `BNZ`, `B` are pseudo-instructions (assembler-expanded, no opcode) — see `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py` |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `AddSubSrcB`, `AaqRegIdx`, `AggMode`, `PostFn`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `DstructureCrIdx`, `LrIncDecImmediate`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+
+`ACC.STRIDE` operand enums (see `acc_stride_enums.py`): `ElementsInRow` = **`16`**, **`32`**, **`64`**; `HorizontalStride` = **`off`**, **`on`**, **`on_inv`** (expand is fixed hardware behaviour, not programmable).
 
 ---
 
@@ -113,7 +115,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
    ```python
    "MY_INST": {
        "operands": [
-           {"name": "dest", "type": "AaqRegIdx"},
+           {"name": "dest", "type": "LrIdx", "read": "snapshot"},
            {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
        ],
        "doc": InstructionDoc(summary="...", ...),
@@ -124,7 +126,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.EE R0, LR1, 0, LR3; ACC; ADD LR0, LR0, 1; BNE LR
 2. **Implement the handler in `ipu.py`:**
    ```python
    def execute_my_inst(self, *, dest: int, src: bytearray) -> None:
-       # dest is resolved to an index; src is the register bytes
+       # dest is resolved to the LR value; src is the register bytes
        ...
    ```
    - Use `*,` (keyword-only args)
@@ -149,8 +151,8 @@ def _run(asm_code: str) -> IpuState:
     return state
 
 def test_my_instruction():
-    state = _run("MY_INST AAQ0 R0;;")
-    assert state.regfile.get_aaq(0) == expected
+    state = _run("MY_INST LR0 R0;;")
+    assert state.regfile.get_lr(0) == expected
 ```
 
 Bazel test targets:

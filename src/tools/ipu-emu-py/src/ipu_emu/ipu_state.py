@@ -18,6 +18,7 @@ from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DEFAULT_DSTRUCTURE,
     DStructureConfig,
+    Partition,
     decode_dstructure,
     encode_dstructure,
 )
@@ -88,18 +89,18 @@ class IpuState:
         """Read CR15 as decoded dstructure configuration fields."""
         return decode_dstructure(self.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX))
 
-    def get_config_valid_elements(self) -> int:
-        """Return the active lane count from the CR15 dstructure register."""
-        return self.get_cr_dstructure().valid_elements
+    def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
+        """Decode the dstructure configuration from an arbitrary CR register.
 
-    def get_config_partition(self) -> int:
-        """Return the partition field from the CR15 dstructure register."""
-        return self.get_cr_dstructure().partition
+        Lets mult/acc/aaq stage instructions select which CR supplies their
+        valid element mask and dstructure info, instead of being hard-coded to CR15.
+        """
+        return decode_dstructure(self.regfile.get_cr(cr_idx))
 
     def set_cr_dstructure(
         self,
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
-        partition: int = DEFAULT_DSTRUCTURE.partition,
+        partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
     ) -> None:
         """Write CR15 as dstructure configuration fields."""
         self.regfile.set_cr(

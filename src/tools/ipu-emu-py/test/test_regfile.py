@@ -13,6 +13,7 @@ from ipu_emu.ipu_config import (
     DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     LR_CR_SCALAR_VALUE_MASK,
+    Partition,
     decode_dstructure,
     encode_dstructure,
 )
@@ -304,23 +305,21 @@ class TestIpuState:
         config = state.get_cr_dstructure()
         assert config.valid_elements == 64
         assert config.partition == 2
-        assert state.get_config_valid_elements() == 64
-        assert state.get_config_partition() == 2
 
-    def test_cr_dstructure_masks_fields(self):
+    def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
-        state.set_cr_dstructure(
-            DSTRUCTURE_VALID_ELEMENTS_MASK + 1,
-            DSTRUCTURE_PARTITION_MASK + 1,
-        )
+        state.set_cr_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1)
         assert state.get_cr_dstructure().valid_elements == 0
-        assert state.get_cr_dstructure().partition == 0
+
+    def test_cr_dstructure_invalid_partition_raises(self):
+        with pytest.raises(ValueError, match="not a valid Partition"):
+            encode_dstructure(valid_elements=64, partition=3)
 
     def test_dstructure_codec_round_trip(self):
-        raw = encode_dstructure(valid_elements=17, partition=3)
+        raw = encode_dstructure(valid_elements=17, partition=4)
         decoded = decode_dstructure(raw)
         assert decoded.valid_elements == 17
-        assert decoded.partition == 3
+        assert decoded.partition == 4
 
     def test_cr_dstructure_uses_config_register(self):
         state = IpuState()

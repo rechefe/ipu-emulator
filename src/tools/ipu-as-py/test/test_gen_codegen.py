@@ -52,8 +52,10 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "typedef enum logic" in text
     assert "typedef struct packed" in text
     assert "typedef union packed" in text
-    assert "xmem_slot_t" in text
-    assert "xmem_slot_u" in text
+    assert "load_slot_t" in text
+    assert "load_slot_u" in text
+    assert "store_slot_t" in text
+    assert "acc_store_slot_t" in text
     assert "ipu_compound_inst_t" in text
     assert "ipu_compound_inst_flat_t" in text
     assert f"IPU_COMPOUND_INST_WIDTH = {CompoundInst.bits()}" in text
@@ -84,24 +86,30 @@ def test_sv_union_matches_slot_field_names(tmp_path: Path):
     text = out.read_text(encoding="utf-8")
     # Union members use same wire field names as {slot}_slot_t (union diagram columns)
     assert "cr_idx_0" in text and "lr_idx_1" in text and "lr_idx_2" in text
-    # STR_ACC_REG: fields 0,1 used; lr_idx_2 unused (diagram shows — in col 2)
-    i = text.index("} str_acc_reg;")
-    chunk = text[i - 500 : i]
-    assert "cr_idx_0" in chunk and "lr_idx_1" in chunk
-    assert "logic [3:0] lr_idx_2;" in chunk
-    assert "// offset" in chunk and "// base" in chunk
-    # MULT.EE: ra in CrIdx column (field 0), diagram shows ra:MultStageReg
-    j = text.index("} mult_ee;")
-    ee = text[j - 500 : j]
-    assert "logic [3:0] cr_idx_0; // ra (MultStageReg)" in ee
-    assert "lr_idx_1; // cyclic_offset" in ee
-    assert "lr_idx_2; // mask_shift" in ee
-    # MULT.EE.RR: field 2 unused — lr_idx_2 pad in place, not always "field 2 at end"
-    k = text.index("} mult_ee_rr;")
-    rr = text[k - 400 : k]
-    assert "lr_idx_1; // mask_shift" in rr
-    assert "logic [3:0] lr_idx_2;" in rr
-    assert "mult_mask_offset_immediate_3; // mask_offset" in rr
+    # LDR_MULT_REG: dest in field 2; fields 0–1 are base/offset
+    i = text.index("} ldr_mult_reg;")
+    ldr = text[i - 500 : i]
+    assert "cr_idx_0; // base" in ldr
+    assert "lr_idx_1; // offset" in ldr
+    assert "logic [3:0] lr_idx_2; // dest (MultStageReg)" in ldr
+    # STR_ACC_REG (acc_store slot): two union fields only
+    j = text.index("} str_acc_reg;")
+    acc = text[j - 400 : j]
+    assert "cr_idx_0; // base" in acc
+    assert "lr_idx_1; // offset" in acc
+    # MULT.RC.VV: rc_idx, mask_shift, mask_offset, cr_idx share mult union columns
+    k = text.index("} mult_rc_vv;")
+    vv = text[k - 500 : k]
+    assert "lr_idx_2; // rc_idx" in vv
+    assert "lr_idx_3; // mask_shift" in vv
+    assert "mult_mask_offset_immediate_4; // mask_offset" in vv
+    assert "dstructure_cr_idx_1; // cr_idx" in vv
+    # MULT.EE: cr_idx scalar in lcr column; dstructure_cr_idx in next column
+    m = text.index("} mult_ee;")
+    ee = text[m - 500 : m]
+    assert "lcr_idx_0; // cr_idx (CrIdx)" in ee
+    assert "dstructure_cr_idx_1; // dstructure_cr_idx" in ee
+    assert "lr_idx_2; // ra_idx" in ee
 
 
 def test_render_is_deterministic():

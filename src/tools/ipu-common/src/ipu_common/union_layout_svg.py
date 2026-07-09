@@ -19,7 +19,9 @@ from ipu_common.union_layout import SlotUnion
 _SLOT_COLORS: dict[str, str] = {
     "cond": "#98D8C8",
     "lr": "#FFA07A",
-    "xmem": "#FF6B6B",
+    "load": "#FF6B6B",
+    "store": "#E74C3C",
+    "acc_store": "#C0392B",
     "mult": "#4ECDC4",
     "acc": "#45B7D1",
     "aaq": "#9B59B6",

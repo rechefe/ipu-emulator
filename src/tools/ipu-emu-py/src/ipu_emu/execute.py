@@ -14,9 +14,10 @@ An instruction is stored as a ``dict[str, int]`` whose keys match the
 C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
 
     {
-        "break_inst_token_0_break_inst_opcode": 2,   # BREAK_NOP
-        "xmem_inst_token_0_xmem_inst_opcode": 4,     # XMEM_NOP
-        # … `STR_POST_AAQ_REG` is opcode 5 in the xmem slot when present
+        "break_inst_token_0_break_inst_opcode": 2,   # NOP (break slot)
+        "load_inst_token_0_load_inst_opcode": 3,     # NOP (load slot)
+        "store_inst_token_0_store_inst_opcode": 1,   # NOP (store slot)
+        "acc_store_inst_token_0_acc_store_inst_opcode": 1,   # NOP (acc_store slot)
         ...
     }
 
@@ -101,7 +102,7 @@ def execute_next_instruction(state: IpuState) -> BreakResult:
     1. Fetch instruction at program counter
     2. Snapshot the register file
     3. Execute BREAK first (before side effects)
-    4. Execute XMEM, LR, MULT, ACC, COND in parallel from the snapshot
+    4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
 
     Returns:
         BreakResult.BREAK if break condition occurred, CONTINUE otherwise

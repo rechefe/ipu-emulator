@@ -26,7 +26,7 @@ The CTRL stage produces:
 - Up to three local-register writes (`LR0`–`LR15`) per cycle into the **internal** LR file.
 - Four per-stage dispatch buses driven on the CTRL output:
   - `mult_vliw_bus`, `acc_vliw_bus`, `aaq_vliw_bus`, `str_vliw_bus` — each carries the corresponding stage's slot fields together with the CR/LR operand value(s) CTRL has already resolved for that stage. All four are driven from CTRL into MULT; MULT consumes `mult_vliw_bus` and forwards the remaining three to ACC; ACC consumes `acc_vliw_bus` and forwards the remaining two to AAQ; AAQ consumes `aaq_vliw_bus` and forwards `str_vliw_bus` to STORE. Downstream stages never read the register files and CR/LR are **not visible** to them. CTRL evaluates its three LR-ALU lanes first, so the forwarded values are this cycle's **post-LR-write** values, **not** the prior-cycle snapshot. The snapshot governs only CTRL's own reads — see §5.
-- The **XMEM read address** — CTRL resolves the XMEM slot into a single read address (CR base + LR offset) and drives it on `xmem_read_addr` (gated by `xmem_read_en`). XMEM is **read-only**: it has no opcode field, every access is a memory load, and the returned data is written directly into the MULT stage's input registers.
+- The **XMEM read address** — CTRL resolves the load slot into a single read address (CR base + LR offset) and drives it on `xmem_read_addr` (gated by `xmem_read_en`). XMEM is **read-only**: it has no opcode field, every access is a memory load, and the returned data is written directly into the MULT stage's input registers.
 
 The IPU is configured by an external **RISC-V host** over an **APB**
 slave port on CTRL. The host writes the instruction memory (inactive
@@ -154,8 +154,8 @@ XMEM read-address port, and the APB slave.
 | `acc_vliw_bus` | `output logic [ACC_BUS_W-1:0]` | The ACC-slot portion of the current cycle's VLIW word plus its resolved CR/LR operand value(s). Driven into MULT in the same cycle as `mult_vliw_bus`; MULT forwards it unchanged to ACC, where it is consumed. |
 | `aaq_vliw_bus` | `output logic [AAQ_BUS_W-1:0]` | The AAQ-slot portion of the current cycle's VLIW word plus its resolved CR/LR operand value(s). Driven into MULT in the same cycle as `mult_vliw_bus`; MULT and ACC forward it unchanged down the chain, and AAQ consumes it. |
 | `str_vliw_bus` | `output logic [STR_BUS_W-1:0]` | The STORE-slot portion of the current cycle's VLIW word plus its resolved CR/LR operand value(s). Driven into MULT in the same cycle as `mult_vliw_bus`; forwarded unchanged through MULT, ACC, and AAQ, and consumed by STORE. |
-| `xmem_read_addr` | `output logic [XMEM_ADDR_W-1:0]` | The resolved XMEM read address for this cycle, computed by CTRL as `CR[xmem.base_idx] + LR[xmem.offset_idx]` from this cycle's **post-LR-write** LR value. XMEM is **read-only** and has no opcode field — every access is a memory load; the returned data is written directly into the MULT stage's input registers (see §7.1). |
-| `xmem_read_en` | `output logic` | Valid strobe for `xmem_read_addr`. Asserted exactly on cycles where the XMEM slot is non-NOP; deasserted on NOP cycles and during any bubble (see §9.2). |
+| `xmem_read_addr` | `output logic [XMEM_ADDR_W-1:0]` | The resolved XMEM read address for this cycle, computed by CTRL as `CR[load.base_idx] + LR[load.offset_idx]` from this cycle's **post-LR-write** LR value. XMEM is **read-only** and has no opcode field — every access is a memory load; the returned data is written directly into the MULT stage's input registers (see §7.1). |
+| `xmem_read_en` | `output logic` | Valid strobe for `xmem_read_addr`. Asserted exactly on cycles where the load slot is non-NOP; deasserted on NOP cycles and during any bubble (see §9.2). |
 | `apb_prdata` | `output logic [APB_DATA_W-1:0]` | APB read data. Returns the contents of CTRL-mapped APB registers (e.g. bank-swap state, status, register read-back). |
 | `apb_pready` | `output logic` | APB ready handshake. Held low to insert wait states; pulled high to complete the ACCESS phase. |
 | `apb_pslverr` | `output logic` | APB transfer error indication (e.g. address outside the mapped region, write to a read-only register). |
@@ -174,8 +174,8 @@ XMEM read-address port, and the APB slave.
 | `LR_LANES` | `3` | Independent LR sub-slots per VLIW word. |
 | `LR_REG_COUNT` | `16` | `LR0`–`LR15`. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
-| `BRANCH_COND_COUNT` | `7` | `BEQ`, `BNE`, `BLT`, `BNZ`, `BZ`, `B`, `BR`. |
-| `LR_OP_COUNT` | `4` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`. |
+| `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`. `BGT`, `BLE`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
+| `LR_OP_COUNT` | `6` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`. |
 | `SET_IMM_BITS` | `5` | Combined `src5` operand: bit 4 selects mode; bits [3:0] are a CR index *or* a signed 4-bit immediate. |
 | `XMEM_ADDR_W` | *impl* | Width of `xmem_read_addr`. Sized to address the external XMEM address space (= log2 of XMEM word count). |
 | `APB_ADDR_W` | `32` | APB byte-address width on `apb_paddr`. |
@@ -190,10 +190,10 @@ XMEM read-address port, and the APB slave.
 - For each instruction in the MULT, ACC, AAQ, and STORE stages, **CTRL** resolves the CR/LR operand value(s) from the register files (by the indices carried in that stage's slot fields) and **forwards** them on the dispatch bus. The downstream stages **never** read the register files and CR/LR are **not visible** to them — the operand value(s) arrive already resolved. CTRL evaluates its three LR-ALU lanes before forwarding, so a downstream stage sees this cycle's **post-LR-write** value (it reflects any LR write this same VLIW performs).
 - **XMEM is not a pipeline stage** and is **read-only**. CTRL pre-resolves the XMEM address from CR + LR and forwards only the computed **read address** to XMEM (there is no XMEM opcode; every XMEM access is a memory load). XMEM accesses external memory and **writes the returned data directly into the MULT stage's input registers** (e.g. `R0`/`R1`/`R_CYCLIC`/`R_MASK`). It has no CR/LR read port and does not appear on the MULT → ACC → AAQ → STORE chain. Writes back to external memory are the responsibility of the STORE stage.
 - The **prior-cycle snapshot** (read-before-write) applies **only to CTRL's own register reads**: the three LR-ALU lane source operands and the branch/COND operands. These see the values committed at end of cycle N−1 — an LR write generated in cycle N is **not** visible to CTRL's own reads in cycle N (it becomes visible to them only starting cycle N+1). The CR/LR operand values CTRL **forwards** to MULT/ACC/AAQ/STORE/XMEM are **not** the snapshot: CTRL evaluates its LR-ALU lanes first, then forwards the resulting **post-write** values for this cycle. So a downstream stage sees this cycle's LR writes, while CTRL's own LR-ALU/branch reads do not.
-- `LR0`–`LR15` are **20-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`). The RISC-V host cannot write LR.
+- `LR0`–`LR15` are **20-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`). The RISC-V host cannot write LR.
 - `CR0`–`CR15` are **20-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
 - **`CR0` is hard-wired to `0` (zero register)** and **`CR1` is hard-wired to `1` (one register)**. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via `ADD`/`SUB`.
-- `CR15` is reserved for the dstructure register (`valid_elements` and `partition`) and must not be used for application data. It is not a valid operand to any ISA instruction.
+- `CR15` is reserved for the dstructure register (`valid_elements` and `partition`) and must not be used for application data. It is the conventional choice for `DstructureCrIdx` operands (`AGG.*`, `AAQ`, `ACTIVATE`, the masking `MULT.*` instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and `CR0`–`CR14` are equally valid choices.
 - IMEM stores **already-decoded** VLIW words: each entry has slot fields laid out explicitly (no opcode-level decode happens inside CTRL — only slot demuxing).
 - The instruction cache (`inst $`) **is** the pipeline register that holds the **current cycle's instruction** (the VLIW at the current `PC`). It was filled at the *end of the previous cycle* with the next instruction CTRL resolved to be correct, so at every clock edge `inst $` contains exactly the instruction CTRL needs to execute.
 - **No taken-branch bubble.** When the current cycle's instruction is a branch, CTRL issues **two speculative IMEM reads in parallel** during this same cycle — one for the fall-through `PC + 1` and one for the branch target `label`. Both responses are available by the end of the cycle. The cond evaluator's `taken` result then selects which of the two becomes the next-cycle `inst $`. The correct instruction is therefore always present at the start of the next clock — no NOP cycle is ever inserted because of a branch.
@@ -209,7 +209,7 @@ the current cycle's VLIW, and the internal program counter (`PC`).
 
 - **Depth:** `IMEM_DEPTH = 256` decoded-VLIW-word entries **total** across the two banks — `IMEM_BANK_DEPTH = 128` entries per bank (`IMEM_DEPTH / IMEM_BANKS`).
 - **Banks:** `IMEM_BANKS = 2` — double-buffered. At any time one bank is the *active* bank (fetched by the IPU) and the other is the *inactive* bank (writable by the RISC-V host).
-- **Contents:** every entry is an **already-decoded** VLIW word. Slot fields (cond, three LR sub-slots, MULT, ACC, AAQ, STORE, XMEM) are laid out explicitly in the entry — CTRL only demultiplexes them, it does not perform any opcode-level decode.
+- **Contents:** every entry is an **already-decoded** VLIW word. Slot fields (cond, three LR sub-slots, LOAD, MULT, ACC, AAQ, STORE) are laid out explicitly in the entry — CTRL only demultiplexes them, it does not perform any opcode-level decode.
 - **Host write path:** the RISC-V host writes into the **inactive** bank only over the host bus. There is no ISA instruction to write `inst mem`; bank swaps are signalled externally via `imem_bank_sel`.
 - **Read path — dual port:** CTRL issues **two reads in parallel** on every branch cycle (one at `PC + 1`, one at the branch target `label` — see §6.2). The active IMEM bank must therefore expose **two independent read ports** that can serve any pair of addresses in the same clock cycle. On non-branch cycles only one read port is used.
 - **Per-bank port requirement:** each bank is sized as a **2R1W** SRAM macro — two read ports (consumed only when the bank is *active*) and one write port (consumed only when the bank is *inactive*, by the RISC-V host). Because active and inactive never coincide, reads and host writes never contend on the same bank.
@@ -242,7 +242,7 @@ the current cycle's VLIW, and the internal program counter (`PC`).
   next_PC   = taken ? target_pc : (PC + 1)
   PC      <= next_PC                       // every cycle
   ```
-  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BNZ`/`BZ`/`B`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
+  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT`/`BGE`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
 - **Reset:** `rst` initialises `PC` to 0.
 - **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is the computed branch target on branch cycles, don't-care otherwise).
 
@@ -254,7 +254,7 @@ Per cycle CTRL resolves the *next-cycle* value of `inst $`:
 // Cycle N: inst $ already holds the VLIW at the current PC and is being executed.
 // CTRL runs in parallel:
 
-is_branch = inst$.cond.op is one of {BEQ, BNE, BLT, BNZ, BZ, B, BR}
+is_branch = inst$.cond.op is one of {BEQ, BNE, BLT, BGE, BR}
 
 if is_branch:
     // Issue BOTH speculative reads in parallel this cycle
@@ -280,17 +280,17 @@ any of these — CTRL has already consumed them internally.
 
 ### 7.1 XMEM Read Path (parallel path — not a stage)
 
-The XMEM slot is delivered to **XMEM** (a **read-only** external-memory
+The load slot is delivered to **XMEM** (a **read-only** external-memory
 access block, *not* a pipeline stage on the execute chain) on a
-dedicated CTRL output port. The XMEM slot carries no opcode — every
+dedicated CTRL output port. The load slot carries no opcode — every
 XMEM access is a memory **load**, and the only piece of information
 CTRL hands over is the **resolved read address**:
 
 ```text
 // Inside CTRL — computed after the three LR ALUs (uses this cycle's post-write LR)
-xmem_read_addr <= CR[inst$_vliw.xmem.base_idx]
-                + LR[inst$_vliw.xmem.offset_idx]   // post-LR-write value, not the snapshot
-xmem_read_en   <= (inst$_vliw.xmem != NOP) && !bubble
+xmem_read_addr <= CR[inst$_vliw.load.base_idx]
+                + LR[inst$_vliw.load.offset_idx]   // post-LR-write value, not the snapshot
+xmem_read_en   <= (inst$_vliw.load != NOP) && !bubble
 ```
 
 XMEM then performs the memory read and **writes the fetched
@@ -372,47 +372,18 @@ ALU lanes (`SET`/`ADD`/`SUB`/`INCR_MOD_POW2`); see §5.
 
 ## 9. Hazards
 
-CTRL is responsible for resolving the one architecturally-visible
-hazard in the pipeline: a **RAW (read-after-write) hazard** from the
-AAQ stage to the MULT or ACC stage.
+Earlier revisions resolved a **RAW (read-after-write) hazard** from the
+AAQ stage to the MULT or ACC stage: the AAQ stage wrote scalar result
+registers (`aaq0`–`aaq3`) in the RF that MULT (`MULT.VE.AAQ`) and ACC
+(`ACC.*.AAQ`) could consume as source operands, and CTRL inserted bubble
+cycles until the in-flight AAQ write committed.
 
-The AAQ stage writes scalar result registers in the RF. Both MULT and
-ACC can consume those same RF registers as source operands. If a MULT
-or ACC instruction tries to read an AAQ-written register before the
-AAQ write has committed to the RF, the consumer would observe stale
-data.
-
-### 9.1 Detection
-
-CTRL tracks the destination RF index of every AAQ write that is still
-in flight (within the architectural AAQ-to-RF latency window). Before
-dispatching `inst$_vliw`, CTRL compares the source RF indices in the
-MULT and ACC slot fields against those in-flight AAQ destinations. A
-match indicates a hazard on that slot.
-
-### 9.2 Resolution — Bubble Insertion
-
-When CTRL detects a hazard it stalls the pipeline by inserting one or
-more **bubble cycles** until the offending AAQ write is guaranteed to
-have committed:
-
-- `inst$_vliw` is **held** — PC does not advance and the dual IMEM
-  prefetch is paused, so the same VLIW remains in `inst $` while the
-  bubbles are issued.
-- All four dispatch buses (`mult_vliw_bus`, `acc_vliw_bus`,
-  `aaq_vliw_bus`, `str_vliw_bus`) carry an **all-NOP encoding** for
-  their respective slots, so the chain does no useful work for the
-  bubble cycle(s).
-- `xmem_read_en` is deasserted for the bubble cycle(s), suppressing
-  the XMEM read.
-- LR writes are also held (no LR-lane commits this cycle).
-
-CTRL resumes normal dispatch on the cycle after the offending AAQ
-write has committed; the MULT/ACC consumer then sees the up-to-date
-RF value.
-
-The number of bubble cycles required is fixed by the architectural
-AAQ-to-RF write latency.
+The AAQ scalar register file and all of its consumers have been removed
+from the ISA — cross-lane aggregation is now performed in the **ACC slot**
+(`AGG.SUM` / `AGG.SUM.FIRST` / `AGG.MAX` / `AGG.MAX.FIRST`), which reads and
+writes `r_acc` entirely within the ACC stage. With no cross-stage RF
+write-back path remaining, this hazard no longer arises and CTRL performs
+no hazard interlocks.
 
 ## 10. ISA — Instruction Reference
 
@@ -464,12 +435,12 @@ destination LR from two lanes in the same VLIW word (see §10).
 - **Operands:**
   - `dest` — destination, `LR0`–`LR15`.
   - `src_a` — first source, `LR0`–`LR15`.
-  - `src_b` — second source: `LR0`–`LR15`, `CR0`–`CR15`, or a 5-bit unsigned immediate `0`–`31`.
+  - `src_b` — second source: `LR0`–`LR15` or `CR0`–`CR14` (`LcrIdx`).
 - **Operation:**
   ```text
   dest = (src_a + src_b)[19:0]                 // 20-bit two's complement add (wrap on overflow)
   ```
-- **Examples:** `ADD LR0 LR1 LR2;;`, `ADD LR3 LR1 CR5;;`, `ADD LR4 LR1 7;;`.
+- **Examples:** `ADD LR0 LR1 LR2;;`, `ADD LR3 LR1 CR5;;`.
 
 #### 10.1.3 `SUB` — Subtract
 
@@ -480,7 +451,7 @@ destination LR from two lanes in the same VLIW word (see §10).
   ```text
   dest = (src_a - src_b)[19:0]                 // 20-bit two's complement subtract (wrap on underflow)
   ```
-- **Examples:** `SUB LR0 LR1 LR2;;`, `SUB LR3 LR1 CR5;;`, `SUB LR4 LR1 7;;`.
+- **Examples:** `SUB LR0 LR1 LR2;;`, `SUB LR3 LR1 CR5;;`.
 
 #### 10.1.4 `INCR_MOD_POW2` — Increment Local Register Modulo Power of Two
 
@@ -496,6 +467,30 @@ destination LR from two lanes in the same VLIW word (see §10).
   ```
 - **Example:** `INCR_MOD_POW2 LR2 LR3 4;;` — advance `LR2` by `LR3` and wrap modulo 16.
 
+#### 10.1.5 `INC` — Increment by Immediate
+
+- **Summary:** Add an unsigned immediate to the destination LR (read-modify-write).
+- **Syntax:** `INC dest imm`
+- **Operands:**
+  - `dest` — destination local register, `LR0`–`LR15` (also the implicit source).
+  - `imm` — unsigned immediate; range `0` to `2^W − 1` where `W` is derived from the LR slot union layout (5 bits in the current encoding).
+- **Operation:**
+  ```text
+  dest = (dest + imm)[19:0]
+  ```
+- **Example:** `INC LR0 7;;`
+
+#### 10.1.6 `DEC` — Decrement by Immediate
+
+- **Summary:** Subtract an unsigned immediate from the destination LR (read-modify-write).
+- **Syntax:** `DEC dest imm`
+- **Operands:** identical to `INC`.
+- **Operation:**
+  ```text
+  dest = (dest - imm)[19:0]
+  ```
+- **Example:** `DEC LR0 3;;`
+
 ### 10.2 COND Slot (one per VLIW word)
 
 A single cond slot appears per VLIW word.
@@ -505,8 +500,8 @@ Shared evaluation pseudo-code (applies to every cond mnemonic):
 ```text
 // All operands read from {LR | CR}
 a = read_lcr(reg1_idx)
-b = read_lcr(reg2_idx)        // BNZ/BZ rename to test_reg/base_reg; same wiring
-taken = evaluate(op, a, b)    // op-specific condition below; B/BR are unconditional
+b = read_lcr(reg2_idx)
+taken = evaluate(op, a, b)    // op-specific condition below; BR is unconditional
 
 if op == BR:
     next_pc = read_lcr(reg_idx)
@@ -518,9 +513,14 @@ else:
 branch_taken = taken
 ```
 
-`reg`, `reg1`, `reg2`, `test_reg`, `base_reg` are `LcrIdx` operands — any of
-`LR0`–`LR15` or `CR0`–`CR15`. `label` is a relative offset resolved by the
-assembler.
+`reg`, `reg1`, `reg2` are `LcrIdx` operands — any of `LR0`–`LR15` or
+`CR0`–`CR15`. `label` is a relative offset resolved by the assembler.
+
+> **Assembler pseudo-instructions.** `BGT`, `BLE`, `BZ`, `BNZ`, and `B` are
+> not real hardware opcodes — the assembler expands them into one of the
+> opcodes below (operand-swapped or with a register hard-coded to `CR0`)
+> at compile time, so they cost nothing at runtime and never appear in the
+> binary. See the Programmer's Guide for their exact expansions.
 
 #### 10.2.1 `BEQ` — Branch if Equal
 
@@ -549,35 +549,15 @@ assembler.
 - **Operation:** `if (signed(reg1) < signed(reg2)) pc ← label else pc ← pc + 1`.
 - **Example:** `BLT LR0 CR1 smaller;;`.
 
-#### 10.2.4 `BNZ` — Branch if Not Zero (semantic name)
+#### 10.2.4 `BGE` — Branch if Greater or Equal
 
-- **Summary:** Branch to `label` if `test_reg` differs from `base_reg`. Convenience form of `BNE` named for the common case where `base_reg = CR0` (the constant-zero register).
-- **Syntax:** `BNZ test_reg base_reg label`
-- **Operands:**
-  - `test_reg` — register to test (`LR0`–`LR15` or `CR0`–`CR15`).
-  - `base_reg` — base comparison register (typically `CR0` to test against zero).
-  - `label` — branch target label.
-- **Operation:** `if (test_reg != base_reg) pc ← label else pc ← pc + 1`.
-- **Example:** `BNZ LR3 CR0 loop;;`.
+- **Summary:** Signed greater-or-equal comparison; branch to `label` if `reg1 >= reg2`.
+- **Syntax:** `BGE reg1 reg2 label`
+- **Operands:** identical to `BEQ`.
+- **Operation:** `if (signed(reg1) >= signed(reg2)) pc ← label else pc ← pc + 1`.
+- **Example:** `BGE LR0 CR1 ge;;`.
 
-#### 10.2.5 `BZ` — Branch if Zero (semantic name)
-
-- **Summary:** Branch to `label` if `test_reg` equals `base_reg`. Convenience form of `BEQ` named for the common case where `base_reg = CR0`.
-- **Syntax:** `BZ test_reg base_reg label`
-- **Operands:** identical to `BNZ`.
-- **Operation:** `if (test_reg == base_reg) pc ← label else pc ← pc + 1`.
-- **Example:** `BZ LR0 CR0 zero;;`.
-
-#### 10.2.6 `B` — Unconditional Branch
-
-- **Summary:** Always branch to `label`.
-- **Syntax:** `B label`
-- **Operands:**
-  - `label` — branch target label.
-- **Operation:** `pc ← label`.
-- **Example:** `B start;;`.
-
-#### 10.2.7 `BR` — Branch Register
+#### 10.2.5 `BR` — Branch Register
 
 - **Summary:** Always branch to the address held in a register. The only branch whose target is **not** encoded in the instruction word.
 - **Syntax:** `BR reg`
@@ -594,10 +574,10 @@ assembler.
 | LR   | `ADD`            | `dest src_a src_b`       | `dest = (src_a + src_b)[19:0]` |
 | LR   | `SUB`            | `dest src_a src_b`       | `dest = (src_a - src_b)[19:0]` |
 | LR   | `INCR_MOD_POW2`  | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
+| LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[19:0]` |
+| LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[19:0]` |
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
 | COND | `BLT`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
-| COND | `BNZ`            | `test_reg base_reg label`| branch if `test_reg != base_reg` |
-| COND | `BZ`             | `test_reg base_reg label`| branch if `test_reg == base_reg` |
-| COND | `B`              | `label`                  | unconditional `pc ← label` |
+| COND | `BGE`            | `reg1 reg2 label`        | branch if `signed(reg1) >= signed(reg2)` |
 | COND | `BR`             | `reg`                    | unconditional `pc ← reg` |

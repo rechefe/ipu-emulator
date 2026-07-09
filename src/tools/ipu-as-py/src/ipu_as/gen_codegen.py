@@ -34,6 +34,9 @@ _OPERAND_TYPE_TO_SV_TYPEDEF: dict[str, str] = {
     "PostFn": "post_fn_field_t",
     "ActivationFn": "activation_fn_field_t",
     "FullXmemRow": "full_xmem_row_field_t",
+    "LrIncDecImmediate": "lr_inc_dec_immediate_field_t",
+    "DstructureCrIdx": "dstructure_cr_reg_field_t",
+    "MultMaskOffsetImmediate": "mult_mask_offset_immediate_field_t",
 }
 
 
@@ -59,7 +62,9 @@ _SV_RESERVED_STRUCT_NAMES = frozenset({
 _SLOT_META: dict[str, tuple[str, str]] = {
     "cond": ("cond_inst_opcode", "cond_slot"),
     "lr": ("lr_inst_opcode", "lr_slot"),
-    "xmem": ("xmem_inst_opcode", "xmem_slot"),
+    "load": ("load_inst_opcode", "load_slot"),
+    "store": ("store_inst_opcode", "store_slot"),
+    "acc_store": ("acc_store_inst_opcode", "acc_store_slot"),
     "mult": ("mult_inst_opcode", "mult_slot"),
     "acc": ("acc_inst_opcode", "acc_slot"),
     "aaq": ("aaq_inst_opcode", "aaq_slot"),

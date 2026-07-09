@@ -5,7 +5,13 @@ import ipu_as.opcodes as opcodes
 import ipu_as.ipu_token as ipu_token
 import ipu_as.reg as reg
 import ipu_as.immediate as immediate
-from ipu_common.instruction_spec import INSTRUCTION_SPEC, InstructionDoc, SLOT_UNIONS
+from ipu_common.instruction_spec import (
+    INSTRUCTION_SPEC,
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    InstructionDoc,
+    SLOT_UNIONS,
+    is_hardware_slot,
+)
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -28,19 +34,16 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "MultStageReg": reg.MultStageRegField,
     "LrIdx": reg.LrRegField,
     "CrIdx": reg.CrRegField,
+    "DstructureCrIdx": reg.DstructureCrRegField,
     "LcrIdx": reg.LcrRegField,
-    "AddSubSrcB": immediate.AddSubSrcBField,
-    "AaqRegIdx": reg.AaqRegField,
+    "LrIncDecImmediate": immediate.LrIncDecImmediate,
     "ElementsInRow": immediate.ElementsInRowField,
     "HorizontalStride": immediate.HorizontalStrideField,
     "VerticalStride": immediate.VerticalStrideField,
-    "AggMode": immediate.AggModeField,
-    "PostFn": immediate.PostFnField,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
-    "FullXmemRow": immediate.FullXmemRowField,
     "Label": ipu_token.LabelToken,
 }
 
@@ -239,8 +242,21 @@ class Inst:
 
     @classmethod
     def get_all_instruction_classes(cls) -> list[type["Inst"]]:
-        """Return all instruction subclasses."""
-        return cls.__subclasses__()
+        """Return instruction subclasses in compound-layout slot order."""
+        slot_to_class = {
+            subclass._slot_type_name(): subclass for subclass in cls.__subclasses__()
+        }
+        seen: list[type["Inst"]] = []
+        for slot in COMPOUND_LAYOUT_SLOT_ORDER:
+            inst_class = slot_to_class.get(slot)
+            if inst_class is None:
+                continue
+            seen.append(inst_class)
+        # Any subclasses not in COMPOUND_LAYOUT_SLOT_ORDER (should not happen).
+        for subclass in cls.__subclasses__():
+            if subclass not in seen:
+                seen.append(subclass)
+        return seen
 
     @classmethod
     def _operand_types_from_struct(
@@ -264,11 +280,19 @@ class Inst:
     @classmethod
     def _render_instruction_docs(cls, heading: str, intro: str, slot_type: str) -> str:
         lines = [f"## {heading}", ""]
+        if not is_hardware_slot(slot_type):
+            lines.append(
+                "> **Simulation-only slot** — not implemented in real IPU hardware. "
+                "Excluded from hardware codegen."
+            )
+            lines.append("")
         if intro.strip():
             lines.append(intro.strip())
             lines.append("")
 
         for opcode, struct_entry in cls.struct_by_opcode_table().items():
+            if opcode == "NOP":
+                continue  # documented once globally in the Slots section
             instruction_format = cls._struct_entry(opcode)
             if instruction_format.doc is None:
                 continue
@@ -316,6 +340,10 @@ class Inst:
         lines.append(doc.summary)
         lines.append("")
 
+        if doc.notes:
+            lines.append(f"> {doc.notes}")
+            lines.append("")
+
         if doc.operation:
             lines.append("**Pseudo code:**")
             lines.append(f"`{doc.operation}`")
@@ -331,25 +359,25 @@ class Inst:
 
 
 @validate_inst_structure
-class XmemInst(Inst):
+class LoadInst(Inst):
     @classmethod
     def _slot_type_name(cls) -> str:
-        return "xmem"
+        return "load"
 
     @classmethod
     def opcode_type(cls) -> type[ipu_token.IpuToken]:
-        return opcodes.XmemInstOpcode
+        return opcodes.LoadInstOpcode
 
     @classmethod
     def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
-        return _build_struct_table("xmem")
+        return _build_struct_table("load")
 
     @classmethod
     def nop_inst(cls, addr: int) -> str:
-        return XmemInst(
+        return LoadInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "XMEM_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -359,9 +387,88 @@ class XmemInst(Inst):
     @classmethod
     def description(cls) -> str:
         return cls._render_instruction_docs(
-            heading="XMEM Instructions",
-            intro="Memory access instructions for loading and storing data between registers and memory.",
-            slot_type="xmem",
+            heading="LOAD Instructions",
+            intro=(
+                "First-stage memory loads that feed the multiply unit "
+                "(mult-stage registers, cyclic register, and mask register)."
+            ),
+            slot_type="load",
+        )
+
+
+@validate_inst_structure
+class StoreInst(Inst):
+    @classmethod
+    def _slot_type_name(cls) -> str:
+        return "store"
+
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.StoreInstOpcode
+
+    @classmethod
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("store")
+
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return StoreInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="STORE Instructions",
+            intro=(
+                "Last-stage memory stores that drain **POST_AAQ_REG** to external "
+                "memory after activation and quantization."
+            ),
+            slot_type="store",
+        )
+
+
+@validate_inst_structure
+class AccStoreInst(Inst):
+    @classmethod
+    def _slot_type_name(cls) -> str:
+        return "acc_store"
+
+    @classmethod
+    def opcode_type(cls) -> type[ipu_token.IpuToken]:
+        return opcodes.AccStoreInstOpcode
+
+    @classmethod
+    def struct_by_opcode_table(cls) -> dict[str, InstructionFormat]:
+        return _build_struct_table("acc_store")
+
+    @classmethod
+    def nop_inst(cls, addr: int) -> str:
+        return AccStoreInst(
+            {
+                "opcode": ipu_token.AnnotatedToken(
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
+                    instr_id=addr,
+                ),
+                "operands": [],
+            }
+        )
+
+    @classmethod
+    def description(cls) -> str:
+        return cls._render_instruction_docs(
+            heading="ACC_STORE Instructions",
+            intro=(
+                "Simulation-only slot for storing **R_ACC** to external memory "
+                "(`STR_ACC_REG`). Not implemented in real IPU hardware."
+            ),
+            slot_type="acc_store",
         )
 
 
@@ -384,7 +491,7 @@ class MultInst(Inst):
         return MultInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "MULT_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -421,7 +528,7 @@ class AccInst(Inst):
         return AccInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "ACC_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -456,7 +563,7 @@ class AaqInst(Inst):
         return AaqInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "AAQ_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],
@@ -467,7 +574,7 @@ class AaqInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
-            intro="Activation and quantization: aggregate r_acc into AAQ registers; ACTIVATE writes activated lanes from r_acc into POST_AAQ_REG; AAQ quantizes POST_AAQ_REG.",
+            intro="Activation and quantization: apply activation to R_ACC lanes and write quantized INT8 bytes to POST_AAQ_REG.",
             slot_type="aaq",
         )
 
@@ -491,23 +598,10 @@ class LrInst(Inst):
         return LrInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "ADD", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
-                "operands": [
-                    ipu_token.AnnotatedToken(
-                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
-                        instr_id=addr,
-                    ),
-                    ipu_token.AnnotatedToken(
-                        token=lark.Token("TOKEN", "lr0", line=0, column=0),
-                        instr_id=addr,
-                    ),
-                    ipu_token.AnnotatedToken(
-                        token=lark.Token("TOKEN", "0", line=0, column=0),
-                        instr_id=addr,
-                    ),
-                ],
+                "operands": [],
             }
         )
 
@@ -539,13 +633,9 @@ class CondInst(Inst):
         return CondInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "B", line=0, column=0), instr_id=addr
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0), instr_id=addr
                 ),
-                "operands": [
-                    ipu_token.AnnotatedToken(
-                        token=lark.Token("TOKEN", "+1", line=0, column=0), instr_id=addr
-                    )
-                ],
+                "operands": [],
             }
         )
 
@@ -577,7 +667,7 @@ class BreakInst(Inst):
         return BreakInst(
             {
                 "opcode": ipu_token.AnnotatedToken(
-                    token=lark.Token("TOKEN", "BREAK_NOP", line=0, column=0),
+                    token=lark.Token("TOKEN", "NOP", line=0, column=0),
                     instr_id=addr,
                 ),
                 "operands": [],

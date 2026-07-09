@@ -77,18 +77,6 @@ REGISTER_DEFINITIONS = {
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("acc",),
     },
-    # -----------------------------------------------------------------------
-    # Activation & Quantization (AAQ) stage — 4 × 32-bit general-purpose regs
-    # -----------------------------------------------------------------------
-    "aaq": {
-        "kind": RegKind.AAQ,
-        "vector": False,
-        "size_bytes": 4,
-        "count": 4,
-        "dtype": RegDtype.UINT32,
-        "assembler_values": [f"aaq{i}" for i in range(4)],
-        "encoding_class": "AaqRegField",
-    },
     # Post-AAQ staging: **temporarily 512 bytes** (128×32-bit lanes, same footprint as
     # `R_ACC`) until end-to-end quantization lands; then this register may hold a
     # narrower quantized export buffer instead. **`ACTIVATE`** writes activated wide

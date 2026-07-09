@@ -29,7 +29,8 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: AGG, AGG.FIRST, and ACTIVATE read this implicitly.
+    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE/AAQ
+    # instructions name via their mandatory cr_idx operand.
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
@@ -41,12 +42,18 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, the selected dstructure lane count is implicit:
+In assembly, every `AGG.*`/`ACTIVATE`/`AAQ` instruction must name its
+dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
+no implicit default:
 
 ```asm
-AGG sum, value, CR2, AAQ0;;
-ACTIVATE relu;;
+AGG.SUM LR0, CR15;;
+ACTIVATE relu, CR15;;
+AGG.SUM LR0, CR3;;
+ACTIVATE relu, CR3;;
 ```
+
+For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the lane count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
 ## Wide-vector debug mode (optional)
 
@@ -59,15 +66,15 @@ The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires a
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu;;
+ACTIVATE relu, CR15;;
 ```
 
-- **Syntax:** `ACTIVATE` *activation_fn*, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `CR15.valid_elements`, the same implicit dstructure field used by `AGG` and `AGG.FIRST`.
+- **Syntax:** `ACTIVATE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active lane count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
-- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). **`AGG`** / **`AGG.FIRST`** still reduce **`R_ACC`**; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
+- **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit lanes). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
 - **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated lanes into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same lane layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
 - **`AAQ`** (INT8 mode) quantizes the **wide lanes currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide lanes) then **`AAQ`** (quantize in place into the same register’s byte prefix).
@@ -406,7 +413,7 @@ This section walks through a complete real-world implementation: a fully-connect
 
 ### Assembly Program
 
-The IPU assembly implements the core computation: activations for the current sample live in **`r0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`r_cyclic`**) and issues **`MULT.VE.CYCLIC`**, which multiplies that row by the scalar **`r0[lr5]`** (loop counter advanced via **`ADD`**), then accumulates. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
+The IPU assembly implements the core computation: activations for the current sample live in **`r0`** (loaded once per sample). Each inner-loop iteration loads a 128-byte **weight row** into the cyclic register (**`r_cyclic`**) and issues **`MULT.RC.VE`**, which multiplies that row by the scalar **`r0[lr5]`** (loop counter advanced via **`ADD`**), then accumulates. The trailing **`cr15`** operand on **`MULT.RC.VE`** names the dstructure register supplying `partition` for lane masking — every masking multiply instruction must name a CR register explicitly, with no implicit default. The harness initializes **`cr3`**, **`cr4`**, and **`cr5`** with stride constants **128**, **1**, and **256** so the program can add large steps without the removed **`incr`** mnemonic.
 
 ```asm
     SET                 lr0 cr6 ;;
@@ -414,8 +421,6 @@ The IPU assembly implements the core computation: activations for the current sa
     SET                 lr2 cr8 ;;
 
 input_loop:
-    RESET_ACC;;
-
     LDR_MULT_REG        r0 lr0 cr0;;
 
     SET                 lr4 cr9 ;;
@@ -423,15 +428,23 @@ input_loop:
     SET                 lr6 cr11 ;;
     SET                 lr15 cr12 ;;
 
+    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    ADD                 lr4 lr4 cr3;
+    ADD                 lr5 lr5 cr4;
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC.FIRST;;
+    BNE                 lr5 lr6 element_loop;;
+    B                   after_element_loop;;
 
 element_loop:
     LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
-    MULT.VE.CYCLIC      lr15 0 lr15 lr5;
-    ACC;
-    BLT                 lr5 lr6 element_loop;;
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC;;
+    BNE                 lr5 lr6 element_loop;;
 
+after_element_loop:
     STR_ACC_REG         lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
