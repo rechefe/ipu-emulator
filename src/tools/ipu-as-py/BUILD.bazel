@@ -26,6 +26,14 @@ py_library(
 )
 
 py_binary(
+    name = "print_inst_aligned_bytes",
+    srcs = ["src/ipu_as/print_inst_bytes.py"],
+    main = "src/ipu_as/print_inst_bytes.py",
+    imports = ["src"],
+    deps = [":ipu_as_lib"],
+)
+
+py_binary(
     name = "ipu-as",
     srcs = ["src/ipu_as/cli.py"],
     imports = ["src"],
