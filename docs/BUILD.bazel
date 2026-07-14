@@ -28,6 +28,39 @@ genrule(
 )
 
 py_binary(
+    name = "gen_codegen",
+    srcs = ["gen_codegen_wrapper.py"],
+    main = "gen_codegen_wrapper.py",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    python_version = "PY3",
+)
+
+genrule(
+    name = "generate_instruction_format_artifacts",
+    outs = [
+        "ipu_inst.h",
+        "ipu_instr_pkg.sv",
+    ],
+    cmd = "$(location :gen_codegen) $(location ipu_inst.h) $(location ipu_instr_pkg.sv)",
+    tools = [":gen_codegen"],
+)
+
+py_binary(
+    name = "gen_instruction_format_md",
+    srcs = ["gen_instruction_format_md_wrapper.py"],
+    main = "gen_instruction_format_md_wrapper.py",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    python_version = "PY3",
+)
+
+genrule(
+    name = "generate_instruction_format_md",
+    outs = ["instruction-format.md"],
+    cmd = "$(location :gen_instruction_format_md) $(location instruction-format.md)",
+    tools = [":gen_instruction_format_md"],
+)
+
+py_binary(
     name = "update_release_log",
     srcs = ["update_release_log.py"],
     main = "update_release_log.py",
@@ -60,6 +93,8 @@ genrule(
         "mkdocs.yml",
         ":doc_sources",
         ":generate_mkdocs_md",
+        ":generate_instruction_format_md",
+        ":generate_instruction_format_artifacts",
         ":generate_release_log",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -97,13 +132,22 @@ genrule(
             ln -sfn "$$abssrc" "$(@D)/docs_temp/content/$$rel"
         done
 
-        # Generated pages (instructions, operand types, assembly syntax)
+        # Generated pages (instructions, operand types, assembly syntax, instruction format)
         for out in $(locations :generate_mkdocs_md); do \
           base=$$(basename "$$out"); \
           ln -sfn "$$ORIGDIR/$$out" "$(@D)/docs_temp/content/$$base"; \
         done
 
+        ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
+
         ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
+
+        # Generated C header and SystemVerilog package (downloadable; not in git)
+        mkdir -p "$(@D)/docs_temp/content/assets"
+        for artifact in $(locations :generate_instruction_format_artifacts); do \
+          base=$$(basename "$$artifact"); \
+          cp "$$ORIGDIR/$$artifact" "$(@D)/docs_temp/content/assets/$$base"; \
+        done
 
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).
         cd $(@D)/docs_temp

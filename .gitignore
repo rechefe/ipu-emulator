@@ -20,4 +20,5 @@ bazel-testlogs/
 
 **egg-info**
 **_pycache**
+**/.venv/
 /.claude/settings.local.json
