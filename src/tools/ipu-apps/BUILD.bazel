@@ -70,3 +70,103 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+# -- MambaVision Stage 3 Layer Norm (wide-vector FP32) -----------------------
+
+exports_files([
+    "src/ipu_apps/mambavision_stage3_layer_norm/mambavision_stage3_layer_norm.asm",
+])
+
+filegroup(
+    name = "mambavision_stage3_layer_norm_test_data",
+    srcs = glob(["src/ipu_apps/mambavision_stage3_layer_norm/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_mambavision_stage3_layer_norm",
+    src = "src/ipu_apps/mambavision_stage3_layer_norm/mambavision_stage3_layer_norm.asm",
+)
+
+py_binary(
+    name = "mambavision_stage3_layer_norm",
+    srcs = ["src/ipu_apps/mambavision_stage3_layer_norm/__main__.py"],
+    main = "src/ipu_apps/mambavision_stage3_layer_norm/__main__.py",
+    data = [
+        ":assemble_mambavision_stage3_layer_norm.bin",
+        ":mambavision_stage3_layer_norm_test_data",
+    ],
+    env = {
+        "LAYER_NORM_INST_BIN": "$(rootpath :assemble_mambavision_stage3_layer_norm.bin)",
+        "LAYER_NORM_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/mambavision_stage3_layer_norm/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_mambavision_stage3_layer_norm",
+    srcs = ["test/test_mambavision_stage3_layer_norm.py"],
+    data = [
+        ":assemble_mambavision_stage3_layer_norm.bin",
+        ":mambavision_stage3_layer_norm_test_data",
+    ],
+    env = {
+        "LAYER_NORM_INST_BIN": "$(rootpath :assemble_mambavision_stage3_layer_norm.bin)",
+        "LAYER_NORM_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/mambavision_stage3_layer_norm/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- MambaVision Stage 3 Depthwise Conv1D + SiLU (wide-vector INT32) ---------
+
+exports_files([
+    "src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/mambavision_stage3_depthwise_conv1d_silu.asm",
+])
+
+filegroup(
+    name = "mambavision_stage3_depthwise_conv1d_silu_test_data",
+    srcs = glob(["src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_mambavision_stage3_depthwise_conv1d_silu",
+    src = "src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/mambavision_stage3_depthwise_conv1d_silu.asm",
+)
+
+py_binary(
+    name = "mambavision_stage3_depthwise_conv1d_silu",
+    srcs = ["src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/__main__.py"],
+    main = "src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/__main__.py",
+    data = [
+        ":assemble_mambavision_stage3_depthwise_conv1d_silu.bin",
+        ":mambavision_stage3_depthwise_conv1d_silu_test_data",
+    ],
+    env = {
+        "CONV1D_SILU_INST_BIN": "$(rootpath :assemble_mambavision_stage3_depthwise_conv1d_silu.bin)",
+        "CONV1D_SILU_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_mambavision_stage3_depthwise_conv1d_silu",
+    srcs = ["test/test_mambavision_stage3_depthwise_conv1d_silu.py"],
+    data = [
+        ":assemble_mambavision_stage3_depthwise_conv1d_silu.bin",
+        ":mambavision_stage3_depthwise_conv1d_silu_test_data",
+    ],
+    env = {
+        "CONV1D_SILU_INST_BIN": "$(rootpath :assemble_mambavision_stage3_depthwise_conv1d_silu.bin)",
+        "CONV1D_SILU_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/mambavision_stage3_depthwise_conv1d_silu/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+

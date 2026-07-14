@@ -1,4 +1,7 @@
 # Bazel build files
-bazel-*
+bazel-out
+bazel-bin
+bazel-testlogs
+bazel-ipu-emulator
 build
 .pytest_cache
