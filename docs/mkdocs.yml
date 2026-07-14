@@ -81,6 +81,7 @@ nav:
       - AAQ Stage Specification: specs/stage-aaq.md
       - Control Stage Specification: specs/stage-control.md
       - RISC-V Host Integration: specs/riscv-host-integration.md
+      - IPU Host Register Map: specs/ipu-host-registers.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition
