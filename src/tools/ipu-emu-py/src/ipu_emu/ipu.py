@@ -24,7 +24,7 @@ from typing import Any
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
-from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, Partition
+from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
@@ -369,7 +369,9 @@ class Ipu:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
-        Lanes in mult_res where the resulting mask bit is 0 are zeroed.
+        Lanes in mult_res where the resulting mask bit is 0 are set to
+        CR[cr_idx].pad_mode's fill value (ZERO, +inf, or -inf). +inf/-inf
+        require a floating-point dtype — they have no INT8 representation.
         """
         if self._wide_vector_active():
             return
@@ -386,7 +388,8 @@ class Ipu:
         _128_BIT_MASK = (1 << R_REG_SIZE) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
-        num_partitions = self.state.get_dstructure_for(cr_idx).partition
+        dstructure = self.state.get_dstructure_for(cr_idx)
+        num_partitions = dstructure.partition
 
         # Generate the shifted mask via sequential shift-and-AND
         mask_int = base_mask
@@ -399,11 +402,30 @@ class Ipu:
             for _ in range(shift):
                 mask_int = (mask_int << 1) & pv & _128_BIT_MASK
 
-        # Zero out mult_res where mask bit is clear (lane deactivated)
+        # Fill mult_res lanes where the mask bit is clear (lane deactivated)
+        # with the configured pad value (default: zero).
+        pad_bytes = self._mult_pad_lane_bytes(dstructure.pad_mode)
         mult_res = self.state.regfile.raw("mult_res")
         for i in range(R_REG_SIZE):
             if not ((mask_int >> i) & 1):
-                struct.pack_into("<I", mult_res, i * 4, 0)
+                mult_res[i * 4:i * 4 + 4] = pad_bytes
+
+    def _mult_pad_lane_bytes(self, pad_mode: PadMode) -> bytes:
+        """Encode the 4-byte MULT_RES fill value for a masked-out lane.
+
+        ZERO is representable in both INT8 (int32) and float dtypes.
+        POS_INF/NEG_INF only exist in floating-point representations, so
+        they are rejected under INT8 dtype.
+        """
+        if pad_mode == PadMode.ZERO:
+            return b"\x00\x00\x00\x00"
+        if self.state.dtype == DType.INT8:
+            raise EmulatorError(
+                f"dstructure pad_mode {pad_mode.name} requires a floating-point dtype; "
+                "INT8 has no infinity representation"
+            )
+        value = float("inf") if pad_mode == PadMode.POS_INF else float("-inf")
+        return struct.pack("<f", value)
 
     # -----------------------------------------------------------------------
     # Memory slot instruction handlers (load / store / acc_store)
