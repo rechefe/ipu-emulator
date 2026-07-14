@@ -21,7 +21,8 @@ from ipu_emu.emulator import (
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import encode_dstructure
+from ipu_emu.ipu_config import encode_dstructure, PadMode
+from ipu_emu.ipu import EmulatorError
 
 from ipu_as.lark_tree import assemble, parse
 
@@ -539,6 +540,113 @@ BKPT;;
             assert words[i] == 20, f"word {i} should be 20 (active)"
         for i in range(33, 128):
             assert words[i] == 0, f"word {i} should be 0 (deactivated)"
+
+    def test_mask_pad_pos_inf(self):
+        """dstructure pad_mode=POS_INF fills masked-out mult_res lanes with +inf (FP8 dtype)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+        state.dtype = DType.E4
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
+
+    def test_mask_pad_neg_inf(self):
+        """dstructure pad_mode=NEG_INF fills masked-out mult_res lanes with -inf (FP8 dtype)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+        state.dtype = DType.E5
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("-inf"), f"word {i} should be -inf (deactivated)"
+
+    def test_mask_pad_inf_rejected_under_int8(self):
+        """POS_INF/NEG_INF pad_mode has no INT8 representation and must raise."""
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+        state.dtype = DType.INT8
+        state.xmem.write_address(0x1000, bytes(128))
+        state.xmem.write_address(0x2000, bytes(512))
+        state.xmem.write_address(0x3000, mask_data)
+        with pytest.raises(EmulatorError, match="INT8"):
+            run_until_complete(state)
 
 
 # ============================================================================

@@ -13,6 +13,7 @@ from ipu_emu.ipu_config import (
     DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     LR_CR_SCALAR_VALUE_MASK,
+    PadMode,
     Partition,
     decode_dstructure,
     encode_dstructure,
@@ -320,6 +321,28 @@ class TestIpuState:
         decoded = decode_dstructure(raw)
         assert decoded.valid_elements == 17
         assert decoded.partition == 4
+
+    def test_dstructure_pad_mode_defaults_to_zero(self):
+        assert IpuState().get_cr_dstructure().pad_mode == PadMode.ZERO
+
+    def test_dstructure_pad_mode_codec_round_trip(self):
+        raw = encode_dstructure(valid_elements=17, partition=4, pad_mode=PadMode.NEG_INF)
+        decoded = decode_dstructure(raw)
+        assert decoded.valid_elements == 17
+        assert decoded.partition == 4
+        assert decoded.pad_mode == PadMode.NEG_INF
+
+    def test_dstructure_invalid_pad_mode_raises(self):
+        with pytest.raises(ValueError, match="not a valid PadMode"):
+            encode_dstructure(valid_elements=64, partition=0, pad_mode=3)
+
+    def test_set_cr_dstructure_accepts_pad_mode(self):
+        state = IpuState()
+        state.set_cr_dstructure(valid_elements=64, partition=2, pad_mode=PadMode.POS_INF)
+        config = state.get_cr_dstructure()
+        assert config.valid_elements == 64
+        assert config.partition == 2
+        assert config.pad_mode == PadMode.POS_INF
 
     def test_cr_dstructure_uses_config_register(self):
         state = IpuState()

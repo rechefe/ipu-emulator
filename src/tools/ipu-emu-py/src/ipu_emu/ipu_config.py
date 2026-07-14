@@ -26,9 +26,12 @@ LR_CR_SCALAR_VALUE_MASK = (1 << LR_CR_SCALAR_BITS) - 1
 
 DSTRUCTURE_VALID_ELEMENTS_BITS = 8
 DSTRUCTURE_PARTITION_BITS = 5                                    # P16=16 requires 5 bits
+DSTRUCTURE_PAD_MODE_BITS = 2                                     # 3 pad modes need 2 bits
 DSTRUCTURE_VALID_ELEMENTS_MASK = (1 << DSTRUCTURE_VALID_ELEMENTS_BITS) - 1
 DSTRUCTURE_PARTITION_MASK = (1 << DSTRUCTURE_PARTITION_BITS) - 1
+DSTRUCTURE_PAD_MODE_MASK = (1 << DSTRUCTURE_PAD_MODE_BITS) - 1
 DSTRUCTURE_PARTITION_SHIFT = DSTRUCTURE_VALID_ELEMENTS_BITS
+DSTRUCTURE_PAD_MODE_SHIFT = DSTRUCTURE_PARTITION_SHIFT + DSTRUCTURE_PARTITION_BITS
 
 DEFAULT_VALID_ELEMENTS = 128
 
@@ -42,7 +45,15 @@ class Partition(IntEnum):
     P16 = 16  # 16 groups of 8 lanes
 
 
+class PadMode(IntEnum):
+    """Fill value written into mask-deactivated MULT_RES lanes (see `_mult_mask_and_shift`)."""
+    ZERO     = 0   # lane is zeroed (default, matches historical behavior)
+    POS_INF  = 1   # lane is set to +infinity in the active float dtype
+    NEG_INF  = 2   # lane is set to -infinity in the active float dtype
+
+
 DEFAULT_PARTITION = Partition.P0
+DEFAULT_PAD_MODE = PadMode.ZERO
 
 
 @dataclass(frozen=True)
@@ -51,6 +62,7 @@ class DStructureConfig:
 
     valid_elements: int = DEFAULT_VALID_ELEMENTS
     partition: Partition = DEFAULT_PARTITION
+    pad_mode: PadMode = DEFAULT_PAD_MODE
 
     def __iter__(self):
         """Allow tuple unpacking as (valid_elements, partition)."""
@@ -62,18 +74,26 @@ class DStructureConfig:
         return encode_dstructure(
             valid_elements=self.valid_elements,
             partition=self.partition,
+            pad_mode=self.pad_mode,
         )
 
 
 DEFAULT_DSTRUCTURE = DStructureConfig()
 
 
-def encode_dstructure(*, valid_elements: int, partition: Partition | int = DEFAULT_PARTITION) -> int:
+def encode_dstructure(
+    *,
+    valid_elements: int,
+    partition: Partition | int = DEFAULT_PARTITION,
+    pad_mode: PadMode | int = DEFAULT_PAD_MODE,
+) -> int:
     """Pack dstructure fields into the CR15 register value."""
     partition = Partition(partition)   # validates and converts; raises ValueError if invalid
+    pad_mode = PadMode(pad_mode)       # validates and converts; raises ValueError if invalid
     valid = int(valid_elements) & DSTRUCTURE_VALID_ELEMENTS_MASK
     part = int(partition) & DSTRUCTURE_PARTITION_MASK
-    return valid | (part << DSTRUCTURE_PARTITION_SHIFT)
+    pad = int(pad_mode) & DSTRUCTURE_PAD_MODE_MASK
+    return valid | (part << DSTRUCTURE_PARTITION_SHIFT) | (pad << DSTRUCTURE_PAD_MODE_SHIFT)
 
 
 def decode_dstructure(value: int) -> DStructureConfig:
@@ -82,6 +102,7 @@ def decode_dstructure(value: int) -> DStructureConfig:
     return DStructureConfig(
         valid_elements=word & DSTRUCTURE_VALID_ELEMENTS_MASK,
         partition=Partition((word >> DSTRUCTURE_PARTITION_SHIFT) & DSTRUCTURE_PARTITION_MASK),
+        pad_mode=PadMode((word >> DSTRUCTURE_PAD_MODE_SHIFT) & DSTRUCTURE_PAD_MODE_MASK),
     )
 
 
