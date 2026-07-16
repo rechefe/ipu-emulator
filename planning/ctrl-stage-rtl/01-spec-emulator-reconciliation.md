@@ -35,14 +35,36 @@ and decision issue, not an RTL issue — it produces no Verilog.
    in-range BR target space to draw test vectors from.
 3. **IMEM sizing/banking.** Spec: `IMEM_DEPTH = 256`, 2×128-entry banked,
    APB-swapped. Emulator: `INST_MEM_SIZE = 1024`, flat, unbanked, no APB.
-   Already called out in `riscv-host-integration.md` §4. Decide for *this*
+   Already called out in `riscv-host-integration.md` §4. This is now
+   corroborated at the *encoding* level, not just the emulator's array
+   size: evaluating `ipu_common.union_layout.get_operand_type_bits()`
+   directly shows the cond slot's `Label` operand is **10 bits** wide
+   ("`(MAX_PROGRAM_SIZE - 1).bit_length()` for size 1024"), i.e. the
+   assembler encodes branch targets for a 1024-word address space, not the
+   spec's 256-word/`PC_W = 7` hardware design. The mismatch isn't only
+   "the emulator's array happens to be bigger" — the binary format itself
+   disagrees with the hardware spec's addressing width. Decide for *this*
    epic: the emulator-parity harness (#2) can only validate ISA-level
    per-instruction semantics and single-active-bank fetch behavior against
    the emulator as-is; banking/APB-swap timing (#6) has no emulator oracle
    until the [RISC-V host integration epic](../riscv-host-integration/00-epic.md)
    lands its MMIO model. Document this boundary explicitly rather than
    pretending #6 is emulator-verified when it can't be yet.
-4. **Anything else found during the walk.** Go operand-by-operand through
+4. **`SET` has no immediate mode.** `stage-control.md` §10.1.1 describes a
+   5-bit `src5` operand with a mode-select MSB choosing between a CR read
+   and a sign-extended 4-bit immediate (`SET LR2 #-3` in its own example).
+   Evaluating the real union layout (`SLOT_UNIONS["lr"]`) shows `SET`'s
+   only operand is a plain `CrIdx` field — no mode bit, no immediate path.
+   `execute_lr_set` (`ipu.py:511`) is unconditionally `reg = CR[src]`, and
+   the assembler's own generated docs (`ipu_as/gen_docs.py:200`) say the
+   same thing: "`SET` copies from a `cr` register." Either the immediate
+   mode is a real hardware feature nobody has implemented in the assembler/
+   emulator yet (in which case it needs an operand type, a union-layout
+   entry, and an `execute_lr_set` update before RTL can implement it), or
+   it's aspirational prose that was never built and the doc should drop it.
+   Decide which, then fix `stage-control.md` §10.1.1 accordingly — do not
+   let the RTL silently implement a third, undocumented behavior.
+5. **Anything else found during the walk.** Go operand-by-operand through
    every LR-slot and cond-slot instruction's `execute_*` handler versus its
    `stage-control.md` §10 pseudocode (register widths, snapshot vs.
    post-write timing, sign-extension points) and confirm each. The LR/cond
@@ -70,6 +92,9 @@ Pick one explicitly; don't leave it implicit.
       handling and whether the emulator changes.
 - [ ] A decision recorded for how #6 (APB/banking) will be tested given the
       emulator doesn't model it yet.
+- [ ] `stage-control.md` §10.1.1 (`SET`) corrected to match the real,
+      CR-only union layout, or the immediate mode is actually implemented
+      in the assembler/emulator first — not left contradicting both.
 - [ ] A short table, instruction × emulator-handler × spec-section, showing
       every LR-slot and cond-slot opcode has been checked off (this becomes
       the checklist Issues #3/#4/#5 work against).

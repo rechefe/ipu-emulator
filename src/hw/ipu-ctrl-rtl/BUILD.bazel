@@ -1,0 +1,11 @@
+# No RTL toolchain is wired into Bazel yet — that's
+# planning/ctrl-stage-rtl/02-rtl-scaffold-verification-infra.md's job (a
+# Verilator + cocotb setup, likely via rules_hdl). This filegroup exists only
+# so the sources are visible to whatever build/lint rule that issue adds;
+# it does not build or simulate anything on its own.
+
+filegroup(
+    name = "ctrl_rtl_sources",
+    srcs = glob(["rtl/*.sv"]),
+    visibility = ["//visibility:public"],
+)

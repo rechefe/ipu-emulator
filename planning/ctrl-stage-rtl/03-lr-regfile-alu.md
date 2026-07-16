@@ -14,14 +14,19 @@ opcodes: `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, plus `NOP`.
 Each bullet is the emulator handler that is the pass/fail oracle — spec
 section is context, not the source of truth for exact arithmetic:
 
-- **`SET`** — `execute_lr_set` (`ipu.py:511`): `dest = CR[src5[3:0]]` or
-  sign-extended 4-bit immediate per `stage-control.md` §10.1.1's mode bit.
-  Note the emulator's operand is a plain `CrIdx` (`"src"` resolved via
-  `read: snapshot`) — the immediate-vs-CR mode-bit split described in the
-  spec is an **encoding-level** detail belonging to the LR-slot union layout
-  (`SLOT_UNIONS["lr"]`), not something `execute_lr_set` branches on in
-  Python; confirm the RTL decode stage (not the ALU) is where that split
-  belongs, matching how the assembler/emulator already split it.
+- **`SET`** — `execute_lr_set` (`ipu.py:511`): `dest = CR[src]`, full stop.
+  **There is no immediate mode.** `stage-control.md` §10.1.1 describes a
+  mode-select MSB choosing between a CR read and a sign-extended 4-bit
+  immediate, but evaluating the real union layout
+  (`ipu_common.union_layout.compute_slot_layout("lr", ...)` /
+  `SLOT_UNIONS["lr"]`) shows `SET`'s only operand is a plain 5-bit `CrIdx`
+  field with no mode bit anywhere, and the assembler's own generated docs
+  (`ipu_as/gen_docs.py:200`) agree: "`SET` copies from a `cr` register."
+  This RTL implements the real, CR-only behavior — see #1's gap #4 for the
+  spec correction this needs. Do not build a mode-select mux for `SET`
+  unless #1 decides the immediate mode is a real feature to be added to
+  the assembler/emulator first, in which case this issue is blocked on
+  that ISA change landing, not just a spec-doc fix.
 - **`ADD`/`SUB`** — `execute_lr_add`/`execute_lr_sub` (`ipu.py:515-521`):
   plain wrap add/sub, no snapshot special-casing beyond the normal
   read-before-write rule (`src_a`/`src_b` are `"read": "snapshot"` operands
