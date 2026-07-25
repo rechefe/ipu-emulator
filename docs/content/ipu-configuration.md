@@ -12,7 +12,7 @@ harnesses and tests.
 | `CR0` | Read-only constant zero. | Already initialized; writes are ignored. |
 | `CR1` | Read-only constant one. | Already initialized; writes are ignored. |
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
-| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`. | `state.set_cr_dstructure(valid_elements=128, partition=0)` |
+| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
 `LR` and `CR` registers store 20-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
@@ -93,6 +93,27 @@ implicit fallback to `CR15`:
 MULT.RC.VV LR2, R0, 0, LR4, CR15;;
 MULT.VE    LR0, CR3, 0, LR2, CR15;;
 ```
+
+## Padding masked-out MULT_RES lanes
+
+Any lane deactivated by the mask-and-shift logic above (see
+`_mult_mask_and_shift`) is filled with a value chosen by the named register's
+`pad_mode` field instead of always being zeroed:
+
+| `pad_mode` | Fill value | Notes |
+| --- | --- | --- |
+| `PadMode.ZERO` (default) | `0` | Matches historical behavior; valid for INT8 and float dtypes. |
+| `PadMode.POS_INF` | `+inf` | Float dtypes only — identity value for `min`-style reductions. |
+| `PadMode.NEG_INF` | `-inf` | Float dtypes only — identity value for `max`-style reductions (e.g. `ACC.MAX`). |
+
+```python
+from ipu_emu.ipu_config import PadMode
+
+state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
+```
+
+`POS_INF`/`NEG_INF` have no INT8 representation — using them while
+`state.dtype == DType.INT8` raises `EmulatorError`.
 
 ## Setting CR application constants
 

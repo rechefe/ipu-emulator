@@ -21,7 +21,8 @@ from ipu_emu.emulator import (
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK, encode_dstructure
+from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK, encode_dstructure, PadMode
+from ipu_emu.ipu import EmulatorError
 
 from ipu_as.lark_tree import assemble, parse
 
@@ -539,6 +540,113 @@ BKPT;;
             assert words[i] == 20, f"word {i} should be 20 (active)"
         for i in range(33, 128):
             assert words[i] == 0, f"word {i} should be 0 (deactivated)"
+
+    def test_mask_pad_pos_inf(self):
+        """dstructure pad_mode=POS_INF fills masked-out mult_res lanes with +inf (FP8 dtype)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+        state.dtype = DType.E4
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
+
+    def test_mask_pad_neg_inf(self):
+        """dstructure pad_mode=NEG_INF fills masked-out mult_res lanes with -inf (FP8 dtype)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+        state.dtype = DType.E5
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("-inf"), f"word {i} should be -inf (deactivated)"
+
+    def test_mask_pad_inf_rejected_under_int8(self):
+        """POS_INF/NEG_INF pad_mode has no INT8 representation and must raise."""
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+        state.dtype = DType.INT8
+        state.xmem.write_address(0x1000, bytes(128))
+        state.xmem.write_address(0x2000, bytes(512))
+        state.xmem.write_address(0x3000, mask_data)
+        with pytest.raises(EmulatorError, match="INT8"):
+            run_until_complete(state)
 
 
 # ============================================================================
@@ -1205,11 +1313,13 @@ BKPT;;
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_and_activate_quantize_same_cycle_use_snapshot(self):
+    def test_agg_and_activate_quantize_same_cycle_sees_live_r_acc(self):
         """AGG.SUM.FIRST in ACC slot and ACTIVATE.QUANTIZE in AAQ slot issued together.
 
-        AGG reads from MULT_RES (live) and writes r_acc[dest].
-        ACTIVATE.QUANTIZE reads from the cycle-start snapshot of r_acc (not the AGG write).
+        AGG reads from MULT_RES (live) and writes r_acc[dest]. Since the ACC
+        slot dispatches before the AAQ slot within the same VLIW cycle,
+        ACTIVATE.QUANTIZE must see that same-cycle write to r_acc, not the
+        cycle-start snapshot.
         """
         state = _make_state(
             """\
@@ -1223,7 +1333,7 @@ BKPT;;
         for i in range(128):
             # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
             state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-            # r_acc lanes = 3 (source for ACTIVATE.QUANTIZE snapshot)
+            # r_acc lanes = 3 (overwritten at lane 0 by AGG.SUM.FIRST before ACTIVATE.QUANTIZE reads it)
             state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
@@ -1233,13 +1343,13 @@ BKPT;;
         agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
         assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
 
-        # ACTIVATE.QUANTIZE relu must have applied relu to the snapshot r_acc (lane 0 = 3)
-        # NOT the post-AGG r_acc where lane 0 = 384.
-        # relu(3) = 3, clamped to INT8 byte = 3. Bytes [3, 0, 0, 0] read as int32 = 3.
+        # ACTIVATE.QUANTIZE relu must see the post-AGG r_acc (lane 0 = 384), not
+        # the cycle-start snapshot value (3).
+        # relu(384) = 384, clamped to INT8 byte range = 127.
         post = state.regfile.raw("post_aaq_reg")
         lane0_byte = post[0]
-        assert lane0_byte == 3, (
-            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 3, got {lane0_byte}"
+        assert lane0_byte == 127, (
+            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 127, got {lane0_byte}"
         )
 
 

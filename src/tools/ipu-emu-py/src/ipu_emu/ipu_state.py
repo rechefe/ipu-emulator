@@ -18,6 +18,7 @@ from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DEFAULT_DSTRUCTURE,
     DStructureConfig,
+    PadMode,
     Partition,
     decode_dstructure,
     encode_dstructure,
@@ -101,11 +102,12 @@ class IpuState:
         self,
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
         partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
+        pad_mode: PadMode | int = DEFAULT_DSTRUCTURE.pad_mode,
     ) -> None:
         """Write CR15 as dstructure configuration fields."""
         self.regfile.set_cr(
             CR_DSTRUCTURE_REG_INDEX,
-            encode_dstructure(valid_elements=valid_elements, partition=partition),
+            encode_dstructure(valid_elements=valid_elements, partition=partition, pad_mode=pad_mode),
         )
 
     def set_activation_alphas(

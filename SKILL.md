@@ -85,7 +85,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, L
 | `LR0`–`LR15` | 32-bit each | Loop/scalar registers |
 | `CR0`–`CR15` | 32-bit, read-only | Configuration (base addresses, params) |
 
-`CR15` is reserved for the dstructure configuration register (`valid_elements` and `partition`). Data type selection lives on `IpuState.dtype` in the Python emulator.
+`CR15` is reserved for the dstructure configuration register (`valid_elements`, `partition`, and `pad_mode` — the fill value for mask-deactivated `MULT_RES` lanes: zero, +inf, or -inf). Data type selection lives on `IpuState.dtype` in the Python emulator.
 
 ### Instruction Slots
 
