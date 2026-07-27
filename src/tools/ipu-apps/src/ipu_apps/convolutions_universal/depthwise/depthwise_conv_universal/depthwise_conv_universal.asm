@@ -1,39 +1,43 @@
-# Universal Depthwise 3x3 Convolution + folded bias + ReLU.
+# Universal Depthwise 3x3 Convolution (no bias, no activation).
 #
-# Derived from depthwise_conv_universal.asm. Same walking-pointer / rotating
-# cyclic-slot pipeline and deferred-store scheme, with three additions:
-#   * per-channel folded bias seeded via MULT.EE ("x1" broadcast from Ra[lr6] * CR1),
-#   * ReLU via ACTIVATE relu before quantization,
-#   * mask-based top/bottom borders (no cr9 zero region).
+# Base app for depthwise_conv_universal_bn_activation. Same walking-pointer /
+# rotating cyclic-slot pipeline and deferred-store scheme, minus the two BN
+# additions:
+#   * no per-channel bias seed (r_acc reset happens on tap 1's own product),
+#   * no ReLU — ACTIVATE.QUANTIZE runs with `identity` (still required: it is
+#     the only INT8 clamp/quantize step; r_acc is FP-wide internally).
 #
-# Per-channel budget: 10 cyc/ch = 1 bias-seed cycle + 9 weight taps.
-# ACTIVATE.QUANTIZE now reads r_acc LIVE (upstream fix, see
-# execute_activate_quantize), and ACC dispatches before AAQ in the per-cycle
-# order, so tap 9's acc.add and ACTIVATE.QUANTIZE co-issue in one VLIW word —
-# no standalone ACTIVATE cycle needed (was 11 cyc/ch).
+# Per-channel budget: 9 cyc/ch = 9 weight taps, ACTIVATE.QUANTIZE fused into
+# tap 9's own cycle. ACTIVATE.QUANTIZE now reads r_acc LIVE (upstream fix,
+# see execute_activate_quantize), and ACC dispatches before AAQ in the
+# per-cycle order, so tap 9's acc.add and ACTIVATE.QUANTIZE co-issue in one
+# VLIW word — no standalone ACTIVATE cycle needed. Tap 1 folds in the r_acc
+# reset via acc.add.first (replacing the BN twin's separate bias-seed cycle);
+# the NEXT channel's kr=-1 prefetch load also fuses into tap 9's word
+# (XMEM reads lr5 live, post-LR-phase, so the same-cycle slot rotation is
+# visible to the load). Net: 11 -> 9 cyc/ch.
 #
-# KERNEL PACKING (FPB=25, 10-byte stride):  each channel s in a 256-byte
-# super-block occupies bytes [s*10 .. s*10+10): byte 0 = bias, 1..9 = taps.
-# The kernel byte index lr6 walks +1 every cycle, so the 10-cycle body advances
-# lr6 by exactly one channel stride; the bias cycle reads fixed_idx = s*10, the
-# 9 taps read s*10+1 .. s*10+9.
+# KERNEL PACKING (FPB=28, 9-byte stride, no bias byte): each channel s in a
+# 256-byte super-block occupies bytes [s*9 .. s*9+9) = its 9 weight taps.
+# 28*9 = 252 <= 256. The kernel byte index lr6 walks +1 every cycle across
+# taps 1..9 (9 total = one channel stride).
 #
 # CR registers (set by harness; master-ISA CR remap):
 #   cr0  = read-only 0 (zero constant)
-#   cr1  = read-only 1 (used as bias multiplier for MULT.EE and for sub/set immediates)
+#   cr1  = read-only 1
 #   cr2  = output base - 128 (deferred-store pre-bias)
 #   cr3  = mask blob base (single blob, slots 0/3/6; loaded once at init)
 #   cr4  = cols
 #   cr5  = kernel base
 #   cr6  = group_stride (= channels * 128)
-#   cr7  = FPB*128 (= 25*128 = 3200; channel-group inner-loop size in bytes)
+#   cr7  = FPB*128 (= 28*128 = 3584; channel-group inner-loop size in bytes)
 #   cr8  = total_kernel_bytes (= num_super_blocks * 256)
 #   cr9  = 384 (slot-pointer step: +384 mod 512 for the running write ptr lr5)
 #   cr10 = input base                (and cyclic-load base)
 #   cr11 = chunk-loop limit (= (num_chunks - 1) * group_stride)
 #   cr12 = 128
 #   cr13 = 256
-#   cr14 = 256 - 2*cols - 2  (end-of-9 walking step from tap 9 to next bias)
+#   cr14 = 256 - 2*cols - 2  (end-of-9 walking step from tap 9 to next ch tap 1)
 #
 # Mask scheme (mask shift for L/R, single 3-slot blob for vertical borders):
 #   Left/right edge columns are zeroed by mask_shift (NOT by slots), with
@@ -101,7 +105,7 @@ g0_clamp:
 g0_ch_pre:
     # Preamble (4 cyc): set up rotating slots for first ch of this kernel-group.
 
-    # Cy 1: lr4 = 0; lr5 = 0; lr2 = lr8+lr10 (THIS-ch kr=0 ext).
+    # Cy 1: lr4 = 0; lr5 = 0; lr2 = lr8+lr10 (THIS-ch kr=0 ext); load into slot 0.
     SET                 lr4 cr0;
     SET                 lr5 cr0;
     add                 lr2 lr8 lr10;
@@ -117,42 +121,35 @@ g0_ch_pre:
     sub                 lr3 lr3 cr13;
     add                 lr5 lr5 cr13;;
 
-    # Cy 4: walk seed += cols → cols-255.  lr6 = -1 (bias cycle's +1 -> 0 = ch0
-    # bias byte index; the 10-cycle body then advances lr6 by exactly 10/channel).
+    # Cy 4: walk seed += cols → cols-255.  lr6 = -1 (tap 1's +1 -> 0 = ch0's
+    # first tap byte index; the 9-cycle body then advances lr6 by exactly
+    # 9/channel).
     add                 lr3 lr3 cr4;
     sub                 lr6 lr0 cr1;;
 
     b                   g0_tap_body;;
 
 g0_tap_body:
-    # 10 cyc/ch.  cyc0 = bias seed; taps 1..9 = weights, ACTIVATE.QUANTIZE
-    # fused into tap 9's own cycle (see below).  G0: kr=-1 row masked.
+    # 9 cyc/ch.  Taps 1..9 = weights; ACTIVATE.QUANTIZE fused into tap 9's own
+    # cycle (see tap 9 below).  G0: kr=-1 row masked.
     #
     # Store pipeline (2-deep, no extra cycle):
-    #   ch K   tap 9: acc (final) + ACTIVATE relu -> post_aaq_reg = relu(r_acc)
+    #   ch K   tap 9: acc (final) + ACTIVATE identity -> post_aaq_reg = clamp(r_acc)
     #   ch K+1 tap 2: deferred store of ch K's post_aaq_reg
     # ch 0's tap-2 store writes undefined data to the -128 scratch slot
     # (harmless — never read back).
 
-    # --- cyc 0: BIAS seed + quantize PREVIOUS channel.
-    # lr6 += 1 -> s*10 (this ch's bias byte index; the +1 here plus +1 on each of
-    # taps 1..9 = +10 total per channel = one 10-byte channel slot).  Bias's
-    # MULT.EE reads Ra[lr6]*CR1=1, broadcasting the bias byte to all lanes.
-    # lr3 is NOT walked here; tap 1 keeps the base's +cr14 walk.  aaq quantizes prev ch.
-    # Also pre-load this ch's kr=-1 (own valid base lr2) into slot lr5 here, one
-    # cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
-    INC                 lr6 1;
-    ldr_cyclic_mult_reg lr2 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0 cr15 ;
-    acc.add.first;;
-
     # --- tap 1: kr=-1 kc=-1.  Top row out of bounds: slot 3; kc=-1 shift (lr9)
-    #     zeros the left edge column.  kr=-1 (own valid base lr2) pre-loaded in
-    #     cyc 0; row-0 lanes masked.  Walk +cr14 (as base).
+    #     zeros the left edge column.  kr=-1 pre-loaded by g0_ch_pre (ch 0) or
+    #     the previous channel's tap 9 (see below).  Walk +cr14.
+    #     acc.add.first resets r_acc for this channel (replaces the BN twin's
+    #     bias seed).  Loop counter += cr12 moved here (tap 1 has a free LR
+    #     slot) to make room at tap 6/8 for the NEXT-ch kr=-1 ext calc.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
+    add                 lr10 lr10 cr12;
     MULT.RC.VE          lr3 lr6 3 lr9 cr15 ;
-    acc.add;;
+    acc.add.first;;
 
     # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
@@ -185,10 +182,11 @@ g0_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
-    # --- tap 6: kr=0 kc=+1.  slot 0 + kc=+1 shift.  Loop counter += 128.
+    # --- tap 6: kr=0 kc=+1.  slot 0 + kc=+1 shift.  Rotate lr_read (moved
+    #     from tap 8 to free its LR slot for the NEXT-ch kr=-1 ext calc).
     INC                 lr3 1;
     INC                 lr6 1;
-    add                 lr10 lr10 cr12;
+    incr_mod_pow2       lr4 cr13 9;
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;;
 
@@ -200,25 +198,29 @@ g0_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
     acc.add;;
 
-    # --- tap 8: kr=+1 kc=0.  slot 0, no shift.  Rotate lr_read.
+    # --- tap 8: kr=+1 kc=0.  slot 0, no shift.  Precompute lr14 = NEXT-ch
+    #     kr=-1 ext (= lr2-cr6), overwriting tap 7's now-dead lr14 value, so
+    #     tap 9's fused load can issue it directly.
     INC                 lr3 1;
     INC                 lr6 1;
-    incr_mod_pow2       lr4 cr13 9;
+    sub                 lr14 lr2 cr6;
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
     # --- tap 9: kr=+1 kc=+1.  slot 0 + kc=+1 shift.  Final acc, fused with
     #     ACTIVATE.QUANTIZE in the SAME cycle (reads r_acc LIVE; ACC
     #     dispatches before AAQ) — no standalone cycle needed.  lr5 += 256
-    #     (mod 512) → R+128 = next ch's R'-128 (its tap-1 kr=-1 slot; already
-    #     pre-loaded every channel by the NEXT channel's cyc0).  lr6 now =
-    #     s*10 + 9; +1 at next cyc0 -> (s+1)*10.  Loop branch lives here too.
+    #     (mod 512) → R+128 = next ch's R'-128 (its tap-1 kr=-1 slot); load
+    #     NEXT-ch kr=-1 (lr14, from tap 8) there in the same word (XMEM reads
+    #     lr5 LIVE).  lr6 now = s*9 + 8; +1 at next ch's tap 1 -> (s+1)*9.
+    #     Loop branch lives here too.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;
-    ACTIVATE.QUANTIZE   relu cr15;
+    ACTIVATE.QUANTIZE   identity cr15;
     blt                 lr10 lr11 g0_tap_body;;
 
     # All channels in this kernel-group done.  The last channel's ACTIVATE has
@@ -288,33 +290,31 @@ ch_pre:
     sub                 lr3 lr3 cr13;
     add                 lr5 lr5 cr13;;
 
-    # Cy 4: walk seed += cols; lr6 = -1 (bias cycle +1 -> 0).
+    # Cy 4: walk seed += cols; lr6 = -1 (tap 1's +1 -> 0).  Prefetch THIS ch's
+    # kr=-1 (ext = lr2-cr6) into its slot lr5 here, one cycle before tap 1
+    # reads it — under snapshot a same-cycle LDR is not visible to the mult,
+    # and this cycle's LOAD slot is free.
     add                 lr3 lr3 cr4;
-    sub                 lr6 lr0 cr1;;
+    sub                 lr6 lr0 cr1;
+    sub                 lr14 lr2 cr6;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;;
 
     b                   mn_tap_body;;
 
 mn_tap_body:
     # 10 cyc/ch.  All loads use cr10; no border masks (slot 0 + shift).
-    # ACTIVATE.QUANTIZE fused into tap 9's own cycle (see below).
-
-    # --- cyc 0: BIAS seed + quantize PREVIOUS channel (lr3 not walked here).
-    #     Also pre-load THIS-ch kr=-1 (ext = lr2-cr6) into its slot lr5 here, one
-    #     cycle before tap 1 reads it — under snapshot a same-cycle LDR is not
-    #     visible to the mult, and cyc-0's LOAD slot is free.  lr5 is already the
-    #     kr=-1 slot; lr2 already holds THIS-ch kr=0 ext.
-    INC                 lr6 1;
-    sub                 lr14 lr2 cr6;
-    ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0 cr15 ;
-    acc.add.first;;
 
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
-    #     cyc 0.  Walk +cr14.
+    #     the previous channel's tap 9 (see below — ACTIVATE.QUANTIZE now
+    #     reads r_acc LIVE, so it fuses into tap 9's own cycle).  Walk +cr14.
+    #     acc.add.first resets r_acc.  Loop counter += cr12 moved here (tap 1
+    #     has a free LR slot) to make room at tap 6/8 for the NEXT-ch kr=-1
+    #     ext address calc + lr_read rotation swap (see tap 9).
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
+    add                 lr10 lr10 cr12;
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
-    acc.add;;
+    acc.add.first;;
 
     # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
@@ -346,10 +346,11 @@ mn_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
-    # --- tap 6: kc=+1 shift.
+    # --- tap 6: kc=+1 shift.  Rotate lr_read (moved from tap 8 to free its
+    #     LR slot for the NEXT-ch kr=-1 ext calc below).
     INC                 lr3 1;
     INC                 lr6 1;
-    add                 lr10 lr10 cr12;
+    incr_mod_pow2       lr4 cr13 9;
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;;
 
@@ -361,23 +362,30 @@ mn_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
     acc.add;;
 
-    # --- tap 8: kc=0, no shift.  rotate lr_read.
+    # --- tap 8: kc=0, no shift.  Precompute lr14 = NEXT-ch kr=-1 ext
+    #     (= lr2-cr6; lr2 already advanced to NEXT-ch kr=0 ext at tap 3),
+    #     overwriting tap 7's now-dead lr14 value, so tap 9's fused load can
+    #     issue it directly.
     INC                 lr3 1;
     INC                 lr6 1;
-    incr_mod_pow2       lr4 cr13 9;
+    sub                 lr14 lr2 cr6;
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
     # --- tap 9: kc=+1 shift.  Final acc, fused with ACTIVATE.QUANTIZE in the
-    #     SAME cycle (reads r_acc LIVE; ACC dispatches before AAQ) — no
-    #     standalone cycle needed.  Prep lr5 for next iter tap 1.  Loop branch
-    #     lives here too.
+    #     SAME cycle (ACTIVATE now reads r_acc LIVE, and ACC dispatches
+    #     before AAQ in the per-cycle order, so it sees this word's acc.add
+    #     result) — no standalone cycle needed.  lr5 += 256 (mod 512) ->
+    #     NEXT-ch kr=-1 slot; load NEXT-ch kr=-1 (lr14, computed at tap 8)
+    #     there in the same word (XMEM reads lr5 LIVE, post-LR-phase), so
+    #     it's ready for NEXT ch's tap 1.  Loop branch lives here too.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;
-    ACTIVATE.QUANTIZE   relu cr15;
+    ACTIVATE.QUANTIZE   identity cr15;
     blt                 lr10 lr11 mn_tap_body;;
 
     add                 lr12 lr12 cr13;
@@ -442,31 +450,28 @@ gN_ch_pre:
     sub                 lr3 lr3 cr13;
     add                 lr5 lr5 cr13;;
 
-    # Cy 4: walk seed += cols; lr6 = -1.
+    # Cy 4: walk seed += cols; lr6 = -1.  Prefetch THIS ch's kr=-1 (ext =
+    # lr2-cr6) into its slot lr5 here, one cycle before tap 1 reads it.
     add                 lr3 lr3 cr4;
-    sub                 lr6 lr0 cr1;;
+    sub                 lr6 lr0 cr1;
+    sub                 lr14 lr2 cr6;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;;
 
     b                   gN_tap_body;;
 
 gN_tap_body:
-    # 10 cyc/ch.  NEXT-ch kr=-1/kr=0 from cr10; kr=+1 taps (7/8/9) masked
+    # 9 cyc/ch.  NEXT-ch kr=-1/kr=0 from cr10; kr=+1 taps (7/8/9) masked
     # (bottom).  ACTIVATE.QUANTIZE fused into tap 9's own cycle (see below).
 
-    # --- cyc 0: BIAS seed + quantize PREVIOUS channel (lr3 not walked here).
-    #     Also pre-load THIS-ch kr=-1 (ext = lr2-cr6) into its slot lr5 here, one
-    #     cycle before tap 1 reads it (snapshot; cyc-0's LOAD slot is free).
-    INC                 lr6 1;
-    sub                 lr14 lr2 cr6;
-    ldr_cyclic_mult_reg lr14 cr10 lr5;
-    MULT.EE             lr6 cr1 0 lr0 cr15 ;
-    acc.add.first;;
-
     # --- tap 1: kr=-1 kc=-1.  slot 0 + kc=-1 shift (lr9).  kr=-1 pre-loaded in
-    #     cyc 0.  Walk +cr14.
+    #     ch_pre/prev-iter tap 9.  Walk +cr14.  acc.add.first resets r_acc.
+    #     Loop counter += cr12 moved here (tap 1 has a free LR slot) to make
+    #     room at tap 7 for the NEXT-ch kr=-1 ext calc.
     add                 lr3 lr3 cr14;
     INC                 lr6 1;
+    add                 lr10 lr10 cr12;
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
-    acc.add;;
+    acc.add.first;;
 
     # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
     INC                 lr3 1;
@@ -499,20 +504,25 @@ gN_tap_body:
     acc.add;;
 
     # --- tap 6: kc=+1 shift.  Also pre-load the kr=+1 slot (consumed by tap 7)
-    #     here, one cycle ahead (snapshot; tap 6's LOAD slot is free).  lr5 is
-    #     unchanged between here and tap 7, so it targets the same slot.  Bottom
-    #     border: load this ch's own valid base (lr2); bottom row's lanes masked.
+    #     here, one cycle ahead (snapshot; this cycle's LOAD slot is free).
+    #     lr5 is unchanged between here and tap 7, so it targets the same
+    #     slot.  Bottom border: load this ch's own valid base (lr2); bottom
+    #     row's lanes masked.
     INC                 lr3 1;
     INC                 lr6 1;
-    add                 lr10 lr10 cr12;
     ldr_cyclic_mult_reg lr2 cr10 lr5;
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;;
 
     # --- tap 7: kr=+1 kc=-1.  Bottom row out of bounds: slot 6; kc=-1 shift (lr9)
     #     zeros the left edge column.  kr=+1 chunk pre-loaded in tap 6's word.
+    #     Precompute lr14 = NEXT-ch kr=-1 ext (= lr2-cr6; lr2 already advanced
+    #     to NEXT-ch kr=0 ext at tap 3) here (this tap has a free LR slot,
+    #     since kr=+1 was pre-loaded at tap 6), so tap 9's fused load can
+    #     issue it directly.
     add                 lr3 lr3 lr1;
     INC                 lr6 1;
+    sub                 lr14 lr2 cr6;
     MULT.RC.VE          lr3 lr6 6 lr9 cr15 ;
     acc.add;;
 
@@ -525,23 +535,26 @@ gN_tap_body:
 
     # --- tap 9: kr=+1 kc=+1.  slot 6 + kc=+1 shift (lr13).  Final acc, fused
     #     with ACTIVATE.QUANTIZE in the SAME cycle (reads r_acc LIVE; ACC
-    #     dispatches before AAQ) — no standalone cycle needed.  Prep lr5 for
-    #     next iter tap 1.  Loop branch lives here too.
+    #     dispatches before AAQ) — no standalone cycle needed.  lr5 += 256
+    #     (mod 512) -> NEXT-ch kr=-1 slot; load NEXT-ch kr=-1 (lr14, from tap
+    #     7) there in the same word (XMEM reads lr5 LIVE).  Loop branch lives
+    #     here too.
     INC                 lr3 1;
     INC                 lr6 1;
     incr_mod_pow2       lr5 cr13 9;
+    ldr_cyclic_mult_reg lr14 cr10 lr5;
     MULT.RC.VE          lr3 lr6 6 lr13 cr15 ;
     acc.add;
-    ACTIVATE.QUANTIZE   relu cr15;
+    ACTIVATE.QUANTIZE   identity cr15;
     blt                 lr10 lr11 gN_tap_body;;
 
     add                 lr12 lr12 cr13;
     blt                 lr10 cr6 gN_reload;;
 
 end:
-    # Epilogue: the very last channel's ACTIVATE.QUANTIZE has run (tap 9) and
-    # already wrote the quantized bytes to post_aaq_reg; its store is still
-    # pending.  Advance lr7 and store.
+    # Epilogue: the very last channel's ACTIVATE.QUANTIZE has run and already
+    # wrote the quantized bytes to post_aaq_reg; its store is still pending.
+    # Advance lr7 and store.
     add                 lr7 lr7 cr12;
     STR_POST_AAQ_REG    lr7 cr2;;
 

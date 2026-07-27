@@ -71,7 +71,7 @@ p1_row:
     ACC.MAX ;;                                              {#- r_acc = max(r_acc, c*x[r,c]) -#}
     BLT {{lr_row}} cr11 p1_row ;;
 
-    ACTIVATE.QUANTIZE identity cr15 ;;
+    ACTIVATE.QUANTIZE identity cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_svoff}} cr5 ;;                    {#- CMAX[c] <- per-column max -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;
@@ -103,9 +103,8 @@ p2_row:
 
     LDR_CYCLIC_MULT_REG {{lr_svoff}} cr5 {{lr_cyc}} ;;      {#- r_cyclic = cmax[c] (visible next cycle) -#}
     MULT.RC.VE   {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;         {#- mult_res = cmax[c]*1.0 -#}
-    acc.sub ;;                                              {#- r_acc = c*x[r,c] - cmax[c] -#}
-
-    ACTIVATE.QUANTIZE exp2 cr15 ;;
+    acc.sub ;                                               {#- r_acc = c*x[r,c] - cmax[c] -#}
+    ACTIVATE.QUANTIZE exp2 cr15 ;                            {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_woff}} cr4 ;;                     {#- NUM[r,c] = 2^(...) -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} cr9 ;
@@ -142,7 +141,7 @@ p3_row:
     acc.add ;;                                              {#- r_acc += num[r,c] -#}
     BLT {{lr_row}} cr11 p3_row ;;
 
-    ACTIVATE.QUANTIZE reciprocal cr15 ;;
+    ACTIVATE.QUANTIZE reciprocal cr15 ;                     {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_svoff}} cr6 ;;                    {#- RVEC[c] <- 1/sum -#}
 
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;
@@ -166,8 +165,8 @@ p4_chunk:
 p4_row:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;       {#- r_cyclic = num[r,c] (visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} r1 0 {{lr_cyc}} cr15 ;          {#- mult_res = num[r,c] * rvec[c] -#}
-    acc.add.first ;;
-    ACTIVATE.QUANTIZE identity cr15 ;;
+    acc.add.first ;
+    ACTIVATE.QUANTIZE identity cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_ioff}} cr2 ;;                     {#- OUT[r,c] = softmax -#}
 
     ADD {{lr_ioff}} {{lr_ioff}} cr9 ;

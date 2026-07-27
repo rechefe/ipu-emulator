@@ -274,7 +274,10 @@ g0_tap_body:
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} g0_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
+    # ACTIVATE.QUANTIZE reads r_acc LIVE and STR_POST_AAQ_REG reads
+    # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
+    # so they co-issue in one word — no separate store cycle needed.
+    ACTIVATE.QUANTIZE relu cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
@@ -440,7 +443,10 @@ mn_after_block:
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
+    # ACTIVATE.QUANTIZE reads r_acc LIVE and STR_POST_AAQ_REG reads
+    # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
+    # so they co-issue in one word — no separate store cycle needed.
+    ACTIVATE.QUANTIZE relu cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
@@ -598,7 +604,10 @@ gN_tap_body:
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} gN_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
-    ACTIVATE.QUANTIZE relu cr15;;        # conv+bias -> ReLU -> quantize
+    # ACTIVATE.QUANTIZE reads r_acc LIVE and STR_POST_AAQ_REG reads
+    # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
+    # so they co-issue in one word — no separate store cycle needed.
+    ACTIVATE.QUANTIZE relu cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
     add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};

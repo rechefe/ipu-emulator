@@ -72,7 +72,7 @@ p1_tail:
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} cr11 p1_row ;;
 
-    ACTIVATE.QUANTIZE identity cr15 ;;                 {#- maxvec (full 128 row vector) -#}
+    ACTIVATE.QUANTIZE identity cr15 ;                  {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;
 
 {#- ===================================================================== -#}
@@ -96,8 +96,8 @@ p2_chunk:
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;     {#- c*x -#}
     acc.add.first ;;
     MULT.EE {{lr_max_idx}} cr1 0 {{lr_cyc}} cr15 ;     {#- maxvec[r]*1.0 -#}
-    acc.sub ;;                                         {#- r_acc = c*x - maxvec[r] -#}
-    ACTIVATE.QUANTIZE exp2 cr15 ;;                     {#- exp2 (full 128; tail pad lanes harmless) -#}
+    acc.sub ;                                          {#- r_acc = c*x - maxvec[r] -#}
+    ACTIVATE.QUANTIZE exp2 cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_wr}} cr4 ;;
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -144,7 +144,7 @@ p3_tail:
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} cr11 p3_row ;;
 
-    ACTIVATE.QUANTIZE reciprocal cr15 ;;               {#- rvec = 1/sum (full 128) -#}
+    ACTIVATE.QUANTIZE reciprocal cr15 ;                {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;
 
 {#- ===================================================================== -#}
@@ -162,8 +162,8 @@ p4_chunk:
     BGE {{lr_chunk}} cr13 p4_row_done ;;
     LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;   {#- r_cyclic = num[r,c] -#}
     MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} cr15 ;  {#- num*rvec[r] -#}
-    acc.add.first ;;
-    ACTIVATE.QUANTIZE identity cr15 ;;
+    acc.add.first ;
+    ACTIVATE.QUANTIZE identity cr15 ;                   {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_off}} cr2 ;;
 
     ADD {{lr_off}} {{lr_off}} cr7 ;

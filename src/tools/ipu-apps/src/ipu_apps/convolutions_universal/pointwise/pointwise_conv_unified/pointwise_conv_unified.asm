@@ -178,17 +178,22 @@ LAST_EPILOGUE_A:
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
-    # ACTIVATE.QUANTIZE (identity) activates + quantizes the just-finalized r_acc
-    # -> 128 INT8 bytes in post_aaq_reg.  It reads the cycle-start snapshot of
-    # r_acc, so it must run a cycle AFTER the final acc (above), not fused with
-    # it.  Folded into the existing preload word (the aaq slot was free).
+    # ACTIVATE.QUANTIZE (identity) activates + quantizes the just-finalized
+    # r_acc -> 128 INT8 bytes in post_aaq_reg.  It now reads r_acc LIVE
+    # (upstream fix), so it no longer NEEDS a cycle after the final acc, but
+    # this word's 3 LR sub-slots are already full with the next-OC preload,
+    # so ACTIVATE still rides here (same word as before) rather than fusing
+    # into the final acc's word above (which has only 1 free LR slot — not
+    # enough room to also relocate this preload).  Fusing further would need
+    # LR-slot reshuffling; not attempted here. STR_POST_AAQ_REG (next word)
+    # also reads live, but this word's LR slots are already full, so the
+    # store stays separate too.
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
     ACTIVATE.QUANTIZE identity cr15;;
 
-    # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr12;
     STR_POST_AAQ_REG    lr1 cr3;;
@@ -278,8 +283,11 @@ LAST_EPILOGUE_B:
     acc.add;;
 
     # ACTIVATE.QUANTIZE (identity): activate + quantize finalized r_acc ->
-    # 128 INT8 bytes in post_aaq_reg, one cycle after the final acc (reads
-    # snapshot).  Folded into the existing preload word.
+    # 128 INT8 bytes in post_aaq_reg.  Now reads r_acc LIVE (upstream fix) so
+    # it no longer NEEDS a cycle after the final acc, but this word's 3 LR
+    # sub-slots are already full with the next-OC preload (no room to also
+    # relocate that preload into the final acc's word, which has only 1 free
+    # LR slot) — rides here as before.  See Half A's identical note.
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;

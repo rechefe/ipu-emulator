@@ -79,7 +79,7 @@ pass1_loop:
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} pass1_loop ;;
 
-    ACTIVATE.QUANTIZE identity cr15;;
+    ACTIVATE.QUANTIZE identity cr15;                     {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                  {#- MAXVEC_ADDR <- maxvec -#}
 
 {#- ===================================================================== -#}
@@ -101,9 +101,8 @@ pass2_loop:
     acc.add.first ;;                                         {#- r_acc = c*x[r] -#}
 
     MULT.EE {{lr_max_idx}} cr1 0 {{lr_cyc}} cr15 ;           {#- mult_res = maxvec[r]*1.0 -#}
-    acc.sub ;;                                               {#- r_acc = c*x[r] - maxvec[r] -#}
-
-    ACTIVATE.QUANTIZE exp2 cr15;;
+    acc.sub ;                                                {#- r_acc = c*x[r] - maxvec[r] -#}
+    ACTIVATE.QUANTIZE exp2 cr15;                             {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_wr}} cr4 ;;                    {#- NUM[r] = 2^(...) -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -127,7 +126,7 @@ pass3_loop:
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} pass3_loop ;;
 
-    ACTIVATE.QUANTIZE reciprocal cr15;;
+    ACTIVATE.QUANTIZE reciprocal cr15;                   {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                   {#- RVEC_ADDR <- 1/sum -#}
 
 {#- ===================================================================== -#}
@@ -141,8 +140,8 @@ pass3_loop:
 pass4_loop:
     LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
     MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} cr15 ;   {#- mult_res = num[r]*rvec[r] -#}
-    acc.add.first ;;
-    ACTIVATE.QUANTIZE identity cr15;;
+    acc.add.first ;
+    ACTIVATE.QUANTIZE identity cr15;                     {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_off}} cr2 ;;                   {#- OUT[r] = softmax row -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;

@@ -203,9 +203,11 @@ LAST_EPILOGUE_A:
     acc.add;;
 
     # ACTIVATE (relu) applies ReLU to the just-finalized r_acc (conv + bias)
-    # and copies it -> post_aaq_reg.  It reads the cycle-start snapshot of
-    # r_acc, so it must run a cycle AFTER the final acc (above), not fused with
-    # it.  Folded into the existing preload word (the aaq slot was free).
+    # and copies it -> post_aaq_reg.  Now reads r_acc LIVE (upstream fix) so
+    # it no longer NEEDS a cycle after the final acc, but this word's 3 LR
+    # sub-slots are already full with the next-OC preload — rides here as
+    # before (see pointwise_conv_unified's identical note for why fusing
+    # further would need LR-slot reshuffling not attempted here).
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;
@@ -308,8 +310,9 @@ LAST_EPILOGUE_B:
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
-    # ACTIVATE (relu): ReLU the finalized r_acc (conv + bias) -> post_aaq_reg,
-    # one cycle after the final acc (reads snapshot).  Folded into the preload.
+    # ACTIVATE (relu): ReLU the finalized r_acc (conv + bias) -> post_aaq_reg.
+    # Now reads r_acc LIVE (upstream fix); rides in the preload word as before
+    # (same LR-slot constraint as Half A's identical note).
     INC                 lr4 1;
     add                 lr14 lr0 lr9;
     add                 lr1 lr1 lr5;

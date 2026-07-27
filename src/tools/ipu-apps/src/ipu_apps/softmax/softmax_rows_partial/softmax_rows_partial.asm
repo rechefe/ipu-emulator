@@ -61,7 +61,7 @@ p1_part:
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
     BLT {{lr_chunk}} cr13 p1_chunk ;;
 
-    ACTIVATE.QUANTIZE identity cr8;;
+    ACTIVATE.QUANTIZE identity cr8;                        {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                     {#- MAXVEC <- maxvec -#}
 
 {#- ===================================================================== -#}
@@ -85,8 +85,8 @@ p2_part:
     MULT.RC.VV {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;            {#- c*x[p] -#}
     acc.add.first ;;
     MULT.EE {{lr_maxid}} cr1 0 {{lr_cyc}} cr15 ;              {#- maxvec[row]*1.0 -#}
-    acc.sub ;;                                               {#- r_acc = c*x[p] - maxvec[row] -#}
-    ACTIVATE.QUANTIZE exp2 cr15;;                                    {#- masked -> num[row] lanes 0..N-1 -#}
+    acc.sub ;                                                {#- r_acc = c*x[p] - maxvec[row] -#}
+    ACTIVATE.QUANTIZE exp2 cr15;                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] lanes 0..N-1 -#}
     STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
@@ -113,7 +113,7 @@ p3_row:
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} cr9 p3_row ;;
 
-    ACTIVATE.QUANTIZE reciprocal cr8;;
+    ACTIVATE.QUANTIZE reciprocal cr8;                       {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                     {#- RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
@@ -159,7 +159,7 @@ p4_part:
     BLT {{lr_p}} cr14 p4_part ;;
 
 p4_drain:
-    ACTIVATE.QUANTIZE identity cr8;;
+    ACTIVATE.QUANTIZE identity cr8;                         {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_coff}} cr2 ;;                    {#- packed output chunk -#}
     ADD {{lr_coff}} {{lr_coff}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;

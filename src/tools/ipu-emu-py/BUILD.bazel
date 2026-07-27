@@ -81,6 +81,16 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_debug_window",
+    srcs = ["test/test_debug_window.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_stats",
     srcs = ["test/test_stats.py"],
     imports = ["src"],
