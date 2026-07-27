@@ -318,7 +318,7 @@ ready to file.
 | # | Issue | Summary |
 |---|-------|---------|
 | 0 | **Epic** | Umbrella tracking issue: emulated RISC-V host drives the IPU through a SystemRDL-defined control register block. |
-| 1 | SystemRDL control-register block + codegen | Author `ipu_ctrl.rdl`; wire PeakRDL into Bazel; generate Python constants, the Rust `ipu-pac` crate, and HTML docs. |
+| 1 | SystemRDL control-register block + codegen | Author `ipu_ctrl.rdl`; wire PeakRDL into Bazel; generate Python constants, the Rust `ipu-pac` crate, and HTML docs. See also the [IPU Host Register Map](ipu-host-registers.md). |
 | 2 | Emulator MMIO control-register model | Map the generated register block onto `IpuState`: config (dtype/dstructure/CR2-14/α) + execution control (start/halt/step/reset/PC) + halt-gated fully mapped IMEM. |
 | 3 | Steppable execution engine | Refactor the run loop into a host-drivable engine that reports `RUNNING`/`HALTED`/`BREAK`, with soft-reset (preserving IMEM) and PC R/W. |
 | 4 | Unicorn RISC-V integration | Embed Unicorn; map firmware RAM + the IPU MMIO window; bridge MMIO callbacks to the control-register model. |

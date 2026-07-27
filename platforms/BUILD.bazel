@@ -1,0 +1,9 @@
+package(default_visibility = ["//visibility:public"])
+
+platform(
+    name = "riscv32_none",
+    constraint_values = [
+        "@platforms//os:none",
+        "@platforms//cpu:riscv32",
+    ],
+)
