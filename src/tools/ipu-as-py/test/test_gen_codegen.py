@@ -113,6 +113,27 @@ def test_sv_union_matches_slot_field_names(tmp_path: Path):
     assert "lr_idx_2; // ra_idx" in ee
 
 
+def test_unused_union_columns_named_padding(tmp_path: Path):
+    out = tmp_path / "ipu_instr_pkg.sv"
+    gen_codegen.generate_sv_package(out)
+    text = out.read_text(encoding="utf-8")
+    # COND BR: reg in column 1; columns 0 and 2 unused → padding_0, padding_2
+    marker = "} br;\n    struct packed {\n      logic [19:0] padding"
+    pos = text.index(marker)
+    start = text.rindex("struct packed {", 0, pos)
+    br = text[start:pos]
+    assert "padding_0; // padding" in br
+    assert "lcr_idx_1; // reg" in br
+    assert "padding_2; // padding" in br
+    assert "label_0" not in br
+    assert "lcr_idx_2" not in br
+    # LDR_MULT_REG: dest in column 2; no padding columns
+    j = text.index("} ldr_mult_reg;")
+    ldr = text[j - 400 : j]
+    assert "lr_idx_2; // dest (MultStageReg)" in ldr
+    assert "padding_" not in ldr
+
+
 def test_union_members_exclude_opcode(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
     gen_codegen.generate_sv_package(out)
@@ -138,7 +159,7 @@ def test_nop_union_members_use_single_padding_field(tmp_path: Path):
 
     # Every slot's NOP member: one padding field, width matches {slot}_slot_u.
     nop_blocks = re.findall(
-        r"struct packed \{\n      logic \[(\d+):0\] padding;\n    \} nop;",
+        r"struct packed \{\n      logic \[(\d+):0\] padding; // padding\n    \} nop;",
         text,
     )
     assert len(nop_blocks) == 9

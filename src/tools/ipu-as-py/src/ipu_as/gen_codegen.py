@@ -108,6 +108,11 @@ def _operand_sv_type(actual_type: str, wire_bits: int, type_bits: dict[str, int]
     return _sv_logic_type(actual_type, wire_bits)
 
 
+def _padding_field_name(field_index: int) -> str:
+    """SV member name for an unused union column (unique per column index)."""
+    return f"padding_{field_index}"
+
+
 def _instruction_layout_fields(
     slot_union: Any,
     slot_fields: list[dict[str, Any]],
@@ -119,8 +124,8 @@ def _instruction_layout_fields(
 
     The opcode lives outside ``{slot}_slot_u`` in ``{slot}_slot_t`` — it is shared
     across all instructions in the slot.  Unused union columns for this opcode become
-    explicit padding in place.  Instructions with no operands (e.g. NOP) use one
-    ``padding`` field for the whole payload.
+    Unused union columns use ``padding_<field_index>``; operand-less instructions
+    use a single ``padding`` field for the whole payload.
     """
     bindings = {
         field_idx: op_name
@@ -135,7 +140,7 @@ def _instruction_layout_fields(
                 "name": "padding",
                 "sv_type": f"logic [{operand_width - 1}:0]",
                 "bits": operand_width,
-                "operand": None,
+                "operand": "padding",
             }
         ]
 
@@ -163,10 +168,10 @@ def _instruction_layout_fields(
         else:
             layout.append(
                 {
-                    "name": wire_name,
+                    "name": _padding_field_name(field_idx),
                     "sv_type": f"logic [{wire_bits - 1}:0]",
                     "bits": wire_bits,
-                    "operand": None,
+                    "operand": "padding",
                 }
             )
     return layout
