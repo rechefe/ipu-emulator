@@ -37,11 +37,8 @@ py_binary(
 
 genrule(
     name = "generate_instruction_format_artifacts",
-    outs = [
-        "ipu_inst.h",
-        "ipu_instr_pkg.sv",
-    ],
-    cmd = "$(location :gen_codegen) $(location ipu_inst.h) $(location ipu_instr_pkg.sv)",
+    outs = ["ipu_instr_pkg.sv"],
+    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv)",
     tools = [":gen_codegen"],
 )
 

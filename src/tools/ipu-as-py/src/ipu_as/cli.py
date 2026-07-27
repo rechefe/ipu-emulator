@@ -47,14 +47,6 @@ def disassemble(input: click.Path, output: click.Path, format: str):
         lark_tree.disassemble_from_bin_file(input, output)
 
 
-@click.command("c-header")
-@click.option("--output", type=click.Path(), required=True, help="Output .h file path")
-def c_header(output: str):
-    """Generate a C header for the IPU compound instruction bit layout."""
-    gen_codegen.generate_c_header(output)
-    click.echo(f"Wrote C header to {output}")
-
-
 @click.command("sv-package")
 @click.option("--output", type=click.Path(), required=True, help="Output .sv file path")
 def sv_package(output: str):
@@ -65,7 +57,6 @@ def sv_package(output: str):
 
 cli.add_command(assemble)
 cli.add_command(disassemble)
-cli.add_command(c_header)
 cli.add_command(sv_package)
 
 if __name__ == "__main__":

@@ -10,7 +10,6 @@ from ipu_common.instruction_spec import SLOT_UNIONS
 def test_build_context_matches_compound_width():
     ctx = gen_codegen.build_codegen_context()
     assert ctx["compound_width"] == CompoundInst.bits()
-    assert len(ctx["inst_bit_fields"]) == len(CompoundInst.get_fields())
 
 
 def test_slot_union_struct_bit_widths():
@@ -30,19 +29,6 @@ def test_compound_members_follow_slot_order():
     assert sum(1 for n in names if n.startswith("lr_slot")) == 3
 
 
-def test_generate_c_header_matches_historical_shape(tmp_path: Path):
-    out = tmp_path / "ipu_inst.h"
-    gen_codegen.generate_c_header(out)
-    text = out.read_text(encoding="utf-8")
-    assert "#ifndef IPU_INST_H" in text
-    assert "typedef enum" in text
-    assert "ipu_compound_inst_t" in text
-    assert "per-slot" not in text.lower()
-    assert f"#define IPU_COMPOUND_INST_WIDTH {CompoundInst.bits()}" in text
-    for name, _bits in CompoundInst.get_fields():
-        assert name in text
-
-
 def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
     gen_codegen.generate_sv_package(out)
@@ -57,8 +43,9 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "store_slot_t" in text
     assert "acc_store_slot_t" in text
     assert "ipu_compound_inst_t" in text
-    assert "ipu_compound_inst_flat_t" in text
     assert f"IPU_COMPOUND_INST_WIDTH = {CompoundInst.bits()}" in text
+    assert "opcode_t opcode;" in text
+    assert "slot_u operands;" in text
     # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
     assert "_e;" not in text
     assert "lr_reg_field_t" in text

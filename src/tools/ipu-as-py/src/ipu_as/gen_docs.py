@@ -498,8 +498,7 @@ These files are produced at documentation build time (and via the assembler CLI)
 
 | Artifact | Description | Download |
 |----------|-------------|----------|
-| C header | Opcode/operand enums and flat `ipu_compound_inst_t` bitfields | [ipu_inst.h](assets/ipu_inst.h) |
-| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot union structs, per-instruction `union packed` views, nested and flat compound types | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, nested compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
 
 ### Regenerate locally
 
@@ -507,7 +506,6 @@ These files are produced at documentation build time (and via the assembler CLI)
 bazel build //docs:generate_instruction_format_artifacts
 # outputs under bazel-bin/docs/
 
-bazel run //src/tools/ipu-as-py:ipu-as -- c-header --output /tmp/ipu_inst.h
 bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output /tmp/ipu_instr_pkg.sv
 ```
 

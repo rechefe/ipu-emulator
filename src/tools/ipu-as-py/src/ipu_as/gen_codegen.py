@@ -1,9 +1,8 @@
-"""Generate C headers and SystemVerilog packages from the instruction format.
+"""Generate SystemVerilog packages from the instruction format.
 
-Mirrors the historical C-header generator: ``EnumToken`` descriptors plus
-``CompoundInst.get_fields()`` for the flat wire-level word.  The SystemVerilog
-package additionally emits per-slot union-layout structs and per-instruction
-``union packed`` views derived from ``SLOT_UNIONS`` in ``instruction_spec``.
+Emits ``EnumToken`` descriptors, per-slot structs (opcode + operand union) and
+per-instruction ``union packed`` views derived from ``SLOT_UNIONS`` in
+``instruction_spec``.
 """
 
 from __future__ import annotations
@@ -311,7 +310,6 @@ def build_codegen_context() -> dict[str, Any]:
     return {
         "enums": {e["name"]: [(m["value"], m["name"]) for m in e["members"]] for e in enum_list},
         "enum_types": enum_list,
-        "inst_bit_fields": compound_inst.CompoundInst.get_fields(),
         "slots": _slot_union_descriptors(),
         "compound_members": _compound_members(),
         "compound_width": compound_inst.CompoundInst.bits(),
@@ -338,11 +336,6 @@ def write_generated_file(template_name: str, output_path: str | Path) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_template(template_name), encoding="utf-8")
-
-
-def generate_c_header(output_path: str | Path) -> None:
-    """Generate a C header describing the compound instruction bit layout."""
-    write_generated_file("ipu_inst.h.j2", output_path)
 
 
 def generate_sv_package(output_path: str | Path) -> None:
