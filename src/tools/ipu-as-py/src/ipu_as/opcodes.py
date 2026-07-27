@@ -32,14 +32,18 @@ Opcode = LoadInstOpcode.__bases__[0]
 
 def validate_unique_opcodes() -> None:
     """Validate that all opcodes are unique across all Opcode subclasses.
-    
-    This is a sanity check to ensure INSTRUCTION_SPEC has no duplicates.
+
+    NOP is intentionally shared across all slot classes; the assembler resolves
+    it to the correct slot by context. All other opcodes must be globally unique.
     """
+    SHARED_OPCODES = {"NOP"}
     opcodes_subclasses = Opcode.__subclasses__()
     opcode_to_class = {}
 
     for cls in opcodes_subclasses:
         for opcode in cls.enum_array():
+            if opcode in SHARED_OPCODES:
+                continue
             if opcode in opcode_to_class:
                 existing_class = opcode_to_class[opcode]
                 raise AssertionError(

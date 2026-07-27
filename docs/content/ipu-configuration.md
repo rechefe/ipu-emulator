@@ -12,7 +12,7 @@ harnesses and tests.
 | `CR0` | Read-only constant zero. | Already initialized; writes are ignored. |
 | `CR1` | Read-only constant one. | Already initialized; writes are ignored. |
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
-| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`. | `state.set_cr_dstructure(valid_elements=128, partition=0)` |
+| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
 `LR` and `CR` registers store 20-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
@@ -49,16 +49,18 @@ class MyApp(IpuApp):
 ## Selecting lane count and partition
 
 The `AGG.*` aggregation instructions, `ACTIVATE`, and `AAQ` do not take a
-`valid_elements` assembly operand. When their `full_xmem_row` flag is `0`,
-they read the active lane count from `CR15.valid_elements` implicitly
-(`full_xmem_row=1` always uses all 128 lanes). Configure it from Python
-before running the program:
+`valid_elements` assembly operand directly. Instead, they take a mandatory
+`cr_idx` operand naming the CR register that supplies `valid_elements` — there
+is no implicit default, every instruction must name a CR register explicitly
+(any `CR0`-`CR15`). Configure the chosen register from Python before running
+the program:
 
 ```python
 state.set_cr_dstructure(valid_elements=64, partition=0)
 
-valid_elements = state.get_config_valid_elements()
-partition = state.get_config_partition()
+config = state.get_cr_dstructure()
+valid_elements = config.valid_elements
+partition = config.partition
 ```
 
 The emulator defaults `CR15` to `valid_elements=128` and `partition=0`.
@@ -66,15 +68,52 @@ Activation clamps the active lane count to the available 128 lanes at execution
 time.
 
 The ACC-slot aggregation instructions (`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`,
-`AGG.MAX.FIRST`) take an explicit `full_xmem_row` operand: `1` always uses all
-128 lanes; `0` reads the active count from `CR15.valid_elements` at runtime.
-The destination slot in `R_ACC` is given by an LR register:
+`AGG.MAX.FIRST`) take a mandatory `cr_idx` operand: the active lane count is
+read from that register's `valid_elements` at runtime. The destination slot in
+`R_ACC` is given by an LR register:
 
 ```asm
-AGG.SUM LR0, 0;;
-AGG.MAX.FIRST LR1, 0;;
-ACTIVATE relu, 0;;
+AGG.SUM LR0, CR15;;
+AGG.MAX.FIRST LR1, CR15;;
+ACTIVATE relu, CR15;;
+
+AGG.SUM LR0, CR3;;
+AGG.MAX.FIRST LR1, CR3;;
+ACTIVATE relu, CR3;;
 ```
+
+The MULT-slot lane-masking instructions (`MULT.RC.VV`, `MULT.RC.VE`,
+`MULT.RC.VS`, `MULT.VE`, `MULT.EE`) likewise take a mandatory CR-index operand
+(`cr_idx` on `MULT.RC.*`, `dstructure_cr_idx` on `MULT.VE`/`MULT.EE`, since
+those two already use `cr_idx` for the scalar multiplier). The named register's
+`partition` field drives the mask-and-shift partition vectors — there is no
+implicit fallback to `CR15`:
+
+```asm
+MULT.RC.VV LR2, R0, 0, LR4, CR15;;
+MULT.VE    LR0, CR3, 0, LR2, CR15;;
+```
+
+## Padding masked-out MULT_RES lanes
+
+Any lane deactivated by the mask-and-shift logic above (see
+`_mult_mask_and_shift`) is filled with a value chosen by the named register's
+`pad_mode` field instead of always being zeroed:
+
+| `pad_mode` | Fill value | Notes |
+| --- | --- | --- |
+| `PadMode.ZERO` (default) | `0` | Matches historical behavior; valid for INT8 and float dtypes. |
+| `PadMode.POS_INF` | `+inf` | Float dtypes only — identity value for `min`-style reductions. |
+| `PadMode.NEG_INF` | `-inf` | Float dtypes only — identity value for `max`-style reductions (e.g. `ACC.MAX`). |
+
+```python
+from ipu_emu.ipu_config import PadMode
+
+state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
+```
+
+`POS_INF`/`NEG_INF` have no INT8 representation — using them while
+`state.dtype == DType.INT8` raises `EmulatorError`.
 
 ## Setting CR application constants
 

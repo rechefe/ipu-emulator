@@ -6,7 +6,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import PSEUDO_INSTRUCTION_SPEC, VALID_OPERAND_TYPES
+from ipu_common.instruction_spec import (
+    PSEUDO_INSTRUCTION_SPEC,
+    VALID_OPERAND_TYPES,
+    SLOT_COUNT,
+    SLOT_METADATA,
+    COMPOUND_LAYOUT_SLOT_ORDER,
+)
 from ipu_common.registers import create_assembler_reg_enums
 
 # Long-form reference for each operand type string in instruction_spec (single source: VALID_OPERAND_TYPES).
@@ -53,12 +59,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "`acc_stride_enums`)."
     ),
     "ActivationFn": (
-        "AAQ-slot keyword on **`ACTIVATE`**: one of **identity**, **relu**, **relu6**, "
-        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2** "
+        "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "
+        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu** "
         "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
-        "and how **`POST_AAQ_REG`** (interim **512 B**) and **`STR_POST_AAQ_REG`** (store to XMEM) "
-        "are described in **Building Applications** "
-        "(`docs/content/building-applications.md#activations-emulator`)."
+        "is described in **Building Applications** "
+        "(`docs/content/building-applications.md`)."
     ),
     "LrModPow2KImmediate": (
         "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic "
@@ -70,10 +75,14 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
-    "FullXmemRow": (
-        "1-bit control flag on **`AAQ`**: **`1`** = always process all **128 lanes** (full XMEM row, "
-        "ignores ``CR15.valid_elements``); **`0`** = process only the first ``CR15.valid_elements`` "
-        "lanes (clamped to 128) and zero the rest. Defaults to **`1`** for backward compatibility."
+    "DstructureCrIdx": (
+        "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the "
+        "**valid element mask** / dstructure configuration (`valid_elements`, `partition`) for "
+        "`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACTIVATE.QUANTIZE`, and the "
+        "masking multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, "
+        "`MULT.EE`). Unlike **`CrIdx`**, **`cr15`** is allowed here — it's the conventional "
+        "dstructure register — but the operand is always mandatory; there is no implicit "
+        "fallback to `cr15` when it is omitted."
     ),
     "Label": (
         "Branch target: a symbolic **`label`** or a relative offset accepted by the cond slot "
@@ -143,8 +152,8 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 # Comments start with # or //
 label:                          # Labels end with a colon
     LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
-    MULT.RC.VV lr1 r0 0 lr3;     # MULT: element-wise multiply
-    ACC;                         # ACC: accumulate
+    MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
+    ACC.ADD;                     # ACC: accumulate
     INC lr0 1;               # LR: bump address (increment via INC)
     BNE lr0 lr1 next;            # COND: branch
     ;;
@@ -172,7 +181,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3; ACC; INC lr0 1; BNE lr0 lr1 loop;;
+LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -259,7 +268,12 @@ outside [−3, +3] **clamp** to ±3.
 
 ### Partition vectors
 
-Both vectors are derived from `CR15.partition`. The valid values of P are **{0, 2, 4, 8, 16}**.
+Each masking multiply instruction takes a mandatory CR-index operand (`cr_idx` on `MULT.RC.VV` /
+`MULT.RC.VE` / `MULT.RC.VS`; `dstructure_cr_idx` on `MULT.VE` / `MULT.EE`, since those two already
+use `cr_idx` for the scalar multiplier) naming the CR register that supplies the dstructure
+configuration — there is no implicit default. Both vectors are derived from that named register's
+`partition` field (see [DstructureCrIdx](operand-types.md#dstructurecridx)). The valid values of P
+are **{0, 2, 4, 8, 16}**.
 With `partition = 0` both vectors are all-ones (no boundaries). With `partition = P` the 128 lanes
 are split into `P` equal groups of `128 / P` lanes:
 
@@ -280,8 +294,9 @@ For `partition = 4` (groups of 32):
 
 The AND at each step prevents mask bits from crossing the group boundary in either shift direction.
 
-`CR15` is reserved in assembly and is set by the host harness (see
-[CrIdx](operand-types.md#cridx)).
+`CR15` remains the conventional dstructure register and is set by the host harness, but it must
+still be named explicitly via the instruction's CR-index operand — there is no implicit fallback to
+`CR15` (see [DstructureCrIdx](operand-types.md#dstructurecridx)).
 
 ### Example
 
@@ -294,10 +309,11 @@ LDR_MULT_REG R0, LR0, CR0;;
 LDR_CYCLIC_MULT_REG LR2, CR0, LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
-MULT.RC.VV LR2, R0, 3, LR4; ACC;;
+MULT.RC.VV LR2, R0, 3, LR4, CR15; ACC.ADD;;
 ```
 
-`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index.
+`3` is the `mask_offset` (slot 3 of `R_MASK`); `LR4` holds the `mask_shift` index; `CR15` is the
+dstructure register supplying `partition` (any `CR0`–`CR15` may be named explicitly).
 
 ### Worked examples
 
@@ -382,6 +398,36 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
     print(f"Generated assembly syntax page at {output_path}")
 
 
+def _generate_slots_section() -> str:
+    """Generate the Slots overview section from instruction_spec metadata."""
+    lines: list[str] = [
+        "## Slots\n",
+        "A VLIW instruction word encodes one sub-instruction per slot. "
+        "Slots are grouped into pipeline stages that execute sequentially within a cycle: "
+        "**CTRL** (COND + LR run concurrently; LOAD address is resolved here and the data feeds MULT) "
+        "→ **MULT** → **ACC** → **AAQ** → **STORE**. "
+        "`ACC_STORE` and `BREAK` are simulation-only. "
+        "Any omitted slot is filled with `NOP` by the assembler automatically.\n",
+        "| Slot | Count | Description |",
+        "|------|------:|-------------|",
+    ]
+    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
+        count = SLOT_COUNT[slot]
+        meta = SLOT_METADATA.get(slot, {})
+        description = meta.get("description", "")
+        lines.append(f"| `{slot.upper()}` | {count} | {description} |")
+    lines += [
+        "",
+        "### `NOP` — No Operation\n",
+        "**Syntax:** `NOP`\n",
+        "No operation. Every slot accepts `NOP`. "
+        "The assembler fills any omitted slot with `NOP` automatically. "
+        "When written explicitly in a compound instruction, `NOP` is assigned to "
+        "the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).\n",
+    ]
+    return "\n".join(lines)
+
+
 def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
     from ipu_as.inst import Inst
@@ -393,6 +439,8 @@ def generate_instruction_docs(output_path: Path) -> None:
         "`instruction_spec.py`. Operand **types** link to the shared "
         "[operand type reference](operand-types.md).\n"
     )
+
+    content.append(_generate_slots_section())
 
     content.append("## Compound Instruction Layout\n")
     content.append(

@@ -29,7 +29,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
-  - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
+  - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -167,8 +167,16 @@ COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
 
 # Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
 # not implemented in real IPU hardware (excluded from HW codegen).
-SLOT_METADATA: dict[str, dict[str, bool]] = {
-    "acc_store": {"hardware": False},
+SLOT_METADATA: dict[str, dict] = {
+    "load":      {"description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."},
+    "store":     {"description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."},
+    "acc_store": {"hardware": False, "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware."},
+    "mult":      {"description": "Multiply-stage instructions: element-wise and vector multiply operations."},
+    "acc":       {"description": "Accumulation instructions for combining multiply results into R_ACC."},
+    "aaq":       {"description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."},
+    "lr":        {"description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."},
+    "cond":      {"description": "Conditional and unconditional branches; control flow based on register comparisons."},
+    "break":     {"description": "Debug break: halts execution or enters debug mode."},
 }
 
 
@@ -246,12 +254,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
-        "LOAD_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (LOAD)",
+                title="No Operation",
                 summary="No operation for load slot.",
-                syntax="LOAD_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_load_nop",
@@ -283,12 +291,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_str_post_aaq_reg",
         },
-        "STORE_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (STORE)",
+                title="No Operation",
                 summary="No operation for store slot.",
-                syntax="STORE_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_store_nop",
@@ -321,12 +329,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_str_acc_reg",
         },
-        "ACC_STORE_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (ACC_STORE)",
+                title="No Operation",
                 summary="No operation for acc_store slot (simulation-only).",
-                syntax="ACC_STORE_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_acc_store_nop",
@@ -335,7 +343,7 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5
+    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5, NOP=6
     # =========================================================================
     "lr": {
         "SET": {
@@ -464,11 +472,21 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_lr_dec",
         },
+        "NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation",
+                summary="No operation for LR slot.",
+                syntax="NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_lr_nop",
+        },
     },
-    
+
     # =========================================================================
     # MULT Slot (Multiply Instructions)
-    # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, MULT_NOP=3,
+    # Opcode = position: MULT.RC.VV=0, MULT.RC.VE=1, MULT.RC.VS=2, NOP=3,
     #          MULT.VE=4, MULT.EE=5
     # =========================================================================
     "mult": {
@@ -478,20 +496,26 @@ INSTRUCTION_SPEC = {
                 {"name": "ra", "type": "MultStageReg", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector × Ra Vector Multiply",
-                summary="Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise.",
-                syntax="MULT.RC.VV rc_idx, ra, mask_offset, mask_shift",
+                summary=(
+                    "Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift.",
-                example="MULT.RC.VV LR0, R0, 0, LR2;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VV LR0, R0, 0, LR2, CR15;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vv",
         },
@@ -501,23 +525,27 @@ INSTRUCTION_SPEC = {
                 {"name": "src", "type": "LcrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector × Scalar Multiply",
                 summary=(
                     "Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is "
-                    "either a single element of R0/R1 (selected by an LR value) or a CR register value."
+                    "either a single element of R0/R1 (selected by an LR value) or a CR register value. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift",
+                syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR14`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift.",
-                example="MULT.RC.VE LR0, LR3, 0, LR2;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VE LR0, LR3, 0, LR2, CR15;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_ve",
         },
@@ -526,28 +554,34 @@ INSTRUCTION_SPEC = {
                 {"name": "rc_idx", "type": "LrIdx", "read": "live"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="RC Vector Self-Multiply (Square)",
-                summary="Square R_CYCLIC[rc_idx:rc_idx+128] element-wise.",
-                syntax="MULT.RC.VS rc_idx, mask_offset, mask_shift",
+                summary=(
+                    "Square R_CYCLIC[rc_idx:rc_idx+128] element-wise. "
+                    "The partition used by mask_shift comes from cr_idx's dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
                 ],
-                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift.",
-                example="MULT.RC.VS LR0, 0, LR2;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift using CR[cr_idx].partition.",
+                example="MULT.RC.VS LR0, 0, LR2, CR15;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vs",
         },
-        "MULT_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (MULT)",
+                title="No Operation",
                 summary="No operation for multiply slot.",
-                syntax="MULT_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_mult_nop",
@@ -558,20 +592,26 @@ INSTRUCTION_SPEC = {
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Ra Vector × CR Scalar Multiply",
-                summary="Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise.",
-                syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift",
+                summary=(
+                    "Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise. "
+                    "The partition used by mask_shift comes from dstructure_cr_idx's dstructure "
+                    "configuration (any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
                 ],
-                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift.",
-                example="MULT.VE LR0, CR3, 0, LR2;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                example="MULT.VE LR0, CR3, 0, LR2, CR15;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ve",
         },
@@ -581,20 +621,26 @@ INSTRUCTION_SPEC = {
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
                 {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Ra Element × CR Scalar Multiply (broadcast)",
-                summary="Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes.",
-                syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift",
+                summary=(
+                    "Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes. "
+                    "The partition used by mask_shift comes from dstructure_cr_idx's dstructure "
+                    "configuration (any CR0-CR15; must be named explicitly)."
+                ),
+                syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
                     "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
                 ],
-                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift.",
-                example="MULT.EE LR0, CR3, 0, LR2;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` zeroes lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                example="MULT.EE LR0, CR3, 0, LR2, CR15;;",
+                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ee",
         },
@@ -602,38 +648,89 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
-    # Opcode = position: ACC=0, ACC.FIRST=1, ACC_NOP=2, ACC.STRIDE=3, AGG.SUM.FIRST=4, AGG.SUM=5, AGG.MAX.FIRST=6, AGG.MAX=7
+    # Opcode = position: ACC.ADD=0, ACC.ADD.FIRST=1, ACC.MAX=2, ACC.MAX.FIRST=3,
+    #          ACC.SUB=4, ACC.SUB.FIRST=5, NOP=6, ACC.STRIDE=7,
+    #          AGG.SUM.FIRST=8, AGG.SUM=9, AGG.MAX.FIRST=10, AGG.MAX=11
     # =========================================================================
     "acc": {
-        "ACC": {
+        "ACC.ADD": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Accumulate",
-                summary="Accumulate multiply result.",
-                syntax="ACC",
+                title="Accumulate Add",
+                summary="Running add accumulation: add multiply result into each R_ACC lane.",
+                syntax="ACC.ADD",
                 operands=[],
-                operation="R_ACC += multiply_result",
+                operation="R_ACC[i] += MULT_RES[i]  # for each lane i",
+                example="ACC.ADD;;",
             ),
-            "execute_fn": "execute_acc",
+            "execute_fn": "execute_acc_add",
         },
-        "ACC.FIRST": {
+        "ACC.ADD.FIRST": {
             "operands": [],
             "doc": InstructionDoc(
-                title="Accumulate First",
-                summary="Set accumulator to multiply result (do not ADD to previous R_ACC).",
-                syntax="ACC.FIRST",
+                title="Accumulate Add (First)",
+                summary="Clean-init add: overwrite each R_ACC lane with the multiply result (ignores previous R_ACC).",
+                syntax="ACC.ADD.FIRST",
                 operands=[],
-                operation="R_ACC = multiply_result",
-                example="ACC.FIRST;;",
+                operation="R_ACC[i] = MULT_RES[i]  # for each lane i",
+                example="ACC.ADD.FIRST;;",
             ),
-            "execute_fn": "execute_acc_first",
+            "execute_fn": "execute_acc_add_first",
         },
-        "ACC_NOP": {
+        "ACC.MAX": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (ACC)",
+                title="Accumulate Max",
+                summary="Running max accumulation: each R_ACC lane takes the max of its current value and the multiply result.",
+                syntax="ACC.MAX",
+                operands=[],
+                operation="R_ACC[i] = max(R_ACC[i], MULT_RES[i])  # for each lane i",
+                example="ACC.MAX;;",
+            ),
+            "execute_fn": "execute_acc_max",
+        },
+        "ACC.MAX.FIRST": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Max (First)",
+                summary="Clean-init max: overwrite each R_ACC lane unconditionally with the multiply result.",
+                syntax="ACC.MAX.FIRST",
+                operands=[],
+                operation="R_ACC[i] = MULT_RES[i]  # for each lane i (unconditional overwrite)",
+                example="ACC.MAX.FIRST;;",
+            ),
+            "execute_fn": "execute_acc_max_first",
+        },
+        "ACC.SUB": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Subtract",
+                summary="Running subtract accumulation: subtract the multiply result from each R_ACC lane each cycle.",
+                syntax="ACC.SUB",
+                operands=[],
+                operation="R_ACC[i] -= MULT_RES[i]  # for each lane i",
+                example="ACC.SUB;;",
+            ),
+            "execute_fn": "execute_acc_sub",
+        },
+        "ACC.SUB.FIRST": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="Accumulate Subtract (First)",
+                summary="Clean-init subtract: set each R_ACC lane to the negated multiply result.",
+                syntax="ACC.SUB.FIRST",
+                operands=[],
+                operation="R_ACC[i] = -MULT_RES[i]  # for each lane i",
+                example="ACC.SUB.FIRST;;",
+            ),
+            "execute_fn": "execute_acc_sub_first",
+        },
+        "NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation",
                 summary="No operation for accumulator slot.",
-                syntax="ACC_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_acc_nop",
@@ -667,105 +764,109 @@ INSTRUCTION_SPEC = {
         "AGG.SUM.FIRST": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Sum (First)",
                 summary=(
-                    "Sum active R_ACC lanes and write the result into R_ACC at the slot given by LR. "
+                    "Sum active MULT_RES lanes and write the result into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.SUM.FIRST dest_slot, full_xmem_row",
+                syntax="AGG.SUM.FIRST dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = sum(R_ACC[0..n-1])."
+                    "R_ACC[dest] = sum(MULT_RES[0..n-1])."
                 ),
-                example="AGG.SUM.FIRST LR0, 0;;",
+                example="AGG.SUM.FIRST LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_sum_first",
         },
         "AGG.SUM": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Sum",
                 summary=(
-                    "Sum active R_ACC lanes and ADD the result to R_ACC at the slot given by LR "
+                    "Sum active MULT_RES lanes and ADD the result to R_ACC at the slot given by LR "
                     "(running cross-cycle accumulation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.SUM dest_slot, full_xmem_row",
+                syntax="AGG.SUM dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = sum(R_ACC[0..n-1]) + R_ACC[dest]."
+                    "R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest]."
                 ),
-                example="AGG.SUM LR0, 0;;",
+                example="AGG.SUM LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_sum",
         },
         "AGG.MAX.FIRST": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Max (First)",
                 summary=(
-                    "Find the maximum of active R_ACC lanes and write it into R_ACC at the slot given by LR. "
+                    "Find the maximum of active MULT_RES lanes and write it into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.MAX.FIRST dest_slot, full_xmem_row",
+                syntax="AGG.MAX.FIRST dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = max(R_ACC[0..n-1]); when n = 0 the identity seed "
+                    "R_ACC[dest] = max(MULT_RES[0..n-1]); when n = 0 the identity seed "
                     "(INT32_MIN for integer lanes, -inf for float lanes) is written."
                 ),
-                example="AGG.MAX.FIRST LR0, 0;;",
+                example="AGG.MAX.FIRST LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_max_first",
         },
         "AGG.MAX": {
             "operands": [
                 {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
                 title="Aggregate Max",
                 summary=(
-                    "Find the maximum of active R_ACC lanes seeded with the current destination slot value "
+                    "Find the maximum of active MULT_RES lanes seeded with the current destination slot value "
                     "(running cross-cycle max). "
-                    "``full_xmem_row=1`` always uses 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements."
+                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "(any CR0-CR15; must be named explicitly)."
                 ),
-                syntax="AGG.MAX dest_slot, full_xmem_row",
+                syntax="AGG.MAX dest_slot, cr_idx",
                 operands=[
                     "dest_slot: LR register whose value gives the destination slot in R_ACC (0–127)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
-                    "R_ACC[dest] = max(R_ACC[0..n-1], R_ACC[dest])."
+                    "R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])."
                 ),
-                example="AGG.MAX LR0, 0;;",
+                example="AGG.MAX LR0, CR3;;",
             ),
             "execute_fn": "execute_agg_max",
         },
@@ -773,89 +874,61 @@ INSTRUCTION_SPEC = {
 
     # =========================================================================
     # AAQ Slot (Activation and Quantization)
-    # Opcode = position: AAQ_NOP=0, AAQ=1, ACTIVATE=2
+    # Opcode = position: NOP=0, AAQ=1, ACTIVATE=2
     # =========================================================================
     "aaq": {
-        "AAQ_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (AAQ)",
+                title="No Operation",
                 summary="No operation for AAQ slot.",
-                syntax="AAQ_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_aaq_nop",
         },
-        "AAQ": {
-            "operands": [
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
-            ],
-            "doc": InstructionDoc(
-                title="AAQ Quantize",
-                summary=(
-                    "Quantize wide lanes in **`POST_AAQ_REG`** (INT32 per lane in INT8 mode) "
-                    "to INT8, storing clamped bytes in the **leading 128 bytes** of **`POST_AAQ_REG`** "
-                    "and clearing the rest of the register. Wide lanes are normally produced by "
-                    "**`ACTIVATE`** (from ``r_acc``). Requires INT8 mode. "
-                    "``full_xmem_row=1`` always processes all 128 lanes; "
-                    "``full_xmem_row=0`` uses ``CR15.valid_elements`` as the active lane count."
-                ),
-                syntax="AAQ full_xmem_row",
-                operands=[
-                    "full_xmem_row: 1 = always 128 lanes (full XMEM row); 0 = use CR15.valid_elements lane count",
-                ],
-                operation=(
-                    "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128). "
-                    "For i in [0, n): POST_AAQ_REG[i] = clamp(POST_AAQ_REG wide lane i, -128, 127) "
-                    "(interim direct INT8 clamp of the post-ACTIVATE lane; a future per-128-element "
-                    "requantize will scale lanes into INT8 range before this step and supersede the clamp). "
-                    "POST_AAQ_REG[n..511] = 0."
-                ),
-                example="AAQ 1;;",
-            ),
-            "execute_fn": "execute_aaq",
-        },
-        "ACTIVATE": {
+        "ACTIVATE.QUANTIZE": {
             "operands": [
                 {"name": "activation_fn", "type": "ActivationFn"},
-                {"name": "full_xmem_row", "type": "FullXmemRow"},
+                {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Activation",
+                title="Activate and Quantize",
                 summary=(
-                    "Read active lanes from ``r_acc``, apply the selected element-wise activation, "
-                    "and write results into the same lane indices of ``POST_AAQ_REG`` (``r_acc`` is unchanged). "
-                    "``full_xmem_row=1`` always activates all 128 lanes; ``full_xmem_row=0`` uses CR15.valid_elements. "
-                    "The activation is selected by keyword (see ACTIVATION_FN_NAMES). The available "
-                    "activation functions are: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
+                    "Read active lanes from ``r_acc`` (snapshot), apply the selected element-wise activation, "
+                    "clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to "
+                    "the leading active-lane positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
+                    "``r_acc`` is not modified. Requires INT8 mode. "
+                    "The active lane count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
+                    "(any CR0–CR15; must be named explicitly). "
+                    "Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
-                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10). For Python emulator calibration (virtual α), see "
-                    "docs/content/building-applications.md#activations-emulator."
+                    "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11)."
                 ),
-                syntax="ACTIVATE activation_fn, full_xmem_row",
+                syntax="ACTIVATE.QUANTIZE activation_fn, cr_idx",
                 operands=[
-                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2; see ACTIVATION_FN_NAMES)",
-                    "full_xmem_row: 1 = always 128 lanes; 0 = use CR15.valid_elements (default 0)",
+                    "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2, reciprocal, rsqrt, silu; see ACTIVATION_FN_NAMES)",
+                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
-                    "Let n = 128 if full_xmem_row else min(CR15.valid_elements, 128) "
-                    "and k = encoded activation index. "
-                    "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit lane format as R_ACC). "
-                    "R_ACC is not modified. The selector uses four bits; encodings outside the eleven named "
-                    "activations behave as identity. "
+                    "Requires INT8 mode (IpuState.dtype == DType.INT8). "
+                    "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
+                    "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
+                    "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "
+                    "Clamping is a placeholder until a full per-lane requantize is implemented. "
+                    "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                example="ACTIVATE relu, 0;;",
+                example="ACTIVATE.QUANTIZE relu, CR15;;",
             ),
-            "execute_fn": "execute_activate",
+            "execute_fn": "execute_activate_quantize",
         },
     },
 
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
-    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5
+    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5, NOP=6
     # BNZ, BZ, and B are pseudo-instructions (see PSEUDO_INSTRUCTION_SPEC):
     # they're each exactly expressible via BEQ/BNE against CR0 (always zero),
     # so they don't need their own opcode.
@@ -965,11 +1038,21 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_bkpt",
         },
+        "NOP": {
+            "operands": [],
+            "doc": InstructionDoc(
+                title="No Operation",
+                summary="No operation for COND slot; advances PC by one.",
+                syntax="NOP",
+                operands=[],
+            ),
+            "execute_fn": "execute_cond_nop",
+        },
     },
 
     # =========================================================================
     # BREAK Slot (Break Instructions)
-    # Opcode = position: BREAK=0, BREAK.IFEQ=1, BREAK_NOP=2
+    # Opcode = position: BREAK=0, BREAK.IFEQ=1, NOP=2
     # =========================================================================
     "break": {
         "BREAK": {
@@ -1001,12 +1084,12 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_break_ifeq",
         },
-        "BREAK_NOP": {
+        "NOP": {
             "operands": [],
             "doc": InstructionDoc(
-                title="No Operation (BREAK)",
+                title="No Operation",
                 summary="No operation for BREAK slot.",
-                syntax="BREAK_NOP",
+                syntax="NOP",
                 operands=[],
             ),
             "execute_fn": "execute_break_nop",
@@ -1239,7 +1322,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "ActivationFn",
         "BreakImmediate",
         "Label",
-        "FullXmemRow",
+        "DstructureCrIdx",
     }
 )
 

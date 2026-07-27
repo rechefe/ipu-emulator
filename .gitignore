@@ -12,6 +12,7 @@ bazel-testlogs/
 /docs/content/instructions.md
 /docs/content/operand-types.md
 /docs/content/assembly-syntax.md
+/docs/content/programmer-guide.md
 /docs/content/release-log.md
 
 # Layout SVGs are generated at docs build time (embedded in instructions.md)

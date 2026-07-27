@@ -172,29 +172,3 @@ class VerticalStrideField(ipu_token.EnumToken):
         return list(VERTICAL_STRIDE_NAMES)
 
 
-class FullXmemRowField(ipu_token.IpuToken):
-    """1-bit flag on AAQ: 1=always 128 elements (full row), 0=use CR15.valid_elements."""
-
-    @classmethod
-    def bits(cls) -> int:
-        return 1
-
-    @classmethod
-    def default(cls) -> "ipu_token.IpuToken":
-        return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
-
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        super().__init__(token)
-        try:
-            self.int = int(token.token.value, 0)
-        except ValueError:
-            self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if self.int not in (0, 1):
-            self._raise_error("full_xmem_row must be 0 or 1")
-
-    def encode(self) -> int:
-        return self.int
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return str(value & 1)
