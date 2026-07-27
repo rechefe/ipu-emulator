@@ -111,16 +111,15 @@ def _operand_sv_type(actual_type: str, wire_bits: int, type_bits: dict[str, int]
 def _instruction_layout_fields(
     slot_union: Any,
     slot_fields: list[dict[str, Any]],
-    opcode_enum: str,
-    opcode_width: int,
     inst_name: str,
     inst_def: dict,
     type_bits: dict[str, int],
 ) -> list[dict[str, Any]]:
-    """Struct members in encoded order: opcode, then each union field (MSB → LSB).
+    """Operand-area struct members for a per-instruction union member (MSB → LSB).
 
-    Unused union fields for this opcode become explicit padding in place, not only
-    at the end of the struct.
+    The opcode lives outside ``{slot}_slot_u`` in ``{slot}_slot_t`` — it is shared
+  across all instructions in the slot.  Unused union columns for this opcode become
+    explicit padding in place.
     """
     bindings = {
         field_idx: op_name
@@ -128,14 +127,7 @@ def _instruction_layout_fields(
     }
     operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
 
-    layout: list[dict[str, Any]] = [
-        {
-            "name": "opcode",
-            "sv_type": opcode_enum,
-            "bits": opcode_width,
-            "operand": None,
-        }
-    ]
+    layout: list[dict[str, Any]] = []
     for field in slot_fields:
         field_idx = field["index"]
         wire_bits = field["bits"]
@@ -189,24 +181,23 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
             )
 
         opcode_names = list(INSTRUCTION_SPEC[slot_name].keys())
-        slot_width = slot_union.opcode_bits + sum(f["bits"] for f in fields)
+        operand_width = sum(f["bits"] for f in fields)
+        slot_width = slot_union.opcode_bits + operand_width
 
         instructions: list[dict[str, Any]] = []
         for inst_name, inst_def in INSTRUCTION_SPEC[slot_name].items():
             layout_fields = _instruction_layout_fields(
                 slot_union,
                 fields,
-                opcode_enum,
-                slot_union.opcode_bits,
                 inst_name,
                 inst_def,
                 type_bits,
             )
             struct_bits = sum(f["bits"] for f in layout_fields)
-            if struct_bits != slot_width:
+            if struct_bits != operand_width:
                 raise ValueError(
-                    f"{slot_name}.{inst_name}: layout is {struct_bits} bits, "
-                    f"expected slot width {slot_width}"
+                    f"{slot_name}.{inst_name}: operand layout is {struct_bits} bits, "
+                    f"expected operand width {operand_width}"
                 )
             instructions.append(
                 {
@@ -225,6 +216,7 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 "struct_name": f"{struct_base}_t",
                 "union_name": f"{struct_base}_u",
                 "width": slot_width,
+                "operand_width": operand_width,
                 "fields": fields,
                 "instructions": instructions,
                 "opcodes": [

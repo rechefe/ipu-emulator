@@ -71,12 +71,13 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     assert "\n    LR_REG_FIELD_LR1 = " in text
 
 
-def test_union_members_padded_to_slot_width():
+def test_union_members_padded_to_operand_width():
     ctx = gen_codegen.build_codegen_context()
     for slot in ctx["slots"]:
+        operand_width = slot["operand_width"]
         for inst in slot["instructions"]:
-            assert inst["struct_bits"] == slot["width"], (
-                f"{slot['slot']}.{inst['name']}: {inst['struct_bits']} != {slot['width']}"
+            assert inst["struct_bits"] == operand_width, (
+                f"{slot['slot']}.{inst['name']}: {inst['struct_bits']} != {operand_width}"
             )
 
 
@@ -110,6 +111,24 @@ def test_sv_union_matches_slot_field_names(tmp_path: Path):
     assert "lcr_idx_0; // cr_idx (CrIdx)" in ee
     assert "dstructure_cr_idx_1; // dstructure_cr_idx" in ee
     assert "lr_idx_2; // ra_idx" in ee
+
+
+def test_union_members_exclude_opcode(tmp_path: Path):
+    out = tmp_path / "ipu_instr_pkg.sv"
+    gen_codegen.generate_sv_package(out)
+    text = out.read_text(encoding="utf-8")
+    # Opcode is outside the union; union members are operand payload only.
+    assert "COND_SLOT_U_WIDTH = 20" in text
+    start = text.index("// Operand payload only (opcode is in cond_slot_t.opcode")
+    end = text.index("} cond_slot_u;", start)
+    union = text[start:end]
+    assert "cond_inst_opcode_t opcode" not in union
+    nop_start = union.rindex("struct packed {", 0, union.index("} nop;"))
+    nop = union[nop_start:union.index("} nop;")]
+    assert "opcode" not in nop
+    assert "logic [9:0] label_0" in nop
+    assert "logic [4:0] lcr_idx_1" in nop
+    assert "logic [4:0] lcr_idx_2" in nop
 
 
 def test_render_is_deterministic():

@@ -33,8 +33,9 @@ package ipu_instr_pkg;
   } {{ slot.struct_name }};
 
   localparam int unsigned {{ slot.struct_name | upper }}_WIDTH = {{ slot.width }};
+  localparam int unsigned {{ slot.union_name | upper }}_WIDTH = {{ slot.operand_width }};
 
-  // Per-instruction decoded view for the {{ slot.slot }} slot
+  // Operand payload only (opcode is in {{ slot.struct_name }}.opcode, shared across members)
   typedef union packed {
 {% for inst in slot.instructions %}
     struct packed {
