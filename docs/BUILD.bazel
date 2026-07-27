@@ -156,3 +156,12 @@ genrule(
     """,
     tools = [":mkdocs"],
 )
+
+py_binary(
+    name = "serve_docs",
+    srcs = ["serve_docs_wrapper.py"],
+    args = ["$(location :build_docs)"],
+    data = [":build_docs"],
+    main = "serve_docs_wrapper.py",
+    python_version = "PY3",
+)
