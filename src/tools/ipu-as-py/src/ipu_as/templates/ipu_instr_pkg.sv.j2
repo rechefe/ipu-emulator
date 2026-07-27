@@ -10,21 +10,16 @@ package ipu_instr_pkg;
 {% for enum in enum_types %}
   typedef enum logic [{{ enum.width - 1 }}:0] {
 {% for item in enum.members %}
-    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.sized_value }},
+    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.sized_value }}{{ "," if not loop.last }}
 {% endfor %}
   } {{ enum.sv_type }};
 
 {% endfor %}
   // -------------------------------------------------------------------------
   // Per-slot encoded words (opcode + operand union, MSB-first within slot)
+  // Opcode type for each slot is one of the enums above (e.g. load_inst_opcode_t).
   // -------------------------------------------------------------------------
 {% for slot in slots %}
-  typedef enum logic [{{ slot.opcode_width - 1 }}:0] {
-{% for op in slot.opcodes %}
-    {{ slot.opcode_prefix }}_{{ op.name }} = {{ op.sized_value }},
-{% endfor %}
-  } {{ slot.opcode_enum }};
-
   localparam int unsigned {{ slot.union_name | upper }}_WIDTH = {{ slot.operand_width }};
 
   // Operand payload only (opcode is in {{ slot.struct_name }}.opcode, shared across members)

@@ -33,9 +33,7 @@ _OPERAND_TYPE_TO_SV_TYPEDEF: dict[str, str] = {
     "PostFn": "post_fn_field_t",
     "ActivationFn": "activation_fn_field_t",
     "FullXmemRow": "full_xmem_row_field_t",
-    "LrIncDecImmediate": "lr_inc_dec_immediate_field_t",
     "DstructureCrIdx": "dstructure_cr_reg_field_t",
-    "MultMaskOffsetImmediate": "mult_mask_offset_immediate_field_t",
 }
 
 
@@ -56,6 +54,7 @@ _SV_RESERVED_STRUCT_NAMES = frozenset({
     "default",
     "function",
     "task",
+    "set",
 })
 
 _SLOT_META: dict[str, tuple[str, str]] = {
@@ -196,7 +195,6 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 }
             )
 
-        opcode_names = list(INSTRUCTION_SPEC[slot_name].keys())
         operand_width = sum(f["bits"] for f in fields)
         slot_width = slot_union.opcode_bits + operand_width
 
@@ -228,23 +226,12 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 "slot": slot_name,
                 "opcode_enum": opcode_enum,
                 "opcode_width": slot_union.opcode_bits,
-                "opcode_prefix": struct_base.upper(),
                 "struct_name": f"{struct_base}_t",
                 "union_name": f"{struct_base}_u",
                 "width": slot_width,
                 "operand_width": operand_width,
                 "fields": fields,
                 "instructions": instructions,
-                "opcodes": [
-                    {
-                        "value": idx,
-                        "name": _sanitize_enum_member(name),
-                        "sized_value": _sv_sized_literal(
-                            slot_union.opcode_bits, idx
-                        ),
-                    }
-                    for idx, name in enumerate(opcode_names)
-                ],
             }
         )
 
