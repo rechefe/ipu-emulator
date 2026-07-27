@@ -126,9 +126,37 @@ def test_union_members_exclude_opcode(tmp_path: Path):
     nop_start = union.rindex("struct packed {", 0, union.index("} nop;"))
     nop = union[nop_start:union.index("} nop;")]
     assert "opcode" not in nop
-    assert "logic [9:0] label_0" in nop
-    assert "logic [4:0] lcr_idx_1" in nop
-    assert "logic [4:0] lcr_idx_2" in nop
+    assert "logic [19:0] padding" in nop
+    assert "label_0" not in nop
+
+
+def test_nop_union_members_use_single_padding_field(tmp_path: Path):
+    out = tmp_path / "ipu_instr_pkg.sv"
+    gen_codegen.generate_sv_package(out)
+    text = out.read_text(encoding="utf-8")
+    import re
+
+    # Every slot's NOP member: one padding field, width matches {slot}_slot_u.
+    nop_blocks = re.findall(
+        r"struct packed \{\n      logic \[(\d+):0\] padding;\n    \} nop;",
+        text,
+    )
+    assert len(nop_blocks) == 9
+    widths_by_slot = {
+        "load_slot_u": 12,
+        "store_slot_u": 8,
+        "acc_store_slot_u": 8,
+        "lr_slot_u": 14,
+        "mult_slot_u": 20,
+        "acc_slot_u": 12,
+        "aaq_slot_u": 8,
+        "cond_slot_u": 20,
+        "break_slot_u": 20,
+    }
+    for slot_u, width in widths_by_slot.items():
+        localparam = f"localparam int unsigned {slot_u.upper()}_WIDTH = {width};"
+        assert localparam in text
+    assert sorted(int(w) for w in nop_blocks) == sorted(w - 1 for w in widths_by_slot.values())
 
 
 def test_render_is_deterministic():

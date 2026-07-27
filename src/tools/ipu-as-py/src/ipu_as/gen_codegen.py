@@ -118,14 +118,26 @@ def _instruction_layout_fields(
     """Operand-area struct members for a per-instruction union member (MSB → LSB).
 
     The opcode lives outside ``{slot}_slot_u`` in ``{slot}_slot_t`` — it is shared
-  across all instructions in the slot.  Unused union columns for this opcode become
-    explicit padding in place.
+    across all instructions in the slot.  Unused union columns for this opcode become
+    explicit padding in place.  Instructions with no operands (e.g. NOP) use one
+    ``padding`` field for the whole payload.
     """
     bindings = {
         field_idx: op_name
         for field_idx, op_name in slot_union.opcode_bindings.get(inst_name, [])
     }
     operand_types = {op["name"]: op["type"] for op in inst_def["operands"]}
+
+    if not bindings:
+        operand_width = sum(f["bits"] for f in slot_fields)
+        return [
+            {
+                "name": "padding",
+                "sv_type": f"logic [{operand_width - 1}:0]",
+                "bits": operand_width,
+                "operand": None,
+            }
+        ]
 
     layout: list[dict[str, Any]] = []
     for field in slot_fields:
