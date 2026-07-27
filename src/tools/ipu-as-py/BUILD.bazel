@@ -18,6 +18,7 @@ py_library(
     ]),
     data = glob([
         "src/ipu_as/**/*.lark",
+        "src/ipu_as/templates/**/*.j2",
     ]),
     imports = ["src"],
     deps = [
@@ -36,6 +37,16 @@ py_binary(
 py_pytest_test(
     name = "test_assemble",
     srcs = ["test/test_assemble.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_gen_codegen",
+    srcs = ["test/test_gen_codegen.py"],
     imports = ["src"],
     deps = [
         ":ipu_as_lib",
