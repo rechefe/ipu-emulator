@@ -33,7 +33,8 @@ src/tools/
 │   ├── regfile.py                # Register file
 │   ├── xmem.py                   # 2 MB external memory
 │   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
-│   └── debug_cli.py              # Interactive debugger
+│   ├── debug_cli.py              # Interactive debugger
+│   └── debug_window*.py          # Cycle-by-cycle VLIW trace tool (text/HTML/JSON)
 └── ipu-apps/src/ipu_apps/        # Sample applications
     └── fully_connected/          # FC neural network layer example
 docs/                             # MkDocs (config + content/ page sources)
@@ -209,6 +210,28 @@ run_with_debug(state, debug_prompt)
 ```
 
 Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.json`
+
+### Debug window (cycle-by-cycle trace)
+
+For VLIW execution-order bugs (live-vs-snapshot reads, same-cycle write
+visibility) `debug_cli.py`'s register dumps are hard to read at a glance.
+`debug_window_cli.py` instead captures a full per-cycle trace — every active
+slot, every operand tagged `live`/`snapshot`/`immediate`, XMEM/r_cyclic
+addresses, and the effective mult mask — and renders it as text, a
+self-contained interactive HTML stepper, or JSON:
+
+```bash
+python -m ipu_emu.debug_window_cli prog.asm                                    # text dump to stdout
+python -m ipu_emu.debug_window_cli prog.asm --format html --out trace.html --open
+python -m ipu_emu.debug_window_cli prog.asm --start 100 --limit 50 --notes      # a 50-cycle window
+```
+
+`--start`/`--limit` capture a slice of a longer run (cycles before `--start`
+execute uncaptured); `--xmem file@addr` preloads XMEM. See
+`planning/debug_window_spec.md` for the full data model and
+`planning/debug_demo/run_conv_bn_debug.py` for a worked example against a real
+app. The tool is strictly read-only against emulator state — it never changes
+execution behavior.
 
 ---
 
