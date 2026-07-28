@@ -19,10 +19,11 @@ from ipu_emu.emulator import (
     run_with_debug,
     DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
+from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
-from ipu_emu.ipu import EmulatorError
+from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 from ipu_as.lark_tree import assemble, parse
 
@@ -358,17 +359,18 @@ BKPT;;
 
 class TestMemoryOperations:
     def test_load_from_memory(self):
+        """cr8=32 is a row number: row 32 * 128 B/row (narrow) = byte 0x1000."""
         test_data = bytes(range(128))
         state = _make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: 4096})
+            cr={8: 32})
         state.xmem.write_address(0x1000, test_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(13) == 0x1000
+        assert state.regfile.get_lr(13) == 32
         r1_data = state.regfile.get_r(1)
         assert r1_data == bytearray(test_data)
 
@@ -389,7 +391,7 @@ SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288})
+            cr={8: 32, 9: 64, 10: 0, 11: 96})
         state.xmem.write_address(0x1000, r1_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -407,11 +409,11 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 20480, 9: 0})
+            cr={8: 160, 9: 0})
         state.xmem.write_address(0x5000, cyclic_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(0) == 0x5000
+        assert state.regfile.get_lr(0) == 160
         loaded = state.regfile.get_r_cyclic_at(0, 128)
         assert loaded == bytearray(cyclic_data)
 
@@ -425,7 +427,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 20480, 9: 64})
+            cr={8: 160, 9: 64})
         with pytest.raises(EmulatorError, match="index must be one of"):
             run_until_complete(state)
 
@@ -436,17 +438,18 @@ SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 24576})
+            cr={8: 192})
         state.xmem.write_address(0x6000, mask_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(0) == 0x6000
+        assert state.regfile.get_lr(0) == 192
         loaded = state.regfile.get_r_mask()
         assert loaded == bytearray(mask_data)
 
     def test_concurrent_load_and_store_same_cycle(self):
         """Load and store in one VLIW bundle: load resolves before store."""
         addr = 0x1000
+        row = addr // 128  # row number for the shared cr8 base operand
         old_data = bytes([i & 0xFF for i in range(128)])
         state = _make_state("""\
 SET lr0 cr8;;
@@ -454,7 +457,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: addr})
+            cr={8: row})
         state.xmem.write_address(addr, old_data)
         state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
         run_until_complete(state)
@@ -489,7 +492,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -527,7 +530,7 @@ SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 1, 13: 16384})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -567,7 +570,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -606,7 +609,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
         state.dtype = DType.E5
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -640,7 +643,7 @@ SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
@@ -1491,7 +1494,7 @@ MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         # Set dtype to E4 (fp8_e4)
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
@@ -1532,7 +1535,7 @@ MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.regfile.set_cr(3, 3)  # scalar = low byte = 3
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1558,7 +1561,7 @@ MULT.RC.VE lr2 cr2 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1611,7 +1614,7 @@ MULT.RC.VE lr2 cr5 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.E4
         state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1667,7 +1670,7 @@ MULT.RC.VV lr2 r0 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -1694,7 +1697,7 @@ MULT.RC.VE lr2 lr2 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x2000, cyclic_data)
@@ -1725,7 +1728,7 @@ MULT.RC.VE lr2 lr3 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 4352, 10: 8192, 11: 0, 12: 128})
+            cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x1100, bytes(r1_data))
@@ -1754,7 +1757,7 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -1803,7 +1806,7 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0, 10: 8192})
+            cr={8: 32, 9: 0, 10: 64})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
@@ -1834,10 +1837,12 @@ class TestMaskShiftSequential:
     The partition_vector is derived from CR15.partition (0 = no partitioning).
     """
 
-    _RC_ADDR = 0x1000   # xmem address for R_CYCLIC data
-    _MASK_ADDR = 0x2000  # xmem address for mask data
-    _RC_CR = 8           # CR holding R_CYCLIC xmem address
-    _MASK_CR = 9         # CR holding mask xmem address
+    _RC_ADDR = 0x1000   # xmem byte address for R_CYCLIC data
+    _MASK_ADDR = 0x2000  # xmem byte address for mask data
+    _RC_ROW = _RC_ADDR // 128    # row number for CR holding R_CYCLIC xmem base
+    _MASK_ROW = _MASK_ADDR // 128  # row number for CR holding mask xmem base
+    _RC_CR = 8           # CR holding R_CYCLIC xmem row
+    _MASK_CR = 9         # CR holding mask xmem row
     _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
 
     _ASM = """\
@@ -1864,8 +1869,8 @@ BKPT;;
         state = _make_state(
             self._ASM,
             cr={
-                self._RC_CR: self._RC_ADDR,
-                self._MASK_CR: self._MASK_ADDR,
+                self._RC_CR: self._RC_ROW,
+                self._MASK_CR: self._MASK_ROW,
                 self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
             },
         )
@@ -2185,7 +2190,7 @@ class TestPostAaqReg:
         """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.dtype = DType.INT8
-        state.regfile.set_cr(8, 0x4000)
+        state.regfile.set_cr(8, 0x4000 // 128)  # row number for base
         data = bytearray(range(256)) * 2
         state.regfile.set_post_aaq_reg(data)
 
@@ -2218,4 +2223,148 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+
+
+# ============================================================================
+# XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
+# translated to byte addresses via the active mode's row size. XMEM is
+# allocated 8 MB unconditionally; narrow mode may only address the first
+# 16384 rows (the first 2 MB) of that allocation.
+# ============================================================================
+
+
+class TestXmemRowAddressing:
+    def test_narrow_row_above_0x2000_reads_correct_bytes(self):
+        """A narrow-mode row well past the old 8 KB test-suite footprint round-trips."""
+        row = 100  # byte 12800 -- past 0x2000 (8192), still well inside the 2 MB narrow bound
+        test_data = bytes(range(128))
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, test_data)
+        run_until_complete(state)
+        assert state.regfile.get_r(1) == bytearray(test_data)
+
+    def test_narrow_row_near_2mb_bound_reads_correct_bytes(self):
+        """The last valid narrow-mode row (16383, byte 2097024) round-trips."""
+        row = NARROW_MAX_ROW - 1
+        test_data = bytes(range(128))
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, test_data)
+        run_until_complete(state)
+        assert state.regfile.get_r(1) == bytearray(test_data)
+
+    def test_narrow_row_at_2mb_bound_raises(self):
+        """Row 16384 (the first row past the 2 MB narrow bound) is rejected in narrow mode."""
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: NARROW_MAX_ROW})
+        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+            run_until_complete(state)
+
+    def test_huge_unsigned_row_raises_narrow_range_error(self):
+        """LR/CR values are unsigned 32-bit, so a 'negative' row arrives as a huge
+        positive row number -- it is rejected by the narrow-mode range check, not a
+        separate negative-row path (registers can never hold a negative row)."""
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: 0xFFFFFFFF})
+        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+            run_until_complete(state)
+
+    def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
+        """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
+        bytes: row (NARROW_MAX_ROW - 1) narrow tops out just under 2 MB, but the same
+        row number in debug mode addresses a byte well past 2 MB, deep into the 8 MB
+        allocation narrow mode can never reach at any row number."""
+        row = NARROW_MAX_ROW - 2  # leaves room for a second row (cyclic data) right after
+        byte_addr = row * 512
+        assert byte_addr > (1 << 21), "row's debug byte address must exceed narrow's 2 MB reach"
+        r0 = struct.pack("<128f", *([2.0] * 128))
+        rc = struct.pack("<128f", *([3.0] * 128))
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.dtype = DType.INT8
+        state.xmem.write_address(byte_addr, r0)
+        state.xmem.write_address(byte_addr + 512, rc)
+        state.regfile.set_cr(6, row)
+        state.regfile.set_cr(7, row + 1)
+        state.regfile.set_cr(8, 0)  # LDR_CYCLIC_MULT_REG index must be 0 in debug mode
+        asm = """\
+SET lr0 cr6;;
+SET lr1 cr7;;
+SET lr2 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+        acc = state.regfile.raw("r_acc")
+        for i in range(128):
+            v = struct.unpack_from("<f", acc, i * 4)[0]
+            assert v == pytest.approx(6.0), f"lane {i}"
+
+    def test_debug_mode_row_past_8mb_raises(self):
+        """Both modes reject rows whose byte address would exceed the 8 MB allocation."""
+        max_debug_row = XMEM_SIZE_BYTES // 512
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.dtype = DType.INT8
+        state.regfile.set_cr(6, max_debug_row)
+        state.regfile.set_cr(7, 0)
+        asm = """\
+SET lr0 cr6;;
+LDR_MULT_REG r0 lr0 cr0;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        with pytest.raises(EmulatorError, match="exceeds"):
+            run_until_complete(state)
+
+    def test_ldr_mult_mask_reg_reads_row_start_128_bytes_both_modes(self):
+        """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""
+        row = 50
+        mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_MASK_REG lr0 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, mask_data)
+        run_until_complete(state)
+        assert state.regfile.get_r_mask() == bytearray(mask_data)
+
+    def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
+        """STR_ACC_REG writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
+        row = 40
+        state = _make_state("""\
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={12: row})
+        state.regfile.set_r_acc_bytes(bytes(range(1, 129)) * 4)
+        run_until_complete(state)
+        stored = state.xmem.read_address(row * 128, 512)
+        assert stored == state.regfile.get_r_acc_bytes()
 
