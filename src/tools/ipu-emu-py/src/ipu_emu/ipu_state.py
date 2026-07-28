@@ -14,6 +14,7 @@ from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 from ipu_common import activations as _activations
+from ipu_common.registers import get_register_sizes
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
@@ -136,7 +137,10 @@ class IpuState:
     #    wide_vector_debug/wide_vector_arithmetic, so keeping the two in sync is a
     #    one-line change on each side.) ------------------------------------------
 
-    LANES = 128
+    # r_acc is 128 uint32 lanes regardless of mode -- same derivation ipu.py's
+    # LANES uses (R_ACC_SIZE // 4), read here directly from registers.py since
+    # importing ipu.py's LANES would be circular (see note above).
+    LANES = get_register_sizes()["r_acc"]["size_bytes"] // 4
 
     def _element_width_bytes(self) -> int:
         """Bytes per element in the active mode: 1 narrow, 4 wide-vector debug."""
