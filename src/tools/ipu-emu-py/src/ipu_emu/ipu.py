@@ -67,6 +67,13 @@ R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
+# Number of vector lanes: 128, mode-invariant. An element is 1 byte in narrow
+# mode and 4 bytes in wide-vector debug mode, so LANES must never be confused
+# with a byte count — use it for lane loop bounds, mask bit-widths, and
+# lane-indexed lists/tuples in both modes. R_REG_SIZE remains a byte count
+# (the "r" register's size); it coincides with LANES only in narrow mode.
+LANES = 128
+
 # R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
 # must land exactly on a slot boundary — no implicit wraparound.
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
@@ -257,11 +264,11 @@ class Ipu:
         snap = self.state._debug_mult_stage_vectors_snap
         if mult_stage_enc in snap:
             return list(snap[mult_stage_enc])
-        return [0.0 if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * R_REG_SIZE
+        return [0.0 if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * LANES
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-        buf = source.get_r_cyclic_at(cyclic_offset, R_CYCLIC_SIZE)
+        buf = source.get_r_cyclic_at(cyclic_offset, LANES * 4)
         return self._wide_unpack_lane_tuple(buf)
 
     def _acc_agg_lane_fmt(self) -> str:
@@ -323,16 +330,16 @@ class Ipu:
         Used for positive mask_shift indices (+1, +2, +3).
         num_partitions must be in VALID_PARTITION_VALUES.
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of R_REG_SIZE/P lanes; bit 0 of each group is 0.
+        num_partitions=P: P groups of LANES/P lanes; bit 0 of each group is 0.
         """
         assert isinstance(num_partitions, Partition), (
             f"partition must be a Partition enum value, got {num_partitions!r}"
         )
         if num_partitions == 0:
-            return (1 << R_REG_SIZE) - 1
-        step = R_REG_SIZE // num_partitions
+            return (1 << LANES) - 1
+        step = LANES // num_partitions
         result = 0
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             if i % step != 0:
                 result |= (1 << i)
         return result
@@ -344,16 +351,16 @@ class Ipu:
         Used for negative mask_shift indices (−1, −2, −3).
         num_partitions must be in VALID_PARTITION_VALUES.
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of R_REG_SIZE/P lanes; last bit of each group is 0.
+        num_partitions=P: P groups of LANES/P lanes; last bit of each group is 0.
         """
         assert isinstance(num_partitions, Partition), (
             f"partition must be a Partition enum value, got {num_partitions!r}"
         )
         if num_partitions == 0:
-            return (1 << R_REG_SIZE) - 1
-        step = R_REG_SIZE // num_partitions
+            return (1 << LANES) - 1
+        step = LANES // num_partitions
         result = 0
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             if i % step != step - 1:
                 result |= (1 << i)
         return result
@@ -386,9 +393,9 @@ class Ipu:
 
         # Extract 128-bit base mask from the selected R_MASK slot
         mask_bytes = self.state.regfile.get_r_mask()
-        mask_slot = mask_idx % (R_REG_SIZE // 16)  # 8 slots of 128 bits each
+        mask_slot = mask_idx % (LANES // 16)  # 8 slots of 128 bits each
         offset = mask_slot * 16
-        _128_BIT_MASK = (1 << R_REG_SIZE) - 1
+        _128_BIT_MASK = (1 << LANES) - 1
         base_mask = int.from_bytes(mask_bytes[offset:offset + 16], byteorder="little") & _128_BIT_MASK
 
         dstructure = self.state.get_dstructure_for(cr_idx)
@@ -409,7 +416,7 @@ class Ipu:
         # with the configured pad value (default: zero).
         pad_bytes = self._mult_pad_lane_bytes(dstructure.pad_mode)
         mult_res = self.state.regfile.raw("mult_res")
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             if not ((mask_int >> i) & 1):
                 mult_res[i * 4:i * 4 + 4] = pad_bytes
 
@@ -465,7 +472,7 @@ class Ipu:
             )
         addr = offset + base
         if self._wide_vector_active():
-            data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
+            data = self.state.xmem.read_address(addr, LANES * 4)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 self.state._debug_mult_stage_vectors[dest] = list(
                     struct.unpack_from("<128f", data, 0)
@@ -486,10 +493,10 @@ class Ipu:
         if self._wide_vector_active():
             if index != 0:
                 raise EmulatorError(
-                    f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads the full "
-                    f"{R_CYCLIC_SIZE}-byte r_cyclic register, so index must be 0; got {index}"
+                    f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads all {LANES} "
+                    f"lanes ({LANES * 4} bytes) of r_cyclic, so index must be 0; got {index}"
                 )
-            data = self.state.xmem.read_address(addr, R_CYCLIC_SIZE)
+            data = self.state.xmem.read_address(addr, LANES * 4)
             self.state.regfile.set_r_cyclic_at(index, data)
             return
 
@@ -623,10 +630,10 @@ class Ipu:
     def _mult_resolve_lcr_scalar_wide(self, src: int) -> float | int:
         """Wide-vector counterpart of ``_mult_resolve_lcr_scalar``."""
         if src < LR_REG_COUNT:
-            idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
+            idx = self.state.regfile.get_lr(src) % (2 * LANES)
             r0_vals = self._debug_ra_lane_vals(0)
             r1_vals = self._debug_ra_lane_vals(1)
-            return r0_vals[idx] if idx < R_REG_SIZE else r1_vals[idx - R_REG_SIZE]
+            return r0_vals[idx] if idx < LANES else r1_vals[idx - LANES]
         cr_idx = src - LR_REG_COUNT
         cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
@@ -643,10 +650,10 @@ class Ipu:
             ra_vals = self._debug_ra_lane_vals(ra)
             rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(ra_vals[i]))
             else:
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(ra_vals[i]))
                     )
@@ -656,7 +663,7 @@ class Ipu:
         dtype = self.state.dtype
         rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             result = ipu_mult(rc[i], ra[i], dtype)
             struct.pack_into("<i" if dtype == DType.INT8 else "<f", mult_res, i * 4, result)
 
@@ -673,11 +680,11 @@ class Ipu:
             rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 scalar_f = float(scalar)
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * scalar_f)
             else:
                 scalar_i = int(scalar)
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), scalar_i)
                     )
@@ -689,7 +696,7 @@ class Ipu:
         rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             result = ipu_mult(rc[i], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
@@ -704,10 +711,10 @@ class Ipu:
             self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
             rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(rb_vals[i]))
             else:
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(rb_vals[i]), int(rb_vals[i]))
                     )
@@ -718,7 +725,7 @@ class Ipu:
         rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             result = ipu_mult(rc[i], rc[i], dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
 
@@ -735,14 +742,14 @@ class Ipu:
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 scalar_f = float(cr_scalar)
-                for i in range(R_REG_SIZE):
-                    pos = (ra_idx + i) % (2 * R_REG_SIZE)
-                    ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+                for i in range(LANES):
+                    pos = (ra_idx + i) % (2 * LANES)
+                    ra_lane = r0_vals[pos] if pos < LANES else r1_vals[pos - LANES]
                     struct.pack_into("<f", mult_res, i * 4, float(ra_lane) * scalar_f)
             else:
-                for i in range(R_REG_SIZE):
-                    pos = (ra_idx + i) % (2 * R_REG_SIZE)
-                    ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+                for i in range(LANES):
+                    pos = (ra_idx + i) % (2 * LANES)
+                    ra_lane = r0_vals[pos] if pos < LANES else r1_vals[pos - LANES]
                     struct.pack_into(
                         "<i", mult_res, i * 4, self._wide_imult32(int(ra_lane), cr_scalar)
                     )
@@ -754,7 +761,7 @@ class Ipu:
         r_buf = self.snapshot.raw("r")  # Ra (R0/R1) from snapshot (issue #157); [0:128]=r0, [128:256]=r1
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             pos = (ra_idx + i) % (2 * R_REG_SIZE)
             result = ipu_mult(r_buf[pos], scalar_byte, dtype)
             struct.pack_into(fmt, mult_res, i * 4, result)
@@ -770,15 +777,15 @@ class Ipu:
             r0_vals = self._debug_ra_lane_vals(0)
             r1_vals = self._debug_ra_lane_vals(1)
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
-            pos = ra_idx % (2 * R_REG_SIZE)
-            ra_lane = r0_vals[pos] if pos < R_REG_SIZE else r1_vals[pos - R_REG_SIZE]
+            pos = ra_idx % (2 * LANES)
+            ra_lane = r0_vals[pos] if pos < LANES else r1_vals[pos - LANES]
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 result = float(ra_lane) * float(cr_scalar)
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, result)
             else:
                 result = self._wide_imult32(int(ra_lane), cr_scalar)
-                for i in range(R_REG_SIZE):
+                for i in range(LANES):
                     struct.pack_into("<i", mult_res, i * 4, result)
             self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
             return
@@ -790,7 +797,7 @@ class Ipu:
 
         ra_byte = r_buf[ra_idx % (2 * R_REG_SIZE)]
         result = ipu_mult(ra_byte, scalar_byte, dtype)
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             struct.pack_into(fmt, mult_res, i * 4, result)
 
         self._mult_mask_and_shift(mask_offset, mask_shift, dstructure_cr_idx)
@@ -811,7 +818,7 @@ class Ipu:
         snap_acc = self.snapshot.raw("r_acc")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             if self._wide_vector_active():
@@ -826,7 +833,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
@@ -837,7 +844,7 @@ class Ipu:
         snap_acc = self.snapshot.raw("r_acc")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             result = max(acc_val, mult_val)
@@ -849,7 +856,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
@@ -861,7 +868,7 @@ class Ipu:
         snap_acc = self.snapshot.raw("r_acc")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             acc_val = struct.unpack_from(fmt, snap_acc, i * 4)[0]
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             if self._wide_vector_active():
@@ -877,7 +884,7 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
 
-        for i in range(R_REG_SIZE):
+        for i in range(LANES):
             mult_val = struct.unpack_from(fmt, mult_res, i * 4)[0]
             if self._wide_vector_active():
                 result = self._wide_sub_lane(0, mult_val)
@@ -900,7 +907,7 @@ class Ipu:
         offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
         """
         elements_per_row = get_elements_per_row(elements_in_row)
-        num_rows = R_REG_SIZE // elements_per_row
+        num_rows = LANES // elements_per_row
 
         h_enabled, h_inverted = get_horizontal_stride_bits(horizontal_stride)
         v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
@@ -908,7 +915,7 @@ class Ipu:
         # Build list of source indices (0..127) or -1 for zero padding
         after_h: list[int] = []
         if not h_enabled:
-            after_h = list(range(R_REG_SIZE))
+            after_h = list(range(LANES))
             effective_row_len = elements_per_row
         else:
             half = elements_per_row // 2
