@@ -4,7 +4,7 @@
 
 The Control (CTRL) stage is the first stage of the IPU pipeline. It owns the
 program counter, the double-buffered instruction memory (with a small
-instruction cache in front), and the two 16×20-bit register files (CR
+instruction cache in front), and the two 16×32-bit register files (CR
 and LR) — both are **internal** to CTRL and not exposed on the stage
 boundary. It resolves branches, executes local-register scalar arithmetic on
 three independent LR lanes, and dispatches four per-stage buses
@@ -173,9 +173,10 @@ XMEM read-address port, and the APB slave.
 | `CR_BANKS` | `2` | Double-buffered CR file; RISC-V host writes the inactive bank. |
 | `LR_LANES` | `3` | Independent LR sub-slots per VLIW word. |
 | `LR_REG_COUNT` | `16` | `LR0`–`LR15`. |
+| `LRC_REG_COUNT` | `8` | `LRC0`, `LRC2`, …, `LRC14`: register-pair aliases over `LR`, named after the lower register (`LRCn` = `LR(n+1)`:`LR(n)`); no separate storage. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
 | `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`. `BGT`, `BLE`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
-| `LR_OP_COUNT` | `6` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`. |
+| `LR_OP_COUNT` | `8` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI`. |
 | `SET_IMM_BITS` | `5` | Combined `src5` operand: bit 4 selects mode; bits [3:0] are a CR index *or* a signed 4-bit immediate. |
 | `XMEM_ADDR_W` | *impl* | Width of `xmem_read_addr`. Sized to address the external XMEM address space (= log2 of XMEM word count). |
 | `APB_ADDR_W` | `32` | APB byte-address width on `apb_paddr`. |
@@ -190,10 +191,10 @@ XMEM read-address port, and the APB slave.
 - For each instruction in the MULT, ACC, AAQ, and STORE stages, **CTRL** resolves the CR/LR operand value(s) from the register files (by the indices carried in that stage's slot fields) and **forwards** them on the dispatch bus. The downstream stages **never** read the register files and CR/LR are **not visible** to them — the operand value(s) arrive already resolved. CTRL evaluates its three LR-ALU lanes before forwarding, so a downstream stage sees this cycle's **post-LR-write** value (it reflects any LR write this same VLIW performs).
 - **XMEM is not a pipeline stage** and is **read-only**. CTRL pre-resolves the XMEM address from CR + LR and forwards only the computed **read address** to XMEM (there is no XMEM opcode; every XMEM access is a memory load). XMEM accesses external memory and **writes the returned data directly into the MULT stage's input registers** (e.g. `R0`/`R1`/`R_CYCLIC`/`R_MASK`). It has no CR/LR read port and does not appear on the MULT → ACC → AAQ → STORE chain. Writes back to external memory are the responsibility of the STORE stage.
 - The **prior-cycle snapshot** (read-before-write) applies **only to CTRL's own register reads**: the three LR-ALU lane source operands and the branch/COND operands. These see the values committed at end of cycle N−1 — an LR write generated in cycle N is **not** visible to CTRL's own reads in cycle N (it becomes visible to them only starting cycle N+1). The CR/LR operand values CTRL **forwards** to MULT/ACC/AAQ/STORE/XMEM are **not** the snapshot: CTRL evaluates its LR-ALU lanes first, then forwards the resulting **post-write** values for this cycle. So a downstream stage sees this cycle's LR writes, while CTRL's own LR-ALU/branch reads do not.
-- `LR0`–`LR15` are **20-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`). The RISC-V host cannot write LR.
-- `CR0`–`CR15` are **20-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
+- `LR0`–`LR15` are **32-bit** local registers. They are written **only** by the LR-slot ops (`SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI`). The RISC-V host cannot write LR.
+- `CR0`–`CR15` are **32-bit** configuration registers, read-only to the program. The RISC-V host populates the inactive bank and triggers a swap externally; there is no ISA instruction for the swap.
 - **`CR0` is hard-wired to `0` (zero register)** and **`CR1` is hard-wired to `1` (one register)**. These two values are guaranteed by hardware and are the canonical operands for clearing or incrementing an LR via `ADD`/`SUB`.
-- `CR15` is reserved for the dstructure register (`valid_elements` and `partition`) and must not be used for application data. It is the conventional choice for `DstructureCrIdx` operands (`AGG.*`, `AAQ`, `ACTIVATE`, the masking `MULT.*` instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and `CR0`–`CR14` are equally valid choices.
+- `CR15` conventionally holds the dstructure register (`valid_elements` and `partition`) for `DstructureCrIdx` operands (`AGG.*`, `AAQ`, `ACTIVATE`, the masking `MULT.*` instructions), but it is never an implicit default — every such operand must name a CR register explicitly, and `CR0`–`CR14` are equally valid choices. `CR15` is not blocked as a general-purpose `CrIdx`/`LcrIdx` operand elsewhere.
 - IMEM stores **already-decoded** VLIW words: each entry has slot fields laid out explicitly (no opcode-level decode happens inside CTRL — only slot demuxing).
 - The instruction cache (`inst $`) **is** the pipeline register that holds the **current cycle's instruction** (the VLIW at the current `PC`). It was filled at the *end of the previous cycle* with the next instruction CTRL resolved to be correct, so at every clock edge `inst $` contains exactly the instruction CTRL needs to execute.
 - **No taken-branch bubble.** When the current cycle's instruction is a branch, CTRL issues **two speculative IMEM reads in parallel** during this same cycle — one for the fall-through `PC + 1` and one for the branch target `label`. Both responses are available by the end of the cycle. The cond evaluator's `taken` result then selects which of the two becomes the next-cycle `inst $`. The correct instruction is therefore always present at the start of the next clock — no NOP cycle is ever inserted because of a branch.
@@ -416,9 +417,9 @@ destination LR from two lanes in the same VLIW word (see §10).
 - **Operation:**
   ```text
   if src5[4] == 0:
-      value = CR[src5[3:0]]                    // 20-bit CR read; CR0 = 0, CR1 = 1
+      value = CR[src5[3:0]]                    // 32-bit CR read; CR0 = 0, CR1 = 1
   else:  // src5[4] == 1
-      value = sign_extend_4_to_20(src5[3:0])   // signed 4-bit immediate, range −8..+7
+      value = sign_extend_4_to_32(src5[3:0])   // signed 4-bit immediate, range −8..+7
   dest = value
   ```
 - **Examples:**
@@ -430,26 +431,26 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 #### 10.1.2 `ADD` — Add
 
-- **Summary:** Add two operands and write the 20-bit truncated result to a local register.
+- **Summary:** Add two operands and write the 32-bit truncated result to a local register.
 - **Syntax:** `ADD dest src_a src_b`
 - **Operands:**
   - `dest` — destination, `LR0`–`LR15`.
   - `src_a` — first source, `LR0`–`LR15`.
-  - `src_b` — second source: `LR0`–`LR15` or `CR0`–`CR14` (`LcrIdx`).
+  - `src_b` — second source: `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`).
 - **Operation:**
   ```text
-  dest = (src_a + src_b)[19:0]                 // 20-bit two's complement add (wrap on overflow)
+  dest = (src_a + src_b)[31:0]                 // 32-bit two's complement add (wrap on overflow)
   ```
 - **Examples:** `ADD LR0 LR1 LR2;;`, `ADD LR3 LR1 CR5;;`.
 
 #### 10.1.3 `SUB` — Subtract
 
-- **Summary:** Subtract the second source from the first; write the 20-bit truncated result to a local register.
+- **Summary:** Subtract the second source from the first; write the 32-bit truncated result to a local register.
 - **Syntax:** `SUB dest src_a src_b`
 - **Operands:** identical to `ADD`.
 - **Operation:**
   ```text
-  dest = (src_a - src_b)[19:0]                 // 20-bit two's complement subtract (wrap on underflow)
+  dest = (src_a - src_b)[31:0]                 // 32-bit two's complement subtract (wrap on underflow)
   ```
 - **Examples:** `SUB LR0 LR1 LR2;;`, `SUB LR3 LR1 CR5;;`.
 
@@ -459,7 +460,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 - **Syntax:** `INCR_MOD_POW2 dst step k`
 - **Operands:**
   - `dst` — destination local register, `LR0`–`LR15` (read and written).
-  - `step` — signed 20-bit increment from `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`).
+  - `step` — signed 32-bit increment from `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`).
   - `k` — 4-bit immediate; semantic range `[1, 9]`, encoded as `k − 1` (mask = `(1 << k) − 1`).
 - **Operation:**
   ```text
@@ -476,7 +477,7 @@ destination LR from two lanes in the same VLIW word (see §10).
   - `imm` — unsigned immediate; range `0` to `2^W − 1` where `W` is derived from the LR slot union layout (5 bits in the current encoding).
 - **Operation:**
   ```text
-  dest = (dest + imm)[19:0]
+  dest = (dest + imm)[31:0]
   ```
 - **Example:** `INC LR0 7;;`
 
@@ -487,9 +488,37 @@ destination LR from two lanes in the same VLIW word (see §10).
 - **Operands:** identical to `INC`.
 - **Operation:**
   ```text
-  dest = (dest - imm)[19:0]
+  dest = (dest - imm)[31:0]
   ```
 - **Example:** `DEC LR0 3;;`
+
+#### 10.1.7 `ADDB` — Add Byte (Broadcast, Register)
+
+- **Summary:** Broadcast-add a signed byte from an LR/CR register's low byte to each of the 8 byte lanes of an `LRCn` register pair, saturating each lane to `[0, 255]` (no wraparound in either direction).
+- **Syntax:** `ADDB dest src_b`
+- **Operands:**
+  - `dest` — destination register pair, `LRC0`, `LRC2`, …, `LRC14` (`LrcIdx`), named after the lower register; `LRCn` = `LR(n+1)`:`LR(n)`; also the implicit source.
+  - `src_b` — `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`); only the low byte is used.
+- **Operation:**
+  ```text
+  byte_val = sign_extend_8(src_b[7:0])
+  for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)
+  ```
+- **Examples:** `ADDB LRC0 LR3;;`, `ADDB LRC2 CR5;;`.
+
+#### 10.1.8 `ADDBI` — Add Byte Immediate (Broadcast)
+
+- **Summary:** Broadcast-add a signed immediate byte to each of the 8 byte lanes of an `LRCn` register pair, saturating each lane to `[0, 255]`.
+- **Syntax:** `ADDBI dest imm`
+- **Operands:**
+  - `dest` — destination register pair, `LRC0`, `LRC2`, …, `LRC14` (`LrcIdx`), named after the lower register; also the implicit source.
+  - `imm` — 8-bit byte, written as unsigned `0`–`255` or an equivalent signed `-128`–`127` literal (both spellings encode the same bit pattern).
+- **Operation:**
+  ```text
+  byte_val = sign_extend_8(imm)
+  for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)
+  ```
+- **Examples:** `ADDBI LRC0 200;;`, `ADDBI LRC2 -56;;`.
 
 ### 10.2 COND Slot (one per VLIW word)
 
@@ -571,11 +600,13 @@ branch_taken = taken
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | LR   | `SET`            | `dest src5`              | `dest = CR[src5[3:0]]` or signed-4 imm |
-| LR   | `ADD`            | `dest src_a src_b`       | `dest = (src_a + src_b)[19:0]` |
-| LR   | `SUB`            | `dest src_a src_b`       | `dest = (src_a - src_b)[19:0]` |
+| LR   | `ADD`            | `dest src_a src_b`       | `dest = (src_a + src_b)[31:0]` |
+| LR   | `SUB`            | `dest src_a src_b`       | `dest = (src_a - src_b)[31:0]` |
 | LR   | `INCR_MOD_POW2`  | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
-| LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[19:0]` |
-| LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[19:0]` |
+| LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[31:0]` |
+| LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[31:0]` |
+| LR   | `ADDB`           | `dest src_b`             | broadcast-add signed `src_b[7:0]` to `dest`'s 8 lanes, clamp [0,255] |
+| LR   | `ADDBI`          | `dest imm`               | broadcast-add signed `imm` to `dest`'s 8 lanes, clamp [0,255] |
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
 | COND | `BLT`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |
