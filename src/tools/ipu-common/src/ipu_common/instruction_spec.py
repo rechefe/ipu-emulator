@@ -26,7 +26,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrIdx": LR0–LR15 (LrRegField)  
   - "CrIdx": CR0–CR15 (CrRegField)
   - "LcrIdx": LR0–LR15 or CR0–CR15 (LcrRegField)
-  - "LrcIdx": LRC0, LRC2, LRC4, ..., LRC14 register-pair alias over LR (LrcRegField), named after the lower register in the pair; no physical storage — LRCn = LR(n+1):LR(n)
+  - "LrdIdx": LRD0, LRD2, LRD4, ..., LRD14 register-pair alias over LR (LrdRegField), named after the lower register in the pair; no physical storage — LRDn = LR(n+1):LR(n)
   - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
   - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
@@ -477,25 +477,25 @@ INSTRUCTION_SPEC = {
         },
         "ADDB": {
             "operands": [
-                {"name": "dest", "type": "LrcIdx"},
+                {"name": "dest", "type": "LrdIdx"},
                 {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
             ],
             "doc": InstructionDoc(
                 title="Add Byte (Broadcast, Register)",
                 summary=(
                     "Broadcast-add a signed byte from an LR/CR register's low byte to each of "
-                    "the 8 byte lanes of an LRCn register pair, saturating each lane to [0, 255]."
+                    "the 8 byte lanes of an LRDn register pair, saturating each lane to [0, 255]."
                 ),
                 syntax="ADDB dest, src_b",
                 operands=[
-                    "dest: Destination register pair (LRC0, LRC2, LRC4, ..., LRC14 — named after the lower register); LRCn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
                     "src_b: LR0–LR15 or CR0–CR15; low byte is read and reinterpreted as a signed two's-complement byte",
                 ],
                 operation=(
-                    "byte_val = sign_extend_8(src_b & 0xFF)\n"
+                    "byte_val = src_b & 0xFF  # interpreted as signed int8 (two's complement)\n"
                     "for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)"
                 ),
-                example="ADDB LRC0, LR3;;\nADDB LRC2, CR5;;",
+                example="ADDB LRD0, LR3;;\nADDB LRD2, CR5;;",
                 notes=(
                     "There is no separate subtract opcode: since src_b's byte is reinterpreted as "
                     "signed, a value ≥ 128 (i.e. negative in two's complement) subtracts from every "
@@ -509,25 +509,25 @@ INSTRUCTION_SPEC = {
         },
         "ADDBI": {
             "operands": [
-                {"name": "dest", "type": "LrcIdx"},
+                {"name": "dest", "type": "LrdIdx"},
                 {"name": "imm", "type": "AddbiImmediate"},
             ],
             "doc": InstructionDoc(
                 title="Add Byte Immediate (Broadcast)",
                 summary=(
                     "Broadcast-add a signed immediate byte to each of the 8 byte lanes of an "
-                    "LRCn register pair, saturating each lane to [0, 255]."
+                    "LRDn register pair, saturating each lane to [0, 255]."
                 ),
                 syntax="ADDBI dest, imm",
                 operands=[
-                    "dest: Destination register pair (LRC0, LRC2, LRC4, ..., LRC14 — named after the lower register); LRCn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
                     "imm: Unsigned byte 0–255 (or an equivalent signed −128–127 literal); reinterpreted as a signed two's-complement byte for the add",
                 ],
                 operation=(
-                    "byte_val = sign_extend_8(imm)\n"
+                    "byte_val = imm  # interpreted as signed int8 (two's complement)\n"
                     "for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)"
                 ),
-                example="ADDBI LRC0, 200;;\nADDBI LRC2, 7;;",
+                example="ADDBI LRD0, 200;;\nADDBI LRD2, 7;;",
                 notes=(
                     "There is no separate subtract opcode: write imm as a negative literal (e.g. "
                     "-56) or its equivalent unsigned encoding (200) to subtract from every lane "
@@ -1379,7 +1379,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "LrIdx",
         "CrIdx",
         "LcrIdx",
-        "LrcIdx",
+        "LrdIdx",
         "ElementsInRow",
         "HorizontalStride",
         "VerticalStride",

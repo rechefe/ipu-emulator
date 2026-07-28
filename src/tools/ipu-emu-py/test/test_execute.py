@@ -299,7 +299,7 @@ BKPT;;
 
 
 class TestAddb:
-    """ADDB/ADDBI: broadcast-add a signed byte to LRCn's 8 byte lanes, saturating to [0, 255]."""
+    """ADDB/ADDBI: broadcast-add a signed byte to LRDn's 8 byte lanes, saturating to [0, 255]."""
 
     def test_addb_lr_source(self):
         """Register source: each of the 8 lanes across LR0/LR1 gains the same byte."""
@@ -307,7 +307,7 @@ class TestAddb:
 SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr5 cr10;;
-ADDB lrc0 lr5;;
+ADDB lrd0 lr5;;
 BKPT;;
 """,
             cr={8: 0x01020304, 9: 0x05060708, 10: 10})
@@ -319,7 +319,7 @@ BKPT;;
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
-ADDB lrc0 cr11;;
+ADDB lrd0 cr11;;
 BKPT;;
 """,
             cr={8: 0x01020304, 9: 0x05060708, 11: 10})
@@ -331,7 +331,7 @@ BKPT;;
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
-ADDBI lrc0 200;;
+ADDBI lrd0 200;;
 BKPT;;
 """,
             cr={8: 0x64646464, 9: 0x64646464})
@@ -343,7 +343,7 @@ BKPT;;
         """``-56`` and ``200`` encode identically and produce the same result."""
         state = _run("""\
 SET lr0 cr8;;
-ADDBI lrc0 -56;;
+ADDBI lrd0 -56;;
 BKPT;;
 """,
             cr={8: 0x64646464})
@@ -353,7 +353,7 @@ BKPT;;
         """A lane already near 255 clamps at 255 instead of wrapping."""
         state = _run("""\
 SET lr0 cr8;;
-ADDBI lrc0 20;;
+ADDBI lrd0 20;;
 BKPT;;
 """,
             cr={8: 250})  # LR0 = 0x000000FA: low lane 250, others 0
@@ -365,19 +365,19 @@ BKPT;;
         """A negative byte pushes a low lane below 0, clamping at 0 instead of wrapping."""
         state = _run("""\
 SET lr0 cr8;;
-ADDBI lrc0 200;;
+ADDBI lrd0 200;;
 BKPT;;
 """,
             cr={8: 5})  # LR0 = 0x00000005; 200 decodes as signed -56
         assert state.regfile.get_lr(0) == 0  # every lane clamps to 0 (5-56 and 0-56 both < 0)
         assert state.regfile.get_lr(1) == 0
 
-    def test_addb_lrc_maps_to_correct_lr_pair(self):
-        """LRC6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
+    def test_addb_lrd_maps_to_correct_lr_pair(self):
+        """LRD6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
         state = _run("""\
 SET lr6 cr8;;
 SET lr7 cr9;;
-ADDBI lrc6 5;;
+ADDBI lrd6 5;;
 BKPT;;
 """,
             cr={8: 100, 9: 50})
@@ -387,31 +387,31 @@ BKPT;;
         assert state.regfile.get_lr(0) == 0
         assert state.regfile.get_lr(5) == 0
 
-    def test_addb_lrc_conflict_with_overlapping_lr_write(self):
-        """ADDBI on LRC0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
+    def test_addb_lrd_conflict_with_overlapping_lr_write(self):
+        """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
         with pytest.raises(RuntimeError, match="LR conflict"):
-            _run("ADDBI lrc0 5; INC lr1 3;;\nBKPT;;\n")
+            _run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
 
     def test_decode_addb_operand_fields(self):
         """``ADDB``'s dest/src_b share the same union fields as INC/SET.
 
-        ``lrc4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
+        ``lrd4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
         """
-        encoded = assemble("ADDB lrc4 lr5;; BKPT;;")
+        encoded = assemble("ADDB lrd4 lr5;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 2    # dest = lrc4 (pair index 2)
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2    # dest = lrd4 (pair index 2)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 5  # src_b = lr5
 
     def test_decode_addbi_operand_fields(self):
         """``ADDBI``'s immediate uses the same shared field as INC/DEC.
 
-        ``lrc8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
+        ``lrd8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
         """
-        encoded = assemble("ADDBI lrc8 200;; BKPT;;")
+        encoded = assemble("ADDBI lrd8 200;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
-        assert d["lr_inst_0_token_2_lr_reg_field"] == 4    # dest = lrc8 (pair index 4)
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4    # dest = lrd8 (pair index 4)
         assert d["lr_inst_0_token_1_addbi_immediate"] == 200
 
 

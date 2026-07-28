@@ -83,7 +83,7 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
-    "LrcIdx": "lrc_reg_field",
+    "LrdIdx": "lrd_reg_field",
     "LrIncDecImmediate": "lr_inc_dec_immediate",
     "AddbiImmediate": "addbi_immediate",
     "ElementsInRow": "elements_in_row_field",
@@ -538,7 +538,7 @@ class Ipu:
         self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
     def _addb_broadcast(self, dest: int, byte_val: int) -> None:
-        """Broadcast-add a signed byte to all 8 lanes of LRCn = LR(2n+1):LR(2n), clamped to [0, 255]."""
+        """Broadcast-add a signed byte to all 8 lanes of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
         assert self.snapshot is not None
         lo_idx, hi_idx = 2 * dest, 2 * dest + 1
         lanes = bytearray(
@@ -552,11 +552,11 @@ class Ipu:
         self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
 
     def execute_addb(self, *, dest: int, src_b: int) -> None:
-        """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRCn's 8 byte lanes."""
+        """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRDn's 8 byte lanes."""
         self._addb_broadcast(dest, src_b & 0xFF)
 
     def execute_addbi(self, *, dest: int, imm: int) -> None:
-        """Execute ADDBI: broadcast-add an immediate byte (signed) to LRCn's 8 byte lanes."""
+        """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte lanes."""
         self._addb_broadcast(dest, imm)
 
     def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
@@ -586,14 +586,14 @@ class Ipu:
         """Real LR indices a resolved lr-slot instruction writes to.
 
         Most instructions' ``dest``/``reg`` operand *is* the LR index
-        (``LrIdx``). An ``LrcIdx`` operand (``ADDB``/``ADDBI``) names a
+        (``LrIdx``). An ``LrdIdx`` operand (``ADDB``/``ADDBI``) names a
         register pair instead, so it expands to both real LR indices.
         """
         for op in spec["operands"]:
             if op["name"] not in ("dest", "reg") or "read" in op:
                 continue
             raw = kwargs[op["name"]]
-            if op["type"] == "LrcIdx":
+            if op["type"] == "LrdIdx":
                 return {2 * raw, 2 * raw + 1}
             return {raw}
         return set()
@@ -626,7 +626,7 @@ class Ipu:
             pending.append((inst_name, spec["execute_fn"], kwargs, targets))
 
         # Conflict check: no two valid instructions may write to the same LR
-        # (an LrcIdx target expands to the two real LR indices it covers).
+        # (an LrdIdx target expands to the two real LR indices it covers).
         all_targets = [t for _, _, _, targets in pending for t in targets]
         if len(all_targets) != len(set(all_targets)):
             raise RuntimeError(

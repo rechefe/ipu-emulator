@@ -36,7 +36,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "CrIdx": reg.CrRegField,
     "DstructureCrIdx": reg.DstructureCrRegField,
     "LcrIdx": reg.LcrRegField,
-    "LrcIdx": reg.LrcRegField,
+    "LrdIdx": reg.LrdRegField,
     "LrIncDecImmediate": immediate.LrIncDecImmediate,
     "AddbiImmediate": immediate.AddbiImmediate,
     "ElementsInRow": immediate.ElementsInRowField,

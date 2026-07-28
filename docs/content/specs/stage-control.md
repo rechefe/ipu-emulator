@@ -164,7 +164,7 @@ XMEM read-address port, and the APB slave.
 
 | Name | Default | Description |
 |------|---------|-------------|
-| `REG_WIDTH` | `20` | Bit width of every CR and LR register. |
+| `REG_WIDTH` | `32` | Bit width of every CR and LR register. |
 | `IMEM_BANKS` | `2` | Double-buffered: RISC-V host writes the inactive bank; swap is host-triggered. |
 | `IMEM_DEPTH` | `256` | **Total** decoded-VLIW-word entries across both IMEM banks. With `IMEM_BANKS = 2`, each bank holds `IMEM_DEPTH / IMEM_BANKS = 128` entries. |
 | `IMEM_BANK_DEPTH` | `128` | Entries per bank (= `IMEM_DEPTH / IMEM_BANKS`); also the address range PC must cover at runtime. |
@@ -173,7 +173,7 @@ XMEM read-address port, and the APB slave.
 | `CR_BANKS` | `2` | Double-buffered CR file; RISC-V host writes the inactive bank. |
 | `LR_LANES` | `3` | Independent LR sub-slots per VLIW word. |
 | `LR_REG_COUNT` | `16` | `LR0`–`LR15`. |
-| `LRC_REG_COUNT` | `8` | `LRC0`, `LRC2`, …, `LRC14`: register-pair aliases over `LR`, named after the lower register (`LRCn` = `LR(n+1)`:`LR(n)`); no separate storage. |
+| `LRD_REG_COUNT` | `8` | `LRD0`, `LRD2`, …, `LRD14`: register-pair aliases over `LR`, named after the lower register (`LRDn` = `LR(n+1)`:`LR(n)`); no separate storage. |
 | `CR_REG_COUNT` | `16` | `CR0`–`CR15` per bank. |
 | `BRANCH_COND_COUNT` | `5` | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`. `BGT`, `BLE`, `BNZ`, `BZ`, `B` are assembler-level pseudo-instructions (no opcode of their own) — see the Programmer's Guide. |
 | `LR_OP_COUNT` | `8` | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI`. |
@@ -474,7 +474,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 - **Syntax:** `INC dest imm`
 - **Operands:**
   - `dest` — destination local register, `LR0`–`LR15` (also the implicit source).
-  - `imm` — unsigned immediate; range `0` to `2^W − 1` where `W` is derived from the LR slot union layout (5 bits in the current encoding).
+  - `imm` — unsigned immediate; range `0` to `2^W − 1` where `W` is derived from the LR slot union layout (8 bits in the current encoding, shared with `ADDBI`'s immediate field).
 - **Operation:**
   ```text
   dest = (dest + imm)[31:0]
@@ -494,31 +494,31 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 #### 10.1.7 `ADDB` — Add Byte (Broadcast, Register)
 
-- **Summary:** Broadcast-add a signed byte from an LR/CR register's low byte to each of the 8 byte lanes of an `LRCn` register pair, saturating each lane to `[0, 255]` (no wraparound in either direction).
+- **Summary:** Broadcast-add a signed byte from an LR/CR register's low byte to each of the 8 byte lanes of an `LRDn` register pair, saturating each lane to `[0, 255]` (no wraparound in either direction).
 - **Syntax:** `ADDB dest src_b`
 - **Operands:**
-  - `dest` — destination register pair, `LRC0`, `LRC2`, …, `LRC14` (`LrcIdx`), named after the lower register; `LRCn` = `LR(n+1)`:`LR(n)`; also the implicit source.
+  - `dest` — destination register pair, `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`), named after the lower register; `LRDn` = `LR(n+1)`:`LR(n)`; also the implicit source.
   - `src_b` — `LR0`–`LR15` or `CR0`–`CR15` (`LcrIdx`); only the low byte is used.
 - **Operation:**
   ```text
-  byte_val = sign_extend_8(src_b[7:0])
+  byte_val = src_b[7:0]  # interpreted as signed int8 (two's complement)
   for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)
   ```
-- **Examples:** `ADDB LRC0 LR3;;`, `ADDB LRC2 CR5;;`.
+- **Examples:** `ADDB LRD0 LR3;;`, `ADDB LRD2 CR5;;`.
 
 #### 10.1.8 `ADDBI` — Add Byte Immediate (Broadcast)
 
-- **Summary:** Broadcast-add a signed immediate byte to each of the 8 byte lanes of an `LRCn` register pair, saturating each lane to `[0, 255]`.
+- **Summary:** Broadcast-add a signed immediate byte to each of the 8 byte lanes of an `LRDn` register pair, saturating each lane to `[0, 255]`.
 - **Syntax:** `ADDBI dest imm`
 - **Operands:**
-  - `dest` — destination register pair, `LRC0`, `LRC2`, …, `LRC14` (`LrcIdx`), named after the lower register; also the implicit source.
+  - `dest` — destination register pair, `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`), named after the lower register; also the implicit source.
   - `imm` — 8-bit byte, written as unsigned `0`–`255` or an equivalent signed `-128`–`127` literal (both spellings encode the same bit pattern).
 - **Operation:**
   ```text
-  byte_val = sign_extend_8(imm)
+  byte_val = imm  # interpreted as signed int8 (two's complement)
   for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)
   ```
-- **Examples:** `ADDBI LRC0 200;;`, `ADDBI LRC2 -56;;`.
+- **Examples:** `ADDBI LRD0 200;;`, `ADDBI LRD2 -56;;`.
 
 ### 10.2 COND Slot (one per VLIW word)
 

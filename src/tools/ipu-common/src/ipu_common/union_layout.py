@@ -62,9 +62,9 @@ def get_operand_type_bits() -> dict[str, int]:
         # Width 0 at layout time — the shared union field width is set in
         # finalize_derived_operand_bits() after packing.
         "LrIncDecImmediate": 0,
-        # LRC0, LRC2, ..., LRC14: register-pair alias over LR (named after the
+        # LRD0, LRD2, ..., LRD14: register-pair alias over LR (named after the
         # lower register), one pair per two LR registers.
-        "LrcIdx": ((lr_count // 2) - 1).bit_length(),
+        "LrdIdx": ((lr_count // 2) - 1).bit_length(),
         # ADDBI's immediate is a plain byte — width is intrinsic (8 bits), not
         # derived from union packing (unlike LrIncDecImmediate).
         "AddbiImmediate": 8,

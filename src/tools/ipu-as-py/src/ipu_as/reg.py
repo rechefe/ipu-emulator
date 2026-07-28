@@ -60,21 +60,21 @@ class DstructureCrRegField(_CrRegFieldBase):
     """
 
 
-IPU_LRC_REG_NUM = 8
+IPU_LRD_REG_NUM = IPU_LR_REG_NUM // 2
 
 
-class LrcRegField(ipu_token.EnumToken):
-    """LRC0, LRC2, LRC4, ..., LRC14: register-pair alias over LR, named after
-    the lower register in the pair (LRCn = LR(n+1):LR(n), n even).
+class LrdRegField(ipu_token.EnumToken):
+    """LRD0, LRD2, LRD4, ..., LRD14: register-pair alias over LR, named after
+    the lower register in the pair (LRDn = LR(n+1):LR(n), n even).
 
     Not a physical register — no storage of its own. ``ADDB``/``ADDBI`` resolve
-    an ``LrcIdx`` encoded index ``i`` (0-7) to the real ``LR(2i)``/``LR(2i+1)``
+    an ``LrdIdx`` encoded index ``i`` (0-7) to the real ``LR(2i)``/``LR(2i+1)``
     pair directly.
     """
 
     @classmethod
     def enum_array(cls) -> list[str]:
-        return [f"lrc{2 * i}" for i in range(IPU_LRC_REG_NUM)]
+        return [f"lrd{2 * i}" for i in range(IPU_LRD_REG_NUM)]
 
 
 # For documentation and introspection, also expose the enum arrays
@@ -83,7 +83,7 @@ MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
 LR_REG_FIELDS = _enums.get("LrRegField", [])
 CR_REG_FIELDS = _enums.get("CrRegField", [])
 LCR_REG_FIELDS = _enums.get("LcrRegField", [])
-LRC_REG_FIELDS = LrcRegField.enum_array()
+LRD_REG_FIELDS = LrdRegField.enum_array()
 
 # Clean up internal state
 del _generated_classes, _enums
@@ -93,18 +93,18 @@ __all__ = [
     "IPU_MULT_STAGE_REG_R_NUM",
     "IPU_LR_REG_NUM",
     "IPU_CR_REG_NUM",
-    "IPU_LRC_REG_NUM",
+    "IPU_LRD_REG_NUM",
     # Classes
     "MultStageRegField",
     "LrRegField",
     "CrRegField",
     "LcrRegField",
     "DstructureCrRegField",
-    "LrcRegField",
+    "LrdRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",
     "LR_REG_FIELDS",
     "CR_REG_FIELDS",
     "LCR_REG_FIELDS",
-    "LRC_REG_FIELDS",
+    "LRD_REG_FIELDS",
 ]

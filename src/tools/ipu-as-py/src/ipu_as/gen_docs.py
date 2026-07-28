@@ -45,10 +45,10 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "hardcoded — it is derived from the LR slot union layout so the total slot width stays "
         "constant. Valid range: **`0`** to **`2^W − 1`**."
     ),
-    "LrcIdx": (
-        "Register-pair index: **`lrc0`**, **`lrc2`**, **`lrc4`**, … **`lrc14`** — named after "
+    "LrdIdx": (
+        "Register-pair index: **`lrd0`**, **`lrd2`**, **`lrd4`**, … **`lrd14`** — named after "
         "the lower register in the pair — each aliasing two adjacent **`LR`** registers as one "
-        "8-byte-lane value: **`LRCn`** = **`LR(n+1)`** (high lanes) concatenated with **`LR(n)`** "
+        "8-byte-lane value: **`LRDn`** = **`LR(n+1)`** (high lanes) concatenated with **`LR(n)`** "
         "(low lanes). Purely an assembler/emulator view; there is no separate physical storage. "
         "Used as **`dest`** on **`ADDB`** / **`ADDBI`**."
     ),
