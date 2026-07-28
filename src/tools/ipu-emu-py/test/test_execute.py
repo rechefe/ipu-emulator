@@ -19,7 +19,7 @@ from ipu_emu.emulator import (
     run_with_debug,
     DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
+from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
 from ipu_emu.ipu import EmulatorError
@@ -2218,4 +2218,193 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+
+
+# ============================================================================
+# Wide-vector debug mode: regression coverage for verified-correct paths
+#
+# These four paths (ACC.STRIDE, STR_ACC_REG, valid_elements<128 via AGG,
+# ACTIVATE exp2/reciprocal) were verified correct by manual execution but had
+# no tests. They are not defects, only unguarded — a regression in the shared
+# lane/width plumbing would previously surface as a silently wrong number
+# rather than a failing test.
+# ============================================================================
+
+
+class TestWideVectorDebugRegressionCoverage:
+    """Debug-mode instruction-level tests for paths verified correct but untested."""
+
+    def test_acc_stride_debug_matches_narrow(self):
+        """ACC.STRIDE horizontal decimation: debug/FP32 result matches narrow-mode result.
+
+        Same stride pattern as test_acc_stride_horizontal (elements_in_row=16,
+        horizontal on): even columns 0,2,4,...,14 of each 16-wide row are kept,
+        giving 64 output elements. elements_in_row/R_REG_SIZE here are lane
+        counts, unaffected by element width.
+        """
+        state = _make_state("""\
+SET lr0 cr8;;
+ACC.STRIDE 16 on off lr0;;
+BKPT;;
+""",
+            cr={8: 0})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<f", mult_buf, i * 4, float(i))
+        run_until_complete(state)
+        for out_i in range(64):
+            row = out_i // 8
+            col = (out_i % 8) * 2
+            expected = float(row * 16 + col)
+            raw = state.regfile.get_r_acc_word(out_i)
+            got = struct.unpack("<f", struct.pack("<I", raw))[0]
+            assert got == expected, f"out[{out_i}]: expected {expected}, got {got}"
+
+    def test_acc_stride_debug_quadrant_offset(self):
+        """ACC.STRIDE offset selects the r_acc start quadrant identically in debug mode.
+
+        Mirrors test_acc_stride_offset: lr0=1 -> (offset % 4)*32 = 32, so the
+        64 decimated elements land at r_acc[32:96], quadrants 0 and 96:128
+        remain untouched (0.0).
+        """
+        state = _make_state("""\
+SET lr0 cr8;;
+ACC.STRIDE 16 on off lr0;;
+BKPT;;
+""",
+            cr={8: 1})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 0)
+        mult_buf = state.regfile.raw("mult_res")
+        for i in range(128):
+            struct.pack_into("<f", mult_buf, i * 4, float(100 + i))
+        run_until_complete(state)
+        for i in range(32):
+            raw = state.regfile.get_r_acc_word(i)
+            assert struct.unpack("<f", struct.pack("<I", raw))[0] == 0.0, f"word {i} (before start) should be untouched"
+        for out_i in range(64):
+            row = out_i // 8
+            col = (out_i % 8) * 2
+            expected_src = row * 16 + col
+            raw = state.regfile.get_r_acc_word(32 + out_i)
+            got = struct.unpack("<f", struct.pack("<I", raw))[0]
+            assert got == 100.0 + expected_src, f"word {32 + out_i}: expected {100 + expected_src}, got {got}"
+        for i in range(96, 128):
+            raw = state.regfile.get_r_acc_word(i)
+            assert struct.unpack("<f", struct.pack("<I", raw))[0] == 0.0, f"word {i} (after segment) should be untouched"
+
+    def test_str_acc_reg_debug_fp32(self):
+        """STR_ACC_REG stores r_acc (512 B) to XMEM unchanged in debug/FP32 mode."""
+        state = _make_state("""\
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={12: 16384})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<f", 2.5))[0])
+        run_until_complete(state)
+        stored = state.xmem.read_address(0x4000, 512)
+        got = struct.unpack_from("<f", stored, 0)[0]
+        assert got == 2.5, f"expected 2.5, got {got}"
+
+    def test_str_acc_reg_debug_int32(self):
+        """STR_ACC_REG stores r_acc (512 B) to XMEM unchanged in debug/INT32 mode."""
+        state = _make_state("""\
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={12: 16384})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.INT32
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<i", 7))[0])
+        run_until_complete(state)
+        stored = state.xmem.read_address(0x4000, 512)
+        got = struct.unpack_from("<i", stored, 0)[0]
+        assert got == 7, f"expected 7, got {got}"
+
+    def test_agg_sum_first_valid_elements_debug(self):
+        """AGG.SUM.FIRST with valid_elements=64 sums only the active lane prefix in debug/FP32.
+
+        Mirrors test_agg_sum_first_uses_valid_elements: reaches AGG via
+        _agg_active_lane_count, entirely independent of _mult_mask_and_shift.
+        """
+        state = _make_state(
+            """\
+AGG.SUM.FIRST LR0 cr15;;
+BKPT;;
+"""
+        )
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.set_cr_dstructure(64)  # only lanes 0..63 active
+        state.regfile.set_lr(0, 127)  # dest = R_ACC[127]
+        for i in range(128):
+            state.regfile.set_mult_res_word(i, struct.unpack("<I", struct.pack("<f", 1.0))[0])
+        run_until_complete(state)
+        raw = state.regfile.get_r_acc_word(127)
+        result = struct.unpack("<f", struct.pack("<I", raw))[0]
+        assert result == 64.0, f"expected sum of 64 ones = 64.0, got {result}"
+
+    def test_activate_exp2_debug(self):
+        """ACTIVATE.QUANTIZE exp2 applies 2**x to the active r_acc lane in debug/FP32.
+
+        Debug mode always applies activation, regardless of
+        wide_vector_quantize_output; quantization to INT8 bytes is a separate,
+        opt-in step this test does not exercise.
+        """
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE exp2 cr15;;
+BKPT;;
+"""
+        )
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<f", 4.0))[0])
+        run_until_complete(state)
+        post_buf = state.regfile.raw("post_aaq_reg")
+        got = struct.unpack_from("<f", post_buf, 0)[0]
+        assert got == 16.0, f"expected 2**4=16.0, got {got}"
+
+    def test_activate_reciprocal_debug(self):
+        """ACTIVATE.QUANTIZE reciprocal applies 1/x to the active r_acc lane in debug/FP32."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE reciprocal cr15;;
+BKPT;;
+"""
+        )
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<f", 4.0))[0])
+        run_until_complete(state)
+        post_buf = state.regfile.raw("post_aaq_reg")
+        got = struct.unpack_from("<f", post_buf, 0)[0]
+        assert got == 0.25, f"expected 1/4=0.25, got {got}"
+
+    def test_activate_identity_debug(self):
+        """ACTIVATE.QUANTIZE identity passes the active r_acc lane through unchanged in debug/FP32."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE identity cr15;;
+BKPT;;
+"""
+        )
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.set_cr_dstructure(128)
+        state.regfile.set_r_acc_word(0, struct.unpack("<I", struct.pack("<f", 4.0))[0])
+        run_until_complete(state)
+        post_buf = state.regfile.raw("post_aaq_reg")
+        got = struct.unpack_from("<f", post_buf, 0)[0]
+        assert got == 4.0, f"expected identity(4.0)=4.0, got {got}"
 
