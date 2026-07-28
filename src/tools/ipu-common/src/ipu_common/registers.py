@@ -52,7 +52,13 @@ REGISTER_DEFINITIONS = {
         "kind": RegKind.MULT,
         "vector": True,
         "cyclic": True,
-        "size_bytes": 512,
+        # 2048 B allocated always (mode-independent, see ipu.py Ipu._r_cyclic_wrap_bytes):
+        # 512 elements, wrapping after the 512th in BOTH modes. Narrow mode uses only the
+        # first 512 B (elements 0..511) and cannot reach past it; debug mode uses the
+        # full 2048 B (elements 0..511 at 4 B/element). The wrap modulus itself is NOT
+        # this constant -- regfile.py's cyclic accessors read it mode-dependently at
+        # call time, not from this fixed allocation size.
+        "size_bytes": 2048,
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic",),

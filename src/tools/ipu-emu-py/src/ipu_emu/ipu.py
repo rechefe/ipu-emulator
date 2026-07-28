@@ -272,6 +272,17 @@ class Ipu:
             )
         return addr
 
+    def _r_cyclic_wrap_bytes(self) -> int:
+        """r_cyclic's wrap modulus in the active mode: 512 B narrow, 2048 B debug.
+
+        r_cyclic holds 512 elements in BOTH modes -- the wrap happens after the
+        same 512th element regardless of mode, just at a different byte count
+        (1 B/element narrow, 4 B/element debug). r_cyclic is allocated 2048 B
+        always (registers.py); this is NOT that allocation size, it is the
+        mode-dependent portion of it that is actually reachable/wraps.
+        """
+        return 512 * self._element_width_bytes()
+
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
         """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
         if byte_off % 4 != 0:
@@ -315,7 +326,7 @@ class Ipu:
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-        buf = source.get_r_cyclic_at(cyclic_offset, self._row_size_bytes())
+        buf = source.get_r_cyclic_at(cyclic_offset, self._row_size_bytes(), self._r_cyclic_wrap_bytes())
         return self._wide_unpack_lane_tuple(buf)
 
     def _acc_agg_lane_fmt(self) -> str:
@@ -543,25 +554,23 @@ class Ipu:
         self.state.regfile.set_register_bytes(reg_name, elem_idx, data)
 
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
-        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic."""
-        addr = self._xmem_row_addr(offset + base)
-        if self._wide_vector_active():
-            if index != 0:
-                raise EmulatorError(
-                    f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads all {LANES} "
-                    f"lanes ({self._row_size_bytes()} bytes) of r_cyclic, so index must be 0; got {index}"
-                )
-            data = self.state.xmem.read_address(addr, self._row_size_bytes())
-            self.state.regfile.set_r_cyclic_at(index, data)
-            return
+        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic.
 
+        ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
+        land on one of the four slot boundaries (0/128/256/384) in both modes
+        -- writes only ever replace a whole slot, never a partial one. This is
+        unlike reads (MULT.RC.* via ``_debug_rb_lane_vals``/``get_r_cyclic_at``),
+        which are allowed at any element index and may cross a slot boundary.
+        """
+        addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
             raise EmulatorError(
                 f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
                 f"(R_CYCLIC slot boundaries); got {index}"
             )
-        data = self.state.xmem.read_address(addr, R_REG_SIZE)
-        self.state.regfile.set_r_cyclic_at(index, data)
+        byte_idx = index * self._element_width_bytes()
+        data = self.state.xmem.read_address(addr, self._row_size_bytes())
+        self.state.regfile.set_r_cyclic_at(byte_idx, data, self._r_cyclic_wrap_bytes())
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
         """Execute LDR_MULT_MASK_REG: Load mask data from memory.
@@ -722,7 +731,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
 
         for i in range(LANES):
             result = ipu_mult(rc[i], ra[i], dtype)
@@ -754,7 +763,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self._mult_resolve_lcr_scalar(src)
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -783,7 +792,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):

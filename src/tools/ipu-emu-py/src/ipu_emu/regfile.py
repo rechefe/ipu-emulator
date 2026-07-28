@@ -350,34 +350,51 @@ def _add_indexed_vector_accessors(
 # ---------------------------------------------------------------------------
 
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
-    def _make_get(n: str = name, sz: int = total_size):
-        def get_at(self, start_idx: int, length: int = 128) -> bytearray:
+    """Generate wrapping get/set accessors for a cyclic register.
+
+    ``RegFile`` has no concept of "mode" -- ``r_cyclic`` is allocated a fixed
+    2048 B always, but must wrap at 512 B in narrow mode and 2048 B in
+    wide-vector debug mode (both are 512 *elements*, just a different byte
+    count per element). Rather than have ``RegFile`` know about modes, the
+    wrap size is an explicit ``wrap_size`` argument the mode-aware caller
+    (``Ipu``) supplies on every call; it defaults to the full allocation
+    (``total_size``) for callers that don't need mode-dependent wrapping
+    (tests, debug tooling).
+    """
+    def _make_get(n: str = name, default_sz: int = total_size):
+        def get_at(self, start_idx: int, length: int = 128, wrap_size: int | None = None) -> bytearray:
             buf = self._storage[n]
+            sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
             if start_idx + length <= sz:
                 return bytearray(buf[start_idx : start_idx + length])
-            first = buf[start_idx:]
+            first = buf[start_idx:sz]
             second = buf[: length - len(first)]
             return bytearray(first + second)
         get_at.__name__ = f"get_{n}_at"
         get_at.__doc__ = (
-            f"Read *length* bytes from {n} starting at *start_idx* (wrapping)."
+            f"Read *length* bytes from {n} starting at *start_idx*, wrapping at "
+            f"*wrap_size* bytes (default: the full {n} allocation)."
         )
         return get_at
 
-    def _make_set(n: str = name, sz: int = total_size):
-        def set_at(self, start_idx: int, data: bytes | bytearray) -> None:
+    def _make_set(n: str = name, default_sz: int = total_size):
+        def set_at(self, start_idx: int, data: bytes | bytearray, wrap_size: int | None = None) -> None:
             buf = self._storage[n]
+            sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
             length = len(data)
             if start_idx + length <= sz:
                 buf[start_idx : start_idx + length] = data
             else:
                 first_len = sz - start_idx
-                buf[start_idx:] = data[:first_len]
+                buf[start_idx : start_idx + first_len] = data[:first_len]
                 buf[: length - first_len] = data[first_len:]
         set_at.__name__ = f"set_{n}_at"
-        set_at.__doc__ = f"Write *data* into {n} at *start_idx* (wrapping)."
+        set_at.__doc__ = (
+            f"Write *data* into {n} at *start_idx*, wrapping at *wrap_size* "
+            f"bytes (default: the full {n} allocation)."
+        )
         return set_at
 
     methods[f"get_{name}_at"] = _make_get()
