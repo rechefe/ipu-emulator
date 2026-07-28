@@ -50,21 +50,21 @@ row_loop:
     SET                 lr6 cr10;;       # BNE: exit when live k == 127; last live = 127
 
     # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;  # XMEM: r_cyclic[0] = T[k][0..127]
-    ADD                 lr4 lr4 lr13;    # LR0 : weight offset += 128
-    ADD                 lr5 lr5 lr12;    # LR1 : fixed_idx += 1
-    MULT.RC.VE          lr15 lr5 0 lr15; # MULT: A[m][live k] × T[k][0..127]
-    ACC.FIRST;                           # ACC : seed accumulator (= reset + accumulate)
-    BNE                 lr5 lr6 k_loop;; # if K>1 run remaining k; else fall through
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: r_cyclic[0] = T[k][0..127]
+    ADD                 lr4 lr4 lr13;         # LR0 : weight offset += 128
+    ADD                 lr5 lr5 lr12;         # LR1 : fixed_idx += 1
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15; # MULT: A[m][live k] × T[k][0..127]
+    ACC.ADD.FIRST;                            # ACC : seed accumulator (= reset + accumulate)
+    BNE                 lr5 lr6 k_loop;;      # if K>1 run remaining k; else fall through
     B                   after_k_loop;;
 
 k_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;  # XMEM: r_cyclic[0] = T[k][0..127]
-    ADD                 lr4 lr4 lr13;    # LR0 : weight offset += 128
-    ADD                 lr5 lr5 lr12;    # LR1 : fixed_idx += 1
-    MULT.RC.VE          lr15 lr5 0 lr15; # MULT: A[m][live k] × T[k][0..127]
-    ACC;                                 # ACC : accumulate
-    BNE                 lr5 lr6 k_loop;; # loop while live k != 127
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: r_cyclic[0] = T[k][0..127]
+    ADD                 lr4 lr4 lr13;         # LR0 : weight offset += 128
+    ADD                 lr5 lr5 lr12;         # LR1 : fixed_idx += 1
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15; # MULT: A[m][live k] × T[k][0..127]
+    ACC.ADD;                                  # ACC : accumulate
+    BNE                 lr5 lr6 k_loop;;      # loop while live k != 127
 
 after_k_loop:
     STR_ACC_REG         lr7 cr2;;        # store 512 B → C[m]

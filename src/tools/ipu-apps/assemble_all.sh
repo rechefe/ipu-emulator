@@ -13,6 +13,7 @@ APPS=(
   matmul_384x192_x128 matmul_480x240_x128 matmul_576x192_x128 matmul_720x240_x128
   unfold_32x32x144 residual_add_256x144 layernorm_128x16 layernorm_256x144
   attn_scores_km_256x36 attn_v_256x36 attn_v_bcast_36 qk_scores_256x36
+  fully_connected
 )
 
 for name in "${APPS[@]}"; do

@@ -42,8 +42,8 @@ row_loop:
     LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
     ADD                 lr4 lr4 lr13;
     ADD                 lr5 lr5 lr12;
-    MULT.RC.VE          lr15 lr5 0 lr15;
-    ACC.FIRST;
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC.ADD.FIRST;
     BNE                 lr5 lr6 k_loop;;
     B                   after_k_loop;;
 
@@ -51,8 +51,8 @@ k_loop:
     LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
     ADD                 lr4 lr4 lr13;
     ADD                 lr5 lr5 lr12;
-    MULT.RC.VE          lr15 lr5 0 lr15;
-    ACC;
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC.ADD;
     BNE                 lr5 lr6 k_loop;;
 
 after_k_loop:

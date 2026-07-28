@@ -71,7 +71,7 @@ t_loop:
     SUB lr0 lr9 lr11;;                  # P inner start = group P off - 256
     SET lr3 cr0;;                       # dest/inner counter = 0
 g0c0_loop:
-    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2; AGG.SUM.FIRST lr3 1; BLT lr3 cr9 g0c0_loop;;
+    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM.FIRST lr3 cr15; BLT lr3 cr9 g0c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD lr1 lr4 cr6;;                   # V chunk1 offset = chan + 128
@@ -80,7 +80,7 @@ g0c0_loop:
     SUB lr0 lr0 lr11;;                  # minus 256 startup
     SET lr3 cr0;;
 g0c1_loop:
-    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2; AGG.SUM lr3 1; BLT lr3 cr9 g0c1_loop;;
+    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM lr3 cr15; BLT lr3 cr9 g0c1_loop;;
 
     ADD lr5 lr10 cr0;;                  # O g=0 offset = O chan offset
     STR_ACC_REG lr5 cr4;;               # O[0..127, t] = R_ACC   (base OBASE)
@@ -93,7 +93,7 @@ g0c1_loop:
     SUB lr0 lr0 lr11;;                  # minus 256 startup
     SET lr3 cr0;;
 g1c0_loop:
-    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2; AGG.SUM.FIRST lr3 1; BLT lr3 cr9 g1c0_loop;;
+    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM.FIRST lr3 cr15; BLT lr3 cr9 g1c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD lr1 lr4 cr6;;                   # V chunk1 offset = chan + 128
@@ -103,7 +103,7 @@ g1c0_loop:
     SUB lr0 lr0 lr11;;                  # minus 256 startup
     SET lr3 cr0;;
 g1c1_loop:
-    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2; AGG.SUM lr3 1; BLT lr3 cr9 g1c1_loop;;
+    LDR_MULT_REG r0 lr0 cr2; ADD lr0 lr0 lr11; INC lr3 1; MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM lr3 cr15; BLT lr3 cr9 g1c1_loop;;
 
     ADD lr5 lr10 cr12;;                 # O g=1 offset = O chan offset + 512
     STR_ACC_REG lr5 cr4;;               # O[128..255, t] = R_ACC

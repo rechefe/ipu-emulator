@@ -143,7 +143,7 @@ SET lr2 cr8;;
 SET lr3 cr0;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2; ACC; STR_ACC_REG lr3 cr9;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; ACC.ADD; STR_ACC_REG lr3 cr9;;
 BKPT;;
 """
     _load_run(st, asm)

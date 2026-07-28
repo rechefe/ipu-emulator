@@ -21,7 +21,8 @@ POST-FIX findings (all confirmed PASS):
                         (seed read from snapshot R_ACC[dest], ipu.py:914)
    AGG.MAX.FIRST dest -> R_ACC[dest]  = max(mult_res[0..n-1])           (ipu.py:932-935)
    AGG.MAX       dest -> R_ACC[dest]  = max(mult_res[0..n-1], R_ACC[dest])(ipu.py:944-946)
-   n = 128 if full_xmem_row else min(CR15.valid_elements,128) (ipu.py:897/_agg_active_lane_count:868)
+   n = min(CR[cr_idx].valid_elements, 128), where cr_idx is the CR named by the AGG
+       instruction (the old full_xmem_row 0/1 flag was replaced by this operand).
    masking: deselected mult_res lanes are zeroed by the MULT slot before AGG reads them.
    mult_res is read LIVE -> MULT + AGG co-issue in one bundle (no intervening ACC).
 
@@ -29,7 +30,7 @@ POST-FIX findings (all confirmed PASS):
    queries' results parked in other R_ACC slots survive (no ACC.FIRST, no overwrite).
 
 4. Key-major broadcast (ACC over keys, no AGG) still correct + clean 512B store.
-   full_xmem_row vs valid_elements honored; R_MASK gating verified narrow INT8.
+   AGG lane count follows the named CR's valid_elements; R_MASK gating verified narrow INT8.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ import pytest
 
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.execute import decode_instruction_word
+from ipu_emu.ipu_config import encode_dstructure
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -104,7 +106,7 @@ class TestFinding1_AggReducesMultRes:
         asm = """\
 SET lr1 cr6;;
 LDR_MULT_REG r0 lr1 cr0;;
-MULT.RC.VV lr2 r0 0 lr2; AGG.SUM.FIRST lr0 1;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -130,7 +132,7 @@ BKPT;;
         asm = """\
 SET lr1 cr6;;
 LDR_MULT_REG r0 lr1 cr0;;
-MULT.RC.VV lr2 r0 0 lr2; AGG.SUM lr0 1;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -153,7 +155,7 @@ BKPT;;
         asm = """\
 SET lr1 cr6;;
 LDR_MULT_REG r0 lr1 cr0;;
-MULT.RC.VV lr2 r0 0 lr2; AGG.MAX.FIRST lr0 1;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.MAX.FIRST lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -173,7 +175,7 @@ BKPT;;
         asm = """\
 SET lr1 cr6;;
 LDR_MULT_REG r0 lr1 cr0;;
-MULT.RC.VV lr2 r0 0 lr2; AGG.MAX lr0 1;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.MAX lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -199,7 +201,7 @@ LDR_MULT_REG r0 lr1 cr0;;
 SET lr3 cr7;;
 SET lr4 cr8;;
 LDR_CYCLIC_MULT_REG lr3 cr0 lr4;;
-MULT.RC.VV lr4 r0 0 lr4; AGG.SUM.FIRST lr0 1;;
+MULT.RC.VV lr4 r0 0 lr4 cr15; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -260,7 +262,7 @@ class TestFinding2_QueryMajorAttnV:
                 lines.append(f"SET lr1 cr{v_cr};;")
                 lines.append("LDR_MULT_REG r0 lr0 cr0;;")
                 lines.append("LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;")
-                lines.append(f"MULT.RC.VV lr2 r0 0 lr2; {agg} lr3 1;;")
+                lines.append(f"MULT.RC.VV lr2 r0 0 lr2 cr15; {agg} lr3 cr15;;")
                 lines.append("ADD lr0 lr0 lr4;;")   # next P chunk
             lines.append("INC lr3 1;;")             # next query -> next dest lane
         lines.append("BKPT;;")
@@ -306,10 +308,10 @@ class TestFinding3_KeyMajorBroadcast:
 
         lines = ["SET lr0 cr7;;", "SET lr1 cr6;;", "SET lr3 cr9;;"]
         for s in range(self.N_K):
-            acc = "ACC.FIRST" if s == 0 else "ACC"
+            acc = "ACC.ADD.FIRST" if s == 0 else "ACC.ADD"
             lines.append("LDR_MULT_REG r0 lr0 cr0;;")
             lines.append("LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;")
-            lines.append(f"MULT.RC.VV lr2 r0 0 lr2; {acc};;")
+            lines.append(f"MULT.RC.VV lr2 r0 0 lr2 cr15; {acc};;")
             lines.append("ADD lr0 lr0 lr3;;")
             lines.append("ADD lr1 lr1 lr3;;")
         lines.append("SET lr5 cr8;;")
@@ -328,14 +330,19 @@ class TestFinding3_KeyMajorBroadcast:
 # FINDING 4: supporting checks.
 # ===========================================================================
 
-class TestFinding4a_FullXmemRowVsValidElements:
-    """AGG full_xmem_row=1 -> 128 lanes (ignores valid_elements);
-    full_xmem_row=0 -> CR15.valid_elements. Reduced source is mult_res."""
+class TestFinding4a_AggLaneCountFromNamedCr:
+    """AGG's active lane count comes from the dstructure CR it names.
 
-    def _run(self, full_xmem_row: int) -> int:
+    The old ``full_xmem_row`` 0/1 flag is gone: naming a CR whose
+    valid_elements=128 is the former ``full_xmem_row=1``, and naming one with a
+    smaller count is the former ``full_xmem_row=0``. Reduced source is mult_res.
+    """
+
+    def _run(self, agg_cr: str) -> int:
         st = IpuState()
         st.dtype = DType.INT8
-        st.set_cr_dstructure(10)        # valid_elements=10
+        st.set_cr_dstructure(10)        # CR15: valid_elements=10
+        st.regfile.set_cr(5, encode_dstructure(valid_elements=128))  # CR5: all lanes
         st.xmem.write_address(0x1000, bytes([1] * 128))   # R0
         st.xmem.write_address(0x2000, bytes([1] * 512))   # R_CYCLIC -> mult_res=1/lane
         st.regfile.set_cr(6, 0x1000)
@@ -348,17 +355,17 @@ LDR_MULT_REG r0 lr1 cr0;;
 SET lr3 cr7;;
 SET lr4 cr8;;
 LDR_CYCLIC_MULT_REG lr3 cr0 lr4;;
-MULT.RC.VV lr4 r0 0 lr4; AGG.SUM.FIRST lr0 {full_xmem_row};;
+MULT.RC.VV lr4 r0 0 lr4 cr15; AGG.SUM.FIRST lr0 {agg_cr};;
 BKPT;;
 """
         _load_and_run(st, asm)
         return _acc_i(st, 127)
 
-    def test_full_xmem_row_1_uses_128(self) -> None:
-        assert self._run(1) == 128, "full_xmem_row=1 must sum all 128 mult_res lanes"
+    def test_cr_with_128_valid_elements_uses_128(self) -> None:
+        assert self._run("cr5") == 128, "valid_elements=128 must sum all 128 mult_res lanes"
 
-    def test_full_xmem_row_0_uses_valid_elements(self) -> None:
-        assert self._run(0) == 10, "full_xmem_row=0 must use valid_elements=10"
+    def test_cr_with_small_valid_elements_uses_that_count(self) -> None:
+        assert self._run("cr15") == 10, "valid_elements=10 must sum only 10 lanes"
 
 
 class TestFinding4b_MultAggCoIssueLive:
@@ -384,7 +391,7 @@ LDR_MULT_REG r0 lr1 cr0;;
 SET lr3 cr7;;
 SET lr4 cr8;;
 LDR_CYCLIC_MULT_REG lr3 cr0 lr4;;
-MULT.RC.VV lr4 r0 0 lr4; AGG.SUM.FIRST lr0 1;;
+MULT.RC.VV lr4 r0 0 lr4 cr15; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)
@@ -393,7 +400,7 @@ BKPT;;
 
     def test_acc_and_agg_cannot_co_issue(self) -> None:
         asm = """\
-MULT.RC.VV lr4 r0 0 lr4; ACC.FIRST; AGG.SUM.FIRST lr0 1;;
+MULT.RC.VV lr4 r0 0 lr4 cr15; ACC.ADD.FIRST; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """
         with pytest.raises(SystemExit):
@@ -431,7 +438,7 @@ SET lr5 cr8;;
 LDR_CYCLIC_MULT_REG lr3 cr0 lr5;;
 SET lr6 cr9;;
 LDR_MULT_MASK_REG lr6 cr0;;
-MULT.RC.VV lr5 r0 0 lr5; AGG.SUM.FIRST lr0 1;;
+MULT.RC.VV lr5 r0 0 lr5 cr15; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """
         _load_and_run(st, asm)

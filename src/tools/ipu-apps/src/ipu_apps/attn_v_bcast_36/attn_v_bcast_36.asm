@@ -89,11 +89,11 @@ g_loop:
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr1; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 cr8 s_loop;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 cr8 s_loop;;
     B s_done;;
 s_loop:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr1; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 cr8 s_loop;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 cr8 s_loop;;
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------

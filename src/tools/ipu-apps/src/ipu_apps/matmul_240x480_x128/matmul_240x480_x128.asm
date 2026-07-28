@@ -30,12 +30,12 @@ j_loop:
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 k_chunk0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
 
@@ -43,19 +43,19 @@ after_chunk0:
 
 k_chunk1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk1;;
 
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;   # chunk2 startup; r0 = W[j, chunk2]
 
 k_chunk2:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk2;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk2;;
 
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr4;;   # chunk3 startup; r0 = W[j, chunk3]
 
 k_chunk3:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr11 k_chunk3;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr11 k_chunk3;;
 
     STR_ACC_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)

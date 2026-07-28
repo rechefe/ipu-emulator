@@ -58,11 +58,11 @@
     ADD     lr5  lr5 cr1;;             # lr5 = 1  (BLT reads snapshot; loop runs N_CH times)
 
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step1_loop;;
     B       step1_done;;
 step1_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step1_loop;;
 step1_done:
 
@@ -88,8 +88,8 @@ step1_done:
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
 step2_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VV lr0 r1 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
     STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr7;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step2_loop;;
 
@@ -109,11 +109,11 @@ step2_loop:
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): load centered[ch]
     # into r_cyclic, then square it in place.
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD.FIRST;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step3_loop;;
     B       step3_done;;
 step3_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step3_loop;;
 step3_done:
 
@@ -124,9 +124,9 @@ step3_done:
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr8;;
-    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
 
-    ACTIVATE            rsqrt 1;;
+    ACTIVATE.QUANTIZE rsqrt cr15;;
     STR_POST_AAQ_REG    lr0 cr9;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ step3_done:
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
 step5_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1; ACC.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
     STR_ACC_REG         lr2 cr7;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step5_loop;;
 
@@ -173,11 +173,11 @@ step5_loop:
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
     SET     lr9  cr0;;               # fixed_idx γ = 0
-    SET     lr10 cr14;;               # fixed_idx β = 128
+    SET     lr10 cr14;;              # fixed_idx β = 128
 
 step6_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VE lr0 lr9 0 lr1; ACC.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr10 0 lr1; ACC;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VE lr0 lr9 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr10 0 lr1 cr15; ACC.ADD;;
     STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr9 lr9 cr1; ADD lr10 lr10 cr1;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step6_loop;;
 

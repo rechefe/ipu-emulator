@@ -52,12 +52,12 @@ s_loop:
 
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 c_loop_g0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 c_loop_g0;;
     B after_c_g0;;
 
 c_loop_g0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 c_loop_g0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 c_loop_g0;;
 
 after_c_g0:
     STR_ACC_REG lr7 cr2;;               # store S[0:128, s] (key-major row, g=0)
@@ -68,12 +68,12 @@ after_c_g0:
     SET lr5 cr7;;                       # fixed_idx c startup: -1
 
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 c_loop_g1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 c_loop_g1;;
     B after_c_g1;;
 
 c_loop_g1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 c_loop_g1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 c_loop_g1;;
 
 after_c_g1:
     STR_ACC_REG lr7 cr2;;               # store S[128:256, s] (key-major row, g=1)

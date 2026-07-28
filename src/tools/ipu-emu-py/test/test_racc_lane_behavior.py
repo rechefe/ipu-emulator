@@ -78,7 +78,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 BKPT;;
 """,
     )
@@ -102,8 +102,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc.first;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
 BKPT;;
 """,
     )
@@ -126,8 +126,8 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
-acc;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add;;
 BKPT;;
 """,
     )
@@ -152,7 +152,7 @@ SET lr1 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.stride 64 off off lr3;;
 BKPT;;
 """,
@@ -190,7 +190,7 @@ SET lr5 cr7;;
 SET lr2 cr8;;
 LDR_MULT_REG r0 lr1 cr0;;
 LDR_CYCLIC_MULT_REG lr5 cr0 lr2;;
-MULT.RC.VV lr2 r0 0 lr2; AGG.SUM.FIRST lr0 0;;
+MULT.RC.VV lr2 r0 0 lr2 cr15; AGG.SUM.FIRST lr0 cr15;;
 BKPT;;
 """,
     )

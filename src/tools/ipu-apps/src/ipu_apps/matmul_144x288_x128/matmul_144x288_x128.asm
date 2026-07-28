@@ -42,16 +42,16 @@
 
 j_loop:
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;  # tg=0 startup; r0 = W[j, 0..127]
-    SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
+    SET lr5 cr8;;                           # chunk0 fixed_idx startup: -1
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 k_chunk0_tg0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0_tg0;;
     B after_chunk0_tg0;;
 
 k_chunk0_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk0_tg0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0_tg0;;
 
 after_chunk0_tg0:
 
@@ -59,13 +59,13 @@ after_chunk0_tg0:
 
 k_chunk1_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk1_tg0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk1_tg0;;
 
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;  # chunk2 startup; r0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk2_tg0;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk2_tg0;;
 
     STR_ACC_REG lr7 cr4;;                   # store 512B → OUTPUT[j, tg=0]
 
@@ -74,12 +74,12 @@ k_chunk2_tg0:
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC.FIRST; BLT lr5 lr6 k_chunk0_tg1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0_tg1;;
     B after_chunk0_tg1;;
 
 k_chunk0_tg1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk0_tg1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0_tg1;;
 
 after_chunk0_tg1:
 
@@ -87,13 +87,13 @@ after_chunk0_tg1:
 
 k_chunk1_tg1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk1_tg1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk1_tg1;;
 
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;
 
 k_chunk2_tg1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0; ACC; BLT lr5 lr6 k_chunk2_tg1;;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk2_tg1;;
 
     STR_ACC_REG lr7 cr5;;                   # store 512B → OUTPUT[j, tg=1]
     ADD lr7 lr7 lr3;;                       # advance output ptr
