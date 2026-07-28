@@ -6,6 +6,7 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 
 from __future__ import annotations
 
+import struct
 from enum import Enum
 from typing import Any
 
@@ -129,31 +130,86 @@ class IpuState:
         """Deep-copy the register file for VLIW read-before-write semantics."""
         return self.regfile.snapshot()
 
+    # -- mode-derived sizing (mirrors Ipu._element_width_bytes / _row_size_bytes /
+    #    _r_cyclic_wrap_bytes in ipu.py -- duplicated here, not imported, because
+    #    Ipu imports IpuState and importing back would be circular. Both read only
+    #    wide_vector_debug/wide_vector_arithmetic, so keeping the two in sync is a
+    #    one-line change on each side.) ------------------------------------------
+
+    LANES = 128
+
+    def _element_width_bytes(self) -> int:
+        """Bytes per element in the active mode: 1 narrow, 4 wide-vector debug."""
+        return 4 if self.wide_vector_debug else 1
+
+    def _row_size_bytes(self) -> int:
+        """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
+        return self.LANES * self._element_width_bytes()
+
+    def _r_cyclic_wrap_bytes(self) -> int:
+        """r_cyclic's wrap modulus in the active mode: 512 B narrow, 2048 B debug."""
+        return 512 * self._element_width_bytes()
+
     # -- XMEM ↔ register transfers (mirrors ipu__load_r_reg / ipu__store_r_reg) --
+    #
+    # Debug/test convenience helpers, not on any instruction execution path.
+    # xmem_addr here is a ROW number, matching the corresponding instruction
+    # (LDR_MULT_REG / STR_ACC_REG / etc. -- see #179); byte sizes are derived
+    # from the active mode via the helpers above, not hardcoded.
 
-    def load_r_reg_from_xmem(self, xmem_addr: int, r_index: int) -> None:
-        """Load 128 bytes from XMEM into R register *r_index*."""
-        data = self.xmem.read_address(xmem_addr, 128)
-        self.regfile.set_r(r_index, data)
+    def load_r_reg_from_xmem(self, xmem_row: int, r_index: int) -> None:
+        """Load one row from XMEM into R register *r_index* (0=R0, 1=R1).
 
-    def store_r_reg_to_xmem(self, xmem_addr: int, r_index: int) -> None:
-        """Store R register *r_index* (128 bytes) to XMEM."""
-        data = self.regfile.get_r(r_index)
-        self.xmem.write_address(xmem_addr, data)
+        R0/R1 are fixed 128-byte registers in BOTH modes -- unlike r_cyclic,
+        their allocated size does not scale with element width, because the
+        real emulator represents debug-mode R0/R1 data as 128 Python
+        floats/ints in ``_debug_mult_stage_vectors`` (the same staging LDR_MULT_REG
+        uses), not as raw bytes in the register file. In debug mode this helper
+        mirrors that: it unpacks the row into that staging list instead of
+        writing register bytes.
+        """
+        data = self.xmem.read_address(xmem_row * self._row_size_bytes(), self._row_size_bytes())
+        if self.wide_vector_debug:
+            fmt = "<128f" if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<128i"
+            self._debug_mult_stage_vectors[r_index] = list(struct.unpack_from(fmt, data, 0))
+        else:
+            self.regfile.set_r(r_index, data)
 
-    def load_r_cyclic_from_xmem(self, xmem_addr: int) -> None:
-        """Load 128 bytes from XMEM into the cyclic register at current index."""
-        data = self.xmem.read_address(xmem_addr, 128)
-        self.regfile.set_r_cyclic_at(0, data)
+    def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
+        """Store R register *r_index* (0=R0, 1=R1, one row) to XMEM.
 
-    def store_acc_to_xmem(self, xmem_addr: int) -> None:
-        """Store the accumulator (512 bytes) to XMEM."""
+        See load_r_reg_from_xmem: in debug mode this reads from
+        ``_debug_mult_stage_vectors`` (the real backing for R0/R1 in that
+        mode), not the 128-byte register file storage.
+        """
+        if self.wide_vector_debug:
+            values = self._debug_mult_stage_vectors.get(
+                r_index, [0.0 if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * self.LANES
+            )
+            fmt = "<128f" if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<128i"
+            data = struct.pack(fmt, *values)
+        else:
+            data = self.regfile.get_r(r_index)
+        self.xmem.write_address(xmem_row * self._row_size_bytes(), data)
+
+    def load_r_cyclic_from_xmem(self, xmem_row: int, slot_element_idx: int = 0) -> None:
+        """Load one row from XMEM into the cyclic register at *slot_element_idx*
+        (an element index; must be one of the four slot boundaries 0/128/256/384,
+        same as LDR_CYCLIC_MULT_REG -- see #180). Defaults to slot 0."""
+        data = self.xmem.read_address(xmem_row * self._row_size_bytes(), self._row_size_bytes())
+        byte_idx = slot_element_idx * self._element_width_bytes()
+        self.regfile.set_r_cyclic_at(byte_idx, data, self._r_cyclic_wrap_bytes())
+
+    def store_acc_to_xmem(self, xmem_row: int) -> None:
+        """Store the accumulator (512 bytes, both modes -- width does not scale
+        with element width) to XMEM."""
         data = self.regfile.get_r_acc_bytes()
-        self.xmem.write_address(xmem_addr, data)
+        self.xmem.write_address(xmem_row * self._row_size_bytes(), data)
 
-    def load_r_mask_from_xmem(self, xmem_addr: int) -> None:
-        """Load 128 bytes from XMEM into the mask register."""
-        data = self.xmem.read_address(xmem_addr, 128)
+    def load_r_mask_from_xmem(self, xmem_row: int) -> None:
+        """Load the mask register (128 bytes, both modes -- 1 bit/lane, does not
+        scale with element width) from XMEM."""
+        data = self.xmem.read_address(xmem_row * self._row_size_bytes(), 128)
         self.regfile.set_r_mask(data)
 
     # -- state queries ------------------------------------------------------
