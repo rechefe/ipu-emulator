@@ -375,10 +375,11 @@ class Ipu:
         Lanes in mult_res where the resulting mask bit is 0 are set to
         CR[cr_idx].pad_mode's fill value (ZERO, +inf, or -inf). +inf/-inf
         require a floating-point dtype — they have no INT8 representation.
-        """
-        if self._wide_vector_active():
-            return
 
+        Mode-blind: the mask is 128 bits (one bit per lane) and MULT_RES is
+        128 four-byte lanes in both narrow and wide-vector debug mode, so the
+        same code drives both.
+        """
         # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
         if shift >= (1 << (LR_CR_SCALAR_BITS - 1)):
             shift = shift - (1 << LR_CR_SCALAR_BITS)
@@ -418,17 +419,29 @@ class Ipu:
 
         ZERO is representable in both INT8 (int32) and float dtypes.
         POS_INF/NEG_INF only exist in floating-point representations, so
-        they are rejected under INT8 dtype.
+        they are rejected under integer lane arithmetic.
+
+        Which field decides that differs by mode: in wide-vector debug mode
+        lane arithmetic is governed by ``wide_vector_arithmetic``, not by
+        ``dtype`` (which stays at its INT8 default unless a caller overrides
+        it). Using ``dtype`` here would reject +inf/-inf in debug/FP32, where
+        infinity is perfectly representable.
         """
         if pad_mode == PadMode.ZERO:
             return b"\x00\x00\x00\x00"
-        if self.state.dtype == DType.INT8:
+        if not self._lanes_are_float():
             raise EmulatorError(
-                f"dstructure pad_mode {pad_mode.name} requires a floating-point dtype; "
-                "INT8 has no infinity representation"
+                f"dstructure pad_mode {pad_mode.name} requires floating-point lanes; "
+                "integer lane arithmetic has no infinity representation"
             )
         value = float("inf") if pad_mode == PadMode.POS_INF else float("-inf")
         return struct.pack("<f", value)
+
+    def _lanes_are_float(self) -> bool:
+        """Whether MULT_RES lanes hold floats, under whichever mode is active."""
+        if self._wide_vector_active():
+            return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
+        return self.state.dtype != DType.INT8
 
     # -----------------------------------------------------------------------
     # Memory slot instruction handlers (load / store / acc_store)
