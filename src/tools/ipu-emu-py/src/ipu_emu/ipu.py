@@ -73,7 +73,11 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # with a byte count — use it for lane loop bounds, mask bit-widths, and
 # lane-indexed lists/tuples in both modes. R_REG_SIZE remains a byte count
 # (the "r" register's size); it coincides with LANES only in narrow mode.
-LANES = 128
+#
+# Derived from r_acc's word_view: r_acc is 128 uint32 lanes regardless of mode
+# (the same R_ACC_SIZE // 4 word count already used throughout this file for
+# acc-slot addressing), so it — not R_REG_SIZE — is the true source for LANES.
+LANES = R_ACC_SIZE // 4
 
 # R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
 # must land exactly on a slot boundary — no implicit wraparound.
