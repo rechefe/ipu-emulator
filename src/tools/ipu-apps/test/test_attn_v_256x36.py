@@ -65,7 +65,7 @@ def test_wide_fp32_matches_numpy_no_quant_noise() -> None:
             lines.append(f"SET lr1 cr{v_cr};;")
             lines.append("LDR_MULT_REG r0 lr0 cr0;;")
             lines.append("LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;")
-            lines.append(f"MULT.RC.VV lr2 r0 0 lr2; {agg} lr3 1;;")
+            lines.append(f"MULT.RC.VV lr2 r0 0 lr2 cr15; {agg} lr3 cr15;;")
             lines.append("ADD lr0 lr0 lr4;;")     # next P chunk
         lines.append("INC lr3 1;;")               # next query -> next dest lane
     lines.append("BKPT;;")

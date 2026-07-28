@@ -56,10 +56,10 @@ def test_wide_fp32_matches_numpy_no_quant_noise() -> None:
     # lr0 = P key ptr, lr1 = V key ptr, lr2 = rc index (0), lr3 = stride.
     lines = ["SET lr0 cr6;;", "SET lr1 cr7;;", "SET lr3 cr9;;"]
     for s in range(N_K):
-        acc = "ACC.FIRST" if s == 0 else "ACC"
+        acc = "ACC.ADD.FIRST" if s == 0 else "ACC.ADD"
         lines.append("LDR_MULT_REG r0 lr1 cr0;;")              # R0 = V[s] broadcast
         lines.append("LDR_CYCLIC_MULT_REG lr0 cr0 lr2;;")      # R_CYCLIC = P[:,s]
-        lines.append(f"MULT.RC.VE lr2 lr2 0 lr2; {acc};;")     # scalar = R0[lr2=0] = V[s]
+        lines.append(f"MULT.RC.VE lr2 lr2 0 lr2 cr15; {acc};;")  # scalar = R0[lr2=0] = V[s]
         lines.append("ADD lr0 lr0 lr3;;")
         lines.append("ADD lr1 lr1 lr3;;")
     lines.append("BKPT;;")

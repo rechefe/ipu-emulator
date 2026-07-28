@@ -16,7 +16,9 @@ for t in test/test_*.py; do
   out=$(env "${prefix}_INST_BIN=$BIN_DIR/$name.bin" \
             "${prefix}_DATA_DIR=src/ipu_apps/$name/test_data_format" \
             uv run pytest "$t" -q 2>&1)
-  if echo "$out" | grep -q "passed"; then
+  # Require a clean summary line: a bare "N passed" with no failures or errors.
+  # Matching only "passed" would let "3 passed, 1 failed" through as a pass.
+  if echo "$out" | grep -qE "^[0-9]+ passed" && ! echo "$out" | grep -qE "[0-9]+ (failed|error)"; then
     echo "PASS  $name :: $(echo "$out" | grep -oE '[0-9]+ passed')"
     pass=$((pass+1))
   else
