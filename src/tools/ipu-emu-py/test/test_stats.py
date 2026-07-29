@@ -119,7 +119,7 @@ BKPT;;
         encoded = assemble(asm)
         decoded = [decode_instruction_word(w) for w in encoded]
         state.regfile.set_cr(0, 0)
-        state.regfile.set_cr(1, 0x1000)
+        state.regfile.set_cr(1, 0x1000 // 128)  # row number
         state.xmem.write_address(0x1000, bytearray(128))
         load_program(state, decoded)
         run_until_complete(state)
@@ -136,7 +136,7 @@ BKPT;;
         encoded = assemble(asm)
         decoded = [decode_instruction_word(w) for w in encoded]
         state.regfile.set_lr(0, 0)
-        state.regfile.set_cr(1, 0x1000)
+        state.regfile.set_cr(1, 0x1000 // 128)  # row number
         import warnings
         load_program(state, decoded)
         with warnings.catch_warnings():

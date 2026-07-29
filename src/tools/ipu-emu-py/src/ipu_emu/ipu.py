@@ -22,6 +22,7 @@ from enum import IntEnum
 from typing import Any
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
@@ -81,6 +82,11 @@ LANES = R_ACC_SIZE // 4
 # R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
 # must land exactly on a slot boundary — no implicit wraparound.
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
+
+# XMEM is allocated 8 MB always (mode-independent); narrow mode may address
+# only the first 2 MB of it (16384 rows of 128 B). Debug mode reaches the
+# full 8 MB (16384 rows of 512 B).
+NARROW_MAX_ROW = (1 << 21) // LANES
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +257,35 @@ class Ipu:
         mode-dependent portion of it that is actually reachable/wraps.
         """
         return 512 * self._element_width_bytes()
+
+    def _xmem_row_addr(self, row: int) -> int:
+        """Translate an XMEM row number to a byte address in the active mode.
+
+        ``.asm`` XMEM operands (``offset + base``) are row numbers, not byte
+        addresses — one row is LANES elements, so the same row number reaches
+        the same logical row in both modes at different byte offsets. XMEM is
+        allocated 8 MB unconditionally; narrow mode may only *address* the
+        first 16384 rows (the first 2 MB) of that allocation.
+
+        This only translates and range-checks the row itself; the resulting
+        address's actual payload (which may span more than one row's worth of
+        bytes, e.g. STR_ACC_REG's fixed 512-byte R_ACC) is bounds-checked by
+        ``XMem.read_address``/``write_address`` against the 8 MB allocation.
+        """
+        if row < 0:
+            raise EmulatorError(f"XMEM row must be non-negative; got {row}")
+        if not self._wide_vector_active() and row >= NARROW_MAX_ROW:
+            raise EmulatorError(
+                f"XMEM row {row} is out of range for narrow mode "
+                f"(rows 0..{NARROW_MAX_ROW - 1}, the first 2 MB of the 8 MB allocation)"
+            )
+        addr = row * self._row_size_bytes()
+        if addr >= XMEM_SIZE_BYTES:
+            raise EmulatorError(
+                f"XMEM row {row} is out of range: byte address {addr} exceeds "
+                f"the {XMEM_SIZE_BYTES}-byte allocation"
+            )
+        return addr
 
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
         """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
@@ -481,13 +516,21 @@ class Ipu:
         pass
 
     def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
-        """Execute STR_ACC_REG: Store accumulator to memory (debug only)."""
+        """Execute STR_ACC_REG: Store accumulator to memory (debug only).
+
+        Stores all 512 bytes of R_ACC (128 elements x 32-bit accumulator
+        width) unconditionally in both modes -- R_ACC's width does not scale
+        with the active element width, so "all of R_ACC" is already the
+        mode-blind statement. Only the row address is translated; this spans
+        4 rows in narrow mode and 1 row in debug mode, which is accepted
+        since this is a debug-only instruction by nature (see warning above).
+        """
         warnings.warn(
             "[DEBUG ONLY] STR_ACC_REG is not a hardware instruction and is available "
             "for emulator debugging purposes only",
             stacklevel=2,
         )
-        addr = offset + base
+        addr = self._xmem_row_addr(offset + base)
         acc_data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, acc_data)
 
@@ -497,7 +540,7 @@ class Ipu:
             raise EmulatorError(
                 f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}"
             )
-        addr = offset + base
+        addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
@@ -523,7 +566,7 @@ class Ipu:
         unlike reads (MULT.RC.* via ``_debug_rb_lane_vals``/``get_r_cyclic_at``),
         which are allowed at any element index and may cross a slot boundary.
         """
-        addr = offset + base
+        addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
             raise EmulatorError(
                 f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
@@ -534,8 +577,14 @@ class Ipu:
         self.state.regfile.set_r_cyclic_at(byte_idx, data, self._r_cyclic_wrap_bytes())
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
-        """Execute LDR_MULT_MASK_REG: Load mask data from memory."""
-        addr = offset + base
+        """Execute LDR_MULT_MASK_REG: Load mask data from memory.
+
+        Reads only the START of the row -- 128 bytes (8 x 128-bit slots) in
+        both modes. The mask is 1 bit per lane and does not scale with
+        element width, so only the row address is translated; the read size
+        stays R_REG_SIZE regardless of mode.
+        """
+        addr = self._xmem_row_addr(offset + base)
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
         self.state.regfile.set_r_mask(data)
 
@@ -1122,8 +1171,13 @@ class Ipu:
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
-        """Store **POST_AAQ_REG** (512 bytes) to XMEM."""
-        addr = offset + base
+        """Store **POST_AAQ_REG** (512 bytes) to XMEM.
+
+        POST_AAQ_REG's width does not scale with the active element width
+        (like R_ACC), so all 512 bytes are written unconditionally in both
+        modes; only the row address is translated.
+        """
+        addr = self._xmem_row_addr(offset + base)
         self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
 
     # -----------------------------------------------------------------------
