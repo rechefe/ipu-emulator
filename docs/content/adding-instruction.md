@@ -274,8 +274,8 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             summary="Branch if first register is greater than second.",
             syntax="BGT reg1, reg2, label",
             operands=[
-                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",

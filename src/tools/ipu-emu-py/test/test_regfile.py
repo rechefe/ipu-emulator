@@ -12,7 +12,6 @@ from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
-    LR_CR_SCALAR_VALUE_MASK,
     PadMode,
     Partition,
     decode_dstructure,
@@ -35,7 +34,7 @@ class TestRegFileScalars:
 
     def test_cr_set_get(self):
         rf = RegFile()
-        rf.set_cr(2, 0xCAFE)  # 20-bit value; CR0/CR1 are locked
+        rf.set_cr(2, 0xCAFE)  # CR0/CR1 are locked
         assert rf.get_cr(2) == 0xCAFE
 
     def test_cr0_is_permanently_zero(self):
@@ -48,15 +47,15 @@ class TestRegFileScalars:
         rf.set_cr(1, 0xFFFFFF)  # write is silently ignored
         assert rf.get_cr(1) == 1
 
-    def test_cr_20bit_mask(self):
+    def test_cr_32bit_mask(self):
         rf = RegFile()
-        rf.set_cr(3, 0x1FFFFF)  # 21 bits — should be masked to 20 bits
-        assert rf.get_cr(3) == LR_CR_SCALAR_VALUE_MASK
+        rf.set_cr(3, (1 << 33) | 0xDEADBEEF)  # 34 bits — should be masked to 32 bits
+        assert rf.get_cr(3) == 0xDEADBEEF
 
-    def test_lr_overflow_wraps_to_20bit(self):
+    def test_lr_overflow_wraps_to_32bit(self):
         rf = RegFile()
-        rf.set_lr(0, 0x1_0000_0001)  # > 20 bits
-        assert rf.get_lr(0) == 1  # only low 20 bits kept
+        rf.set_lr(0, (1 << 33) | 0xDEADBEEF)  # > 32 bits
+        assert rf.get_lr(0) == 0xDEADBEEF  # only low 32 bits kept
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()

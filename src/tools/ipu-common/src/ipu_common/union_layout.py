@@ -40,7 +40,7 @@ _DERIVED_OPERAND_TYPES: frozenset[str] = frozenset({"LrIncDecImmediate"})
 # Per-slot target widths (bits).  Padding is applied after union packing when the
 # solver's natural width is narrower — keeps encoded LR sub-instructions stable.
 _SLOT_TARGET_BITS: dict[str, int] = {
-    "lr": 17,
+    "lr": 20,
 }
 
 
@@ -62,6 +62,12 @@ def get_operand_type_bits() -> dict[str, int]:
         # Width 0 at layout time — the shared union field width is set in
         # finalize_derived_operand_bits() after packing.
         "LrIncDecImmediate": 0,
+        # LRD0, LRD2, ..., LRD14: register-pair alias over LR (named after the
+        # lower register), one pair per two LR registers.
+        "LrdIdx": ((lr_count // 2) - 1).bit_length(),
+        # ADDBI's immediate is a plain byte — width is intrinsic (8 bits), not
+        # derived from union packing (unlike LrIncDecImmediate).
+        "AddbiImmediate": 8,
         "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
         "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
         "BreakImmediate": 16,

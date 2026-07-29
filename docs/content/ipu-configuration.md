@@ -14,7 +14,7 @@ harnesses and tests.
 | `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
 | `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
-`LR` and `CR` registers store 20-bit scalar values. Use
+`LR` and `CR` registers store 32-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
 registers.
 
@@ -130,7 +130,7 @@ state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
 state.regfile.set_cr(3, 128)  # stride
 state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)
 
-# Encode signed or wrapped LR/CR constants with the 20-bit scalar mask.
+# Encode signed or wrapped LR/CR constants with the 32-bit scalar mask.
 state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
