@@ -247,6 +247,17 @@ class Ipu:
         """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
         return LANES * self._element_width_bytes()
 
+    def _r_cyclic_wrap_bytes(self) -> int:
+        """r_cyclic's wrap modulus in the active mode: 512 B narrow, 2048 B debug.
+
+        r_cyclic holds 512 elements in BOTH modes -- the wrap happens after the
+        same 512th element regardless of mode, just at a different byte count
+        (1 B/element narrow, 4 B/element debug). r_cyclic is allocated 2048 B
+        always (registers.py); this is NOT that allocation size, it is the
+        mode-dependent portion of it that is actually reachable/wraps.
+        """
+        return 512 * self._element_width_bytes()
+
     def _xmem_row_addr(self, row: int) -> int:
         """Translate an XMEM row number to a byte address in the active mode.
 
@@ -275,17 +286,6 @@ class Ipu:
                 f"the {XMEM_SIZE_BYTES}-byte allocation"
             )
         return addr
-
-    def _r_cyclic_wrap_bytes(self) -> int:
-        """r_cyclic's wrap modulus in the active mode: 512 B narrow, 2048 B debug.
-
-        r_cyclic holds 512 elements in BOTH modes -- the wrap happens after the
-        same 512th element regardless of mode, just at a different byte count
-        (1 B/element narrow, 4 B/element debug). r_cyclic is allocated 2048 B
-        always (registers.py); this is NOT that allocation size, it is the
-        mode-dependent portion of it that is actually reachable/wraps.
-        """
-        return 512 * self._element_width_bytes()
 
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
         """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
