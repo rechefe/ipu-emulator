@@ -13,7 +13,7 @@ import pytest
 
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.execute import decode_instruction_word
-from ipu_emu.ipu import EmulatorError
+from ipu_emu.ipu import EmulatorError, Ipu, LANES
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -364,3 +364,40 @@ BKPT;;
         load_program(st, [decode_instruction_word(w) for w in encoded])
         with pytest.raises(EmulatorError, match="4-byte aligned"):
             run_until_complete(st)
+
+
+class TestElementAndRowSizeHelpers:
+    """_element_width_bytes() / _row_size_bytes(): the single source for the
+    one primitive the two modes differ by (1 vs 4 bytes/element), and the
+    row size (LANES elements) derived from it."""
+
+    def test_element_width_narrow(self) -> None:
+        st = IpuState(wide_vector_debug=False)
+        assert Ipu(st)._element_width_bytes() == 1
+
+    def test_element_width_debug_fp32(self) -> None:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        assert Ipu(st)._element_width_bytes() == 4
+
+    def test_element_width_debug_int32(self) -> None:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        assert Ipu(st)._element_width_bytes() == 4
+
+    def test_row_size_narrow(self) -> None:
+        st = IpuState(wide_vector_debug=False)
+        assert Ipu(st)._row_size_bytes() == 128
+
+    def test_row_size_debug(self) -> None:
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        assert Ipu(st)._row_size_bytes() == 512
+
+    def test_row_size_is_lanes_times_element_width(self) -> None:
+        """Row size must track element width, not be independently hardcoded."""
+        for debug, arithmetic in (
+            (False, WideVectorArithmetic.FP32),
+            (True, WideVectorArithmetic.FP32),
+            (True, WideVectorArithmetic.INT32),
+        ):
+            st = IpuState(wide_vector_debug=debug, wide_vector_arithmetic=arithmetic)
+            ipu = Ipu(st)
+            assert ipu._row_size_bytes() == LANES * ipu._element_width_bytes()
