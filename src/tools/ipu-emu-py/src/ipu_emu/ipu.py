@@ -503,6 +503,27 @@ class Ipu:
             return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
         return self.state.dtype != DType.INT8
 
+    @staticmethod
+    def _lrd_lr_indices(n: int) -> tuple[int, int]:
+        """Real LR register indices (lo, hi) backing LrdIdx pair n: LRDn = LR(2n+1):LR(2n)."""
+        return 2 * n, 2 * n + 1
+
+    def _get_lrd_bytes(self, n: int, regfile: RegFile) -> bytes:
+        """Read LRDn's 8 byte lanes from a register file (snapshot or live).
+
+        Lanes 0-3 are LR(2n)'s bytes (little-endian), lanes 4-7 are LR(2n+1)'s.
+        """
+        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        return regfile.get_lr(lo_idx).to_bytes(4, "little") + regfile.get_lr(hi_idx).to_bytes(
+            4, "little"
+        )
+
+    def _set_lrd_bytes(self, n: int, lanes: bytes | bytearray) -> None:
+        """Write LRDn's 8 byte lanes to the live register file (inverse of ``_get_lrd_bytes``)."""
+        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
+        self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
+
     # -----------------------------------------------------------------------
     # Memory slot instruction handlers (load / store / acc_store)
     # -----------------------------------------------------------------------
@@ -619,16 +640,11 @@ class Ipu:
     def _addb_broadcast(self, dest: int, byte_val: int) -> None:
         """Broadcast-add a signed byte to all 8 lanes of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
         assert self.snapshot is not None
-        lo_idx, hi_idx = 2 * dest, 2 * dest + 1
-        lanes = bytearray(
-            self.snapshot.get_lr(lo_idx).to_bytes(4, "little")
-            + self.snapshot.get_lr(hi_idx).to_bytes(4, "little")
-        )
+        lanes = bytearray(self._get_lrd_bytes(dest, self.snapshot))
         signed = byte_val - 256 if byte_val >= 128 else byte_val
         for i in range(8):
             lanes[i] = max(0, min(255, lanes[i] + signed))
-        self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
-        self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
+        self._set_lrd_bytes(dest, lanes)
 
     def execute_addb(self, *, dest: int, src_b: int) -> None:
         """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRDn's 8 byte lanes."""
@@ -673,7 +689,7 @@ class Ipu:
                 continue
             raw = kwargs[op["name"]]
             if op["type"] == "LrdIdx":
-                return {2 * raw, 2 * raw + 1}
+                return set(Ipu._lrd_lr_indices(raw))
             return {raw}
         return set()
 
@@ -1077,14 +1093,8 @@ class Ipu:
         pre-instruction value (no intra-instruction chaining).
         """
         assert self.snapshot is not None
-        src_lo, src_hi = 2 * source, 2 * source + 1
-        dst_lo, dst_hi = 2 * dest, 2 * dest + 1
-        src_lanes = self.snapshot.get_lr(src_lo).to_bytes(4, "little") + self.snapshot.get_lr(
-            src_hi
-        ).to_bytes(4, "little")
-        dst_lanes = self.snapshot.get_lr(dst_lo).to_bytes(4, "little") + self.snapshot.get_lr(
-            dst_hi
-        ).to_bytes(4, "little")
+        src_lanes = self._get_lrd_bytes(source, self.snapshot)
+        dst_lanes = self._get_lrd_bytes(dest, self.snapshot)
 
         n = RESHAPE_LANE_COUNT - reshape_mask
         writes = [
