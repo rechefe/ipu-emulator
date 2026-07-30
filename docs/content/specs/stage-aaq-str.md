@@ -4,7 +4,7 @@
 
 This spec covers two consecutive VLIW pipeline stages: **AaQ**
 (Activation and Quantization) and **STR** (Store), which write AaQ's
-output to external memory. AaQ is §§1-6 below; STR is §7.
+output to external memory. AaQ is sections 1-6 below; STR is section 7.
 
 The AaQ (Activation and Quantization) stage applies element-wise activation
 and special functions to the 128-element accumulator, and quantizes the
@@ -23,8 +23,8 @@ flowchart LR
     str_stage:::blue
     ACC(["r_acc 128x32bit"]):::yellow
     WADDR(["write_addr"]):::yellow
-    WEN(["write_en"]):::yellow
-    OUT(["128x8bit elements | 8bit scale | 7bit format | write_addr | write_en"]):::red
+    STROP(["str_opcode"]):::yellow
+    OUT(["128x8bit elements | 8bit scale | 7bit format | write_addr | str_opcode"]):::red
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
 
@@ -32,7 +32,7 @@ flowchart LR
     ACT -->|128x32| QUANT
     QUANT -->|128x8 + scale + format| OUT
     WADDR --> OUT
-    WEN --> OUT
+    STROP --> OUT
     OUT --> str_stage
     mult_stage --> |128x32| acc_stage
     acc_stage --> |128x32| ACC
@@ -62,11 +62,11 @@ flowchart LR
             r_acc  ─────>│                                      │
     function_type  ─────>│             AaQ Stage                ├────> to STR stage
  invalid_elements  ─────>│                                      │      [128×8b elements | 8b scale | 7b format
-        partition  ─────>│                                      │       | write_addr | write_en]
+        partition  ─────>│                                      │       | write_addr | str_opcode]
            format  ─────>│                                      │
         quan_mode  ─────>│                                      │
        write_addr  ─────>│                                      │
-         write_en  ─────>│                                      │
+       str_opcode  ─────>│                                      │
                          └──────────────────────────────────────┘
 ```
 
@@ -80,13 +80,13 @@ flowchart LR
 | `rst` | `input logic` | Synchronous reset. |
 | `op` | `input logic [0:0]` | Selects the AaQ operation: `AAQ_INST_OPCODE_NOP` = 0, `AAQ_INST_OPCODE_ACTIVATE_QUANTIZE` = 1. |
 | `r_acc` | `input logic [127:0][31:0]` | 128-element accumulator (128 × 32-bit FP32). |
-| `function_type` | `input logic [2:0]` | Encoded activation/special-function selector for `ACTIVATE.QUANTIZE` (see §5.0). |
+| `function_type` | `input logic [2:0]` | Encoded activation/special-function selector for `ACTIVATE.QUANTIZE` (see section 5.0). |
 | `invalid_elements` | `input logic [6:0]` | Element count. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
 | `format` | `input logic [6:0]` | Output element format, replacing the old fixed `dtype`: bit `[6]` = sign (`0`=unsigned, `1`=signed), bits `[5:3]` = exponent bits (3 bits), bits `[2:0]` = mantissa bits (3 bits). |
 | `quan_mode` | `input logic` | Scale-factor mode: `1` = dynamic, `0` = static. |
-| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, §4). Received here and passed through to the STR stage, which performs the actual XMEM write. |
-| `write_en` | `input logic` | Write enable. Received here and passed through to the STR stage alongside `write_addr` and the quantized data. |
+| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). Received here and passed through to the STR stage. |
+| `str_opcode` | `input logic [0:0]` | The STORE slot's opcode (`STORE_INST_OPCODE_STR_POST_AAQ_REG` = 0, `STORE_INST_OPCODE_NOP` = 1; see section 7.1). Received here and passed through to the STR stage. |
 
 *`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-as-py/src/ipu_as/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output <path>`).*
 
@@ -96,13 +96,11 @@ The Quantization block passes the following payload to the **STR stage**, which 
 
 | Field | Width | Description |
 |-------|-------|-------------|
-| Quantized elements | 128 × 8 bit = 1024 bits | Quantized value of each of the 128 elements. |
-| Scale factor | 8 bits | Scale factor applied across the quantized elements. |
-| Format | 7 bits (matching the `format` input width, §3.1: 1 sign + 3 exponent + 3 mantissa) | Encodes the output element format so downstream readers can interpret the quantized data. |
-| `write_addr` | `[XMEM_ADDR_W-1:0]` | Passed through unchanged from the `write_addr` input (§3.1). |
-| `write_en` | `1 bit` | Passed through unchanged from the `write_en` input (§3.1). |
+| `aaq_out` | 1024 + 8 + 7 = 1039 bits | Bundled output data (see section 5.1/6.2): 128 × 8-bit quantized elements, 8-bit scale factor, and 7-bit format (matching the `format` input width, section 3.1: 1 sign + 3 exponent + 3 mantissa). |
+| `write_addr` | `[XMEM_ADDR_W-1:0]` | Passed through unchanged from the `write_addr` input (section 3.1). |
+| `str_opcode` | `1 bit` | Passed through unchanged from the `str_opcode` input (section 3.1). |
 
-Total payload width: 1024 + 8 + 7 = 1039 bits, plus `write_addr` (`XMEM_ADDR_W` bits) and `write_en` (1 bit).
+Total payload width: 1039 + 1 = 1040 bits, plus `write_addr` (`XMEM_ADDR_W` bits).
 
 ## 4. Disclaimers
 
@@ -115,14 +113,13 @@ Total payload width: 1024 + 8 + 7 = 1039 bits, plus `write_addr` (`XMEM_ADDR_W` 
 
 ### 5.0 Activate and Quantize (`ACTIVATE.QUANTIZE`)
 
-Activation and quantization happen in a single instruction — there is no
+Activation and quantization happen in a single instruction; there is no
 separate activate-only or quantize-only instruction. It applies an
 element-wise activation function to every element of `r_acc`.
 
 The function is selected via `function_type` and applied directly to the
-FP32 elements, unlike other write activations. Functions besides `relu`,
-`relu6`, and `identity` are loaded into the LUT; functions called by name,
-like `rsqrt`, `reciprocal`, or `activation`, require the function to be
+FP32 elements. Functions besides `relu`,
+`relu6`, and `identity` are loaded into the LUT; functions called by name `exp2`,`rsqrt`, `reciprocal`, or `activation`, require the function to be
 present in the LUT.
 
 ```text
@@ -137,7 +134,7 @@ for i in 0..127:
         activation:  activated[i] = LUT[function_type](r_acc[i])
 ```
 
-Supported function types — activation and special functions grouped onto a
+Supported function types: activation and special functions grouped onto a
 single field:
 
 
@@ -146,80 +143,121 @@ single field:
 | 1 | `identity` | `f(x) = x` | Pass-through; no transform. |
 | 2 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
 | 3 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
-| 4 | `activation` | — | Covers all activations except `relu` and `relu6`: `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `silu`. |
+| 4 | `activation` | - | Covers all activations except `relu` and `relu6`: `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `silu`. |
 | 5 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
 | 6 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
 | 7 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
-## 6. ISA — Instruction Reference
+### 5.1 Quantization Algorithm
 
-The AaQ stage executes **two mnemonics** in its single AaQ slot (one
-per VLIW word): `NOP` and `ACTIVATE.QUANTIZE`. The opcode enum
+After activation (section 5.0), each activated FP32 element `a` (IEEE-754 single
+precision: 1-bit sign `S`, 8-bit exponent `e`, 23-bit mantissa) is quantized
+to the format selected by `format` (section 3.1): sign bit present only if
+`format[6] = 1` (signed; omitted when unsigned) + `fe` exponent bits
+(`format[5:3]`) + `fm` mantissa bits (`format[2:0]`). `fe` and `fm` are
+independent fields, not derived from one another, so `sign + fe + fm` is not
+required to total 8 bits; when it is smaller, the leftover high-order bits
+of the 8-bit quantized element are zero-padded. `fe` is at minimum 1 bit;
+`fm` may be 0 bits. FP32 inputs are always treated as normalized (implicit
+leading 1); subnormal inputs are not specially handled.
+
+The scale factor `s` (8 bits, `e8m0`: exponent only, no mantissa) is the
+batch's shared scale, computed as the maximum raw exponent across the 128
+elements of the batch, before quantization:
+
+```text
+s = max(e[i] for i in 0..127)
+```
+
+For each element, define the exponent distance from the batch scale:
+
+```text
+E = -(e - s)   // = s - e
+```
+
+Since `s` is the batch maximum, `E >= 0` for every element, with `E = 0` at
+the batch-max element(s) and `E` growing as an element's magnitude shrinks
+relative to the batch max. The output exponent and mantissa fields are then:
+
+```text
+if 0 <= E <= 2^fe - 1:               // representable directly in fe bits
+    Exp = E
+    M   = RTN(1.M)                   // round the 23-bit mantissa (implicit leading 1) to fm bits
+else:                                  // E exceeds what fe bits can represent
+    Exp = 2^fe - 1                    // exponent field saturates at its max value
+    M   = RTN(1.M >> [E - (2^fe - 1) + 1])  // extra right-shift preserves magnitude instead of flushing to zero
+```
+
+`RTN` = round to nearest. Sign `S` (when present, `format[6] = 1`) is passed
+through unchanged. The final 8-bit quantized element is
+`{0-pad, S?, Exp, M}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
+the low end, zero-padded at the high end to fill 8 bits. The output payload
+also carries `Format` (passed through unchanged from the `format` input) and
+the batch `Scale` (`s`), as described in section 3.2.
+
+> **Note:** the `S`/`Exp`/`M` encoding above is the same for both
+> `quan_mode` values, and `s` is computed the same way (batch max, as shown
+> above) regardless of `quan_mode`. `quan_mode = 1` (dynamic) restricts
+> `format` to exactly two supported formats, both signed: `e2m5` and
+> `e1m6`. How the hardware chooses between `e2m5` and `e1m6` in dynamic
+> mode is **TBD**.
+
+## 6. ISA-AaQ: Instruction Reference
+
+The opcode enum
 (`aaq_inst_opcode_t`, package `ipu_instr_pkg`) is generated from
 [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
-by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py)
-and is not duplicated here.
+by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 
-> **Aggregation instructions** (`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`,
-> `AGG.MAX.FIRST`) live in the **ACC slot**, not the AaQ slot. They write a
-> single reduced scalar into a chosen `R_ACC` element; see the ACC stage spec.
-
-The AaQ slot is resolved by CTRL and forwarded down the dispatch chain;
+The AaQ slot is resolved by CTRL and forwarded down the pipeline;
 the stage does not read the CR/LR register files itself (see the
-Control Stage spec, §5). The active element count is determined by each
+Control Stage spec, section 5). The active element count is determined by each
 instruction's mandatory `cr_idx` operand: `n = min(invalid_elements, 128)`
-at cycle start. There is no implicit default register — `cr_idx` must always
+at cycle start. There is no implicit default register; `cr_idx` must always
 be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
 but is never assumed).
 
-### 6.1 `NOP` — No Operation
+### 6.1 `NOP`: No Operation
 
 - **Summary:** No operation for the AaQ slot; performs no state changes.
 - **Syntax:** `NOP`
 - **Operands:** none.
-- **Operation:** none — `r_acc` and `POST_AaQ_REG` are unchanged.
-- **Notes:** Inserted automatically when the AaQ slot is omitted from a VLIW word (see §3.1).
 
-### 6.2 `ACTIVATE.QUANTIZE` — Activate and Quantize
+### 6.2 `ACTIVATE.QUANTIZE`: Activate and Quantize
 
-- **Summary:** Apply an element-wise activation function to the active elements of `r_acc` and write the resulting FP32 values into `POST_AaQ_REG`. Activation functions are pre-configured into a LUT; naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
+- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and format into `aaq_out` (pseudocode name for AaQ's output data bundle; the concrete storage/register implementation is left to the designer). Activation functions are pre-configured into a LUT; naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
 - **Operands:**
-  - `function_type` — activation/special-function keyword (see §5.0): `identity`, `relu`, `relu6`, `activation`, `reciprocal`, `rsqrt`, `exp2`.
-  - `cr_idx` — `CR0`…`CR15` — dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
+  - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `activation`, `reciprocal`, `rsqrt`, `exp2`.
+  - `cr_idx`: `CR0`…`CR15`, dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
 - **Operation:**
   ```text
   n = min(invalid_elements, 128)
   for i in 0..n-1:
-      POST_AaQ_REG[i] = LUT[function_type](r_acc[i])
-  POST_AaQ_REG[n..511] = 0
+      activated[i] = LUT[function_type](r_acc[i])     // section 5.0
+      aaq_out.elements[i] = quantize(activated[i])     // section 5.1
+  aaq_out.elements[n..127] = 0
+  aaq_out.scale = s                                    // section 5.1
+  aaq_out.format = format
   ```
 - **Example:** `ACTIVATE.QUANTIZE relu, CR15;;`
-- **Notes:** Reads `r_acc` from the cycle-start snapshot, so an ACC-slot instruction (e.g. `AGG.*`) issued in the same VLIW word does not affect the result.
 
 ### 6.3 Summary Table
 
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
-| AaQ | `NOP`               | —                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `POST_AaQ_REG[0..n-1] = LUT[function_type](r_acc[i])`, n = min(invalid_elements, 128) |
+| AaQ | `NOP`               | -                       | no state change |
+| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(invalid_elements, 128) |
 
 ## 7. STR (Store) Stage
 
 ### 7.0 Purpose
 
-STR is the pipeline's last stage — it drains `POST_AaQ_REG` (written by
-`ACTIVATE.QUANTIZE`, §6.2) to external memory. Slot execution order within
+STR is the pipeline's last stage; it store `aaq_out` (AaQ's output data,
+written by `ACTIVATE.QUANTIZE`, section 6.2) to external memory. Slot execution order within
 a VLIW word: CTRL → MULT → ACC → AaQ → **STR**.
 
-> **Note on the AaQ redesign (§3):** the speculative `write_addr`/`write_en`
-> passthrough described in AaQ's interface — where AaQ forwards an address,
-> enable, and a quantized+scale+format payload to STR — does not match the
-> real STR instruction below. The real `STR_POST_AAQ_REG` computes its own
-> address from its own `offset`/`base` operands and stores the raw
-> `POST_AaQ_REG` bytes; it does not receive an address or enable from AaQ,
-> and there is no scale/format metadata in the real store path. This is
-> flagged, not reconciled — pick one model when the redesign is finalized.
+
 
 ### 7.1 Interfaces
 
@@ -228,9 +266,8 @@ a VLIW word: CTRL → MULT → ACC → AaQ → **STR**.
               clk  ─────>│                                      │
               rst  ─────>│                                      │
                op  ─────>│                                      │
-           offset  ─────>│              STR Stage               ├────> XMEM write
-             base  ─────>│                                      │      Memory[offset + base] = POST_AaQ_REG
-     POST_AaQ_REG  ─────>│                                      │
+       write_addr  ─────>│              STR Stage               ├────> XMEM write
+          aaq_out  ─────>│                                      │      Memory[write_addr] = aaq_out
                          └──────────────────────────────────────┘
 ```
 
@@ -239,32 +276,31 @@ a VLIW word: CTRL → MULT → ACC → AaQ → **STR**.
 | `clk` | `input logic` | Clock signal. |
 | `rst` | `input logic` | Synchronous reset. |
 | `op` | `input logic [0:0]` | Selects the STORE operation: `STORE_INST_OPCODE_STR_POST_AAQ_REG` = 0, `STORE_INST_OPCODE_NOP` = 1. |
-| `offset` | `input logic [3:0]` | Offset register, `LR0`–`LR15` (live value). |
-| `base` | `input logic [3:0]` | Base address register, `CR0`–`CR15` (live value). |
-| `POST_AaQ_REG` | `input logic [511:0][7:0]` | 512-byte register written by `ACTIVATE.QUANTIZE` (§6.2). |
+| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address, received from AaQ (section 3.2). |
+| `aaq_out` | `input logic [1038:0]` | 1039-bit AaQ output bundle (128 × 8-bit quantized elements + 8-bit scale factor + 7-bit format; section 3.2), written by `ACTIVATE.QUANTIZE` (section 6.2); the concrete storage/register implementation is left to the designer. |
 
-*`op` is sourced from the `opcode` field of the generated `store_slot_t` struct, typed `store_inst_opcode_t` (package `ipu_instr_pkg`), generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the STORE slot's `"store"` entry) the same way as AaQ's `op` (§3.1).*
+*`op` is sourced from the `opcode` field of the generated `store_slot_t` struct, typed `store_inst_opcode_t` (package `ipu_instr_pkg`), generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the STORE slot's `"store"` entry) the same way as AaQ's `op` (section 3.1).*
 
-### 7.2 ISA — Instruction Reference
+### 7.2 ISA: Instruction Reference
 
 The STORE slot executes **two mnemonics**: `NOP` and `STR_POST_AAQ_REG`.
 
-#### 7.2.1 `NOP` — No Operation
+#### 7.2.1 `NOP`: No Operation
 
 - **Summary:** No operation for the STORE slot.
 - **Syntax:** `NOP`
 - **Operands:** none.
 
-#### 7.2.2 `STR_POST_AAQ_REG` — Store Post-AAQ Register
+#### 7.2.2 `STR_POST_AAQ_REG`: Store Post-AAQ Register
 
-- **Summary:** Write 512 bytes of `POST_AaQ_REG` to external memory.
+- **Summary:** Write the 1039-bit `aaq_out` bundle to external memory.
 - **Syntax:** `STR_POST_AAQ_REG offset, base`
 - **Operands:**
-  - `offset` — `LR0`…`LR15`, live value.
-  - `base` — `CR0`…`CR15`, live value.
+  - `offset`: `LR0`…`LR15`, live value.
+  - `base`: `CR0`…`CR15`, live value.
 - **Operation:**
   ```text
-  Memory[offset + base] = POST_AaQ_REG  // 512 bytes
+  Memory[offset + base] = aaq_out  // 1039 bits
   ```
 - **Example:** `STR_POST_AAQ_REG LR0, CR0;;`
 
@@ -272,5 +308,5 @@ The STORE slot executes **two mnemonics**: `NOP` and `STR_POST_AAQ_REG`.
 
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
-| STR | `NOP`               | —              | no state change |
-| STR | `STR_POST_AAQ_REG`  | `offset, base` | `Memory[offset + base] = POST_AaQ_REG` |
+| STR | `NOP`               | -              | no state change |
+| STR | `STR_POST_AAQ_REG`  | `offset, base` | `Memory[offset + base] = aaq_out` |
