@@ -794,7 +794,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384})
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32})
         state.wide_vector_debug = True
         state.wide_vector_arithmetic = WideVectorArithmetic.FP32
         state.xmem.write_address(0x1000, r0_data)
@@ -837,7 +837,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure})
         state.wide_vector_debug = True
         state.wide_vector_arithmetic = WideVectorArithmetic.FP32
         assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
