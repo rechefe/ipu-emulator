@@ -231,6 +231,18 @@ class Ipu:
     def _wide_vector_active(self) -> bool:
         return self.state.wide_vector_debug
 
+    def _element_width_bytes(self) -> int:
+        """Bytes per element in the active mode: 1 narrow, 4 wide-vector debug.
+
+        The single primitive the two modes differ by. Every other
+        mode-dependent size (row size, buffer lengths) is derived from this.
+        """
+        return 4 if self._wide_vector_active() else 1
+
+    def _row_size_bytes(self) -> int:
+        """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
+        return LANES * self._element_width_bytes()
+
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
         """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
         if byte_off % 4 != 0:
@@ -274,7 +286,7 @@ class Ipu:
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-        buf = source.get_r_cyclic_at(cyclic_offset, LANES * 4)
+        buf = source.get_r_cyclic_at(cyclic_offset, self._row_size_bytes())
         return self._wide_unpack_lane_tuple(buf)
 
     def _acc_agg_lane_fmt(self) -> str:
@@ -491,7 +503,7 @@ class Ipu:
             )
         addr = offset + base
         if self._wide_vector_active():
-            data = self.state.xmem.read_address(addr, LANES * 4)
+            data = self.state.xmem.read_address(addr, self._row_size_bytes())
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 self.state._debug_mult_stage_vectors[dest] = list(
                     struct.unpack_from("<128f", data, 0)
@@ -513,9 +525,9 @@ class Ipu:
             if index != 0:
                 raise EmulatorError(
                     f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads all {LANES} "
-                    f"lanes ({LANES * 4} bytes) of r_cyclic, so index must be 0; got {index}"
+                    f"lanes ({self._row_size_bytes()} bytes) of r_cyclic, so index must be 0; got {index}"
                 )
-            data = self.state.xmem.read_address(addr, LANES * 4)
+            data = self.state.xmem.read_address(addr, self._row_size_bytes())
             self.state.regfile.set_r_cyclic_at(index, data)
             return
 
