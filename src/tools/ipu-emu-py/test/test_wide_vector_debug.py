@@ -62,8 +62,8 @@ MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 BKPT;;
 """
-        state.regfile.set_cr(6, 0x1000)
-        state.regfile.set_cr(7, 0x2000)
+        state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
+        state.regfile.set_cr(7, 0x2000 // 512)
         state.regfile.set_cr(8, 0)
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
@@ -88,7 +88,7 @@ SET lr0 cr9;;
 ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """,
-            cr={6: 0x1000, 7: 0x2000, 8: 0, 9: 128},
+            cr={6: 0x1000 // 512, 7: 0x2000 // 512, 8: 0, 9: 128},
         )
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
@@ -117,8 +117,8 @@ SET lr0 cr9;;
 ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """
-        state.regfile.set_cr(6, 0x1000)
-        state.regfile.set_cr(7, 0x2000)
+        state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
+        state.regfile.set_cr(7, 0x2000 // 512)
         state.regfile.set_cr(8, 0)
         state.regfile.set_cr(9, 128)
         encoded = assemble(asm)
@@ -147,8 +147,8 @@ MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 BKPT;;
 """
-        state.regfile.set_cr(6, 0x1000)
-        state.regfile.set_cr(7, 0x2000)
+        state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
+        state.regfile.set_cr(7, 0x2000 // 512)
         state.regfile.set_cr(8, 0)
         encoded = assemble(asm)
         load_program(state, [decode_instruction_word(w) for w in encoded])
@@ -171,14 +171,16 @@ class TestWideVectorR0R1Isolation:
         rc = struct.pack("<128f", *([2.0] * 128))
 
         def run_mult(which: str) -> float:
+            # Debug-mode rows are 512 B; r0/r1 need distinct rows (0 and 1),
+            # rc a third (row 2) -- one row-size apart, not the old 256 B gap.
             st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
             st.dtype = DType.INT8
-            st.xmem.write_address(0x1000, r0)
-            st.xmem.write_address(0x1100, r1)
-            st.xmem.write_address(0x2000, rc)
-            st.regfile.set_cr(6, 0x1000)
-            st.regfile.set_cr(7, 0x1100)
-            st.regfile.set_cr(8, 0x2000)
+            st.xmem.write_address(0 * 512, r0)
+            st.xmem.write_address(1 * 512, r1)
+            st.xmem.write_address(2 * 512, rc)
+            st.regfile.set_cr(6, 0)
+            st.regfile.set_cr(7, 1)
+            st.regfile.set_cr(8, 2)
             st.regfile.set_cr(9, 0)
             asm = f"""\
 SET lr0 cr6;;
@@ -268,7 +270,7 @@ BKPT;;
         st.regfile.set_cr(0, 0)
         st.regfile.set_r_cyclic_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
-        st.regfile.set_cr(10, 0x1000)
+        st.regfile.set_cr(10, 0x1000 // 512)  # row number (debug row = 512 B)
         st.regfile.set_cr(6, 384)
         st.regfile.set_cr(7, 0)
         st.regfile.set_cr(8, 0)
