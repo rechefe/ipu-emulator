@@ -247,17 +247,6 @@ class Ipu:
         """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
         return LANES * self._element_width_bytes()
 
-    def _r_cyclic_wrap_bytes(self) -> int:
-        """r_cyclic's wrap modulus in the active mode: 512 B narrow, 2048 B debug.
-
-        r_cyclic holds 512 elements in BOTH modes -- the wrap happens after the
-        same 512th element regardless of mode, just at a different byte count
-        (1 B/element narrow, 4 B/element debug). r_cyclic is allocated 2048 B
-        always (registers.py); this is NOT that allocation size, it is the
-        mode-dependent portion of it that is actually reachable/wraps.
-        """
-        return 512 * self._element_width_bytes()
-
     def _xmem_row_addr(self, row: int) -> int:
         """Translate an XMEM row number to a byte address in the active mode.
 
@@ -319,18 +308,17 @@ class Ipu:
         b = self.state.regfile.get_cr(cr_idx) & 0xFF
         return b if b < 128 else b - 256
 
-    def _debug_ra_lane_vals(self, mult_stage_enc: int) -> list[float | int]:
-        # Read R0/R1 wide lanes from the START-OF-CYCLE SNAPSHOT, so a same-cycle
-        # LDR_MULT_REG is NOT visible to the consuming mult (issue #157: Ra/Rc are
-        # snapshot, matching the hardware pipeline -- the load lands a cycle later).
-        snap = self.state._debug_mult_stage_vectors_snap
-        if mult_stage_enc in snap:
-            return list(snap[mult_stage_enc])
-        return [0.0 if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * LANES
+    def _debug_ra_lane_vals(self, mult_stage_enc: int) -> tuple[float, ...] | tuple[int, ...]:
+        # Read R0/R1 wide lanes from the START-OF-CYCLE SNAPSHOT (self.snapshot,
+        # same as every other register), so a same-cycle LDR_MULT_REG is NOT
+        # visible to the consuming mult (issue #157: Ra/Rc are snapshot,
+        # matching the hardware pipeline -- the load lands a cycle later).
+        buf = self.snapshot.get_r_wide_debug(mult_stage_enc)
+        return self._wide_unpack_lane_tuple(buf)
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-        buf = source.get_r_cyclic_at(cyclic_offset, self._row_size_bytes(), self._r_cyclic_wrap_bytes())
+        buf = source.get_r_cyclic_wide_debug_at(cyclic_offset, self._row_size_bytes())
         return self._wide_unpack_lane_tuple(buf)
 
     def _acc_agg_lane_fmt(self) -> str:
@@ -377,8 +365,8 @@ class Ipu:
                     f"got {raw_value}"
                 )
             if self._wide_vector_active():
-                # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
-                # keyed by MultStageReg encoding index (0=r0, 1=r1).
+                # Mult handlers read wide lanes via _debug_ra_lane_vals(raw_value),
+                # keyed by MultStageReg encoding index (0=r0, 1=r1) into r_wide_debug.
                 return raw_value
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
@@ -543,14 +531,7 @@ class Ipu:
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                self.state._debug_mult_stage_vectors[dest] = list(
-                    struct.unpack_from("<128f", data, 0)
-                )
-            else:
-                self.state._debug_mult_stage_vectors[dest] = list(
-                    struct.unpack_from("<128i", data, 0)
-                )
+            self.state.regfile.set_r_wide_debug(dest, data)
             return
 
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
@@ -563,7 +544,7 @@ class Ipu:
         ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
         land on one of the four slot boundaries (0/128/256/384) in both modes
         -- writes only ever replace a whole slot, never a partial one. This is
-        unlike reads (MULT.RC.* via ``_debug_rb_lane_vals``/``get_r_cyclic_at``),
+        unlike reads (MULT.RC.* via ``_debug_rb_lane_vals``/``get_r_cyclic_wide_debug_at``),
         which are allowed at any element index and may cross a slot boundary.
         """
         addr = self._xmem_row_addr(offset + base)
@@ -574,7 +555,10 @@ class Ipu:
             )
         byte_idx = index * self._element_width_bytes()
         data = self.state.xmem.read_address(addr, self._row_size_bytes())
-        self.state.regfile.set_r_cyclic_at(byte_idx, data, self._r_cyclic_wrap_bytes())
+        if self._wide_vector_active():
+            self.state.regfile.set_r_cyclic_wide_debug_at(byte_idx, data)
+        else:
+            self.state.regfile.set_r_cyclic_at(byte_idx, data)
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
         """Execute LDR_MULT_MASK_REG: Load mask data from memory.
@@ -735,7 +719,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
 
         for i in range(LANES):
             result = ipu_mult(rc[i], ra[i], dtype)
@@ -767,7 +751,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self._mult_resolve_lcr_scalar(src)
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -796,7 +780,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE, self._r_cyclic_wrap_bytes())
+        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -1321,10 +1305,6 @@ class Ipu:
             return BreakResult.CONTINUE
 
         self.snapshot = self.state.regfile.snapshot()
-        if self._wide_vector_active():
-            self.state._debug_mult_stage_vectors_snap = {
-                k: list(v) for k, v in self.state._debug_mult_stage_vectors.items()
-            }
 
         # Break runs first — may halt before side effects
         result = self.dispatch_instruction("break", inst)
@@ -1354,10 +1334,6 @@ class Ipu:
             return
 
         self.snapshot = self.state.regfile.snapshot()
-        if self._wide_vector_active():
-            self.state._debug_mult_stage_vectors_snap = {
-                k: list(v) for k, v in self.state._debug_mult_stage_vectors.items()
-            }
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)

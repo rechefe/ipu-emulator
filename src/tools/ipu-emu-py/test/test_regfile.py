@@ -123,41 +123,34 @@ class TestRegFileCyclic:
         assert got == data
 
     def test_modulo_index(self):
-        """Index 512 should be equivalent to index 0, when wrapping at 512 (narrow mode).
-
-        r_cyclic is allocated 2048 B always; the 512-byte wrap here is an
-        explicit choice, not RegFile's default (which wraps at the full
-        allocation) -- callers that need mode-dependent wrapping (Ipu) pass
-        wrap_size explicitly, same as this test does.
-        """
+        """Index 512 should be equivalent to index 0 -- r_cyclic is allocated
+        exactly 512 B (narrow-only; wide-vector debug mode uses the separate
+        r_cyclic_wide_debug register, #180), so the default wrap (the full
+        allocation) already lands on the 512-byte boundary with no explicit
+        wrap_size needed."""
         rf = RegFile()
         data = bytearray([0xCC] * 128)
-        rf.set_r_cyclic_at(512, data, wrap_size=512)
-        assert rf.get_r_cyclic_at(0, 128, wrap_size=512) == data
+        rf.set_r_cyclic_at(512, data)
+        assert rf.get_r_cyclic_at(0, 128) == data
 
     def test_read_wraps_correctly(self):
-        """Fill the first 512 bytes of the cyclic buffer, read 128 from near the
-        512-byte wrap boundary (narrow mode's wrap size, passed explicitly)."""
+        """Fill the 512-byte cyclic buffer, read 128 from near the wrap boundary."""
         rf = RegFile()
         full = bytearray(range(256)) * 2  # 512 bytes
-        rf.set_r_cyclic_at(0, full, wrap_size=512)
+        rf.set_r_cyclic_at(0, full)
 
         # Read 128 bytes starting at 450 — wraps at 512
-        got = rf.get_r_cyclic_at(450, wrap_size=512)
+        got = rf.get_r_cyclic_at(450)
         expected = full[450:] + full[: 128 - (512 - 450)]
         assert got == expected
 
     def test_default_wrap_is_full_allocation(self):
-        """With no wrap_size argument, RegFile wraps at the full 2048 B allocation --
-        it has no concept of 'mode'; mode-dependent wrapping is the caller's job."""
+        """With no wrap_size argument, RegFile wraps at the full 512 B allocation --
+        it has no concept of 'mode'; r_cyclic itself is narrow-only storage."""
         rf = RegFile()
         data = bytearray([0xAB] * 128)
-        rf.set_r_cyclic_at(2048, data)  # no wrap_size -> defaults to 2048
+        rf.set_r_cyclic_at(512, data)  # no wrap_size -> defaults to 512 (full allocation)
         assert rf.get_r_cyclic_at(0, 128) == data
-        # At the narrow-mode wrap size (512), byte 512 is a DIFFERENT position
-        # than byte 0 -- confirms the default is genuinely 2048, not 512.
-        untouched = rf.get_r_cyclic_at(512, 128)
-        assert untouched != data
 
 
 # ---------------------------------------------------------------------------

@@ -246,7 +246,7 @@ BKPT;;
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
         run_until_complete(st)
-        written = st.regfile.get_r_cyclic_at(128 * 4, 512)  # byte 512, wrap_size default (2048)
+        written = st.regfile.get_r_cyclic_wide_debug_at(128 * 4, 512)  # byte 512, wrap_size default (2048)
         assert written == bytearray(twos)
 
 
@@ -267,7 +267,7 @@ class TestWideVectorWrap:
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
-        st.regfile.set_r_cyclic_at(0, buf)
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
         st.regfile.set_cr(7, 0)
         asm = """\
@@ -296,7 +296,7 @@ BKPT;;
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.regfile.set_cr(0, 0)
-        st.regfile.set_r_cyclic_at(0, buf)
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         st.regfile.set_cr(10, 0x1000 // 512)  # row number (debug row = 512 B)
         st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
@@ -466,7 +466,7 @@ BKPT;;
 
         for slot_idx, expected_fill in fills.items():
             byte_off = slot_idx * 4  # 4 B/element in debug mode
-            data = st.regfile.get_r_cyclic_at(byte_off, 512)  # 128 elements * 4 B
+            data = st.regfile.get_r_cyclic_wide_debug_at(byte_off, 512)  # 128 elements * 4 B
             values = struct.unpack("<128f", data)
             assert all(v == pytest.approx(expected_fill) for v in values), (
                 f"slot {slot_idx}: expected all {expected_fill}, got {values[:4]}..."
@@ -482,7 +482,7 @@ BKPT;;
 
         # Read 128 elements starting at element 64 -> elements 64..127 (slot 0,
         # fill=1.0) then 128..191 (slot 1, fill=2.0).
-        data = st.regfile.get_r_cyclic_at(64 * 4, 128 * 4)
+        data = st.regfile.get_r_cyclic_wide_debug_at(64 * 4, 128 * 4)
         values = struct.unpack("<128f", data)
         for i in range(64):
             assert values[i] == pytest.approx(1.0), f"element {64 + i} (from slot 0): got {values[i]}"

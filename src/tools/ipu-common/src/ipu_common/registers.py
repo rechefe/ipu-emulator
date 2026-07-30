@@ -48,20 +48,44 @@ REGISTER_DEFINITIONS = {
         "assembler_values": ["r0", "r1"],
         "encoding_class": "MultStageRegField",
     },
+    # Wide-vector debug mode's counterpart to "r": same r0/r1 pair, but each
+    # element widened to LANES(128) x 4 B = 512 B (float32/int32 lanes instead
+    # of narrow's 1 B/lane). Mirrors r_cyclic's approach of a mode-independent
+    # allocation sized for the wider mode, so the RegFile-native snapshot()
+    # covers it automatically instead of a hand-rolled shadow dict on IpuState.
+    # Emulator/debug storage only -- not encodable as an assembly operand
+    # (no assembler_values/encoding_class); index 0/1 mirrors r0/r1.
+    "r_wide_debug": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "size_bytes": 512,
+        "count": 2,
+        "dtype": RegDtype.UINT8,
+        "debug_aliases": ("r0_wide_debug", "r1_wide_debug"),
+    },
     "r_cyclic": {
         "kind": RegKind.MULT,
         "vector": True,
         "cyclic": True,
-        # 2048 B allocated always (mode-independent, see ipu.py Ipu._r_cyclic_wrap_bytes):
-        # 512 elements, wrapping after the 512th in BOTH modes. Narrow mode uses only the
-        # first 512 B (elements 0..511) and cannot reach past it; debug mode uses the
-        # full 2048 B (elements 0..511 at 4 B/element). The wrap modulus itself is NOT
-        # this constant -- regfile.py's cyclic accessors read it mode-dependently at
-        # call time, not from this fixed allocation size.
-        "size_bytes": 2048,
+        # 512 elements at 1 B/element (narrow mode only -- see r_cyclic_wide_debug
+        # for wide-vector debug mode's separate 4 B/element storage).
+        "size_bytes": 512,
         "count": 1,
         "dtype": RegDtype.UINT8,
         "debug_aliases": ("rcyclic",),
+    },
+    # Wide-vector debug mode's counterpart to "r_cyclic": same 512-element ring,
+    # but each element widened to 4 B (float32/int32 lanes instead of narrow's
+    # 1 B/lane) -- mirrors the r/r_wide_debug split (#180). Emulator/debug
+    # storage only -- not encodable as an assembly operand.
+    "r_cyclic_wide_debug": {
+        "kind": RegKind.MULT,
+        "vector": True,
+        "cyclic": True,
+        "size_bytes": 2048,
+        "count": 1,
+        "dtype": RegDtype.UINT8,
+        "debug_aliases": ("rcyclic_wide_debug",),
     },
     "r_mask": {
         "kind": RegKind.MULT,
