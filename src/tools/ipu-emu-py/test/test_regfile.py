@@ -122,14 +122,18 @@ class TestRegFileCyclic:
         assert got == data
 
     def test_modulo_index(self):
-        """Index 512 should be equivalent to index 0."""
+        """Index 512 should be equivalent to index 0 -- r_cyclic is allocated
+        exactly 512 B (narrow-only; wide-vector debug mode uses the separate
+        r_cyclic_wide_debug register, #180), so the default wrap (the full
+        allocation) already lands on the 512-byte boundary with no explicit
+        wrap_size needed."""
         rf = RegFile()
         data = bytearray([0xCC] * 128)
         rf.set_r_cyclic_at(512, data)
         assert rf.get_r_cyclic_at(0, 128) == data
 
     def test_read_wraps_correctly(self):
-        """Fill entire cyclic buffer, read 128 from near the end."""
+        """Fill the 512-byte cyclic buffer, read 128 from near the wrap boundary."""
         rf = RegFile()
         full = bytearray(range(256)) * 2  # 512 bytes
         rf.set_r_cyclic_at(0, full)
@@ -138,6 +142,14 @@ class TestRegFileCyclic:
         got = rf.get_r_cyclic_at(450)
         expected = full[450:] + full[: 128 - (512 - 450)]
         assert got == expected
+
+    def test_default_wrap_is_full_allocation(self):
+        """With no wrap_size argument, RegFile wraps at the full 512 B allocation --
+        it has no concept of 'mode'; r_cyclic itself is narrow-only storage."""
+        rf = RegFile()
+        data = bytearray([0xAB] * 128)
+        rf.set_r_cyclic_at(512, data)  # no wrap_size -> defaults to 512 (full allocation)
+        assert rf.get_r_cyclic_at(0, 128) == data
 
 
 # ---------------------------------------------------------------------------

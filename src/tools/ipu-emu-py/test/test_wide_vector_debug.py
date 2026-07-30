@@ -204,16 +204,19 @@ BKPT;;
 
 
 class TestWideVectorCyclicIndex:
-    """``LDR_CYCLIC_MULT_REG`` loads the full 512-byte chunk in wide mode, so
-    ``index`` must be 0 — any other value must raise, not silently wrap."""
+    """``LDR_CYCLIC_MULT_REG`` writes must land on one of the four element-index
+    slot boundaries (0/128/256/384) in wide-vector debug mode too -- writes only
+    ever replace a whole slot, in either mode. A non-boundary index still raises;
+    it is no longer restricted to index=0 (r_cyclic's 4-slot ring exists in debug
+    mode exactly as it does in narrow mode -- see #180)."""
 
-    def test_ldr_cyclic_nonzero_index_raises_fp32(self) -> None:
+    def test_ldr_cyclic_non_boundary_index_raises_fp32(self) -> None:
         twos = struct.pack("<128f", *([2.0] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.xmem.write_address(0x1000, twos)
         st.regfile.set_cr(6, 0x1000)
-        st.regfile.set_cr(7, 512)
+        st.regfile.set_cr(7, 1)  # not a slot boundary (0/128/256/384)
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
@@ -222,25 +225,50 @@ BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
-        with pytest.raises(EmulatorError, match="index must be 0"):
+        with pytest.raises(EmulatorError, match="index must be one of"):
             run_until_complete(st)
+
+    def test_ldr_cyclic_slot_boundary_index_succeeds_fp32(self) -> None:
+        """index=128 (a valid slot boundary) writes to r_cyclic element 128, i.e.
+        byte 512 in debug mode (element_width=4)."""
+        twos = struct.pack("<128f", *([2.0] * 128))
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.dtype = DType.INT8
+        st.xmem.write_address(0x1000, twos)
+        st.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
+        st.regfile.set_cr(7, 128)
+        asm = """\
+SET lr0 cr6;;
+SET lr1 cr7;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        written = st.regfile.get_r_cyclic_wide_debug_at(128 * 4, 512)  # byte 512, wrap_size default (2048)
+        assert written == bytearray(twos)
 
 
 class TestWideVectorWrap:
-    """RC lanes past byte 511 wrap cyclically (no padding) in wide FP32 mode."""
+    """RC reads wrap after the 512th ELEMENT (byte 2048 in debug/FP32 -- 4 B/element),
+    the same 512-element wrap as narrow mode, just at a different byte count (#180).
+    Reads are allowed at any element index and may cross a slot boundary; only
+    LDR_CYCLIC_MULT_REG's WRITES are restricted to the four slot boundaries."""
 
     def test_mult_rc_ve_fp32_cr_scalar_wraps(self) -> None:
-        # rc_idx=384 (aligned): lane 31 ends at byte 508; lane 32 starts at 512 → wraps to byte 0.
-        buf = bytearray(512)
+        # rc_idx=480 elements (aligned to a 4-byte lane, not a slot boundary --
+        # reads don't need one): lane 31 ends at element 511; lane 32 wraps to element 0.
+        buf = bytearray(2048)
         for k in range(32):
-            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+            struct.pack_into("<f", buf, (480 + k) * 4, 3.0)
         for k in range(96):
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
-        st.regfile.set_r_cyclic_at(0, buf)
-        st.regfile.set_cr(6, 384)
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
+        st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
         st.regfile.set_cr(7, 0)
         asm = """\
 SET lr0 cr6;;
@@ -259,19 +287,19 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
     def test_mult_rc_ve_fp32_lr_scalar_wraps(self) -> None:
-        """MULT.RC.VE (wide FP32, LR-encoded src): RC lanes wrap at 512 bytes."""
-        buf = bytearray(512)
+        """MULT.RC.VE (wide FP32, LR-encoded src): RC lanes wrap after element 512."""
+        buf = bytearray(2048)
         for k in range(32):
-            struct.pack_into("<f", buf, 384 + k * 4, 3.0)
+            struct.pack_into("<f", buf, (480 + k) * 4, 3.0)
         for k in range(96):
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.regfile.set_cr(0, 0)
-        st.regfile.set_r_cyclic_at(0, buf)
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         st.regfile.set_cr(10, 0x1000 // 512)  # row number (debug row = 512 B)
-        st.regfile.set_cr(6, 384)
+        st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
         st.regfile.set_cr(7, 0)
         st.regfile.set_cr(8, 0)
         asm = """\
@@ -403,3 +431,60 @@ class TestElementAndRowSizeHelpers:
             st = IpuState(wide_vector_debug=debug, wide_vector_arithmetic=arithmetic)
             ipu = Ipu(st)
             assert ipu._row_size_bytes() == LANES * ipu._element_width_bytes()
+
+
+class TestWideVectorCyclicFourSlotRing:
+    """r_cyclic's 4-slot ring (element boundaries 0/128/256/384) exists in debug
+    mode exactly as in narrow mode -- LDR_CYCLIC_MULT_REG writes one slot at a
+    time; MULT.RC.* reads may start at any element index, including ones that
+    cross a slot boundary (#180)."""
+
+    def _write_slot(self, st: IpuState, *, slot_element_idx: int, xmem_byte_addr: int, fill: float) -> None:
+        st.xmem.write_address(xmem_byte_addr, struct.pack("<128f", *([fill] * 128)))
+        st.regfile.set_cr(6, xmem_byte_addr // 512)  # row number (debug row = 512 B)
+        st.regfile.set_cr(7, slot_element_idx)
+        asm = """\
+SET lr0 cr6;;
+SET lr1 cr7;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        st.program_counter = 0  # reusing st across multiple runs -- rewind PC each time
+        run_until_complete(st)
+
+    def test_four_slots_written_independently(self) -> None:
+        """Writing all four slots (0/128/256/384) with distinct fills leaves each
+        readable independently -- confirms debug mode's ring has four live slots,
+        not one register that always overwrites the same 512 B."""
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.dtype = DType.INT8
+        fills = {0: 1.0, 128: 2.0, 256: 3.0, 384: 4.0}
+        for slot_idx, fill in fills.items():
+            self._write_slot(st, slot_element_idx=slot_idx, xmem_byte_addr=0x1000, fill=fill)
+
+        for slot_idx, expected_fill in fills.items():
+            byte_off = slot_idx * 4  # 4 B/element in debug mode
+            data = st.regfile.get_r_cyclic_wide_debug_at(byte_off, 512)  # 128 elements * 4 B
+            values = struct.unpack("<128f", data)
+            assert all(v == pytest.approx(expected_fill) for v in values), (
+                f"slot {slot_idx}: expected all {expected_fill}, got {values[:4]}..."
+            )
+
+    def test_read_crosses_slot_boundary(self) -> None:
+        """A 128-element read starting at element 64 returns elements 64..191 --
+        it crosses from slot 0 into slot 1 and does NOT wrap, per the design."""
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.dtype = DType.INT8
+        self._write_slot(st, slot_element_idx=0, xmem_byte_addr=0x1000, fill=1.0)
+        self._write_slot(st, slot_element_idx=128, xmem_byte_addr=0x2000, fill=2.0)
+
+        # Read 128 elements starting at element 64 -> elements 64..127 (slot 0,
+        # fill=1.0) then 128..191 (slot 1, fill=2.0).
+        data = st.regfile.get_r_cyclic_wide_debug_at(64 * 4, 128 * 4)
+        values = struct.unpack("<128f", data)
+        for i in range(64):
+            assert values[i] == pytest.approx(1.0), f"element {64 + i} (from slot 0): got {values[i]}"
+        for i in range(64, 128):
+            assert values[i] == pytest.approx(2.0), f"element {64 + i} (from slot 1): got {values[i]}"

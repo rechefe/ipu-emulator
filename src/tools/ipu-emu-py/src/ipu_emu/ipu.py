@@ -310,18 +310,17 @@ class Ipu:
         b = self.state.regfile.get_cr(cr_idx) & 0xFF
         return b if b < 128 else b - 256
 
-    def _debug_ra_lane_vals(self, mult_stage_enc: int) -> list[float | int]:
-        # Read R0/R1 wide lanes from the START-OF-CYCLE SNAPSHOT, so a same-cycle
-        # LDR_MULT_REG is NOT visible to the consuming mult (issue #157: Ra/Rc are
-        # snapshot, matching the hardware pipeline -- the load lands a cycle later).
-        snap = self.state._debug_mult_stage_vectors_snap
-        if mult_stage_enc in snap:
-            return list(snap[mult_stage_enc])
-        return [0.0 if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32 else 0] * LANES
+    def _debug_ra_lane_vals(self, mult_stage_enc: int) -> tuple[float, ...] | tuple[int, ...]:
+        # Read R0/R1 wide lanes from the START-OF-CYCLE SNAPSHOT (self.snapshot,
+        # same as every other register), so a same-cycle LDR_MULT_REG is NOT
+        # visible to the consuming mult (issue #157: Ra/Rc are snapshot,
+        # matching the hardware pipeline -- the load lands a cycle later).
+        buf = self.snapshot.get_r_wide_debug(mult_stage_enc)
+        return self._wide_unpack_lane_tuple(buf)
 
     def _debug_rb_lane_vals(self, cyclic_offset: int, source: RegFile) -> tuple[float, ...] | tuple[int, ...]:
         self._wide_assert_lane_aligned_byte_offset("cyclic_offset", cyclic_offset)
-        buf = source.get_r_cyclic_at(cyclic_offset, self._row_size_bytes())
+        buf = source.get_r_cyclic_wide_debug_at(cyclic_offset, self._row_size_bytes())
         return self._wide_unpack_lane_tuple(buf)
 
     def _acc_agg_lane_fmt(self) -> str:
@@ -368,8 +367,8 @@ class Ipu:
                     f"got {raw_value}"
                 )
             if self._wide_vector_active():
-                # Mult handlers read wide lanes from _debug_mult_stage_vectors_snap
-                # keyed by MultStageReg encoding index (0=r0, 1=r1).
+                # Mult handlers read wide lanes via _debug_ra_lane_vals(raw_value),
+                # keyed by MultStageReg encoding index (0=r0, 1=r1) into r_wide_debug.
                 return raw_value
             reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
             return source.get_register_bytes(reg_name, elem_idx)
@@ -547,14 +546,7 @@ class Ipu:
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
-            if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-                self.state._debug_mult_stage_vectors[dest] = list(
-                    struct.unpack_from("<128f", data, 0)
-                )
-            else:
-                self.state._debug_mult_stage_vectors[dest] = list(
-                    struct.unpack_from("<128i", data, 0)
-                )
+            self.state.regfile.set_r_wide_debug(dest, data)
             return
 
         data = self.state.xmem.read_address(addr, R_REG_SIZE)
@@ -562,25 +554,26 @@ class Ipu:
         self.state.regfile.set_register_bytes(reg_name, elem_idx, data)
 
     def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
-        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic."""
-        addr = self._xmem_row_addr(offset + base)
-        if self._wide_vector_active():
-            if index != 0:
-                raise EmulatorError(
-                    f"LDR_CYCLIC_MULT_REG: wide-vector debug mode loads all {LANES} "
-                    f"lanes ({self._row_size_bytes()} bytes) of r_cyclic, so index must be 0; got {index}"
-                )
-            data = self.state.xmem.read_address(addr, self._row_size_bytes())
-            self.state.regfile.set_r_cyclic_at(index, data)
-            return
+        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic.
 
+        ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
+        land on one of the four slot boundaries (0/128/256/384) in both modes
+        -- writes only ever replace a whole slot, never a partial one. This is
+        unlike reads (MULT.RC.* via ``_debug_rb_lane_vals``/``get_r_cyclic_wide_debug_at``),
+        which are allowed at any element index and may cross a slot boundary.
+        """
+        addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
             raise EmulatorError(
                 f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
                 f"(R_CYCLIC slot boundaries); got {index}"
             )
-        data = self.state.xmem.read_address(addr, R_REG_SIZE)
-        self.state.regfile.set_r_cyclic_at(index, data)
+        byte_idx = index * self._element_width_bytes()
+        data = self.state.xmem.read_address(addr, self._row_size_bytes())
+        if self._wide_vector_active():
+            self.state.regfile.set_r_cyclic_wide_debug_at(byte_idx, data)
+        else:
+            self.state.regfile.set_r_cyclic_at(byte_idx, data)
 
     def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
         """Execute LDR_MULT_MASK_REG: Load mask data from memory.
@@ -1368,10 +1361,6 @@ class Ipu:
             return BreakResult.CONTINUE
 
         self.snapshot = self.state.regfile.snapshot()
-        if self._wide_vector_active():
-            self.state._debug_mult_stage_vectors_snap = {
-                k: list(v) for k, v in self.state._debug_mult_stage_vectors.items()
-            }
 
         # Break runs first — may halt before side effects
         result = self.dispatch_instruction("break", inst)
@@ -1401,10 +1390,6 @@ class Ipu:
             return
 
         self.snapshot = self.state.regfile.snapshot()
-        if self._wide_vector_active():
-            self.state._debug_mult_stage_vectors_snap = {
-                k: list(v) for k, v in self.state._debug_mult_stage_vectors.items()
-            }
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)

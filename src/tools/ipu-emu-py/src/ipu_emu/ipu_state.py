@@ -76,8 +76,6 @@ class IpuState:
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
         self.wide_vector_quantize_output: bool = wide_vector_quantize_output
-        self._debug_mult_stage_vectors: dict[int, list[float | int]] = {}
-        self._debug_mult_stage_vectors_snap: dict[int, list[float | int]] = {}
 
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         self.elu_alpha: float = (
