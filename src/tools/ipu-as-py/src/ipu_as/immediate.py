@@ -14,6 +14,10 @@ from ipu_common.mult_mask_offset import (
     MULT_MASK_OFFSET_FIELD_BITS,
     MULT_MASK_SLOT_COUNT,
 )
+from ipu_common.reshape_mask import (
+    RESHAPE_LANE_COUNT,
+    RESHAPE_MASK_FIELD_BITS,
+)
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
@@ -98,6 +102,42 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
             self._raise_error(
                 f"Value {self.int} out of range [0, {MULT_MASK_SLOT_COUNT - 1}] "
                 "for mult mask slot selector"
+            )
+
+    def encode(self) -> int:
+        return self.int
+
+    @classmethod
+    def decode(cls, value: int) -> str:
+        return str(value)
+
+
+class ReshapeMaskImmediate(ipu_token.IpuToken):
+    """Limit how many of RESHAPE's 8 lanes participate (values 0 .. 7)."""
+
+    @classmethod
+    def bits(cls) -> int:
+        return RESHAPE_MASK_FIELD_BITS
+
+    @classmethod
+    def default(cls) -> "ipu_token.IpuToken":
+        return cls(
+            ipu_token.AnnotatedToken(
+                lark.Token("NUMBER", "0"),
+                0,
+            )
+        )
+
+    def __init__(self, token: ipu_token.AnnotatedToken):
+        super().__init__(token)
+        try:
+            self.int = int(token.token.value, 0)
+        except ValueError:
+            self._raise_error(f"Value {self.token.value} is not a valid integer")
+        if not (0 <= self.int < RESHAPE_LANE_COUNT):
+            self._raise_error(
+                f"Value {self.int} out of range [0, {RESHAPE_LANE_COUNT - 1}] "
+                "for RESHAPE reshape_mask operand"
             )
 
     def encode(self) -> int:

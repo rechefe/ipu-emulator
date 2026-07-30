@@ -1589,7 +1589,144 @@ BKPT;;
         )
 
 
+def _lrd_bytes(*vals: int) -> tuple[int, int]:
+    """Pack 8 byte values into (lo_cr, hi_cr) 32-bit little-endian words for an LRDn pair."""
+    assert len(vals) == 8
+    lo = int.from_bytes(bytes(vals[0:4]), "little")
+    hi = int.from_bytes(bytes(vals[4:8]), "little")
+    return lo, hi
+
+
 # ============================================================================
+
+
+class TestReshape:
+    """RESHAPE: permute R_ACC word lanes via two LrdIdx byte-index arrays (issue #192)."""
+
+    def test_reshape_mask_zero_copies_all_eight_lanes(self):
+        """reshape_mask=0: all 8 lanes participate."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(i) == 1000 + i
+
+    def test_reshape_mask_seven_copies_one_lane(self):
+        """reshape_mask=7: only lane 0 participates; lanes 1-7 are untouched."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 7;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(100) == 1000
+        for i in range(101, 108):
+            assert state.regfile.get_r_acc_word(i) == 9999
+
+    def test_reshape_skips_out_of_range_source(self):
+        """A source[i] >= 128 leaves that lane's dest untouched."""
+        src_lo, src_hi = _lrd_bytes(200, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(100) == 9999  # lane 0 skipped (source out of range)
+        for i in range(1, 8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+
+    def test_reshape_skips_out_of_range_dest(self):
+        """A dest[i] >= 128 leaves R_ACC unmodified for that lane."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(200, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        # dest[0]=200 is out of range: no write (and no out-of-bounds R_ACC access) for lane 0.
+        for i in range(1, 8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+        # Source words themselves are untouched.
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(i) == 1000 + i
+
+    def test_reshape_same_instruction_reads_from_snapshot_not_in_progress_write(self):
+        """Lane i's dest overlapping lane j's source must resolve from the pre-instruction
+        snapshot, not another lane's write within the same RESHAPE (no chaining)."""
+        # source[0]=0, source[1]=1; dest[0]=1, dest[1]=2 -> R_ACC[1] = old R_ACC[0],
+        # R_ACC[2] = old R_ACC[1] (not the value RESHAPE just wrote into R_ACC[1]).
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(1, 2, 3, 4, 5, 6, 7, 8)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 6;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        state.regfile.set_r_acc_word(0, 10)
+        state.regfile.set_r_acc_word(1, 20)
+        state.regfile.set_r_acc_word(2, 30)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(1) == 10  # R_ACC[1] = old R_ACC[0]
+        assert state.regfile.get_r_acc_word(2) == 20  # R_ACC[2] = old R_ACC[1], not the new 10
 
 
 class TestProgramCounter:

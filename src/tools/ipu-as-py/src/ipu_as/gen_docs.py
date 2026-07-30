@@ -87,6 +87,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`0`**–**`7`**, each a **128-bit** region of **`R_MASK`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
+    "ReshapeMaskImmediate": (
+        "Unsigned **3-bit** immediate on **`RESHAPE`**: **`reshape_mask`** limits participation "
+        "to the leading **`(8 - reshape_mask)`** of the 8 byte lanes in the **`source`**/**`dest`** "
+        "**`LrdIdx`** pairs. **`0`** uses all 8 lanes; **`7`** uses only lane 0."
+    ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
     "DstructureCrIdx": (
         "Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies the "

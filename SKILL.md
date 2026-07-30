@@ -96,7 +96,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, L
 | STORE | `STR_POST_AAQ_REG` | Last-stage memory store (drains `POST_AAQ_REG`) |
 | ACC_STORE | `STR_ACC_REG` | **Simulation-only** — store `R_ACC` to external memory |
 | MULT | `MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE` | 8-bit vector multiply |
-| ACC | `ACC.ADD`, `ACC.ADD.FIRST`, `ACC.MAX`, `ACC.MAX.FIRST`, `ACC.SUB`, `ACC.SUB.FIRST`, `ACC.STRIDE`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST` | Accumulate into `R_ACC`; AGG instructions reduce `MULT_RES` lanes (sum/max) into a single slot of `R_ACC` |
+| ACC | `ACC.ADD`, `ACC.ADD.FIRST`, `ACC.MAX`, `ACC.MAX.FIRST`, `ACC.SUB`, `ACC.SUB.FIRST`, `ACC.STRIDE`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `RESHAPE` | Accumulate into `R_ACC`; AGG instructions reduce `MULT_RES` lanes (sum/max) into a single slot of `R_ACC`; `RESHAPE` permutes `R_ACC` word lanes using two `LrdIdx` byte-index arrays gated by `reshape_mask` |
 | AAQ | `AAQ`, `ACTIVATE` | **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** lanes into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide lanes in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
 | LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI` | Scalar loop register ops (`SET` copies from a **`CR`** register; `INC`/`DEC` read-modify-write with union-derived immediate; `ADDB`/`ADDBI` broadcast-add a signed byte to an `LRDn` pair's 8 lanes, saturating to [0, 255]) |
 | COND | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`, `BKPT` | Branches. `BGT`, `BLE`, `BZ`, `BNZ`, `B` are pseudo-instructions (assembler-expanded, no opcode) — see `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py` |
@@ -104,7 +104,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, L
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `LrdIdx`, `DstructureCrIdx`, `LrIncDecImmediate`, `AddbiImmediate`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `BreakImmediate`, `Label`
+`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `LrdIdx`, `DstructureCrIdx`, `LrIncDecImmediate`, `AddbiImmediate`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `ReshapeMaskImmediate`, `BreakImmediate`, `Label`
 
 `ACC.STRIDE` operand enums (see `acc_stride_enums.py`): `ElementsInRow` = **`16`**, **`32`**, **`64`**; `HorizontalStride` = **`off`**, **`on`**, **`on_inv`** (expand is fixed hardware behaviour, not programmable).
 

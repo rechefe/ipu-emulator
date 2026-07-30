@@ -31,6 +31,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
+  - "ReshapeMaskImmediate": lane-count mask for RESHAPE (0–7; limits how many of the 8 LrdIdx byte lanes participate)
   - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
@@ -936,6 +937,44 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_agg_max",
         },
+        "RESHAPE": {
+            "operands": [
+                {"name": "source", "type": "LrdIdx", "read": "snapshot"},
+                {"name": "dest", "type": "LrdIdx", "read": "snapshot"},
+                {"name": "reshape_mask", "type": "ReshapeMaskImmediate"},
+            ],
+            "doc": InstructionDoc(
+                title="Reshape",
+                summary=(
+                    "Permute R_ACC word lanes: for each of the (8 - reshape_mask) leading byte "
+                    "lanes of the source/dest LRDn pairs, copy R_ACC[source[i]] to R_ACC[dest[i]] "
+                    "when both indices are in range. All copies read from the pre-instruction "
+                    "R_ACC snapshot, so they do not chain within one instruction."
+                ),
+                syntax="RESHAPE source, dest, reshape_mask",
+                operands=[
+                    "source: LRDn register pair (LRD0, LRD2, ..., LRD14) read as source[0..7] — 8 byte lanes, each an R_ACC word index",
+                    "dest: LRDn register pair (LRD0, LRD2, ..., LRD14) read as dest[0..7] — 8 byte lanes, each an R_ACC word index",
+                    "reshape_mask: immediate 0-7; limits participation to the leading (8 - reshape_mask) lanes",
+                ],
+                operation=(
+                    "snap = R_ACC (pre-instruction snapshot)\n"
+                    "for i in 0..(8 - reshape_mask - 1):\n"
+                    "    if source[i] < 128 and dest[i] < 128:\n"
+                    "        R_ACC[dest[i]] = snap[source[i]]"
+                ),
+                example="RESHAPE LRD0, LRD2, 0;;",
+                notes=(
+                    "R_ACC[idx] indexes the 128 word lanes (0-127), same addressing as "
+                    "ACC.ADD/ACC.STRIDE. reshape_mask = 0 uses all 8 lanes; reshape_mask = 7 "
+                    "uses only lane 0. Out-of-range source[i] or dest[i] (>= 128) skips that "
+                    "lane. Because all reads come from the snapshot, a lane whose dest equals "
+                    "another lane's source resolves to the pre-instruction value, not an "
+                    "in-progress write."
+                ),
+            ),
+            "execute_fn": "execute_reshape",
+        },
     },
 
     # =========================================================================
@@ -1387,6 +1426,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "LrIncDecImmediate",
         "AddbiImmediate",
         "MultMaskOffsetImmediate",
+        "ReshapeMaskImmediate",
         "ActivationFn",
         "BreakImmediate",
         "Label",

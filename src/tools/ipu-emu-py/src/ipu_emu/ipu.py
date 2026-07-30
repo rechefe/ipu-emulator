@@ -40,6 +40,7 @@ from ipu_common.acc_stride_enums import (
     get_vertical_stride_bits,
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_common.reshape_mask import RESHAPE_LANE_COUNT
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 from ipu_common.activations import apply_activation
 
@@ -1064,6 +1065,35 @@ class Ipu:
             else:
                 val = 0.0 if fmt == "<f" else 0
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+
+    def execute_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
+        """Execute RESHAPE: permute R_ACC word lanes via two LRDn byte-index arrays.
+
+        ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
+        lanes read from the pre-instruction snapshot. Only the leading
+        ``8 - reshape_mask`` lanes participate. All (source[i], dest[i]) guards
+        and reads are evaluated against the snapshot before any write, so a
+        lane's dest overlapping another lane's source resolves to the
+        pre-instruction value (no intra-instruction chaining).
+        """
+        assert self.snapshot is not None
+        src_lo, src_hi = 2 * source, 2 * source + 1
+        dst_lo, dst_hi = 2 * dest, 2 * dest + 1
+        src_lanes = self.snapshot.get_lr(src_lo).to_bytes(4, "little") + self.snapshot.get_lr(
+            src_hi
+        ).to_bytes(4, "little")
+        dst_lanes = self.snapshot.get_lr(dst_lo).to_bytes(4, "little") + self.snapshot.get_lr(
+            dst_hi
+        ).to_bytes(4, "little")
+
+        n = RESHAPE_LANE_COUNT - reshape_mask
+        writes = [
+            (dst_lanes[i], self.snapshot.get_r_acc_word(src_lanes[i]))
+            for i in range(n)
+            if src_lanes[i] < LANES and dst_lanes[i] < LANES
+        ]
+        for dest_idx, value in writes:
+            self.state.regfile.set_r_acc_word(dest_idx, value)
 
     def execute_aaq_nop(self) -> None:
         """Execute NOP in aaq slot: No operation."""

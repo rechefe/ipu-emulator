@@ -44,6 +44,7 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "VerticalStride": immediate.VerticalStrideField,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
+    "ReshapeMaskImmediate": immediate.ReshapeMaskImmediate,
     "ActivationFn": immediate.ActivationFnField,
     "BreakImmediate": immediate.BreakImmediateType,
     "Label": ipu_token.LabelToken,
