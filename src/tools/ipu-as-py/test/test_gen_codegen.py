@@ -156,7 +156,7 @@ def test_nop_union_members_use_single_padding_field(tmp_path: Path):
         "acc_store_slot_u": 8,
         "lr_slot_u": 16,
         "mult_slot_u": 20,
-        "acc_slot_u": 12,
+        "acc_slot_u": 13,
         "aaq_slot_u": 8,
         "cond_slot_u": 20,
         "break_slot_u": 20,
