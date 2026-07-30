@@ -117,28 +117,29 @@ Total payload width: 1024 + 8 + 7 = 1039 bits, plus `write_addr` (`XMEM_ADDR_W` 
 
 Activation and quantization happen in a single instruction — there is no
 separate activate-only or quantize-only instruction. It applies an
-element-wise activation function to every valid element of `r_acc`.
+element-wise activation function to every element of `r_acc`.
 
 The function is selected via `function_type` and applied directly to the
-FP32 elements, unlike other write activations. Activation
-functions are pre-configured into a LUT; naming an activation in
-`function_type` triggers the corresponding loaded LUT entry. The active
-element count comes from `invalid_elements`.
+FP32 elements, unlike other write activations. Functions besides `relu`,
+`relu6`, and `identity` are loaded into the LUT; functions called by name,
+like `rsqrt`, `reciprocal`, or `activation`, require the function to be
+present in the LUT.
 
 ```text
-n = min(invalid_elements, 128)
-for i in 0..n-1:
-    activated[i] = LUT[function_type](r_acc[i])
-activated[n..127] = 0
+for i in 0..127:
+    case function_type:
+        identity:    activated[i] = r_acc[i]
+        relu:        activated[i] = max(0, r_acc[i])
+        relu6:       activated[i] = min(max(0, r_acc[i]), 6)
+        reciprocal:  activated[i] = (r_acc[i] == 0) ? 0 : LUT[function_type](r_acc[i])
+        rsqrt:       activated[i] = (r_acc[i] <= 0) ? 0 : LUT[function_type](r_acc[i])
+        exp2:        activated[i] = LUT[function_type](r_acc[i])
+        activation:  activated[i] = LUT[function_type](r_acc[i])
 ```
 
 Supported function types — activation and special functions grouped onto a
 single field:
 
-> **Note:** this grouped 7-value encoding does not match the implemented
-> 12-value encoding in `activations.py` (`ACTIVATION_FN_NAMES`) and
-> `instruction_spec.py`, which remains the source of truth per `CLAUDE.md`
-> until the code is updated to match.
 
 | Encoding | Name | Formula | Notes |
 |----------|------|---------|-------|
