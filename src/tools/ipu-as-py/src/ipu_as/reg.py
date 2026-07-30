@@ -47,33 +47,35 @@ _CrRegFieldBase = _generated_classes.get("CrRegField")
 _LcrRegFieldBase = _generated_classes.get("LcrRegField")
 
 
-def _reject_cr15(token: "ipu_token.AnnotatedToken", cls_name: str) -> None:
-    if token.token.value.lower() == "cr15":
-        raise ValueError(
-            f"CR15 is reserved for dstructure configuration and cannot be used as an ISA operand.\n"
-            f"In Line {token.token.line}, Column {token.token.column}"
-        )
-
-
-class CrRegField(_CrRegFieldBase):
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        _reject_cr15(token, "CrRegField")
-        super().__init__(token)
-
-
-class LcrRegField(_LcrRegFieldBase):
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        _reject_cr15(token, "LcrRegField")
-        super().__init__(token)
+CrRegField = _CrRegFieldBase
+LcrRegField = _LcrRegFieldBase
 
 
 class DstructureCrRegField(_CrRegFieldBase):
     """CR0–CR15 selector for an instruction's dstructure (valid-element mask) operand.
 
-    Unlike ``CrRegField``, CR15 is allowed here: it's the reserved use case
-    CR15 exists for. This operand is mandatory — every AGG.*/AAQ/ACTIVATE
-    instruction must name its dstructure CR explicitly (e.g. ``AAQ cr15;;``).
+    This operand is mandatory — every AGG.*/AAQ/ACTIVATE instruction must name
+    its dstructure CR explicitly (e.g. ``AAQ cr15;;``); CR15 is the conventional
+    choice but any CR0–CR15 works.
     """
+
+
+IPU_LRD_REG_NUM = IPU_LR_REG_NUM // 2
+
+
+class LrdRegField(ipu_token.EnumToken):
+    """LRD0, LRD2, LRD4, ..., LRD14: register-pair alias over LR, named after
+    the lower register in the pair (LRDn = LR(n+1):LR(n), n even).
+
+    Not a physical register — no storage of its own. ``ADDB``/``ADDBI`` resolve
+    an ``LrdIdx`` encoded index ``i`` (0-7) to the real ``LR(2i)``/``LR(2i+1)``
+    pair directly.
+    """
+
+    @classmethod
+    def enum_array(cls) -> list[str]:
+        return [f"lrd{2 * i}" for i in range(IPU_LRD_REG_NUM)]
+
 
 # For documentation and introspection, also expose the enum arrays
 _enums = create_assembler_reg_enums()
@@ -81,6 +83,7 @@ MULT_STAGE_REG_R_FIELDS = _enums.get("MultStageRegField", [])
 LR_REG_FIELDS = _enums.get("LrRegField", [])
 CR_REG_FIELDS = _enums.get("CrRegField", [])
 LCR_REG_FIELDS = _enums.get("LcrRegField", [])
+LRD_REG_FIELDS = LrdRegField.enum_array()
 
 # Clean up internal state
 del _generated_classes, _enums
@@ -90,15 +93,18 @@ __all__ = [
     "IPU_MULT_STAGE_REG_R_NUM",
     "IPU_LR_REG_NUM",
     "IPU_CR_REG_NUM",
+    "IPU_LRD_REG_NUM",
     # Classes
     "MultStageRegField",
     "LrRegField",
     "CrRegField",
     "LcrRegField",
     "DstructureCrRegField",
+    "LrdRegField",
     # Field lists
     "MULT_STAGE_REG_R_FIELDS",
     "LR_REG_FIELDS",
     "CR_REG_FIELDS",
     "LCR_REG_FIELDS",
+    "LRD_REG_FIELDS",
 ]

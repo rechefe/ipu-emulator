@@ -24,9 +24,11 @@ KEY DESIGN PRINCIPLES:
 OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "MultStageReg": R0 or R1 (MultStageRegField); 2-bit encoding in the VLIW word
   - "LrIdx": LR0–LR15 (LrRegField)  
-  - "CrIdx": CR0–CR14 (CrRegField)
-  - "LcrIdx": LR0–LR15 or CR0–CR14 (LcrRegField)
+  - "CrIdx": CR0–CR15 (CrRegField)
+  - "LcrIdx": LR0–LR15 or CR0–CR15 (LcrRegField)
+  - "LrdIdx": LRD0, LRD2, LRD4, ..., LRD14 register-pair alias over LR (LrdRegField), named after the lower register in the pair; no physical storage — LRDn = LR(n+1):LR(n)
   - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
+  - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
   - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
@@ -343,7 +345,8 @@ INSTRUCTION_SPEC = {
     
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5, NOP=6
+    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5,
+    #          ADDB=6, ADDBI=7, NOP=8
     # =========================================================================
     "lr": {
         "SET": {
@@ -357,7 +360,7 @@ INSTRUCTION_SPEC = {
                 syntax="SET reg, src",
                 operands=[
                     "reg: Loop register (LR0–LR15)",
-                    "src: Source configuration register (CR0–CR14)",
+                    "src: Source configuration register (CR0–CR15)",
                 ],
                 operation="reg = cr[src]",
                 example="SET LR0, CR1;;",
@@ -379,7 +382,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15 or CR0–CR14",
+                    "src_b: Second source — LR0–LR15 or CR0–CR15",
                 ],
                 operation="dest = src_a + src_b",
                 example="ADD LR0, LR1, LR2;;\nADD LR3, LR1, CR5;;",
@@ -402,7 +405,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "dest: Destination local register (LR0–LR15)",
                     "src_a: First source local register (LR0–LR15)",
-                    "src_b: Second source — LR0–LR15 or CR0–CR14",
+                    "src_b: Second source — LR0–LR15 or CR0–CR15",
                 ],
                 operation="dest = src_a - src_b",
                 example="SUB LR0, LR1, LR2;;\nSUB LR3, LR1, CR5;;",
@@ -424,7 +427,7 @@ INSTRUCTION_SPEC = {
                 syntax="INCR_MOD_POW2 dst, step, k",
                 operands=[
                     "dst: Destination loop register (LR0–LR15); read and written",
-                    "step: Signed 32-bit increment from LR0–LR15 or CR0–CR14",
+                    "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dst <- (dst + step) & ((1 << k) - 1)",
@@ -471,6 +474,69 @@ INSTRUCTION_SPEC = {
                 example="DEC LR0, 3;;",
             ),
             "execute_fn": "execute_lr_dec",
+        },
+        "ADDB": {
+            "operands": [
+                {"name": "dest", "type": "LrdIdx"},
+                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+            ],
+            "doc": InstructionDoc(
+                title="Add Byte (Broadcast, Register)",
+                summary=(
+                    "Broadcast-add a signed byte from an LR/CR register's low byte to each of "
+                    "the 8 byte lanes of an LRDn register pair, saturating each lane to [0, 255]."
+                ),
+                syntax="ADDB dest, src_b",
+                operands=[
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "src_b: LR0–LR15 or CR0–CR15; low byte is read and reinterpreted as a signed two's-complement byte",
+                ],
+                operation=(
+                    "byte_val = src_b & 0xFF  # interpreted as signed int8 (two's complement)\n"
+                    "for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)"
+                ),
+                example="ADDB LRD0, LR3;;\nADDB LRD2, CR5;;",
+                notes=(
+                    "There is no separate subtract opcode: since src_b's byte is reinterpreted as "
+                    "signed, a value ≥ 128 (i.e. negative in two's complement) subtracts from every "
+                    "lane instead of adding. E.g. an LR/CR whose low byte is 200 (== -56) decreases "
+                    "each lane by 56. Because lanes saturate at both ends of [0, 255], subtracting "
+                    "past 0 clamps at 0 rather than wrapping — it does not behave like a plain "
+                    "two's-complement subtract."
+                ),
+            ),
+            "execute_fn": "execute_addb",
+        },
+        "ADDBI": {
+            "operands": [
+                {"name": "dest", "type": "LrdIdx"},
+                {"name": "imm", "type": "AddbiImmediate"},
+            ],
+            "doc": InstructionDoc(
+                title="Add Byte Immediate (Broadcast)",
+                summary=(
+                    "Broadcast-add a signed immediate byte to each of the 8 byte lanes of an "
+                    "LRDn register pair, saturating each lane to [0, 255]."
+                ),
+                syntax="ADDBI dest, imm",
+                operands=[
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "imm: Unsigned byte 0–255 (or an equivalent signed −128–127 literal); reinterpreted as a signed two's-complement byte for the add",
+                ],
+                operation=(
+                    "byte_val = imm  # interpreted as signed int8 (two's complement)\n"
+                    "for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)"
+                ),
+                example="ADDBI LRD0, 200;;\nADDBI LRD2, 7;;",
+                notes=(
+                    "There is no separate subtract opcode: write imm as a negative literal (e.g. "
+                    "-56) or its equivalent unsigned encoding (200) to subtract from every lane "
+                    "instead of adding — both spellings encode the same bit pattern. Because lanes "
+                    "saturate at both ends of [0, 255], subtracting past 0 clamps at 0 rather than "
+                    "wrapping — it does not behave like a plain two's-complement subtract."
+                ),
+            ),
+            "execute_fn": "execute_addbi",
         },
         "NOP": {
             "operands": [],
@@ -538,7 +604,7 @@ INSTRUCTION_SPEC = {
                 syntax="MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx",
                 operands=[
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
-                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR14`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
+                    "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
@@ -604,7 +670,7 @@ INSTRUCTION_SPEC = {
                 syntax="MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — base byte offset into combined Ra (`R0` ++ `R1`, 256 bytes, cyclic mod 256).",
-                    "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
@@ -633,7 +699,7 @@ INSTRUCTION_SPEC = {
                 syntax="MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx",
                 operands=[
                     "`ra_idx`: **`LR0`**…**`LR15`** — index of the single Ra element to read (combined `R0` ++ `R1`, 256 bytes, mod 256).",
-                    "`cr_idx`: **`CR0`**…**`CR14`** — CR register whose low byte supplies the scalar multiplier.",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
@@ -945,8 +1011,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are equal.",
                 syntax="BEQ reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 == reg2) PC = label",
@@ -965,8 +1031,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if two registers are not equal.",
                 syntax="BNE reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 != reg2) PC = label",
@@ -985,8 +1051,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if first register is less than second.",
                 syntax="BLT reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 < reg2) PC = label",
@@ -1005,8 +1071,8 @@ INSTRUCTION_SPEC = {
                 summary="Branch if first register is greater than or equal to second.",
                 syntax="BGE reg1, reg2, label",
                 operands=[
-                    "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                    "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                    "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                    "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
                 operation="if (reg1 >= reg2) PC = label",
@@ -1022,7 +1088,7 @@ INSTRUCTION_SPEC = {
                 title="Branch Register",
                 summary="Branch to address in register.",
                 syntax="BR reg",
-                operands=["reg: Register containing target address (LR0–LR15 or CR0–CR14)"],
+                operands=["reg: Register containing target address (LR0–LR15 or CR0–CR15)"],
                 operation="PC = reg",
             ),
             "execute_fn": "execute_br",
@@ -1313,11 +1379,13 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "LrIdx",
         "CrIdx",
         "LcrIdx",
+        "LrdIdx",
         "ElementsInRow",
         "HorizontalStride",
         "VerticalStride",
         "LrModPow2KImmediate",
         "LrIncDecImmediate",
+        "AddbiImmediate",
         "MultMaskOffsetImmediate",
         "ActivationFn",
         "BreakImmediate",
@@ -1378,8 +1446,8 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             summary="Branch if first register is greater than second.",
             syntax="BGT reg1, reg2, label",
             operands=[
-                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",
@@ -1407,8 +1475,8 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             summary="Branch if first register is less than or equal to second.",
             syntax="BLE reg1, reg2, label",
             operands=[
-                "reg1: First register to compare (LR0–LR15 or CR0–CR14)",
-                "reg2: Second register to compare (LR0–LR15 or CR0–CR14)",
+                "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
+                "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg1 <= reg2) PC = label",
@@ -1436,7 +1504,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             summary="Branch if register is zero. Assumes CR0 always holds zero.",
             syntax="BZ reg, label",
             operands=[
-                "reg: Register to test (LR0–LR15 or CR0–CR14)",
+                "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg == 0) PC = label",
@@ -1459,7 +1527,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
             summary="Branch if register is not zero. Assumes CR0 always holds zero.",
             syntax="BNZ reg, label",
             operands=[
-                "reg: Register to test (LR0–LR15 or CR0–CR14)",
+                "reg: Register to test (LR0–LR15 or CR0–CR15)",
                 "label: Branch target label",
             ],
             operation="if (reg != 0) PC = label",

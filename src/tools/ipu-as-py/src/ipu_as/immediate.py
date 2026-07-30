@@ -63,6 +63,15 @@ class BreakImmediateType(ipu_token.NumberToken):
         return 16
 
 
+class AddbiImmediate(ipu_token.NumberToken):
+    """Byte immediate for ADDBI: 0-255 (or an equivalent signed -128..127 literal,
+    encoded to the same bit pattern), reinterpreted as a signed int8 for the add.
+    """
+    @classmethod
+    def bits(cls) -> int:
+        return 8
+
+
 class MultMaskOffsetImmediate(ipu_token.IpuToken):
     """Select one of eight 128-bit mask slots in ``r_mask`` (values 0 .. 7)."""
 

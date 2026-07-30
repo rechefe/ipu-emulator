@@ -100,7 +100,9 @@ _TYPE_FIELD_SUFFIX = {
     "LrIdx": "lr_reg_field",
     "CrIdx": "cr_reg_field",
     "LcrIdx": "lcr_reg_field",
+    "LrdIdx": "lrd_reg_field",
     "LrIncDecImmediate": "lr_inc_dec_immediate",
+    "AddbiImmediate": "addbi_immediate",
     "ElementsInRow": "elements_in_row_field",
     "HorizontalStride": "horizontal_stride_field",
     "VerticalStride": "vertical_stride_field",
@@ -433,10 +435,11 @@ class Ipu:
         Lanes in mult_res where the resulting mask bit is 0 are set to
         CR[cr_idx].pad_mode's fill value (ZERO, +inf, or -inf). +inf/-inf
         require a floating-point dtype — they have no INT8 representation.
-        """
-        if self._wide_vector_active():
-            return
 
+        Mode-blind: the mask is 128 bits (one bit per lane) and MULT_RES is
+        128 four-byte lanes in both narrow and wide-vector debug mode, so the
+        same code drives both.
+        """
         # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
         if shift >= (1 << (LR_CR_SCALAR_BITS - 1)):
             shift = shift - (1 << LR_CR_SCALAR_BITS)
@@ -476,17 +479,29 @@ class Ipu:
 
         ZERO is representable in both INT8 (int32) and float dtypes.
         POS_INF/NEG_INF only exist in floating-point representations, so
-        they are rejected under INT8 dtype.
+        they are rejected under integer lane arithmetic.
+
+        Which field decides that differs by mode: in wide-vector debug mode
+        lane arithmetic is governed by ``wide_vector_arithmetic``, not by
+        ``dtype`` (which stays at its INT8 default unless a caller overrides
+        it). Using ``dtype`` here would reject +inf/-inf in debug/FP32, where
+        infinity is perfectly representable.
         """
         if pad_mode == PadMode.ZERO:
             return b"\x00\x00\x00\x00"
-        if self.state.dtype == DType.INT8:
+        if not self._lanes_are_float():
             raise EmulatorError(
-                f"dstructure pad_mode {pad_mode.name} requires a floating-point dtype; "
-                "INT8 has no infinity representation"
+                f"dstructure pad_mode {pad_mode.name} requires floating-point lanes; "
+                "integer lane arithmetic has no infinity representation"
             )
         value = float("inf") if pad_mode == PadMode.POS_INF else float("-inf")
         return struct.pack("<f", value)
+
+    def _lanes_are_float(self) -> bool:
+        """Whether MULT_RES lanes hold floats, under whichever mode is active."""
+        if self._wide_vector_active():
+            return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
+        return self.state.dtype != DType.INT8
 
     # -----------------------------------------------------------------------
     # Memory slot instruction handlers (load / store / acc_store)
@@ -607,6 +622,28 @@ class Ipu:
         cur = self.snapshot.get_lr(dest)
         self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
+    def _addb_broadcast(self, dest: int, byte_val: int) -> None:
+        """Broadcast-add a signed byte to all 8 lanes of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
+        assert self.snapshot is not None
+        lo_idx, hi_idx = 2 * dest, 2 * dest + 1
+        lanes = bytearray(
+            self.snapshot.get_lr(lo_idx).to_bytes(4, "little")
+            + self.snapshot.get_lr(hi_idx).to_bytes(4, "little")
+        )
+        signed = byte_val - 256 if byte_val >= 128 else byte_val
+        for i in range(8):
+            lanes[i] = max(0, min(255, lanes[i] + signed))
+        self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
+        self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
+
+    def execute_addb(self, *, dest: int, src_b: int) -> None:
+        """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRDn's 8 byte lanes."""
+        self._addb_broadcast(dest, src_b & 0xFF)
+
+    def execute_addbi(self, *, dest: int, imm: int) -> None:
+        """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte lanes."""
+        self._addb_broadcast(dest, imm)
+
     def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
         """INCR_MOD_POW2: dest <- (dest + step) mod 2^k.
 
@@ -629,6 +666,23 @@ class Ipu:
         """Execute NOP in LR slot: No operation."""
         pass
 
+    @staticmethod
+    def _lr_write_targets(spec: dict, kwargs: dict[str, int]) -> set[int]:
+        """Real LR indices a resolved lr-slot instruction writes to.
+
+        Most instructions' ``dest``/``reg`` operand *is* the LR index
+        (``LrIdx``). An ``LrdIdx`` operand (``ADDB``/``ADDBI``) names a
+        register pair instead, so it expands to both real LR indices.
+        """
+        for op in spec["operands"]:
+            if op["name"] not in ("dest", "reg") or "read" in op:
+                continue
+            raw = kwargs[op["name"]]
+            if op["type"] == "LrdIdx":
+                return {2 * raw, 2 * raw + 1}
+            return {raw}
+        return set()
+
     def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
         """Dispatch all LR sub-slots with conflict detection.
 
@@ -636,7 +690,7 @@ class Ipu:
         (lr_inst_0, lr_inst_1, …). Each is dispatched independently
         with named operands. Read operands are auto-resolved to values.
         """
-        pending: list[tuple[str, str, dict[str, int]]] = []
+        pending: list[tuple[str, str, dict[str, int], frozenset[int]]] = []
 
         for slot_idx in range(SLOT_COUNT["lr"]):
             prefix = f"lr_inst_{slot_idx}"
@@ -653,17 +707,19 @@ class Ipu:
                 regfile = self.snapshot if source == "snapshot" else self.state.regfile
                 kwargs[name] = self._resolve_operand(op_type, kwargs[name], regfile)
 
-            pending.append((inst_name, spec["execute_fn"], kwargs))
+            targets = frozenset(self._lr_write_targets(spec, kwargs))
+            pending.append((inst_name, spec["execute_fn"], kwargs, targets))
 
         # Conflict check: no two valid instructions may write to the same LR
-        lr_targets = [kw.get("reg", kw.get("dest")) for _, _, kw in pending]
-        real_targets = [t for t in lr_targets if t is not None]
-        if len(real_targets) != len(set(real_targets)):
+        # (an LrdIdx target expands to the two real LR indices it covers).
+        all_targets = [t for _, _, _, targets in pending for t in targets]
+        if len(all_targets) != len(set(all_targets)):
             raise RuntimeError(
-                f"LR conflict: multiple writes to LR{lr_targets} in same cycle"
+                f"LR conflict: multiple writes to the same LR register in same cycle "
+                f"(targets: {all_targets})"
             )
 
-        for _, fn_name, kwargs in pending:
+        for _, fn_name, kwargs, _ in pending:
             method = getattr(self, fn_name)
             method(**kwargs)
 
@@ -1185,7 +1241,7 @@ class Ipu:
 
     @staticmethod
     def _to_signed_reg(value: int) -> int:
-        """Sign-extend a value at the LR/CR register width (20 bits)."""
+        """Sign-extend a value at the LR/CR register width (32 bits)."""
         if value >= (1 << (LR_CR_SCALAR_BITS - 1)):
             return value - (1 << LR_CR_SCALAR_BITS)
         return value

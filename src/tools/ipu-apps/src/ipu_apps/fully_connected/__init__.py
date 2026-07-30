@@ -155,7 +155,7 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(7, SAMPLES_NUM)
         state.regfile.set_cr(8, 0)
         # Pre-decremented by one VLIW step because ADD runs before LDR/MULT within a cycle.
-        # The 20-bit wraparound on the first ADD gives the correct starting values (0 for
+        # The 32-bit wraparound on the first ADD gives the correct starting values (0 for
         # both lr4 offset and lr5 element index on the first effective iteration).
         state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)     # lr4 cyclic offset (rows): pre-decremented
         state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)    # lr5 counter: pre-decremented

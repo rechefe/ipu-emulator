@@ -2,3 +2,4 @@
 bazel-*
 build
 .pytest_cache
+.claude

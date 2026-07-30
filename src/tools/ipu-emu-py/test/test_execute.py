@@ -159,7 +159,7 @@ BKPT;;
             cr={8: 45})
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFF
+        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
 
     def test_sub_lr_lr_imm5(self):
         state = _run("""\
@@ -296,7 +296,124 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 7  # imm in shared lcr field
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 7  # imm in field shared with AddbiImmediate
+
+
+class TestAddb:
+    """ADDB/ADDBI: broadcast-add a signed byte to LRDn's 8 byte lanes, saturating to [0, 255]."""
+
+    def test_addb_lr_source(self):
+        """Register source: each of the 8 lanes across LR0/LR1 gains the same byte."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr5 cr10;;
+ADDB lrd0 lr5;;
+BKPT;;
+""",
+            cr={8: 0x01020304, 9: 0x05060708, 10: 10})
+        assert state.regfile.get_lr(0) == 0x0B0C0D0E
+        assert state.regfile.get_lr(1) == 0x0F101112
+
+    def test_addb_cr_source(self):
+        """CR source: src_b's low byte is read directly from the CR (no intermediate SET)."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+ADDB lrd0 cr11;;
+BKPT;;
+""",
+            cr={8: 0x01020304, 9: 0x05060708, 11: 10})
+        assert state.regfile.get_lr(0) == 0x0B0C0D0E
+        assert state.regfile.get_lr(1) == 0x0F101112
+
+    def test_addbi_immediate(self):
+        """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each lane."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+ADDBI lrd0 200;;
+BKPT;;
+""",
+            cr={8: 0x64646464, 9: 0x64646464})
+        # 0x64 == 100 in every lane; 100 + (-56) == 44 == 0x2C in every lane.
+        assert state.regfile.get_lr(0) == 0x2C2C2C2C
+        assert state.regfile.get_lr(1) == 0x2C2C2C2C
+
+    def test_addbi_negative_literal_matches_unsigned_spelling(self):
+        """``-56`` and ``200`` encode identically and produce the same result."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 -56;;
+BKPT;;
+""",
+            cr={8: 0x64646464})
+        assert state.regfile.get_lr(0) == 0x2C2C2C2C
+
+    def test_addbi_saturates_at_255_ceiling(self):
+        """A lane already near 255 clamps at 255 instead of wrapping."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 20;;
+BKPT;;
+""",
+            cr={8: 250})  # LR0 = 0x000000FA: low lane 250, others 0
+        lanes = state.regfile.get_lr(0).to_bytes(4, "little")
+        assert lanes[0] == 255  # 250 + 20 saturates at 255
+        assert lanes[1] == 20   # 0 + 20, no saturation
+
+    def test_addbi_saturates_at_0_floor(self):
+        """A negative byte pushes a low lane below 0, clamping at 0 instead of wrapping."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 200;;
+BKPT;;
+""",
+            cr={8: 5})  # LR0 = 0x00000005; 200 decodes as signed -56
+        assert state.regfile.get_lr(0) == 0  # every lane clamps to 0 (5-56 and 0-56 both < 0)
+        assert state.regfile.get_lr(1) == 0
+
+    def test_addb_lrd_maps_to_correct_lr_pair(self):
+        """LRD6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
+        state = _run("""\
+SET lr6 cr8;;
+SET lr7 cr9;;
+ADDBI lrd6 5;;
+BKPT;;
+""",
+            cr={8: 100, 9: 50})
+        # +5 broadcasts to all 8 lanes, including LR6/LR7's zero upper bytes.
+        assert state.regfile.get_lr(6) == 84215145  # bytes [105, 5, 5, 5]
+        assert state.regfile.get_lr(7) == 84215095  # bytes [55, 5, 5, 5]
+        assert state.regfile.get_lr(0) == 0
+        assert state.regfile.get_lr(5) == 0
+
+    def test_addb_lrd_conflict_with_overlapping_lr_write(self):
+        """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
+        with pytest.raises(RuntimeError, match="LR conflict"):
+            _run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
+
+    def test_decode_addb_operand_fields(self):
+        """``ADDB``'s dest/src_b share the same union fields as INC/SET.
+
+        ``lrd4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
+        """
+        encoded = assemble("ADDB lrd4 lr5;; BKPT;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2    # dest = lrd4 (pair index 2)
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 5  # src_b = lr5
+
+    def test_decode_addbi_operand_fields(self):
+        """``ADDBI``'s immediate uses the same shared field as INC/DEC.
+
+        ``lrd8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
+        """
+        encoded = assemble("ADDBI lrd8 200;; BKPT;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4    # dest = lrd8 (pair index 4)
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 200
 
 
 # ============================================================================
@@ -333,23 +450,23 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
         assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
-        assert d["lr_inst_1_token_1_lcr_reg_field"] == 9   # src = cr9
+        assert d["lr_inst_1_token_1_addbi_immediate"] == 9   # src = cr9
         assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
-        assert d["lr_inst_2_token_1_lcr_reg_field"] == 10  # src = cr10
+        assert d["lr_inst_2_token_1_addbi_immediate"] == 10  # src = cr10
         assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
 
     def test_decode_add_lcr_operand_field(self):
-        """``ADD`` third operand uses LcrRegField (register-only)."""
+        """``ADD`` third operand uses LcrRegField (register-only), sharing a field with AddbiImmediate."""
         encoded = assemble("ADD lr2 lr1 cr7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
         assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 16 + 7  # src_b = cr7
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 16 + 7  # src_b = cr7
 
 
 # ============================================================================
@@ -648,7 +765,123 @@ BKPT;;
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
         state.xmem.write_address(0x3000, mask_data)
-        with pytest.raises(EmulatorError, match="INT8"):
+        with pytest.raises(EmulatorError, match="floating-point lanes"):
+            run_until_complete(state)
+
+    def test_mask_affects_multiplication_wide_vector_debug(self):
+        """Same program as test_mask_affects_multiplication, run under wide-vector
+        debug/FP32: masking must be honored identically to narrow mode — first 64
+        lanes active, last 64 masked to the pad value (ZERO)."""
+        r0_data = struct.pack("<128f", *([2.0] * 128))
+        cyclic_data = struct.pack("<128f", *([3.0] * 128))
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 6.0, f"word {i} should be 6.0 (active), got {words[i]}"
+        for i in range(64, 128):
+            assert words[i] == 0.0, f"word {i} should be masked to 0.0, got {words[i]}"
+
+    def test_mask_pad_pos_inf_wide_vector_debug(self):
+        """pad_mode=POS_INF fills masked-out lanes with +inf under debug/FP32,
+        where dtype stays INT8-default but lane arithmetic is float — the
+        defect this fix corrects (dtype-based rejection would wrongly reject
+        this)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
+
+    def test_mask_pad_inf_rejected_under_wide_vector_debug_int32(self):
+        """POS_INF pad_mode must still raise under debug/INT32 lanes, where
+        infinity has no representation — the gate must key off
+        wide_vector_arithmetic, not the (irrelevant, INT8-default) dtype field."""
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.INT32
+        state.xmem.write_address(0x1000, bytes(128))
+        state.xmem.write_address(0x2000, bytes(512))
+        state.xmem.write_address(0x3000, mask_data)
+        with pytest.raises(EmulatorError, match="floating-point lanes"):
             run_until_complete(state)
 
 
@@ -815,7 +1048,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_negative_counter(self):
-        """BLT sign-extends at 20 bits: -1 < 0 must branch (issue #142)."""
+        """BLT sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -830,7 +1063,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_negative_not_taken(self):
-        """BGE sign-extends at 20 bits: -1 >= 0 must not branch (issue #142)."""
+        """BGE sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1463,7 +1696,7 @@ class TestDecodeRoundtrip:
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
 
 
 # ============================================================================
