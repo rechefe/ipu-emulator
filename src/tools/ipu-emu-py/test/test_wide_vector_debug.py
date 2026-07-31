@@ -358,6 +358,22 @@ class TestWideVectorAgg:
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
+    def test_agg_sum_int32_wide_running(self) -> None:
+        """AGG.SUM with INT32 wide lanes adds onto the existing r_acc[dest] (issue #182)."""
+        mult_res = bytearray(512)
+        struct.pack_into("<128i", mult_res, 0, *([4] * 128))
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        st.dtype = DType.INT8
+        st.regfile.set_mult_res_bytes(mult_res)
+        st.set_cr_dstructure(128)
+        st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
+        struct.pack_into("<i", st.regfile.raw("r_acc"), 127 * 4, 1000)
+        encoded = assemble("AGG.SUM LR0 cr15;;\nBKPT;;\n")
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        raw = st.regfile.raw("r_acc")
+        assert struct.unpack_from("<i", raw, 127 * 4)[0] == 1512
+
     def test_agg_max_first_fp32_wide(self) -> None:
         """AGG.MAX.FIRST with FP32 wide lanes picks the largest lane."""
         mult_res = bytearray(512)
