@@ -194,20 +194,36 @@ class SoftmaxColumnsPackedApp(IpuApp):
         state.xmem.write_address(self.keep_addr, self._keep_mask())
 
         # CR0 == 0, CR1 == 1 are READ-ONLY (CR1 = 1.0 scalar + loop increment).
-        state.regfile.set_cr(2, self.output_base)
-        state.regfile.set_cr(3, self.cvec_addr)
-        state.regfile.set_cr(4, self.num_base)
-        state.regfile.set_cr(5, self.cmax_addr)
-        state.regfile.set_cr(6, self.rvec_addr)
-        state.regfile.set_cr(7, CHUNK_BYTES)              # vector stride (512)
-        state.regfile.set_cr(8, self.keep_addr)           # keep-mask address
-        state.regfile.set_cr(10, self.input_base)         # input base
+        # .asm XMEM operands are ROW numbers (one row = CHUNK_BYTES), not byte
+        # addresses -- see issue #179 -- so all base/stride CRs below are rows,
+        # EXCEPT CR13/CR14 which feed MULT.RC's rc_idx, an ELEMENT offset into
+        # r_cyclic (matches LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196).
+        state.regfile.set_cr(2, self.output_base // CHUNK_BYTES)
+        state.regfile.set_cr(3, self.cvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(4, self.num_base // CHUNK_BYTES)
+        state.regfile.set_cr(5, self.cmax_addr // CHUNK_BYTES)
+        state.regfile.set_cr(6, self.rvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(7, 1)                        # vector stride: advance one row per vector
+        # CR8 is free (the keep-mask row, used once in Pass 3, is computed in
+        # .asm as CVEC row + 1 instead of a dedicated CR).
+        # CR9 = LANES (128): the ELEMENT index for the fold's duplicate
+        # LDR_CYCLIC_MULT_REG (loads the same partial into ring slot 1, right
+        # after slot 0, so every fold rc_idx in [0, (rpv-1)*W] stays inside
+        # real, loaded data -- see the .asm fold comment).
+        state.regfile.set_cr(9, LANES)
+        state.regfile.set_cr(10, self.input_base // CHUNK_BYTES)  # input base row
         state.regfile.set_cr(11, self.num_vectors)        # vector loop bound (rows reduced)
-        state.regfile.set_cr(12, self.scratch_addr)       # fold scratch chunk
-        state.regfile.set_cr(13, self.group_width * 4)    # initial fold shift (bytes) = W*4
-        state.regfile.set_cr(14, CHUNK_BYTES)             # fold stop: shift < 512
+        state.regfile.set_cr(12, self.scratch_addr // CHUNK_BYTES)  # fold scratch chunk row
+        # CR13/CR14: cross-group fold walk. The fold combines the rows_per_vec
+        # (rpv) groups packed into one 128-lane partial by duplicating it into
+        # two adjacent ring slots then reading rc_idx = 0, W, ..., (rpv-1)*W
+        # (rpv steps, W=group_width) via a running ACC.MAX/ACC.ADD -- see the
+        # .asm comment for the full derivation.
+        state.regfile.set_cr(13, self.group_width)        # W: per-step rc_idx increment (elements)
+        state.regfile.set_cr(14, self.rows_per_vec)        # rpv: fold step count (loop bound)
 
-        # CR15 = dstructure, valid_elements = 128 (every lane live).
+        # CR15 = dstructure, valid_elements = 128, pad_mode = ZERO (default;
+        # every lane live, no masking except where a mask_offset says so).
         state.set_cr_dstructure(valid_elements=LANES)
 
     def teardown(self, state: "IpuState") -> None:

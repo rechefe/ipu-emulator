@@ -59,11 +59,10 @@ if TYPE_CHECKING:
 
 LANES = 128                  # lanes per physical chunk
 CHUNK_BYTES = LANES * 4      # 512 bytes per FP32 chunk
-# r_cyclic's full ring in wide-vector-debug mode (this app's only mode): 512
-# elements x 4 bytes/element, NOT CHUNK_BYTES (512) -- MULT.RC's rc_idx wraps
-# at the whole ring, not at one row (issue #180). The Pass-4 repack's reverse
-# slide needs this to compute a correct negative-offset-via-wraparound.
-RING_BYTES = 512 * 4
+# r_cyclic's full ring: 512 ELEMENTS (MULT.RC's rc_idx is element-addressed,
+# matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196). The Pass-4
+# repack's reverse slide wraps at this element count, not CHUNK_BYTES.
+RING_ELEMENTS = 512
 
 # XMEM byte-address map. INPUT_BASE non-zero; literal 0 lives in CR0 (read-only).
 INPUT_BASE_ADDR = 0x10000    # packed input chunks
@@ -166,14 +165,15 @@ class SoftmaxRowsPartialApp(IpuApp):
         state.regfile.set_cr(8, LANES)                # 128: R1 byte-index base for maxvec select
         state.regfile.set_cr(9, self.padded_rows)     # logical-row loop bound
         state.regfile.set_cr(10, INPUT_BASE_ADDR // CHUNK_BYTES)  # input base row
-        # CR11 = RING_BYTES (2048): r_cyclic ring size for the Pass-4 repack's
-        # reverse-slide SUB src_a (MULT.RC's rc_idx is a byte-lane offset into
-        # the ring, not an XMEM address, so it stays a byte value even though
-        # CR7 switched to rows -- and it must be the FULL ring, not one row's
-        # CHUNK_BYTES, since rc_idx wraps at the ring boundary, not the row
-        # boundary; see issue #180).
-        state.regfile.set_cr(11, RING_BYTES)
-        state.regfile.set_cr(12, self.ps * 4)         # partition byte stride (ps*4)
+        # CR11 = RING_ELEMENTS (512): r_cyclic ring size for the Pass-4 repack's
+        # reverse-slide SUB src_a. MULT.RC's rc_idx is an ELEMENT offset into
+        # r_cyclic (matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196),
+        # not an XMEM address, so it stays element-valued even though CR7
+        # switched to rows -- and it must be the FULL ring, not one row's 128
+        # elements, since rc_idx wraps at the ring boundary, not the row
+        # boundary.
+        state.regfile.set_cr(11, RING_ELEMENTS)
+        state.regfile.set_cr(12, self.ps)              # partition element stride (ps)
         state.regfile.set_cr(13, self.num_chunks)     # chunk loop bound
         state.regfile.set_cr(14, self.parts_per_chunk)  # P (partitions per chunk)
 

@@ -2,7 +2,8 @@
     softmax_rows_partial.asm -- packed row-softmax for N<=128, P=128/ps rows/chunk
 
     P logical rows share one 128-lane chunk. C_VEC=log2(e) resident in R0
-    (broadcast); x-chunk in r_cyclic. Per partition p, MULT.RC.VV rc_idx=p*ps*4
+    (broadcast); x-chunk in r_cyclic. Per partition p, MULT.RC.VV rc_idx=p*ps
+    (ELEMENT offset -- matches LDR_CYCLIC_MULT_REG's index; issue #182/PR #196)
     reads r_cyclic[p*ps + i]*R0[i] = c*x[p][i] into mult_res lanes 0..N-1; masked
     AGG/ACTIVATE.QUANTIZE name CR15 (valid_elements=N) to act on those N lanes
     only. The full-row drains (MAXVEC/RVEC/output chunk) instead name CR8, whose
@@ -12,7 +13,7 @@
 
     Addressing: cyclic/mult loads take (offset_lr, base_cr, index_lr); base CRs
     are fixed, the chunk byte offset walks in an LR. The partition slide rc_idx is
-    a SEPARATE intra-register offset (0, ps*4, ...), not an XMEM address.
+    a SEPARATE intra-register offset (0, ps, ...), not an XMEM address.
 
     Layout: input/output PACKED; numerators UNPACKED (1 chunk/row); maxvec=c*xmax
     and rvec=1/sum are 128-lane scalar vectors (slot per row).
@@ -21,12 +22,11 @@
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
       CR7=1 chunk/row stride (.asm XMEM operands are rows -- issue #179)
       CR8=128 (R1 byte-idx base; also full-row dstructure CR: valid_elements=128)
-      CR9=padded_rows  CR10=INPUT_BASE  CR11=2048 (r_cyclic RING size in
-      wide-vector-debug mode, for the Pass-4 repack's reverse-slide SUB src_a
-      -- NOT an XMEM stride, so it stays a byte value even though CR7 switched
-      to rows; MULT.RC's rc_idx wraps at the ring boundary, not the row
-      boundary -- issue #180)  CR12=ps*4 partition stride  CR13=num_chunks
-      CR14=P
+      CR9=padded_rows  CR10=INPUT_BASE  CR11=512 (r_cyclic RING size in
+      ELEMENTS, for the Pass-4 repack's reverse-slide SUB src_a -- NOT an XMEM
+      stride, so it stays element-valued even though CR7 switched to rows;
+      MULT.RC's rc_idx wraps at the ring boundary, not the row boundary)
+      CR12=ps partition element stride  CR13=num_chunks  CR14=P
 ========================================================================== -#}
 
 {%- set lr_slide  = "lr0" -%}  {#- intra-register partition slide (0, ps*4, ...) -#}
@@ -37,8 +37,8 @@
 {%- set lr_coff   = "lr5" -%}  {#- chunk byte offset (chunk * 512) -#}
 {%- set lr_num    = "lr6" -%}  {#- numerator chunk byte offset (per row) -#}
 {%- set lr_maxid  = "lr7" -%}  {#- R1 byte index for maxvec[row] select (128 + row) -#}
-{%- set lr_rslide = "lr8" -%}  {#- Pass-4 repack slide = (512 - p*ps*4) mod 512 -#}
-{%- set lr_c512   = "lr9" -%}  {#- holds 512 (for SUB src_a; SUB needs LR src_a) -#}
+{%- set lr_rslide = "lr8" -%}  {#- Pass-4 repack slide = RING - p*ps (element offset) -#}
+{%- set lr_c512   = "lr9" -%}  {#- holds RING=512 (for SUB src_a; SUB needs LR src_a) -#}
 
 {#- ===================================================================== -#}
 {#- PASS 1 -- maxvec[row] = c*xmax over each partition's N lanes.          -#}
@@ -123,14 +123,15 @@ p3_row:
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk lanes.     -#}
 {#-   per chunk: per partition p: r_cyclic=num[row]; MULT.RC.VE with        -#}
-{#-   rc_idx = lr_rslide = (RING - p*ps*4) mod RING places product at      -#}
+{#-   rc_idx = lr_rslide = (RING - p*ps) mod RING places product at        -#}
 {#-   lanes p*ps; ACC accumulates into chunk r_acc. Full-width ACTIVATE     -#}
-{#-   drains. RING = r_cyclic's full ring size in wide-vector-debug mode    -#}
-{#-   (2048 B = 512 elements * 4 B, NOT the 512-byte row size -- MULT.RC's  -#}
-{#-   rc_idx wraps at the ring boundary, not the row boundary; issue #180). -#}
+{#-   drains. RING = r_cyclic's full ring size, 512 ELEMENTS (rc_idx is an  -#}
+{#-   element offset, matching LDR_CYCLIC_MULT_REG's index -- issue         -#}
+{#-   #182/PR #196), NOT the 128-element row size -- MULT.RC's rc_idx wraps -#}
+{#-   at the ring boundary, not the row boundary.                          -#}
 {#-   lr_rslide: p=0 -> rc_idx=0 directly (RING - 0 = RING would itself     -#}
 {#-   need a further wrap, so p=0 skips the SUB entirely); p>=1 -> RING -   -#}
-{#-   p*ps*4 (descending by ps*4, all values land inside (0, RING) so no   -#}
+{#-   p*ps (descending by ps, all values land inside (0, RING) so no        -#}
 {#-   further wrap is needed).                                             -#}
 {#- ===================================================================== -#}
     SET {{lr_cyc}} cr0 ;;
@@ -139,7 +140,7 @@ p3_row:
     SET {{lr_chunk}} cr0 ;
     SET {{lr_coff}} cr0 ;;                      {#- output chunk offset -#}
     SET {{lr_num}} cr0 ;
-    SET {{lr_c512}} cr11 ;;                      {#- lr_c512 = RING (2048), SUB src_a -#}
+    SET {{lr_c512}} cr11 ;;                      {#- lr_c512 = RING (512 elements), SUB src_a -#}
 p4_chunk:
     {#- p=0: ACC.FIRST clears the chunk r_acc -#}
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
@@ -154,7 +155,7 @@ p4_chunk:
 
 p4_part:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;       {#- r_cyclic = num[row] -#}
-    SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                  {#- rslide = RING - p*ps*4 -#}
+    SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                  {#- rslide = RING - p*ps -#}
     {#- MULT reads lr_row LIVE; keep its increment OUT of this word (LR runs before MULT). -#}
     MULT.RC.VE {{lr_rslide}} {{lr_row}} 0 {{lr_cyc}} cr15 ;    {#- num*rvec[row] placed at p*ps -#}
     acc.add ;;

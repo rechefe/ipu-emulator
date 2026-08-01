@@ -161,22 +161,24 @@ class SoftmaxRowsLongApp(IpuApp):
         # CR0 == 0, CR1 == 1 are READ-ONLY. CR1 (=1.0) is the identity scalar
         # (Pass 3/4) and, with ACC.SUB, the Pass 2 subtract; CR1 also serves as
         # the +1 loop increment.
-        state.regfile.set_cr(2, self.output_base)
-        state.regfile.set_cr(3, self.cvec_addr)
-        state.regfile.set_cr(4, self.num_base)
-        state.regfile.set_cr(5, self.maxvec_addr)
-        state.regfile.set_cr(6, self.rvec_addr)
-        state.regfile.set_cr(7, CHUNK_BYTES)            # chunk stride (512)
+        # .asm XMEM operands are ROW numbers (one row = CHUNK_BYTES), not byte
+        # addresses -- see issue #179 -- so all base/stride CRs below are rows.
+        state.regfile.set_cr(2, self.output_base // CHUNK_BYTES)
+        state.regfile.set_cr(3, self.cvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(4, self.num_base // CHUNK_BYTES)
+        state.regfile.set_cr(5, self.maxvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(6, self.rvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(7, 1)                      # chunk stride: advance one row per chunk
         # CR8 = tail. Decoded as a dstructure its valid_elements = tail, so the
         # tail chunk's AGG.MAX/AGG.SUM reduce only the first `tail` lanes (the
         # dual-dstructure-CR trick: CR15=128 for full chunks, CR8=tail here).
         state.regfile.set_cr(8, self.tail)
         state.regfile.set_cr(9, LANES)                  # 128 (maxvec R1 byte base)
-        state.regfile.set_cr(10, self.input_base)       # input base
+        state.regfile.set_cr(10, self.input_base // CHUNK_BYTES)  # input base row
         state.regfile.set_cr(11, self.rows)             # row count (loop bound)
         state.regfile.set_cr(12, self.full_chunks)      # full-chunk loop bound
         state.regfile.set_cr(13, self.chunks_per_row)   # cpr (row stride in chunks)
-        state.regfile.set_cr(14, self.chunks_per_row * CHUNK_BYTES)  # row byte stride
+        state.regfile.set_cr(14, self.chunks_per_row)   # row stride (rows): advance cpr rows per logical row
 
         # CR15 = full-chunk dstructure: valid_elements = 128.
         state.set_cr_dstructure(valid_elements=LANES)

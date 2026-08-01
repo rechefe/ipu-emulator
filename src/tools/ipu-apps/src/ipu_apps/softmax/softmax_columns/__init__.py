@@ -167,14 +167,16 @@ class SoftmaxColumnsApp(IpuApp):
         # increment. All lanes are live for every op, so every AGG/ACTIVATE.
         # QUANTIZE names CR15 with valid_elements = 128 (no dual-CR trick here:
         # column softmax never partial-reduces a vector).
-        state.regfile.set_cr(2, self.output_base)
-        state.regfile.set_cr(3, self.cvec_addr)
-        state.regfile.set_cr(4, self.num_base)
-        state.regfile.set_cr(5, self.cmax_addr)
-        state.regfile.set_cr(6, self.rvec_addr)
-        state.regfile.set_cr(7, CHUNK_BYTES)                  # chunk stride (512)
-        state.regfile.set_cr(9, self.chunks_per_row * CHUNK_BYTES)  # row byte stride
-        state.regfile.set_cr(10, self.input_base)             # input base
+        # .asm XMEM operands are ROW numbers (one row = CHUNK_BYTES), not byte
+        # addresses -- see issue #179 -- so all base/stride CRs below are rows.
+        state.regfile.set_cr(2, self.output_base // CHUNK_BYTES)
+        state.regfile.set_cr(3, self.cvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(4, self.num_base // CHUNK_BYTES)
+        state.regfile.set_cr(5, self.cmax_addr // CHUNK_BYTES)
+        state.regfile.set_cr(6, self.rvec_addr // CHUNK_BYTES)
+        state.regfile.set_cr(7, 1)                            # chunk stride: advance one row per chunk
+        state.regfile.set_cr(9, self.chunks_per_row)          # row stride (rows)
+        state.regfile.set_cr(10, self.input_base // CHUNK_BYTES)  # input base row
         state.regfile.set_cr(11, self.rows)                   # row loop bound
         state.regfile.set_cr(13, self.chunks_per_row)         # chunk-column loop bound
 
