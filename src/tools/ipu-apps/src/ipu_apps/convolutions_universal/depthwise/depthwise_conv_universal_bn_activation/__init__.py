@@ -55,6 +55,7 @@ Usage::
 from __future__ import annotations
 
 import math
+import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -79,6 +80,12 @@ if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
 # -- Memory layout -----------------------------------------------------------
+#
+# Row-addressed ISA (mb/195): XMEM offset/base operands on LDR_*/STR_* are
+# ROW numbers, not byte addresses. *_BASE_ADDR stay byte constants for
+# host-side xmem pokes; *_BASE_ROW = *_BASE_ADDR // CHUNK_BYTES feeds the CR
+# registers the asm loads/stores through. r_cyclic index/rc_idx operands
+# (lr5, lr3/lr4) stay ELEMENT-addressed and are untouched by this migration.
 
 INPUT_BASE_ADDR = 0x000000
 KERNEL_BASE_ADDR = 0x110000
@@ -91,29 +98,49 @@ MASK_BASE_ADDR = 0x120000
 OUTPUT_BASE_ADDR = 0x130000
 
 OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output channel per chunk (int8)
+CHUNK_BYTES = 128         # XMEM row size in narrow mode; row-number unit
+
+INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
+KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
+MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
 
 FPB = 25            # channels per 256-byte super-block (1 bias + 9 taps each)
 CH_SLOT_BYTES = 10  # per-channel slot: byte 0 = bias, bytes 1..9 = 9 taps
 SUPER_BLOCK_BYTES = 256
+SUPER_BLOCK_ROWS = SUPER_BLOCK_BYTES // CHUNK_BYTES
+
+
+def _as_signed_byte(value: int) -> int:
+    v = value & 0xFF
+    return v - 256 if v > 127 else v
 
 
 def _pack_depthwise_kernel_bias(
-    kernel_raw: bytes, bias_bytes: bytes, channels: int
+    kernel_raw: bytes, bias_bytes: bytes, channels: int, element_width: int = 1,
 ) -> bytes:
     """Pack per-channel (bias + 9 weight taps) into FPB=25 super-blocks.
 
     Input:  ``kernel_raw`` = channels*9 bytes (channel ch's 9 taps at ch*9);
             ``bias_bytes`` = channels bytes (channel ch's INT8 bias).
-    Output: ceil(channels/25) super-blocks of 256 bytes each.
+    Output: ceil(channels/25) super-blocks of ``256 * element_width`` bytes.
 
-    Within one super-block, channel ``s`` (0..24) occupies bytes
-    ``[s*10 .. s*10 + 10)``: byte ``s*10`` = bias, ``s*10+1 .. s*10+9`` = taps.
-    25*10 = 250 <= 256.  R0 holds bytes 0..127, R1 holds 128..255; the
-    shared-index ``mult.ve`` (fixed_idx 0..255) spans both halves.
+    Within one super-block, channel ``s`` (0..24) occupies ELEMENTS
+    ``[s*10 .. s*10 + 10)``: element ``s*10`` = bias, ``s*10+1 .. s*10+9`` =
+    taps. 25*10 = 250 <= 256.  R0 holds elements 0..127, R1 holds 128..255;
+    the shared-index ``mult.ve`` (fixed_idx 0..255) spans both halves.
+    ``element_width`` is 1 (narrow) or 4 (wide-vector debug).
     """
     num_blocks = math.ceil(channels / FPB)
-    total = num_blocks * SUPER_BLOCK_BYTES
+    total = num_blocks * SUPER_BLOCK_BYTES * element_width
     packed = bytearray(total)
+
+    def put(elem_idx: int, value: int) -> None:
+        if element_width == 1:
+            packed[elem_idx] = value & 0xFF
+        else:
+            struct.pack_into("<i", packed, elem_idx * 4, _as_signed_byte(value))
+
     for sb in range(num_blocks):
         sb_base = sb * SUPER_BLOCK_BYTES
         for s in range(FPB):
@@ -121,8 +148,9 @@ def _pack_depthwise_kernel_bias(
             if ch >= channels:
                 break
             slot = sb_base + s * CH_SLOT_BYTES
-            packed[slot] = bias_bytes[ch]                       # byte 0 = bias
-            packed[slot + 1:slot + 10] = kernel_raw[ch * 9:ch * 9 + 9]
+            put(slot, bias_bytes[ch])                            # bias
+            for t in range(9):
+                put(slot + 1 + t, kernel_raw[ch * 9 + t])
     return bytes(packed)
 
 
@@ -179,16 +207,25 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         self.cols = cols
         self.channels = channels
         self.num_chunks = num_chunks
-        self.group_stride = channels * 128
+        # group_stride is a row-count (XMEM-space): one row per channel.
+        self.group_stride = channels
         self.num_super_blocks = math.ceil(channels / FPB)
-        self.total_kernel_bytes = self.num_super_blocks * SUPER_BLOCK_BYTES
+        self.total_kernel_rows = self.num_super_blocks * SUPER_BLOCK_ROWS
+        # Guard band (see depthwise_conv_universal's identical fix): place the
+        # real input data one group_stride further into the address space;
+        # cr10 stays at INPUT_BASE_ROW, and the asm's own running pointer
+        # (lr8/lr2, seeded to group_stride at init) carries the shift.
+        self.input_data_row = INPUT_BASE_ROW + self.group_stride
+        self._element_width = 1
 
     def setup(self, state: "IpuState") -> None:
         # Master ISA: dtype is a state attribute, not a CR register.
         state.dtype = self.dtype
+        self._element_width = 4 if state.wide_vector_debug else 1
+        row_bytes = CHUNK_BYTES * self._element_width
 
         input_data = self.input_path.read_bytes()
-        state.xmem.write_address(INPUT_BASE_ADDR, input_data)
+        state.xmem.write_address(self.input_data_row * row_bytes, input_data)
 
         kernel_raw = self.kernel_path.read_bytes()
         expected = self.channels * 9
@@ -199,16 +236,16 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
             )
         bias_bytes = self._bias_array.astype(np.int8).view(np.uint8).tobytes()
         kernel_packed = _pack_depthwise_kernel_bias(
-            kernel_raw, bias_bytes, self.channels
+            kernel_raw, bias_bytes, self.channels, self._element_width,
         )
-        state.xmem.write_address(KERNEL_BASE_ADDR, kernel_packed)
+        state.xmem.write_address(KERNEL_BASE_ROW * row_bytes, kernel_packed)
 
         # Border mask: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
         # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
         # slot 3, the gN section selects slot 6 — no mid-program R_MASK reload.
         # Left/right edge columns are applied at runtime by mask_shift (CR15
         # partition below).  No zero region.
-        state.xmem.write_address(MASK_BASE_ADDR, build_border_mask_blob(self.cols))
+        state.xmem.write_address(MASK_BASE_ROW * row_bytes, build_border_mask_blob(self.cols))
 
         # CR15 dstructure: partition so each partition group is exactly one
         # packed spatial row (group size == cols).  The asm's mask_shift then
@@ -233,27 +270,35 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         # Relocate the input/kernel bases off CR0/CR1 (mirroring
         # conv_universal_bn_activation), keeping CR0 free as the read-only zero
         # constant used by "SET lr<n>, cr0":
-        #   CR10 = INPUT_BASE (cyclic-load base), CR5 = KERNEL_BASE,
-        #   CR3 = mask blob (single blob, slots 0/3/6).
-        state.regfile.set_cr(10, INPUT_BASE_ADDR)
-        state.regfile.set_cr(5, KERNEL_BASE_ADDR)
-        # cr2 is pre-biased by -128 for the deferred store (asm advances lr7
+        #   CR10 = INPUT_BASE_ROW (cyclic-load base; UN-shifted -- the asm's
+        #   own running pointer carries the guard-band group_stride).
+        #   CR5 = KERNEL_BASE row, CR3 = mask blob row (single blob, slots 0/3/6).
+        state.regfile.set_cr(10, INPUT_BASE_ROW)
+        state.regfile.set_cr(5, KERNEL_BASE_ROW)
+        # cr2 is pre-biased by -1 ROW for the deferred store (asm advances lr7
         # BEFORE the XMEM store at tap 2; store writes to lr7_advanced + cr2 =
-        # lr7_old + OUTPUT_BASE_ADDR).
-        state.regfile.set_cr(2, (OUTPUT_BASE_ADDR - 128) & 0xFFFFFFFF)
-        state.regfile.set_cr(3, MASK_BASE_ADDR)
-        # cr9 = 384: slot-pointer step (+384 mod 512) for the running write
-        # pointer lr5 (was the BOTTOM mask base; no reload needed now).
+        # lr7_old + OUTPUT_BASE_ROW).
+        state.regfile.set_cr(2, (OUTPUT_BASE_ROW - 1) & 0xFFFFFFFF)
+        state.regfile.set_cr(3, MASK_BASE_ROW)
+        # cr9 = 384: r_cyclic ELEMENT slot-pointer step (+384 mod 512) for the
+        # running write pointer lr5 -- unchanged by row addressing.
         state.regfile.set_cr(9, 384)
 
         # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
+        # cr6 = group_stride in ROWS (XMEM-space).
         state.regfile.set_cr(6, self.group_stride)
-        state.regfile.set_cr(7, FPB * 128)         # channel group inner-loop size in bytes
-        state.regfile.set_cr(8, self.total_kernel_bytes)
-        state.regfile.set_cr(11, (self.num_chunks - 1) * self.group_stride)
+        state.regfile.set_cr(7, FPB)               # channel group inner-loop size, in rows
+        state.regfile.set_cr(8, self.total_kernel_rows)
+        # cr11: chunk-loop limit, biased by the same guard-band group_stride
+        # added to lr8/lr2 above.
+        state.regfile.set_cr(
+            11, (self.num_chunks - 1) * self.group_stride + self.group_stride,
+        )
+        # cr12 = 128: r_cyclic ELEMENT slot size (index step for lr5) -- NOT
+        # an XMEM stride anymore; that role is CR1 (one XMEM chunk == one row).
         state.regfile.set_cr(12, 128)
-        state.regfile.set_cr(13, 256)
+        state.regfile.set_cr(13, 256)  # r_cyclic ELEMENT half-slot step
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
