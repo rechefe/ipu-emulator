@@ -55,6 +55,7 @@ Usage::
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -90,12 +91,28 @@ TAPS_PER_FILTER = IN_CHANNELS * TAPS_PER_CHANNEL      # 27
 OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 bytes: one output row, all 16 filters
 
 # -- Memory layout -----------------------------------------------------------
+#
+# Row-addressed ISA (mb/195): every XMEM offset/base operand this app uses
+# (ldr_mult_reg / ldr_cyclic_mult_reg's offset+base / str_post_aaq_reg) is a
+# ROW number, not a byte address -- *_BASE_ADDR below stay byte constants for
+# host-side xmem pokes; *_BASE_ROW feeds the CR registers the asm loads
+# through. Unlike the depthwise/conv apps, this app has NO r_cyclic-index CR
+# overload to split: every ldr_cyclic_mult_reg's `index` operand here is a
+# literal LR holding 0 or 128 (lr0/lr11), never a CR, so all the byte-stride
+# CRs (256/768/128/1536/2048) are purely XMEM-space and divide evenly by 128.
 
 INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 B = 196608 bytes
 KERNEL_BASE_ADDR = 0x040000   # 16 filters x 128-byte block = 2048 bytes
 MASK_BASE_ADDR = 0x041000     # 128-byte mask blob (8 slots x 16 bytes)
 TEMP_BASE_ADDR = 0x041100     # 256 bytes: temp0[0..127] (slot0 half) + temp1[128..255]
 OUTPUT_BASE_ADDR = 0x050000   # 128 rows * 2048 B = 262144 bytes
+
+CHUNK_BYTES = 128
+INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
+KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
+MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
+TEMP_BASE_ROW = TEMP_BASE_ADDR // CHUNK_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
 
 # Bias in byte 0 of each filter's 128-byte kernel block; 27 conv taps at [1..28).
 BIAS_BYTE_OFFSET = 1
@@ -232,18 +249,22 @@ class ConvFirstLayerApp(IpuApp):
         # CR15 dstructure: one 128-lane slot is fully valid.
         state.set_cr_dstructure(valid_elements=128)
 
-        # CR map. CR0 == 0, CR1 == 1 are read-only constants; CR15 is dstructure.
-        state.regfile.set_cr(3, KERNEL_BASE_ADDR)
-        state.regfile.set_cr(4, MASK_BASE_ADDR)
-        state.regfile.set_cr(5, OUTPUT_BASE_ADDR)
-        state.regfile.set_cr(6, CHANNEL_STRIDE)          # 256: ch-to-ch step in a row group
-        state.regfile.set_cr(7, IN_ROW_GROUP)            # 768: one input spatial row (3 ch)
-        state.regfile.set_cr(8, FILTER_BLOCK_BYTES)      # 128: chunk / slot size
-        state.regfile.set_cr(9, 2 * IN_ROW_GROUP)        # 1536: input advance per OUTPUT row (stride 2)
-        state.regfile.set_cr(10, INPUT_BASE_ADDR)        # input base
-        state.regfile.set_cr(11, OUT_ROWS)               # 128: output-row loop bound
-        state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_BYTES)  # 2048: kernel limit / output row group
-        state.regfile.set_cr(13, TEMP_BASE_ADDR)         # temp0 (slot0 half) at +0, temp1 at +128
+        # CR map (ROW-space; see the module-level note on the address-space
+        # split). CR0 == 0, CR1 == 1 are read-only constants; CR15 is dstructure.
+        state.regfile.set_cr(3, KERNEL_BASE_ROW)
+        state.regfile.set_cr(4, MASK_BASE_ROW)
+        state.regfile.set_cr(5, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(6, CHANNEL_STRIDE // CHUNK_BYTES)     # 2: ch-to-ch step, rows
+        state.regfile.set_cr(7, IN_ROW_GROUP // CHUNK_BYTES)       # 6: one input spatial row (3 ch), rows
+        state.regfile.set_cr(8, FILTER_BLOCK_BYTES // CHUNK_BYTES)  # 1: chunk / slot size, rows
+        state.regfile.set_cr(9, 2 * IN_ROW_GROUP // CHUNK_BYTES)   # 12: input advance per OUTPUT row (stride 2), rows
+        state.regfile.set_cr(10, INPUT_BASE_ROW)                  # input base row
+        state.regfile.set_cr(11, OUT_ROWS)                        # 128: output-row loop bound (not XMEM-space)
+        state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_BYTES // CHUNK_BYTES)  # 16: kernel limit / output row group, rows
+        state.regfile.set_cr(13, TEMP_BASE_ROW)                   # temp0 (slot0 half) at +0, temp1 at +128
+        # cr14 = 128: r_cyclic ELEMENT slot1 index, split off cr8 (which is now
+        # the XMEM filter-block ROW stride = 1 and would otherwise collide).
+        state.regfile.set_cr(14, 128)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
