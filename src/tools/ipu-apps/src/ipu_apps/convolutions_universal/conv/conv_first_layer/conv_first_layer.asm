@@ -33,8 +33,17 @@
 #   left  (col 0):  kc=-1 slot0 -> mask slot 1 zeros lane 0.
 #   right (col255): kc=+1 slot1 -> mask slot 2 zeros lane 127.
 #
-# CR: cr3 KERNEL cr4 MASK cr5 OUTPUT cr6 256 cr7 768 cr8 128 cr9 1536
-#     cr10 INPUT cr11 128(rows) cr12 2048 cr13 TEMP  cr0=0 cr1=1 cr15=dstruct
+# Row-addressed ISA (mb/195): XMEM offset/base operands (ldr_mult_reg,
+# ldr_cyclic_mult_reg's offset+base, str_post_aaq_reg) are ROW numbers;
+# ldr_cyclic_mult_reg's `index` operand stays an ELEMENT index (0/128 slot
+# boundary, unscaled). cr8 used to double as both (XMEM filter-block stride
+# AND the literal r_cyclic slot1 index 128) -- split onto cr14 for the
+# r_cyclic role, since the two units diverge under row addressing.
+# CR (ROW-space; cr14 is the one literal ELEMENT-space const):
+#   cr3 KERNEL(row) cr4 MASK(row) cr5 OUTPUT(row) cr6 2(rows) cr7 6(rows)
+#   cr8 1(row, filter-block stride) cr9 12(rows) cr10 INPUT(row)
+#   cr11 128(rows, loop bound, not XMEM) cr12 16(rows) cr13 TEMP(row)
+#   cr14 128 (r_cyclic slot1 ELEMENT index, unscaled)  cr0=0 cr1=1 cr15=dstruct
 # LR: lr0=0 lr1=1 lr2=+1 lr3=-1 lr4=kern idx lr5=center row-grp base(2r*768)
 #     lr6=out ptr lr7=filter block base lr8=row counter lr9,lr10,lr14=scratch
 #     lr11=128 lr12=scratch
@@ -118,7 +127,9 @@
     str_post_aaq_reg    lr0 cr13;;
 {%-   else %}
     ACTIVATE.QUANTIZE   identity cr15;
-    str_post_aaq_reg    lr11 cr13;;
+    # XMEM offset for temp1 = +1 ROW (temp0/temp1 are adjacent 128-byte rows);
+    # lr11 holds 128 in its r_cyclic-ELEMENT role, so use lr1 (=1) here instead.
+    str_post_aaq_reg    lr1 cr13;;
 {%-   endif %}
 {%- endfor %}
 
@@ -127,7 +138,7 @@
     ldr_cyclic_mult_reg lr0 cr13 lr0;;
     MULT.RC.VE          lr0 cr1 0 lr0 cr15;;
     acc.stride          64 on off lr0;;
-    ldr_cyclic_mult_reg lr11 cr13 lr0;;
+    ldr_cyclic_mult_reg lr1 cr13 lr0;;   # XMEM offset +1 row (temp1); lr11 stays r_cyclic-ELEMENT-only
     MULT.RC.VE          lr0 cr1 0 lr0 cr15;;
     # acc.stride (finalizes r_acc), ACTIVATE.QUANTIZE (reads r_acc LIVE), and
     # STR_POST_AAQ_REG (reads post_aaq_reg LIVE; store dispatches after aaq)
@@ -148,7 +159,7 @@
     ADD                 lr2 lr0 cr1;                 # +1  (mask_shift kc=-1)
     SUB                 lr3 lr0 cr1;;                # -1  (mask_shift kc=+1)
 
-    SET                 lr11 cr8;;                   # 128 (slot1 rc index / temp1 off)
+    SET                 lr11 cr14;;                  # 128 (slot1 rc ELEMENT index / temp1 off)
 
     SET                 lr6 cr0;                     # output pointer = 0
     SET                 lr8 cr0;                     # output row counter = 0
