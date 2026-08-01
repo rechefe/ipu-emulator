@@ -268,7 +268,7 @@ class TestWideVectorWrap:
         st.dtype = DType.INT8
         st.regfile.set_cr(2, 2)  # low byte 2 → scalar 2.0 in wide FP32 path
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
-        st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
+        st.regfile.set_cr(6, 480)  # rc_idx is an ELEMENT index (issue #182 follow-up)
         st.regfile.set_cr(7, 0)
         asm = """\
 SET lr0 cr6;;
@@ -299,7 +299,7 @@ BKPT;;
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         st.regfile.set_cr(10, 0x1000 // 512)  # row number (debug row = 512 B)
-        st.regfile.set_cr(6, 480 * 4)  # rc_idx is a BYTE offset; element 480 = byte 1920
+        st.regfile.set_cr(6, 480)  # rc_idx is an ELEMENT index (issue #182 follow-up)
         st.regfile.set_cr(7, 0)
         st.regfile.set_cr(8, 0)
         asm = """\
@@ -320,6 +320,69 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
         for i in range(32, 128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
+
+
+class TestWideVectorRcIdxElementAddressing:
+    """rc_idx (MULT.RC.* operand) is an ELEMENT index into r_cyclic, the same
+    unit as LDR_CYCLIC_MULT_REG's index (issue #182 follow-up). Regression
+    coverage for the softmax_rows_partial Pass 4 bug: a reverse-slide placement
+    computed as (RING_ELEMENTS - k) must land at r_cyclic element 0 data, not
+    at a stale/unwritten byte offset from treating rc_idx as a byte quantity
+    against the wrong ring size."""
+
+    def test_reverse_slide_wraps_to_element_zero(self) -> None:
+        """rc_idx = RING_ELEMENTS - k, read k elements later, wraps back to the
+        real data written at element 0 -- the exact placement trick Pass 4 uses
+        to reverse-slide partitions into place."""
+        RING_ELEMENTS = 512
+        k = 32
+        buf = bytearray(2048)
+        for i in range(128):
+            struct.pack_into("<f", buf, i * 4, 9.0)
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.dtype = DType.INT8
+        st.regfile.set_cr(1, 1)  # scalar 1.0
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
+        st.regfile.set_cr(6, RING_ELEMENTS - k)  # rc_idx in ELEMENTS
+        asm = """\
+SET lr0 cr6;;
+MULT.RC.VE lr0 cr1 0 lr0 cr15;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        mult_res = st.regfile.raw("mult_res")
+        # Lanes [0, k) read the ring's stale tail (zero); lanes [k, 128) wrap
+        # around to the real data written at element 0.
+        for i in range(k):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(0.0), f"lane {i}"
+        for i in range(k, 128):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(9.0), f"lane {i}"
+
+    def test_rc_idx_zero_matches_element_offset_convention(self) -> None:
+        """rc_idx=0 needs no special-casing relative to a wrapped rc_idx: both
+        read element-indexed positions in the same ring, confirming rc_idx=0
+        is not a degenerate/different unit from a nonzero rc_idx."""
+        buf = bytearray(2048)
+        for i in range(128):
+            struct.pack_into("<f", buf, i * 4, 4.0)
+        st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        st.dtype = DType.INT8
+        st.regfile.set_cr(1, 1)  # scalar 1.0
+        st.regfile.set_r_cyclic_wide_debug_at(0, buf)
+        st.regfile.set_cr(6, 0)
+        asm = """\
+SET lr0 cr6;;
+MULT.RC.VE lr0 cr1 0 lr0 cr15;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        load_program(st, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(st)
+        mult_res = st.regfile.raw("mult_res")
+        for i in range(128):
+            assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(4.0), f"lane {i}"
 
 
 class TestWideVectorAgg:
@@ -371,15 +434,20 @@ class TestWideVectorAgg:
 
 
 class TestWideVectorAlignment:
-    def test_misaligned_cyclic_offset_raises(self) -> None:
+    def test_rc_idx_element_offset_always_lane_aligned(self) -> None:
+        """rc_idx is an ELEMENT index (issue #182 follow-up); scaled to bytes via
+        element_width_bytes(), so any rc_idx value produces a byte offset that is
+        always a multiple of 4 in wide-vector debug mode -- misalignment via
+        rc_idx is no longer reachable (unlike when rc_idx was a raw byte offset).
+        The 4-byte-aligned guard in _debug_rb_lane_vals stays as defense-in-depth."""
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
         st.xmem.write_address(0x2000, struct.pack("<128f", *([2.0] * 128)))
-        st.regfile.set_cr(6, 0x1000)
-        st.regfile.set_cr(7, 0x2000)
+        st.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
+        st.regfile.set_cr(7, 0x2000 // 512)
         st.regfile.set_cr(8, 0)
-        st.regfile.set_cr(9, 1)
+        st.regfile.set_cr(9, 1)  # rc_idx = 1 element -> byte offset 4, aligned
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
@@ -392,8 +460,9 @@ BKPT;;
 """
         encoded = assemble(asm)
         load_program(st, [decode_instruction_word(w) for w in encoded])
-        with pytest.raises(EmulatorError, match="4-byte aligned"):
-            run_until_complete(st)
+        run_until_complete(st)
+        ipu = Ipu(st)
+        assert ipu._rc_element_to_byte_offset(1) % 4 == 0
 
 
 class TestElementAndRowSizeHelpers:
