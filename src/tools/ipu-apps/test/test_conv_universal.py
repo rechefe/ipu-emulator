@@ -16,11 +16,13 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.conv.conv_universal import (
     ConvUniversalApp,
     OUTPUT_BASE_ADDR,
+    OUTPUT_BASE_ROW,
     OUTPUT_CHUNK_BYTES,
 )
 from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
@@ -183,6 +185,86 @@ class TestConvUniversal:
                 )
         assert not mismatches, (
             f"{len(mismatches)} mismatches (first 20):\n"
+            + "\n".join(mismatches[:20])
+        )
+
+
+class TestConvUniversalWideVectorDebug:
+    """The SAME assembled binary must also be correct in wide-vector debug mode.
+
+    See test_conv_universal_bn_activation.py's twin test for the rationale:
+    XMEM operands are row numbers and r_cyclic operands are element indices,
+    neither depending on 1 B/element (narrow) vs 4 B/element (wide) width.
+    """
+
+    @pytest.fixture(scope="class")
+    def inst_file(self, tmp_path_factory) -> Path:
+        tmp = tmp_path_factory.mktemp("conv_universal_wide")
+        inst_file = tmp / "conv_universal.bin"
+        assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
+        return inst_file
+
+    @pytest.mark.parametrize(
+        "in_ch,out_ch,rows,cols",
+        [
+            (4, 4, 16, 16),
+            (16, 4, 16, 16),
+            (16, 8, 32, 32),   # cross-chunk
+        ],
+    )
+    def test_same_asm_runs_in_wide_vector_debug_mode(
+        self,
+        inst_file: Path,
+        tmp_path: Path,
+        in_ch: int,
+        out_ch: int,
+        rows: int,
+        cols: int,
+    ) -> None:
+        rng = np.random.RandomState(1234 + in_ch)
+        weights = rng.randint(-8, 9, size=(out_ch, in_ch, 3, 3)).astype(np.int8)
+        input_chw = rng.randint(-8, 9, size=(in_ch, rows, cols)).astype(np.int8)
+
+        rows_per_chunk = 128 // cols
+        num_chunks = (rows * cols) // 128
+        packed = bytearray(num_chunks * in_ch * 128 * 4)
+        for ch in range(in_ch):
+            for r in range(rows):
+                for c in range(cols):
+                    elem = ((r // rows_per_chunk) * in_ch + ch) * 128 + (
+                        r % rows_per_chunk
+                    ) * cols + c
+                    struct.pack_into("<i", packed, elem * 4, int(input_chw[ch, r, c]))
+        input_file = tmp_path / "input_wide.bin"
+        input_file.write_bytes(bytes(packed))
+
+        app = ConvUniversalApp(
+            inst_path=inst_file, input_path=input_file, kernel=weights,
+            output_path=None, dtype="INT8", rows=rows, cols=cols,
+            in_channels=in_ch, out_channels=out_ch,
+        )
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.INT32,
+            wide_vector_quantize_output=True,
+        )
+        max_cyc = 2_000 * num_chunks * out_ch * math.ceil(in_ch / 14) + 50_000
+        state, cycles = app.run(max_cycles=max_cyc, state=state)
+        assert cycles > 0
+
+        expected = reference_conv_universal(weights, input_chw, rows, cols)
+
+        mismatches = []
+        for i in range(num_chunks * out_ch):
+            actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+            want = expected[i * 128:(i + 1) * 128]
+            for j in range(128):
+                if actual[j] != want[j]:
+                    a_val = struct.unpack_from("b", actual, j)[0]
+                    e_val = struct.unpack_from("b", want, j)[0]
+                    mismatches.append(f"  out_row={i} elem={j} got={a_val} expected={e_val}")
+        assert not mismatches, (
+            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
             + "\n".join(mismatches[:20])
         )
 

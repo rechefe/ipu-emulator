@@ -20,13 +20,17 @@
 {%- set cr_cols = "cr4" -%}
 {%- set cr_kernel_base = "cr5" -%}
 {%- set cr_group_stride = "cr6" -%}
-{%- set cr_sb_ch_bytes = "cr7" -%}
+{%- set cr_sb_ch_rows = "cr7" -%}
 {%- set cr_total_kern = "cr8" -%}
 {%- set cr_ring_adv = "cr9" -%}
 {%- set cr_input_base = "cr10" -%}
 {%- set cr_chunk_limit = "cr11" -%}
 {%- set cr_chunk_bytes = "cr12" -%}
-{%- set cr_sb_bytes = "cr13" -%}
+{#- One XMEM chunk = one ROW, so the row-space chunk stride is the read-only
+    constant 1 (CR1). Distinct from cr_chunk_bytes above, which stays the
+    128-ELEMENT r_cyclic slot stride. -#}
+{%- set cr_chunk_row = "cr1" -%}
+{%- set cr_sb_rows = "cr13" -%}
 {%- set cr_walk_step = "cr14" -%}
 # Universal Standard 3x3 Convolution — walking-pointer / rotating-slot variant.
 #
@@ -135,7 +139,10 @@
     ldr_mult_mask_reg   {{ lr_zero }} {{ cr_mask_base }};;
 
     add                 {{ lr_cols_m2 }} {{ lr_zero }} {{ cr_cols }};        # {{ lr_cols_m2 }} = cols (temp)
-    SET                 {{ lr_chunk_base }} {{ cr_zero }};
+    # lr8 starts at ONE GROUP STRIDE, not 0: the input data is placed that far
+    # above cr_input_base so the g0 kr=-1 prefetch (lr8 - cr6) bottoms out at
+    # row 0 instead of underflowing.  cr11 is pre-shifted to match.
+    add                 {{ lr_chunk_base }} {{ lr_zero }} {{ cr_group_stride }};
     SET                 {{ lr_out_ptr }} {{ cr_zero }};;
 
     DEC                 {{ lr_cols_m2 }} 2;                           # {{ lr_cols_m2 }} = cols - 2 (permanent)
@@ -156,8 +163,8 @@ g0_filter_loop:
     MULT.EE             {{ lr_kern_idx }} {{ cr_zero }} 0 {{ lr_zero }} cr15;   # 0 * R0[0], broadcast
     acc.add.first;;                                     # r_acc = 0 (seed; conv taps add on top)
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} g0_clamp;;
     b                   g0_ch_loop;;
@@ -215,7 +222,7 @@ g0_tap_body:
     # --- tap 2: kr=-1 kc=0.  slot 3, no shift.  Bump lr_off_zero to E'.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
+    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 3 {{ lr_zero }} cr15;
     acc.add;;
 
@@ -244,7 +251,7 @@ g0_tap_body:
     # --- tap 6.  lr10 += cr12 (loop counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
     acc.add;;
 
@@ -270,7 +277,7 @@ g0_tap_body:
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} g0_tap_body;;
 
     # Advance kernel offset; check for more channel groups.
-    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_bytes }};
+    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_rows }};
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} g0_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
@@ -280,7 +287,7 @@ g0_tap_body:
     ACTIVATE.QUANTIZE identity cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
-    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_row }};
     blt                 {{ lr_sb_off }} {{ cr_total_kern }} g0_filter_loop;;
 
     b                   main_setup;;
@@ -289,8 +296,8 @@ g0_reload:
     ldr_mult_reg        r0 {{ lr_sb_off }} {{ cr_kernel_base }};
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} g0_reload_clamp;;
     b                   g0_ch_loop;;
@@ -303,7 +310,9 @@ g0_reload_clamp:
 # ===========================================================================
 
 main_setup:
-    add                 {{ lr_chunk_base }} {{ lr_zero }} {{ cr_group_stride }};;
+    # Chunk 1 = guard(cr6) + one chunk stride(cr6) = 2*cr6 under the guard bias.
+    # lr8 still holds the guard seed (cr6) from init, so one more +cr6 gets there.
+    add                 {{ lr_chunk_base }} {{ lr_chunk_base }} {{ cr_group_stride }};;
     blt                 {{ lr_chunk_base }} {{ cr_chunk_limit }} row_loop;;
 
     b                   gN_section;;
@@ -319,8 +328,8 @@ filter_loop:
     MULT.EE             {{ lr_kern_idx }} {{ cr_zero }} 0 {{ lr_zero }} cr15;   # 0 * R0[0], broadcast
     acc.add.first;;                                     # r_acc = 0 (seed; conv taps add on top)
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} mn_clamp;;
     b                   ch_loop;;
@@ -382,7 +391,7 @@ mn_tap_body:
     # --- tap 2.  Bump lr_off_zero to E' = NEXT ch kr=0 ext (for taps 4/7 prefetch).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
+    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
     acc.add;;
 
@@ -412,7 +421,7 @@ mn_tap_body:
     # --- tap 6.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
     acc.add;;
 
@@ -439,7 +448,7 @@ mn_tap_body:
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} mn_tap_body;;
 
 mn_after_block:
-    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_bytes }};
+    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_rows }};
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
@@ -449,7 +458,7 @@ mn_after_block:
     ACTIVATE.QUANTIZE identity cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
-    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_row }};
     blt                 {{ lr_sb_off }} {{ cr_total_kern }} filter_loop;;
 
     add                 {{ lr_chunk_base }} {{ lr_chunk_base }} {{ cr_group_stride }};;
@@ -461,8 +470,8 @@ reload:
     ldr_mult_reg        r0 {{ lr_sb_off }} {{ cr_kernel_base }};
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} mn_reload_clamp;;
     b                   ch_loop;;
@@ -489,8 +498,8 @@ gN_filter_loop:
     MULT.EE             {{ lr_kern_idx }} {{ cr_zero }} 0 {{ lr_zero }} cr15;   # 0 * R0[0], broadcast
     acc.add.first;;                                     # r_acc = 0 (seed; conv taps add on top)
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} gN_clamp;;
     b                   gN_ch_loop;;
@@ -545,7 +554,7 @@ gN_tap_body:
     # --- tap 2.  Bump lr_off_zero to E'.
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_bytes }};
+    add                 {{ lr_off_zero }} {{ lr_off_zero }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_zero }} cr15;
     acc.add;;
 
@@ -574,7 +583,7 @@ gN_tap_body:
     # --- tap 6.  lr10 += cr12 (loop counter).
     INC                 {{ lr_walk }} 1;
     INC                 {{ lr_kern_idx }} 1;
-    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_ch_ctr }} {{ lr_ch_ctr }} {{ cr_chunk_row }};
     MULT.RC.VE          {{ lr_walk }} {{ lr_kern_idx }} 0 {{ lr_shift_m1 }} cr15;
     acc.add;;
 
@@ -600,7 +609,7 @@ gN_tap_body:
     acc.add;
     blt                 {{ lr_ch_ctr }} {{ lr_clamp }} gN_tap_body;;
 
-    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_bytes }};
+    add                 {{ lr_sb_off }} {{ lr_sb_off }} {{ cr_sb_rows }};
     blt                 {{ lr_ch_ctr }} {{ cr_group_stride }} gN_reload;;
 
     # All input channels done — store aaq_result (128 B int8), advance by 128.
@@ -610,7 +619,7 @@ gN_tap_body:
     ACTIVATE.QUANTIZE identity cr15;
     str_post_aaq_reg {{ lr_out_ptr }} {{ cr_out_base }};;
 
-    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_bytes }};
+    add                 {{ lr_out_ptr }} {{ lr_out_ptr }} {{ cr_chunk_row }};
     blt                 {{ lr_sb_off }} {{ cr_total_kern }} gN_filter_loop;;
 
 end:
@@ -620,8 +629,8 @@ gN_reload:
     ldr_mult_reg        r0 {{ lr_sb_off }} {{ cr_kernel_base }};
     SET                 {{ lr_kern_idx }} {{ cr_zero }};;
 
-    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_bytes }};
-    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_bytes }};
+    add                 {{ lr_scratch }} {{ lr_sb_off }} {{ cr_chunk_row }};
+    add                 {{ lr_clamp }} {{ lr_ch_ctr }} {{ cr_sb_ch_rows }};
     ldr_mult_reg        r1 {{ lr_scratch }} {{ cr_kernel_base }};;
     blt                 {{ cr_group_stride }} {{ lr_clamp }} gN_reload_clamp;;
     b                   gN_ch_loop;;
