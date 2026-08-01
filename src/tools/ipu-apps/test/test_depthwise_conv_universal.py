@@ -14,10 +14,12 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
     OUTPUT_BASE_ADDR,
+    OUTPUT_BASE_ROW,
     OUTPUT_CHUNK_BYTES,
     FPB,
 )
@@ -197,4 +199,80 @@ class TestDepthwiseConvUniversal:
         actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
         assert all(struct.unpack_from("b", actual, i)[0] < 0 for i in range(len(actual))), (
             "expected all-negative outputs (no ReLU applied)"
+        )
+
+
+class TestDepthwiseConvUniversalWideVectorDebug:
+    """The SAME assembled binary must also be correct in wide-vector debug mode.
+
+    See test_conv_universal_bn_activation.py's twin test for the rationale:
+    XMEM operands are row numbers and r_cyclic operands are element indices,
+    neither depending on 1 B/element (narrow) vs 4 B/element (wide) width.
+    """
+
+    @pytest.fixture(scope="class")
+    def inst_file(self, tmp_path_factory) -> Path:
+        tmp = tmp_path_factory.mktemp("dw_wide")
+        inst_file = tmp / "depthwise_conv_universal.bin"
+        assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
+        return inst_file
+
+    @pytest.mark.parametrize(
+        "rows,cols,channels",
+        [
+            (16, 16, 4),    # single chunk, partial super-block
+            (16, 16, 32),   # one full + one partial super-block (exercises the
+                             # cross-cycle lr12 super-block-row advance)
+        ],
+    )
+    def test_same_asm_runs_in_wide_vector_debug_mode(
+        self,
+        inst_file: Path,
+        tmp_path: Path,
+        rows: int,
+        cols: int,
+        channels: int,
+    ) -> None:
+        input_packed, kernel_raw = _gen_test_data(rows, cols, channels, seed=7 + channels)
+
+        rows_per_chunk = 128 // cols
+        num_chunks = (rows * cols) // 128
+        packed = bytearray(num_chunks * channels * 128 * 4)
+        for i, byte in enumerate(input_packed):
+            struct.pack_into("<i", packed, i * 4, struct.unpack_from("b", input_packed, i)[0])
+        input_file = tmp_path / "input_wide.bin"
+        input_file.write_bytes(bytes(packed))
+
+        kernel_file = tmp_path / "kernel.bin"
+        kernel_file.write_bytes(kernel_raw)
+
+        app = DepthwiseConvUniversalApp(
+            inst_path=inst_file, input_path=input_file, kernel_path=kernel_file,
+            output_path=None, dtype="INT8", rows=rows, cols=cols, channels=channels,
+        )
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.INT32,
+            wide_vector_quantize_output=True,
+        )
+        num_super_blocks = math.ceil(channels / FPB)
+        max_cyc = 2_000 * num_chunks * channels * num_super_blocks + 100_000
+        state, cycles = app.run(max_cycles=max_cyc, state=state)
+        assert cycles > 0
+
+        expected = reference_depthwise(input_packed, kernel_raw, rows, cols, channels)
+
+        mismatches = []
+        total = num_chunks * channels
+        for i in range(total):
+            actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+            want = expected[i * 128:(i + 1) * 128]
+            for j in range(128):
+                if actual[j] != want[j]:
+                    a_val = struct.unpack_from("b", actual, j)[0]
+                    e_val = struct.unpack_from("b", want, j)[0]
+                    mismatches.append(f"  out_row={i} elem={j} got={a_val} expected={e_val}")
+        assert not mismatches, (
+            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
+            + "\n".join(mismatches[:20])
         )
