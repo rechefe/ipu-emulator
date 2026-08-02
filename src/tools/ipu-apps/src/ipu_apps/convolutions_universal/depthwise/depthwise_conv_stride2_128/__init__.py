@@ -59,6 +59,7 @@ from ipu_apps.convolutions_universal import dump_outputs
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
     OUTPUT_BASE_ROW as STAGE1_OUTPUT_BASE_ROW,
+    OUTPUT_BASE_ADDR as STAGE1_OUTPUT_BASE_ADDR,
     CHUNK_BYTES,
 )
 
@@ -72,10 +73,16 @@ STAGE1_ASM_PATH = (
 )
 STAGE2_ASM_PATH = Path(__file__).resolve().parent / "decimate_stage2.asm"
 
-# Stage 1's own regions run 0x000000..~0x130000+; stay well clear (and well
-# under the 2 MB narrow-mode ceiling -- 0x200000 is exactly ONE ROW past the
-# valid range, rows 0..16383).
-OUTPUT_BASE_ADDR = 0x180000
+# Stage 1's own output region starts at STAGE1_OUTPUT_BASE_ADDR and grows by
+# rows*channels*128 bytes (chunk-interleaved, one chunk per channel per row
+# -- num_chunks == rows at cols=128). A FIXED stage-2 output address (the
+# original 0x180000) only gave 0x50000 bytes of headroom (2560 chunks worth)
+# before stage 1's own output spilled past it and stage 2's early writes
+# clobbered still-unread stage-1 tail chunks. Fixed: compute the stage-2
+# base per-instance, in DepthwiseConvStride2_128App.__init__, always placed
+# right after stage 1's output region ends (see self.output_base_addr).
+_DEFAULT_OUTPUT_BASE_ADDR = 0x180000
+OUTPUT_BASE_ADDR = _DEFAULT_OUTPUT_BASE_ADDR  # kept for backwards-compat imports
 OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
 
 
@@ -191,6 +198,17 @@ class DepthwiseConvStride2_128App(IpuApp):
         self.out_rows = out_rows
         self.num_row_pairs = out_rows // 2
 
+        # Stage 1's output region is [STAGE1_OUTPUT_BASE_ADDR, +rows*channels*128)
+        # (num_chunks == rows at cols=128, one 128-byte chunk per channel per
+        # row). Place stage 2's output immediately after it, row-aligned, so
+        # it can never overlap stage 1's still-unread tail chunks regardless
+        # of rows*channels (see the module-level comment on OUTPUT_BASE_ADDR
+        # for the bug this replaces -- a fixed 0x180000 base only had 2560
+        # chunks of headroom before stage 1's output spilled into it).
+        stage1_output_bytes = rows * channels * CHUNK_BYTES
+        self.output_base_addr = STAGE1_OUTPUT_BASE_ADDR + stage1_output_bytes
+        self.output_base_row = self.output_base_addr // CHUNK_BYTES
+
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
         tmp_dir = Path(tempfile.mkdtemp(prefix="depthwise_stride2_128_"))
         stage1_bin_path = tmp_dir / "stage1.bin"
@@ -219,7 +237,7 @@ class DepthwiseConvStride2_128App(IpuApp):
             s.program_counter = 0
             s.regfile.set_cr(3, STAGE1_OUTPUT_BASE_ROW)
             s.regfile.set_cr(4, self.channels)
-            s.regfile.set_cr(5, OUTPUT_BASE_ROW)
+            s.regfile.set_cr(5, self.output_base_row)
             s.regfile.set_cr(6, self.num_row_pairs)
 
         state2, cycles2 = run_test(
@@ -234,7 +252,7 @@ class DepthwiseConvStride2_128App(IpuApp):
             total_outputs = self.num_row_pairs * self.channels
             dump_outputs(
                 state2, self.output_path,
-                OUTPUT_BASE_ADDR, CHUNK_BYTES, total_outputs,
+                self.output_base_addr, CHUNK_BYTES, total_outputs,
             )
 
         return state2, cycles1 + cycles2
