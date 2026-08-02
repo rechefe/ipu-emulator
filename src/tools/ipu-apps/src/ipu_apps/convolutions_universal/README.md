@@ -26,7 +26,6 @@ the others.
 | [`conv/conv_universal`](conv/conv_universal/README.md) | 3×3, cols∈{16,32,64} | 1 | walking-pointer rotating-slot | ~11 cyc/ch | Mature |
 | [`conv/conv_universal_bn_activation`](conv/conv_universal_bn_activation) | 3×3, cols∈{16,32,64} | 1 | + per-channel bias, ReLU | ~9 cyc/ch | Mature |
 | [`conv/conv_first_layer`](conv/conv_first_layer) | 3×3, 256×256×3→128×128×16 | 2 | fixed-shape first-layer conv, INT8+BN+ReLU | — | Mature, not generalized |
-| [`conv/conv_universal_stride`](conv/conv_universal_stride) | 3×3 | 2 | generalized stride-2 conv | — | **Known bug**: `test_conv_universal_stride` fails with an XMEM narrow-mode range error (pre-existing, not yet root-caused) |
 | [`conv/conv_universal_wide384`](conv/conv_universal_wide384) | 3×3, width≥384 (mult. of 128), even out_channels | 1 | 3-slot R_CYCLIC strip generalizing `conv_first_layer`'s trick to arbitrary `cpr=width/128` | ~24% MULT util | **Correctness-first only** — no rotating-slot pipelining yet; 384 is just the minimum supported width, not a tuned target. See its own docstring. |
 | [`depthwise/depthwise_conv_universal`](depthwise/depthwise_conv_universal/GUIDE.md) | 3×3 depthwise, cols∈{16,32,64} | 1 | no bias, no activation | **9 cyc/ch** | Mature — see the guide |
 | [`depthwise/depthwise_conv_universal_bn_activation`](depthwise/depthwise_conv_universal_bn_activation) | 3×3 depthwise, cols∈{16,32,64} | 1 | + per-channel bias, ReLU | 10 cyc/ch | Mature |
