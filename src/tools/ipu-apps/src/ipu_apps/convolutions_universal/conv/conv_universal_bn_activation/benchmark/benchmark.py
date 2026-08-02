@@ -1,11 +1,11 @@
-"""Benchmark conv_universal_bn_activation across configs: cycles + correctness.
+"""Benchmark conv_universal_bn_activation across configs: cycles + real MULT util.
 
 Like the conv_universal benchmark, but the reference is conv + per-filter folded
 bias + ReLU + INT8 clamp (matching the app's ACTIVATE relu -> AAQ pipeline).
 
 Runs each config through the emulator, compares output to a numpy IPU-math
-reference, and reports cycles, theoretical minimum cycles (9 cyc/ch at 100% MULT
-util), efficiency, and end-to-end cyc/ch.
+reference, and reports cycles and MULT-slot utilization read directly from
+``state.stats`` (the emulator's live per-cycle occupancy counter).
 
 Usage::
 
@@ -29,6 +29,7 @@ from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     OUTPUT_CHUNK_BYTES,
     FPB,
 )
+from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
 
 ASM_PATH = Path(__file__).resolve().parents[1] / "conv_universal_bn_activation.asm"
@@ -137,7 +138,7 @@ def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
         actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
         expected = reference_conv_bn_relu(weights, input_chw, bias, rows, cols)
 
-    return cycles, compare(actual, expected), num_chunks
+    return cycles, compare(actual, expected), state.stats.mult_utilization
 
 
 def main() -> None:
@@ -145,48 +146,23 @@ def main() -> None:
         inst_file = Path(tmp) / "conv_universal_bn_activation.bin"
         assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
 
-        header = (
-            f"{'config':>20} {'cycles':>10} {'cyc/ch':>8} "
-            f"{'theory':>10} {'eff%':>6} {'corr':>5} {'time(s)':>8}"
-        )
-        print(header)
-        print("-" * len(header))
-
-        total_cycles = 0
-        total_theory = 0
-        all_correct = True
-
+        rows_out = []
         for rows, cols, in_ch, out_ch in CONFIGS:
             t0 = time.time()
-            cycles, mismatches, num_chunks = run_config(
+            cycles, mismatches, mult_util = run_config(
                 inst_file, rows, cols, in_ch, out_ch
             )
             elapsed = time.time() - t0
+            rows_out.append(BenchRow(
+                label=f"{rows}x{cols}x{in_ch}x{out_ch}",
+                cycles=cycles,
+                mult_utilization=mult_util,
+                correct=(mismatches == 0),
+                elapsed_s=elapsed,
+            ))
 
-            channels_processed = num_chunks * out_ch * in_ch
-            cyc_per_ch = cycles / channels_processed
-            theory = 9 * channels_processed   # 9 taps/ch at 100% MULT util
-            efficiency = theory / cycles * 100
-
-            ok = mismatches == 0
-            all_correct = all_correct and ok
-
-            label = f"{rows}x{cols}x{in_ch}x{out_ch}"
-            print(
-                f"{label:>20} {cycles:>10} {cyc_per_ch:>8.3f} "
-                f"{theory:>10} {efficiency:>5.1f}% "
-                f"{'PASS' if ok else 'FAIL':>5} {elapsed:>8.2f}"
-            )
-
-            total_cycles += cycles
-            total_theory += theory
-
-        print("-" * len(header))
-        print(
-            f"{'TOTAL':>20} {total_cycles:>10} {'':>8} "
-            f"{total_theory:>10} {total_theory/total_cycles*100:>5.1f}% "
-            f"{'PASS' if all_correct else 'FAIL':>5}"
-        )
+        out_path = Path(__file__).resolve().parent / "results.md"
+        print_and_write_table("conv_universal_bn_activation", rows_out, out_path)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
-"""Benchmark conv_universal across 10 configs: cycles + correctness.
+"""Benchmark conv_universal across 10 configs: cycles + real MULT utilization.
 
 Runs each config through the emulator, compares output to a numpy IPU-math
-reference for correctness, and reports cycles, theoretical minimum cycles
-(num_chunks * out_ch * ceil(in_ch/14) * 14 * 9 taps = mult-issued cycles),
-and end-to-end cyc/ch.
+reference for correctness, and reports cycles and MULT-slot utilization read
+directly from ``state.stats`` (the emulator's live per-cycle occupancy
+counter -- not an analytical estimate).
 
 Usage::
 
@@ -26,6 +26,7 @@ from ipu_apps.convolutions_universal.conv.conv_universal import (
     OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
 )
+from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
 
 ASM_PATH = Path(__file__).resolve().parents[1] / "conv_universal.asm"
@@ -131,7 +132,7 @@ def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
         expected = reference_conv(weights, input_chw, rows, cols)
 
     mismatches = compare(actual, expected, out_ch, cols)
-    return cycles, mismatches, num_chunks
+    return cycles, mismatches, state.stats.mult_utilization
 
 
 def main() -> None:
@@ -139,51 +140,23 @@ def main() -> None:
         inst_file = Path(tmp) / "conv_universal.bin"
         assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
 
-        header = (
-            f"{'config':>20} {'cycles':>10} {'cyc/ch':>8} "
-            f"{'theory':>10} {'eff%':>6} {'corr':>5} {'time(s)':>8}"
-        )
-        print(header)
-        print("-" * len(header))
-
-        total_cycles = 0
-        total_theory = 0
-        all_correct = True
-
+        rows_out = []
         for rows, cols, in_ch, out_ch in CONFIGS:
             t0 = time.time()
-            cycles, mismatches, num_chunks = run_config(
+            cycles, mismatches, mult_util = run_config(
                 inst_file, rows, cols, in_ch, out_ch
             )
             elapsed = time.time() - t0
+            rows_out.append(BenchRow(
+                label=f"{rows}x{cols}x{in_ch}x{out_ch}",
+                cycles=cycles,
+                mult_utilization=mult_util,
+                correct=(mismatches == 0),
+                elapsed_s=elapsed,
+            ))
 
-            blocks_per_filter = math.ceil(in_ch / 14)
-            channels_processed = num_chunks * out_ch * in_ch
-            cyc_per_ch = cycles / channels_processed
-            # Theoretical min: 9 cyc/ch (mn body, 100% MULT util) — but
-            # boundary chunks (g0, gN) and outer-loop overhead add more.
-            theory = 9 * channels_processed
-            efficiency = theory / cycles * 100
-
-            ok = mismatches == 0
-            all_correct = all_correct and ok
-
-            label = f"{rows}x{cols}x{in_ch}x{out_ch}"
-            print(
-                f"{label:>20} {cycles:>10} {cyc_per_ch:>8.3f} "
-                f"{theory:>10} {efficiency:>5.1f}% "
-                f"{'PASS' if ok else 'FAIL':>5} {elapsed:>8.2f}"
-            )
-
-            total_cycles += cycles
-            total_theory += theory
-
-        print("-" * len(header))
-        print(
-            f"{'TOTAL':>20} {total_cycles:>10} {'':>8} "
-            f"{total_theory:>10} {total_theory/total_cycles*100:>5.1f}% "
-            f"{'PASS' if all_correct else 'FAIL':>5}"
-        )
+        out_path = Path(__file__).resolve().parent / "results.md"
+        print_and_write_table("conv_universal", rows_out, out_path)
 
 
 if __name__ == "__main__":
