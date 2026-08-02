@@ -19,40 +19,56 @@
 #
 # See DESIGN.md (sibling file) for the structural overview.
 #
+# Row-addressed ISA (mb/195): see pointwise_conv_unified.asm's header for the
+# full recipe note (same app, same overloads). Everything there applies
+# verbatim here; cr10 (bias base, new in this twin) gets the same row-number
+# treatment as cr14 (kernel base) since it feeds the identical LDR_MULT_REG
+# pattern (`ldr_mult_reg r0/r1 lr12 cr10`). MULT.EE's CR1 operand (the bias
+# broadcast multiplier) is a DATA-space constant (=1), not an XMEM/r_cyclic
+# address, and is unaffected -- it happens to reuse the same read-only CR1
+# register as the new XMEM row-stride role, since both roles want the value 1.
+#
 # CR register parameters (master ISA: CR0 = read-only 0, CR1 = read-only 1):
-#   cr0  = 0 constant AND input/cyclic-load base (INPUT_BASE_ADDR == 0)
-#   cr1  = 1 constant (used as the pass-counter decrement)
-#   cr2  = mask base address       (128 bytes of 0xFF — keep-all, new polarity)
-#   cr3  = output base address
+#   cr0  = 0 constant AND input/cyclic-load base (INPUT_BASE_ROW == 0)
+#   cr1  = 1 (row stride: pass-counter decrement, XMEM row-space unit, AND
+#          the MULT.EE bias-broadcast multiplier -- same value, three roles)
+#   cr2  = mask base row           (128 bytes of 0xFF — keep-all, new polarity;
+#          mask data itself does NOT widen, only its row address scales)
+#   cr3  = output base row
 #   cr4  = num_passes              (= ceil(in_ch / 128))
 #   cr5  = row_groups              (= rows * cols / 128)
 #   cr6  = pipeline_limit_full     (= 128 - 5 = 123)
 #   cr7  = out_channels
-#   cr8  = row_group_stride        (= in_ch * 128)
+#   cr8  = row_group_stride, in ROWS (= in_ch; one row per input channel)
 #   cr9  = pipeline_limit_tail     (= tail_size - 5; may be neg as 2's comp)
-#   cr10 = bias base address       (reused; was the vestigial tail_size param)
+#   cr10 = bias base ROW           (reused; was the vestigial tail_size param)
 #   cr11 = num_passes - 1
-#   cr12 = 128
-#   cr13 = 16384   (input pass stride = 128 ICs * 128B)
-#   cr14 = kernel base address     (relocated off CR1, now reserved)
+#   cr12 = 128 (fixed_idx step for Half B -- lane/element space, NOT an XMEM
+#          stride anymore; that role moved to CR1)
+#   cr13 = 128 ROWS (input pass stride = 128 ICs * 1 row/IC)
+#   cr14 = kernel base ROW          (relocated off CR1, now reserved)
 #
 # LR register allocation:
-#   lr0  = input row-group base address (constant per row-group)
-#   lr1  = output pointer (pre-offset by -128)
+#   lr0  = input row-group base row (constant per row-group)
+#   lr1  = output pointer row (pre-offset by -1)
 #   lr2  = row-group counter
 #   lr3  = output channel counter
 #   lr4  = fixed_idx within the current register (0..127 for A, 128..255 for B)
-#   lr5  = 128 (output stride)
-#   lr6  = 128
+#   lr5  = 128 (r_cyclic-adjacent constant AND MULT.EE ra_idx for Half B's
+#          bias broadcast -- lane/element space, mode-blind; NOT an XMEM
+#          delta. The output-pointer advance uses CR1 directly instead of
+#          lr5, unlike the base app, because this twin's Half-B bias seed
+#          needs lr5 to stay 128 (selects r1's byte 0 = combined index 128).)
+#   lr6  = 128 (r_cyclic ELEMENT index -- S1 slot / rc_idx; NOT an XMEM delta)
 #   lr7  = 0   (cyclic S0 offset)
 #   lr8  = 256 (cyclic S2 offset)
 #   lr9  = 384 (cyclic S3 offset)
 #   lr10 = pass_counter  (counts down; 0 means we are in the LAST pass)
 #   lr11 = row_groups
-#   lr12 = kernel byte offset (advances by 128 per pass within an OC)
-#   lr13 = input base for the NEXT pass's preload (= lr0 for last-pass epilogue,
-#          or lr0 + (p+1)*16384 for non-last-pass epilogue)
-#   lr14 = temp (address computation; base for cyclic streaming loads)
+#   lr12 = kernel row offset (advances by 1 row per pass within an OC)
+#   lr13 = input base row for the NEXT pass's preload (= lr0 for last-pass
+#          epilogue, or lr0 + (p+1)*128 rows for non-last-pass epilogue)
+#   lr14 = temp (address computation; base for cyclic streaming loads, in ROWS)
 #   lr15 = per-pass pipeline bound (lr4 + pipeline_limit)
 
 # ===========================================================================
@@ -61,17 +77,17 @@
 
     SET                 lr7 cr0;
     ldr_mult_mask_reg   lr7 cr2;
-    add                 lr5 lr7 cr12;;   # lr5 = 128
+    add                 lr5 lr7 cr12;;   # lr5 = 128 (MULT.EE ra_idx, Half B bias)
 
-    add                 lr6 lr7 cr12;;   # lr6 = 128
-    add                 lr8 lr6 lr6;;    # lr8 = 256
+    add                 lr6 lr7 cr12;;   # lr6 = 128 (r_cyclic ELEMENT index)
+    add                 lr8 lr6 lr6;;    # lr8 = 256 (r_cyclic ELEMENT index)
 
-    add                 lr9 lr6 lr8;;    # lr9 = 384
+    add                 lr9 lr6 lr8;;    # lr9 = 384 (r_cyclic ELEMENT index)
 
     add                 lr11 lr7 cr5;;   # lr11 = row_groups
 
     SET                 lr1 cr0;;
-    sub                 lr1 lr1 cr12;;   # lr1 = -128 (pre-offset)
+    sub                 lr1 lr1 cr1;;    # lr1 = -1 row (pre-offset)
 
     SET                 lr2 cr0;;        # lr2 = row-group counter
 
@@ -84,13 +100,13 @@ row_loop:
     # Pre-load first 4 input channels into r_cyclic S0..S3
     ldr_cyclic_mult_reg lr0 cr0 lr7;;
 
-    add                 lr14 lr0 lr6;
+    add                 lr14 lr0 cr1;    # lr14 = lr0 + 1 row (channel 1's row)
     ldr_cyclic_mult_reg lr14 cr0 lr6;;
 
-    add                 lr14 lr0 lr8;
+    add                 lr14 lr14 cr1;;  # lr14 = lr0 + 2 rows (channel 2's row)
     ldr_cyclic_mult_reg lr14 cr0 lr8;;
 
-    add                 lr14 lr0 lr9;
+    add                 lr14 lr14 cr1;;  # lr14 = lr0 + 3 rows (channel 3's row)
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
     SET                 lr3 cr0;
@@ -126,8 +142,11 @@ oc_pair_loop:
 
     # num_passes == 1 (only the tail pass).  First conv tap is plain acc now —
     # bias was already seeded via acc.first above.
-    add                 lr15 lr4 cr9;
-    add                 lr14 lr0 lr9;
+    # lr14 = lr0 + 3 rows; chained cr1 adds since ADD's src_a reads snapshot.
+    add                 lr14 lr0 cr1;
+    add                 lr15 lr4 cr9;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -135,8 +154,10 @@ oc_pair_loop:
     b                   POST_BODY_A;;
 
 W1_FULL_A:
-    add                 lr15 lr4 cr6;
-    add                 lr14 lr0 lr9;
+    add                 lr14 lr0 cr1;
+    add                 lr15 lr4 cr6;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -147,25 +168,25 @@ W1_FULL_A:
 PIPELINE_BODY_A:
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
@@ -191,16 +212,20 @@ LAST_EPILOGUE_A:
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr0 lr6;
+    add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr0 + 2 rows; own word (ADD src_a reads snapshot).
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
+
+    # lr14 = lr0 + 3 rows; own word, same reason.
+    add                 lr14 lr14 cr1;;
 
     # ACTIVATE (relu) applies ReLU to the just-finalized r_acc (conv + bias)
     # and copies it -> post_aaq_reg.  Now reads r_acc LIVE (upstream fix) so
@@ -209,14 +234,13 @@ LAST_EPILOGUE_A:
     # before (see pointwise_conv_unified's identical note for why fusing
     # further would need LR-slot reshuffling not attempted here).
     INC                 lr4 1;
-    add                 lr14 lr0 lr9;
-    add                 lr1 lr1 lr5;
+    add                 lr1 lr1 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
     ACTIVATE.QUANTIZE relu cr15;;
 
     # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
-    add                 lr12 lr12 cr12;
+    add                 lr12 lr12 cr1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
     # Fall through to Half B section
@@ -247,8 +271,10 @@ HALF_B_GO:
 
     blt                 lr7 lr10 W1_FULL_B;;
 
-    add                 lr15 lr4 cr9;
-    add                 lr14 lr0 lr9;
+    add                 lr14 lr0 cr1;
+    add                 lr15 lr4 cr9;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -256,33 +282,35 @@ HALF_B_GO:
     b                   POST_BODY_B;;
 
 W1_FULL_B:
-    add                 lr15 lr4 cr6;
-    add                 lr14 lr0 lr9;
+    add                 lr14 lr0 cr1;
+    add                 lr15 lr4 cr6;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
 PIPELINE_BODY_B:
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr14 lr6;
+    add                 lr14 lr14 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
@@ -299,29 +327,32 @@ LAST_EPILOGUE_B:
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr0 lr6;
+    add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr0 + 2 rows; own word (ADD src_a reads snapshot).
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr0 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
+
+    # lr14 = lr0 + 3 rows; own word, same reason.
+    add                 lr14 lr14 cr1;;
 
     # ACTIVATE (relu): ReLU the finalized r_acc (conv + bias) -> post_aaq_reg.
     # Now reads r_acc LIVE (upstream fix); rides in the preload word as before
     # (same LR-slot constraint as Half A's identical note).
     INC                 lr4 1;
-    add                 lr14 lr0 lr9;
-    add                 lr1 lr1 lr5;
+    add                 lr1 lr1 cr1;
     ldr_cyclic_mult_reg lr14 cr0 lr9;
     ACTIVATE.QUANTIZE relu cr15;;
 
     # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
-    add                 lr12 lr12 cr12;
+    add                 lr12 lr12 cr1;
     STR_POST_AAQ_REG    lr1 cr3;;
 
 # ---------------------------------------------------------------------------
@@ -394,23 +425,25 @@ MID_EPILOGUE_A:
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr13 lr6;
+    add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr13 + 3 rows; own word, same reason.
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr13 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
     # Transition: advance kernel pointer + decrement pass counter + load r0
-    add                 lr12 lr12 cr12;
+    add                 lr12 lr12 cr1;
     sub                 lr10 lr10 cr1;;     # pass_counter -= 1
 
     ldr_mult_reg        r0 lr12 cr14;;
@@ -422,8 +455,10 @@ MID_EPILOGUE_A:
     blt                 lr7 lr10 MP_A_FULL;;
 
     # Last pass for this OC: use tail limit
-    add                 lr15 lr4 cr9;
-    add                 lr14 lr13 lr9;
+    add                 lr14 lr13 cr1;
+    add                 lr15 lr4 cr9;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -431,8 +466,10 @@ MID_EPILOGUE_A:
     b                   POST_BODY_A;;
 
 MP_A_FULL:
-    add                 lr15 lr4 cr6;
-    add                 lr14 lr13 lr9;
+    add                 lr14 lr13 cr1;
+    add                 lr15 lr4 cr6;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -448,22 +485,24 @@ MID_EPILOGUE_B:
     acc.add;;
 
     INC                 lr4 1;
-    add                 lr14 lr13 lr6;
+    add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
     ldr_cyclic_mult_reg lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr13 lr8;
     ldr_cyclic_mult_reg lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
+    # lr14 = lr13 + 3 rows; own word, same reason.
+    add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    add                 lr14 lr13 lr9;
     ldr_cyclic_mult_reg lr14 cr0 lr9;;
 
-    add                 lr12 lr12 cr12;
+    add                 lr12 lr12 cr1;
     sub                 lr10 lr10 cr1;;
 
     ldr_mult_reg        r1 lr12 cr14;;
@@ -472,8 +511,10 @@ MID_EPILOGUE_B:
 
     blt                 lr7 lr10 MP_B_FULL;;
 
-    add                 lr15 lr4 cr9;
-    add                 lr14 lr13 lr9;
+    add                 lr14 lr13 cr1;
+    add                 lr15 lr4 cr9;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -481,8 +522,10 @@ MID_EPILOGUE_B:
     b                   POST_BODY_B;;
 
 MP_B_FULL:
-    add                 lr15 lr4 cr6;
-    add                 lr14 lr13 lr9;
+    add                 lr14 lr13 cr1;
+    add                 lr15 lr4 cr6;;
+    add                 lr14 lr14 cr1;;
+    add                 lr14 lr14 cr1;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
