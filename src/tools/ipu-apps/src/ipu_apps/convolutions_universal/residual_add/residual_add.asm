@@ -16,20 +16,29 @@
 # to the consuming mult. Each load is therefore issued one cycle before the
 # mult that uses it.
 #
+# Row-addressed ISA (mb/195): XMEM offset/base operands on
+# LDR_CYCLIC_MULT_REG's offset+base and STR_ACC_REG are ROW numbers, not byte
+# addresses. This app runs ONLY in wide-vector debug mode (harness always
+# builds an FP32 wide state -- see make_state()), so its native row size is
+# always 512 bytes and one channel is always exactly one row: the old
+# byte-512 walking step becomes a row step of 1. LDR_CYCLIC_MULT_REG's
+# `index` (lr0, always 0 here -- wide mode fills the whole r_cyclic register
+# from a single slot) is r_cyclic ELEMENT space and is untouched.
+#
 # CR registers:
 #   cr0 = 0  (reserved config register; reads as 0 -> used to init LRs)
 #   cr1 = 1  (reserved config register; reads as 1 -> identity scalar)
-#   cr2 = input A base address      (set by harness)
-#   cr3 = input B base address      (set by harness)
-#   cr4 = output base address       (set by harness)
-#   cr5 = chunk step (512)          (set by harness)
-#   cr6 = total input bytes         (set by harness)
+#   cr2 = input A base ROW           (set by harness)
+#   cr3 = input B base ROW           (set by harness)
+#   cr4 = output base ROW            (set by harness)
+#   cr5 = chunk step, in ROWS (= 1)  (set by harness)
+#   cr6 = total input ROWS (= num_channels)  (set by harness)
 #
 # LR registers:
 #   lr0  = 0  (cyclic index; also mask_shift=0. mask_offset is a literal 0)
-#   lr2  = input chunk offset  (0, 512, 1024, ...)
-#   lr3  = output chunk offset (0, 512, 1024, ...)
-#   lr11 = total input bytes (copy of cr6, for blt comparison)
+#   lr2  = input chunk row  (0, 1, 2, ...)
+#   lr3  = output chunk row (0, 1, 2, ...)
+#   lr11 = total input rows (copy of cr6, for blt comparison)
 
 # ===========================================================================
 # Initialization

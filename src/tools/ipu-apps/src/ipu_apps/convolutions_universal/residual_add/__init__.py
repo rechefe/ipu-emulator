@@ -39,10 +39,25 @@ LANES_PER_CHUNK = 128
 WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 
 # -- Memory layout -----------------------------------------------------------
+#
+# Row-addressed ISA (mb/195): XMEM offset/base operands on LDR_CYCLIC_MULT_REG
+# (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
+# runs EXCLUSIVELY in wide-vector debug mode (see make_state() below) -- there
+# is no narrow-mode variant to preserve -- so its native row size is always
+# WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
+# below stay as byte constants for host-side xmem pokes (write_address/
+# read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
+# feeds the CR registers the asm actually loads/stores through. r_cyclic's
+# `index` operand on LDR_CYCLIC_MULT_REG is always lr0 (=0, the single-slot
+# write index used in wide mode) and is untouched by this migration.
 
 INPUT_A_BASE = 0x00000
 INPUT_B_BASE = 0x80000
 OUTPUT_BASE = 0x100000
+
+INPUT_A_BASE_ROW = INPUT_A_BASE // WIDE_CHUNK_BYTES
+INPUT_B_BASE_ROW = INPUT_B_BASE // WIDE_CHUNK_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE // WIDE_CHUNK_BYTES
 
 
 class ResidualAddApp(IpuApp):
@@ -100,11 +115,14 @@ class ResidualAddApp(IpuApp):
 
         # CR0/CR1 are reserved config registers (read as 0 and 1); the asm
         # reuses cr0 as a zero source and cr1 as the identity scalar.
-        state.regfile.set_cr(2, INPUT_A_BASE)
-        state.regfile.set_cr(3, INPUT_B_BASE)
-        state.regfile.set_cr(4, OUTPUT_BASE)
-        state.regfile.set_cr(5, WIDE_CHUNK_BYTES)  # chunk step (512)
-        state.regfile.set_cr(6, self.total_input_bytes)
+        # cr2/cr3/cr4/cr5/cr6 are all XMEM-space (row numbers/row counts) now
+        # -- this app is always wide-vector, so one channel == one row and
+        # the old byte-512 chunk step becomes a row stride of 1.
+        state.regfile.set_cr(2, INPUT_A_BASE_ROW)
+        state.regfile.set_cr(3, INPUT_B_BASE_ROW)
+        state.regfile.set_cr(4, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(5, 1)  # chunk step: 1 row
+        state.regfile.set_cr(6, self.num_channels)  # row count
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
