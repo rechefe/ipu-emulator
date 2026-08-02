@@ -23,7 +23,6 @@ from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_128 import (
     DepthwiseConvStride2_128App,
-    OUTPUT_BASE_ADDR,
     CHUNK_BYTES,
 )
 from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
@@ -32,21 +31,17 @@ from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_wri
 # (rows, channels) -- rows must be even and >=4, rows/2 (out_rows) must also
 # be even (two output rows pack into one 128-byte chunk per stage 2 word).
 #
-# NOTE on the upper bound: the app's stage 1 (unmodified depthwise_conv_
-# universal) writes its full-resolution output starting at row 9728
-# (STAGE1_OUTPUT_BASE_ROW, byte 0x130000) and growing by `rows*channels`
-# chunks; stage 2's own output region starts at OUTPUT_BASE_ADDR = 0x180000
-# (row 12288). When rows*channels exceeds 12288-9728 = 2560, stage 1's tail
-# chunks spill past 0x180000 and get clobbered by stage 2's own early writes
-# (both stages share one IpuState/XMEM) before stage 2 gets a chance to read
-# them -- a pre-existing memory-layout bug in the (untouched, per task
-# constraints) app, not something introduced here. Configs below are kept at
-# or under rows*channels == 2560 to avoid tripping it.
+# The stage-1/stage-2 output-region overlap that used to cap rows*channels at
+# 2560 (stage 2's output base was fixed at 0x180000, which stage 1's own
+# growing output region could spill past) is fixed: the app now computes
+# stage 2's output base per-instance, immediately after stage 1's output
+# region ends, so it can never overlap regardless of rows*channels.
 CONFIGS = [
     (32, 8),     # small spatial, few channels
     (64, 16),    # multi-chunk, mid channels
     (128, 16),   # large spatial, primary benchmark
     (32, 64),    # many channels, small spatial
+    (128, 32),   # previously unsafe (rows*channels=4096 > 2560): now fixed
 ]
 
 
@@ -132,7 +127,7 @@ def run_config(rows: int, channels: int, seed: int):
             for ch in range(channels):
                 chunk_idx = rp * channels + ch
                 chunk = state.xmem.read_address(
-                    OUTPUT_BASE_ADDR + chunk_idx * CHUNK_BYTES, 128,
+                    app.output_base_addr + chunk_idx * CHUNK_BYTES, 128,
                 )
                 chunk_arr = np.frombuffer(chunk, dtype=np.int8)
                 for local_row, orow in enumerate((2 * rp, 2 * rp + 1)):

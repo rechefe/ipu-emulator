@@ -16,7 +16,6 @@ import pytest
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_128 import (
     DepthwiseConvStride2_128App,
-    OUTPUT_BASE_ADDR,
     CHUNK_BYTES,
 )
 
@@ -77,6 +76,10 @@ class TestDepthwiseConvStride2_128:
             (8, 2, 3),     # minimal case
             (16, 4, 7),    # exercises the ch_loop cross-word row advance twice
             (32, 3, 11),   # odd channel count, larger spatial extent
+            (128, 32, 13), # rows*channels=4096 > 2560: previously corrupted
+                           # stage 1's output tail via a fixed stage-2 output
+                           # base address that stage 1's own growing output
+                           # region could spill past; now computed dynamically.
         ],
     )
     def test_stride2(
@@ -110,7 +113,7 @@ class TestDepthwiseConvStride2_128:
             for ch in range(channels):
                 chunk_idx = rp * channels + ch
                 actual = state.xmem.read_address(
-                    OUTPUT_BASE_ADDR + chunk_idx * CHUNK_BYTES, 128,
+                    app.output_base_addr + chunk_idx * CHUNK_BYTES, 128,
                 )
                 for local_row, orow in enumerate((2 * rp, 2 * rp + 1)):
                     for c in range(64):
