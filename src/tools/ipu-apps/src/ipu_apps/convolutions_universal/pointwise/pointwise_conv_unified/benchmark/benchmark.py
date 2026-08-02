@@ -23,6 +23,7 @@ from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
     PointwiseConvUnifiedApp,
     OUTPUT_BASE_ADDR,
 )
+from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
 
 ASM_PATH = (
@@ -110,7 +111,7 @@ def run_config(inst_file, rows, cols, in_ch, out_ch):
         expected = reference_pointwise(weights, input_chw)
 
     mismatches = int(np.sum(actual != expected))
-    return cycles, mismatches
+    return cycles, mismatches, state.stats.mult_utilization
 
 
 def main() -> None:
@@ -120,45 +121,21 @@ def main() -> None:
         print("Assembling pointwise_conv_unified.asm ...", flush=True)
         assemble_to_bin_file(src, str(inst_file))
 
-        header = (
-            f"{'config':>26} {'cycles':>10} {'cyc/OC':>8} "
-            f"{'theory':>10} {'eff%':>6} {'corr':>5} {'time(s)':>8}"
-        )
-        print(header)
-        print("-" * len(header))
-
-        total_cyc = 0
-        total_theory = 0
-        all_ok = True
+        rows_out = []
         for rows, cols, in_ch, out_ch in CONFIGS:
             t0 = time.time()
-            cycles, mm = run_config(inst_file, rows, cols, in_ch, out_ch)
+            cycles, mm, mult_util = run_config(inst_file, rows, cols, in_ch, out_ch)
             elapsed = time.time() - t0
-            row_groups = (rows * cols) // 128
-            # Theory: in_ch mults per OC per row-group spatial position;
-            # 128 spatial positions per row-group = 128 mults per cyc max.
-            # Total mults = in_ch * out_ch * row_groups * 128.
-            # Theoretical min cycles = in_ch * out_ch * row_groups.
-            theory = in_ch * out_ch * row_groups
-            cyc_per_oc = cycles / (out_ch * row_groups)
-            eff = theory / cycles * 100
-            ok = mm == 0
-            all_ok &= ok
-            label = f"{rows}x{cols} ic={in_ch} oc={out_ch}"
-            print(
-                f"{label:>26} {cycles:>10} {cyc_per_oc:>8.2f} "
-                f"{theory:>10} {eff:>5.1f}% "
-                f"{'PASS' if ok else 'FAIL':>5} {elapsed:>8.2f}"
-            )
-            total_cyc += cycles
-            total_theory += theory
+            rows_out.append(BenchRow(
+                label=f"{rows}x{cols} ic={in_ch} oc={out_ch}",
+                cycles=cycles,
+                mult_utilization=mult_util,
+                correct=(mm == 0),
+                elapsed_s=elapsed,
+            ))
 
-        print("-" * len(header))
-        print(
-            f"{'TOTAL':>26} {total_cyc:>10} {'':>8} "
-            f"{total_theory:>10} {total_theory/total_cyc*100:>5.1f}% "
-            f"{'PASS' if all_ok else 'FAIL':>5}"
-        )
+        out_path = Path(__file__).resolve().parent / "results.md"
+        print_and_write_table("pointwise_conv_unified", rows_out, out_path)
 
 
 if __name__ == "__main__":

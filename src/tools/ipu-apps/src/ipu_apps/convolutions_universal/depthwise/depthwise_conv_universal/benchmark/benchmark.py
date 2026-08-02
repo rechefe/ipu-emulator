@@ -1,15 +1,12 @@
-"""Benchmark depthwise_conv_universal_bn_activation: cycles + real MULT util.
+"""Benchmark depthwise_conv_universal: cycles + real MULT util.
 
-Like the depthwise_conv_universal benchmark, but the reference is depthwise conv
-+ per-channel folded bias + ReLU + INT8 clamp (matching the app's bias-seed ->
-ACTIVATE relu -> AAQ pipeline).
-
-Reports cycles and MULT-slot utilization read directly from ``state.stats``
-(the emulator's live per-cycle occupancy counter).
+No bias / no activation (the BN twin has the folded-bias version). Reports
+cycles and MULT-slot utilization read directly from ``state.stats`` (the
+emulator's live per-cycle occupancy counter).
 
 Usage::
 
-    PYTHONPATH=... python -m ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal_bn_activation.benchmark.benchmark
+    PYTHONPATH=... python -m ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal.benchmark.benchmark
 """
 
 from __future__ import annotations
@@ -23,8 +20,8 @@ import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
 
-from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal_bn_activation import (
-    DepthwiseConvUniversalBnActivationApp,
+from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
+    DepthwiseConvUniversalApp,
     OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
     FPB,
@@ -33,19 +30,18 @@ from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_wri
 
 
 ASM_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "depthwise_conv_universal_bn_activation.asm"
+    Path(__file__).resolve().parents[1] / "depthwise_conv_universal.asm"
 )
 
 
-# (rows, cols, channels) — spatial sizes + FPB=25 boundary cases.
+# (rows, cols, channels) — spatial sizes + FPB=28 boundary cases.
 CONFIGS = [
     (16, 16, 8),       # partial single block
-    (16, 16, 25),      # exactly 1 full FPB=25 block
-    (16, 16, 26),      # 1 full + 1-channel partial
+    (16, 16, 28),      # exactly 1 full FPB=28 block
+    (16, 16, 29),      # 1 full + 1-channel partial
     (32, 32, 16),      # multi-chunk, partial block
     (32, 32, 32),      # multi-chunk, 1 full + partial
-    (32, 32, 50),      # exactly 2 full blocks
+    (32, 32, 56),      # exactly 2 full blocks
     (64, 64, 32),      # primary benchmark — large spatial
     (64, 64, 64),      # large spatial, multiple blocks
     (32, 32, 96),      # many channels
@@ -68,11 +64,10 @@ def pack_input_chunked(input_chw: np.ndarray, rows: int, cols: int) -> bytes:
     return bytes(packed)
 
 
-def reference_depthwise_bn_relu(
-    weights: np.ndarray, input_chw: np.ndarray, bias: np.ndarray,
-    rows: int, cols: int,
+def reference_depthwise(
+    weights: np.ndarray, input_chw: np.ndarray, rows: int, cols: int,
 ) -> bytes:
-    """3x3 depthwise conv (zero-pad) + per-channel bias + ReLU + int8 clamp."""
+    """3x3 depthwise conv (zero-pad), int8 clamp, no bias/activation."""
     channels = weights.shape[0]
     rows_per_chunk = 128 // cols
     num_chunks = (rows * cols) // 128
@@ -87,8 +82,6 @@ def reference_depthwise_bn_relu(
             patch = padded[:, dr:dr + rows, dc:dc + cols]
             result += w32[:, dr, dc][:, None, None] * patch
 
-    result += bias.astype(np.int32)[:, None, None]   # folded bias
-    result = np.maximum(result, 0)                    # ReLU
     clamped = np.clip(result, -128, 127).astype(np.int8)
 
     output = bytearray(num_chunks * channels * 128)
@@ -111,7 +104,6 @@ def run_config(inst_file: Path, rows: int, cols: int, channels: int):
     rng = np.random.RandomState(42 + channels * 7 + rows + cols)
     weights = rng.randint(-4, 5, size=(channels, 3, 3), dtype=np.int8)
     input_chw = rng.randint(-8, 9, size=(channels, rows, cols), dtype=np.int8)
-    bias = rng.randint(-80, 81, size=channels).astype(np.int8)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -121,11 +113,10 @@ def run_config(inst_file: Path, rows: int, cols: int, channels: int):
         kernel_file = tmp / "kernel.bin"
         kernel_file.write_bytes(weights.reshape(channels, 9).tobytes())
 
-        app = DepthwiseConvUniversalBnActivationApp(
+        app = DepthwiseConvUniversalApp(
             inst_path=inst_file,
             input_path=input_file,
             kernel_path=kernel_file,
-            bias=bias,
             output_path=None,
             dtype="INT8",
             rows=rows, cols=cols, channels=channels,
@@ -137,14 +128,14 @@ def run_config(inst_file: Path, rows: int, cols: int, channels: int):
 
         total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
         actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
-        expected = reference_depthwise_bn_relu(weights, input_chw, bias, rows, cols)
+        expected = reference_depthwise(weights, input_chw, rows, cols)
 
     return cycles, compare(actual, expected), state.stats.mult_utilization
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        inst_file = Path(tmp) / "depthwise_conv_universal_bn_activation.bin"
+        inst_file = Path(tmp) / "depthwise_conv_universal.bin"
         assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
 
         rows_out = []
@@ -163,7 +154,7 @@ def main() -> None:
             ))
 
         out_path = Path(__file__).resolve().parent / "results.md"
-        print_and_write_table("depthwise_conv_universal_bn_activation", rows_out, out_path)
+        print_and_write_table("depthwise_conv_universal", rows_out, out_path)
 
 
 if __name__ == "__main__":
