@@ -23,10 +23,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ipu_common.acc_stride_enums import (
-    ELEMENTS_IN_ROW_NAMES,
-    HORIZONTAL_STRIDE_NAMES,
-    VERTICAL_STRIDE_NAMES,
+from ipu_common.downsampling_enums import (
+    STAGE1_NAMES,
+    STAGE2_NAMES,
+    INVERT_NAMES,
 )
 from ipu_common.activations import ACTIVATION_FN_NAMES
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
@@ -74,9 +74,9 @@ def get_operand_type_bits() -> dict[str, int]:
         "ReshapeMaskImmediate": RESHAPE_MASK_FIELD_BITS,
         "BreakImmediate": 16,
         "Label": 10,  # (MAX_PROGRAM_SIZE - 1).bit_length() for size 1024
-        "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),
-        "HorizontalStride": _enum_bits(HORIZONTAL_STRIDE_NAMES),
-        "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
+        "Stage1": _enum_bits(STAGE1_NAMES),
+        "Stage2": _enum_bits(STAGE2_NAMES),
+        "Invert": _enum_bits(INVERT_NAMES),
         "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
     }
 

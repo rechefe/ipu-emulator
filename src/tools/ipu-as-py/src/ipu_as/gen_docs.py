@@ -58,18 +58,21 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "bit pattern). The encoded byte is reinterpreted as a signed two's-complement `int8` "
         "when broadcast-added to **`ADDB`**/**`ADDBI`**'s 8 destination byte lanes."
     ),
-    "ElementsInRow": (
-        "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
-        "**`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_common`."
+    "Stage1": (
+        "ACC-slot immediate: alternating-element selection for **`ACC.DOWNSAMPLING`**'s first "
+        "stage. Valid values: **`even`** (indices 0,2,...,126), **`odd`** (indices 1,3,...,127); "
+        "always outputs 64 elements. See `downsampling_enums` in `ipu_common`."
     ),
-    "HorizontalStride": (
-        "ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, "
-        "**`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding "
-        "is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_common`."
+    "Stage2": (
+        "ACC-slot immediate: subset-of-64 selection for **`ACC.DOWNSAMPLING`**'s second stage. "
+        "Valid values: **`64_128`**, **`32_64`**, **`16_32`**, **`8_16`**. Determines both the "
+        "write footprint (64 elements for **`64_128`**/**`8_16`**, 32 otherwise) and whether "
+        "**`invert`** is legal (not for **`64_128`**). See `downsampling_enums` in `ipu_common`."
     ),
-    "VerticalStride": (
-        "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
-        "`acc_stride_enums`)."
+    "Invert": (
+        "ACC-slot immediate: selects the alternate **`stage2`** subset for **`ACC.DOWNSAMPLING`**. "
+        "Valid values: **`off`**, **`invert`**; illegal (raises) when **`stage2`**=**`64_128`**. "
+        "See `downsampling_enums` in `ipu_common`."
     ),
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "

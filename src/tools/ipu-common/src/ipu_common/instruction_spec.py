@@ -716,7 +716,7 @@ INSTRUCTION_SPEC = {
     # =========================================================================
     # ACC Slot (Accumulator Instructions)
     # Opcode = position: ACC.ADD=0, ACC.ADD.FIRST=1, ACC.MAX=2, ACC.MAX.FIRST=3,
-    #          ACC.SUB=4, ACC.SUB.FIRST=5, NOP=6, ACC.STRIDE=7,
+    #          ACC.SUB=4, ACC.SUB.FIRST=5, NOP=6, ACC.DOWNSAMPLING=7,
     #          AGG.SUM.FIRST=8, AGG.SUM=9, AGG.MAX.FIRST=10, AGG.MAX=11
     # =========================================================================
     "acc": {
@@ -802,31 +802,41 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_acc_nop",
         },
-        "ACC.STRIDE": {
+        "ACC.DOWNSAMPLING": {
             "operands": [
-                {"name": "elements_in_row", "type": "ElementsInRow"},
-                {"name": "horizontal_stride", "type": "HorizontalStride"},
-                {"name": "vertical_stride", "type": "VerticalStride"},
+                {"name": "stage1", "type": "Stage1"},
+                {"name": "stage2", "type": "Stage2"},
+                {"name": "invert", "type": "Invert"},
                 {"name": "offset", "type": "LrIdx", "read": "live"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Stride",
-                summary="Reorder the multiplication result into R_ACC using horizontal/vertical stride decimation. Only updates the RACC indexes written; leaves the rest unchanged.",
-                syntax="ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset",
+                title="Accumulator Downsampling",
+                summary=(
+                    "Reorder/decimate the multiplication result into R_ACC via a two-stage "
+                    "downsampling pipeline (stage1 then stage2). Only updates the R_ACC "
+                    "elements written; leaves the rest unchanged."
+                ),
+                syntax="ACC.DOWNSAMPLING stage1, stage2, invert, offset",
                 operands=[
-                    "elements_in_row: Elements per row (16, 32, or 64; minimum is 16)",
-                    "horizontal_stride: Horizontal stride mode (off, on, on_inv)",
-                    "vertical_stride: Vertical stride mode (enabled, inverted)",
-                    "offset: LR register; value % 4 gives start index in RACC (0, 32, 64, or 96)",
+                    "stage1: Alternating-element selection from the 128-element row (even, odd); always outputs 64 elements",
+                    "stage2: Subset of stage1's 64 elements to keep (64_128, 32_64, 16_32, 8_16); 64_128 has no invert option",
+                    "invert: Selects the alternate stage2 subset (off, invert); illegal when stage2=64_128",
+                    "offset: LR register; value % 4 gives the start index in R_ACC (0, 32, 64, or 96); legal subset depends on stage2 (0 or 64 only when stage2=64_128 or 8_16; all four otherwise)",
                 ],
                 operation=(
-                    "Decimate MULT_RES as rows×cols; apply horizontal stride (take every 2nd column); "
-                    "then vertical stride (take every 2nd row). Write result into R_ACC[start:start+N] where start = (offset%4)*32, N = 32|64|128. "
-                    "When a data structure has fewer than 8 elements, hardware pads to 16 automatically (not programmable)."
+                    "stage1: take every 2nd element of the 128-element row "
+                    "(even: 0,2,...,126; odd: 1,3,...,127) -> 64 elements.\n"
+                    "stage2: keep a subset of those 64 elements:\n"
+                    "  64_128 -> all 64 elements unchanged (no invert option)\n"
+                    "  32_64  -> elements 0-31 (!invert) or 32-63 (invert)\n"
+                    "  16_32  -> elements 0-15 and 32-47 (!invert) or 16-31 and 48-63 (invert)\n"
+                    "  8_16   -> 8-element groups at 0,16,32,48 (!invert) or 8,24,40,56 (invert), "
+                    "each followed by 8 zero-padded elements -> full 64-element span\n"
+                    "Write R_ACC[start:start+N] where start = (offset%4)*32, N = 64 for stage2 in {64_128, 8_16}, else 32."
                 ),
-                example="ACC.STRIDE 16, off, off, LR0;;",
+                example="ACC.DOWNSAMPLING even, 64_128, off, LR0;;",
             ),
-            "execute_fn": "execute_acc_stride",
+            "execute_fn": "execute_downsampling",
         },
         "AGG.SUM.FIRST": {
             "operands": [
@@ -966,7 +976,7 @@ INSTRUCTION_SPEC = {
                 example="RESHAPE LRD0, LRD2, 0;;",
                 notes=(
                     "R_ACC[idx] indexes the 128 word lanes (0-127), same addressing as "
-                    "ACC.ADD/ACC.STRIDE. reshape_mask = 0 uses all 8 lanes; reshape_mask = 7 "
+                    "ACC.ADD/ACC.DOWNSAMPLING. reshape_mask = 0 uses all 8 lanes; reshape_mask = 7 "
                     "uses only lane 0. Out-of-range source[i] or dest[i] (>= 128) skips that "
                     "lane. Because all reads come from the snapshot, a lane whose dest equals "
                     "another lane's source resolves to the pre-instruction value, not an "
@@ -1419,9 +1429,9 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(
         "CrIdx",
         "LcrIdx",
         "LrdIdx",
-        "ElementsInRow",
-        "HorizontalStride",
-        "VerticalStride",
+        "Stage1",
+        "Stage2",
+        "Invert",
         "LrModPow2KImmediate",
         "LrIncDecImmediate",
         "AddbiImmediate",

@@ -18,10 +18,10 @@ from ipu_common.reshape_mask import (
     RESHAPE_LANE_COUNT,
     RESHAPE_MASK_FIELD_BITS,
 )
-from ipu_common.acc_stride_enums import (
-    ELEMENTS_IN_ROW_NAMES,
-    HORIZONTAL_STRIDE_NAMES,
-    VERTICAL_STRIDE_NAMES,
+from ipu_common.downsampling_enums import (
+    STAGE1_NAMES,
+    STAGE2_NAMES,
+    INVERT_NAMES,
 )
 
 
@@ -196,28 +196,28 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 
 
 # ---------------------------------------------------------------------------
-# acc.stride operand enums (instruction-specific, not registers)
-# Single source of truth: ipu_common.acc_stride_enums
+# acc.downsampling operand enums (instruction-specific, not registers)
+# Single source of truth: ipu_common.downsampling_enums
 # ---------------------------------------------------------------------------
 
-class ElementsInRowField(ipu_token.EnumToken):
-    """Elements per row: 16, 32, or 64."""
+class Stage1Field(ipu_token.EnumToken):
+    """Downsampling stage1: even or odd alternating-element selection."""
     @classmethod
     def enum_array(cls) -> list[str]:
-        return list(ELEMENTS_IN_ROW_NAMES)
+        return list(STAGE1_NAMES)
 
 
-class HorizontalStrideField(ipu_token.EnumToken):
-    """Horizontal stride: off, on, or on_inv."""
+class Stage2Field(ipu_token.EnumToken):
+    """Downsampling stage2: 64_128, 32_64, 16_32, or 8_16 subset selection."""
     @classmethod
     def enum_array(cls) -> list[str]:
-        return list(HORIZONTAL_STRIDE_NAMES)
+        return list(STAGE2_NAMES)
 
 
-class VerticalStrideField(ipu_token.EnumToken):
-    """Vertical stride: enabled(1), inverted(2). Bits 0..1."""
+class InvertField(ipu_token.EnumToken):
+    """Downsampling invert flag: off or invert. Illegal when stage2=64_128."""
     @classmethod
     def enum_array(cls) -> list[str]:
-        return list(VERTICAL_STRIDE_NAMES)
+        return list(INVERT_NAMES)
 
 
