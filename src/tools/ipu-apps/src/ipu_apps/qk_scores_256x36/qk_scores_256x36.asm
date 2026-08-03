@@ -22,6 +22,28 @@
 # No AGG. Scores are stored RAW (full precision) so softmax (Agent A) reads
 # unquantized scores; this matches every other matmul kernel (STR_ACC_REG).
 #
+# MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
+# the start-of-cycle snapshot while keeping the LR index live, so it cannot
+# consume a K column loaded by LDR_CYCLIC_MULT_REG in its own bundle -- it
+# would see the previous column. `;;` ends one VLIW word = one cycle = one
+# snapshot, so a load and a MULT in the same bundle always run in the same
+# cycle regardless of textual order; co-issuing is fine, consuming the
+# same-cycle load is not.
+#   Each key group therefore primes c=0's column, then every loop body
+#   multiplies the column loaded last cycle while prefetching the next one.
+#   k_ptr (the load offset) is read LIVE by the load, so its ADD stays
+#   co-issued with the load it feeds -- and because the load now runs one
+#   bundle ahead, k_ptr naturally addresses the NEXT channel's column.
+#   chan_index (the r0 scalar selector) is read LIVE by MULT and must name the
+#   channel just loaded, so its ADD moves into a c_loop_*_pre block that falls
+#   through into the loop body. That changes what BLT sees: with the ADD in the
+#   same word, BLT read the pre-ADD snapshot; with the ADD one word earlier it
+#   reads the already-incremented value and would exit a channel early. The
+#   loop bound is therefore raised by one, in-kernel, into chan_last
+#   (= chan_bound + 1 = D-1 = 35), leaving the harness's lr6 untouched.
+#   The two key groups are independent contractions (each re-SETs k_ptr and
+#   chan_index), so no pipeline state crosses the g=0/g=1 boundary.
+#
 # Registers are referred to below by the symbolic names defined in the
 # register-name block. The assembler's Jinja2 preprocessor substitutes them
 # before parsing, so the emitted binary is byte-identical to the raw form.
@@ -40,6 +62,7 @@
 {% set k_ptr       = "lr4"  %}  {# byte offset into K, walks head channels c #}
 {% set chan_index  = "lr5"  %}  {# head-channel index c -> selects Q[i,c] in r0 #}
 {% set chan_bound  = "lr6"  %}  {# 34 = contraction bound (first=0, width=36) #}
+{% set chan_last   = "lr11" %}  {# 35 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr     = "lr7"  %}  {# byte offset into S, += out_stride per query #}
 {% set q_ptr       = "lr8"  %}  {# byte offset into staged QROW, += qrow_stride #}
 {% set q_index     = "lr9"  %}  {# query counter i #}
@@ -56,6 +79,11 @@
 {% set QROW_BASE   = "cr9"  %}  {# staged query-major Q base #}
 {% set DSTRUCT     = "cr15" %}  {# reserved dstructure register #}
 
+    # chan_last = chan_bound + 1 (= D-1 = 35). See the snapshot note in the
+    # header: chan_index's ADD now sits one word ahead of the BLT, so the branch
+    # compares an already-incremented index and needs the higher bound.
+    ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
+
 q_loop:
     LDR_MULT_REG r0 {{ q_ptr }} {{ QROW_BASE }};;                                               # r0 = QROW[i] = Q[i, 0..35] (rest pad)
 
@@ -63,14 +91,23 @@ q_loop:
     SET {{ k_ptr }} {{ K_START_G0 }};;                                                          # g=0 K-data startup: -256
     SET {{ chan_index }} {{ CHAN_START }};;                                                     # channel fixed_idx startup: -1
 
+    # Prime c=0's K column: MULT reads r_cyclic from the snapshot, so the column
+    # it consumes must be loaded a cycle earlier (see header).
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
+
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ chan_index }} {{ chan_bound }} c_loop_g0;;
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
     B after_c_g0;;
 
+c_loop_g0_pre:
+    ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
+
 c_loop_g0:
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ chan_index }} {{ chan_bound }} c_loop_g0;;
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
     STR_ACC_REG {{ out_ptr }} {{ S_BASE_G0 }};;                                                 # store 512B → S[i, keys 0..127]
@@ -79,13 +116,20 @@ after_c_g0:
     SET {{ k_ptr }} {{ K_START_G1 }};;                                                          # g=1 K-data startup: -128
     SET {{ chan_index }} {{ CHAN_START }};;                                                     # channel fixed_idx startup: -1
 
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ chan_index }} {{ chan_bound }} c_loop_g1;;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
+
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
     B after_c_g1;;
 
+c_loop_g1_pre:
+    ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
+
 c_loop_g1:
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ chan_index }} {{ chan_bound }} c_loop_g1;;
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
     STR_ACC_REG {{ out_ptr }} {{ S_BASE_G1 }};;                                                 # store 512B → S[i, keys 128..255]

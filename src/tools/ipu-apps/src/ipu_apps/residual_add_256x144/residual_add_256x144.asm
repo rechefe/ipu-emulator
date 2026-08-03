@@ -8,15 +8,29 @@
 # There is no add instruction in the vector path, so each addend is passed
 # through the multiplier against a constant 1.0 and summed in the accumulator.
 # The scalar 1.0 comes from a CR (DTYPE_ONE), so no register holds ones.
+# MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
+# the start-of-cycle snapshot, so it cannot consume a row loaded by
+# LDR_CYCLIC_MULT_REG in its own bundle -- it would see the previous r_cyclic.
+# `;;` ends one VLIW word = one cycle = one snapshot, so a load and a MULT in
+# the same bundle always execute in the same cycle regardless of textual order;
+# co-issuing them is fine, consuming the same-cycle load is not.
+# Each load therefore runs one bundle ahead of the MULT that consumes it. The
+# two loads are pipelined into cycles that were already doing other work, so
+# the steady state stays 4 cycles per row:
 #   Per row:
-#     Cycle 1: LDR_CYCLIC_MULT_REG → r_cyclic = A[r]; MULT.RC.VE × 1.0; ACC.ADD.FIRST
-#     Cycle 2: LDR_CYCLIC_MULT_REG → r_cyclic = B[r]; MULT.RC.VE × 1.0; ACC.ADD
-#     Cycle 3: STR_ACC_REG → store A[r]+B[r]; advance row counter
+#     Cycle 1: MULT.RC.VE × 1.0 on A[r] (loaded last row's cycle 3); ACC.ADD.FIRST;
+#              LDR_CYCLIC_MULT_REG → r_cyclic = B[r]
+#     Cycle 2: MULT.RC.VE × 1.0 on B[r]; ACC.ADD
+#     Cycle 3: STR_ACC_REG → store A[r]+B[r]; advance row counter;
+#              LDR_CYCLIC_MULT_REG → r_cyclic = A[r+1]  (prefetch for next row)
 #     Cycle 4: advance output ptr; BLT → loop
-#   Total: 4 cycles × 288 rows = 1152 cycles.
+#   Total: 4 cycles × 288 rows = 1152 cycles, plus one priming load at startup.
 #
 # IMPORTANT — live-LR semantics:
 #   ADD fires before XMEM; ptrs init at -128 so first live = 0 after ADD.
+#   Each a_ptr/b_ptr ADD stays co-issued with the load it feeds, so the load
+#   sees the already-advanced pointer -- that is what makes the prefetch in
+#   cycle 3 address row r+1 rather than row r.
 #   STR_ACC_REG reads out_ptr live; do NOT ADD out_ptr in the same cycle as it.
 #   BLT reads snapshot; ADD row_index must happen the cycle before BLT.
 #
@@ -65,15 +79,19 @@
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;  # r0 = ONES_BASE[0..127] = dtype-1.0 × 128
+    # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
+    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 
 row_loop:
-    # Cycle 1: r_acc = A[r] × 1.0  (live ADD a_ptr fires first → live a_ptr = r*128)
+    # Cycle 1: r_acc = A[r] × 1.0  (A[r] was loaded a cycle earlier)
     #   MULT.RC.VE r_cyclic[0] × DTYPE_ONE(=dtype 1.0) → A[r] passed through.
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    #   Co-issued load fetches B[r] for cycle 2.
+    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }}; ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
     # Cycle 2: r_acc += B[r] × 1.0
-    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }}; ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;;
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;;
     # Cycle 3: store (do NOT ADD out_ptr here: STR_ACC_REG reads out_ptr live)
-    STR_ACC_REG         {{ out_ptr }} {{ OUT_BASE }}; ADD {{ row_index }} {{ row_index }} {{ ONE }};;
+    #   Co-issued load prefetches A[r+1] for the next row's cycle 1.
+    STR_ACC_REG         {{ out_ptr }} {{ OUT_BASE }}; ADD {{ row_index }} {{ row_index }} {{ ONE }}; LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
     # Cycle 4: advance output ptr; BLT reads snap row_index = already-incremented
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }}; BLT {{ row_index }} {{ row_limit }} row_loop;;
 
