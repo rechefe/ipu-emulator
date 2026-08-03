@@ -11,7 +11,15 @@
 #   (a) Startup-offset: init ptr to -stride; ADD fires first → live=0 on first use
 #   (b) Loop counter init to 1: BLT reads snapshot (pre-ADD) → runs exactly N times
 #   (c) r0/r1 snap: pre-load before loop, hold constant; MULT sees previous cycle's r0/r1
-#   (d) r_cyclic live: LDR_CYCLIC + MULT in same cycle → cyclic is immediately visible
+#   (d) r_cyclic snap: r_cyclic is ALSO read from the start-of-cycle snapshot
+#       (issue #157), so a MULT cannot consume a row that LDR_CYCLIC loads in
+#       its own bundle. `;;` ends one VLIW word = one cycle = one snapshot, so a
+#       load and a MULT written in the same bundle always run in the same cycle
+#       regardless of textual order -- co-issuing is fine, consuming the
+#       same-cycle load is not. Every step therefore primes its first row before
+#       the loop and prefetches the next row from inside the body; the offset LR
+#       is read LIVE by the load, so its ADD stays co-issued with the load,
+#       which is what makes that load fetch the NEXT channel.
 #
 # Registers are referred to below by the symbolic names defined in the
 # register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -97,13 +105,15 @@ tg_loop:
     SET     {{ ch_index }}  {{ DATA_BASE }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;   # prime x[ch=0]
+
     # Peeled first ch (ch=0): ACC.ADD.FIRST seeds r_acc.
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
     B       step1_done;;
 step1_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
 step1_done:
 
     STR_ACC_REG         {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;      # NEG_MEAN_BASE = -μ
@@ -125,10 +135,11 @@ step1_done:
     SUB     {{ write_ptr }}  {{ write_ptr }}  {{ row_stride }};;  # {{ write_ptr }} = -512 (centered stride)
     SET     {{ ch_index }}  {{ DATA_BASE }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;   # prime x[ch=0]
 step2_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VV {{ rc_slot0 }} r1 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
+    MULT.RC.VV {{ rc_slot0 }} r1 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,15 +153,17 @@ step2_loop:
     SET     {{ ch_index }}  {{ DATA_BASE }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;   # prime centered[ch=0]
+
     # Peeled first ch (ch=0): ACC.ADD.FIRST seeds r_acc.
-    # MULT.RC.VS squares r_cyclic in place: load centered[ch]
-    # into r_cyclic, then square it in place.
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
+    # MULT.RC.VS squares r_cyclic in place: centered[ch] was loaded into
+    # r_cyclic a cycle earlier, and is squared in place here.
+    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
     B       step3_done;;
 step3_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
+    MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
 step3_done:
 
     STR_ACC_REG         {{ rc_slot0 }} {{ TEMP_BASE }};;
@@ -160,7 +173,8 @@ step3_done:
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ TEMP_BASE }};;
-    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ INV_N_BASE }} {{ rc_slot0 }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ INV_N_BASE }} {{ rc_slot0 }};;   # load 1/N a cycle ahead of the MULT
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
 
     ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT }};;
     STR_POST_AAQ_REG    {{ rc_slot0 }} {{ INVSTD_BASE }};;
@@ -168,19 +182,26 @@ step3_done:
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5: normalized[ch,i] = centered[ch,i] × 1/σ[i]  (overwrite CENTERED)
 #
-# r0 = 1/σ. read_ptr = -512. Three cycles per ch.
+# r0 = 1/σ. read_ptr = -512 (load ptr), write_ptr = 0 (store ptr, trails by a row).
+# This step reads and writes the SAME rows, so once the load runs a cycle ahead
+# of its MULT the two can no longer share one pointer: read_ptr points at the
+# row being PREFETCHED while write_ptr points at the row being stored.
+# STR_ACC_REG reads its offset LIVE, so write_ptr advances in the branch word,
+# never in the store word. Three cycles per ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
 
     SET     {{ read_ptr }}  {{ DATA_BASE }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
+    SET     {{ write_ptr }}  {{ DATA_BASE }};;
     SET     {{ ch_index }}  {{ DATA_BASE }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;   # prime centered[ch=0]
 step5_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    STR_ACC_REG         {{ read_ptr }} {{ CENTERED_BASE }};;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step5_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
+    ADD     {{ write_ptr }} {{ write_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: output[ch,i] = γ[ch] × normalized[ch,i] + β[ch]
@@ -197,10 +218,16 @@ step5_loop:
 # ADD write_ptr write_ptr data_stride fires → live = ch*1024+tg_offset on each STR cycle.
 # But STR is in the same cycle as ADD write_ptr and ADD gamma_idx/beta_idx...
 # To avoid incrementing write_ptr in the same cycle as gamma_idx/beta_idx, use 4 cycles per ch:
-#   A: LDR_CYCLIC normalized[ch]; ADD read_ptr; MULT.RC.VE gamma_idx; ACC.ADD.FIRST
-#   B: LDR_CYCLIC ONES; MULT.RC.VE beta_idx; ACC.ADD
-#   C: ADD write_ptr; STR output[ch]; ADD gamma_idx; ADD beta_idx
-#   D: ADD ch_index; BLT
+#   A: MULT.RC.VE gamma_idx × normalized[ch] (loaded last cycle); ACC.ADD.FIRST;
+#      LDR_CYCLIC ONES (for B)
+#   B: MULT.RC.VE beta_idx × ONES; ACC.ADD
+#   C: STR output[ch]; ADD write_ptr; ADD gamma_idx; ADD beta_idx
+#   D: ADD ch_index; BLT; LDR_CYCLIC normalized[ch+1]; ADD read_ptr
+# Cycle C is at the 3-LR-per-word ceiling (write_ptr, gamma_idx, beta_idx), so
+# the prefetch rides in cycle D instead.
+# normalized[ch=0] is primed once, before sub-loop A. Sub-loop B carries
+# read_ptr over from A and inherits A's final prefetch, so it must NOT re-prime:
+# the chunk for its first channel is already in flight.
 # ─────────────────────────────────────────────────────────────────────────────
 
     # ---- Sub-loop A: ch=0..127 ----
@@ -221,11 +248,13 @@ step5_loop:
     # ch_limit currently = 144; use a separate bound sub_bound=128 for sub-loop A
     SET     {{ sub_bound }} {{ LANES }};;                         # {{ sub_bound }} = 128
 
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;   # prime normalized[ch=0]
+
 step6A_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
+    MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
     STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6A_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6A_loop;;
 
     # ---- Sub-loop B: ch=128..143 (16 channels) ----
     LDR_MULT_REG        r0 {{ row_stride }} {{ GAMMA_BASE }};;    # r0 ← γ row 1 (offset=512)
@@ -244,11 +273,13 @@ step6A_loop:
     ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 8
     ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 16
 
+    # No priming load here: sub-loop A's last prefetch already fetched ch=128,
+    # and read_ptr carries over pointing one row past it.
 step6B_loop:
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
+    MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
     STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
-    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6B_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6B_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Advance tg
