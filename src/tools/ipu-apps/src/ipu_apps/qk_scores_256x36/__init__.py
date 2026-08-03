@@ -50,6 +50,24 @@ S_BASE      = 0x80000
 QROW_STRIDE      = 512   # bytes per staged query row (>= D*4, fits one r_cyclic)
 OUTPUT_ROW_BYTES = 512   # R_ACC store width (always 512 B / 128 lanes)
 
+# XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive the harness's direct xmem read/write calls (which
+# bypass row translation); the CR/LR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+LANES = 128              # elements per XMEM row (mode-independent)
+ROW_SIZE_BYTES = 128     # bytes per row in NARROW mode (LANES * 1 B/element)
+K_BASE_ROW    = K_BASE // ROW_SIZE_BYTES
+QROW_BASE_ROW = QROW_BASE // ROW_SIZE_BYTES
+S_BASE_ROW    = S_BASE // ROW_SIZE_BYTES
+# QROW_STRIDE is a fixed byte count NOT scaled by element width (the staging
+# code always writes 512 B per query row), so unlike the K strides its row
+# count is mode-dependent: 4 rows narrow, 1 row wide-vector debug. These tests
+# run narrow.
+QROW_STRIDE_ROWS = QROW_STRIDE // ROW_SIZE_BYTES         # 4 (narrow)
+# STR_ACC_REG always writes all 512 B of r_acc regardless of mode -> 4 rows.
+ACC_STORE_ROWS   = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES    # 4
+
 _DTYPE_MAP = {
     "INT8":   DType.INT8,
     "int8":   DType.INT8,
@@ -116,29 +134,33 @@ class QkScores256x36App(IpuApp):
 
         self._stage_inputs(state, elem)
 
-        k_stride   = N * elem          # bytes per K channel column (256 * elem)
-        g0_start   = -k_stride         # g=0 K-data startup: first live = 0
-        g1_start   = -k_stride + N_TPG * elem  # g=1 startup: first live = +128 keys
+        # XMEM .asm operands are ROW numbers, not byte addresses (issue #179).
+        # A row is LANES elements, so a row COUNT is the same in both narrow and
+        # wide-vector debug mode -- the `elem` factor that scales the byte
+        # strides above cancels out entirely, leaving mode-independent values.
+        k_stride_rows = N // LANES                  # 2 rows per K channel column
+        g0_start_rows = -k_stride_rows              # g=0: first live = row 0
+        g1_start_rows = -k_stride_rows + N_TPG // LANES   # g=1: first live = +1 row
 
         # CR1 (≡1) is read-only hardwired; QROW base lives on CR9.
-        state.regfile.set_cr(0, K_BASE)                 # data base
-        state.regfile.set_cr(9, QROW_BASE)              # staged query rows
-        state.regfile.set_cr(3, S_BASE)                 # group 0 output base
-        state.regfile.set_cr(4, S_BASE + 512)           # group 1 output base
-        state.regfile.set_cr(5, g0_start)               # g=0 K-data startup
-        state.regfile.set_cr(6, g1_start)               # g=1 K-data startup
+        state.regfile.set_cr(0, K_BASE_ROW)             # data base
+        state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
+        state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
+        state.regfile.set_cr(4, S_BASE_ROW + ACC_STORE_ROWS)   # group 1 output base
+        state.regfile.set_cr(5, g0_start_rows)           # g=0 K-data startup (rows)
+        state.regfile.set_cr(6, g1_start_rows)           # g=1 K-data startup (rows)
         state.regfile.set_cr(7, -1)                      # channel fixed_idx startup
         state.regfile.set_cr(8, D - 2)                   # contraction bound (34)
 
         state.regfile.set_lr(0, 0)                       # r_cyclic write-index / mask_shift
-        state.regfile.set_lr(2, k_stride)                # K data stride per channel
-        state.regfile.set_lr(3, N_TG * 512)              # output stride per query (1024)
+        state.regfile.set_lr(2, k_stride_rows)           # K data stride per channel (rows)
+        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (8 rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
-        state.regfile.set_lr(7, 0)                       # output query byte offset
-        state.regfile.set_lr(8, 0)                       # Q-row byte offset
+        state.regfile.set_lr(7, 0)                       # output query row offset
+        state.regfile.set_lr(8, 0)                       # Q-row row offset
         state.regfile.set_lr(9, 0)                       # query counter
         state.regfile.set_lr(10, N)                      # query-loop limit
-        state.regfile.set_lr(12, QROW_STRIDE)            # Q-row stride per query
+        state.regfile.set_lr(12, QROW_STRIDE_ROWS)       # Q-row stride per query (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

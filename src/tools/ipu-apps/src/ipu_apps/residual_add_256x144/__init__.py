@@ -33,6 +33,21 @@ B_BASE       = 0x10000
 ONES_BASE    = 0x20000
 OUTPUT_BASE  = 0x30000
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive the harness's direct xmem read/write calls (which
+# bypass row translation); the CR/LR registers below feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+A_BASE_ROW      = A_BASE // ROW_SIZE_BYTES
+B_BASE_ROW      = B_BASE // ROW_SIZE_BYTES
+ONES_BASE_ROW   = ONES_BASE // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE // ROW_SIZE_BYTES
+ROW_STRIDE_ROWS = ROW_BYTES // ROW_SIZE_BYTES            # 1 row per A/B row
+# STR_ACC_REG always writes all 512 B of r_acc; OUTPUT_ROW_BYTES already matches
+# that full payload, so output rows are exactly the store footprint apart.
+OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES  # 4
+
 _DTYPE_MAP = {
     "INT8":     DType.INT8,
     "int8":     DType.INT8,
@@ -80,15 +95,15 @@ class ResidualAdd256x144App(IpuApp):
         # writes are silently dropped. B_BASE is moved to CR9 (free). cr0=A_BASE
         # is 0x0 (harmless no-op, matches hardwired 0). See MIGRATION_CHECKLIST.md
         # Bug #2.
-        state.regfile.set_cr(0, A_BASE)
-        state.regfile.set_cr(9, B_BASE)
-        state.regfile.set_cr(2, ONES_BASE)
-        state.regfile.set_cr(3, OUTPUT_BASE)
+        state.regfile.set_cr(0, A_BASE_ROW)
+        state.regfile.set_cr(9, B_BASE_ROW)
+        state.regfile.set_cr(2, ONES_BASE_ROW)
+        state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
-        state.regfile.set_cr(5, -128)
+        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row
         state.regfile.set_cr(6, N_ROWS)
-        state.regfile.set_cr(7, ROW_BYTES)
-        state.regfile.set_cr(8, OUTPUT_ROW_BYTES)
+        state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
+        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
         # cr10 = the value 1.0 encoded in the active dtype, as a scalar byte.
         # MULT.RC.VE multiplies r_cyclic by this CR scalar (ipu_mult interprets the
         # low byte as a dtype value), so A[r]/B[r] pass through unchanged. CR1's
