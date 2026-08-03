@@ -44,6 +44,29 @@ TEMP_BASE        = 0x37000   # ROW_BYTES = 512 B
 INVSTD_BASE      = 0x37200   # ROW_BYTES = 512 B
 OUTPUT_BASE      = 0x37400   # N_CH × N_TG × ROW_BYTES = 147 456 B
 
+# XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive the harness's direct xmem read/write calls (which
+# bypass row translation); the CR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses converted to rows.
+#
+# These kernels run in WIDE-VECTOR DEBUG mode (the test builds IpuState with
+# wide_vector_debug=True), where an element is 4 B, so one 128-lane row is
+# 512 B -- not the 128 B of narrow mode. ROW_BYTES already is that row size.
+ROW_SIZE_BYTES = ROW_BYTES               # 512 in wide-vector debug mode
+DATA_BASE_ROW      = DATA_BASE // ROW_SIZE_BYTES
+GAMMA_BASE_ROW     = GAMMA_BASE // ROW_SIZE_BYTES
+BETA_BASE_ROW      = BETA_BASE // ROW_SIZE_BYTES
+ONES_BASE_ROW      = ONES_BASE // ROW_SIZE_BYTES
+NEG_INV_N_BASE_ROW = NEG_INV_N_BASE // ROW_SIZE_BYTES
+INV_N_BASE_ROW     = INV_N_BASE // ROW_SIZE_BYTES
+NEG_MEAN_BASE_ROW  = NEG_MEAN_BASE // ROW_SIZE_BYTES
+CENTERED_BASE_ROW  = CENTERED_BASE // ROW_SIZE_BYTES
+TEMP_BASE_ROW      = TEMP_BASE // ROW_SIZE_BYTES
+INVSTD_BASE_ROW    = INVSTD_BASE // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW    = OUTPUT_BASE // ROW_SIZE_BYTES
+ROW_STRIDE_ROWS    = 1                   # one ROW_BYTES row = exactly 1 XMEM row
+
 
 def _fp32_row(values: np.ndarray) -> bytes:
     """Pack a 1-D float32 array into 512 bytes (zero-padded to 128 lanes)."""
@@ -97,19 +120,19 @@ class LayerNorm256x144App(IpuApp):
         # architecture; writes are silently dropped. DATA_BASE is 0x0 so CR0 is fine,
         # and GAMMA_BASE moved off CR1 to CR11 (CR11's old const-zero role is served
         # by the hardwired CR0).
-        state.regfile.set_cr(0,  DATA_BASE)
-        state.regfile.set_cr(2,  BETA_BASE)
-        state.regfile.set_cr(3,  ONES_BASE)
-        state.regfile.set_cr(4,  NEG_INV_N_BASE)
-        state.regfile.set_cr(5,  INV_N_BASE)
-        state.regfile.set_cr(6,  NEG_MEAN_BASE)
-        state.regfile.set_cr(7,  CENTERED_BASE)
-        state.regfile.set_cr(8,  TEMP_BASE)
-        state.regfile.set_cr(9,  INVSTD_BASE)
-        state.regfile.set_cr(10, OUTPUT_BASE)
-        state.regfile.set_cr(11, GAMMA_BASE)   # moved off read-only CR1
+        state.regfile.set_cr(0,  DATA_BASE_ROW)
+        state.regfile.set_cr(2,  BETA_BASE_ROW)
+        state.regfile.set_cr(3,  ONES_BASE_ROW)
+        state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)
+        state.regfile.set_cr(5,  INV_N_BASE_ROW)
+        state.regfile.set_cr(6,  NEG_MEAN_BASE_ROW)
+        state.regfile.set_cr(7,  CENTERED_BASE_ROW)
+        state.regfile.set_cr(8,  TEMP_BASE_ROW)
+        state.regfile.set_cr(9,  INVSTD_BASE_ROW)
+        state.regfile.set_cr(10, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # moved off read-only CR1
         state.regfile.set_cr(12, N_CH)      # 144
-        state.regfile.set_cr(13, ROW_BYTES) # 512
+        state.regfile.set_cr(13, ROW_STRIDE_ROWS) # 1 row
         state.regfile.set_cr(14, N_TPG)     # 128
 
     def teardown(self, state: "IpuState") -> None:
