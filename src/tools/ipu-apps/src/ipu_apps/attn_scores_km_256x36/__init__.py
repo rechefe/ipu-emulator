@@ -46,6 +46,19 @@ KBASE_KM = 0x10000      # K rearranged key-major (K[s,:] at +s*128)
 SBASE    = 0x20000      # S key-major words
 
 K_STRIDE     = 128                  # key-major K row stride (D padded to 128)
+
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The byte constants above stay as-is because they
+# only drive the harness's direct xmem read/write calls (which bypass row
+# translation); the CR/LR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+QBASE_ROW    = QBASE // ROW_SIZE_BYTES
+KBASE_KM_ROW = KBASE_KM // ROW_SIZE_BYTES
+SBASE_ROW    = SBASE // ROW_SIZE_BYTES
+Q_CHAN_ROWS  = N_TOK // ROW_SIZE_BYTES            # 2: channel stride in Q
+OUT_ROWS     = 512 // ROW_SIZE_BYTES              # 4: output store stride
+K_STRIDE_ROWS = K_STRIDE // ROW_SIZE_BYTES        # 1: key stride into K scratch
 OUTPUT_ROW_BYTES = 512              # one (s,g) score row = 128 words
 
 _DTYPE_MAP = {
@@ -109,23 +122,23 @@ class AttnScoresKM256x36App(IpuApp):
         _load_k_keymajor(state, self.weights_path, self.head)
 
         # CR1 (≡1) is read-only hardwired; cr0 (=QBASE=0x0) matches hardwired 0.
-        state.regfile.set_cr(0, QBASE)
-        state.regfile.set_cr(2, SBASE)
-        state.regfile.set_cr(9, KBASE_KM)
-        state.regfile.set_cr(5, -256)        # g=0 channel-column startup
-        state.regfile.set_cr(6, -128)        # g=1 channel-column startup
+        state.regfile.set_cr(0, QBASE_ROW)
+        state.regfile.set_cr(2, SBASE_ROW)
+        state.regfile.set_cr(9, KBASE_KM_ROW)
+        state.regfile.set_cr(5, -Q_CHAN_ROWS)   # g=0 channel-column startup (rows)
+        state.regfile.set_cr(6, -K_STRIDE_ROWS) # g=1 channel-column startup (rows)
         state.regfile.set_cr(7, -1)          # fixed_idx c startup
         state.regfile.set_cr(8, D - 2)       # c-loop bound: first=0, width=D → D-2 = 34
 
         state.regfile.set_lr(0, 0)           # R_CYCLIC index 0
-        state.regfile.set_lr(2, 256)         # channel stride in Q
-        state.regfile.set_lr(3, 512)         # output store stride
+        state.regfile.set_lr(2, Q_CHAN_ROWS)    # channel stride in Q (rows)
+        state.regfile.set_lr(3, OUT_ROWS)       # output store stride (rows)
         state.regfile.set_lr(6, D - 2)       # c-loop bound = 34
         state.regfile.set_lr(7, 0)           # output byte pointer
-        state.regfile.set_lr(8, -K_STRIDE)   # key byte offset startup (-128 → first live 0)
+        state.regfile.set_lr(8, -K_STRIDE_ROWS) # key row offset startup (-1 -> first live 0)
         state.regfile.set_lr(9, 0)           # key counter
         state.regfile.set_lr(10, N_TOK)      # key-loop limit
-        state.regfile.set_lr(12, K_STRIDE)   # key stride into K scratch
+        state.regfile.set_lr(12, K_STRIDE_ROWS) # key stride into K scratch (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

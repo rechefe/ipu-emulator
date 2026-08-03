@@ -47,6 +47,21 @@ OBASE = 0x50000     # O: 144 * 1024 (FP32)    = 147456 B -> [0x50000, 0x74000)
 P_HEAD_STRIDE = 0x10000   # 256 keys * 256 queries
 O_CHAN_BYTES  = 1024      # 2 groups * 512 B (FP32)
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The byte constants above stay as-is because they
+# only drive the harness's direct xmem read/write calls (which bypass row
+# translation); the CR/LR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+PBASE_ROW = PBASE // ROW_SIZE_BYTES
+VBASE_ROW = VBASE // ROW_SIZE_BYTES
+OBASE_ROW = OBASE // ROW_SIZE_BYTES
+R1_OFF_ROWS        = 1                                  # 1: R1 source offset in V channel
+P_HEAD_STRIDE_ROWS = P_HEAD_STRIDE // ROW_SIZE_BYTES    # 512: P head stride
+PV_STRIDE_ROWS     = N_TOK // ROW_SIZE_BYTES            # 2: P key / V channel stride
+OUT_ROW_ROWS       = 512 // ROW_SIZE_BYTES              # 4: output-row stride
+GRP_QUERY_ROWS     = 1                                  # 1: group query offset
+
 _DTYPE_MAP = {
     "INT8": DType.INT8, "int8": DType.INT8,
     "E4": DType.E4, "fp8_e4": DType.E4,
@@ -77,12 +92,12 @@ class AttnVBcast36App(IpuApp):
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
 
         # CR0 (==0) and CR1 (==1) are hardwired; the rest are writable.
-        state.regfile.set_cr(2, PBASE)
-        state.regfile.set_cr(3, VBASE)
-        state.regfile.set_cr(4, OBASE)
-        state.regfile.set_cr(5, 128)              # R1 source offset within V channel
+        state.regfile.set_cr(2, PBASE_ROW)
+        state.regfile.set_cr(3, VBASE_ROW)
+        state.regfile.set_cr(4, OBASE_ROW)
+        state.regfile.set_cr(5, R1_OFF_ROWS)        # R1 source offset within V channel (rows)
         state.regfile.set_cr(6, -1)               # key-index startup
-        state.regfile.set_cr(7, P_HEAD_STRIDE)    # P head stride (65536)
+        state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS) # P head stride (rows)
         # Loop bounds are count-1: the counter ADD and the BLT share one bundle,
         # so BLT reads the pre-ADD snapshot (branch taken while snapshot < bound).
         state.regfile.set_cr(8, N_TOK - 2)        # 254: key-loop bound (width 256, peeled+startup)
@@ -91,9 +106,9 @@ class AttnVBcast36App(IpuApp):
         state.regfile.set_cr(11, 1)               # 1: g-loop bound (2 groups)
         # LRs
         state.regfile.set_lr(0, 0)                # r_cyclic index / mask_shift
-        state.regfile.set_lr(1, N_TOK)            # 256: P key stride / V channel stride
-        state.regfile.set_lr(2, 512)              # output-row stride
-        state.regfile.set_lr(3, 128)              # group query offset
+        state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride / V channel stride (rows)
+        state.regfile.set_lr(2, OUT_ROW_ROWS)       # output-row stride (rows)
+        state.regfile.set_lr(3, GRP_QUERY_ROWS)     # group query offset (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

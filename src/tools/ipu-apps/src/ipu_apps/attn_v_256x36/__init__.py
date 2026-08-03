@@ -43,6 +43,22 @@ OBASE = 0x50000     # O: 144 * 1024 (FP32)    = 147456 B -> [0x50000, 0x74000)
 P_HEAD_STRIDE = 0x10000   # 256 queries * 256 scores
 O_CHAN_BYTES  = 1024      # 2 groups * 512 B (FP32)
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The byte constants above stay as-is because they
+# only drive the harness's direct xmem read/write calls (which bypass row
+# translation); the CR/LR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+PBASE_ROW = PBASE // ROW_SIZE_BYTES
+VBASE_ROW = VBASE // ROW_SIZE_BYTES
+OBASE_ROW = OBASE // ROW_SIZE_BYTES
+PV_STRIDE_ROWS     = N_TOK // ROW_SIZE_BYTES            # 2: P query / V channel
+CHUNK_OFF_ROWS     = 1                                  # 1: 128 B chunk offset
+P_GROUP1_OFF_ROWS  = (128 * N_TOK) // ROW_SIZE_BYTES    # 256: P group-1 offset
+P_HEAD_STRIDE_ROWS = P_HEAD_STRIDE // ROW_SIZE_BYTES    # 512: P head stride
+O_GROUP_ROWS       = 512 // ROW_SIZE_BYTES              # 4: O group stride (FP32)
+O_CHAN_ROWS        = O_CHAN_BYTES // ROW_SIZE_BYTES     # 8: O channel stride
+
 _DTYPE_MAP = {
     "INT8": DType.INT8, "int8": DType.INT8,
     "E4": DType.E4, "fp8_e4": DType.E4,
@@ -73,18 +89,18 @@ class AttnV256x36App(IpuApp):
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
 
         # CR1 (==1) is read-only hardwired; cr0 (==0) is hardwired zero.
-        state.regfile.set_cr(2, PBASE)
-        state.regfile.set_cr(3, VBASE)
-        state.regfile.set_cr(4, OBASE)
-        state.regfile.set_cr(5, 256)            # P query / V channel stride (in)
-        state.regfile.set_cr(6, 128)            # chunk offset (in)
-        state.regfile.set_cr(7, 32768)          # P group-1 offset (128 * 256)
-        state.regfile.set_cr(8, P_HEAD_STRIDE)  # P head stride (65536)
+        state.regfile.set_cr(2, PBASE_ROW)
+        state.regfile.set_cr(3, VBASE_ROW)
+        state.regfile.set_cr(4, OBASE_ROW)
+        state.regfile.set_cr(5, PV_STRIDE_ROWS)     # P query / V channel stride (rows)
+        state.regfile.set_cr(6, CHUNK_OFF_ROWS)     # chunk offset (rows)
+        state.regfile.set_cr(7, P_GROUP1_OFF_ROWS)  # P group-1 offset (rows)
+        state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS) # P head stride (rows)
         state.regfile.set_cr(9, 127)            # inner-loop bound
         state.regfile.set_cr(10, D)             # t count (36)
         state.regfile.set_cr(11, N_HEAD)        # head count (4)
-        state.regfile.set_cr(12, 512)           # O group stride (FP32)
-        state.regfile.set_cr(13, O_CHAN_BYTES)  # O channel stride (1024)
+        state.regfile.set_cr(12, O_GROUP_ROWS)      # O group stride (rows, FP32)
+        state.regfile.set_cr(13, O_CHAN_ROWS)       # O channel stride (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:

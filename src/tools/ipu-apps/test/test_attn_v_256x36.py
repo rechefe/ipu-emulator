@@ -51,10 +51,16 @@ def test_wide_fp32_matches_numpy_no_quant_noise() -> None:
         st.xmem.write_address(0x20000 + c * 512,
                               struct.pack("<128f", *V[c * 128:(c + 1) * 128]))
 
-    st.regfile.set_cr(6, 0x10000)   # P base
-    st.regfile.set_cr(7, 0x20000)   # V chunk0
-    st.regfile.set_cr(8, 0x20200)   # V chunk1
-    st.regfile.set_cr(9, 512)       # P chunk stride (wide FP32)
+    # XMEM .asm operands are ROW numbers, not byte addresses (issue #179). The
+    # xmem.write_address calls above stay in bytes (they bypass row
+    # translation); these CRs feed LDR_* and so carry rows. One row here is
+    # WIDE_ROW_BYTES, not 128 -- this program runs in wide-vector debug mode,
+    # where an element is 4 B, so a 128-lane row is 512 B.
+    WIDE_ROW_BYTES = 512
+    st.regfile.set_cr(6, 0x10000 // WIDE_ROW_BYTES)   # P base (row 128)
+    st.regfile.set_cr(7, 0x20000 // WIDE_ROW_BYTES)   # V chunk0 (row 256)
+    st.regfile.set_cr(8, 0x20200 // WIDE_ROW_BYTES)   # V chunk1 (row 257 = chunk0 + 1)
+    st.regfile.set_cr(9, 512 // WIDE_ROW_BYTES)       # P chunk stride (1 row)
 
     # lr0 = P ptr, lr2 = rc index (0), lr3 = dest lane (= query i), lr4 = stride.
     lines = ["SET lr0 cr6;;", "SET lr2 cr0;;", "SET lr3 cr0;;", "SET lr4 cr9;;"]
