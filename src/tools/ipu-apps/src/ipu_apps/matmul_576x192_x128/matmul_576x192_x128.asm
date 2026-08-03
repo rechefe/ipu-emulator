@@ -39,26 +39,52 @@
 #   DATA:    192 x 128 B       =  24 576 B (0x00000..0x05FFF)
 #   WEIGHTS: 576 rows x 256 B  = 147 456 B (0x10000..0x33FFF)
 #   OUTPUT:  576 rows x 256 B  = 147 456 B (0x40000..0x63FFF, +256B spill)
+#
+# MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
+# the start-of-cycle snapshot while keeping the LR index live, so it cannot
+# consume the chunk LDR_CYCLIC_MULT_REG loads in its own bundle. `;;` ends one
+# VLIW word = one cycle = one snapshot, so a load and a MULT in the same bundle
+# always run in the same cycle regardless of textual order -- co-issuing is
+# fine, consuming the same-cycle load is not.
+#   chunk0 primes k=0's row, then each loop body multiplies the row loaded last
+#   cycle while prefetching the next. lr4 walks CONTINUOUSLY into chunk1 while
+#   lr5 resets, so chunk1's first row is ALREADY IN FLIGHT from chunk0's
+#   trailing prefetch: chunk1 must NOT re-prime.
+#   lr5 keeps its ADD co-issued with the MULT and the BLT (moving it to its own
+#   word would cost a cycle per contraction step). MULT reads lr5 LIVE and BLT
+#   reads the SNAPSHOT, exactly as before, so the bounds stay valid; only
+#   chunk0's startup is biased down by one (-1 -> -2) because the load now runs
+#   a bundle ahead. chunk1's startup is NOT biased -- chunk0's trailing prefetch
+#   already supplied that step of phase.
 
 j_loop:
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, 0..127]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
+    SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
+
+    # Prime k=0's row for chunk0 (see the snapshot note in the header).
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0;;
+    BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0;;
+    BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
+    # No re-prime: chunk1's first row is already in flight from chunk0's
+    # trailing prefetch, and lr5 is NOT biased here for the same reason.
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, 128..191]+zeros
 
 k_chunk1:
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr11 k_chunk1;;
+    BLT lr5 lr11 k_chunk1;;
 
     STR_ACC_REG lr7 cr3;;                    # store 512B -> OUTPUT[j] (first 256B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed, 256B)
