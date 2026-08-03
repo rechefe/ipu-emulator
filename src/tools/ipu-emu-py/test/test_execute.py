@@ -1370,9 +1370,12 @@ BKPT;;
             self._downsampling_run("even", "8_16", "off", "32")
 
     def test_downsampling_stage2_32_64_all_offsets_legal(self):
-        """stage2=32_64 writes only 32 elements, so all four offsets (0/32/64/96) are legal."""
-        for off in ("0", "32", "64", "96"):
-            self._downsampling_run("even", "32_64", "off", off)
+        """stage2=32_64 writes only 32 elements, so all four offsets (0/32/64/96) are legal
+        — and each actually lands the expected values, not just avoids raising."""
+        for off in (0, 32, 64, 96):
+            state = self._downsampling_run("even", "32_64", "off", str(off))
+            expected = {off + i: 2 * i for i in range(32)}
+            self._assert_r_acc(state, expected)
 
     def test_agg_sum_first_basic(self):
         """AGG.SUM.FIRST: sum all 128 MULT_RES lanes and write to R_ACC[dest] (clean init)."""

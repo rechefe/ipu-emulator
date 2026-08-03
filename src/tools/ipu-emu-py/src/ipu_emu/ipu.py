@@ -1078,12 +1078,14 @@ class Ipu:
         elif stage2 == 2:  # 16_32: two 16-wide sub-blocks per 32-wide half.
             lo = 16 if inverted else 0
             out = stage1_out[lo : lo + 16] + stage1_out[32 + lo : 32 + lo + 16]
-        else:  # 8_16: four 8-taken/8-padded 16-wide blocks -> 64 written elements.
+        elif stage2 == 3:  # 8_16: four 8-taken/8-padded 16-wide blocks -> 64 written elements.
             out = [zero] * half
             taken_lo = 8 if inverted else 0
             for block in range(4):
                 base = block * 16 + taken_lo
                 out[base : base + 8] = stage1_out[base : base + 8]
+        else:
+            raise EmulatorError(f"ACC.DOWNSAMPLING: unknown stage2 encoding {stage2}")
 
         for i, val in enumerate(out):
             struct.pack_into(fmt, acc_buf, (write_offset + i) * 4, val)
