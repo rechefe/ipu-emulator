@@ -57,6 +57,7 @@
 {% set key_index     = "lr5"  %}  {# contraction key index s -> selects V[s,t] #}
 {% set head_index    = "lr6"  %}  {# head counter h #}
 {% set chan_index    = "lr7"  %}  {# head-channel counter t #}
+{% set key_last      = "lr8"  %}  {# 255 = KEY_BOUND + 1; BLT bound now that key_index's ADD sits a word ahead of the branch #}
 {% set group_index   = "lr9"  %}  {# query-group counter g #}
 {% set v_ptr_lo      = "lr10" %}  {# chan*256      -> r0 = V[0:127,   chan] #}
 {% set v_ptr_hi      = "lr11" %}  {# chan*256 +128 -> r1 = V[128:255, chan] #}
@@ -77,6 +78,15 @@
 {% set HEAD_BOUND    = "cr10" %}  {# 3 = head-loop bound (4 heads) #}
 {% set GROUP_BOUND   = "cr11" %}  {# 1 = g-loop bound (2 query groups) #}
 {% set DSTRUCT       = "cr15" %}  {# reserved dstructure register #}
+
+    # key_last = KEY_BOUND + 1 (= 255). MULT reads r_cyclic from the
+    # start-of-cycle snapshot (issue #157), so each P key row is loaded a bundle
+    # before the MULT consuming it and key_index's ADD moves into s_loop_pre
+    # (MULT reads it LIVE and must name the key just loaded). BLT reads the
+    # SNAPSHOT, so with that ADD a word earlier it sees an already-incremented
+    # index and needs the higher bound, or the last key is dropped.
+    SET     {{ key_last }} {{ KEY_BOUND }};;
+    ADD     {{ key_last }} {{ key_last }} {{ ONE }};;
 
     SET     {{ v_ptr_lo }} {{ ZERO }};;                       # R0 source offset = chan*256 = 0
     SET     {{ v_ptr_hi }} {{ V_HI_OFF }};;                   # R1 source offset = chan*256 + 128 = 128
@@ -105,13 +115,20 @@ g_loop:
     SUB     {{ p_ptr }}  {{ p_ptr }}  {{ key_stride }};;      # - 256 startup (ADD +256 -> live s=0)
     SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
+    # Prime s=0's P row (the MULT below consumes it from the snapshot).
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};;
+
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ key_index }} {{ KEY_BOUND }} s_loop;;
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
+s_loop_pre:
+    ADD     {{ key_index }} {{ key_index }} {{ ONE }};;       # name the key just loaded
 s_loop:
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ key_index }} {{ KEY_BOUND }} s_loop;;
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------
