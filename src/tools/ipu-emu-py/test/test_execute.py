@@ -1259,72 +1259,123 @@ BKPT;;
             got = struct.unpack("<i", struct.pack("<I", raw))[0]
             assert got == -5, f"word {i}: expected -5, got {got}"
 
-    def test_acc_stride_no_stride(self):
-        """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
-        state = _make_state("""\
+    def _downsampling_run(self, stage1, stage2, invert, offset):
+        """Assemble/run ACC.DOWNSAMPLING with mult_res[i]=i, r_acc pre-filled with -1 sentinel.
+
+        offset is an element start index (0/32/64/96); loaded into lr0 as
+        offset//32 so (lr0 % 4) * 32 reproduces it, per the LrIdx convention.
+        """
+        state = _make_state(f"""\
 SET lr0 cr8;;
-ACC.STRIDE 16 off off lr0;;
+ACC.DOWNSAMPLING {stage1} {stage2} {invert} lr0;;
 BKPT;;
 """,
-            cr={8: 0})
+            cr={8: int(offset) // 32})
         state.dtype = DType.INT8
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 0xFFFFFFFF)  # sentinel: untouched lanes stay -1
         mult_buf = state.regfile.raw("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
         run_until_complete(state)
-        for i in range(128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == i, f"word {i}: expected {i}, got {w}"
+        return state
 
-    def test_acc_stride_horizontal(self):
-        """ACC.STRIDE with horizontal on: take every 2nd column → 64 elements at r_acc[0:64]."""
-        state = _make_state("""\
-SET lr0 cr8;;
-ACC.STRIDE 16 on off lr0;;
-BKPT;;
-""",
-            cr={8: 0})
-        state.dtype = DType.INT8
-        mult_buf = state.regfile.raw("mult_res")
+    def _assert_r_acc(self, state, expected: dict[int, int]):
+        """expected maps r_acc word index -> expected signed int32 value (-1 = untouched sentinel)."""
         for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, i)
-        run_until_complete(state)
-        # Rows of 16: even columns 0,2,4,...,14 → 8 per row × 8 rows = 64 elements
-        for out_i in range(64):
-            row = out_i // 8
-            col = (out_i % 8) * 2
-            expected = row * 16 + col
-            w = state.regfile.get_r_acc_word(out_i)
-            assert w == expected, f"out[{out_i}]: expected {expected}, got {w}"
+            raw = state.regfile.get_r_acc_word(i)
+            got = struct.unpack("<i", struct.pack("<I", raw))[0]
+            want = expected.get(i, -1)
+            assert got == want, f"word {i}: expected {want}, got {got}"
 
-    def test_acc_stride_offset(self):
-        """ACC.STRIDE with offset: (lr0 % 4)*32 is start index; 64 elements written at r_acc[32:96]."""
-        state = _make_state("""\
-SET lr0 cr8;;
-ACC.STRIDE 16 on off lr0;;
-BKPT;;
-""",
-            cr={8: 1})
-        # lr0=1 → offset % 4 = 1 → start index 32. Horizontal on → 64 elements.
-        state.dtype = DType.INT8
-        for i in range(128):
-            state.regfile.set_r_acc_word(i, 0)
-        mult_buf = state.regfile.raw("mult_res")
-        for i in range(128):
-            struct.pack_into("<i", mult_buf, i * 4, 100 + i)
-        run_until_complete(state)
-        for i in range(32):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 0, f"word {i} (before start): expected 0, got {w}"
-        for out_i in range(64):
-            row = out_i // 8
-            col = (out_i % 8) * 2
-            expected_src = row * 16 + col
-            w = state.regfile.get_r_acc_word(32 + out_i)
-            assert w == 100 + expected_src, f"word {32 + out_i}: expected {100 + expected_src}, got {w}"
-        for i in range(96, 128):
-            w = state.regfile.get_r_acc_word(i)
-            assert w == 0, f"word {i} (after segment): expected 0, got {w}"
+    def test_downsampling_stage1_even_stage2_64_128(self):
+        """stage1=even, stage2=64_128: all 64 even-indexed elements pass through to r_acc[0:64]."""
+        state = self._downsampling_run("even", "64_128", "off", "0")
+        expected = {i: 2 * i for i in range(64)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage1_odd_stage2_64_128_offset_64(self):
+        """stage1=odd, stage2=64_128, offset=64: 64 odd-indexed elements land at r_acc[64:128]."""
+        state = self._downsampling_run("odd", "64_128", "off", "64")
+        expected = {64 + i: 2 * i + 1 for i in range(64)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_64_128_invert_raises(self):
+        """stage2=64_128 has no invert option — must raise, not silently ignore."""
+        with pytest.raises(EmulatorError, match="invert is not supported"):
+            self._downsampling_run("even", "64_128", "invert", "0")
+
+    def test_downsampling_64_128_illegal_offset_raises(self):
+        """stage2=64_128 only legally writes to offset 0 or 64 (32/96 write past/short of the 64-wide span)."""
+        with pytest.raises(EmulatorError, match="not legal for stage2=64_128"):
+            self._downsampling_run("even", "64_128", "off", "32")
+
+    def test_downsampling_stage2_32_64_not_inverted(self):
+        """stage2=32_64, !invert: keeps stage1_out[0:32] (elements 0,2,...,62 for even)."""
+        state = self._downsampling_run("even", "32_64", "off", "0")
+        expected = {i: 2 * i for i in range(32)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage2_32_64_inverted(self):
+        """stage2=32_64, invert: keeps stage1_out[32:64] (elements 64,66,...,126 for even)."""
+        state = self._downsampling_run("even", "32_64", "invert", "32")
+        expected = {32 + i: 2 * (32 + i) for i in range(32)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage2_16_32_not_inverted(self):
+        """stage2=16_32, !invert: keeps stage1_out[0:16] and stage1_out[32:48]."""
+        state = self._downsampling_run("odd", "16_32", "off", "64")
+        stage1_out = [2 * j + 1 for j in range(64)]
+        taken = stage1_out[0:16] + stage1_out[32:48]
+        expected = {64 + i: v for i, v in enumerate(taken)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage2_16_32_inverted(self):
+        """stage2=16_32, invert: keeps stage1_out[16:32] and stage1_out[48:64]."""
+        state = self._downsampling_run("odd", "16_32", "invert", "96")
+        stage1_out = [2 * j + 1 for j in range(64)]
+        taken = stage1_out[16:32] + stage1_out[48:64]
+        expected = {96 + i: v for i, v in enumerate(taken)}
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage2_8_16_not_inverted(self):
+        """stage2=8_16, !invert: 8-taken/8-padded blocks at 0,16,32,48 -> full 64-wide span."""
+        state = self._downsampling_run("even", "8_16", "off", "0")
+        stage1_out = [2 * j for j in range(64)]
+        expected = {}
+        for block in range(4):
+            base = block * 16
+            for k in range(8):
+                expected[base + k] = stage1_out[base + k]
+            for k in range(8, 16):
+                expected[base + k] = 0  # zero padding
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_stage2_8_16_inverted(self):
+        """stage2=8_16, invert: 8-taken/8-padded blocks at 8,24,40,56 (mirrored) -> full 64-wide span."""
+        state = self._downsampling_run("even", "8_16", "invert", "64")
+        stage1_out = [2 * j for j in range(64)]
+        expected = {}
+        for block in range(4):
+            base = block * 16
+            for k in range(8):
+                expected[64 + base + k] = 0  # zero padding
+            for k in range(8, 16):
+                expected[64 + base + k] = stage1_out[base + k]
+        self._assert_r_acc(state, expected)
+
+    def test_downsampling_8_16_illegal_offset_raises(self):
+        """stage2=8_16 writes the full 64-wide span, so only offset 0/64 are legal, not 32/96."""
+        with pytest.raises(EmulatorError, match="not legal for stage2=8_16"):
+            self._downsampling_run("even", "8_16", "off", "32")
+
+    def test_downsampling_stage2_32_64_all_offsets_legal(self):
+        """stage2=32_64 writes only 32 elements, so all four offsets (0/32/64/96) are legal
+        — and each actually lands the expected values, not just avoids raising."""
+        for off in (0, 32, 64, 96):
+            state = self._downsampling_run("even", "32_64", "off", str(off))
+            expected = {off + i: 2 * i for i in range(32)}
+            self._assert_r_acc(state, expected)
 
     def test_agg_sum_first_basic(self):
         """AGG.SUM.FIRST: sum all 128 MULT_RES lanes and write to R_ACC[dest] (clean init)."""

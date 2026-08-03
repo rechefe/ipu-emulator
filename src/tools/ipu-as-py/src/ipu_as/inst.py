@@ -39,9 +39,9 @@ OPERAND_TYPE_MAP: dict[str, type[ipu_token.IpuToken]] = {
     "LrdIdx": reg.LrdRegField,
     "LrIncDecImmediate": immediate.LrIncDecImmediate,
     "AddbiImmediate": immediate.AddbiImmediate,
-    "ElementsInRow": immediate.ElementsInRowField,
-    "HorizontalStride": immediate.HorizontalStrideField,
-    "VerticalStride": immediate.VerticalStrideField,
+    "Stage1": immediate.Stage1Field,
+    "Stage2": immediate.Stage2Field,
+    "Invert": immediate.InvertField,
     "LrModPow2KImmediate": immediate.LrModPow2KImmediate,
     "MultMaskOffsetImmediate": immediate.MultMaskOffsetImmediate,
     "ReshapeMaskImmediate": immediate.ReshapeMaskImmediate,
@@ -349,7 +349,9 @@ class Inst:
 
         if doc.operation:
             lines.append("**Pseudo code:**")
-            lines.append(f"`{doc.operation}`")
+            lines.append("```")
+            lines.append(doc.operation)
+            lines.append("```")
             lines.append("")
 
         if doc.example:

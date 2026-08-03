@@ -34,10 +34,13 @@ from ipu_common.instruction_spec import (
     get_instruction_by_opcode,
     create_emulator_constants,
 )
-from ipu_common.acc_stride_enums import (
-    get_elements_per_row,
-    get_horizontal_stride_bits,
-    get_vertical_stride_bits,
+from ipu_common.downsampling_enums import (
+    STAGE2_NAMES,
+    get_stage1_start,
+    get_invert_bit,
+    get_write_offset,
+    get_legal_offsets,
+    invert_allowed,
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.reshape_mask import RESHAPE_LANE_COUNT
@@ -104,11 +107,12 @@ _TYPE_FIELD_SUFFIX = {
     "LrdIdx": "lrd_reg_field",
     "LrIncDecImmediate": "lr_inc_dec_immediate",
     "AddbiImmediate": "addbi_immediate",
-    "ElementsInRow": "elements_in_row_field",
-    "HorizontalStride": "horizontal_stride_field",
-    "VerticalStride": "vertical_stride_field",
+    "Stage1": "stage1_field",
+    "Stage2": "stage2_field",
+    "Invert": "invert_field",
     "LrModPow2KImmediate": "lr_mod_pow2_k_immediate",
     "MultMaskOffsetImmediate": "mult_mask_offset_immediate",
+    "ReshapeMaskImmediate": "reshape_mask_immediate",
     "ActivationFn": "activation_fn_field",
     "BreakImmediate": "break_immediate_type",
     "Label": "label_token",
@@ -1024,63 +1028,67 @@ class Ipu:
                 result = ipu_sub(zero, mult_val, dtype)
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
-    def execute_acc_stride(
+    def execute_downsampling(
         self,
         *,
-        elements_in_row: int,
-        horizontal_stride: int,
-        vertical_stride: int,
+        stage1: int,
+        stage2: int,
+        invert: int,
         offset: int,
     ) -> None:
-        """Execute ACC.STRIDE: Decimate mult_res by horizontal/vertical stride and write into r_acc.
+        """Execute ACC.DOWNSAMPLING: reorder/decimate mult_res into r_acc via stage1 -> stage2 -> write.
 
-        Operand semantics from ipu_common.acc_stride_enums (single source of truth).
+        Operand semantics from ipu_common.downsampling_enums (single source of truth).
         offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
         """
-        elements_per_row = get_elements_per_row(elements_in_row)
-        num_rows = LANES // elements_per_row
+        if invert and not invert_allowed(stage2):
+            raise EmulatorError(
+                f"ACC.DOWNSAMPLING: invert is not supported when stage2={STAGE2_NAMES[stage2]}"
+            )
 
-        h_enabled, h_inverted = get_horizontal_stride_bits(horizontal_stride)
-        v_enabled, v_inverted = get_vertical_stride_bits(vertical_stride)
+        write_offset = get_write_offset(offset)
+        legal_offsets = get_legal_offsets(stage2)
+        if write_offset not in legal_offsets:
+            raise EmulatorError(
+                f"ACC.DOWNSAMPLING: offset {write_offset} is not legal for "
+                f"stage2={STAGE2_NAMES[stage2]} (legal offsets: {legal_offsets})"
+            )
 
-        # Build list of source indices (0..127) or -1 for zero padding
-        after_h: list[int] = []
-        if not h_enabled:
-            after_h = list(range(LANES))
-            effective_row_len = elements_per_row
-        else:
-            half = elements_per_row // 2
-            for row in range(num_rows):
-                base = row * elements_per_row
-                if h_inverted:
-                    indices_in_row = [base + 1 + 2 * j for j in range(half)]
-                else:
-                    indices_in_row = [base + 2 * j for j in range(half)]
-                after_h.extend(indices_in_row)
-            effective_row_len = half
-
-        num_rows_after_h = len(after_h) // effective_row_len
-        if not v_enabled:
-            out_indices = after_h
-        else:
-            out_indices = []
-            row_sel = range(1, num_rows_after_h, 2) if v_inverted else range(0, num_rows_after_h, 2)
-            for r in row_sel:
-                start = r * effective_row_len
-                out_indices.extend(after_h[start : start + effective_row_len])
-
-        base = (offset % 4) * 32
-        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
 
-        for i, idx in enumerate(out_indices):
-            if idx >= 0:
-                val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
-            else:
-                val = 0.0 if fmt == "<f" else 0
-            struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+        def read_lane(idx: int) -> float | int:
+            return struct.unpack_from(fmt, mult_res, idx * 4)[0]
+
+        # stage1: alternating elements from the 128-element row -> 64 elements.
+        half = LANES // 2
+        start = get_stage1_start(stage1)
+        stage1_out = [read_lane(start + 2 * j) for j in range(half)]
+
+        inverted = get_invert_bit(invert)
+        zero = 0.0 if fmt == "<f" else 0
+
+        # stage2: keep a subset of stage1's 64 elements.
+        if stage2 == 0:  # 64_128: all 64 elements pass through unchanged.
+            out = list(stage1_out)
+        elif stage2 == 1:  # 32_64: first or second half of the 64.
+            lo = half // 2 if inverted else 0
+            out = stage1_out[lo : lo + half // 2]
+        elif stage2 == 2:  # 16_32: two 16-wide sub-blocks per 32-wide half.
+            lo = 16 if inverted else 0
+            out = stage1_out[lo : lo + 16] + stage1_out[32 + lo : 32 + lo + 16]
+        elif stage2 == 3:  # 8_16: four 8-taken/8-padded 16-wide blocks -> 64 written elements.
+            out = [zero] * half
+            taken_lo = 8 if inverted else 0
+            for block in range(4):
+                base = block * 16 + taken_lo
+                out[base : base + 8] = stage1_out[base : base + 8]
+        else:
+            raise EmulatorError(f"ACC.DOWNSAMPLING: unknown stage2 encoding {stage2}")
+
+        for i, val in enumerate(out):
+            struct.pack_into(fmt, acc_buf, (write_offset + i) * 4, val)
 
     def execute_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
         """Execute RESHAPE: permute R_ACC word lanes via two LRDn byte-index arrays.
