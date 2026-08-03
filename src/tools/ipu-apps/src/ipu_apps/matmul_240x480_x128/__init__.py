@@ -40,6 +40,30 @@ W_STRIDE         = 512    # bytes per output channel in XMEM (ceil(K/128)*128)
 DATA_STRIDE      = N_LANE      # bytes per channel in XMEM (128, padded)
 OUTPUT_ROW_BYTES = N_TOK * 4   # bytes per output channel (packed)
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive the harness's direct xmem read/write calls (which
+# bypass row translation); the CR/LR registers below feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+DATA_BASE_ROW    = DATA_BASE // ROW_SIZE_BYTES
+WEIGHTS_BASE_ROW = WEIGHTS_BASE // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW  = OUTPUT_BASE // ROW_SIZE_BYTES
+W_STRIDE_ROWS    = W_STRIDE // ROW_SIZE_BYTES
+DATA_STRIDE_ROWS = DATA_STRIDE // ROW_SIZE_BYTES         # 1 row per channel
+# One output channel per XMEM row. OUTPUT_ROW_BYTES (N_TOK*4 = 64 B) is the
+# MEANINGFUL prefix of each row, not the store stride: STR_ACC_REG always
+# writes all 512 B of r_acc, and a row belongs to exactly one output channel --
+# rows are never shared between channels. So channel j owns row j, holding
+# 64 B of real output followed by unused tail.
+#
+# The pre-#179 kernel used a 64 B store stride so consecutive channels packed
+# two-per-row, each store burying the previous one's tail. That straddled row
+# boundaries, which the row-addressed model does not permit (and a 64 B stride
+# is not even expressible: addresses are row*128). teardown() now crops each
+# row's 64 B prefix, so the on-disk output is byte-identical to before.
+OUTPUT_STRIDE_ROWS = 1
+
 _DTYPE_MAP = {
     "INT8":   DType.INT8,
     "int8":   DType.INT8,
@@ -101,28 +125,37 @@ class MatMul240x480x128App(IpuApp):
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
         # CR1 (≡1) is a read-only hardwired constant; WEIGHTS_BASE lives in CR9.
-        state.regfile.set_cr(0, DATA_BASE)
-        state.regfile.set_cr(9, WEIGHTS_BASE)
-        state.regfile.set_cr(2, WEIGHTS_BASE + 128)
-        state.regfile.set_cr(3, WEIGHTS_BASE + 256)
-        state.regfile.set_cr(4, WEIGHTS_BASE + 384)
-        state.regfile.set_cr(5, OUTPUT_BASE)
-        state.regfile.set_cr(6, -DATA_STRIDE)                  # data startup: -128
+        state.regfile.set_cr(0, DATA_BASE_ROW)
+        state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
+        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)   # next weight row
+        state.regfile.set_cr(3, WEIGHTS_BASE_ROW + 2)   # +2 weight rows
+        state.regfile.set_cr(4, WEIGHTS_BASE_ROW + 3)   # +3 weight rows
+        state.regfile.set_cr(5, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(6, -DATA_STRIDE_ROWS)                  # data startup: -128
         state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
         state.regfile.set_lr(0, 0)                             # r_cyclic write-index 0
-        state.regfile.set_lr(2, DATA_STRIDE)                   # data stride (128)
-        state.regfile.set_lr(3, OUTPUT_ROW_BYTES)              # output stride (packed)
+        state.regfile.set_lr(2, DATA_STRIDE_ROWS)                   # data stride (128)
+        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)            # output stride (1 row/channel)
         state.regfile.set_lr(6, 126)                           # width-128 chunk bound
         state.regfile.set_lr(7, 0)                             # output pointer
         state.regfile.set_lr(8, 0)                             # weight byte offset
         state.regfile.set_lr(9, 0)                             # j counter
         state.regfile.set_lr(10, N_OUT)                        # j-loop limit
         state.regfile.set_lr(11, 94)                           # tail-chunk bound: width=96
-        state.regfile.set_lr(12, W_STRIDE)                     # weight stride per j
+        state.regfile.set_lr(12, W_STRIDE_ROWS)                     # weight stride per j
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT,
-            )
+            # Each output channel owns one XMEM row: OUTPUT_ROW_BYTES of real
+            # data followed by unused tail. dump_xmem_to_binary cannot express a
+            # stride different from its chunk size, so read the rows
+            # individually and concatenate their prefixes -- this reproduces the
+            # packed layout the golden expects without ever sharing a row
+            # between two channels.
+            row_stride = OUTPUT_STRIDE_ROWS * ROW_SIZE_BYTES
+            parts = [
+                bytes(state.xmem.read_address(OUTPUT_BASE + j * row_stride,
+                                              OUTPUT_ROW_BYTES))
+                for j in range(N_OUT)
+            ]
+            Path(self.output_path).write_bytes(b"".join(parts))
