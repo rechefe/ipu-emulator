@@ -14,7 +14,7 @@
 #      One running 512-B-stride pointer covers g=0, g=1, next key contiguously.
 #
 # Compute (matmul template: scalar from R0 indexed by c × vector in R_CYCLIC):
-#   MULT.RC.VE rc_idx=0, src=lr5 (=c → R0[c]) → mult_res[i] = Q[i,c]·K[s,c]
+#   MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → mult_res[i] = Q[i,c]·K[s,c]
 #   c==0: ACC.FIRST  else: ACC   → R_ACC[i] += Q[i,c]·K[s,c]
 #   After 36 channels: R_ACC[i] = S[i,s] for the 128 queries of this group.
 #   STR_ACC_REG → 512 B (128 × int32/fp32) key-major score row.  No AGG.
@@ -22,64 +22,77 @@
 # Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC bundles
 #              + 512 stores.
 #
-# CRs (harness-set):
-#   cr0 = QBASE        (data base for LDR_CYCLIC_MULT_REG)
-#   cr2 = SBASE        (output base for STR_ACC_REG)
-#   cr9 = KBASE_KM     (key-major K base for LDR_MULT_REG into R0)
-#   cr5 = -256         (g=0 channel-column startup: first live = 0 after +256)
-#   cr6 = -128         (g=1 channel-column startup: first live = 128 after +256)
-#   cr7 = -1           (fixed_idx c startup: first live = 0 after +1)
-#   cr8 = 34           (c-loop bound: first=0, width=36 → 0+36-2 = 34)
-#   cr1 = 1            (read-only hardwired constant ≡ 1)
-# LRs (harness-set persistent):
-#   lr0  = 0    (R_CYCLIC write/read index 0)
-#   lr2  = 256  (channel stride: 256 B between consecutive channels in Q)
-#   lr3  = 512  (output store stride: 512 B per (s,g) row)
-#   lr6  = 34   (c-loop bound)
-#   lr7  = 0    (output byte pointer, += 512 per store)
-#   lr8  = -128 (key byte offset into K; += 128 per key, first live = 0)
-#   lr9  = 0    (key counter s)
-#   lr10 = 256  (key-loop limit = N)
-#   lr12 = 128  (key stride into K scratch)
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
+#
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
+
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set rc_slot0    = "lr0"  %}  {# const 0: r_cyclic write/read index #}
+{% set chan_stride = "lr2"  %}  {# 256 = bytes between consecutive Q channels #}
+{% set out_stride  = "lr3"  %}  {# 512 = bytes per stored (key, group) row #}
+{% set q_ptr       = "lr4"  %}  {# byte offset into Q, walks head channels c #}
+{% set chan_index  = "lr5"  %}  {# head-channel index c -> selects K[s,c] in r0 #}
+{% set chan_bound  = "lr6"  %}  {# 34 = c-loop bound (first=0, width=36) #}
+{% set out_ptr     = "lr7"  %}  {# byte offset into S, += 512 per store #}
+{% set key_ptr     = "lr8"  %}  {# byte offset into key-major K, += key_stride #}
+{% set key_index   = "lr9"  %}  {# key counter s #}
+{% set key_limit   = "lr10" %}  {# 256 = N keys #}
+{% set key_stride  = "lr12" %}  {# 128 = bytes per key row in the K scratch #}
+
+{% set Q_BASE      = "cr0"  %}  {# channel-major Q base #}
+{% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
+{% set S_BASE      = "cr2"  %}  {# key-major score output base #}
+{% set Q_START_G0  = "cr5"  %}  {# -256 startup skew (first live = 0) #}
+{% set Q_START_G1  = "cr6"  %}  {# -128 startup skew (first live = 128) #}
+{% set CHAN_START  = "cr7"  %}  {# -1 -> first live c = 0 #}
+{% set K_BASE_KM   = "cr9"  %}  {# key-major K scratch base #}
+{% set DSTRUCT     = "cr15" %}  {# reserved dstructure register #}
 
 s_loop:
-    ADD lr8 lr8 lr12;;                  # key byte offset += 128 (first live = 0)
-    LDR_MULT_REG r0 lr8 cr9;;           # r0[0..127] = K[s, 0:35] + zeros
+    ADD {{ key_ptr }} {{ key_ptr }} {{ key_stride }};;  # key byte offset += 128 (first live = 0)
+    LDR_MULT_REG r0 {{ key_ptr }} {{ K_BASE_KM }};;     # r0[0..127] = K[s, 0:35] + zeros
 
     # -- query group 0 (queries 0..127) -------------------------------------
-    SET lr4 cr5;;                       # channel-column startup: -256
-    SET lr5 cr7;;                       # fixed_idx c startup: -1
+    SET {{ q_ptr }} {{ Q_START_G0 }};;                  # channel-column startup: -256
+    SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 c_loop_g0;;
+    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }}; ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ chan_index }} {{ chan_bound }} c_loop_g0;;
     B after_c_g0;;
 
 c_loop_g0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 c_loop_g0;;
+    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }}; ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ chan_index }} {{ chan_bound }} c_loop_g0;;
 
 after_c_g0:
-    STR_ACC_REG lr7 cr2;;               # store S[0:128, s] (key-major row, g=0)
-    ADD lr7 lr7 lr3;;                   # output ptr += 512
+    STR_ACC_REG {{ out_ptr }} {{ S_BASE }};;            # store S[0:128, s] (key-major row, g=0)
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     # -- query group 1 (queries 128..255) -----------------------------------
-    SET lr4 cr6;;                       # g=1 channel-column startup: -128 → first live = 128
-    SET lr5 cr7;;                       # fixed_idx c startup: -1
+    SET {{ q_ptr }} {{ Q_START_G1 }};;                  # g=1 channel-column startup: -128 → first live = 128
+    SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 c_loop_g1;;
+    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }}; ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ chan_index }} {{ chan_bound }} c_loop_g1;;
     B after_c_g1;;
 
 c_loop_g1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 c_loop_g1;;
+    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }}; ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ chan_index }} {{ chan_bound }} c_loop_g1;;
 
 after_c_g1:
-    STR_ACC_REG lr7 cr2;;               # store S[128:256, s] (key-major row, g=1)
-    ADD lr7 lr7 lr3;;                   # output ptr += 512
+    STR_ACC_REG {{ out_ptr }} {{ S_BASE }};;            # store S[128:256, s] (key-major row, g=1)
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
-    ADD lr9 lr9 cr1; BLT lr9 lr10 s_loop;;   # next key
+    ADD {{ key_index }} {{ key_index }} {{ ONE }}; BLT {{ key_index }} {{ key_limit }} s_loop;; # next key
 
 end:
     BKPT;;

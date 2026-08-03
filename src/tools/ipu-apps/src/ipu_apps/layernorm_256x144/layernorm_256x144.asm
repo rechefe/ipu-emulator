@@ -13,56 +13,71 @@
 #   (c) r0/r1 snap: pre-load before loop, hold constant; MULT sees previous cycle's r0/r1
 #   (d) r_cyclic live: LDR_CYCLIC + MULT in same cycle → cyclic is immediately visible
 #
-# CRs:
-#   cr0  = DATA_BASE        = 0x00000  (hardwired 0; also the const-zero source)
-#   cr1  = 1  (read-only hardwired constant; not used for a base)
-#   cr2  = BETA_BASE        = 0x24400
-#   cr3  = ONES_BASE        = 0x24800
-#   cr4  = NEG_INV_N_BASE   = 0x24A00
-#   cr5  = INV_N_BASE       = 0x24C00
-#   cr6  = NEG_MEAN_BASE    = 0x24E00
-#   cr7  = CENTERED_BASE    = 0x25000
-#   cr8  = TEMP_BASE        = 0x37000
-#   cr9  = INVSTD_BASE      = 0x37200
-#   cr10 = OUTPUT_BASE      = 0x37400
-#   cr11 = GAMMA_BASE       = 0x24000  (moved off read-only CR1)
-#   cr12 = 144              (N_CH)
-#   cr13 = 512              (row stride within one tg)
-#   cr14 = 128              (valid_elements; r1 base offset for MULT.VE.CYCLIC)
-#   cr15 is reserved
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
+#
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
 #
 # Data stride between consecutive channels within one tg: 1024 B (= N_TG × 512)
-# stored in lr7 (overriding cr13 used only for output/scratch stride).
-#
-# Persistent LRs:
-#   lr0  = 0    (cyclic_offset=0, xmem offset=0)
-#   lr1  = 0    (mask_shift=0)
-#   lr6  = 144  (N_CH loop bound)
-#   lr7  = 1024 (data stride per channel = N_TG*512)
-#   lr11 = 2    (N_TG loop bound)
-#   lr12 = 512  (scratch/output row stride)
-# Per-step temporaries:
-#   lr2, lr3 (offsets), lr5 (ch counter), lr9 (tg counter), lr10 (tg byte offset)
-#   lr9, lr13, lr14 (fixed_idx in step 6)
+# stored in data_stride (overriding ROW_STRIDE used only for output/scratch stride).
 
-    SET     lr0  cr0;;
-    SET     lr1  cr0;;
-    SET     lr6  cr12;;
-    SET     lr7  cr13;;
-    ADD     lr7  lr7  lr7;;            # lr7 = 1024 (data stride = N_TG × 512)
-    SET     lr11 cr1;;
-    ADD     lr11 lr11 cr1;;            # lr11 = 2  (N_TG); built from CR1(=1)
-    SET     lr12 cr13;;                # lr12 = 512 (scratch/output stride)
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set rc_slot0       = "lr0"  %}  {# const 0: cyclic_offset / xmem offset #}
+{% set mask_shift     = "lr1"  %}  {# const 0: mask_shift #}
+{% set read_ptr       = "lr2"  %}  {# per-step read pointer (data / centered) #}
+{% set write_ptr      = "lr3"  %}  {# per-step write pointer (centered / output) #}
+{% set ch_index       = "lr5"  %}  {# channel counter within a step #}
+{% set ch_limit       = "lr6"  %}  {# 144 = N_CH loop bound #}
+{% set data_stride    = "lr7"  %}  {# 1024 = data stride per channel (N_TG*512) #}
+{% set tg_index       = "lr9"  %}  {# token-group counter (BLT-style, 1..2) #}
+{% set tg_off         = "lr10" %}  {# token-group byte offset (0 or 512) #}
+{% set tg_limit       = "lr11" %}  {# 2 = N_TG #}
+{% set row_stride     = "lr12" %}  {# 512 = scratch/output row stride #}
+{% set gamma_idx      = "lr13" %}  {# step-6 scalar index into r0 (gamma) #}
+{% set beta_idx       = "lr14" %}  {# step-6 scalar index into r1 (beta) #}
+{% set sub_bound      = "lr15" %}  {# step-6 sub-loop bound (128, then 16) #}
+
+{% set DATA_BASE      = "cr0"  %}  {# 0x00000; also the const-zero source #}
+{% set ONE            = "cr1"  %}  {# hardwired read-only 1 #}
+{% set BETA_BASE      = "cr2"  %}  {# beta #}
+{% set ONES_BASE      = "cr3"  %}  {# 128 lanes of 1.0 #}
+{% set NEG_INV_N_BASE = "cr4"  %}  {# FP32(-1/144) #}
+{% set INV_N_BASE     = "cr5"  %}  {# FP32(1/144) #}
+{% set NEG_MEAN_BASE  = "cr6"  %}  {# -mu scratch #}
+{% set CENTERED_BASE  = "cr7"  %}  {# centered / normalized scratch #}
+{% set TEMP_BASE      = "cr8"  %}  {# sum-of-squares scratch #}
+{% set INVSTD_BASE    = "cr9"  %}  {# 1/sigma scratch #}
+{% set OUTPUT_BASE    = "cr10" %}  {# output #}
+{% set GAMMA_BASE     = "cr11" %}  {# gamma #}
+{% set N_CH           = "cr12" %}  {# 144 #}
+{% set ROW_STRIDE     = "cr13" %}  {# 512 #}
+{% set LANES          = "cr14" %}  {# 128 = valid_elements; r1 base offset #}
+{% set DSTRUCT        = "cr15" %}  {# reserved dstructure register #}
+
+    SET     {{ rc_slot0 }}  {{ DATA_BASE }};;
+    SET     {{ mask_shift }}  {{ DATA_BASE }};;
+    SET     {{ ch_limit }}  {{ N_CH }};;
+    SET     {{ data_stride }}  {{ ROW_STRIDE }};;
+    ADD     {{ data_stride }}  {{ data_stride }}  {{ data_stride }};; # {{ data_stride }} = 1024 (data stride = N_TG × 512)
+    SET     {{ tg_limit }} {{ ONE }};;
+    ADD     {{ tg_limit }} {{ tg_limit }} {{ ONE }};;             # {{ tg_limit }} = 2  (N_TG); built from CR1(=1)
+    SET     {{ row_stride }} {{ ROW_STRIDE }};;                   # {{ row_stride }} = 512 (scratch/output stride)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Outer loop: tg = 0, 1
-# lr9  = tg counter (1..2, BLT-style)
-# lr10 = tg byte offset into data (0 or 512)
+# tg_index  = tg counter (1..2, BLT-style)
+# tg_off = tg byte offset into data (0 or 512)
 # ─────────────────────────────────────────────────────────────────────────────
 
-    SET     lr9  cr0;;
-    ADD     lr9  lr9  cr1;;              # lr9 = 1  (tg counter, BLT reads snap)
-    SET     lr10 cr0;;                   # lr10 = 0  (tg byte offset)
+    SET     {{ tg_index }}  {{ DATA_BASE }};;
+    ADD     {{ tg_index }}  {{ tg_index }}  {{ ONE }};;           # {{ tg_index }} = 1  (tg counter, BLT reads snap)
+    SET     {{ tg_off }} {{ DATA_BASE }};;                        # {{ tg_off }} = 0  (tg byte offset)
 
 tg_loop:
 
@@ -70,102 +85,102 @@ tg_loop:
 # Step 1: -μ[i] = Σ_ch  x[ch,i] × (-1/N)    for this tg
 #
 # Data row for (ch, tg): DATA_BASE + (ch*N_TG + tg)*512 = DATA_BASE + ch*1024 + tg*512
-# lr2 starts at lr10 - 1024 = tg*512 - 1024.
-# ADD lr2 lr2 lr7 (=1024) fires first → live = ch*1024 + tg*512 on iteration ch.
+# read_ptr starts at tg_off - 1024 = tg*512 - 1024.
+# ADD read_ptr read_ptr data_stride (=1024) fires first → live = ch*1024 + tg*512 on iteration ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    LDR_MULT_REG        r0 lr0 cr4;;   # r0 ← -1/N
+    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ NEG_INV_N_BASE }};;  # r0 ← -1/N
 
-    SET     lr2  cr0;;
-    SUB     lr2  lr2  lr7;;            # lr2 = -1024
-    ADD     lr2  lr2  lr10;;           # lr2 = tg_offset - 1024
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
+    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ read_ptr }}  {{ read_ptr }}  {{ data_stride }};;   # {{ read_ptr }} = -1024
+    ADD     {{ read_ptr }}  {{ read_ptr }}  {{ tg_off }};;        # {{ read_ptr }} = tg_offset - 1024
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
-    # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step1_loop;;
+    # Peeled first ch (ch=0): ACC.ADD.FIRST seeds r_acc.
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
     B       step1_done;;
 step1_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step1_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
 step1_done:
 
-    STR_ACC_REG         lr0 cr6;;      # NEG_MEAN_BASE = -μ
+    STR_ACC_REG         {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;      # NEG_MEAN_BASE = -μ
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: centered[ch,i] = x[ch,i] + (-μ[i])
 #
-# r0 = ONES, r1 = -μ. lr2 = data read ptr. lr3 = centered write ptr (-512).
+# r0 = ONES, r1 = -μ. read_ptr = data read ptr. write_ptr = centered write ptr (-512).
 # Per ch (3 cycles): same as 128x16.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    LDR_MULT_REG        r0 lr0 cr3;;
-    LDR_MULT_REG        r1 lr0 cr6;;
+    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;
+    LDR_MULT_REG        r1 {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;
 
-    SET     lr2  cr0;;
-    SUB     lr2  lr2  lr7;;
-    ADD     lr2  lr2  lr10;;
-    SET     lr3  cr0;;
-    SUB     lr3  lr3  lr12;;           # lr3 = -512 (centered stride)
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
+    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ read_ptr }}  {{ read_ptr }}  {{ data_stride }};;
+    ADD     {{ read_ptr }}  {{ read_ptr }}  {{ tg_off }};;
+    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ write_ptr }}  {{ write_ptr }}  {{ row_stride }};;  # {{ write_ptr }} = -512 (centered stride)
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 step2_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
-    STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr12;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step2_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VV {{ rc_slot0 }} r1 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 3: Σ_ch (centered[ch,i])²    using MULT.EE.RR
+# Step 3: Σ_ch (centered[ch,i])²    using MULT.RC.VS
 #
-# lr2 = -512 (centered read ptr). Two cycles per ch.
+# read_ptr = -512 (centered read ptr). Two cycles per ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    SET     lr2  cr0;;
-    SUB     lr2  lr2  lr12;;
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
+    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
-    # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): load centered[ch]
+    # Peeled first ch (ch=0): ACC.ADD.FIRST seeds r_acc.
+    # MULT.RC.VS squares r_cyclic in place: load centered[ch]
     # into r_cyclic, then square it in place.
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD.FIRST;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step3_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
     B       step3_done;;
 step3_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step3_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VS {{ rc_slot0 }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
 step3_done:
 
-    STR_ACC_REG         lr0 cr8;;
+    STR_ACC_REG         {{ rc_slot0 }} {{ TEMP_BASE }};;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
 # ─────────────────────────────────────────────────────────────────────────────
 
-    LDR_MULT_REG        r0 lr0 cr8;;
-    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ TEMP_BASE }};;
+    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ INV_N_BASE }} {{ rc_slot0 }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
 
-    ACTIVATE.QUANTIZE rsqrt cr15;;
-    STR_POST_AAQ_REG    lr0 cr9;;
+    ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT }};;
+    STR_POST_AAQ_REG    {{ rc_slot0 }} {{ INVSTD_BASE }};;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5: normalized[ch,i] = centered[ch,i] × 1/σ[i]  (overwrite CENTERED)
 #
-# r0 = 1/σ. lr2 = -512. Three cycles per ch.
+# r0 = 1/σ. read_ptr = -512. Three cycles per ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    LDR_MULT_REG        r0 lr0 cr9;;
+    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
 
-    SET     lr2  cr0;;
-    SUB     lr2  lr2  lr12;;
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
+    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 step5_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    STR_ACC_REG         lr2 cr7;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr6 step5_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    STR_ACC_REG         {{ read_ptr }} {{ CENTERED_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: output[ch,i] = γ[ch] × normalized[ch,i] + β[ch]
@@ -174,73 +189,73 @@ step5_loop:
 #   Row 0: γ[0..127], β[0..127]
 #   Row 1: γ[128..143], β[128..143] (rest zero-padded by harness)
 #
-# Sub-loop A: ch=0..127   → r0=γ row0, r1=β row0, lr13=fixed_idx 0..127
-# Sub-loop B: ch=128..143 → reload r0=γ row1, r1=β row1, lr13=0..15
+# Sub-loop A: ch=0..127   → r0=γ row0, r1=β row0, gamma_idx=fixed_idx 0..127
+# Sub-loop B: ch=128..143 → reload r0=γ row1, r1=β row1, gamma_idx=0..15
 #
 # Output: OUTPUT_BASE + (ch*N_TG + tg)*512 = OUTPUT_BASE + ch*1024 + tg*512
-# lr3 = output write ptr, init = tg_offset - 1024.
-# ADD lr3 lr3 lr7 fires → live = ch*1024+tg_offset on each STR cycle.
-# But STR is in the same cycle as ADD lr3 and ADD lr13/lr14...
-# To avoid incrementing lr3 in the same cycle as lr13/lr14, use 4 cycles per ch:
-#   A: LDR_CYCLIC normalized[ch]; ADD lr2; MULT.VE.CYCLIC lr13; ACC.FIRST
-#   B: LDR_CYCLIC ONES; MULT.VE.CYCLIC lr14; ACC
-#   C: ADD lr3; STR output[ch]; ADD lr13; ADD lr14
-#   D: ADD lr5; BLT
+# write_ptr = output write ptr, init = tg_offset - 1024.
+# ADD write_ptr write_ptr data_stride fires → live = ch*1024+tg_offset on each STR cycle.
+# But STR is in the same cycle as ADD write_ptr and ADD gamma_idx/beta_idx...
+# To avoid incrementing write_ptr in the same cycle as gamma_idx/beta_idx, use 4 cycles per ch:
+#   A: LDR_CYCLIC normalized[ch]; ADD read_ptr; MULT.RC.VE gamma_idx; ACC.ADD.FIRST
+#   B: LDR_CYCLIC ONES; MULT.RC.VE beta_idx; ACC.ADD
+#   C: ADD write_ptr; STR output[ch]; ADD gamma_idx; ADD beta_idx
+#   D: ADD ch_index; BLT
 # ─────────────────────────────────────────────────────────────────────────────
 
     # ---- Sub-loop A: ch=0..127 ----
-    LDR_MULT_REG        r0 lr0 cr11;;  # r0 ← γ row 0
-    LDR_MULT_REG        r1 lr0 cr2;;   # r1 ← β row 0
+    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ GAMMA_BASE }};;      # r0 ← γ row 0
+    LDR_MULT_REG        r1 {{ rc_slot0 }} {{ BETA_BASE }};;       # r1 ← β row 0
 
-    SET     lr2  cr0;;
-    SUB     lr2  lr2  lr12;;           # normalized read ptr = -512
-    SET     lr3  cr0;;
-    SUB     lr3  lr3  lr7;;            # output write ptr = -1024
-    ADD     lr3  lr3  lr10;;           # = tg_offset - 1024
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
-    SET     lr13 cr0;;                # fixed_idx γ = 0
-    SET     lr14 cr14;;               # fixed_idx β = 128
+    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;    # normalized read ptr = -512
+    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SUB     {{ write_ptr }}  {{ write_ptr }}  {{ data_stride }};; # output write ptr = -1024
+    ADD     {{ write_ptr }}  {{ write_ptr }}  {{ tg_off }};;      # = tg_offset - 1024
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
+    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx γ = 0
+    SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx β = 128
 
     # loop bound for sub-loop A: 128 channels
-    # lr6 currently = 144; use a separate bound lr15=128 for sub-loop A
-    SET     lr15 cr14;;                # lr15 = 128
+    # ch_limit currently = 144; use a separate bound sub_bound=128 for sub-loop A
+    SET     {{ sub_bound }} {{ LANES }};;                         # {{ sub_bound }} = 128
 
 step6A_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VE lr0 lr13 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr14 0 lr1 cr15; ACC.ADD;;
-    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 cr1; ADD lr14 lr14 cr1;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr15 step6A_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6A_loop;;
 
     # ---- Sub-loop B: ch=128..143 (16 channels) ----
-    LDR_MULT_REG        r0 lr12 cr11;; # r0 ← γ row 1 (offset=512)
-    LDR_MULT_REG        r1 lr12 cr2;;  # r1 ← β row 1
+    LDR_MULT_REG        r0 {{ row_stride }} {{ GAMMA_BASE }};;    # r0 ← γ row 1 (offset=512)
+    LDR_MULT_REG        r1 {{ row_stride }} {{ BETA_BASE }};;     # r1 ← β row 1
 
-    # lr2 and lr3 carry over from sub-loop A (already at ch=128 positions)
-    SET     lr5  cr0;;
-    ADD     lr5  lr5  cr1;;
-    SET     lr13 cr0;;                # fixed_idx γ = 0 (row 1 starts at lane 0)
-    SET     lr14 cr14;;               # fixed_idx β = 128
+    # read_ptr and write_ptr carry over from sub-loop A (already at ch=128 positions)
+    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
+    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx γ = 0 (row 1 starts at lane 0)
+    SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx β = 128
 
     # bound for sub-loop B: 16 channels (built by doubling CR1: 1→2→4→8→16)
-    SET     lr15 cr1;;
-    ADD     lr15 lr15 lr15;;           # 2
-    ADD     lr15 lr15 lr15;;           # 4
-    ADD     lr15 lr15 lr15;;           # 8
-    ADD     lr15 lr15 lr15;;           # 16
+    SET     {{ sub_bound }} {{ ONE }};;
+    ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 2
+    ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 4
+    ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 8
+    ADD     {{ sub_bound }} {{ sub_bound }} {{ sub_bound }};;     # 16
 
 step6B_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr12; MULT.RC.VE lr0 lr13 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr14 0 lr1 cr15; ACC.ADD;;
-    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr13 lr13 cr1; ADD lr14 lr14 cr1;;
-    ADD     lr5  lr5  cr1; BLT lr5 lr15 step6B_loop;;
+    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }}; MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
+    STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
+    ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6B_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Advance tg
 # ─────────────────────────────────────────────────────────────────────────────
 
-    ADD     lr10 lr10 lr12;;           # tg_offset += 512
-    ADD     lr9  lr9  cr1; BLT lr9  lr11 tg_loop;;
+    ADD     {{ tg_off }} {{ tg_off }} {{ row_stride }};;          # tg_offset += 512
+    ADD     {{ tg_index }}  {{ tg_index }}  {{ ONE }}; BLT {{ tg_index }}  {{ tg_limit }} tg_loop;;
 
 end:
     BKPT;;

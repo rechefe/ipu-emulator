@@ -27,88 +27,106 @@
 #   the SNAPSHOT (pre-ADD).  Single-cycle inner body:
 #     LDR_CYCLIC P[h,g,s_live]; ADD data ptr; ADD s; MULT.RC.VE src=s_live; ACC; BLT
 #   Startup offsets (one-cycle pipeline align):
-#     data ptr  lr4 = first_addr - 256   (ADD +256 -> live = first_addr)
-#     key index lr5 = -1                  (ADD +1   -> live s = 0)
-#     BLT bound cr8 = 254  (first_index=0, width=256 -> 0+256-2=254)
+#     data ptr  p_ptr = first_addr - 256   (ADD +256 -> live = first_addr)
+#     key index key_index = -1                  (ADD +1   -> live s = 0)
+#     BLT bound KEY_BOUND = 254  (first_index=0, width=256 -> 0+256-2=254)
 #
-# CRs (set by harness; loop bounds in CRs to free LRs):
-#   cr0  = 0            (hardwired; const-0, also r_cyclic XMEM base)
-#   cr1  = 1            (read-only hardwired constant; loop steps)
-#   cr2  = PBASE        (key-major scores base)
-#   cr3  = VBASE        (channel-major value base; R0 = V[0:127, chan])
-#   cr4  = OUTPUT_BASE  (channel-major output base)
-#   cr5  = 128          (R1 source offset within a V channel)
-#   cr6  = -1           (key-index startup)
-#   cr7  = 65536        (P head stride = 256 keys * 256 queries)
-# Loop bounds are count-1 (counter ADD shares the BLT bundle -> BLT reads the
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
+#
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
+#
 # pre-ADD snapshot; branch is taken while snapshot < bound):
-#   cr8  = 254          (key-loop bound: width 256, peeled + startup)
-#   cr9  = 35           (t-loop bound: 36 channels per head)
-#   cr10 = 3            (head-loop bound: 4 heads)
-#   cr11 = 1            (g-loop bound: 2 groups)
-# LRs (set by harness):
-#   lr0  = 0            (const: r_cyclic index 0; mask_shift)
-#   lr1  = 256          (P key stride / V channel stride)
-#   lr2  = 512          (output-row stride)
-#   lr3  = 128          (group query offset within a key column)
-# Maintained / temporary registers:
-#   lr4  = P data ptr      lr5  = key index s
-#   lr6  = head counter    lr7  = channel (t) counter   lr9  = group counter
-#   lr10 = chan*256       (R0 source offset; += 256 per channel)
-#   lr11 = chan*256 + 128 (R1 source offset; += 256 per channel)
-#   lr12 = h*65536        (P head base; += 65536 per head)
-#   lr13 = g*128          (P group offset; reset 0 per channel, += 128 per g)
-#   lr14 = output offset  (+= 512 per STR; rows visited in (h,t,g) order)
+#   KEY_BOUND  = 254          (key-loop bound: width 256, peeled + startup)
+#   CHAN_BOUND  = 35           (t-loop bound: 36 channels per head)
+#   HEAD_BOUND = 3            (head-loop bound: 4 heads)
+#   GROUP_BOUND = 1            (g-loop bound: 2 groups)
 
-    SET     lr10 cr0;;                 # R0 source offset = chan*256 = 0
-    SET     lr11 cr5;;                 # R1 source offset = chan*256 + 128 = 128
-    SET     lr12 cr0;;                 # P head base = 0
-    SET     lr14 cr0;;                 # output offset = 0
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set rc_slot0      = "lr0"  %}  {# const 0: r_cyclic index / mask_shift #}
+{% set key_stride    = "lr1"  %}  {# 256 = P key stride and V channel stride #}
+{% set out_stride    = "lr2"  %}  {# 512 = output-row stride #}
+{% set group_step    = "lr3"  %}  {# 128 = query-group offset within a key column #}
+{% set p_ptr         = "lr4"  %}  {# byte offset into P (key-major) #}
+{% set key_index     = "lr5"  %}  {# contraction key index s -> selects V[s,t] #}
+{% set head_index    = "lr6"  %}  {# head counter h #}
+{% set chan_index    = "lr7"  %}  {# head-channel counter t #}
+{% set group_index   = "lr9"  %}  {# query-group counter g #}
+{% set v_ptr_lo      = "lr10" %}  {# chan*256      -> r0 = V[0:127,   chan] #}
+{% set v_ptr_hi      = "lr11" %}  {# chan*256 +128 -> r1 = V[128:255, chan] #}
+{% set p_head_base   = "lr12" %}  {# h*65536, P head base #}
+{% set p_group_off   = "lr13" %}  {# g*128, P group offset #}
+{% set out_ptr       = "lr14" %}  {# output byte offset, += 512 per store #}
 
-    SET     lr6  cr0;;                 # head counter (0..3)
+{% set ZERO          = "cr0"  %}  {# hardwired 0; const-0 and r_cyclic XMEM base #}
+{% set ONE           = "cr1"  %}  {# hardwired read-only 1 #}
+{% set P_BASE        = "cr2"  %}  {# key-major scores base #}
+{% set V_BASE        = "cr3"  %}  {# channel-major value base #}
+{% set OUT_BASE      = "cr4"  %}  {# channel-major output base #}
+{% set V_HI_OFF      = "cr5"  %}  {# 128 = r1 source offset within a V channel #}
+{% set KEY_START     = "cr6"  %}  {# -1 -> first live s = 0 #}
+{% set P_HEAD_STRIDE = "cr7"  %}  {# 65536 = P head stride #}
+{% set KEY_BOUND     = "cr8"  %}  {# 254 = key-loop bound (width 256) #}
+{% set CHAN_BOUND    = "cr9"  %}  {# 35 = t-loop bound (36 channels/head) #}
+{% set HEAD_BOUND    = "cr10" %}  {# 3 = head-loop bound (4 heads) #}
+{% set GROUP_BOUND   = "cr11" %}  {# 1 = g-loop bound (2 query groups) #}
+{% set DSTRUCT       = "cr15" %}  {# reserved dstructure register #}
+
+    SET     {{ v_ptr_lo }} {{ ZERO }};;                       # R0 source offset = chan*256 = 0
+    SET     {{ v_ptr_hi }} {{ V_HI_OFF }};;                   # R1 source offset = chan*256 + 128 = 128
+    SET     {{ p_head_base }} {{ ZERO }};;                    # P head base = 0
+    SET     {{ out_ptr }} {{ ZERO }};;                        # output offset = 0
+
+    SET     {{ head_index }}  {{ ZERO }};;                    # head counter (0..3)
 h_loop:
 
-    SET     lr7  cr0;;                 # channel (t) counter (0..35)
+    SET     {{ chan_index }}  {{ ZERO }};;                    # channel (t) counter (0..35)
 t_loop:
 
     # -- load V[:, chan] into R0 (s=0..127) and R1 (s=128..255) ----------------
-    LDR_MULT_REG r0 lr10 cr3;;         # R0 = V[0:127,   chan]  (VBASE + chan*256)
-    LDR_MULT_REG r1 lr11 cr3;;         # R1 = V[128:255, chan]  (VBASE + chan*256 + 128)
+    LDR_MULT_REG r0 {{ v_ptr_lo }} {{ V_BASE }};;             # R0 = V[0:127,   chan]  (VBASE + chan*256)
+    LDR_MULT_REG r1 {{ v_ptr_hi }} {{ V_BASE }};;             # R1 = V[128:255, chan]  (VBASE + chan*256 + 128)
 
-    SET     lr13 cr0;;                 # P group offset = g*128 = 0
-    SET     lr9  cr0;;                 # g counter (0..1)
+    SET     {{ p_group_off }} {{ ZERO }};;                    # P group offset = g*128 = 0
+    SET     {{ group_index }}  {{ ZERO }};;                   # g counter (0..1)
 g_loop:
 
     # -- key loop: s = 0..255 over the 128-query group g -----------------------
-    # P[h,g,s] address = PBASE + h*65536 + s*256 + g*128.  data ptr lr4 = start-256.
-    SET     lr4  cr2;;                 # PBASE
-    ADD     lr4  lr4  lr12;;           # + h*65536
-    ADD     lr4  lr4  lr13;;           # + g*128  -> P[h,g,s=0]
-    SUB     lr4  lr4  lr1;;            # - 256 startup (ADD +256 -> live s=0)
-    SET     lr5  cr6;;                 # key index startup = -1 (ADD +1 -> s=0)
+    # P[h,g,s] address = PBASE + h*65536 + s*256 + g*128.  data ptr p_ptr = start-256.
+    SET     {{ p_ptr }}  {{ P_BASE }};;                       # PBASE
+    ADD     {{ p_ptr }}  {{ p_ptr }}  {{ p_head_base }};;     # + h*65536
+    ADD     {{ p_ptr }}  {{ p_ptr }}  {{ p_group_off }};;     # + g*128  -> P[h,g,s=0]
+    SUB     {{ p_ptr }}  {{ p_ptr }}  {{ key_stride }};;      # - 256 startup (ADD +256 -> live s=0)
+    SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr1; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 cr8 s_loop;;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ key_index }} {{ KEY_BOUND }} s_loop;;
     B s_done;;
 s_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr1; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 cr8 s_loop;;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ key_index }} {{ KEY_BOUND }} s_loop;;
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------
-    STR_ACC_REG lr14 cr4;;             # 512B FP32 -> OBASE + chan*1024 + g*512
-    ADD     lr14 lr14 lr2;;            # advance output-row offset by 512
+    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE }};;                # 512B FP32 -> OBASE + chan*1024 + g*512
+    ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output-row offset by 512
 
-    ADD     lr13 lr13 lr3;;            # next group: P offset += 128
-    ADD     lr9  lr9  cr1; BLT lr9 cr11 g_loop;;
+    ADD     {{ p_group_off }} {{ p_group_off }} {{ group_step }};; # next group: P offset += 128
+    ADD     {{ group_index }}  {{ group_index }}  {{ ONE }}; BLT {{ group_index }} {{ GROUP_BOUND }} g_loop;;
 
-    ADD     lr10 lr10 lr1;;            # next channel: R0 source += 256
-    ADD     lr11 lr11 lr1;;            # next channel: R1 source += 256
-    ADD     lr7  lr7  cr1; BLT lr7 cr9 t_loop;;
+    ADD     {{ v_ptr_lo }} {{ v_ptr_lo }} {{ key_stride }};;  # next channel: R0 source += 256
+    ADD     {{ v_ptr_hi }} {{ v_ptr_hi }} {{ key_stride }};;  # next channel: R1 source += 256
+    ADD     {{ chan_index }}  {{ chan_index }}  {{ ONE }}; BLT {{ chan_index }} {{ CHAN_BOUND }} t_loop;;
 
-    ADD     lr12 lr12 cr7;;            # next head: P head base += 65536
-    ADD     lr6  lr6  cr1; BLT lr6 cr10 h_loop;;
+    ADD     {{ p_head_base }} {{ p_head_base }} {{ P_HEAD_STRIDE }};; # next head: P head base += 65536
+    ADD     {{ head_index }}  {{ head_index }}  {{ ONE }}; BLT {{ head_index }} {{ HEAD_BOUND }} h_loop;;
 
 end:
     BKPT;;

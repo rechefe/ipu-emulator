@@ -11,95 +11,116 @@
 #
 # Algorithm: K=288 split into three 128-element chunks per tg.
 #   Per chunk: load W[j, chunk*128..(chunk+1)*128-1] into r0, run 128 k-steps.
-#   MULT.VE.CYCLIC r0[lr5] x r_cyclic[:] — lr5 cycles 0..127 per chunk.
-#   lr4 (data pointer) advances continuously; NOT reset between chunks.
-#   lr5 reset to -1 at the start of each chunk via SET lr5 cr8.
+#   MULT.RC.VE r0[k_index] x r_cyclic[:] — k_index cycles 0..127 per chunk.
+#   data_ptr (data pointer) advances continuously; NOT reset between chunks.
+#   k_index reset to -1 at the start of each chunk via SET k_index K_START.
 #
 # Loop-bound formula (do-while with live MULT/XMEM, snapshot BLT):
-#   body runs for live index [lr5_start+1 … lr6+1]
-#   for width=128 starting at index 0: lr5_start=-1, lr6=126
-#   exit cycle lands on live index 127 (the last real term), lr4 advances 128 times total.
+#   body runs for live index [k_index start + 1 … k_bound + 1]
+#   for width=128 starting at index 0: k_index start = -1, k_bound = 126
+#   exit cycle lands on live index 127 (the last real term), data_ptr advances 128 times total.
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE (moved off read-only CR1), cr2=WEIGHTS_BASE+128, cr3=WEIGHTS_BASE+256,
-#       cr4=OUTPUT_BASE (tg=0), cr5=OUTPUT_BASE+N_OUT*512 (tg=1)
-#       cr6=-256 (tg=0 data startup), cr7=-128 (tg=1 data startup)
-#       cr8=-1   (per-chunk fixed_idx startup)
-# LRs (preset by harness):
-#   lr0=0    (const: r_cyclic write-index 0)
-#   lr2=256  (data stride: 256 bytes/channel)
-#   lr3=512  (output stride: 512 bytes/j)
-#   lr6=126  (per-chunk k-loop bound: first_index=0, width=128 → 0+128-2=126)
-#   lr7=0    (output pointer, incremented by lr3 each j)
-#   lr8=0    (weight byte offset, incremented by lr12 each j)
-#   lr9=0    (j counter)
-#   lr10=144 (j-loop limit)
-#   lr12=384 (W_STRIDE = 384 bytes per j)
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
+#
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
 #
 # Memory layout:
 #   DATA:    288 × 2 × 128 B =  73 728 B (0x00000..0x11FFF)
 #   WEIGHTS: 144 rows × 384 B =  55 296 B (0x20000..0x2D7FF)
 #   OUTPUT:  2 × 144 × 512 B = 147 456 B  (0x40000..0x63FFF)
 
-j_loop:
-    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;  # tg=0 startup; r0 = W[j, 0..127]
-    SET lr5 cr8;;                           # chunk0 fixed_idx startup: -1
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set rc_slot0       = "lr0"  %}  {# const 0: r_cyclic write-index / mask_shift #}
+{% set data_stride    = "lr2"  %}  {# 256 = bytes per input channel #}
+{% set out_stride     = "lr3"  %}  {# 512 = bytes per output row #}
+{% set data_ptr       = "lr4"  %}  {# byte offset into D; runs across all 3 chunks #}
+{% set k_index        = "lr5"  %}  {# per-chunk scalar index 0..127 into r0 #}
+{% set k_bound        = "lr6"  %}  {# 126 = per-chunk bound (width 128 -> 0+128-2) #}
+{% set out_ptr        = "lr7"  %}  {# byte offset into C, += out_stride per j #}
+{% set w_ptr          = "lr8"  %}  {# byte offset into W, += w_stride per j #}
+{% set j_index        = "lr9"  %}  {# output-channel counter j #}
+{% set j_limit        = "lr10" %}  {# 144 = N_OUT #}
+{% set w_stride       = "lr12" %}  {# 384 = W_STRIDE bytes per output channel #}
 
-    # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0_tg0;;
+{% set DATA_BASE      = "cr0"  %}  {# base of D #}
+{% set ONE            = "cr1"  %}  {# hardwired read-only 1 #}
+{% set W_BASE_CHUNK1  = "cr2"  %}  {# WEIGHTS_BASE + 128 (W[j,128..255]) #}
+{% set W_BASE_CHUNK2  = "cr3"  %}  {# WEIGHTS_BASE + 256 (W[j,256..287]) #}
+{% set OUT_BASE_TG0   = "cr4"  %}  {# OUTPUT_BASE #}
+{% set OUT_BASE_TG1   = "cr5"  %}  {# OUTPUT_BASE + N_OUT*512 #}
+{% set DATA_START_TG0 = "cr6"  %}  {# -256 startup skew #}
+{% set DATA_START_TG1 = "cr7"  %}  {# -128 startup skew #}
+{% set K_START        = "cr8"  %}  {# -1 -> first live k = 0 (per chunk) #}
+{% set W_BASE_CHUNK0  = "cr9"  %}  {# WEIGHTS_BASE (W[j,0..127]) #}
+{% set DSTRUCT        = "cr15" %}  {# reserved dstructure register #}
+
+j_loop:
+    SET {{ data_ptr }} {{ DATA_START_TG0 }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=0 startup; r0 = W[j, 0..127]
+    SET {{ k_index }} {{ K_START }};;                                                           # chunk0 fixed_idx startup: -1
+
+    # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
     B after_chunk0_tg0;;
 
 k_chunk0_tg0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0_tg0;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
 
 after_chunk0_tg0:
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, 128..255]
+    SET {{ k_index }} {{ K_START }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;          # chunk1 startup; r0 = W[j, 128..255]
 
 k_chunk1_tg0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk1_tg0;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk1_tg0;;
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;  # chunk2 startup; r0 = W[j, 256..287]+zeros
+    SET {{ k_index }} {{ K_START }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;          # chunk2 startup; r0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk2_tg0;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk2_tg0;;
 
-    STR_ACC_REG lr7 cr4;;                   # store 512B → OUTPUT[j, tg=0]
+    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;                                              # store 512B → OUTPUT[j, tg=0]
 
-    SET lr4 cr7; LDR_MULT_REG r0 lr8 cr9;;  # tg=1 startup; r0 = W[j, 0..127]
-    SET lr5 cr8;;
+    SET {{ data_ptr }} {{ DATA_START_TG1 }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=1 startup; r0 = W[j, 0..127]
+    SET {{ k_index }} {{ K_START }};;
 
-    # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0_tg1;;
+    # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
     B after_chunk0_tg1;;
 
 k_chunk0_tg1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0_tg1;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
 
 after_chunk0_tg1:
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;
+    SET {{ k_index }} {{ K_START }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
 
 k_chunk1_tg1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk1_tg1;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk1_tg1;;
 
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;
+    SET {{ k_index }} {{ K_START }}; LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
 
 k_chunk2_tg1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk2_tg1;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound }} k_chunk2_tg1;;
 
-    STR_ACC_REG lr7 cr5;;                   # store 512B → OUTPUT[j, tg=1]
-    ADD lr7 lr7 lr3;;                       # advance output ptr
+    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;                                              # store 512B → OUTPUT[j, tg=1]
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;       # next j: weight offset += W_STRIDE, j++
-    BLT lr9 lr10 j_loop;;
+    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};;     # next j: weight offset += W_STRIDE, j++
+    BLT {{ j_index }} {{ j_limit }} j_loop;;
 
 end:
     BKPT;;

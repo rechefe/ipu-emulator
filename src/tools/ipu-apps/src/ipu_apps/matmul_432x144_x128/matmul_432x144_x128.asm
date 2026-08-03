@@ -8,82 +8,103 @@
 # C: grouped channel-major [2 tg, 432 out_ch, 128 tokens], FP32 accumulators
 #    Row (j, tg) at OUTPUT_BASE + tg*N_OUT*512 + j*512
 #
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
+#
 # Algorithm: load W[j,:] into r0/r1 (once per j); load D[k,tg] into r_cyclic per k.
-#   MULT.VE.CYCLIC: r0[fixed_idx] x r_cyclic[:] → 128 outputs per cycle.
+#   MULT.RC.VE: r0[fixed_idx] x r_cyclic[:] → 128 outputs per cycle.
 #   k=0..127 uses r0[k]; k=128..143 uses r1[k-128] (fixed_idx=128..143 auto-reads r1).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE (moved off read-only CR1), cr2=WEIGHTS_BASE+128,
-#       cr3=OUTPUT_BASE (tg=0), cr4=OUTPUT_BASE+N_OUT*512 (tg=1)
-#       cr5=-256 (tg=0 data startup), cr6=-128 (tg=1 data startup)
-#       cr7=-1 (k-loop1 fixed_idx startup), cr8=127 (k-loop2 fixed_idx startup)
-# LRs (preset by harness):
-#   lr0=0    (const: r_cyclic write-index 0)
-#   lr2=256  (data stride: 256 bytes/channel)
-#   lr3=512  (output stride: 512 bytes/j)
-#   lr6=126  (k-loop1 bound: first_index=0, width=128 → 0+128-2=126)
-#   lr7=0    (output pointer, incremented by lr3 each j)
-#   lr8=0    (weight byte offset, incremented by lr12 each j)
-#   lr9=0    (j counter)
-#   lr10=432 (j-loop limit)
-#   lr11=142 (k-loop2 bound: first_index=128, width=16 → 128+16-2=142)
-#   lr12=256 (W_STRIDE = 256 bytes per j)
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
 #
 # Memory layout:
 #   DATA:    2 × 144 × 128 B =  36 864 B (0x00000..0x08FFF)
 #   WEIGHTS: 432 rows × 256 B = 110 592 B (0x10000..0x2AFFF)
 #   OUTPUT:  2 × 432 × 512 B = 442 368 B  (0x30000..0x9BFFF)
 
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set rc_slot0      = "lr0" %}   {# const 0: r_cyclic write-index / mask_shift #}
+{% set data_ptr      = "lr4" %}   {# byte offset into D, walks channels k       #}
+{% set k_index       = "lr5" %}   {# contraction index k -> selects W[j,k]      #}
+{% set data_stride   = "lr2" %}   {# 256 = bytes per input channel              #}
+{% set out_stride    = "lr3" %}   {# 512 = bytes per output row                 #}
+{% set k_bound_r0    = "lr6" %}   {# 126 = k-loop1 bound (k=0..127 from r0)     #}
+{% set k_bound_r1    = "lr11" %}  {# 142 = k-loop2 bound (k=128..143 from r1)   #}
+{% set out_ptr       = "lr7" %}   {# byte offset into C, += out_stride per j    #}
+{% set w_ptr         = "lr8" %}   {# byte offset into W, += w_stride per j      #}
+{% set j_index       = "lr9" %}   {# output-channel counter j                   #}
+{% set j_limit       = "lr10" %}  {# 432 = N_OUT                                #}
+{% set w_stride      = "lr12" %}  {# 256 = W_STRIDE bytes per output channel    #}
+
+{% set DATA_BASE     = "cr0" %}   {# base of D                                  #}
+{% set ONE           = "cr1" %}   {# hardwired read-only 1                      #}
+{% set W_BASE_HI     = "cr2" %}   {# WEIGHTS_BASE + 128 (W[j,128..143])         #}
+{% set OUT_BASE_TG0  = "cr3" %}
+{% set OUT_BASE_TG1  = "cr4" %}
+{% set DATA_START_TG0 = "cr5" %}  {# -256 startup skew                          #}
+{% set DATA_START_TG1 = "cr6" %}  {# -128 startup skew                          #}
+{% set K_START_R0    = "cr7" %}   {# -1  -> first live k = 0                    #}
+{% set K_START_R1    = "cr8" %}   {# 127 -> first live k = 128 (r1[0])          #}
+{% set W_BASE_LO     = "cr9" %}   {# WEIGHTS_BASE (W[j,0..127])                 #}
+{% set DSTRUCT       = "cr15" %}  {# reserved dstructure register               #}
+
 j_loop:
-    LDR_MULT_REG r0 lr8 cr9;;          # r0[0..127] = W[j, 0..127]
-    LDR_MULT_REG r1 lr8 cr2;;          # r1[0..127] = W[j, 128..143] + zeros
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_LO }};;       # r0[0..127] = W[j, 0..127]
+    LDR_MULT_REG r1 {{ w_ptr }} {{ W_BASE_HI }};;       # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
-    SET lr4 cr5;;                       # tg=0 startup offset: -256
-    SET lr5 cr7;;                       # k-loop1 fixed_idx startup: -1
+    SET {{ data_ptr }} {{ DATA_START_TG0 }};;           # tg=0 startup offset: -256
+    SET {{ k_index }} {{ K_START_R0 }};;                # k-loop1 fixed_idx startup: -1
 
-    # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_loop1_tg0;;
+    # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
     B after_k_tg0;;
 
 k_loop1_tg0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_loop1_tg0;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
 
 after_k_tg0:
-    SET lr5 cr8;;                       # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
+    SET {{ k_index }} {{ K_START_R1 }};;                # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
 
 k_loop2_tg0:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr11 k_loop2_tg0;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
-    STR_ACC_REG lr7 cr3;;               # store 512B → OUTPUT[j, tg=0]
+    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;      # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
-    SET lr4 cr6;;                       # tg=1 startup offset: -128
-    SET lr5 cr7;;                       # k-loop1 fixed_idx startup: -1
+    SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
+    SET {{ k_index }} {{ K_START_R0 }};;                # k-loop1 fixed_idx startup: -1
 
-    # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_loop1_tg1;;
+    # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
     B after_k_tg1;;
 
 k_loop1_tg1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_loop1_tg1;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
 
 after_k_tg1:
-    SET lr5 cr8;;
+    SET {{ k_index }} {{ K_START_R1 }};;
 
 k_loop2_tg1:
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr11 k_loop2_tg1;;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    STR_ACC_REG lr7 cr4;;               # store 512B → OUTPUT[j, tg=1]
-    ADD lr7 lr7 lr3;;                   # advance output ptr
+    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;      # store 512B → OUTPUT[j, tg=1]
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;   # next j: weight offset += W_STRIDE, j++
-    BLT lr9 lr10 j_loop;;
+    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};; # next j: weight offset += W_STRIDE, j++
+    BLT {{ j_index }} {{ j_limit }} j_loop;;
 
 end:
     BKPT;;

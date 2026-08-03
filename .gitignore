@@ -21,3 +21,6 @@ bazel-testlogs/
 **egg-info**
 **_pycache**
 /.claude/settings.local.json
+
+# macOS Finder metadata
+.DS_Store

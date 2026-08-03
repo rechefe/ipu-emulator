@@ -14,7 +14,7 @@
 # Pass-through multiply: MULT.RC.VV (post-merge; was MULT.EE, itself replacing
 #   MULT.EV mem_bypass removed in PR #69).
 #   stripe row in r0 (via LDR_MULT_REG r0), ones preloaded into r_cyclic once.
-#              MULT.RC.VV lr0 r0 0 lr0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
+#              MULT.RC.VV acc_slot0 r0 0 acc_slot0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
 #   r_cyclic[0..127] = 1.0 (loaded once at startup, never overwritten in the loop).
 #   RESET_ACC removed: the 4 ACC.STRIDE calls direct-write all 4 r_acc slots.
 #
@@ -33,33 +33,14 @@
 # and accumulates them into one 32-element r_acc slot (slot 0..3).
 # Four acc.stride calls fill the full 128-element accumulator per tg.
 #
-# CRs:
-#   cr0  = SRC_BASE + 0×144×128   (stripe 0 tg=0 base, ch 0..143)
-#   cr13 = SRC_BASE + 1×144×128   (stripe 1 tg=0 base; moved off read-only CR1)
-#   cr2  = SRC_BASE + 2×144×128   (stripe 2 tg=0 base)
-#   cr3  = SRC_BASE + 3×144×128   (stripe 3 tg=0 base)
-#   cr4  = SRC_BASE + 4×144×128   (stripe 0 tg=1 base)
-#   cr5  = SRC_BASE + 5×144×128   (stripe 1 tg=1 base)
-#   cr6  = SRC_BASE + 6×144×128   (stripe 2 tg=1 base)
-#   cr7  = SRC_BASE + 7×144×128   (stripe 3 tg=1 base)
-#   cr8  = ONES_BASE               (128 bytes of dtype 1.0, for r_cyclic init)
-#   cr9  = DST_TL                  (stream TL output base)
-#   cr10 = DST_TR                  (stream TR output base)
-#   cr11 = DST_BL                  (stream BL output base)
-#   cr12 = DST_BR                  (stream BR output base)
+# Registers are referred to below by the symbolic names defined in the
+# register-name block. The assembler's Jinja2 preprocessor substitutes them
+# before parsing, so the emitted binary is byte-identical to the raw form.
+# NOTE: Jinja runs before comment stripping, so '#' comments must not
+# contain Jinja delimiters -- the preprocessor would try to execute them.
 #
-# LRs:
-#   lr0  = 0    (const: r_cyclic slot 0; mask_offset immediate=0; mask_shift=0; acc.stride slot 0)
-#   lr1  = 1    (const: acc.stride r_acc slot 1 → [32..63])
-#   lr2  = 2    (const: acc.stride r_acc slot 2 → [64..95])
-#   lr3  = 3    (const: acc.stride r_acc slot 3 → [96..127])
-#   lr4  = ch × 128   (src byte offset within each stripe; starts 0, +128 per ch)
-#   lr5  = 128  (src stride per channel)
-#   lr6  = 1024 (dst stride per channel = 2 rows × 512B)
-#   lr8  = tg=0 dst byte offset = ch × 1024            (starts 0, +1024 per ch)
-#   lr9  = tg=1 dst byte offset = ch×1024 + 512       (starts 512, +1024 per ch)
-#   lr10 = ch counter (0..143)
-#   lr11 = 144  (loop limit)
+# Register assignments and their meanings are listed in the register-name
+# block below -- it is the single source of truth for this kernel.
 #
 # NOTE: All `set` immediates fit signed 16-bit range.
 # Stripe base offsets (0..129024) are encoded in CRs, not LR immediates.
@@ -73,10 +54,41 @@
 # Initialisation
 # ---------------------------------------------------------------------------
 # Constant LRs are preset by the harness (set_lr):
-#   lr0=0, lr1=1, lr2=2, lr3=3, lr4=0, lr5=128, lr6=1024,
-#   lr8=0, lr9=512, lr10=0, lr11=144
+#   acc_slot0=0, acc_slot1=1, acc_slot2=2, acc_slot3=3, src_off=0, src_stride=128, dst_stride=1024,
+#   dst_off_tg0=0, dst_off_tg1=512, ch_index=0, ch_limit=144
 
-    LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
+# ---------------------------------------------------------------------------
+# Register names (Jinja2 preprocessor; pure source-level substitution)
+# ---------------------------------------------------------------------------
+{% set acc_slot0   = "lr0"  %}  {# const 0: r_cyclic slot / mask imm / ACC.STRIDE slot 0 #}
+{% set acc_slot1   = "lr1"  %}  {# const 1: ACC.STRIDE r_acc slot 1 -> [32..63] #}
+{% set acc_slot2   = "lr2"  %}  {# const 2: ACC.STRIDE r_acc slot 2 -> [64..95] #}
+{% set acc_slot3   = "lr3"  %}  {# const 3: ACC.STRIDE r_acc slot 3 -> [96..127] #}
+{% set src_off     = "lr4"  %}  {# src byte offset within each stripe (ch*128) #}
+{% set src_stride  = "lr5"  %}  {# 128 = src stride per channel #}
+{% set dst_stride  = "lr6"  %}  {# 1024 = dst stride per channel (2 rows x 512B) #}
+{% set dst_off_tg0 = "lr8"  %}  {# tg=0 dst byte offset = ch*1024 #}
+{% set dst_off_tg1 = "lr9"  %}  {# tg=1 dst byte offset = ch*1024 + 512 #}
+{% set ch_index    = "lr10" %}  {# channel counter (0..143) #}
+{% set ch_limit    = "lr11" %}  {# 144 = channel count #}
+
+{% set STRIPE0_TG0 = "cr0"  %}  {# SRC_BASE + 0*144*128 #}
+{% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
+{% set STRIPE2_TG0 = "cr2"  %}  {# SRC_BASE + 2*144*128 #}
+{% set STRIPE3_TG0 = "cr3"  %}  {# SRC_BASE + 3*144*128 #}
+{% set STRIPE0_TG1 = "cr4"  %}  {# SRC_BASE + 4*144*128 #}
+{% set STRIPE1_TG1 = "cr5"  %}  {# SRC_BASE + 5*144*128 #}
+{% set STRIPE2_TG1 = "cr6"  %}  {# SRC_BASE + 6*144*128 #}
+{% set STRIPE3_TG1 = "cr7"  %}  {# SRC_BASE + 7*144*128 #}
+{% set ONES_BASE   = "cr8"  %}  {# 128 bytes of dtype 1.0 (r_cyclic init) #}
+{% set DST_TL      = "cr9"  %}  {# stream TL output base #}
+{% set DST_TR      = "cr10" %}  {# stream TR output base #}
+{% set DST_BL      = "cr11" %}  {# stream BL output base #}
+{% set DST_BR      = "cr12" %}  {# stream BR output base #}
+{% set STRIPE1_TG0 = "cr13" %}  {# SRC_BASE + 1*144*128 #}
+{% set DSTRUCT     = "cr15" %}  {# reserved dstructure register #}
+
+    LDR_CYCLIC_MULT_REG {{ acc_slot0 }} {{ ONES_BASE }} {{ acc_slot0 }};;  # r_cyclic[0..127] = 1.0 (dtype-specific)
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..143)
@@ -87,72 +99,72 @@ ch_loop:
     # -----------------------------------------------------------------------
     # Stream TL  (h=on=even cols,  v=on=even rows)
     # -----------------------------------------------------------------------
-    # tg=0: stripes 0..3 with cr0..cr3
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr3;;
-    STR_ACC_REG         lr8 cr9;;           # TL tg=0 → DST_TL + ch×2×512
+    # tg=0: stripes 0..3 with STRIPE0_TG0..STRIPE3_TG0
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG0 }};MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg0 }} {{ DST_TL }};;                   # TL tg=0 → DST_TL + ch×2×512
 
-    # tg=1: stripes 4..7 with cr4..cr7
-    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on lr3;;
-    STR_ACC_REG         lr9 cr9;;           # TL tg=1 → DST_TL + ch×1024 + 512
+    # tg=1: stripes 4..7 with STRIPE0_TG1..STRIPE3_TG1
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg1 }} {{ DST_TL }};;                   # TL tg=1 → DST_TL + ch×1024 + 512
 
     # -----------------------------------------------------------------------
     # Stream TR  (h=on_inv=odd cols,  v=on=even rows)
     # -----------------------------------------------------------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr3;;
-    STR_ACC_REG         lr8 cr10;;          # TR tg=0
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG0 }};MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg0 }} {{ DST_TR }};;                   # TR tg=0
 
-    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on lr3;;
-    STR_ACC_REG         lr9 cr10;;          # TR tg=1
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg1 }} {{ DST_TR }};;                   # TR tg=1
 
     # -----------------------------------------------------------------------
     # Stream BL  (h=on=even cols,  v=on_inv=odd rows)
     # -----------------------------------------------------------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr3;;
-    STR_ACC_REG         lr8 cr11;;          # BL tg=0
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG0 }};MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg0 }} {{ DST_BL }};;                   # BL tg=0
 
-    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on on_inv lr3;;
-    STR_ACC_REG         lr9 cr11;;          # BL tg=1
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on on_inv {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg1 }} {{ DST_BL }};;                   # BL tg=1
 
     # -----------------------------------------------------------------------
     # Stream BR  (h=on_inv=odd cols,  v=on_inv=odd rows)
     # -----------------------------------------------------------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr2; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr3; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr3;;
-    STR_ACC_REG         lr8 cr12;;          # BR tg=0
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG0 }};MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG0 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg0 }} {{ DST_BR }};;                   # BR tg=0
 
-    LDR_MULT_REG r0 lr4 cr4; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr5; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr1;;
-    LDR_MULT_REG r0 lr4 cr6; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr2;;
-    LDR_MULT_REG r0 lr4 cr7; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 32 on_inv on_inv lr3;;
-    STR_ACC_REG         lr9 cr12;;          # BR tg=1
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE0_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot0 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE1_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot1 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE2_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot2 }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ STRIPE3_TG1 }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 on_inv on_inv {{ acc_slot3 }};;
+    STR_ACC_REG         {{ dst_off_tg1 }} {{ DST_BR }};;                   # BR tg=1
 
     # -----------------------------------------------------------------------
     # Advance pointers; loop
     # -----------------------------------------------------------------------
-    ADD                 lr4 lr4 lr5;;                   # src offset: next channel (+128)
-    ADD                 lr8 lr8 lr6; ADD lr9 lr9 lr6;;  # dst offsets: +1024 per channel
-    ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 ch_loop;;      # loop while ch < 144
+    ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;     # src offset: next channel (+128)
+    ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }}; ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};; # dst offsets: +1024 per channel
+    ADD                 {{ ch_index }} {{ ch_index }} {{ ONE }};;
+    BLT                 {{ ch_index }} {{ ch_limit }} ch_loop;;            # loop while ch < 144
 
 end:
     BKPT;;
