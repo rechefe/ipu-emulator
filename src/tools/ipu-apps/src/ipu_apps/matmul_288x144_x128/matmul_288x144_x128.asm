@@ -57,51 +57,88 @@
 {% set W_BASE_LO     = "cr9" %}   {# WEIGHTS_BASE (W[j,0..127])                 #}
 {% set DSTRUCT       = "cr15" %}  {# reserved dstructure register               #}
 
+    # MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle snapshot while
+    # keeping the LR index live (issue #157), so a MULT cannot consume the chunk
+    # that LDR_CYCLIC_MULT_REG loads in its own bundle. `;;` ends one VLIW word
+    # = one cycle = one snapshot, so a load and a MULT in the same bundle always
+    # run in the same cycle regardless of textual order -- co-issuing is fine,
+    # consuming the same-cycle load is not.
+    #
+    # Each token group primes k=0's chunk ONCE before k_loop1, then every loop
+    # body multiplies the chunk loaded last cycle while prefetching the next.
+    # At the k_loop1 -> k_loop2 boundary data_ptr walks CONTINUOUSLY while
+    # k_index RESETS, so k_loop2's first chunk is ALREADY IN FLIGHT from
+    # k_loop1's trailing prefetch: k_loop2 must NOT re-prime (that would advance
+    # data_ptr an extra step per output channel and drop real work).
+    #
+    # k_index keeps its ADD CO-ISSUED with the MULT and the BLT -- moving it to
+    # a separate word costs a full cycle per contraction step (~2x on this
+    # kernel family). MULT reads it LIVE (post-ADD) and BLT reads the SNAPSHOT
+    # (pre-ADD), exactly as before, so the harness bounds stay valid. Only
+    # k_loop1's START is biased down by one (the load now runs a bundle ahead,
+    # so k_index must name the chunk being multiplied, not the one being
+    # fetched). k_loop2's K_START_R1 is NOT biased: k_loop1's trailing prefetch
+    # already supplied that step of phase.
+
 j_loop:
     LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_LO }};;       # r0[0..127] = W[j, 0..127]
     LDR_MULT_REG r1 {{ w_ptr }} {{ W_BASE_HI }};;       # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG0 }};;           # tg=0 startup offset: -256
-    SET {{ k_index }} {{ K_START_R0 }};;                # k-loop1 fixed_idx startup: -1
+    SET {{ k_index }} {{ K_START_R0 }};;
+    SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased: load runs a bundle ahead)
+
+    # Prime k=0's chunk for this token group (see the note above j_loop).
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
+    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
     B after_k_tg0;;
 
 k_loop1_tg0:
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
+    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
 
 after_k_tg0:
-    SET {{ k_index }} {{ K_START_R1 }};;                # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
+    SET {{ k_index }} {{ K_START_R1 }};;  # NOT biased: k_loop1's trailing prefetch already advanced the phase                # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
 
 k_loop2_tg0:
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
+    BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
     STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;      # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
-    SET {{ k_index }} {{ K_START_R0 }};;                # k-loop1 fixed_idx startup: -1
+    SET {{ k_index }} {{ K_START_R0 }};;
+    SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased: load runs a bundle ahead)
+
+    # Prime k=0's chunk for this token group (see the note above j_loop).
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
+    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
     B after_k_tg1;;
 
 k_loop1_tg1:
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
+    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
 
 after_k_tg1:
-    SET {{ k_index }} {{ K_START_R1 }};;
+    SET {{ k_index }} {{ K_START_R1 }};;  # NOT biased: k_loop1's trailing prefetch already advanced the phase
 
 k_loop2_tg1:
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD; BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
+    BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
     STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;      # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
