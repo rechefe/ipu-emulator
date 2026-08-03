@@ -45,6 +45,21 @@ _STREAM_BYTES = N_OUT * N_TG * 512
 
 OUTPUT_ROW_BYTES = 512   # FP32: 128 words × 4 bytes
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The byte constants above stay as-is because they
+# only drive the harness's direct xmem read/write calls (which bypass row
+# translation); the CR/LR registers in setup() feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+SRC_BASE_ROW    = SRC_BASE // ROW_SIZE_BYTES
+ONES_BASE_ROW   = ONES_BASE // ROW_SIZE_BYTES
+DST_BASE_ROW    = DST_BASE // ROW_SIZE_BYTES
+_STRIPE_ROWS    = _STRIPE_BYTES // ROW_SIZE_BYTES
+_STREAM_ROWS    = _STREAM_BYTES // ROW_SIZE_BYTES
+SRC_STRIDE_ROWS = 1                                      # 128 B per channel = 1 row
+DST_STRIDE_ROWS = 1024 // ROW_SIZE_BYTES                 # 8: dst stride per channel
+TG1_OFF_ROWS    = 512 // ROW_SIZE_BYTES                  # 4: tg=1 offset within a channel
+
 # -- Dtype 1.0 byte encoding ------------------------------------------------
 
 # These are the byte values representing 1.0 in each dtype.
@@ -126,24 +141,24 @@ class Unfold32x32x144App(IpuApp):
         # instead. cr0=SRC_BASE+0 is 0x0 (harmless no-op). See Bug #2.
         for s in range(N_STRIPES):
             cr_idx = 13 if s == 1 else s
-            state.regfile.set_cr(cr_idx, SRC_BASE + s * _STRIPE_BYTES)
+            state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_ROWS)
         # cr8: ones base (for r_cyclic loading in assembly init)
-        state.regfile.set_cr(8, ONES_BASE)
+        state.regfile.set_cr(8, ONES_BASE_ROW)
         # cr9..cr12: per-stream destination bases (TL, TR, BL, BR)
-        state.regfile.set_cr(9,  DST_BASE)
-        state.regfile.set_cr(10, DST_BASE + _STREAM_BYTES)
-        state.regfile.set_cr(11, DST_BASE + 2 * _STREAM_BYTES)
-        state.regfile.set_cr(12, DST_BASE + 3 * _STREAM_BYTES)
+        state.regfile.set_cr(9,  DST_BASE_ROW)
+        state.regfile.set_cr(10, DST_BASE_ROW + _STREAM_ROWS)
+        state.regfile.set_cr(11, DST_BASE_ROW + 2 * _STREAM_ROWS)
+        state.regfile.set_cr(12, DST_BASE_ROW + 3 * _STREAM_ROWS)
         # constant LRs preset here (SET requires CR source since issue #82)
         state.regfile.set_lr(0, 0)
         state.regfile.set_lr(1, 1)
         state.regfile.set_lr(2, 2)
         state.regfile.set_lr(3, 3)
         state.regfile.set_lr(4, 0)
-        state.regfile.set_lr(5, 128)
-        state.regfile.set_lr(6, 1024)
+        state.regfile.set_lr(5, SRC_STRIDE_ROWS)   # src stride per channel (1 row)
+        state.regfile.set_lr(6, DST_STRIDE_ROWS)   # dst stride per channel (8 rows)
         state.regfile.set_lr(8, 0)
-        state.regfile.set_lr(9, 512)
+        state.regfile.set_lr(9, TG1_OFF_ROWS)      # tg=1 dst offset (4 rows)
         state.regfile.set_lr(10, 0)
         state.regfile.set_lr(11, C)
 
