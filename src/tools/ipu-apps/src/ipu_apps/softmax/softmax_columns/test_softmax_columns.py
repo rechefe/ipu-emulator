@@ -31,6 +31,14 @@ TEST_CONFIGS = [
     (32, 300, 4.0, 9),     # width 300 -> padded to 384 (3 chunks)
     (16, 460, 3.0, 10),    # width 460 -> padded to 512 (4 chunks)
     (8, 384, 50.0, 11),    # exact 3-chunk width, large |x|
+    # Sub-128 widths (65..127): one chunk, mostly padding. Correct because each
+    # lane is an INDEPENDENT column -- padding lanes are their own (all-zero)
+    # columns and never enter a real column's reduce. Widths <= 64 belong to
+    # softmax_columns_packed, which fits several whole rows per vector.
+    (32, 65, 4.0, 12),     # narrowest supported width
+    (32, 96, 3.0, 13),
+    (32, 127, 5.0, 14),    # widest sub-128 width
+    (16, 100, 50.0, 15),   # sub-128 + large |x| (stability)
 ]
 
 

@@ -13,7 +13,7 @@ ACC.MAX / ACC.ADD do the running reduce down the rows.
 with ``c = log2(e)`` resident in a 128-lane vector ``C_VEC`` (``2^(c*d)==e^d``,
 matching the IPU's native ``exp2`` activation).
 
-Layout (v1 -- width >= 128, any value):
+Layout (width >= 65, any value):
   Each row has width ``W`` padded up to the next multiple of 128, spanning
   ``cpr = ceil(W/128)`` consecutive 512 B chunks (no upper width bound). Row
   ``r``, chunk ``c`` lives at ``(r*cpr + c)*512``. A width that is not a multiple
@@ -65,7 +65,11 @@ if TYPE_CHECKING:
 
 LANES = 128                  # elements per chunk (fixed by the 128-lane datapath)
 CHUNK_BYTES = LANES * 4      # 512 bytes per FP32 chunk
-MIN_WIDTH = 128              # v1: width >= 128 (one or more whole chunks per row)
+# Widths 1..64 are better served by softmax_columns_packed (it fits rpv=128/W
+# whole rows per vector). From 65 up, packing would round the group width to
+# 128 -> rows_per_vec=1, i.e. no packing at all, so this app is the right (and
+# only) home for 65..127 even though those rows leave 128-W lanes idle.
+MIN_WIDTH = 65
 
 INPUT_BASE_ADDR = 0x10000    # x   (input logits, FP32)
 # num / output bases and the resident vectors are placed per-instance (_layout).
@@ -82,10 +86,19 @@ class SoftmaxColumnsApp(IpuApp):
                      row-major). ``width`` here is the *real* (unpadded) width.
         output_path: Optional path to write the softmax output (same shape).
         rows:        Number of rows (>= 1; any count -- ordinary loop bound).
-        width:       Real elements per row (>= 128, no upper bound). Padded up to
+        width:       Real elements per row (>= 65, no upper bound). Padded up to
                      the next multiple of 128 for the on-chip layout, spanning
                      ``cpr = ceil(width/128)`` chunks; padding lanes are dropped on
                      read-back. (e.g. 300 -> 384/3 chunks, 460 -> 512/4 chunks.)
+
+                     Widths 65..127 are correct but leave ``128-width`` lanes
+                     idle: the cycle cost of a chunk does not depend on how many
+                     of its lanes carry real columns, so width 65 costs the same
+                     as width 128. Packing cannot help there (the next power of
+                     two is 128, giving one row per vector), so this app is the
+                     right home for that range regardless. Use
+                     ``softmax_columns_packed`` for width <= 64, where several
+                     whole rows really do share a vector.
     """
 
     def __init__(self, *, rows: int, width: int, **kwargs) -> None:
@@ -98,8 +111,8 @@ class SoftmaxColumnsApp(IpuApp):
             raise ValueError(f"rows ({self.rows}) must be >= 1")
         if self.width < MIN_WIDTH:
             raise ValueError(
-                f"width ({self.width}) must be >= {MIN_WIDTH} in v1 "
-                f"(sub-128 packed widths are a future extension)"
+                f"width ({self.width}) must be >= {MIN_WIDTH} "
+                f"(use softmax_columns_packed for width <= 64)"
             )
 
         # Pad up to the next whole multiple of 128 so the row tiles into whole

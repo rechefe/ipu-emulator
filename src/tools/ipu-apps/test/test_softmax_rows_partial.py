@@ -1,8 +1,12 @@
 """Correctness tests for packed partial-width row-softmax.
 
-Covers the working regimes (P in {1,2,4} for all chunk counts; P=8 up to 2
-chunks) against a numpy softmax reference, plus the guard that rejects the
-known-broken P=8 >=3-chunk case (see STATUS.md).
+Covers P=1/2/4/8 against a numpy softmax reference, including high chunk
+counts that used to trigger Pass-4 cross-partition contamination (see
+STATUS.md) before the per-partition R_MASK fix, and row counts past 128,
+which used to overflow MULT.RC.VE's src operand before the group loop.
+
+Tests read the app's OUTPUT FILE rather than XMEM, so they also pin the
+round-trip property: output layout == input layout (row-major rows x N).
 """
 
 from __future__ import annotations
@@ -15,12 +19,7 @@ import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
 
-from ipu_apps.softmax.softmax_rows_partial import (
-    SoftmaxRowsPartialApp,
-    OUTPUT_BASE_ADDR,
-    CHUNK_BYTES,
-    partition_size,
-)
+from ipu_apps.softmax.softmax_rows_partial import SoftmaxRowsPartialApp
 
 ASM_PATH = (
     Path(__file__).resolve().parents[1]
@@ -34,21 +33,22 @@ def _reference(x: np.ndarray) -> np.ndarray:
 
 
 def _run(inst_file: Path, x: np.ndarray, n: int) -> np.ndarray:
+    """Run the app and read back its OUTPUT FILE, the way a caller would.
+
+    Deliberately not a direct XMEM read: the file is the app's contract, and it
+    is written in the same row-major layout as the input (teardown drops the
+    on-device partition/row padding), so this also pins that round-trip.
+    """
     rows = x.shape[0]
-    ps = partition_size(n)
-    P = 128 // ps
     with tempfile.TemporaryDirectory() as tmp:
         inp = Path(tmp) / "input.bin"
+        outp = Path(tmp) / "output.bin"
         inp.write_bytes(x.astype(np.float32).tobytes())
         app = SoftmaxRowsPartialApp(
-            inst_path=inst_file, input_path=inp, output_path=None, n=n, rows=rows
+            inst_path=inst_file, input_path=inp, output_path=outp, n=n, rows=rows
         )
-        state, _ = app.run(max_cycles=2_000_000)
-        out = np.zeros((rows, n), np.float32)
-        for r in range(rows):
-            base = OUTPUT_BASE_ADDR + (r // P) * CHUNK_BYTES + (r % P) * ps * 4
-            out[r] = np.frombuffer(state.xmem.read_address(base, n * 4), dtype=np.float32)
-    return out
+        app.run(max_cycles=2_000_000)
+        return np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, n)
 
 
 @pytest.fixture(scope="module")
@@ -91,12 +91,61 @@ def test_padding_rows_ignored(inst_file):
     assert np.abs(out - ref).max() < 1e-4
 
 
-def test_p8_three_chunks_guarded():
-    """The known-broken P=8 >=3-chunk regime must raise, not return garbage."""
-    with tempfile.TemporaryDirectory() as tmp:
-        inp = Path(tmp) / "i.bin"
-        inp.write_bytes(np.zeros((24, 8), np.float32).tobytes())
-        with pytest.raises(NotImplementedError, match="P=8"):
-            SoftmaxRowsPartialApp(
-                inst_path=tmp + "/x", input_path=inp, output_path=None, n=8, rows=24
-            )
+@pytest.mark.parametrize(
+    "n,rows",
+    [
+        (64, 70),   # P=2, num_chunks=35 -- broke before the per-partition mask fix
+        (32, 36),   # P=4, num_chunks=9  -- broke before the fix
+        (8, 24),    # P=8, num_chunks=3  -- the originally-documented broken case
+        (8, 64),    # P=8, num_chunks=8
+        (16, 40),   # P=8 (n=16), num_chunks=5
+    ],
+)
+def test_many_chunks_correct(inst_file, n, rows):
+    """High chunk counts that used to trigger Pass-4 cross-partition
+    contamination (see STATUS.md): each partition's MULT.RC.VE produces a
+    full 128-lane result where only [p*ps, p*ps+N) is that partition's own
+    data -- the rest is real (not zero) data from OTHER rows via the rc_idx
+    wraparound trick. acc.add/acc.add.first used to write/accumulate all 128
+    lanes unmasked, so this leaked data corrupted neighboring partitions'
+    slots once chunk count was high enough for the leaked values to exceed
+    tolerance. Fixed via a per-partition R_MASK slot (mask_offset=p) that
+    restricts each MULT.RC.VE to exactly its own lane range, zeroing
+    everywhere else -- see _partition_masks() and the .asm's p4_run_p*
+    blocks.
+    """
+    rng = np.random.RandomState(0)
+    x = (rng.randn(rows, n) * 5.0).astype(np.float32)
+    out = _run(inst_file, x, n)
+    ref = _reference(x)
+    assert np.abs(out - ref).max() < 1e-4
+
+
+@pytest.mark.parametrize(
+    "n,rows",
+    [
+        (128, 129),   # P=1: one row past a full group
+        (128, 300),   # P=1: two full groups + a short one
+        (100, 257),   # P=1, N<ps
+        (64, 130),    # P=2: one row past a full group (128 rows = 64 chunks)
+        (64, 1000),   # P=2, many groups
+        (32, 300),    # P=4
+        (16, 500),    # P=8
+        (8, 1032),    # P=8: exactly 129 chunks -> group boundary + short group
+        (20, 2000),   # P=4, many groups
+        (1, 600),     # P=8, degenerate N=1 (every row softmaxes to 1.0)
+    ],
+)
+def test_more_than_128_rows(inst_file, n, rows):
+    """Rows beyond 128 used to silently corrupt: lr_row feeds MULT.RC.VE's
+    `src` scalar-select and AGG's dest slot, both of which index R0 for 0..127
+    and switch to the never-loaded R1 at 128 (see STATUS.md's row-count
+    overflow). The kernel now processes groups of at most 128/P chunks (= 128
+    logical rows), restarting lr_row each group, so the index can't reach 128.
+    These configs all cross at least one group boundary.
+    """
+    rng = np.random.RandomState(rows)
+    x = (rng.randn(rows, n) * 3.0).astype(np.float32)
+    out = _run(inst_file, x, n)
+    ref = _reference(x)
+    assert np.abs(out - ref).max() < 1e-4

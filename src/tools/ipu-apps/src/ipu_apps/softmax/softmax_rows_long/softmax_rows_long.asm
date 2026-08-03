@@ -8,8 +8,16 @@
 
       softmax(x_i) = 2^(c*(x_i - xmax)) / SUM 2^(c*(x_j - xmax)),  c = log2(e)
 
-    Per-row scalars maxvec[r]/rvec[r] hold one value/row in a 128-lane vector,
-    so this version runs rows<=128 in a single group (no group loop).
+    Per-row scalars maxvec[r]/rvec[r] hold one value/row in a 128-lane vector, so
+    all four passes run once per GROUP of up to 128 rows: each group is processed
+    completely (Pass 1..4) before the next, because maxvec/rvec are single shared
+    vectors the next group overwrites. The group size is exact, not padded --
+      rows_this_group = min(128, total_rows - rows_done)
+    so the last group runs only the rows that remain, and every pass branches
+    against lr_bound (this group's size) rather than the total. This keeps
+    lr_row in 0..127 within a group, which matters beyond loop bookkeeping:
+    lr_row is MULT.RC.VE's `src` scalar-select (Pass 4) and AGG's dest slot, and
+    an index >=128 would silently select R1 instead of R0.
 
     CROSS-CHUNK REDUCTION (the novelty): a row's max (Pass 1) and sum (Pass 3)
     span cpr chunks. Each pass keeps a RUNNING per-row scalar: AGG.*.FIRST on the
@@ -20,7 +28,8 @@
     CR map (CR0=0, CR1=1 read-only):
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
       CR7=512 (chunk stride)  CR8=tail (also tail dstructure: valid_elements=tail)
-      CR9=128 (R1 maxvec byte base)  CR10=INPUT_BASE  CR11=rows (row loop bound)
+      CR9=128 (R1 maxvec byte base; also GROUP_CAP)  CR10=INPUT_BASE
+      CR11=total rows (group loop bound)
       CR12=full_chunks (full-chunk loop bound)  CR13=cpr  CR14=cpr*512 (row stride)
       CR15=full-chunk dstructure (valid_elements=128)
 
@@ -35,13 +44,29 @@
 {%- set lr_max_idx = "lr4" -%}  {#- R1 byte index 128+r = maxvec[r] -#}
 {%- set lr_chunk   = "lr5" -%}  {#- inner chunk counter (0..full_chunks-1) -#}
 {%- set lr_wr      = "lr6" -%}  {#- working write offset (NUM region, Pass 2) -#}
+{%- set lr_done    = "lr7" -%}  {#- rows completed by previous groups -#}
+{%- set lr_bound   = "lr8" -%}  {#- this group's exact row count = min(128, remaining) -#}
+{%- set lr_gbase   = "lr9" -%}  {#- group byte base = rows_done * cpr * 512 -#}
+{%- set lr_total   = "lr10" -%} {#- total rows (SUB needs an LR src_a) -#}
+
+    SET {{lr_cyc}}   cr0 ;
+    SET {{lr_done}}  cr0 ;
+    SET {{lr_gbase}} cr0 ;;
+    SET {{lr_total}} cr11 ;;                           {#- SUB needs an LR src_a -#}
+
+group_loop:
+{#- ---- exact group size: lr_bound = min(128, total_rows - rows_done) ------ -#}
+    SUB {{lr_bound}} {{lr_total}} {{lr_done}} ;;       {#- remaining = total - done (>=1) -#}
+    BLT {{lr_bound}} cr9 group_size_set ;;             {#- remaining < 128 -> keep it ... -#}
+    SET {{lr_bound}} cr9 ;;                            {#- ... else cap at 128 -#}
+group_size_set:
 
 {#- ===================================================================== -#}
 {#- PASS 1 -- maxvec[r] = max over the row's N elements (cross-chunk).      -#}
 {#- ===================================================================== -#}
     LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
     SET {{lr_row}}   cr0 ;
-    SET {{lr_rbase}} cr0 ;;
+    ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;               {#- start at this group's base -#}
 
 p1_row:
     {#- first full chunk: AGG.MAX.FIRST seeds r_acc[row] -#}
@@ -70,7 +95,7 @@ p1_tail:
 
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;               {#- next row base -#}
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} cr11 p1_row ;;
+    BLT {{lr_row}} {{lr_bound}} p1_row ;;
 
     ACTIVATE.QUANTIZE identity cr15 ;                  {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;
@@ -82,7 +107,7 @@ p1_tail:
     LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
     LDR_MULT_REG r1 {{lr_cyc}} cr5 ;;                  {#- R1 = maxvec (elem r) -#}
     SET {{lr_row}}   cr0 ;
-    SET {{lr_rbase}} cr0 ;;
+    ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;
     SET {{lr_max_idx}} cr9 ;;                          {#- 128 + 0 = maxvec[0] -#}
 
 p2_row:
@@ -109,13 +134,13 @@ p2_row_done:
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_max_idx}} {{lr_max_idx}} cr1 ;;
-    BLT {{lr_row}} cr11 p2_row ;;
+    BLT {{lr_row}} {{lr_bound}} p2_row ;;
 
 {#- ===================================================================== -#}
 {#- PASS 3 -- sumvec[r] = SUM over row's N num values; rvec = 1/sum.        -#}
 {#- ===================================================================== -#}
     SET {{lr_row}}   cr0 ;
-    SET {{lr_rbase}} cr0 ;;
+    ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;
 
 p3_row:
     ADD {{lr_off}} {{lr_rbase}} cr0 ;;
@@ -142,7 +167,7 @@ p3_tail:
 
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} cr11 p3_row ;;
+    BLT {{lr_row}} {{lr_bound}} p3_row ;;
 
     ACTIVATE.QUANTIZE reciprocal cr15 ;                {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;
@@ -152,7 +177,7 @@ p3_tail:
 {#- ===================================================================== -#}
     LDR_MULT_REG r0 {{lr_cyc}} cr6 ;;                  {#- R0 = rvec (elem r) -#}
     SET {{lr_row}}   cr0 ;
-    SET {{lr_rbase}} cr0 ;;
+    ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;
 
 p4_row:
     ADD {{lr_off}} {{lr_rbase}} cr0 ;
@@ -173,7 +198,14 @@ p4_chunk:
 p4_row_done:
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} cr11 p4_row ;;
+    BLT {{lr_row}} {{lr_bound}} p4_row ;;
+
+{#- ---- advance: rows_done += bound; loop while done < total --------------- -#}
+{#- Pass 4 stepped lr_rbase once per row, so it now equals gbase + bound*CR14 -#}
+{#- -- exactly the next group's base. Copy it; the LR slot has no multiply.   -#}
+    ADD {{lr_done}}  {{lr_done}} {{lr_bound}} ;
+    ADD {{lr_gbase}} {{lr_rbase}} cr0 ;;
+    BLT {{lr_done}} {{lr_total}} group_loop ;;
 
 end:
     BKPT ;;

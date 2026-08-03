@@ -91,19 +91,23 @@ class SoftmaxRowsLongApp(IpuApp):
         self.rows = int(rows)
         self.n = int(n)
 
-        if self.n <= 128 or self.n % 128 == 0:
+        if self.n <= 128:
             raise ValueError(
-                f"n ({self.n}) must be > 128 and not a multiple of 128 "
+                f"n ({self.n}) must be > 128 "
                 f"(use softmax_rows for n==128, softmax_rows_partial for n<128)"
             )
-        if not (1 <= self.rows <= 128):
-            raise ValueError(
-                f"rows ({self.rows}) must be in 1..128 (single group)"
-            )
+        if self.rows < 1:
+            raise ValueError(f"rows ({self.rows}) must be >= 1")
 
         self.full_chunks = self.n // 128            # number of full 128-wide chunks
-        self.tail = self.n % 128                    # tail element count (1..127)
-        self.chunks_per_row = self.full_chunks + 1  # cpr (incl. tail chunk)
+        self.tail = self.n % 128                    # tail element count (0..127)
+        # A tail chunk exists only when n isn't a clean multiple of 128. When
+        # tail == 0 the row is exactly full_chunks whole chunks: emitting the
+        # usual +1 chunk would read a phantom chunk past the row. The .asm
+        # needs no change for this case -- Passes 2/4 simply loop cpr chunks,
+        # and Passes 1/3 run their tail block with valid_elements=0 (CR8),
+        # which makes the running AGG.MAX / AGG.SUM exact no-ops.
+        self.chunks_per_row = self.full_chunks + (1 if self.tail else 0)
 
         self._layout()
 

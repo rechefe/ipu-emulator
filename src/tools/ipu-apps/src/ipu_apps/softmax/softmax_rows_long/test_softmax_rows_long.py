@@ -27,6 +27,21 @@ TEST_CONFIGS = [
     (8, 300, 0.01, 5),    # near-uniform
     (32, 384 + 17, 3.0, 6),  # 3 full + 17 tail
     (128, 129, 4.0, 7),   # max rows in one group
+    # n % 128 == 0: exactly full_chunks whole chunks, NO tail chunk. The tail
+    # block still executes with valid_elements=0 (CR8), which makes its running
+    # AGG.MAX/AGG.SUM exact no-ops -- so the same kernel covers this shape.
+    (6, 256, 5.0, 8),     # 2 full chunks, no tail
+    (6, 384, 5.0, 9),     # 3 full chunks, no tail
+    (4, 512, 3.0, 10),    # 4 full chunks, no tail
+    (2, 1024, 4.0, 11),   # 8 full chunks, no tail
+    # >128 rows: maxvec/rvec hold one slot per row in a single 128-lane vector,
+    # so the kernel runs groups of <=128 rows (all four passes per group). Row
+    # indices restart each group, which is what keeps them out of the R1 range
+    # that MULT.RC.VE's `src` would otherwise select. See the .asm group loop.
+    (129, 129, 3.0, 12),  # one row past a full group
+    (200, 200, 4.0, 13),
+    (256, 130, 3.0, 14),  # exactly two full groups
+    (300, 129, 5.0, 15),  # two full groups + a short one
 ]
 
 
