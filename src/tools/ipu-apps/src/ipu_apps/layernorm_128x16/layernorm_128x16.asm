@@ -3,16 +3,28 @@
 # Wide-vector debug mode (512 B per row = 128 × FP32).
 #
 # VLIW execution order: LR → XMEM → MULT → ACC → AAQ → COND
-#   r0/r1 snap  : captured before slots fire; MULT sees previous cycle's r0/r1
-#   r_cyclic live: XMEM updates r_cyclic before MULT reads it
+#   r0/r1 snap    : captured before slots fire; MULT sees previous cycle's r0/r1
+#   r_cyclic snap : ALSO captured before slots fire (issue #157) -- MULT sees the
+#                   value r_cyclic held at the START of the cycle, so a MULT
+#                   cannot consume a row that LDR_CYCLIC loads in its own bundle
 #   LR fires BEFORE XMEM: any ADD on an offset applies before the address is used
+#
+# `;;` ends one VLIW word = one cycle = one snapshot; `;` separates slots within
+# that word. A load and a MULT written in the same bundle therefore always
+# execute in the same cycle regardless of textual order -- co-issuing them is
+# fine, CONSUMING the same-cycle load is not.
 #
 # Key patterns used:
 #   (a) Startup-offset: init ptr to -stride → ADD fires → live = 0 on first use
 #   (b) Loop counter: BLT reads snapshot (pre-ADD) → init counter to 1 so loop
 #       runs exactly N_CH times (snapshot reaches N_CH after N_CH increments from 1)
 #   (c) r0/r1 as scalar source: pre-load before loop, never change inside loop
-#   (d) r_cyclic as row data: LDR_CYCLIC in same cycle as MULT → live visible to MULT
+#   (d) r_cyclic as row data: the LDR_CYCLIC feeding a MULT runs one bundle
+#       EARLIER than that MULT. Each step primes its first row before the loop,
+#       and every loop body multiplies the row loaded last cycle while loading
+#       the next one. The offset LR (lr2) is read LIVE by the load, so its ADD
+#       stays co-issued with the load -- which is exactly what makes the
+#       co-issued load fetch the NEXT channel rather than the current one.
 #
 # CRs:
 #   cr0  = DATA_BASE        = 0x00000  (hardwired 0; also the const-zero source)
@@ -47,7 +59,7 @@
 # Step 1: -μ[i] = Σ_ch  x[ch,i] × (-1/N)
 #
 # r0 = -1/N (pre-loaded). lr2 = -512 (startup). lr5 = 1 (counter init).
-# Body: LDR_CYCLIC x[ch] live; MULT.EE r0_snap×cyclic_live; ACC.
+# Body: MULT r0_snap × x[ch] (loaded last cycle); ACC; LDR_CYCLIC x[ch+1].
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr4;;   # r0 ← -1/N
@@ -57,13 +69,15 @@
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;             # lr5 = 1  (BLT reads snapshot; loop runs N_CH times)
 
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;   # prime x[ch=0]
+
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step1_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step1_loop;;
     B       step1_done;;
 step1_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step1_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step1_loop;;
 step1_done:
 
     STR_ACC_REG         lr0 cr6;;      # NEG_MEAN_BASE = -μ
@@ -72,10 +86,12 @@ step1_done:
 # Step 2: centered[ch,i] = x[ch,i] + (-μ[i])
 #
 # r0 = ONES, r1 = -μ (pre-loaded). lr2 = -512 (data read). lr3 = -512 (centered write).
-# Per ch (3 cycles):
-#   A: LDR_CYCLIC x[ch]; ADD lr2; MULT.EE r0_snap(ONES)×cyclic_live → ACC.FIRST
-#   B: LDR_CYCLIC ONES;  MULT.EE r1_snap(-μ)×cyclic_live(ONES) → ACC
-#   C: STR centered[ch]; ADD lr3
+# Per ch (3 cycles), each MULT consuming the row loaded one cycle earlier:
+#   A: MULT r0_snap(ONES) × x[ch] → ACC.FIRST;  LDR_CYCLIC ONES (for B)
+#   B: MULT r1_snap(-μ) × ONES    → ACC
+#   C: STR centered[ch]; ADD lr3;  LDR_CYCLIC x[ch+1] (prefetch for next A)
+# x[ch=0] is primed before the loop; the trailing prefetch reads one row past
+# the last channel, which is harmless (the value is never multiplied).
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr3;;   # r0 ← ONES
@@ -87,10 +103,11 @@ step1_done:
     SUB     lr3  lr3 lr7;;
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;   # prime x[ch=0]
 step2_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
-    STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr7;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
+    MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
+    STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr7; LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,15 +123,17 @@ step2_loop:
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
 
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime centered[ch=0]
+
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): load centered[ch]
-    # into r_cyclic, then square it in place.
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD.FIRST;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step3_loop;;
+    # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): centered[ch] was
+    # loaded into r_cyclic a cycle earlier, and is squared in place here.
+    MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step3_loop;;
     B       step3_done;;
 step3_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step3_loop;;
+    MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step3_loop;;
 step3_done:
 
     STR_ACC_REG         lr0 cr8;;      # TEMP_BASE = Σ(x-μ)²
@@ -124,7 +143,8 @@ step3_done:
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr8;;
-    LDR_CYCLIC_MULT_REG lr0 cr5 lr0; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr0 cr5 lr0;;   # load 1/N a cycle ahead of the MULT
+    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
 
     ACTIVATE.QUANTIZE rsqrt cr15;;
     STR_POST_AAQ_REG    lr0 cr9;;
@@ -132,9 +152,15 @@ step3_done:
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5: normalized[ch,i] = centered[ch,i] × 1/σ[i]  (overwrite CENTERED)
 #
-# r0 = 1/σ. lr2 = -512. Three cycles per ch:
-#   A: LDR_CYCLIC centered[ch]; ADD lr2; MULT.EE r0_snap×cyclic_live → ACC.FIRST
-#   B: STR_ACC_REG at lr2 (live = row*512, no ADD this cycle)
+# r0 = 1/σ. lr2 = load ptr (-512 startup), lr3 = store ptr (0, trails by one row).
+# This step reads and writes the SAME rows, so the load running a cycle ahead of
+# its MULT means the load and the store can no longer share one pointer: lr2
+# now points at the row being PREFETCHED while lr3 points at the row whose
+# product is being stored. Three cycles per ch:
+#   A: MULT r0_snap × centered[ch] (loaded last cycle) → ACC.FIRST
+#   B: STR_ACC_REG normalized[ch] at lr3; ADD lr3;
+#      LDR_CYCLIC centered[ch+1]; ADD lr2   (prefetch; reads before the next
+#      iteration's store, so it still sees the pre-overwrite value)
 #   C: ADD lr5; BLT
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -142,12 +168,17 @@ step3_done:
 
     SET     lr2  cr0;;
     SUB     lr2  lr2 lr7;;
+    SET     lr3  cr0;;
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime centered[ch=0]
 step5_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    STR_ACC_REG         lr2 cr7;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step5_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    # STR_ACC_REG reads lr3 LIVE, so lr3 must NOT be bumped in the store word --
+    # it advances in the branch word below, exactly as the original store
+    # pointer did.
+    STR_ACC_REG         lr3 cr7; LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;
+    ADD     lr3 lr3 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: output[ch,i] = γ[ch] × normalized[ch,i] + β[ch]
@@ -156,11 +187,15 @@ step5_loop:
 # lr9 = 0 (fixed_idx γ), lr10 = 128 (fixed_idx β).
 # fixed_idx is live; do NOT increment in the same cycle as MULT.VE.CYCLIC reads it.
 #
-# Per ch (4 cycles):
-#   A: LDR_CYCLIC normalized[ch]; ADD lr2; MULT.VE.CYCLIC lr9; ACC.FIRST
-#   B: LDR_CYCLIC ONES; MULT.VE.CYCLIC lr10; ACC
-#   C: ADD lr3; STR output[ch]; ADD lr9; ADD lr10
+# Per ch (4 cycles), each MULT consuming the row loaded one cycle earlier:
+#   A: MULT.RC.VE lr9 × normalized[ch] → ACC.FIRST;  LDR_CYCLIC ONES (for B)
+#   B: MULT.RC.VE lr10 × ONES → ACC
+#   C: STR output[ch]; ADD lr3; ADD lr9; ADD lr10;
+#      LDR_CYCLIC normalized[ch+1]; ADD lr2   (prefetch for the next A)
 #   D: ADD lr5; BLT
+# lr9/lr10 (fixed_idx) are still read LIVE by their MULTs and are still bumped
+# in cycle C, one cycle before the A that reads them -- unchanged by the load
+# shift, since only the r_cyclic loads moved.
 # ─────────────────────────────────────────────────────────────────────────────
 
     LDR_MULT_REG        r0 lr0 cr11;;
@@ -175,11 +210,15 @@ step5_loop:
     SET     lr9  cr0;;               # fixed_idx γ = 0
     SET     lr10 cr14;;              # fixed_idx β = 128
 
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime normalized[ch=0]
 step6_loop:
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; MULT.RC.VE lr0 lr9 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr0 cr3 lr0; MULT.RC.VE lr0 lr10 0 lr1 cr15; ACC.ADD;;
+    MULT.RC.VE lr0 lr9 0 lr1 cr15; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
+    MULT.RC.VE lr0 lr10 0 lr1 cr15; ACC.ADD;;
+    # Cycle C is already at the 3-LR-per-word limit (lr3, lr9, lr10), so the
+    # prefetch load rides here but its lr2 bump moves to cycle D. lr2 is read
+    # LIVE, so the load still uses the pre-bump value = the row it should fetch.
     STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr9 lr9 cr1; ADD lr10 lr10 cr1;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step6_loop;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step6_loop;;
 
 end:
     BKPT;;
