@@ -53,6 +53,24 @@ OUTPUT_BASE_ADDR  = 0x40000   # C: M × 256 bytes (packed) = 16,384 B
 
 OUTPUT_ROW_BYTES  = N * 4     # 256 bytes
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The *_BASE_ADDR constants above stay byte
+# addresses because they only drive the harness's direct xmem read/write calls
+# (which bypass row translation); the CR registers in setup() feed the .asm's
+# XMEM instructions instead, so they carry addresses and strides in rows.
+ROW_SIZE_BYTES = 128
+INPUT_BASE_ROW   = INPUT_BASE_ADDR // ROW_SIZE_BYTES
+WEIGHTS_BASE_ROW = WEIGHTS_BASE_ADDR // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW  = OUTPUT_BASE_ADDR // ROW_SIZE_BYTES
+VEC_STRIDE_ROWS  = 1                                     # one 128 B vector = 1 row
+# STR_ACC_REG writes a fixed 512 B; where OUTPUT_ROW_BYTES is smaller the stores
+# overlap by design, each tail overwritten by the next, leaving packed output.
+assert OUTPUT_ROW_BYTES % ROW_SIZE_BYTES == 0, (
+    f"output stride {OUTPUT_ROW_BYTES} B is not a whole number of "
+    f"{ROW_SIZE_BYTES} B rows; not expressible in row addressing"
+)
+OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES
+
 # -- Dtype helper -----------------------------------------------------------
 
 _DTYPE_MAP = {
@@ -127,15 +145,15 @@ class MatMul64x64x64App(IpuApp):
         # architecture — writes are silently dropped. INPUT_BASE_ADDR is 0x0, so
         # cr0 still reads the correct input base; the weights base is moved to
         # CR11 (a free CR) instead of CR1. See MIGRATION_CHECKLIST.md Bug #2.
-        state.regfile.set_cr(0, INPUT_BASE_ADDR)
-        state.regfile.set_cr(11, WEIGHTS_BASE_ADDR)
-        state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
+        state.regfile.set_cr(0, INPUT_BASE_ROW)
+        state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
+        state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         state.regfile.set_cr(3, 1)
-        state.regfile.set_cr(4, 128)
-        state.regfile.set_cr(5, N * 4)
-        state.regfile.set_cr(6, M * 128)
+        state.regfile.set_cr(4, VEC_STRIDE_ROWS)                 # input/weight stride (1 row)
+        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)              # output stride (rows)
+        state.regfile.set_cr(6, M * VEC_STRIDE_ROWS)             # outer-loop limit, compared vs row ptr
         state.regfile.set_cr(7, 0)
-        state.regfile.set_cr(8, -128)
+        state.regfile.set_cr(8, -VEC_STRIDE_ROWS)                # weight-offset startup (-1 row)
         state.regfile.set_cr(9, -1)
         state.regfile.set_cr(10, K - 1)
 
