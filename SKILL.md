@@ -74,6 +74,32 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, L
 - Missing slots → NOP inserted automatically
 - Slots see a register **snapshot** at cycle start (read-before-write semantics)
 
+**`;;` is a cycle boundary, `;` is not.** Everything between two `;;` is one
+VLIW word that issues in a single cycle, so slots within it execute *together*,
+not in the order written. Textual order inside a bundle carries no timing
+meaning.
+
+The practical consequence: **a slot cannot consume a result produced in the same
+bundle.** A load and a MULT may be co-issued, but the MULT reads the snapshot
+taken at cycle start, so it sees the value from *before* that load. To feed a
+MULT from memory, the load must be one bundle earlier — the steady-state loop
+co-issues a load that prefetches the *next* iteration while the MULT consumes
+the chunk loaded last cycle:
+
+```asm
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;;      # prime: fetch chunk for iteration 0
+loop:
+    MULT.RC.VE lr15 lr5 0 lr15 cr15;         # consumes chunk fetched LAST cycle
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;       # prefetch NEXT iteration's chunk
+    BNE lr5 lr6 loop;;
+```
+
+One ordering rule does apply within a bundle: `lr`-slot writes are dispatched
+before `load`/`mult` read their operands. So an LR increment feeding a load must
+sit in the bundle *before* that load, not share one with it — otherwise the load
+sees the already-incremented value and skips an element.
+
 ### Register File
 
 | Register | Size | Purpose |
