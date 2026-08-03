@@ -32,6 +32,23 @@ OUTPUT_BASE  = 0x30000   # must be past 0x22000 to avoid overlap with weights
 W_STRIDE        = 256
 OUTPUT_ROW_BYTES = 512
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive direct state.xmem.write_address/read_address calls in
+# this harness (which bypass row translation); the CR/LR registers below feed
+# the .asm's XMEM instructions instead, so they carry the same addresses and
+# strides converted to rows.
+ROW_SIZE_BYTES = 128
+DATA_BASE_ROW    = DATA_BASE // ROW_SIZE_BYTES
+WEIGHTS_BASE_ROW = WEIGHTS_BASE // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW  = OUTPUT_BASE // ROW_SIZE_BYTES
+W_STRIDE_ROWS    = W_STRIDE // ROW_SIZE_BYTES            # 2 rows per output channel
+DATA_STRIDE_ROWS = (N_TG * N_TOK) // ROW_SIZE_BYTES      # 2 rows per input channel
+# STR_ACC_REG always writes all 512 B of r_acc regardless of dtype, which spans
+# 4 rows in narrow mode -- OUTPUT_ROW_BYTES already matches that full payload,
+# so the output stride is exactly that store's footprint and rows never overlap.
+OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES  # 4
+
 _DTYPE_MAP = {
     "INT8":     DType.INT8,
     "int8":     DType.INT8,
@@ -81,25 +98,25 @@ class MatMul288x144x128App(IpuApp):
         # writes are silently dropped. WEIGHTS_BASE is moved to CR9 (free).
         # cr0=DATA_BASE is 0x0 (harmless no-op); cr2 is writable and stays.
         # See MIGRATION_CHECKLIST.md Bug #2.
-        state.regfile.set_cr(0, DATA_BASE)
-        state.regfile.set_cr(9, WEIGHTS_BASE)
-        state.regfile.set_cr(2, WEIGHTS_BASE + 128)
-        state.regfile.set_cr(3, OUTPUT_BASE)                    # tg=0 output
-        state.regfile.set_cr(4, OUTPUT_BASE + N_OUT * 512)      # tg=1 output
-        state.regfile.set_cr(5, -256)                           # tg=0 data startup
-        state.regfile.set_cr(6, -128)                           # tg=1 data startup
+        state.regfile.set_cr(0, DATA_BASE_ROW)
+        state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
+        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)           # W[j,128..143]: next row
+        state.regfile.set_cr(3, OUTPUT_BASE_ROW)                                    # tg=0 output
+        state.regfile.set_cr(4, OUTPUT_BASE_ROW + N_OUT * OUTPUT_STRIDE_ROWS)       # tg=1 output
+        state.regfile.set_cr(5, -DATA_STRIDE_ROWS)              # tg=0 data startup (rows)
+        state.regfile.set_cr(6, -(DATA_STRIDE_ROWS // N_TG))    # tg=1 data startup (rows)
         state.regfile.set_cr(7, -1)                             # k-loop1 fixed_idx startup
         state.regfile.set_cr(8, 127)                            # k-loop2 fixed_idx startup
         state.regfile.set_lr(0, 0)                              # r_cyclic write-index 0
-        state.regfile.set_lr(2, 256)                            # data stride
-        state.regfile.set_lr(3, 512)                            # output stride
+        state.regfile.set_lr(2, DATA_STRIDE_ROWS)               # data stride (rows)
+        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)             # output stride (rows)
         state.regfile.set_lr(6, 126)                            # k-loop1 bound: first_index=0, width=128 → 126
         state.regfile.set_lr(7, 0)                              # output pointer
         state.regfile.set_lr(8, 0)                              # weight byte offset
         state.regfile.set_lr(9, 0)                              # j counter
         state.regfile.set_lr(10, N_OUT)                         # j-loop limit
         state.regfile.set_lr(11, 142)                           # k-loop2 bound: first_index=128, width=16 → 142
-        state.regfile.set_lr(12, W_STRIDE)                      # weight stride per j
+        state.regfile.set_lr(12, W_STRIDE_ROWS)                 # weight stride per j (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
