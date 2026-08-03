@@ -49,22 +49,38 @@ row_loop:
     SET                 lr5 cr9;;        # first live = 0
     SET                 lr6 cr10;;       # BNE: exit when live k == 127; last live = 127
 
+    # MULT reads r_cyclic from the start-of-cycle snapshot (issue #157), so the
+    # chunk consumed by MULT.RC.VE must be loaded a cycle earlier than it is
+    # used: prime k=0's load here, then each loop body loads the NEXT k's chunk
+    # while multiplying the chunk loaded last cycle.
+    # lr5 (R0 scalar-select index, read LIVE by MULT) must equal the CURRENT k on
+    # the cycle MULT runs; lr4 (load offset, also read LIVE, by LDR) must already
+    # hold the NEXT k's offset on that same cycle. LR sub-slots run before
+    # LOAD/MULT within a word, so lr4's increment for k+1 must land in the word
+    # BEFORE the load that consumes it -- it cannot share a word with that load.
+    # lr5 shares a word with the MULT that consumes it, so MULT sees the k that
+    # lr5 was just advanced to.
+    ADD                 lr4 lr4 lr13;;        # lr4 = k=0's offset (0)
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;;       # XMEM: r_cyclic[0] = T[k=0] (lr4 unchanged this word)
+    ADD                 lr4 lr4 lr13;         # LR0 : weight offset -> k=1
+    ADD                 lr5 lr5 lr12;;        # LR1 : fixed_idx -> 0
+
     # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: r_cyclic[0] = T[k][0..127]
-    ADD                 lr4 lr4 lr13;         # LR0 : weight offset += 128
-    ADD                 lr5 lr5 lr12;         # LR1 : fixed_idx += 1
     MULT.RC.VE          lr15 lr5 0 lr15 cr15; # MULT: A[m][live k] × T[k][0..127]
     ACC.ADD.FIRST;                            # ACC : seed accumulator (= reset + accumulate)
-    BNE                 lr5 lr6 k_loop;;      # if K>1 run remaining k; else fall through
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: prefetch T[k+1] for next cycle's MULT
+    BNE                 lr5 lr6 k_loop_pre;;  # if K>1 run remaining k; else fall through
     B                   after_k_loop;;
 
+k_loop_pre:
+    ADD                 lr4 lr4 lr13;         # LR0 : weight offset -> next load
+    ADD                 lr5 lr5 lr12;;        # LR1 : fixed_idx -> k just loaded
+
 k_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: r_cyclic[0] = T[k][0..127]
-    ADD                 lr4 lr4 lr13;         # LR0 : weight offset += 128
-    ADD                 lr5 lr5 lr12;         # LR1 : fixed_idx += 1
     MULT.RC.VE          lr15 lr5 0 lr15 cr15; # MULT: A[m][live k] × T[k][0..127]
     ACC.ADD;                                  # ACC : accumulate
-    BNE                 lr5 lr6 k_loop;;      # loop while live k != 127
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;        # XMEM: prefetch T[k+1] for next cycle's MULT
+    BNE                 lr5 lr6 k_loop_pre;;  # loop while live k != 127
 
 after_k_loop:
     STR_ACC_REG         lr7 cr2;;        # store 512 B → C[m]
