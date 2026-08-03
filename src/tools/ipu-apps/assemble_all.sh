@@ -11,7 +11,7 @@ APPS=(
   matmul_144x144_x128 matmul_288x144_x128 matmul_432x144_x128 matmul_144x288_x128
   matmul_192x192_x128 matmul_192x384_x128 matmul_240x240_x128 matmul_240x480_x128
   matmul_384x192_x128 matmul_480x240_x128 matmul_576x192_x128 matmul_720x240_x128
-  unfold_32x32x144 residual_add_256x144 layernorm_128x16 layernorm_256x144
+  unfold_32x32x144 unfold_16x16x192 residual_add_256x144 layernorm_128x16 layernorm_256x144
   attn_scores_km_256x36 attn_v_256x36 attn_v_bcast_36 qk_scores_256x36
   fully_connected
 )

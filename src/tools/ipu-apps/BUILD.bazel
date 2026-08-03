@@ -1482,3 +1482,62 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- unfold_16x16x192 app ---------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/unfold_16x16x192/unfold_16x16x192.asm",
+])
+
+filegroup(
+    name = "unfold_16x16x192_test_data",
+    srcs = glob(["src/ipu_apps/unfold_16x16x192/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_unfold_16x16x192",
+    src = "src/ipu_apps/unfold_16x16x192/unfold_16x16x192.asm",
+)
+
+py_binary(
+    name = "unfold_16x16x192",
+    srcs = ["src/ipu_apps/unfold_16x16x192/__main__.py"],
+    main = "src/ipu_apps/unfold_16x16x192/__main__.py",
+    data = [
+        ":assemble_unfold_16x16x192.bin",
+        ":unfold_16x16x192_test_data",
+    ],
+    env = {
+        "UNFOLD_16X16X192_INST_BIN": "$(rootpath :assemble_unfold_16x16x192.bin)",
+        "UNFOLD_16X16X192_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/unfold_16x16x192/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_binary(
+    name = "gen_unfold_16x16x192_test_data",
+    srcs = ["src/ipu_apps/unfold_16x16x192/gen_test_data.py"],
+    main = "src/ipu_apps/unfold_16x16x192/gen_test_data.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_unfold_16x16x192",
+    size = "large",
+    srcs = ["test/test_unfold_16x16x192.py"],
+    data = [
+        ":assemble_unfold_16x16x192.bin",
+        ":unfold_16x16x192_test_data",
+    ],
+    env = {
+        "UNFOLD_16X16X192_INST_BIN": "$(rootpath :assemble_unfold_16x16x192.bin)",
+        "UNFOLD_16X16X192_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/unfold_16x16x192/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
