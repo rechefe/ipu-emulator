@@ -48,6 +48,20 @@
 # Here the dst pointer lr8 advances in its own bundle at the end of the channel
 # loop, well clear of every store.
 #
+# MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its r0 DATA from the
+# start-of-cycle snapshot, so a MULT cannot consume a chunk loaded by an
+# LDR_MULT_REG in its own bundle — it would see the PREVIOUS contents of r0.
+# `;;` ends one VLIW word = one cycle = one snapshot, so a load and a MULT in
+# the same bundle always execute in the same cycle regardless of textual order;
+# co-issuing them is fine, consuming the same-cycle load is not.
+# Therefore the loads here run one bundle AHEAD of the MULT that consumes them:
+# the stripe-0 load for the first stream is primed before ch_loop, and each
+# bundle's LDR prefetches the chunk the NEXT bundle will multiply. The eight
+# loads per channel form a fixed stripe-0/stripe-1 alternation, and lr4 (the
+# src offset, read LIVE by LDR) only advances once per channel, so the rotation
+# is a pure one-bundle shift: the last load of channel ch fetches stripe 0 of
+# channel ch+1, which is why lr4's ADD must precede it.
+#
 # CRs:
 #   cr0  = SRC_BASE + 0×192×128   (stripe 0 base, ch 0..191)
 #   cr13 = SRC_BASE + 1×192×128   (stripe 1 base; CR1 is read-only, so use cr13)
@@ -80,30 +94,37 @@
 # Main channel loop  (ch = 0..191)
 # ---------------------------------------------------------------------------
 
+    LDR_MULT_REG        r0 lr4 cr0;;        # prime: stripe 0 of ch 0 (TL slot 0)
+
 ch_loop:
 
+    # Each bundle multiplies the chunk loaded by the PREVIOUS bundle and loads
+    # the chunk the NEXT bundle will multiply (snapshot contract, see header).
+
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr0;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr1;;
     STR_ACC_REG         lr8 cr9;;           # TL → DST_TL + ch×512 (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr0;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr1;;
     STR_ACC_REG         lr8 cr10;;          # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr1;;
     STR_ACC_REG         lr8 cr11;;          # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr1;;
+    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr0;;
+    # lr4 must advance BEFORE the load that uses the next channel's offset: LR
+    # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
+    ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
+    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr1;;
     STR_ACC_REG         lr8 cr12;;          # BR
 
     # -- Advance pointers; loop ----------------------------------------------
-    ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
     ADD                 lr8 lr8 lr6;;       # dst offset: next channel (+512)
     ADD                 lr10 lr10 cr1;;
     BLT                 lr10 lr11 ch_loop;; # loop while ch < 192
