@@ -53,6 +53,28 @@ W_STRIDE         = 256       # bytes per output channel in XMEM (ceil(K/128)*128
 DATA_STRIDE      = N_LANE     # bytes per channel in XMEM (128, padded)
 OUTPUT_ROW_BYTES = N_TOK * 4  # bytes per output channel (64 tokens × 4) = 256
 
+# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
+# addresses -- see issue #179. The *_BASE constants above stay byte addresses
+# because they only drive the harness's direct xmem read/write calls (which
+# bypass row translation); the CR/LR registers below feed the .asm's XMEM
+# instructions instead, so they carry addresses and strides converted to rows.
+ROW_SIZE_BYTES = 128
+DATA_BASE_ROW    = DATA_BASE // ROW_SIZE_BYTES
+WEIGHTS_BASE_ROW = WEIGHTS_BASE // ROW_SIZE_BYTES
+OUTPUT_BASE_ROW  = OUTPUT_BASE // ROW_SIZE_BYTES
+W_STRIDE_ROWS    = W_STRIDE // ROW_SIZE_BYTES
+DATA_STRIDE_ROWS = DATA_STRIDE // ROW_SIZE_BYTES         # 1 row per channel
+# STR_ACC_REG always writes a fixed 512 B, but only the first OUTPUT_ROW_BYTES
+# are valid output; successive stores deliberately overlap so each overwrites
+# the previous store's garbage tail, leaving a packed result. That requires the
+# output stride to be exactly OUTPUT_ROW_BYTES, which here is 256 B = 2 whole
+# rows and so survives row addressing intact.
+assert OUTPUT_ROW_BYTES % ROW_SIZE_BYTES == 0, (
+    f"packed output stride {OUTPUT_ROW_BYTES} B is not a whole number of "
+    f"{ROW_SIZE_BYTES} B rows; not expressible in row addressing"
+)
+OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES  # 2
+
 # -- Dtype helper -----------------------------------------------------------
 
 _DTYPE_MAP = {
@@ -119,22 +141,22 @@ class MatMul576x192x128App(IpuApp):
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
         # writes are silently dropped. WEIGHTS_BASE is moved to CR9 (free).
         # cr0=DATA_BASE is 0x0 (harmless no-op); cr2/cr3 are writable and stay.
-        state.regfile.set_cr(0, DATA_BASE)
-        state.regfile.set_cr(9, WEIGHTS_BASE)
-        state.regfile.set_cr(2, WEIGHTS_BASE + 128)
-        state.regfile.set_cr(3, OUTPUT_BASE)
-        state.regfile.set_cr(6, -DATA_STRIDE)                  # data startup: -128
+        state.regfile.set_cr(0, DATA_BASE_ROW)
+        state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
+        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)   # next weight row
+        state.regfile.set_cr(3, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(6, -DATA_STRIDE_ROWS)                  # data startup: -128
         state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
         state.regfile.set_lr(0, 0)                             # r_cyclic write-index 0
-        state.regfile.set_lr(2, DATA_STRIDE)                   # data stride (128)
-        state.regfile.set_lr(3, OUTPUT_ROW_BYTES)              # output stride (256, packed)
+        state.regfile.set_lr(2, DATA_STRIDE_ROWS)                   # data stride (128)
+        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)              # output stride (256, packed)
         state.regfile.set_lr(6, 126)                           # chunk0 bound: width=128
         state.regfile.set_lr(7, 0)                             # output pointer
         state.regfile.set_lr(8, 0)                             # weight byte offset
         state.regfile.set_lr(9, 0)                             # j counter
         state.regfile.set_lr(10, N_OUT)                        # j-loop limit (576)
         state.regfile.set_lr(11, (K - 128) - 2)               # chunk1 bound: width=64 → 62
-        state.regfile.set_lr(12, W_STRIDE)                     # weight stride per j (256)
+        state.regfile.set_lr(12, W_STRIDE_ROWS)                     # weight stride per j (256)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
