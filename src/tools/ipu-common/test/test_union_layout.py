@@ -77,22 +77,22 @@ def test_lr_slot_sharing():
 
 
 def test_lr_slot_opcode_bits():
-    """Six LR opcodes require a 3-bit opcode field."""
-    assert SLOT_UNIONS["lr"].opcode_bits == 3
+    """Nine LR opcodes (incl. ADDB/ADDBI) require a 4-bit opcode field."""
+    assert SLOT_UNIONS["lr"].opcode_bits == 4
 
 
 def test_lr_slot_total_width_unchanged():
-    """LR sub-instruction stays 17 bits after INC/DEC and opcode growth."""
+    """LR sub-instruction stays 20 bits after ADDB/ADDBI and opcode growth."""
     su = SLOT_UNIONS["lr"]
     total = su.opcode_bits + sum(f.bits for f in su.fields)
-    assert total == 17, f"Expected 17-bit LR slot, got {total}"
+    assert total == 20, f"Expected 20-bit LR slot, got {total}"
 
 
 def test_lr_inc_dec_imm_width_derived():
-    """INC/DEC immediate width is derived from the union layout (5 bits)."""
+    """INC/DEC immediate shares its field with ADDBI's 8-bit AddbiImmediate (8 bits)."""
     from ipu_common.lr_inc_dec_imm import LR_INC_DEC_IMM_FIELD_BITS
 
-    assert LR_INC_DEC_IMM_FIELD_BITS == 5
+    assert LR_INC_DEC_IMM_FIELD_BITS == 8
 
 
 def test_all_slots_present():

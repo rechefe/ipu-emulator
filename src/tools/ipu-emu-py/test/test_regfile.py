@@ -12,7 +12,6 @@ from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DSTRUCTURE_PARTITION_MASK,
     DSTRUCTURE_VALID_ELEMENTS_MASK,
-    LR_CR_SCALAR_VALUE_MASK,
     PadMode,
     Partition,
     decode_dstructure,
@@ -35,7 +34,7 @@ class TestRegFileScalars:
 
     def test_cr_set_get(self):
         rf = RegFile()
-        rf.set_cr(2, 0xCAFE)  # 20-bit value; CR0/CR1 are locked
+        rf.set_cr(2, 0xCAFE)  # CR0/CR1 are locked
         assert rf.get_cr(2) == 0xCAFE
 
     def test_cr0_is_permanently_zero(self):
@@ -48,15 +47,15 @@ class TestRegFileScalars:
         rf.set_cr(1, 0xFFFFFF)  # write is silently ignored
         assert rf.get_cr(1) == 1
 
-    def test_cr_20bit_mask(self):
+    def test_cr_32bit_mask(self):
         rf = RegFile()
-        rf.set_cr(3, 0x1FFFFF)  # 21 bits — should be masked to 20 bits
-        assert rf.get_cr(3) == LR_CR_SCALAR_VALUE_MASK
+        rf.set_cr(3, (1 << 33) | 0xDEADBEEF)  # 34 bits — should be masked to 32 bits
+        assert rf.get_cr(3) == 0xDEADBEEF
 
-    def test_lr_overflow_wraps_to_20bit(self):
+    def test_lr_overflow_wraps_to_32bit(self):
         rf = RegFile()
-        rf.set_lr(0, 0x1_0000_0001)  # > 20 bits
-        assert rf.get_lr(0) == 1  # only low 20 bits kept
+        rf.set_lr(0, (1 << 33) | 0xDEADBEEF)  # > 32 bits
+        assert rf.get_lr(0) == 0xDEADBEEF  # only low 32 bits kept
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()
@@ -123,14 +122,18 @@ class TestRegFileCyclic:
         assert got == data
 
     def test_modulo_index(self):
-        """Index 512 should be equivalent to index 0."""
+        """Index 512 should be equivalent to index 0 -- r_cyclic is allocated
+        exactly 512 B (narrow-only; wide-vector debug mode uses the separate
+        r_cyclic_wide_debug register, #180), so the default wrap (the full
+        allocation) already lands on the 512-byte boundary with no explicit
+        wrap_size needed."""
         rf = RegFile()
         data = bytearray([0xCC] * 128)
         rf.set_r_cyclic_at(512, data)
         assert rf.get_r_cyclic_at(0, 128) == data
 
     def test_read_wraps_correctly(self):
-        """Fill entire cyclic buffer, read 128 from near the end."""
+        """Fill the 512-byte cyclic buffer, read 128 from near the wrap boundary."""
         rf = RegFile()
         full = bytearray(range(256)) * 2  # 512 bytes
         rf.set_r_cyclic_at(0, full)
@@ -139,6 +142,14 @@ class TestRegFileCyclic:
         got = rf.get_r_cyclic_at(450)
         expected = full[450:] + full[: 128 - (512 - 450)]
         assert got == expected
+
+    def test_default_wrap_is_full_allocation(self):
+        """With no wrap_size argument, RegFile wraps at the full 512 B allocation --
+        it has no concept of 'mode'; r_cyclic itself is narrow-only storage."""
+        rf = RegFile()
+        data = bytearray([0xAB] * 128)
+        rf.set_r_cyclic_at(512, data)  # no wrap_size -> defaults to 512 (full allocation)
+        assert rf.get_r_cyclic_at(0, 128) == data
 
 
 # ---------------------------------------------------------------------------

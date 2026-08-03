@@ -1,0 +1,56 @@
+// Auto-generated from instruction_spec.py — do not edit.
+//
+// Opcode/operand enums and per-slot structs/unions are generated from
+// instruction_spec.py (union field layout in SLOT_UNIONS).
+package ipu_instr_pkg;
+
+  // -------------------------------------------------------------------------
+  // Enumerations (EnumToken descriptors — opcodes, registers, immediates)
+  // -------------------------------------------------------------------------
+{% for enum in enum_types %}
+  typedef enum logic [{{ enum.width - 1 }}:0] {
+{% for item in enum.members %}
+    {{ enum.name | upper }}_{{ item.name | upper }} = {{ item.sized_value }}{{ "," if not loop.last }}
+{% endfor %}
+  } {{ enum.sv_type }};
+
+{% endfor %}
+  // -------------------------------------------------------------------------
+  // Per-slot encoded words (opcode + operand union, MSB-first within slot)
+  // Opcode type for each slot is one of the enums above (e.g. load_inst_opcode_t).
+  // -------------------------------------------------------------------------
+{% for slot in slots %}
+  localparam int unsigned {{ slot.union_name | upper }}_WIDTH = {{ slot.operand_width }};
+
+  // Operand payload only (opcode is in {{ slot.struct_name }}.opcode, shared across members)
+  typedef union packed {
+{% for inst in slot.instructions %}
+    struct packed {
+{% for lf in inst.layout_fields %}
+      {{ lf.sv_type }} {{ lf.name }};{% if lf.operand %} // {{ lf.operand }}{% endif %}
+
+{% endfor %}
+    } {{ inst.sv_struct }};
+{% endfor %}
+  } {{ slot.union_name }};
+
+  typedef struct packed {
+    {{ slot.opcode_enum }} opcode;
+    {{ slot.union_name }} operands;
+  } {{ slot.struct_name }};
+
+  localparam int unsigned {{ slot.struct_name | upper }}_WIDTH = {{ slot.width }};
+
+{% endfor %}
+  // -------------------------------------------------------------------------
+  // Compound VLIW instruction (slots MSB → LSB: cond, lr×N, xmem, mult, acc, aaq, break)
+  // -------------------------------------------------------------------------
+  typedef struct packed {
+{% for member in compound_members %}
+    {{ member.sv_type }} {{ member.name }};
+{% endfor %}
+  } ipu_compound_inst_t;
+
+  localparam int unsigned IPU_COMPOUND_INST_WIDTH = {{ compound_width }};
+
+endpackage : ipu_instr_pkg

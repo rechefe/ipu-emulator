@@ -28,22 +28,35 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "LR value after earlier slots in the same cycle."
     ),
     "CrIdx": (
-        "Constant-register index: **`cr0`** … **`cr14`**. CRs are **read-only** in assembly; the "
-        "harness initializes them (e.g. base pointers, strides). `cr15` is reserved for dstructure "
-        "configuration and is not a valid ISA operand. **`SET`** in the LR slot "
-        "copies the full **32-bit** CR value into an LR."
+        "Constant-register index: **`cr0`** … **`cr15`**. CRs are **read-only** in assembly; the "
+        "harness initializes them (e.g. base pointers, strides). **`cr15`** conventionally holds "
+        "dstructure configuration but is a valid `CrIdx` operand like any other CR. **`SET`** in "
+        "the LR slot copies the full **32-bit** CR value into an LR."
     ),
     "LcrIdx": (
         "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
-        "`**cr0`–`cr14`** in the usual combined ordering used by the assembler. `cr15` is reserved "
-        "and is not a valid operand. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on "
-        "**`INCR_MOD_POW2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an "
-        "element from `R0`/`R1`; a CR's low byte is the scalar directly)."
+        "**`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** "
+        "on **`ADD`**/**`SUB`**, as **`step`** on **`INCR_MOD_POW2`**, and as **`src`** on "
+        "**`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte "
+        "is the scalar directly)."
     ),
     "LrIncDecImmediate": (
         "Unsigned immediate for **`INC`** / **`DEC`** in the LR slot. The bit width **W** is not "
         "hardcoded — it is derived from the LR slot union layout so the total slot width stays "
         "constant. Valid range: **`0`** to **`2^W − 1`**."
+    ),
+    "LrdIdx": (
+        "Register-pair index: **`lrd0`**, **`lrd2`**, **`lrd4`**, … **`lrd14`** — named after "
+        "the lower register in the pair — each aliasing two adjacent **`LR`** registers as one "
+        "8-byte-lane value: **`LRDn`** = **`LR(n+1)`** (high lanes) concatenated with **`LR(n)`** "
+        "(low lanes). Purely an assembler/emulator view; there is no separate physical storage. "
+        "Used as **`dest`** on **`ADDB`** / **`ADDBI`**."
+    ),
+    "AddbiImmediate": (
+        "8-bit byte immediate for **`ADDBI`**: written as an unsigned value **`0`**–**`255`** "
+        "or an equivalent signed **`-128`**–**`127`** literal (both spellings encode the same "
+        "bit pattern). The encoded byte is reinterpreted as a signed two's-complement `int8` "
+        "when broadcast-added to **`ADDB`**/**`ADDBI`**'s 8 destination byte lanes."
     ),
     "ElementsInRow": (
         "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
@@ -73,6 +86,11 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "Unsigned **3-bit** immediate on multiply instructions: **`mask_offset`** selects slot "
         "**`0`**–**`7`**, each a **128-bit** region of **`R_MASK`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
+    ),
+    "ReshapeMaskImmediate": (
+        "Unsigned **3-bit** immediate on **`RESHAPE`**: **`reshape_mask`** limits participation "
+        "to the leading **`(8 - reshape_mask)`** of the 8 byte lanes in the **`source`**/**`dest`** "
+        "**`LrdIdx`** pairs. **`0`** uses all 8 lanes; **`7`** uses only lane 0."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
     "DstructureCrIdx": (
@@ -193,11 +211,11 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 | Mult stage | {mult_vals} | 128-byte vectors; 2-bit mult-stage field (`2` reserved). See [MultStageReg](operand-types.md#multstagereg). |
 | Cyclic / mask | *(architectural)* | Cyclic (**RC**) and mask (**RM**) register files are documented per instruction in the reference; operands pass **byte offsets** via `LR` values. |
 | Loop / scalar | {lr_span} | General-purpose; **read/write**. See [LrIdx](operand-types.md#lridx). |
-| Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`cr0`** / **`cr1`** are often 0 and 1. See [CrIdx](operand-types.md#cridx). |
+| Constant | {cr_span} | **Read-only** in assembly; initialized by the harness. **`cr0`** / **`cr1`** are often 0 and 1. **`cr15`** conventionally holds dstructure configuration (see [DstructureCrIdx](operand-types.md#dstructurecridx)) but is a valid `CrIdx`/`LcrIdx` operand like any other CR. See [CrIdx](operand-types.md#cridx). |
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
-**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`** accept a small unsigned immediate on **`src_b`** only; **`INCR_MOD_POW2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
+**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INCR_MOD_POW2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
 
 ## Labels and branches
 
@@ -263,7 +281,7 @@ use **different** partition vectors:
 
 `mask_shift` names an LR register. The **ctrl stage** reads that register each cycle and forwards
 the value through the pipeline to the mult stage — the mult stage itself does not access LR
-registers directly. LR registers are 20-bit; negative values use 20-bit two's complement. Values
+registers directly. LR registers are 32-bit; negative values use 32-bit two's complement. Values
 outside [−3, +3] **clamp** to ±3.
 
 ### Partition vectors
@@ -465,6 +483,58 @@ def generate_instruction_docs(output_path: Path) -> None:
 
     output_path.write_text("\n".join(content))
     print(f"Generated documentation at {output_path}")
+
+
+def generate_instruction_format_md(output_path: Path) -> None:
+    """Generate the instruction-format documentation page (with download links)."""
+    from ipu_as.compound_inst import CompoundInst
+
+    width = CompoundInst.bits()
+    struct_svg = CompoundInst.generate_struct_layout_svg()
+    union_svg = CompoundInst.generate_union_layout_svg()
+
+    content = f"""# Instruction format
+
+This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
+Field names, bit widths, opcode values, and union-field sharing are **generated** from
+`instruction_spec.py` in `ipu_common` (the same source the assembler and emulator use).
+
+## Compound instruction layout ({width} bits)
+
+### Whole-word bit layout
+
+{struct_svg}
+
+### Per-slot union layout
+
+{union_svg}
+
+## Generated artifacts
+
+These files are produced at documentation build time (and via the assembler CLI). They are
+**not** checked into the repository.
+
+| Artifact | Description | Download |
+|----------|-------------|----------|
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, nested compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+
+### Regenerate locally
+
+```bash
+bazel build //docs:generate_instruction_format_artifacts
+# outputs under bazel-bin/docs/
+
+bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output /tmp/ipu_instr_pkg.sv
+```
+
+## Related documentation
+
+- [Assembly syntax](assembly-syntax.md) — how to write compound instructions in assembly
+- [Operand types](operand-types.md) — semantic types of instruction operands
+- [Instruction reference](instructions.md) — per-opcode documentation
+"""
+    output_path.write_text(content, encoding="utf-8")
+    print(f"Generated instruction format page at {output_path}")
 
 
 def generate_programmer_guide_md(output_path: Path) -> None:

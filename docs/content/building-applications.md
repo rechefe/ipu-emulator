@@ -38,7 +38,7 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(3, 128)  # stride
     state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)
 
-    # LR/CR values are 20-bit scalars; mask wrapped constants explicitly.
+    # LR/CR values are 32-bit scalars; mask wrapped constants explicitly.
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
@@ -61,7 +61,7 @@ The emulator can run multiply/accumulate paths with **128×32-bit lanes** (FP32 
 
 ## Activations, `ACTIVATE`, and virtual α (Python emulator) {#activations-emulator}
 
-The [AAQ stage spec](specs/stage-aaq.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
+The [AaQ and Store stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to lanes read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 

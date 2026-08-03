@@ -19,10 +19,11 @@ from ipu_emu.emulator import (
     run_with_debug,
     DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
+from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
-from ipu_emu.ipu import EmulatorError
+from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 from ipu_as.lark_tree import assemble, parse
 
@@ -158,7 +159,7 @@ BKPT;;
             cr={8: 45})
         state.regfile.set_cr(3, 200)
         run_until_complete(state)
-        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFF
+        assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
 
     def test_sub_lr_lr_imm5(self):
         state = _run("""\
@@ -295,7 +296,124 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 7  # imm in shared lcr field
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 7  # imm in field shared with AddbiImmediate
+
+
+class TestAddb:
+    """ADDB/ADDBI: broadcast-add a signed byte to LRDn's 8 byte lanes, saturating to [0, 255]."""
+
+    def test_addb_lr_source(self):
+        """Register source: each of the 8 lanes across LR0/LR1 gains the same byte."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr5 cr10;;
+ADDB lrd0 lr5;;
+BKPT;;
+""",
+            cr={8: 0x01020304, 9: 0x05060708, 10: 10})
+        assert state.regfile.get_lr(0) == 0x0B0C0D0E
+        assert state.regfile.get_lr(1) == 0x0F101112
+
+    def test_addb_cr_source(self):
+        """CR source: src_b's low byte is read directly from the CR (no intermediate SET)."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+ADDB lrd0 cr11;;
+BKPT;;
+""",
+            cr={8: 0x01020304, 9: 0x05060708, 11: 10})
+        assert state.regfile.get_lr(0) == 0x0B0C0D0E
+        assert state.regfile.get_lr(1) == 0x0F101112
+
+    def test_addbi_immediate(self):
+        """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each lane."""
+        state = _run("""\
+SET lr0 cr8;;
+SET lr1 cr9;;
+ADDBI lrd0 200;;
+BKPT;;
+""",
+            cr={8: 0x64646464, 9: 0x64646464})
+        # 0x64 == 100 in every lane; 100 + (-56) == 44 == 0x2C in every lane.
+        assert state.regfile.get_lr(0) == 0x2C2C2C2C
+        assert state.regfile.get_lr(1) == 0x2C2C2C2C
+
+    def test_addbi_negative_literal_matches_unsigned_spelling(self):
+        """``-56`` and ``200`` encode identically and produce the same result."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 -56;;
+BKPT;;
+""",
+            cr={8: 0x64646464})
+        assert state.regfile.get_lr(0) == 0x2C2C2C2C
+
+    def test_addbi_saturates_at_255_ceiling(self):
+        """A lane already near 255 clamps at 255 instead of wrapping."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 20;;
+BKPT;;
+""",
+            cr={8: 250})  # LR0 = 0x000000FA: low lane 250, others 0
+        lanes = state.regfile.get_lr(0).to_bytes(4, "little")
+        assert lanes[0] == 255  # 250 + 20 saturates at 255
+        assert lanes[1] == 20   # 0 + 20, no saturation
+
+    def test_addbi_saturates_at_0_floor(self):
+        """A negative byte pushes a low lane below 0, clamping at 0 instead of wrapping."""
+        state = _run("""\
+SET lr0 cr8;;
+ADDBI lrd0 200;;
+BKPT;;
+""",
+            cr={8: 5})  # LR0 = 0x00000005; 200 decodes as signed -56
+        assert state.regfile.get_lr(0) == 0  # every lane clamps to 0 (5-56 and 0-56 both < 0)
+        assert state.regfile.get_lr(1) == 0
+
+    def test_addb_lrd_maps_to_correct_lr_pair(self):
+        """LRD6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
+        state = _run("""\
+SET lr6 cr8;;
+SET lr7 cr9;;
+ADDBI lrd6 5;;
+BKPT;;
+""",
+            cr={8: 100, 9: 50})
+        # +5 broadcasts to all 8 lanes, including LR6/LR7's zero upper bytes.
+        assert state.regfile.get_lr(6) == 84215145  # bytes [105, 5, 5, 5]
+        assert state.regfile.get_lr(7) == 84215095  # bytes [55, 5, 5, 5]
+        assert state.regfile.get_lr(0) == 0
+        assert state.regfile.get_lr(5) == 0
+
+    def test_addb_lrd_conflict_with_overlapping_lr_write(self):
+        """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
+        with pytest.raises(RuntimeError, match="LR conflict"):
+            _run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
+
+    def test_decode_addb_operand_fields(self):
+        """``ADDB``'s dest/src_b share the same union fields as INC/SET.
+
+        ``lrd4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
+        """
+        encoded = assemble("ADDB lrd4 lr5;; BKPT;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 2    # dest = lrd4 (pair index 2)
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 5  # src_b = lr5
+
+    def test_decode_addbi_operand_fields(self):
+        """``ADDBI``'s immediate uses the same shared field as INC/DEC.
+
+        ``lrd8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
+        """
+        encoded = assemble("ADDBI lrd8 200;; BKPT;;")
+        d = decode_instruction_word(encoded[0])
+        assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
+        assert d["lr_inst_0_token_2_lr_reg_field"] == 4    # dest = lrd8 (pair index 4)
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 200
 
 
 # ============================================================================
@@ -332,23 +450,23 @@ BKPT;;
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4   # reg = lr4
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
         assert d["lr_inst_0_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_1_token_2_lr_reg_field"] == 5   # reg = lr5
-        assert d["lr_inst_1_token_1_lcr_reg_field"] == 9   # src = cr9
+        assert d["lr_inst_1_token_1_addbi_immediate"] == 9   # src = cr9
         assert d["lr_inst_1_token_3_lr_reg_field"] == 0   # unused field (default lr0)
         assert d["lr_inst_2_token_2_lr_reg_field"] == 6   # reg = lr6
-        assert d["lr_inst_2_token_1_lcr_reg_field"] == 10  # src = cr10
+        assert d["lr_inst_2_token_1_addbi_immediate"] == 10  # src = cr10
         assert d["lr_inst_2_token_3_lr_reg_field"] == 0   # unused field (default lr0)
 
     def test_decode_add_lcr_operand_field(self):
-        """``ADD`` third operand uses LcrRegField (register-only)."""
+        """``ADD`` third operand uses LcrRegField (register-only), sharing a field with AddbiImmediate."""
         encoded = assemble("ADD lr2 lr1 cr7;; BKPT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2   # dest = lr2
         assert d["lr_inst_0_token_3_lr_reg_field"] == 1   # src_a = lr1
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 16 + 7  # src_b = cr7
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 16 + 7  # src_b = cr7
 
 
 # ============================================================================
@@ -358,17 +476,18 @@ BKPT;;
 
 class TestMemoryOperations:
     def test_load_from_memory(self):
+        """cr8=32 is a row number: row 32 * 128 B/row (narrow) = byte 0x1000."""
         test_data = bytes(range(128))
         state = _make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
 """,
-            cr={8: 4096})
+            cr={8: 32})
         state.xmem.write_address(0x1000, test_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(13) == 0x1000
+        assert state.regfile.get_lr(13) == 32
         r1_data = state.regfile.get_r(1)
         assert r1_data == bytearray(test_data)
 
@@ -389,7 +508,7 @@ SET lr0 cr11;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288})
+            cr={8: 32, 9: 64, 10: 0, 11: 96})
         state.xmem.write_address(0x1000, r1_data)
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
@@ -407,11 +526,11 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 20480, 9: 0})
+            cr={8: 160, 9: 0})
         state.xmem.write_address(0x5000, cyclic_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(0) == 0x5000
+        assert state.regfile.get_lr(0) == 160
         loaded = state.regfile.get_r_cyclic_at(0, 128)
         assert loaded == bytearray(cyclic_data)
 
@@ -425,7 +544,7 @@ SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
 BKPT;;
 """,
-            cr={8: 20480, 9: 64})
+            cr={8: 160, 9: 64})
         with pytest.raises(EmulatorError, match="index must be one of"):
             run_until_complete(state)
 
@@ -436,17 +555,18 @@ SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: 24576})
+            cr={8: 192})
         state.xmem.write_address(0x6000, mask_data)
         run_until_complete(state)
 
-        assert state.regfile.get_lr(0) == 0x6000
+        assert state.regfile.get_lr(0) == 192
         loaded = state.regfile.get_r_mask()
         assert loaded == bytearray(mask_data)
 
     def test_concurrent_load_and_store_same_cycle(self):
         """Load and store in one VLIW bundle: load resolves before store."""
         addr = 0x1000
+        row = addr // 128  # row number for the shared cr8 base operand
         old_data = bytes([i & 0xFF for i in range(128)])
         state = _make_state("""\
 SET lr0 cr8;;
@@ -454,7 +574,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 STR_ACC_REG lr0 cr0;;
 BKPT;;
 """,
-            cr={8: addr})
+            cr={8: row})
         state.xmem.write_address(addr, old_data)
         state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
         run_until_complete(state)
@@ -489,7 +609,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -527,7 +647,7 @@ SET lr9 cr13;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 1, 13: 16384})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128})
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -567,7 +687,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -606,7 +726,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 12: 16384, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure})
         state.dtype = DType.E5
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -640,12 +760,128 @@ SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+            cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
         state.xmem.write_address(0x3000, mask_data)
-        with pytest.raises(EmulatorError, match="INT8"):
+        with pytest.raises(EmulatorError, match="floating-point lanes"):
+            run_until_complete(state)
+
+    def test_mask_affects_multiplication_wide_vector_debug(self):
+        """Same program as test_mask_affects_multiplication, run under wide-vector
+        debug/FP32: masking must be honored identically to narrow mode — first 64
+        lanes active, last 64 masked to the pad value (ZERO)."""
+        r0_data = struct.pack("<128f", *([2.0] * 128))
+        cyclic_data = struct.pack("<128f", *([3.0] * 128))
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 6.0, f"word {i} should be 6.0 (active), got {words[i]}"
+        for i in range(64, 128):
+            assert words[i] == 0.0, f"word {i} should be masked to 0.0, got {words[i]}"
+
+    def test_mask_pad_pos_inf_wide_vector_debug(self):
+        """pad_mode=POS_INF fills masked-out lanes with +inf under debug/FP32,
+        where dtype stays INT8-default but lane arithmetic is float — the
+        defect this fix corrects (dtype-based rejection would wrongly reject
+        this)."""
+        r0_data = bytes([0x00] * 128)
+        cyclic_data = bytes([0x00] * 512)
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+ACC.ADD;;
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+        assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
+        state.xmem.write_address(0x1000, r0_data)
+        state.xmem.write_address(0x2000, cyclic_data)
+        state.xmem.write_address(0x3000, mask_data)
+        run_until_complete(state)
+
+        acc_bytes = state.xmem.read_address(0x4000, 512)
+        words = struct.unpack_from("<128f", acc_bytes)
+        for i in range(64):
+            assert words[i] == 0.0, f"word {i} should be 0.0 (active)"
+        for i in range(64, 128):
+            assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
+
+    def test_mask_pad_inf_rejected_under_wide_vector_debug_int32(self):
+        """POS_INF pad_mode must still raise under debug/INT32 lanes, where
+        infinity has no representation — the gate must key off
+        wide_vector_arithmetic, not the (irrelevant, INT8-default) dtype field."""
+        mask_data = bytearray(128)
+        for i in range(8):
+            mask_data[i] = 0xFF
+        dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
+
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+SET lr3 cr11;;
+LDR_MULT_MASK_REG lr3 cr0;;
+SET lr5 cr10;;
+SET lr6 cr10;;
+MULT.RC.VV lr6 r0 0 lr5 cr15;
+BKPT;;
+""",
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
+        state.wide_vector_debug = True
+        state.wide_vector_arithmetic = WideVectorArithmetic.INT32
+        state.xmem.write_address(0x1000, bytes(128))
+        state.xmem.write_address(0x2000, bytes(512))
+        state.xmem.write_address(0x3000, mask_data)
+        with pytest.raises(EmulatorError, match="floating-point lanes"):
             run_until_complete(state)
 
 
@@ -812,7 +1048,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_negative_counter(self):
-        """BLT sign-extends at 20 bits: -1 < 0 must branch (issue #142)."""
+        """BLT sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -827,7 +1063,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_negative_not_taken(self):
-        """BGE sign-extends at 20 bits: -1 >= 0 must not branch (issue #142)."""
+        """BGE sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1353,7 +1589,144 @@ BKPT;;
         )
 
 
+def _lrd_bytes(*vals: int) -> tuple[int, int]:
+    """Pack 8 byte values into (lo_cr, hi_cr) 32-bit little-endian words for an LRDn pair."""
+    assert len(vals) == 8
+    lo = int.from_bytes(bytes(vals[0:4]), "little")
+    hi = int.from_bytes(bytes(vals[4:8]), "little")
+    return lo, hi
+
+
 # ============================================================================
+
+
+class TestReshape:
+    """RESHAPE: permute R_ACC word lanes via two LrdIdx byte-index arrays (issue #192)."""
+
+    def test_reshape_mask_zero_copies_all_eight_lanes(self):
+        """reshape_mask=0: all 8 lanes participate."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(i) == 1000 + i
+
+    def test_reshape_mask_seven_copies_one_lane(self):
+        """reshape_mask=7: only lane 0 participates; lanes 1-7 are untouched."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 7;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(100) == 1000
+        for i in range(101, 108):
+            assert state.regfile.get_r_acc_word(i) == 9999
+
+    def test_reshape_skips_out_of_range_source(self):
+        """A source[i] >= 128 leaves that lane's dest untouched."""
+        src_lo, src_hi = _lrd_bytes(200, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(100) == 9999  # lane 0 skipped (source out of range)
+        for i in range(1, 8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+
+    def test_reshape_skips_out_of_range_dest(self):
+        """A dest[i] >= 128 leaves R_ACC unmodified for that lane."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(200, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_r_acc_word(i, 1000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        # dest[0]=200 is out of range: no write (and no out-of-bounds R_ACC access) for lane 0.
+        for i in range(1, 8):
+            assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
+        # Source words themselves are untouched.
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(i) == 1000 + i
+
+    def test_reshape_same_instruction_reads_from_snapshot_not_in_progress_write(self):
+        """Lane i's dest overlapping lane j's source must resolve from the pre-instruction
+        snapshot, not another lane's write within the same RESHAPE (no chaining)."""
+        # source[0]=0, source[1]=1; dest[0]=1, dest[1]=2 -> R_ACC[1] = old R_ACC[0],
+        # R_ACC[2] = old R_ACC[1] (not the value RESHAPE just wrote into R_ACC[1]).
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(1, 2, 3, 4, 5, 6, 7, 8)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 6;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        state.regfile.set_r_acc_word(0, 10)
+        state.regfile.set_r_acc_word(1, 20)
+        state.regfile.set_r_acc_word(2, 30)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(1) == 10  # R_ACC[1] = old R_ACC[0]
+        assert state.regfile.get_r_acc_word(2) == 20  # R_ACC[2] = old R_ACC[1], not the new 10
 
 
 class TestProgramCounter:
@@ -1460,7 +1833,7 @@ class TestDecodeRoundtrip:
         # LR opcode should be 'set' = index 0
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
         assert d["lr_inst_0_token_2_lr_reg_field"] == 13  # reg = lr13
-        assert d["lr_inst_0_token_1_lcr_reg_field"] == 8  # src = cr8
+        assert d["lr_inst_0_token_1_addbi_immediate"] == 8  # src = cr8
 
 
 # ============================================================================
@@ -1491,7 +1864,7 @@ MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         # Set dtype to E4 (fp8_e4)
         state.dtype = DType.E4
         state.xmem.write_address(0x1000, r0_data)
@@ -1532,7 +1905,7 @@ MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.regfile.set_cr(3, 3)  # scalar = low byte = 3
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1558,7 +1931,7 @@ MULT.RC.VE lr2 cr2 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.regfile.set_cr(2, 0xFE)  # low byte 0xFE = int8(-2)
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1611,7 +1984,7 @@ MULT.RC.VE lr2 cr5 0 lr4 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.E4
         state.regfile.set_cr(5, one_fp8)  # scalar = 1.0 in fp8_e4
         state.xmem.write_address(0x1000, cyclic_data)
@@ -1667,7 +2040,7 @@ MULT.RC.VV lr2 r0 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -1694,7 +2067,7 @@ MULT.RC.VE lr2 lr2 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0})
+            cr={8: 32, 9: 64, 10: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x2000, cyclic_data)
@@ -1725,7 +2098,7 @@ MULT.RC.VE lr2 lr3 0 lr2 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 4352, 10: 8192, 11: 0, 12: 128})
+            cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, bytes(r0_data))
         state.xmem.write_address(0x1100, bytes(r1_data))
@@ -1754,7 +2127,7 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0})
+            cr={8: 32, 9: 0})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
@@ -1803,7 +2176,7 @@ MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
 BKPT;;
 """,
-            cr={8: 4096, 9: 0, 10: 8192})
+            cr={8: 32, 9: 0, 10: 64})
         state.dtype = DType.INT8
         state.xmem.write_address(0x1000, cyclic_data)
         state.xmem.write_address(0x2000, bytes(mask_data))
@@ -1834,10 +2207,12 @@ class TestMaskShiftSequential:
     The partition_vector is derived from CR15.partition (0 = no partitioning).
     """
 
-    _RC_ADDR = 0x1000   # xmem address for R_CYCLIC data
-    _MASK_ADDR = 0x2000  # xmem address for mask data
-    _RC_CR = 8           # CR holding R_CYCLIC xmem address
-    _MASK_CR = 9         # CR holding mask xmem address
+    _RC_ADDR = 0x1000   # xmem byte address for R_CYCLIC data
+    _MASK_ADDR = 0x2000  # xmem byte address for mask data
+    _RC_ROW = _RC_ADDR // 128    # row number for CR holding R_CYCLIC xmem base
+    _MASK_ROW = _MASK_ADDR // 128  # row number for CR holding mask xmem base
+    _RC_CR = 8           # CR holding R_CYCLIC xmem row
+    _MASK_CR = 9         # CR holding mask xmem row
     _SHIFT_CR = 2        # CR holding mask_shift_idx (set per test)
 
     _ASM = """\
@@ -1864,8 +2239,8 @@ BKPT;;
         state = _make_state(
             self._ASM,
             cr={
-                self._RC_CR: self._RC_ADDR,
-                self._MASK_CR: self._MASK_ADDR,
+                self._RC_CR: self._RC_ROW,
+                self._MASK_CR: self._MASK_ROW,
                 self._SHIFT_CR: shift_idx & 0xFFFFFFFF,
             },
         )
@@ -2185,7 +2560,7 @@ class TestPostAaqReg:
         """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.dtype = DType.INT8
-        state.regfile.set_cr(8, 0x4000)
+        state.regfile.set_cr(8, 0x4000 // 128)  # row number for base
         data = bytearray(range(256)) * 2
         state.regfile.set_post_aaq_reg(data)
 
@@ -2218,4 +2593,148 @@ BKPT;;
 
         with pytest.warns(UserWarning, match="DEBUG ONLY"):
             run_until_complete(state)
+
+
+# ============================================================================
+# XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
+# translated to byte addresses via the active mode's row size. XMEM is
+# allocated 8 MB unconditionally; narrow mode may only address the first
+# 16384 rows (the first 2 MB) of that allocation.
+# ============================================================================
+
+
+class TestXmemRowAddressing:
+    def test_narrow_row_above_0x2000_reads_correct_bytes(self):
+        """A narrow-mode row well past the old 8 KB test-suite footprint round-trips."""
+        row = 100  # byte 12800 -- past 0x2000 (8192), still well inside the 2 MB narrow bound
+        test_data = bytes(range(128))
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, test_data)
+        run_until_complete(state)
+        assert state.regfile.get_r(1) == bytearray(test_data)
+
+    def test_narrow_row_near_2mb_bound_reads_correct_bytes(self):
+        """The last valid narrow-mode row (16383, byte 2097024) round-trips."""
+        row = NARROW_MAX_ROW - 1
+        test_data = bytes(range(128))
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, test_data)
+        run_until_complete(state)
+        assert state.regfile.get_r(1) == bytearray(test_data)
+
+    def test_narrow_row_at_2mb_bound_raises(self):
+        """Row 16384 (the first row past the 2 MB narrow bound) is rejected in narrow mode."""
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: NARROW_MAX_ROW})
+        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+            run_until_complete(state)
+
+    def test_huge_unsigned_row_raises_narrow_range_error(self):
+        """LR/CR values are unsigned 32-bit, so a 'negative' row arrives as a huge
+        positive row number -- it is rejected by the narrow-mode range check, not a
+        separate negative-row path (registers can never hold a negative row)."""
+        state = _make_state("""\
+SET lr13 cr8;;
+LDR_MULT_REG r1 lr13 cr0;;
+BKPT;;
+""",
+            cr={8: 0xFFFFFFFF})
+        with pytest.raises(EmulatorError, match="out of range for narrow mode"):
+            run_until_complete(state)
+
+    def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
+        """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
+        bytes: row (NARROW_MAX_ROW - 1) narrow tops out just under 2 MB, but the same
+        row number in debug mode addresses a byte well past 2 MB, deep into the 8 MB
+        allocation narrow mode can never reach at any row number."""
+        row = NARROW_MAX_ROW - 2  # leaves room for a second row (cyclic data) right after
+        byte_addr = row * 512
+        assert byte_addr > (1 << 21), "row's debug byte address must exceed narrow's 2 MB reach"
+        r0 = struct.pack("<128f", *([2.0] * 128))
+        rc = struct.pack("<128f", *([3.0] * 128))
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.dtype = DType.INT8
+        state.xmem.write_address(byte_addr, r0)
+        state.xmem.write_address(byte_addr + 512, rc)
+        state.regfile.set_cr(6, row)
+        state.regfile.set_cr(7, row + 1)
+        state.regfile.set_cr(8, 0)  # LDR_CYCLIC_MULT_REG index must be 0 in debug mode
+        asm = """\
+SET lr0 cr6;;
+SET lr1 cr7;;
+SET lr2 cr8;;
+LDR_MULT_REG r0 lr0 cr0;;
+LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+MULT.RC.VV lr2 r0 0 lr2 cr15;;
+acc.add.first;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        run_until_complete(state)
+        acc = state.regfile.raw("r_acc")
+        for i in range(128):
+            v = struct.unpack_from("<f", acc, i * 4)[0]
+            assert v == pytest.approx(6.0), f"lane {i}"
+
+    def test_debug_mode_row_past_8mb_raises(self):
+        """Both modes reject rows whose byte address would exceed the 8 MB allocation."""
+        max_debug_row = XMEM_SIZE_BYTES // 512
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.dtype = DType.INT8
+        state.regfile.set_cr(6, max_debug_row)
+        state.regfile.set_cr(7, 0)
+        asm = """\
+SET lr0 cr6;;
+LDR_MULT_REG r0 lr0 cr0;;
+BKPT;;
+"""
+        encoded = assemble(asm)
+        decoded = [decode_instruction_word(w) for w in encoded]
+        load_program(state, decoded)
+        with pytest.raises(EmulatorError, match="exceeds"):
+            run_until_complete(state)
+
+    def test_ldr_mult_mask_reg_reads_row_start_128_bytes_both_modes(self):
+        """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""
+        row = 50
+        mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
+        state = _make_state("""\
+SET lr0 cr8;;
+LDR_MULT_MASK_REG lr0 cr0;;
+BKPT;;
+""",
+            cr={8: row})
+        state.xmem.write_address(row * 128, mask_data)
+        run_until_complete(state)
+        assert state.regfile.get_r_mask() == bytearray(mask_data)
+
+    def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
+        """STR_ACC_REG writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
+        row = 40
+        state = _make_state("""\
+SET lr9 cr12;;
+STR_ACC_REG lr9 cr0;;
+BKPT;;
+""",
+            cr={12: row})
+        state.regfile.set_r_acc_bytes(bytes(range(1, 129)) * 4)
+        run_until_complete(state)
+        stored = state.xmem.read_address(row * 128, 512)
+        assert stored == state.regfile.get_r_acc_bytes()
 

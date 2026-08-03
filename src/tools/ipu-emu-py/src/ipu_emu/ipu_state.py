@@ -43,7 +43,7 @@ class IpuState:
 
     Attributes:
         regfile:         The live register file.
-        xmem:            External memory (2 MB).
+        xmem:            External memory (8 MB, mode-independent allocation).
         program_counter: Current instruction address.
         inst_mem:        Instruction memory (list of decoded instruction dicts).
         dtype:           Arithmetic data type (not stored in CR; emulator-only).
@@ -76,8 +76,6 @@ class IpuState:
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
         self.wide_vector_quantize_output: bool = wide_vector_quantize_output
-        self._debug_mult_stage_vectors: dict[int, list[float | int]] = {}
-        self._debug_mult_stage_vectors_snap: dict[int, list[float | int]] = {}
 
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         self.elu_alpha: float = (
