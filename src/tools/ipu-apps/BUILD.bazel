@@ -1137,3 +1137,555 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- layernorm_64x192 app -----------------------------------
+
+exports_files([
+    "src/ipu_apps/layernorm_64x192/layernorm_64x192.asm",
+])
+
+assemble_asm(
+    name = "assemble_layernorm_64x192",
+    src = "src/ipu_apps/layernorm_64x192/layernorm_64x192.asm",
+)
+
+py_binary(
+    name = "layernorm_64x192",
+    srcs = ["src/ipu_apps/layernorm_64x192/__main__.py"],
+    main = "src/ipu_apps/layernorm_64x192/__main__.py",
+    data = [
+        ":assemble_layernorm_64x192.bin",
+    ],
+    env = {
+        "LAYERNORM_64X192_INST_BIN": "$(rootpath :assemble_layernorm_64x192.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_layernorm_64x192_wide",
+    size = "large",
+    srcs = ["test/test_layernorm_64x192_wide.py"],
+    data = [
+        ":assemble_layernorm_64x192.bin",
+    ],
+    env = {
+        "LAYERNORM_64X192_INST_BIN": "$(rootpath :assemble_layernorm_64x192.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- residual_add_64x192 app --------------------------------
+
+exports_files([
+    "src/ipu_apps/residual_add_64x192/residual_add_64x192.asm",
+])
+
+assemble_asm(
+    name = "assemble_residual_add_64x192",
+    src = "src/ipu_apps/residual_add_64x192/residual_add_64x192.asm",
+)
+
+py_binary(
+    name = "residual_add_64x192",
+    srcs = ["src/ipu_apps/residual_add_64x192/__main__.py"],
+    main = "src/ipu_apps/residual_add_64x192/__main__.py",
+    data = [
+        ":assemble_residual_add_64x192.bin",
+    ],
+    env = {
+        "RESIDUAL_ADD_64X192_INST_BIN": "$(rootpath :assemble_residual_add_64x192.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_residual_add_64x192_wide",
+    size = "large",
+    srcs = ["test/test_residual_add_64x192_wide.py"],
+    data = [
+        ":assemble_residual_add_64x192.bin",
+    ],
+    env = {
+        "RESIDUAL_ADD_64X192_INST_BIN": "$(rootpath :assemble_residual_add_64x192.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_64x48 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/qk_scores_64x48/qk_scores_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_qk_scores_64x48",
+    src = "src/ipu_apps/qk_scores_64x48/qk_scores_64x48.asm",
+)
+
+py_binary(
+    name = "qk_scores_64x48",
+    srcs = ["src/ipu_apps/qk_scores_64x48/__main__.py"],
+    main = "src/ipu_apps/qk_scores_64x48/__main__.py",
+    data = [
+        ":assemble_qk_scores_64x48.bin",
+    ],
+    env = {
+        "QK_SCORES_64X48_INST_BIN": "$(rootpath :assemble_qk_scores_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_64x48_wide",
+    size = "large",
+    srcs = ["test/test_qk_scores_64x48_wide.py"],
+    data = [
+        ":assemble_qk_scores_64x48.bin",
+    ],
+    env = {
+        "QK_SCORES_64X48_INST_BIN": "$(rootpath :assemble_qk_scores_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_64x48 app ---------------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_64x48/attn_v_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_64x48",
+    src = "src/ipu_apps/attn_v_64x48/attn_v_64x48.asm",
+)
+
+py_binary(
+    name = "attn_v_64x48",
+    srcs = ["src/ipu_apps/attn_v_64x48/__main__.py"],
+    main = "src/ipu_apps/attn_v_64x48/__main__.py",
+    data = [
+        ":assemble_attn_v_64x48.bin",
+    ],
+    env = {
+        "ATTN_V_64X48_INST_BIN": "$(rootpath :assemble_attn_v_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_64x48_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_64x48_wide.py"],
+    data = [
+        ":assemble_attn_v_64x48.bin",
+    ],
+    env = {
+        "ATTN_V_64X48_INST_BIN": "$(rootpath :assemble_attn_v_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_16x60 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/qk_scores_16x60/qk_scores_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_qk_scores_16x60",
+    src = "src/ipu_apps/qk_scores_16x60/qk_scores_16x60.asm",
+)
+
+py_binary(
+    name = "qk_scores_16x60",
+    srcs = ["src/ipu_apps/qk_scores_16x60/__main__.py"],
+    main = "src/ipu_apps/qk_scores_16x60/__main__.py",
+    data = [
+        ":assemble_qk_scores_16x60.bin",
+    ],
+    env = {
+        "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_16x60_wide",
+    size = "large",
+    srcs = ["test/test_qk_scores_16x60_wide.py"],
+    data = [
+        ":assemble_qk_scores_16x60.bin",
+    ],
+    env = {
+        "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_16x60 app ---------------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_16x60/attn_v_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_16x60",
+    src = "src/ipu_apps/attn_v_16x60/attn_v_16x60.asm",
+)
+
+py_binary(
+    name = "attn_v_16x60",
+    srcs = ["src/ipu_apps/attn_v_16x60/__main__.py"],
+    main = "src/ipu_apps/attn_v_16x60/__main__.py",
+    data = [
+        ":assemble_attn_v_16x60.bin",
+    ],
+    env = {
+        "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_16x60_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_16x60_wide.py"],
+    data = [
+        ":assemble_attn_v_16x60.bin",
+    ],
+    env = {
+        "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- unfold_8x8x240 app -------------------------------------
+
+exports_files([
+    "src/ipu_apps/unfold_8x8x240/unfold_8x8x240.asm",
+])
+
+assemble_asm(
+    name = "assemble_unfold_8x8x240",
+    src = "src/ipu_apps/unfold_8x8x240/unfold_8x8x240.asm",
+)
+
+py_binary(
+    name = "unfold_8x8x240",
+    srcs = ["src/ipu_apps/unfold_8x8x240/__main__.py"],
+    main = "src/ipu_apps/unfold_8x8x240/__main__.py",
+    data = [
+        ":assemble_unfold_8x8x240.bin",
+    ],
+    env = {
+        "UNFOLD_8X8X240_INST_BIN": "$(rootpath :assemble_unfold_8x8x240.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_unfold_8x8x240_wide",
+    size = "large",
+    srcs = ["test/test_unfold_8x8x240_wide.py"],
+    data = [
+        ":assemble_unfold_8x8x240.bin",
+    ],
+    env = {
+        "UNFOLD_8X8X240_INST_BIN": "$(rootpath :assemble_unfold_8x8x240.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- residual_add_16x240 app --------------------------------
+
+exports_files([
+    "src/ipu_apps/residual_add_16x240/residual_add_16x240.asm",
+])
+
+assemble_asm(
+    name = "assemble_residual_add_16x240",
+    src = "src/ipu_apps/residual_add_16x240/residual_add_16x240.asm",
+)
+
+py_binary(
+    name = "residual_add_16x240",
+    srcs = ["src/ipu_apps/residual_add_16x240/__main__.py"],
+    main = "src/ipu_apps/residual_add_16x240/__main__.py",
+    data = [
+        ":assemble_residual_add_16x240.bin",
+    ],
+    env = {
+        "RESIDUAL_ADD_16X240_INST_BIN": "$(rootpath :assemble_residual_add_16x240.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_residual_add_16x240_wide",
+    size = "large",
+    srcs = ["test/test_residual_add_16x240_wide.py"],
+    data = [
+        ":assemble_residual_add_16x240.bin",
+    ],
+    env = {
+        "RESIDUAL_ADD_16X240_INST_BIN": "$(rootpath :assemble_residual_add_16x240.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- layernorm_16x240 app -----------------------------------
+
+exports_files([
+    "src/ipu_apps/layernorm_16x240/layernorm_16x240.asm",
+])
+
+assemble_asm(
+    name = "assemble_layernorm_16x240",
+    src = "src/ipu_apps/layernorm_16x240/layernorm_16x240.asm",
+)
+
+py_binary(
+    name = "layernorm_16x240",
+    srcs = ["src/ipu_apps/layernorm_16x240/__main__.py"],
+    main = "src/ipu_apps/layernorm_16x240/__main__.py",
+    data = [
+        ":assemble_layernorm_16x240.bin",
+    ],
+    env = {
+        "LAYERNORM_16X240_INST_BIN": "$(rootpath :assemble_layernorm_16x240.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_layernorm_16x240_wide",
+    size = "large",
+    srcs = ["test/test_layernorm_16x240_wide.py"],
+    data = [
+        ":assemble_layernorm_16x240.bin",
+    ],
+    env = {
+        "LAYERNORM_16X240_INST_BIN": "$(rootpath :assemble_layernorm_16x240.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+# BUILD.bazel stanzas for the L5 KEY-MAJOR attention chain.
+# Merge these into src/tools/ipu-apps/BUILD.bazel (orchestrator does the merge).
+
+# -- attn_scores_km_16x60 app -------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_scores_km_16x60",
+    src = "src/ipu_apps/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_16x60",
+    srcs = ["src/ipu_apps/attn_scores_km_16x60/__main__.py"],
+    main = "src/ipu_apps/attn_scores_km_16x60/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_16x60.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_16x60_wide",
+    size = "large",
+    srcs = ["test/test_attn_scores_km_16x60_wide.py"],
+    data = [
+        ":assemble_attn_scores_km_16x60.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_60 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_bcast_60/attn_v_bcast_60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_60",
+    src = "src/ipu_apps/attn_v_bcast_60/attn_v_bcast_60.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_60",
+    srcs = ["src/ipu_apps/attn_v_bcast_60/__main__.py"],
+    main = "src/ipu_apps/attn_v_bcast_60/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_60.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_60_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_bcast_60_wide.py"],
+    data = [
+        ":assemble_attn_v_bcast_60.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+# =========================================================================
+# L4 KEY-MAJOR attention chain — BUILD.bazel stanzas
+# Append to src/tools/ipu-apps/BUILD.bazel (orchestrator merges centrally).
+# =========================================================================
+
+# -- attn_scores_km_64x48 app -------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_scores_km_64x48",
+    src = "src/ipu_apps/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_64x48",
+    srcs = ["src/ipu_apps/attn_scores_km_64x48/__main__.py"],
+    main = "src/ipu_apps/attn_scores_km_64x48/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_64x48.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_64x48_wide",
+    size = "large",
+    srcs = ["test/test_attn_scores_km_64x48_wide.py"],
+    data = [
+        ":assemble_attn_scores_km_64x48.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_48 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attn_v_bcast_48/attn_v_bcast_48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_48",
+    src = "src/ipu_apps/attn_v_bcast_48/attn_v_bcast_48.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_48",
+    srcs = ["src/ipu_apps/attn_v_bcast_48/__main__.py"],
+    main = "src/ipu_apps/attn_v_bcast_48/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_48.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_48_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_bcast_48_wide.py"],
+    data = [
+        ":assemble_attn_v_bcast_48.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
