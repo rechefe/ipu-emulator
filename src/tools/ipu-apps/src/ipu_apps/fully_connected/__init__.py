@@ -1,11 +1,12 @@
-"""Fully-connected layer test harness — Python port of fully_connected.c.
+"""Fully-connected layer test harness.
 
-Mirrors the C test harness that:
-1. Loads input activations and weights into XMEM
-2. Transposes weights
-3. Sets CR registers for base addresses and IpuState dtype
-4. Runs the assembly program
-5. Dumps output activations from XMEM
+Computes, for each of SAMPLES_NUM input vectors::
+
+    out[s, j] = sum_i in[s, i] * W[j, i]     j in [0, OUTPUT_NEURONS)
+
+The weight matrix is transposed on staging so that element i of every output
+neuron sits in one XMEM row, which is what ``LDR_CYCLIC_MULT_REG`` streams into
+r_cyclic while ``MULT.RC.VE`` broadcasts in[s, i] from r0.
 
 Usage::
 
@@ -16,131 +17,130 @@ Usage::
         inputs_path="inputs.bin",
         weights_path="weights.bin",
         output_path="output.bin",
-        dtype="INT8",
     )
     state, cycles = app.run()
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
+import numpy as np
+
 from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
-from ipu_emu.emulator import load_binary_to_xmem
 
 from ipu_apps.base import IpuApp
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-# -- Constants (mirror #defines in fully_connected.c) -----------------------
+# -- Dimensions -------------------------------------------------------------
 
-SAMPLES_NUM = 10
-
-INPUT_BASE_ADDR = 0x0000
-INPUT_NEURONS = 128  # IPU__R_REG_SIZE_BYTES
-
-WEIGHTS_BASE_ADDR = 0x20000
-
-OUTPUT_BASE_ADDR = 0x40000
+SAMPLES_NUM    = 10
+INPUT_NEURONS  = 128   # contraction width (one full SIMD vector)
 OUTPUT_NEURONS = 64
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The *_BASE_ADDR constants above stay byte
-# addresses because they only drive direct state.xmem.write_address/
-# read_address calls in this harness (which bypass row translation); the CR
-# registers below feed the .asm's XMEM instructions instead, so they carry
-# the same addresses converted to rows (divide by the 128-byte row size).
-ROW_SIZE_BYTES = 128
-WEIGHTS_BASE_ROW = WEIGHTS_BASE_ADDR // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // ROW_SIZE_BYTES
-# STR_ACC_REG always writes all 512 B of r_acc regardless of mode (issue
-# #179's fixed-payload outlier), which spans 4 rows in narrow mode -- the
-# stride between successive output vectors must match that, not the
-# 256-byte/2-row footprint of one INT32 output vector alone, or narrow-mode
-# writes would overlap.
-OUTPUT_STRIDE_ROWS = 4
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary
+# (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
+#
+# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# row is LANES *elements*. Region bases are DERIVED from row counts rather
+# than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
+# overflows at 4 bytes/element and regions silently overwrite each other.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
+
+INPUT_STRIDE_ROWS   = 1     # one sample = one row of INPUT_NEURONS elements
+WEIGHTS_STRIDE_ROWS = 1     # one transposed weight vector = one row
+# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
+# 512 B, so a store is exactly one row and one sample's output owns one row.
+OUTPUT_STRIDE_ROWS  = 1
+
+INPUT_ROWS   = SAMPLES_NUM * INPUT_STRIDE_ROWS
+WEIGHT_ROWS  = INPUT_NEURONS * WEIGHTS_STRIDE_ROWS
+
+# inputs / weights / output packed back to back, in rows.
+INPUT_BASE_ROW   = 0
+WEIGHTS_BASE_ROW = INPUT_BASE_ROW + INPUT_ROWS
+OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+
+# Byte addresses for this harness's direct xmem staging (which bypasses row
+# translation); the CR/LR values below stay in rows.
+INPUT_BASE_ADDR   = INPUT_BASE_ROW * ROW_BYTES
+WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
+OUTPUT_BASE_ADDR  = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value.
+def _load_inputs(state: "IpuState", inputs_path: str | Path) -> None:
+    """Stage the input activations, one sample per row.
 
-    Accepted formats (case-insensitive):
-
-    - ``'int8'`` → :attr:`DType.INT8` (integer mode)
-    - ``'fp8_e0'`` → :attr:`DType.INT8` (alias; treated as integer mode, not a float format)
-    - ``'fp8_eX'`` where X is 1-7 -> FP8 with X exponent bits (e.g. ``'fp8_e4'``)
-    - ``'fp8_e4m3'`` / ``'fp8_e5m2'`` -> aliases for ``fp8_e4`` / ``fp8_e5``
+    File layout: SAMPLES_NUM x INPUT_NEURONS FP32 values.
     """
-    s = dtype_str.lower().strip()
-    if s in ("int8", "fp8_e0"):
-        return DType.INT8
-    if s in ("fp8_e4m3", "e4m3"):
-        return DType.E4
-    if s in ("fp8_e5m2", "e5m2"):
-        return DType.E5
-    m = re.fullmatch(r"fp8_e([1-7])", s)
-    if m:
-        return DType(int(m.group(1)))
-    raise ValueError(
-        f"Invalid dtype '{dtype_str}'. Use 'int8', 'fp8_eX', "
-        "'fp8_e4m3', or 'fp8_e5m2'."
-    )
+    raw = Path(inputs_path).read_bytes()
+    expected = SAMPLES_NUM * INPUT_NEURONS * ELEM_BYTES
+    if len(raw) < expected:
+        raise ValueError(
+            f"Inputs file too small: {len(raw)} bytes, expected {expected}"
+        )
+    for s in range(SAMPLES_NUM):
+        row = raw[s * INPUT_NEURONS * ELEM_BYTES : (s + 1) * INPUT_NEURONS * ELEM_BYTES]
+        padded = bytearray(ROW_BYTES)
+        padded[: len(row)] = row
+        state.xmem.write_address(
+            INPUT_BASE_ADDR + s * INPUT_STRIDE_ROWS * ROW_BYTES, padded
+        )
 
 
 def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
-    """Load weights from file and transpose into XMEM.
+    """Stage W transposed: row i holds W[:, i], i.e. element i of every neuron.
 
-    Original: (OUTPUT_NEURONS × INPUT_NEURONS).
-    Transposed: (INPUT_NEURONS × INPUT_NEURONS), zero-padded.
+    File layout: OUTPUT_NEURONS x INPUT_NEURONS FP32 values (W[j][i]).
+    XMEM layout: row i = [W[0][i], W[1][i], ... W[63][i], 0 ...].
     """
     raw = Path(weights_path).read_bytes()
-    expected = OUTPUT_NEURONS * INPUT_NEURONS
+    expected = OUTPUT_NEURONS * INPUT_NEURONS * ELEM_BYTES
     if len(raw) < expected:
         raise ValueError(
             f"Weights file too small: {len(raw)} bytes, expected {expected}"
         )
-
-    original: list[bytes] = []
-    for j in range(OUTPUT_NEURONS):
-        row_start = j * INPUT_NEURONS
-        original.append(raw[row_start : row_start + INPUT_NEURONS])
-
+    w = np.frombuffer(raw[:expected], dtype=np.float32).reshape(
+        OUTPUT_NEURONS, INPUT_NEURONS
+    )
     for i in range(INPUT_NEURONS):
-        transposed_vector = bytearray(INPUT_NEURONS)
-        for j in range(OUTPUT_NEURONS):
-            transposed_vector[j] = original[j][i]
-        state.xmem.write_address(WEIGHTS_BASE_ADDR + i * INPUT_NEURONS, transposed_vector)
+        padded = np.zeros(LANES, dtype=np.float32)
+        padded[:OUTPUT_NEURONS] = w[:, i]
+        state.xmem.write_address(
+            WEIGHTS_BASE_ADDR + i * WEIGHTS_STRIDE_ROWS * ROW_BYTES,
+            bytearray(padded.tobytes()),
+        )
 
 
 class FullyConnectedApp(IpuApp):
-    """Fully-connected layer application harness.
+    """Fully-connected layer application harness (wide FP32).
 
     Args:
         inst_path:    Path to assembled instruction binary.
         inputs_path:  Path to input activations binary.
         weights_path: Path to weights binary.
         output_path:  Optional path to write output.
-        dtype:        Data type string or :class:`DType`.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-        load_binary_to_xmem(
-            state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
-        )
+        _load_inputs(state, self.inputs_path)
         _load_and_transpose_weights(state, self.weights_path)
-        # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
-        # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
+        # CR0=0 permanently (INPUT_BASE_ROW is 0, so nothing to set).
+        # CR1=1 permanently (can't hold WEIGHTS_BASE_ROW; it lives on CR13).
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
         # lr0/lr14 walk one row (one input/weight vector) per iteration.
@@ -148,9 +148,8 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(4, 1)
         state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)
         # Constants for ``SET lr* cr*`` in ``fully_connected.asm`` (issue #82).
-        # cr7 is the BLT lr0/lr1 loop bound: lr0 now increments by 1 row per
-        # sample (was 128 bytes), so the bound is SAMPLES_NUM rows, not the
-        # old byte count (10 * 128 = 1280).
+        # cr7 is the BLT lr0/lr1 loop bound: lr0 increments by 1 row per
+        # sample, so the bound is SAMPLES_NUM rows.
         state.regfile.set_cr(6, 0)
         state.regfile.set_cr(7, SAMPLES_NUM)
         state.regfile.set_cr(8, 0)
@@ -159,20 +158,21 @@ class FullyConnectedApp(IpuApp):
         # both lr4 offset and lr5 element index on the first effective iteration).
         state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)     # lr4 cyclic offset (rows): pre-decremented
         state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)    # lr5 counter: pre-decremented
-        state.regfile.set_cr(11, 127)                # BNE exit condition
+        state.regfile.set_cr(11, INPUT_NEURONS - 1)  # BNE exit condition
         state.regfile.set_cr(12, 0)
         state.regfile.set_cr(13, WEIGHTS_BASE_ROW)   # moved from cr1 (CR1 is now locked)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # STR_ACC_REG writes each sample 512 B apart (OUTPUT_STRIDE_ROWS
-            # rows), but only the first OUTPUT_NEURONS*4 bytes of each are
-            # real output -- dump_xmem_to_binary can't express a stride
-            # different from its chunk size, so read samples individually.
-            sample_stride = OUTPUT_STRIDE_ROWS * ROW_SIZE_BYTES
-            sample_size = OUTPUT_NEURONS * 4
+            # One sample's output per row; only the first OUTPUT_NEURONS lanes
+            # are real -- dump_xmem_to_binary can't express a stride different
+            # from its chunk size, so read samples individually.
+            sample_stride = OUTPUT_STRIDE_ROWS * ROW_BYTES
+            sample_size = OUTPUT_NEURONS * ELEM_BYTES
             parts = [
-                bytes(state.xmem.read_address(OUTPUT_BASE_ADDR + i * sample_stride, sample_size))
+                bytes(state.xmem.read_address(
+                    OUTPUT_BASE_ADDR + i * sample_stride, sample_size
+                ))
                 for i in range(SAMPLES_NUM)
             ]
             Path(self.output_path).write_bytes(b"".join(parts))

@@ -27,42 +27,59 @@ if TYPE_CHECKING:
 
 N_CH        = 16
 N_TPG       = 128    # tokens per group (one token group)
-ROW_BYTES   = 512    # wide-vector mode: 128 × FP32
 
-DATA_BASE        = 0x00000   # N_CH × ROW_BYTES = 8 192 B
-GAMMA_BASE       = 0x02000   # ROW_BYTES = 512 B
-BETA_BASE        = 0x02200   # ROW_BYTES = 512 B
-ONES_BASE        = 0x02400   # ROW_BYTES = 512 B  (128 × 1.0f)
-NEG_INV_N_BASE   = 0x02600   # ROW_BYTES = 512 B  (128 × -1/N_CH)
-INV_N_BASE       = 0x02800   # ROW_BYTES = 512 B  (128 ×  1/N_CH)
-NEG_MEAN_BASE    = 0x02A00   # ROW_BYTES = 512 B  (written step 1)
-CENTERED_BASE    = 0x02C00   # N_CH × ROW_BYTES = 8 192 B
-TEMP_BASE        = 0x04E00   # ROW_BYTES = 512 B
-INVSTD_BASE      = 0x05000   # ROW_BYTES = 512 B
-OUTPUT_BASE      = 0x05200   # N_CH × ROW_BYTES = 8 192 B
-
-# XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
-# addresses -- see issue #179. The *_BASE constants above stay byte addresses
-# because they only drive the harness's direct xmem read/write calls (which
-# bypass row translation); the CR registers in setup() feed the .asm's XMEM
-# instructions instead, so they carry addresses converted to rows.
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
 #
-# These kernels run in WIDE-VECTOR DEBUG mode (the test builds IpuState with
-# wide_vector_debug=True), where an element is 4 B, so one 128-lane row is
-# 512 B -- not the 128 B of narrow mode. ROW_BYTES already is that row size.
-ROW_SIZE_BYTES = ROW_BYTES               # 512 in wide-vector debug mode
-DATA_BASE_ROW      = DATA_BASE // ROW_SIZE_BYTES
-GAMMA_BASE_ROW     = GAMMA_BASE // ROW_SIZE_BYTES
-BETA_BASE_ROW      = BETA_BASE // ROW_SIZE_BYTES
-ONES_BASE_ROW      = ONES_BASE // ROW_SIZE_BYTES
-NEG_INV_N_BASE_ROW = NEG_INV_N_BASE // ROW_SIZE_BYTES
-INV_N_BASE_ROW     = INV_N_BASE // ROW_SIZE_BYTES
-NEG_MEAN_BASE_ROW  = NEG_MEAN_BASE // ROW_SIZE_BYTES
-CENTERED_BASE_ROW  = CENTERED_BASE // ROW_SIZE_BYTES
-TEMP_BASE_ROW      = TEMP_BASE // ROW_SIZE_BYTES
-INVSTD_BASE_ROW    = INVSTD_BASE // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW    = OUTPUT_BASE // ROW_SIZE_BYTES
-ROW_STRIDE_ROWS    = 1                   # one ROW_BYTES row = exactly 1 XMEM row
+# XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
+# addresses (issue #179). Region bases are DERIVED from row counts rather than
+# hardcoded as bytes: a hardcoded byte map silently goes wrong the moment a
+# dimension changes, and regions overwrite each other with no crash.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
+
+ROW_STRIDE_ROWS = 1              # one ROW_BYTES row = exactly 1 XMEM row
+
+# Region sizes in rows. Each is a lane count, so no element-width factor.
+DATA_ROWS      = N_CH            # one row per channel
+GAMMA_ROWS     = -(-N_CH // LANES)   # ceil: channels span whole rows
+BETA_ROWS      = GAMMA_ROWS
+CONST_ROWS     = 1               # ones / neg_inv_n / inv_n / neg_mean each
+CENTERED_ROWS  = N_CH
+TEMP_ROWS      = 1
+INVSTD_ROWS    = 1
+OUTPUT_ROWS    = N_CH
+
+# Packed back to back, in rows.
+DATA_BASE_ROW      = 0
+GAMMA_BASE_ROW     = DATA_BASE_ROW      + DATA_ROWS
+BETA_BASE_ROW      = GAMMA_BASE_ROW     + GAMMA_ROWS
+ONES_BASE_ROW      = BETA_BASE_ROW      + BETA_ROWS
+NEG_INV_N_BASE_ROW = ONES_BASE_ROW      + CONST_ROWS
+INV_N_BASE_ROW     = NEG_INV_N_BASE_ROW + CONST_ROWS
+NEG_MEAN_BASE_ROW  = INV_N_BASE_ROW     + CONST_ROWS
+CENTERED_BASE_ROW  = NEG_MEAN_BASE_ROW  + CONST_ROWS
+TEMP_BASE_ROW      = CENTERED_BASE_ROW  + CENTERED_ROWS
+INVSTD_BASE_ROW    = TEMP_BASE_ROW      + TEMP_ROWS
+OUTPUT_BASE_ROW    = INVSTD_BASE_ROW    + INVSTD_ROWS
+
+# Byte addresses for this harness's direct xmem staging (which bypasses row
+# translation); the CR values in setup() stay in rows.
+DATA_BASE      = DATA_BASE_ROW      * ROW_BYTES
+GAMMA_BASE     = GAMMA_BASE_ROW     * ROW_BYTES
+BETA_BASE      = BETA_BASE_ROW      * ROW_BYTES
+ONES_BASE      = ONES_BASE_ROW      * ROW_BYTES
+NEG_INV_N_BASE = NEG_INV_N_BASE_ROW * ROW_BYTES
+INV_N_BASE     = INV_N_BASE_ROW     * ROW_BYTES
+NEG_MEAN_BASE  = NEG_MEAN_BASE_ROW  * ROW_BYTES
+CENTERED_BASE  = CENTERED_BASE_ROW  * ROW_BYTES
+TEMP_BASE      = TEMP_BASE_ROW      * ROW_BYTES
+INVSTD_BASE    = INVSTD_BASE_ROW    * ROW_BYTES
+OUTPUT_BASE    = OUTPUT_BASE_ROW    * ROW_BYTES
 
 
 def _fp32_row(values: list[float]) -> bytes:
