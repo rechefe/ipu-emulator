@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -25,135 +24,96 @@ N_OUT = 144
 N_TG  = 2
 N_TOK = 128
 
-# Region bases are DERIVED, not hardcoded: every region's byte size scales with
-# the element width, so a map that fits in narrow mode (1 B/element) overflows
-# in wide-vector debug mode (4 B/element). Laying the regions out by their
-# actual row counts keeps them disjoint at any element width.
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path here. INT8 is not a mode
+# this kernel is written against; it belongs at the XMEM write boundary
+# (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179). A row is
-# LANES *elements*, so row COUNTS are element-width independent -- except the
-# output store, whose payload is a fixed 512 B (see _output_stride_rows).
-LANES = 128                                  # elements per XMEM row
+# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# row is LANES *elements*. Region bases are DERIVED from row counts rather
+# than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
+# overflows at 4 bytes/element, which silently corrupted wide runs (D ran
+# through WEIGHTS_BASE and weight staging overwrote it, so the kernel read
+# zeros for high k and dropped most of the contraction).
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil)
+W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil) = 3
 DATA_STRIDE_ROWS = (N_TG * N_TOK) // LANES   # rows per input channel
 W_STRIDE         = W_STRIDE_ROWS * LANES     # elements per output channel (padded)
-OUTPUT_ROW_BYTES = 512                       # r_acc store payload (bytes, both modes)
 
-DATA_BASE   = 0x00000
-DATA_ROWS   = K * N_TG
+# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
+# 512 B, so a store is exactly one row and one output channel owns one row.
+OUTPUT_ROW_BYTES   = 512
+OUTPUT_STRIDE_ROWS = 1
+
+DATA_ROWS   = K * N_TG                       # one row per (k, tg)
 WEIGHT_ROWS = N_OUT * W_STRIDE_ROWS
 
+# D/W/C packed back to back, in rows.
+DATA_BASE_ROW    = 0
+WEIGHTS_BASE_ROW = DATA_BASE_ROW + DATA_ROWS
+OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
-def _row_bytes(elem: int) -> int:
-    """Bytes per XMEM row at the given element width: 128 narrow, 512 wide."""
-    return LANES * elem
-
-
-def _output_stride_rows(elem: int) -> int:
-    """Rows spanned by one accumulator store.
-
-    r_acc is a fixed 512 B in BOTH modes and the store writes all of it, so its
-    footprint in ROWS is mode-dependent: 4 narrow, 1 wide. The one row count
-    that does not cancel out.
-    """
-    return OUTPUT_ROW_BYTES // _row_bytes(elem)
+# Byte addresses for this harness's direct xmem staging (which bypasses row
+# translation); the CR/LR values below stay in rows.
+DATA_BASE    = DATA_BASE_ROW * ROW_BYTES
+WEIGHTS_BASE = WEIGHTS_BASE_ROW * ROW_BYTES
+OUTPUT_BASE  = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def _base_rows(elem: int) -> tuple[int, int, int]:
-    """D/W/C bases as ROW numbers, packed back to back and disjoint in both modes."""
-    data_row = DATA_BASE // _row_bytes(elem)
-    weights_row = data_row + DATA_ROWS
-    output_row = weights_row + WEIGHT_ROWS
-    return data_row, weights_row, output_row
+def _load_data(state: "IpuState", data_path: str | Path) -> None:
+    """Stage D. Channel-major and already contiguous, so a straight copy works.
 
-
-def _base_bytes(elem: int) -> tuple[int, int, int]:
-    """D/W/C bases as BYTE addresses (for direct xmem staging)."""
-    rb = _row_bytes(elem)
-    d, w, o = _base_rows(elem)
-    return d * rb, w * rb, o * rb
-
-
-
-
-_DTYPE_MAP = {
-    "INT8":     DType.INT8,
-    "int8":     DType.INT8,
-    "E4": DType.E4,
-    "fp8_e4": DType.E4,
-    "E5": DType.E5,
-    "fp8_e5": DType.E5,
-}
-
-
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
-
-
-def _load_data(state: "IpuState", data_path: str | Path, elem: int) -> None:
-    """Load interleaved channel-major input directly into XMEM.
-
-    File layout: K=288 channels × 2 tg × 128 bytes each.
+    File layout: K=288 channels × N_TG tg × N_TOK elements each.
     """
     raw = Path(data_path).read_bytes()
-    expected = K * N_TG * N_TOK * elem
+    expected = K * N_TG * N_TOK * ELEM_BYTES
     if len(raw) < expected:
-        raise ValueError(f"{data_path}: expected >= {expected} B for elem={elem}, got {len(raw)}")
+        raise ValueError(f"{data_path}: expected >= {expected} B, got {len(raw)}")
     state.xmem.write_address(DATA_BASE, bytearray(raw[:expected]))
 
 
-def _load_weights(state: "IpuState", weights_path: str | Path, elem: int, weights_base: int) -> None:
-    """Load output-major weights into XMEM (no transposition).
+def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
+    """Stage W, padding each output channel's K elements out to whole rows.
 
-    File layout: W[j][k] at byte j*K + k  (N_OUT rows × K=288 cols).
-    XMEM layout per output channel j (3 chunks of 128 bytes):
-      WEIGHTS_BASE + j*384        : W[j, 0..127]
-      WEIGHTS_BASE + j*384 + 128  : W[j, 128..255]
-      WEIGHTS_BASE + j*384 + 256  : W[j, 256..287] + 96 zero bytes
+    File layout: W[j][k] at element j*K + k  (N_OUT rows × K=288 cols).
+    XMEM layout per output channel j (3 rows):
+      row 0: W[j, 0..127]
+      row 1: W[j, 128..255]
+      row 2: W[j, 256..287] + 96 zero elements
     """
     raw = Path(weights_path).read_bytes()
     row_elems = LANES                      # elements per XMEM row
     stride = W_STRIDE_ROWS * row_elems     # elements per output channel (padded)
     for j in range(N_OUT):
-        row = raw[j * K * elem : (j * K + K) * elem]
+        row = raw[j * K * ELEM_BYTES : (j * K + K) * ELEM_BYTES]
         for chunk in range(W_STRIDE_ROWS):
             lo = chunk * row_elems
             hi = min(lo + row_elems, K)
-            buf = bytearray(row_elems * elem)
+            buf = bytearray(row_elems * ELEM_BYTES)
             if hi > lo:
-                buf[: (hi - lo) * elem] = row[lo * elem : hi * elem]
-            state.xmem.write_address(weights_base + (j * stride + lo) * elem, buf)
+                buf[: (hi - lo) * ELEM_BYTES] = row[lo * ELEM_BYTES : hi * ELEM_BYTES]
+            state.xmem.write_address(
+                WEIGHTS_BASE + (j * stride + lo) * ELEM_BYTES, buf
+            )
 
 
 class MatMul144x288x128App(IpuApp):
     """144×288 transformer matmul application harness."""
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        # Element width is a property of the STATE, not the kernel: wide-vector
-        # debug mode stores 4-byte FP32 elements, narrow mode 1-byte INT8/FP8.
-        wide = bool(getattr(state, "wide_vector_debug", False))
-        elem = 4 if wide else 1
-        if not wide:
-            state.dtype = self.dtype
+        _load_data(state, self.input_path)
+        _load_weights(state, self.weights_path)
 
-        data_base_b, weights_base_b, output_base_b = _base_bytes(elem)
-        self._output_base_bytes = output_base_b
-
-        _load_data(state, self.input_path, elem)
-        _load_weights(state, self.weights_path, elem, weights_base_b)
-
-        DATA_BASE_ROW, WEIGHTS_BASE_ROW, OUTPUT_BASE_ROW = _base_rows(elem)
-        OUTPUT_STRIDE_ROWS = _output_stride_rows(elem)
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
         # writes are silently dropped. WEIGHTS_BASE is moved to CR9 (free).
         # cr0=DATA_BASE is 0x0 (harmless no-op); cr2/cr3 are writable and stay.
@@ -181,5 +141,5 @@ class MatMul144x288x128App(IpuApp):
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state, self.output_path,
-                self._output_base_bytes, OUTPUT_ROW_BYTES, N_OUT * N_TG,
+                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT * N_TG,
             )
