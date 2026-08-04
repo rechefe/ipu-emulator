@@ -1,16 +1,16 @@
 """Matrix-multiplication 128×64×128 test harness.
 
 Computes C = A × W^T where:
-  A: (M=128, K=64)  input   — 64 bytes per row in file; padded to 128 bytes in XMEM
-  W: (N=128, K=64)  weights — output-major, W[n][k] at byte n*K+k (row n = all K inputs for output n)
-  C: (M=128, N=128) output  — 512 bytes per row (128 × 4-byte accumulators)
+  A: (M=128, K=64)  input   — K elements per row in file; zero-padded to LANES in XMEM
+  W: (N=128, K=64)  weights — output-major, W[n][k] (row n = all K inputs for output n)
+  C: (M=128, N=128) output  — one XMEM row per matrix row (128 accumulators)
 
-K=64 < SIMD width (128): each row of A is padded to 128 bytes with zeros in XMEM so
-ldr_cyclic_mult_reg (128-byte load) works unchanged. The inner loop only accesses
-cyclic indices 0..63, so the padded zeros are never used in computation.
+K=64 < SIMD width (128): each row of A is zero-padded to a full XMEM row so
+LDR_CYCLIC_MULT_REG (a whole-row load) works unchanged. The inner loop only
+accesses cyclic indices 0..63, so the padded zeros are never used.
 
 Weights are stored output-major (FC convention) and transposed during loading:
-T[k] = column k of W = [W[0][k], ..., W[127][k]], written as 128-byte XMEM row k.
+T[k] = column k of W = [W[0][k], ..., W[127][k]], written as XMEM row k.
 
 Usage::
 
@@ -21,7 +21,6 @@ Usage::
         input_path="input.bin",
         weights_path="weights.bin",
         output_path="output.bin",
-        dtype="INT8",
     )
     state, cycles = app.run()
 """
@@ -31,8 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
-from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
+from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
 
@@ -42,85 +40,74 @@ if TYPE_CHECKING:
 # -- Dimensions -------------------------------------------------------------
 
 M = 128   # rows of A / rows of C
-K = 64    # cols of A / cols of W per row  (< SIMD width; A rows padded to 128B in XMEM)
+K = 64    # cols of A / cols of W per row  (< SIMD width; A rows zero-padded)
 N = 128   # rows of W (output neurons) / cols of C  (= SIMD width)
 
-# -- Memory map -------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path here. INT8 is not a mode
+# this kernel is written against; it belongs at the XMEM write boundary
+# (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
+#
+# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# row is LANES *elements*. Region bases are DERIVED from row counts rather
+# than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
+# overflows at 4 bytes/element and silently corrupts the run.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                    # FP32
+LANES      = 128                  # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES   # 512
 
-INPUT_BASE_ADDR   = 0x00000   # A: M × 128 bytes (padded) = 16,384 B
-WEIGHTS_BASE_ADDR = 0x20000   # T: K × 128 bytes = 64 × 128 = 8,192 B
-OUTPUT_BASE_ADDR  = 0x40000   # C: M × N × 4 bytes = 65,536 B
+INPUT_ROWS  = M   # one padded row per matrix row of A
+WEIGHT_ROWS = K   # T[k] is one row per k
 
-OUTPUT_ROW_BYTES  = N * 4     # 512 bytes
+# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
+# 512 B, so a store is exactly one row and one output row of C owns one row.
+OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # 512
+OUTPUT_STRIDE_ROWS = 1
+VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The *_BASE_ADDR constants above stay byte
-# addresses because they only drive the harness's direct xmem read/write calls
-# (which bypass row translation); the CR registers in setup() feed the .asm's
-# XMEM instructions instead, so they carry addresses and strides in rows.
-ROW_SIZE_BYTES = 128
-INPUT_BASE_ROW   = INPUT_BASE_ADDR // ROW_SIZE_BYTES
-WEIGHTS_BASE_ROW = WEIGHTS_BASE_ADDR // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW  = OUTPUT_BASE_ADDR // ROW_SIZE_BYTES
-VEC_STRIDE_ROWS  = 1                                     # one 128 B vector = 1 row
-# STR_ACC_REG writes a fixed 512 B; where OUTPUT_ROW_BYTES is smaller the stores
-# overlap by design, each tail overwritten by the next, leaving packed output.
-assert OUTPUT_ROW_BYTES % ROW_SIZE_BYTES == 0, (
-    f"output stride {OUTPUT_ROW_BYTES} B is not a whole number of "
-    f"{ROW_SIZE_BYTES} B rows; not expressible in row addressing"
-)
-OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES
+# A / T / C packed back to back, in rows.
+INPUT_BASE_ROW   = 0
+WEIGHTS_BASE_ROW = INPUT_BASE_ROW + INPUT_ROWS
+OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
-# -- Dtype helper -----------------------------------------------------------
-
-_DTYPE_MAP = {
-    "INT8":     DType.INT8,
-    "int8":     DType.INT8,
-    "E4": DType.E4,
-    "fp8_e4": DType.E4,
-    "E5": DType.E5,
-    "fp8_e5": DType.E5,
-}
-
-
-def parse_dtype(dtype_str: str) -> DType:
-    """Parse a dtype string into a :class:`DType` enum value."""
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(
-            f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5"
-        )
-    return dt
+# Byte addresses for this harness's direct xmem staging (which bypasses row
+# translation); the CR/LR values below stay in rows.
+INPUT_BASE_ADDR   = INPUT_BASE_ROW * ROW_BYTES
+WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
+OUTPUT_BASE_ADDR  = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _load_input_padded(state: "IpuState", input_path: str | Path) -> None:
-    """Load A (M×K, 64B/row) into XMEM with each row zero-padded to 128 bytes.
-
-    ldr_cyclic_mult_reg always loads 128 bytes. Padding ensures it reads a clean
-    128-byte word for each row without crossing into the next row's data.
-    """
+    """Stage A with each row zero-padded from K elements out to a whole row."""
     raw = Path(input_path).read_bytes()
-    row_bytes = bytearray(128)  # reusable padded buffer
+    expected = M * K * ELEM_BYTES
+    if len(raw) < expected:
+        raise ValueError(f"{input_path}: expected >= {expected} B, got {len(raw)}")
     for m in range(M):
-        row_bytes[:K] = raw[m * K : m * K + K]
-        row_bytes[K:] = b"\x00" * (128 - K)
-        state.xmem.write_address(INPUT_BASE_ADDR + m * 128, row_bytes)
+        buf = bytearray(ROW_BYTES)
+        buf[: K * ELEM_BYTES] = raw[m * K * ELEM_BYTES : (m * K + K) * ELEM_BYTES]
+        state.xmem.write_address(INPUT_BASE_ADDR + m * ROW_BYTES, buf)
 
 
 def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
     """Load W[n][k] from file and write T[k] (column k of W) into XMEM.
 
-    File layout: W[n][k] at byte n*K + k  (N rows × K cols, output-major).
-    XMEM layout: T[k] at address WEIGHTS_BASE_ADDR + k*128, padded to 128 bytes.
-    T[k][n] = W[n][k] = weight from input k to output n.
-    Since N=128, no zero-padding needed.
+    File layout: W[n][k] at element n*K + k  (N rows × K cols, output-major).
+    XMEM layout: T[k] at row WEIGHTS_BASE_ROW + k.
+    T[k][n] = W[n][k]; N == LANES here, so the row is full.
     """
     raw = Path(weights_path).read_bytes()
+    expected = N * K * ELEM_BYTES
+    if len(raw) < expected:
+        raise ValueError(f"{weights_path}: expected >= {expected} B, got {len(raw)}")
     for k in range(K):
-        t_row = bytearray(128)
+        t_row = bytearray(ROW_BYTES)
         for n in range(N):
-            t_row[n] = raw[n * K + k]
-        state.xmem.write_address(WEIGHTS_BASE_ADDR + k * 128, t_row)
+            src = (n * K + k) * ELEM_BYTES
+            t_row[n * ELEM_BYTES : (n + 1) * ELEM_BYTES] = raw[src : src + ELEM_BYTES]
+        state.xmem.write_address(WEIGHTS_BASE_ADDR + k * ROW_BYTES, t_row)
 
 
 class MatMul128x64x128App(IpuApp):
@@ -128,26 +115,21 @@ class MatMul128x64x128App(IpuApp):
 
     Args:
         inst_path:    Path to assembled instruction binary.
-        input_path:   Path to input matrix A binary (M×K bytes, row-major).
-        weights_path: Path to weight matrix W binary (N×K bytes, output-major W[n][k]).
+        input_path:   Path to input matrix A binary (M×K FP32, row-major).
+        weights_path: Path to weight matrix W binary (N×K FP32, output-major W[n][k]).
         output_path:  Optional path to write output C.
-        dtype:        Data type string or :class:`DType`.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-        # Load A with each row zero-padded to 128 bytes
         _load_input_padded(state, self.input_path)
-        # Transpose W (N×K output-major) → T (K rows of 128B) in XMEM
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants on the new
-        # architecture — writes are silently dropped. INPUT_BASE_ADDR is 0x0, so
+        # architecture — writes are silently dropped. INPUT_BASE_ROW is 0, so
         # cr0 still reads the correct input base; the weights base is moved to
         # CR11 (a free CR) instead of CR1. See MIGRATION_CHECKLIST.md Bug #2.
         state.regfile.set_cr(0, INPUT_BASE_ROW)
