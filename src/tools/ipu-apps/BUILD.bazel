@@ -562,16 +562,14 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "test_unfold_32x32x144",
+    name = "test_unfold_32x32x144_wide",
     size = "large",
-    srcs = ["test/test_unfold_32x32x144.py"],
+    srcs = ["test/test_unfold_32x32x144_wide.py"],
     data = [
         ":assemble_unfold_32x32x144.bin",
-        ":unfold_32x32x144_test_data",
     ],
     env = {
         "UNFOLD_32X32X144_INST_BIN": "$(rootpath :assemble_unfold_32x32x144.bin)",
-        "UNFOLD_32X32X144_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/unfold_32x32x144/test_data_format",
     },
     imports = ["src"],
     deps = [
@@ -1488,16 +1486,14 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "test_unfold_16x16x192",
+    name = "test_unfold_16x16x192_wide",
     size = "large",
-    srcs = ["test/test_unfold_16x16x192.py"],
+    srcs = ["test/test_unfold_16x16x192_wide.py"],
     data = [
         ":assemble_unfold_16x16x192.bin",
-        ":unfold_16x16x192_test_data",
     ],
     env = {
         "UNFOLD_16X16X192_INST_BIN": "$(rootpath :assemble_unfold_16x16x192.bin)",
-        "UNFOLD_16X16X192_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/unfold_16x16x192/test_data_format",
     },
     imports = ["src"],
     deps = [
