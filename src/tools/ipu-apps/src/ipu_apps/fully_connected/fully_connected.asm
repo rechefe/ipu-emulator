@@ -45,7 +45,12 @@ element_loop:
     BNE                 lr5 lr6 element_loop_pre;;
 
 after_element_loop:
-    STR_ACC_REG         lr7 cr2;;
+    # Hardware store path: AaQ and STR are consecutive pipeline stages WITHIN
+    # one VLIW word (CTRL -> MULT -> ACC -> AaQ -> STR, see
+    # docs/content/specs/stage-aaq-str.md section 7.0), so STR consumes this
+    # cycle's AaQ result and the store costs no extra cycle. Replaces the
+    # simulation-only STR_ACC_REG, which is not implemented in real hardware.
+    ACTIVATE.QUANTIZE   identity cr15; STR_POST_AAQ_REG lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
 
