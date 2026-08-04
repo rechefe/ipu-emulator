@@ -20,16 +20,18 @@
 #   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
 #                 → S[i, g] (512 B / 128 FP32|INT32 lanes, query-major)
 #
-# No AGG. Scores are stored RAW (full precision) so softmax (Agent A) reads
-# unquantized scores; this matches every other matmul kernel.
+# No AGG. The store goes through the standard quantize boundary, same as every
+# other kernel: XMEM is 8-bit, so the downstream softmax reads these scores back
+# through that boundary no matter what this kernel does. `identity` is the right
+# activation here -- softmax applies its own nonlinearity.
 #
-# CAVEAT: `identity` and the wide-vector debug path make the store a
-# lane-for-lane FP32 copy of R_ACC, so today the bytes are exactly what
-# STR_ACC_REG produced. If output quantization is ever enabled
-# (state.wide_vector_quantize_output, or the real INT8 path), this store WOULD
-# clamp to INT8 and the downstream softmax would no longer see raw scores --
-# unlike the other matmuls, that is a change in MEANING for this kernel, not
-# just precision. Revisit the store stage here before turning quantization on.
+# (An earlier version of this header claimed this kernel was special, on the
+# grounds that enabling quantization would change its MEANING rather than just
+# its precision. That was wrong: every kernel writes to the same 8-bit XMEM, and
+# attn_scores_km_256x36 computes the same QK^T scores for the same softmax with
+# no such caveat. Real per-lane requantize is not implemented yet -- see
+# instruction_spec.py on ACTIVATE.QUANTIZE -- so precision behaviour here is
+# simply whatever that scheme turns out to be, for this kernel and all others.)
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
