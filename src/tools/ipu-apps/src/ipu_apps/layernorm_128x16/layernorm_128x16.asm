@@ -80,7 +80,7 @@ step1_loop:
     LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step1_loop;;
 step1_done:
 
-    STR_ACC_REG         lr0 cr6;;      # NEG_MEAN_BASE = -μ
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr0 cr6;;      # NEG_MEAN_BASE = -μ
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: centered[ch,i] = x[ch,i] + (-μ[i])
@@ -107,7 +107,7 @@ step1_done:
 step2_loop:
     MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
     MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
-    STR_ACC_REG         lr3 cr7; ADD lr3 lr3 lr7; LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr7; ADD lr3 lr3 lr7; LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;
     ADD     lr5  lr5 cr1; BLT lr5 lr6 step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ step3_loop:
     LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step3_loop;;
 step3_done:
 
-    STR_ACC_REG         lr0 cr8;;      # TEMP_BASE = Σ(x-μ)²
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr0 cr8;;      # TEMP_BASE = Σ(x-μ)²
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
@@ -177,7 +177,7 @@ step5_loop:
     # STR_ACC_REG reads lr3 LIVE, so lr3 must NOT be bumped in the store word --
     # it advances in the branch word below, exactly as the original store
     # pointer did.
-    STR_ACC_REG         lr3 cr7; LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr7; LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;
     ADD     lr3 lr3 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +217,7 @@ step6_loop:
     # Cycle C is already at the 3-LR-per-word limit (lr3, lr9, lr10), so the
     # prefetch load rides here but its lr2 bump moves to cycle D. lr2 is read
     # LIVE, so the load still uses the pre-bump value = the row it should fetch.
-    STR_ACC_REG         lr3 cr10; ADD lr3 lr3 lr7; ADD lr9 lr9 cr1; ADD lr10 lr10 cr1;;
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr10; ADD lr3 lr3 lr7; ADD lr9 lr9 cr1; ADD lr10 lr10 cr1;;
     LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step6_loop;;
 
 end:

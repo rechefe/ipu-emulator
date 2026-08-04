@@ -116,7 +116,7 @@ step1_loop:
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step1_loop;;
 step1_done:
 
-    STR_ACC_REG         {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;      # NEG_MEAN_BASE = -μ
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;      # NEG_MEAN_BASE = -μ
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: centered[ch,i] = x[ch,i] + (-μ[i])
@@ -139,7 +139,7 @@ step1_done:
 step2_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
     MULT.RC.VV {{ rc_slot0 }} r1 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ step3_loop:
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step3_loop;;
 step3_done:
 
-    STR_ACC_REG         {{ rc_slot0 }} {{ TEMP_BASE }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ rc_slot0 }} {{ TEMP_BASE }};;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
@@ -200,7 +200,7 @@ step3_done:
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;   # prime centered[ch=0]
 step5_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
-    STR_ACC_REG         {{ write_ptr }} {{ CENTERED_BASE }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }}; LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     ADD     {{ write_ptr }} {{ write_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ ch_limit }} step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,7 +253,7 @@ step5_loop:
 step6A_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
     MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6A_loop;;
 
     # ---- Sub-loop B: ch=128..143 (16 channels) ----
@@ -278,7 +278,7 @@ step6A_loop:
 step6B_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ gamma_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG {{ rc_slot0 }} {{ ONES_BASE }} {{ rc_slot0 }};;
     MULT.RC.VE {{ rc_slot0 }} {{ beta_idx }} 0 {{ mask_shift }} {{ DSTRUCT }}; ACC.ADD;;
-    STR_ACC_REG         {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }}; ADD {{ write_ptr }} {{ write_ptr }} {{ data_stride }}; ADD {{ gamma_idx }} {{ gamma_idx }} {{ ONE }}; ADD {{ beta_idx }} {{ beta_idx }} {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }}; ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }}; ADD {{ ch_index }} {{ ch_index }} {{ ONE }}; BLT {{ ch_index }} {{ sub_bound }} step6B_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
