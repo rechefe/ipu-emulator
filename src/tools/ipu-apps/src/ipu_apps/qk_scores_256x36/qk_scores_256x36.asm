@@ -119,8 +119,7 @@ c_loop_g0:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G0 }};;                                                 # store 512B → S[i, keys 0..127]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G0 }};;# store 512B → S[i, keys 0..127]
 
     # -- key group 1 ---------------------------------------------------------
     SET {{ k_ptr }} {{ K_START_G1 }};;                                                          # g=1 K-data startup: -128
@@ -142,8 +141,7 @@ c_loop_g1:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G1 }};;                                                 # store 512B → S[i, keys 128..255]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G1 }};;# store 512B → S[i, keys 128..255]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1024)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }}; ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 512, i++

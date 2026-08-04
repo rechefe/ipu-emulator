@@ -92,8 +92,7 @@ c_loop_g0:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;            # store S[0:128, s] (key-major row, g=0)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;# store S[0:128, s] (key-major row, g=0)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     # -- query group 1 (queries 128..255) -----------------------------------
@@ -116,8 +115,7 @@ c_loop_g1:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;            # store S[128:256, s] (key-major row, g=1)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;# store S[128:256, s] (key-major row, g=1)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }}; BLT {{ key_index }} {{ key_limit }} s_loop;; # next key

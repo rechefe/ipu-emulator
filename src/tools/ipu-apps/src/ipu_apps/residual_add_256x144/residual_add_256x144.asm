@@ -16,22 +16,16 @@
 # co-issuing them is fine, consuming the same-cycle load is not.
 # Each load therefore runs one bundle ahead of the MULT that consumes it. The
 # two loads are pipelined into cycles that were already doing other work, so
-# the steady state is 5 cycles per row:
+# the steady state stays 4 cycles per row:
 #   Per row:
 #     Cycle 1: MULT.RC.VE × 1.0 on A[r] (loaded last row's cycle 3); ACC.ADD.FIRST;
 #              LDR_CYCLIC_MULT_REG → r_cyclic = B[r]
 #     Cycle 2: MULT.RC.VE × 1.0 on B[r]; ACC.ADD
-#     Cycle 3: ACTIVATE.QUANTIZE identity → stage A[r]+B[r] into post_aaq_reg;
-#              advance row counter;
+#     Cycle 3: ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG → stage and store
+#              A[r]+B[r] in ONE word; advance row counter;
 #              LDR_CYCLIC_MULT_REG → r_cyclic = A[r+1]  (prefetch for next row)
-#     Cycle 4: STR_POST_AAQ_REG → store A[r]+B[r]
-#     Cycle 5: advance output ptr; BLT → loop
-#   Total: 5 cycles × 288 rows = 1440 cycles, plus one priming load at startup.
-#
-#   The store costs a dedicated cycle because ACTIVATE.QUANTIZE and
-#   STR_POST_AAQ_REG cannot share a VLIW word (see cycle 3's note), and the
-#   store cannot share cycle 5 either: it reads out_ptr LIVE and the LR slots
-#   dispatch first, so a co-issued ADD would advance the pointer under it.
+#     Cycle 4: advance output ptr; BLT → loop
+#   Total: 4 cycles × 288 rows = 1152 cycles, plus one priming load at startup.
 #
 # IMPORTANT — live-LR semantics:
 #   ADD fires before XMEM; ptrs init at -128 so first live = 0 after ADD.
@@ -97,16 +91,17 @@ row_loop:
     # Cycle 2: r_acc += B[r] × 1.0
     MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;;
     # Cycle 3: stage r_acc into post_aaq_reg for the hardware store path.
-    #   ACTIVATE.QUANTIZE and STR_POST_AAQ_REG must sit in SEPARATE VLIW words:
-    #   slots in one word read a start-of-cycle snapshot, so a same-word store
-    #   would drain the PREVIOUS post_aaq_reg. `identity` + DSTRUCT's default
-    #   valid_elements=128 makes this a lane-for-lane FP32 copy of all 128
-    #   lanes, i.e. byte-identical to the STR_ACC_REG it replaces in wide mode.
+    #   ACTIVATE.QUANTIZE and STR_POST_AAQ_REG co-issue in ONE VLIW word: AaQ
+    #   and STR are consecutive pipeline stages within a word, and the in-word
+    #   slot order is CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/
+    #   stage-aaq-str.md §7.0), so STR consumes this cycle's AaQ result. This
+    #   is why the store is free and the loop stays 4 cycles per row.
+    #   `identity` + DSTRUCT's default valid_elements=128 makes this a
+    #   lane-for-lane FP32 copy of all 128 lanes, i.e. byte-identical to the
+    #   STR_ACC_REG it replaces in wide mode.
     #   Co-issued load prefetches A[r+1] for the next row's cycle 1.
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }}; ADD {{ row_index }} {{ row_index }} {{ ONE }}; LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
-    # Cycle 4: store (do NOT ADD out_ptr here: STR_POST_AAQ_REG reads out_ptr live)
-    STR_POST_AAQ_REG    {{ out_ptr }} {{ OUT_BASE }};;
-    # Cycle 5: advance output ptr; BLT reads snap row_index = already-incremented
+    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }}; ADD {{ row_index }} {{ row_index }} {{ ONE }}; LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
+    # Cycle 4: advance output ptr; BLT reads snap row_index = already-incremented
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }}; BLT {{ row_index }} {{ row_limit }} row_loop;;
 
 end:

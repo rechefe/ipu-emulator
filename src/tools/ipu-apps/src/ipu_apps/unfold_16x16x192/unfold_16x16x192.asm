@@ -107,20 +107,17 @@ ch_loop:
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr1;;
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG         lr8 cr9;;           # TL → DST_TL + ch×512 (lanes 0..63 valid)
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr9;;# TL → DST_TL + ch×512 (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr1;;
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG         lr8 cr10;;          # TR
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr10;;# TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr1;;
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG         lr8 cr11;;          # BL
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr11;;# BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr0;;
@@ -128,8 +125,7 @@ ch_loop:
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr1;;
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG         lr8 cr12;;          # BR
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr12;;# BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 lr8 lr8 lr6;;       # dst offset: next channel (+512)

@@ -72,8 +72,7 @@ k_loop:
     BNE                 lr5 lr6 k_loop_pre;;
 
 after_k_loop:
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG         lr7 cr2;;
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr7 cr2;;
     ADD                 lr7 lr7 lr14;    # +256: pack N=64 outputs contiguously
     ADD                 lr0 lr0 lr13;;
 

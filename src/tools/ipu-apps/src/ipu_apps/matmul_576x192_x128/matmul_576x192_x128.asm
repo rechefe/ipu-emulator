@@ -86,8 +86,7 @@ k_chunk1:
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk1;;
 
-    ACTIVATE.QUANTIZE identity cr15;;
-    STR_POST_AAQ_REG lr7 cr3;;                    # store 512B -> OUTPUT[j] (first 256B valid)
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr7 cr3;;# store 512B -> OUTPUT[j] (first 256B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed, 256B)
 
     ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j: weight offset += W_STRIDE, j++
