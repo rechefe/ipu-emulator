@@ -25,24 +25,40 @@
 j_loop:
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
+    SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
+    # Prime k=0's chunk one bundle ahead: MULT.RC.VE reads r_cyclic from the
+    # start-of-cycle snapshot (issue #157), so it cannot consume a chunk loaded
+    # in its OWN bundle -- it would multiply against the previous row. chunk1+
+    # must NOT re-prime: their first row is already in flight from the previous
+    # chunk's trailing prefetch.
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;;
+
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST; BLT lr5 lr6 k_chunk0;;
+    BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr6 k_chunk0;;
+    BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
     SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
+    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
     LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD; BLT lr5 lr11 k_chunk1;;
+    BLT lr5 lr11 k_chunk1;;
 
-    STR_ACC_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
+    # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
+    # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
+    # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
+    # result and the store is free. `identity` + valid_elements=128 (the CR
+    # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
+    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
     ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j

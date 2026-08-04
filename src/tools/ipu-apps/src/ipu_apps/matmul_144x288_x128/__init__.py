@@ -135,6 +135,10 @@ class MatMul144x288x128App(IpuApp):
         state.regfile.set_lr(8, 0)                              # weight byte offset
         state.regfile.set_lr(9, 0)                              # j counter
         state.regfile.set_lr(10, N_OUT)                         # j-loop limit (144)
+        # K=288 is NOT a multiple of LANES: the chunks are 128 + 128 + 32, so the
+        # last chunk needs its own narrower bound (first_index=0, width=32 → 30).
+        # Using the width-128 bound there ran the tail 96 steps into zero padding.
+        state.regfile.set_lr(11, (K % LANES) - 2)               # tail-chunk bound (width 32 → 30)
         state.regfile.set_lr(12, W_STRIDE_ROWS)                 # weight stride per j (3 rows)
 
     def teardown(self, state: "IpuState") -> None:
