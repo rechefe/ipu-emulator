@@ -27,6 +27,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -75,28 +77,43 @@ OUTPUT_ROW_BYTES = 512                       # r_acc store payload
 def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
     """Copy head `head`'s 36 channel columns of Q verbatim into XMEM at QBASE.
 
-    Input file is canonical channel-major: Q[t, h*36+c] at (h*36+c)*256 + t.
-    The kernel addresses this head as QBASE + c*256 + t, so we slice the head's
-    contiguous channel block (channels h*36 .. h*36+35) to the front.
+    Input file is canonical channel-major: Q[t, h*36+c] at element (h*36+c)*256 + t.
+    The kernel addresses this head as QBASE + c*Q_CHAN_ROWS rows, so we slice the
+    head's contiguous channel block (channels h*36 .. h*36+35) to the front.
+    Each channel column is N_TOK elements = Q_CHAN_ROWS whole rows, so the block
+    is already row-aligned and copies verbatim.
     """
     raw = Path(q_path).read_bytes()
-    base = head * D * N_TOK
-    state.xmem.write_address(QBASE, bytearray(raw[base : base + D * N_TOK]))
+    base = head * D * N_TOK * ELEM_BYTES
+    span = D * N_TOK * ELEM_BYTES
+    if len(raw) < base + span:
+        raise ValueError(
+            f"{q_path}: expected >= {base + span} B for head {head}, got {len(raw)}"
+        )
+    state.xmem.write_address(QBASE, bytearray(raw[base : base + span]))
 
 
 def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
     """Rearrange head `head`'s K from channel-major into key-major XMEM scratch.
 
-    Source K[s, c] at (head*36 + c)*256 + s.  Destination K[s, :] contiguous at
-    KBASE_KM + s*128 (36 channels, padded to 128 bytes).
+    Source K[s, c] at element (head*36 + c)*256 + s.  Destination K[s, :]
+    contiguous at KBASE_KM + s*K_STRIDE (D channels, zero-padded to a full row),
+    which is what lets one LDR pull a key's whole head-channel vector into R0.
     """
     raw = Path(k_path).read_bytes()
-    head_base = head * D * N_TOK
+    head_base = head * D * N_TOK * ELEM_BYTES
+    span = D * N_TOK * ELEM_BYTES
+    if len(raw) < head_base + span:
+        raise ValueError(
+            f"{k_path}: expected >= {head_base + span} B for head {head}, got {len(raw)}"
+        )
+    k = np.frombuffer(
+        raw[head_base : head_base + span], dtype=np.float32
+    ).reshape(D, N_TOK)                       # [channel, key]
     for s in range(N_TOK):
-        row = bytearray(K_STRIDE)
-        for c in range(D):
-            row[c] = raw[head_base + c * N_TOK + s]
-        state.xmem.write_address(KBASE_KM + s * K_STRIDE, row)
+        row = np.zeros(LANES, dtype=np.float32)
+        row[:D] = k[:, s]                     # key s's D head-channels
+        state.xmem.write_address(KBASE_KM + s * K_STRIDE, bytearray(row.tobytes()))
 
 
 class AttnScoresKM256x36App(IpuApp):

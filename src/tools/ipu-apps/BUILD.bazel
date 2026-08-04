@@ -1260,16 +1260,14 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "test_attn_scores_km_256x36",
+    name = "test_attn_scores_km_256x36_wide",
     size = "large",
-    srcs = ["test/test_attn_scores_km_256x36.py"],
+    srcs = ["test/test_attn_scores_km_256x36_wide.py"],
     data = [
         ":assemble_attn_scores_km_256x36.bin",
-        ":attn_scores_km_256x36_test_data",
     ],
     env = {
         "ATTN_SCORES_KM_256X36_INST_BIN": "$(rootpath :assemble_attn_scores_km_256x36.bin)",
-        "ATTN_SCORES_KM_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_scores_km_256x36/test_data_format",
     },
     imports = ["src"],
     deps = [
@@ -1376,16 +1374,14 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "test_attn_v_256x36",
+    name = "test_attn_v_256x36_wide",
     size = "large",
-    srcs = ["test/test_attn_v_256x36.py"],
+    srcs = ["test/test_attn_v_256x36_wide.py"],
     data = [
         ":assemble_attn_v_256x36.bin",
-        ":attn_v_256x36_test_data",
     ],
     env = {
         "ATTN_V_256X36_INST_BIN": "$(rootpath :assemble_attn_v_256x36.bin)",
-        "ATTN_V_256X36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_256x36/test_data_format",
     },
     imports = ["src"],
     deps = [
@@ -1435,16 +1431,14 @@ py_binary(
 )
 
 py_pytest_test(
-    name = "test_attn_v_bcast_36",
+    name = "test_attn_v_bcast_36_wide",
     size = "large",
-    srcs = ["test/test_attn_v_bcast_36.py"],
+    srcs = ["test/test_attn_v_bcast_36_wide.py"],
     data = [
         ":assemble_attn_v_bcast_36.bin",
-        ":attn_v_bcast_36_test_data",
     ],
     env = {
         "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
-        "ATTN_V_BCAST_36_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/attn_v_bcast_36/test_data_format",
     },
     imports = ["src"],
     deps = [
