@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -24,72 +23,55 @@ from ipu_apps.base import IpuApp
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_ROWS          = 288       # 256 tokens × 144 channels → 288 rows of 128 bytes
-ROW_BYTES       = 128
-OUTPUT_ROW_BYTES = 512
+N_ROWS = 288                 # 256 tokens x 144 channels -> 288 vector rows
 
-A_BASE       = 0x00000
-B_BASE       = 0x10000
-ONES_BASE    = 0x20000
-OUTPUT_BASE  = 0x30000
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
+#
+# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
+# overflows at 4 bytes/element and regions silently overwrite each other.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The *_BASE constants above stay byte addresses
-# because they only drive the harness's direct xmem read/write calls (which
-# bypass row translation); the CR/LR registers below feed the .asm's XMEM
-# instructions instead, so they carry addresses and strides converted to rows.
-ROW_SIZE_BYTES = 128
-A_BASE_ROW      = A_BASE // ROW_SIZE_BYTES
-B_BASE_ROW      = B_BASE // ROW_SIZE_BYTES
-ONES_BASE_ROW   = ONES_BASE // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE // ROW_SIZE_BYTES
-ROW_STRIDE_ROWS = ROW_BYTES // ROW_SIZE_BYTES            # 1 row per A/B row
-# STR_ACC_REG always writes all 512 B of r_acc; OUTPUT_ROW_BYTES already matches
-# that full payload, so output rows are exactly the store footprint apart.
-OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES  # 4
+# One r_acc store is 512 B = exactly one row in wide mode.
+OUTPUT_ROW_BYTES   = 512
+OUTPUT_STRIDE_ROWS = 1
+ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
 
-_DTYPE_MAP = {
-    "INT8":     DType.INT8,
-    "int8":     DType.INT8,
-    "E4": DType.E4,
-    "fp8_e4": DType.E4,
-    "E5": DType.E5,
-    "fp8_e5": DType.E5,
-}
+ONES_ROWS = 1
+A_BASE_ROW      = 0
+B_BASE_ROW      = A_BASE_ROW + N_ROWS
+ONES_BASE_ROW   = B_BASE_ROW + N_ROWS
+OUTPUT_BASE_ROW = ONES_BASE_ROW + ONES_ROWS
+
+A_BASE      = A_BASE_ROW * ROW_BYTES
+B_BASE      = B_BASE_ROW * ROW_BYTES
+ONES_BASE   = ONES_BASE_ROW * ROW_BYTES
+OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
-
-
-def _ones_bytes(dtype: DType) -> bytearray:
-    """128 bytes each representing the value 1 in the given dtype."""
-    if dtype == DType.INT8:
-        return bytearray(b'\x01' * ROW_BYTES)
-    ones_fp32 = np.ones(ROW_BYTES, dtype=np.float32)
-    return bytearray(fp32_to_fp8_bytes(ones_fp32, dtype))
+def _ones_row() -> bytearray:
+    """One XMEM row of FP32 1.0 -- the pass-through multiplier vector."""
+    return bytearray(np.ones(LANES, dtype=np.float32).tobytes())
 
 
 class ResidualAdd256x144App(IpuApp):
     """256×144 residual add application harness."""
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.input_a_path = Path(self.input_a_path)
-        self.input_b_path = Path(self.input_b_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
-        state.xmem.write_address(ONES_BASE, _ones_bytes(self.dtype))
+        state.xmem.write_address(ONES_BASE, _ones_row())
 
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
         # writes are silently dropped. B_BASE is moved to CR9 (free). cr0=A_BASE
@@ -108,7 +90,10 @@ class ResidualAdd256x144App(IpuApp):
         # MULT.RC.VE multiplies r_cyclic by this CR scalar (ipu_mult interprets the
         # low byte as a dtype value), so A[r]/B[r] pass through unchanged. CR1's
         # integer 1 only works for INT8; FP8 needs the encoded 1.0 byte.
-        state.regfile.set_cr(10, _ones_bytes(self.dtype)[0])
+        # cr10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
+        # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
+        # pass-through multiplier.
+        state.regfile.set_cr(10, 1)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
