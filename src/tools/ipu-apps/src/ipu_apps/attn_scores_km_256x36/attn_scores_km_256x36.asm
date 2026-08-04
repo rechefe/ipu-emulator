@@ -17,7 +17,8 @@
 #   MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → mult_res[i] = Q[i,c]·K[s,c]
 #   c==0: ACC.FIRST  else: ACC   → R_ACC[i] += Q[i,c]·K[s,c]
 #   After 36 channels: R_ACC[i] = S[i,s] for the 128 queries of this group.
-#   STR_ACC_REG → 512 B (128 × int32/fp32) key-major score row.  No AGG.
+#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#     → 512 B (128 × int32/fp32) key-major score row.  No AGG.
 #
 # Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC bundles
 #              + 512 stores.
@@ -91,7 +92,8 @@ c_loop_g0:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    STR_ACC_REG {{ out_ptr }} {{ S_BASE }};;            # store S[0:128, s] (key-major row, g=0)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;            # store S[0:128, s] (key-major row, g=0)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     # -- query group 1 (queries 128..255) -----------------------------------
@@ -114,7 +116,8 @@ c_loop_g1:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    STR_ACC_REG {{ out_ptr }} {{ S_BASE }};;            # store S[128:256, s] (key-major row, g=1)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;            # store S[128:256, s] (key-major row, g=1)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }}; BLT {{ key_index }} {{ key_limit }} s_loop;; # next key

@@ -20,7 +20,10 @@
 #   *** Each row carries 64 valid FP32 tokens (256 bytes); the upper 256 bytes
 #   *** are STALE r_acc lanes 64..127 and must be ignored by consumers.
 #   A stream contributes 2 × 32 = 64 tokens, which half-fills r_acc, and
-#   STR_ACC_REG unconditionally writes all 512 bytes of r_acc (ipu.py:446-455).
+#   STR_POST_AAQ_REG unconditionally writes all 512 bytes of post_aaq_reg, and
+#   ACTIVATE.QUANTIZE identity stages all 128 lanes of r_acc into it (DSTRUCT
+#   carries the default valid_elements=128), so lanes 64..127 carry the same
+#   stale r_acc values the old STR_ACC_REG path wrote.
 #   This is the deliberate per-stream layout (plan §4); the packed [k][p·n]
 #   variant that would use the full row is the deferred §9 experiment.
 #
@@ -43,7 +46,7 @@
 #   horizontal: on=1 (even cols), on_inv=2 (odd cols)
 #   vertical:   on=1 (even rows), on_inv=2 (odd rows)
 #
-# STR_ACC_REG reads its offset LIVE — never co-issue an ADD on the offset LR in
+# STR_POST_AAQ_REG reads its offset LIVE — never co-issue an ADD on the offset LR in
 # the same bundle as the store, or the row lands one slot late (Phase 0, §Q-3).
 # Here the dst pointer lr8 advances in its own bundle at the end of the channel
 # loop, well clear of every store.
@@ -104,17 +107,20 @@ ch_loop:
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr1;;
-    STR_ACC_REG         lr8 cr9;;           # TL → DST_TL + ch×512 (lanes 0..63 valid)
+    ACTIVATE.QUANTIZE identity cr15;;
+    STR_POST_AAQ_REG         lr8 cr9;;           # TL → DST_TL + ch×512 (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr1;;
-    STR_ACC_REG         lr8 cr10;;          # TR
+    ACTIVATE.QUANTIZE identity cr15;;
+    STR_POST_AAQ_REG         lr8 cr10;;          # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr0;;
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr1;;
-    STR_ACC_REG         lr8 cr11;;          # BL
+    ACTIVATE.QUANTIZE identity cr15;;
+    STR_POST_AAQ_REG         lr8 cr11;;          # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
     LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr0;;
@@ -122,7 +128,8 @@ ch_loop:
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
     LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr1;;
-    STR_ACC_REG         lr8 cr12;;          # BR
+    ACTIVATE.QUANTIZE identity cr15;;
+    STR_POST_AAQ_REG         lr8 cr12;;          # BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 lr8 lr8 lr6;;       # dst offset: next channel (+512)

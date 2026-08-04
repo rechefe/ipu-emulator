@@ -148,7 +148,8 @@ ch_loop:
 {%- endif %}
     LDR_MULT_REG r0 {{ src_off }} {{ nstripe }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
 {%- endfor %}
-    STR_ACC_REG         {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;   # {{ g[0] }} {{ g[3] }}
+    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;   # {{ g[0] }} {{ g[3] }}
 {% endfor %}
     ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }}; ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};; # dst offsets: +1024 per channel
     ADD                 {{ ch_index }} {{ ch_index }} {{ ONE }};;

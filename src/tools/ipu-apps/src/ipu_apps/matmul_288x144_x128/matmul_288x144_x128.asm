@@ -111,7 +111,8 @@ k_loop2_tg0:
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
-    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;      # store 512B → OUTPUT[j, tg=0]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;      # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -140,7 +141,8 @@ k_loop2_tg1:
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;      # store 512B → OUTPUT[j, tg=1]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;      # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};; # next j: weight offset += W_STRIDE, j++

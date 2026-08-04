@@ -17,10 +17,19 @@
 #                   → mult_res[s] = Q[i,c] * K[s,c]
 #                 ACC.FIRST (c=0) / ACC      → R_ACC[s] += Q[i,c] * K[s,c]
 #   after 36 channels R_ACC[s] = S[i, s] for the 128 keys of group g.
-#   STR_ACC_REG → S[i, g] (raw R_ACC, 512 B / 128 FP32|INT32 lanes, query-major)
+#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#                 → S[i, g] (512 B / 128 FP32|INT32 lanes, query-major)
 #
 # No AGG. Scores are stored RAW (full precision) so softmax (Agent A) reads
-# unquantized scores; this matches every other matmul kernel (STR_ACC_REG).
+# unquantized scores; this matches every other matmul kernel.
+#
+# CAVEAT: `identity` and the wide-vector debug path make the store a
+# lane-for-lane FP32 copy of R_ACC, so today the bytes are exactly what
+# STR_ACC_REG produced. If output quantization is ever enabled
+# (state.wide_vector_quantize_output, or the real INT8 path), this store WOULD
+# clamp to INT8 and the downstream softmax would no longer see raw scores --
+# unlike the other matmuls, that is a change in MEANING for this kernel, not
+# just precision. Revisit the store stage here before turning quantization on.
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
@@ -110,7 +119,8 @@ c_loop_g0:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
-    STR_ACC_REG {{ out_ptr }} {{ S_BASE_G0 }};;                                                 # store 512B → S[i, keys 0..127]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G0 }};;                                                 # store 512B → S[i, keys 0..127]
 
     # -- key group 1 ---------------------------------------------------------
     SET {{ k_ptr }} {{ K_START_G1 }};;                                                          # g=1 K-data startup: -128
@@ -132,7 +142,8 @@ c_loop_g1:
     BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
-    STR_ACC_REG {{ out_ptr }} {{ S_BASE_G1 }};;                                                 # store 512B → S[i, keys 128..255]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G1 }};;                                                 # store 512B → S[i, keys 128..255]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1024)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }}; ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 512, i++

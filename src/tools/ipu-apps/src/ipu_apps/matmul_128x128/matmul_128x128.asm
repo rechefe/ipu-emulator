@@ -83,7 +83,8 @@ k_loop:
     BNE                 lr5 lr6 k_loop_pre;;  # loop while live k != 127
 
 after_k_loop:
-    STR_ACC_REG         lr7 cr2;;        # store 512 B → C[m]
+    ACTIVATE.QUANTIZE identity cr15;;
+    STR_POST_AAQ_REG         lr7 cr2;;        # store 512 B → C[m]
     ADD                 lr7 lr7 lr14;    # out ptr += 512
     ADD                 lr0 lr0 lr13;;   # input ptr += 128
 

@@ -21,7 +21,8 @@
 # Loop nest:  for h in 0..3 { for t in 0..35 { for g in 0..1 {
 #                 chunk 0 (keys 0..127):   for local 0..127: load P; MULT; AGG.SUM.FIRST
 #                 chunk 1 (keys 128..255): for local 0..127: load P; MULT; AGG.SUM
-#                 STR_ACC_REG -> O[g*128 .. g*128+127, t]  (512B FP32 column segment)
+#                 ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#                   -> O[g*128 .. g*128+127, t]  (512B FP32 column segment)
 #             }}}
 #
 # Addressing is split offset(LR) + base(CR):
@@ -125,7 +126,8 @@ g0c1_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ ZERO }};;            # O g=0 offset = O chan offset
-    STR_ACC_REG {{ out_chunk }} {{ OUT_BASE }};;                   # O[0..127, t] = R_ACC   (base OBASE)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;                   # O[0..127, t] = R_ACC   (base OBASE)
 
     # ===================== group g = 1 (queries 128..255) ===================
     # ---- chunk 0: keys 0..127 ----
@@ -150,7 +152,8 @@ g1c1_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ OUT_GROUP_STRIDE }};; # O g=1 offset = O chan offset + 512
-    STR_ACC_REG {{ out_chunk }} {{ OUT_BASE }};;                   # O[128..255, t] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;                   # O[128..255, t] = R_ACC
 
     # ----- next t: advance value-channel offset (+256 in) and O offset (+1024), t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # chan += 256

@@ -125,7 +125,14 @@ k_loop2_tg0:
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
-    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;      # store 512B → OUTPUT[j, tg=0]
+    # Hardware store path: ACTIVATE.QUANTIZE stages r_acc into post_aaq_reg,
+    # STR_POST_AAQ_REG drains it. They need SEPARATE VLIW words -- slots in one
+    # word read a start-of-cycle snapshot, so a same-word store would drain the
+    # PREVIOUS post_aaq_reg. `identity` + DSTRUCT.valid_elements=128 makes this
+    # a lane-for-lane FP32 copy of all 128 lanes, i.e. byte-identical to the
+    # STR_ACC_REG it replaces in wide mode.
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};; # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -157,7 +164,8 @@ k_loop2_tg1:
     LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;      # store 512B → OUTPUT[j, tg=1]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};; # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};; # next j

@@ -132,7 +132,8 @@ s_loop:
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------
-    STR_ACC_REG {{ out_ptr }} {{ OUT_BASE }};;                # 512B FP32 -> OBASE + chan*1024 + g*512
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};;
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};;                # 512B FP32 -> OBASE + chan*1024 + g*512
     ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output-row offset by 512
 
     ADD     {{ p_group_off }} {{ p_group_off }} {{ group_step }};; # next group: P offset += 128
