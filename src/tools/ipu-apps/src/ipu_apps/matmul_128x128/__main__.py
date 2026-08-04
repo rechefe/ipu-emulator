@@ -1,39 +1,44 @@
-"""Debug runner for the matmul_128x128 app.
+"""Debug runner for matmul_128x128.
+
+Generates FP32 inputs with this kernel's own :mod:`gen_debug_data`, runs the
+kernel, and prints the cycle count and RunStats. It does NOT check results --
+``test/test_matmul_128x128_wide.py`` is the reference for correctness.
 
 Usage::
 
-    bazel run //src/tools/ipu-apps:matmul_128x128 -- --dtype INT8
+    MATMUL_128X128_INST_BIN=/tmp/matmul_128x128.bin \
+    uv run python -m ipu_apps.matmul_128x128
 """
 
-import argparse
+from __future__ import annotations
+
 import os
+import tempfile
 from pathlib import Path
 
-from ipu_emu.debug_cli import debug_prompt
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.matmul_128x128 import MatMul128x128App
+from ipu_apps.matmul_128x128.gen_debug_data import generate
+
+_INST_BIN = Path(os.environ["MATMUL_128X128_INST_BIN"])
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run matmul_128x128 with debug CLI")
-    parser.add_argument("--dtype", default="INT8", choices=["INT8", "E4", "E5"])
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--max-cycles", type=int, default=2_000_000)
-    args = parser.parse_args()
+    work = Path(tempfile.mkdtemp(prefix="matmul_128x128_"))
+    kwargs = generate(work)
 
-    inst_path = Path(os.environ["MATMUL_128X128_INST_BIN"])
-    data_dir = Path(os.environ["MATMUL_128X128_DATA_DIR"])
-    dtype_dir = args.dtype.lower()
-
-    app = MatMul128x128App(
-        inst_path=inst_path,
-        input_path=data_dir / dtype_dir / f"input_{dtype_dir}.bin",
-        weights_path=data_dir / dtype_dir / f"weights_{dtype_dir}.bin",
-        output_path=args.output,
-        dtype=args.dtype,
+    state = IpuState(
+        wide_vector_debug=True,
+        wide_vector_arithmetic=WideVectorArithmetic.FP32,
     )
-    state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(f"Finished in {cycles} cycles")
+    app = MatMul128x128App(
+        inst_path=_INST_BIN,
+        output_path=work / "output.bin",
+        **kwargs,
+    )
+    state, cycles = app.run(max_cycles=5_000_000, state=state)
+    print(f"Done in {cycles} cycles. Inputs/output under {work}")
     print(state.stats.format_summary())
 
 
