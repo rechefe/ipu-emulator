@@ -25,29 +25,57 @@ N_OUT = 288
 N_TG  = 2
 N_TOK = 128
 
-DATA_BASE    = 0x00000
-WEIGHTS_BASE = 0x10000   # weights end at 0x10000 + 288*256 = 0x22000
-OUTPUT_BASE  = 0x30000   # must be past 0x22000 to avoid overlap with weights
+# Region bases are DERIVED, not hardcoded: every region's byte size scales with
+# the element width, so a map that fits in narrow mode (1 B/element) overflows
+# in wide-vector debug mode (4 B/element). Laying the regions out by their
+# actual row counts keeps them disjoint at any element width.
+#
+# XMEM .asm operands are ROW numbers, not byte addresses (issue #179). A row is
+# LANES *elements*, so row COUNTS are element-width independent -- except the
+# output store, whose payload is a fixed 512 B (see _output_stride_rows).
+LANES = 128                                  # elements per XMEM row
 
-W_STRIDE        = 256
-OUTPUT_ROW_BYTES = 512
+W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil)
+DATA_STRIDE_ROWS = (N_TG * N_TOK) // LANES   # rows per input channel
+W_STRIDE         = W_STRIDE_ROWS * LANES     # elements per output channel (padded)
+OUTPUT_ROW_BYTES = 512                       # r_acc store payload (bytes, both modes)
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The *_BASE constants above stay byte addresses
-# because they only drive direct state.xmem.write_address/read_address calls in
-# this harness (which bypass row translation); the CR/LR registers below feed
-# the .asm's XMEM instructions instead, so they carry the same addresses and
-# strides converted to rows.
-ROW_SIZE_BYTES = 128
-DATA_BASE_ROW    = DATA_BASE // ROW_SIZE_BYTES
-WEIGHTS_BASE_ROW = WEIGHTS_BASE // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW  = OUTPUT_BASE // ROW_SIZE_BYTES
-W_STRIDE_ROWS    = W_STRIDE // ROW_SIZE_BYTES            # 2 rows per output channel
-DATA_STRIDE_ROWS = (N_TG * N_TOK) // ROW_SIZE_BYTES      # 2 rows per input channel
-# STR_ACC_REG always writes all 512 B of r_acc regardless of dtype, which spans
-# 4 rows in narrow mode -- OUTPUT_ROW_BYTES already matches that full payload,
-# so the output stride is exactly that store's footprint and rows never overlap.
-OUTPUT_STRIDE_ROWS = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES  # 4
+DATA_BASE   = 0x00000
+DATA_ROWS   = K * N_TG
+WEIGHT_ROWS = N_OUT * W_STRIDE_ROWS
+
+
+def _row_bytes(elem: int) -> int:
+    """Bytes per XMEM row at the given element width: 128 narrow, 512 wide."""
+    return LANES * elem
+
+
+def _output_stride_rows(elem: int) -> int:
+    """Rows spanned by one accumulator store.
+
+    r_acc is a fixed 512 B in BOTH modes and the store writes all of it, so its
+    footprint in ROWS is mode-dependent: 4 narrow, 1 wide. The one row count
+    that does not cancel out.
+    """
+    return OUTPUT_ROW_BYTES // _row_bytes(elem)
+
+
+def _base_rows(elem: int) -> tuple[int, int, int]:
+    """D/W/C bases as ROW numbers, packed back to back and disjoint in both modes."""
+    data_row = DATA_BASE // _row_bytes(elem)
+    weights_row = data_row + DATA_ROWS
+    output_row = weights_row + WEIGHT_ROWS
+    return data_row, weights_row, output_row
+
+
+def _base_bytes(elem: int) -> tuple[int, int, int]:
+    """D/W/C bases as BYTE addresses (for direct xmem staging)."""
+    rb = _row_bytes(elem)
+    d, w, o = _base_rows(elem)
+    return d * rb, w * rb, o * rb
+
+
+
 
 _DTYPE_MAP = {
     "INT8":     DType.INT8,
@@ -66,19 +94,27 @@ def parse_dtype(dtype_str: str) -> DType:
     return dt
 
 
-def _load_data(state: "IpuState", data_path: str | Path) -> None:
+def _load_data(state: "IpuState", data_path: str | Path, elem: int) -> None:
     raw = Path(data_path).read_bytes()
-    state.xmem.write_address(DATA_BASE, bytearray(raw))
+    expected = K * N_TG * N_TOK * elem
+    if len(raw) < expected:
+        raise ValueError(f"{data_path}: expected >= {expected} B for elem={elem}, got {len(raw)}")
+    state.xmem.write_address(DATA_BASE, bytearray(raw[:expected]))
 
 
-def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
+def _load_weights(state: "IpuState", weights_path: str | Path, elem: int, weights_base: int) -> None:
     raw = Path(weights_path).read_bytes()
+    row_elems = LANES                      # elements per XMEM row
+    stride = W_STRIDE_ROWS * row_elems     # elements per output channel (padded)
     for j in range(N_OUT):
-        row = raw[j * K : j * K + K]
-        state.xmem.write_address(WEIGHTS_BASE + j * W_STRIDE, bytearray(row[:128]))
-        tail = bytearray(128)
-        tail[:K - 128] = row[128:K]
-        state.xmem.write_address(WEIGHTS_BASE + j * W_STRIDE + 128, tail)
+        row = raw[j * K * elem : (j * K + K) * elem]
+        for chunk in range(W_STRIDE_ROWS):
+            lo = chunk * row_elems
+            hi = min(lo + row_elems, K)
+            buf = bytearray(row_elems * elem)
+            if hi > lo:
+                buf[: (hi - lo) * elem] = row[lo * elem : hi * elem]
+            state.xmem.write_address(weights_base + (j * stride + lo) * elem, buf)
 
 
 class MatMul288x144x128App(IpuApp):
@@ -91,9 +127,21 @@ class MatMul288x144x128App(IpuApp):
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-        _load_data(state, self.input_path)
-        _load_weights(state, self.weights_path)
+        # Element width is a property of the STATE, not the kernel: wide-vector
+        # debug mode stores 4-byte FP32 elements, narrow mode 1-byte INT8/FP8.
+        wide = bool(getattr(state, "wide_vector_debug", False))
+        elem = 4 if wide else 1
+        if not wide:
+            state.dtype = self.dtype
+
+        data_base_b, weights_base_b, output_base_b = _base_bytes(elem)
+        self._output_base_bytes = output_base_b
+
+        _load_data(state, self.input_path, elem)
+        _load_weights(state, self.weights_path, elem, weights_base_b)
+
+        DATA_BASE_ROW, WEIGHTS_BASE_ROW, OUTPUT_BASE_ROW = _base_rows(elem)
+        OUTPUT_STRIDE_ROWS = _output_stride_rows(elem)
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
         # writes are silently dropped. WEIGHTS_BASE is moved to CR9 (free).
         # cr0=DATA_BASE is 0x0 (harmless no-op); cr2 is writable and stays.
@@ -122,5 +170,5 @@ class MatMul288x144x128App(IpuApp):
         if self.output_path is not None:
             dump_xmem_to_binary(
                 state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT * N_TG,
+                self._output_base_bytes, OUTPUT_ROW_BYTES, N_OUT * N_TG,
             )
