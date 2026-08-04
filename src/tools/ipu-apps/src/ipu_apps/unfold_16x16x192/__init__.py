@@ -105,6 +105,7 @@ class Unfold16x16x192App(IpuApp):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.input_path = Path(self.input_path)
 
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)

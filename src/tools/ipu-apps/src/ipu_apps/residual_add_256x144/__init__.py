@@ -65,6 +65,8 @@ class ResidualAdd256x144App(IpuApp):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.input_a_path = Path(self.input_a_path)
+        self.input_b_path = Path(self.input_b_path)
 
     def setup(self, state: "IpuState") -> None:
         raw_a = Path(self.input_a_path).read_bytes()
