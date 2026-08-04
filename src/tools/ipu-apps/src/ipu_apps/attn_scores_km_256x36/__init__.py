@@ -27,7 +27,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -41,41 +40,36 @@ N_TG     = 2            # query groups of 128
 N_TPG    = 128
 N_HEADS  = 4            # channels in the canonical input file = N_HEADS * D
 
-QBASE    = 0x00000      # Q channel-major (verbatim head slice)
-KBASE_KM = 0x10000      # K rearranged key-major (K[s,:] at +s*128)
-SBASE    = 0x20000      # S key-major words
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
+#
+# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# from row counts, not hardcoded bytes.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-K_STRIDE     = 128                  # key-major K row stride (D padded to 128)
+Q_CHAN_ROWS   = N_TOK // LANES               # 2: rows per Q channel column
+K_STRIDE_ROWS = 1                            # one key-major K row per key
+OUT_ROWS      = 1                            # one r_acc store = one row (wide)
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The byte constants above stay as-is because they
-# only drive the harness's direct xmem read/write calls (which bypass row
-# translation); the CR/LR registers in setup() feed the .asm's XMEM
-# instructions instead, so they carry addresses and strides converted to rows.
-ROW_SIZE_BYTES = 128
-QBASE_ROW    = QBASE // ROW_SIZE_BYTES
-KBASE_KM_ROW = KBASE_KM // ROW_SIZE_BYTES
-SBASE_ROW    = SBASE // ROW_SIZE_BYTES
-Q_CHAN_ROWS  = N_TOK // ROW_SIZE_BYTES            # 2: channel stride in Q
-OUT_ROWS     = 512 // ROW_SIZE_BYTES              # 4: output store stride
-K_STRIDE_ROWS = K_STRIDE // ROW_SIZE_BYTES        # 1: key stride into K scratch
-OUTPUT_ROW_BYTES = 512              # one (s,g) score row = 128 words
+Q_ROWS = D * Q_CHAN_ROWS
+K_ROWS = N_TOK * K_STRIDE_ROWS
+S_ROWS = N_TOK * N_TG * OUT_ROWS
 
-_DTYPE_MAP = {
-    "INT8":   DType.INT8,
-    "int8":   DType.INT8,
-    "E4":     DType.E4,
-    "fp8_e4": DType.E4,
-    "E5":     DType.E5,
-    "fp8_e5": DType.E5,
-}
+QBASE_ROW    = 0
+KBASE_KM_ROW = QBASE_ROW + Q_ROWS
+SBASE_ROW    = KBASE_KM_ROW + K_ROWS
 
+QBASE    = QBASE_ROW * ROW_BYTES
+KBASE_KM = KBASE_KM_ROW * ROW_BYTES
+SBASE    = SBASE_ROW * ROW_BYTES
 
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
+K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
+OUTPUT_ROW_BYTES = 512                       # r_acc store payload
 
 
 def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
@@ -108,16 +102,14 @@ def _load_k_keymajor(state: "IpuState", k_path: str | Path, head: int) -> None:
 class AttnScoresKM256x36App(IpuApp):
     """kQᵀ → key-major scores, single head (D=36, N=256)."""
 
-    def __init__(self, *, dtype: str | DType = "INT8", head: int = 0, **kwargs) -> None:
+    def __init__(self, *, head: int = 0, **kwargs) -> None:
         super().__init__(**kwargs)
         # Q is the "input"; K is the "weights" file slot.
         self.input_path = Path(self.input_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
         self.head = head
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 

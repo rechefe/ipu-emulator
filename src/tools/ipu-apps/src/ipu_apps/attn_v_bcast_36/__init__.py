@@ -26,7 +26,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -39,54 +38,52 @@ D       = 36        # head_dim
 N_HEAD  = 4
 N_CHAN  = N_HEAD * D  # 144 value channels total
 
-# Byte layout in XMEM (mirrors attn_v_256x36).
-PBASE = 0x00000     # P: 4 * 256 * 256        = 262144 B -> [0x00000, 0x40000)
-VBASE = 0x40000     # V: 144 * 256            =  36864 B -> [0x40000, 0x49000)
-OBASE = 0x50000     # O: 144 * 1024 (FP32)    = 147456 B -> [0x50000, 0x74000)
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
+#
+# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
+# overflows at 4 bytes/element and regions silently overwrite each other.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-P_HEAD_STRIDE = 0x10000   # 256 keys * 256 queries
-O_CHAN_BYTES  = 1024      # 2 groups * 512 B (FP32)
+# Row counts below are LANE counts -- element-width independent by construction.
+PV_STRIDE_ROWS     = N_TOK // LANES          # 2: rows per P key / V channel
+R1_OFF_ROWS        = 1                       # R1 source is the next row
+P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 512: rows per head in P
+OUT_ROW_ROWS       = 1                       # one r_acc store = one row (wide)
+GRP_QUERY_ROWS     = 1                       # group query offset
+O_CHAN_ROWS        = 2 * OUT_ROW_ROWS        # 2 groups per output channel
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The byte constants above stay as-is because they
-# only drive the harness's direct xmem read/write calls (which bypass row
-# translation); the CR/LR registers in setup() feed the .asm's XMEM
-# instructions instead, so they carry addresses and strides converted to rows.
-ROW_SIZE_BYTES = 128
-PBASE_ROW = PBASE // ROW_SIZE_BYTES
-VBASE_ROW = VBASE // ROW_SIZE_BYTES
-OBASE_ROW = OBASE // ROW_SIZE_BYTES
-R1_OFF_ROWS        = 1                                  # 1: R1 source offset in V channel
-P_HEAD_STRIDE_ROWS = P_HEAD_STRIDE // ROW_SIZE_BYTES    # 512: P head stride
-PV_STRIDE_ROWS     = N_TOK // ROW_SIZE_BYTES            # 2: P key / V channel stride
-OUT_ROW_ROWS       = 512 // ROW_SIZE_BYTES              # 4: output-row stride
-GRP_QUERY_ROWS     = 1                                  # 1: group query offset
+P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
+V_ROWS = N_CHAN * PV_STRIDE_ROWS
+O_ROWS = N_CHAN * O_CHAN_ROWS
 
-_DTYPE_MAP = {
-    "INT8": DType.INT8, "int8": DType.INT8,
-    "E4": DType.E4, "fp8_e4": DType.E4,
-    "E5": DType.E5, "fp8_e5": DType.E5,
-}
+PBASE_ROW = 0
+VBASE_ROW = PBASE_ROW + P_ROWS
+OBASE_ROW = VBASE_ROW + V_ROWS
 
+PBASE = PBASE_ROW * ROW_BYTES
+VBASE = VBASE_ROW * ROW_BYTES
+OBASE = OBASE_ROW * ROW_BYTES
 
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
+P_HEAD_STRIDE = P_HEAD_STRIDE_ROWS * ROW_BYTES
+O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
 
 
 class AttnVBcast36App(IpuApp):
     """attn@V broadcast kernel harness (4 heads, N=256, head_dim=36)."""
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.p_path = Path(self.p_path)
         self.v_path = Path(self.v_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
         # P and V are stored verbatim (already in the kernel's byte layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))

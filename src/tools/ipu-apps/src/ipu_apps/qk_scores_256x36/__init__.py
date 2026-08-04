@@ -13,10 +13,7 @@ vector = K's channel-c column in r_cyclic, ``MULT.RC.VE``).
 The score row is stored RAW (full-precision R_ACC, 512 B per 128-key group,
 query-major) so softmax (Agent A) reads unquantized scores. No AGG.
 
-Two modes:
-  * wide-vector FP32 (``state.wide_vector_debug``): elements are 4-byte FP32.
-  * INT8 / FP8 dtype: elements are 1 byte; output accumulators are still
-    512-byte (FP32 for FP8, INT32 for INT8).
+Wide-vector FP32 only: elements are 4-byte FP32 and an XMEM row is 512 B.
 
 Usage::
 
@@ -30,7 +27,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -43,104 +39,79 @@ D    = 36           # head_dim (contraction width)
 N_TG = 2            # key groups of 128 keys each
 N_TPG = 128         # keys per group
 
-K_BASE      = 0x00000
-QROW_BASE   = 0x40000
-S_BASE      = 0x80000
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
+#
+# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# from row counts, not hardcoded bytes.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-QROW_STRIDE      = 512   # bytes per staged query row (>= D*4, fits one r_cyclic)
-OUTPUT_ROW_BYTES = 512   # R_ACC store width (always 512 B / 128 lanes)
+K_STRIDE_ROWS    = N // LANES                # 2: rows per K channel column
+QROW_STRIDE_ROWS = 1                         # one staged query row per query
+ACC_STORE_ROWS   = 1                         # one r_acc store = one row (wide)
 
-# XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
-# addresses -- see issue #179. The *_BASE constants above stay byte addresses
-# because they only drive the harness's direct xmem read/write calls (which
-# bypass row translation); the CR/LR registers in setup() feed the .asm's XMEM
-# instructions instead, so they carry addresses and strides converted to rows.
-LANES = 128              # elements per XMEM row (mode-independent)
-ROW_SIZE_BYTES = 128     # bytes per row in NARROW mode (LANES * 1 B/element)
-K_BASE_ROW    = K_BASE // ROW_SIZE_BYTES
-QROW_BASE_ROW = QROW_BASE // ROW_SIZE_BYTES
-S_BASE_ROW    = S_BASE // ROW_SIZE_BYTES
-# QROW_STRIDE is a fixed byte count NOT scaled by element width (the staging
-# code always writes 512 B per query row), so unlike the K strides its row
-# count is mode-dependent: 4 rows narrow, 1 row wide-vector debug. These tests
-# run narrow.
-QROW_STRIDE_ROWS = QROW_STRIDE // ROW_SIZE_BYTES         # 4 (narrow)
-# STR_ACC_REG always writes all 512 B of r_acc regardless of mode -> 4 rows.
-ACC_STORE_ROWS   = OUTPUT_ROW_BYTES // ROW_SIZE_BYTES    # 4
+K_ROWS    = D * K_STRIDE_ROWS
+QROW_ROWS = N * QROW_STRIDE_ROWS
+S_ROWS    = N * N_TG * ACC_STORE_ROWS
 
-_DTYPE_MAP = {
-    "INT8":   DType.INT8,
-    "int8":   DType.INT8,
-    "E4":     DType.E4,
-    "fp8_e4": DType.E4,
-    "E5":     DType.E5,
-    "fp8_e5": DType.E5,
-}
+K_BASE_ROW    = 0
+QROW_BASE_ROW = K_BASE_ROW + K_ROWS
+S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
 
+K_BASE      = K_BASE_ROW * ROW_BYTES
+QROW_BASE   = QROW_BASE_ROW * ROW_BYTES
+S_BASE      = S_BASE_ROW * ROW_BYTES
 
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
+QROW_STRIDE      = QROW_STRIDE_ROWS * ROW_BYTES
+OUTPUT_ROW_BYTES = 512
 
 
 class QkScores256x36App(IpuApp):
-    """One-head QKᵀ → query-major scores application harness.
+    """One-head QKᵀ → query-major scores application harness (wide FP32)."""
 
-    ``dtype`` selects the narrow-mode element format (INT8 / FP8). When the
-    supplied ``state`` has ``wide_vector_debug`` set, inputs are read as raw
-    FP32 (4-byte elements) instead, for the primary correctness check.
-    """
-
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.query_path = Path(self.query_path)
         self.key_path = Path(self.key_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     # -- staging -------------------------------------------------------------
 
-    def _stage_inputs(self, state: "IpuState", elem: int) -> None:
+    def _stage_inputs(self, state: "IpuState") -> None:
         """Write K channel-major and Q query-major into XMEM.
 
-        ``elem`` is the per-element byte width (1 for INT8/FP8, 4 for FP32).
         Input files are stored channel-major: element [token t, channel c] at
-        (c*N + t)*elem.
+        (c*N + t)*ELEM_BYTES.
         """
         q_raw = self.query_path.read_bytes()
         k_raw = self.key_path.read_bytes()
 
         # K: channel-major verbatim. Column c (256 keys) is contiguous already;
-        #    write at K_BASE + c*(N*elem). The kernel loads two 128-key chunks.
+        #    write at K_BASE + c*(N*ELEM_BYTES). The kernel loads two 128-key chunks.
         for c in range(D):
-            col = k_raw[(c * N) * elem : (c * N + N) * elem]
-            state.xmem.write_address(K_BASE + c * (N * elem), bytearray(col))
+            col = k_raw[(c * N) * ELEM_BYTES : (c * N + N) * ELEM_BYTES]
+            state.xmem.write_address(K_BASE + c * K_STRIDE_ROWS * ROW_BYTES, bytearray(col))
 
         # Q: gather the strided channels into contiguous query-major rows.
         #    QROW[i] = Q[i, 0..35] at QROW_BASE + i*QROW_STRIDE (rest zero-pad).
         for i in range(N):
             row = bytearray(QROW_STRIDE)
             for c in range(D):
-                src = (c * N + i) * elem
-                row[c * elem : c * elem + elem] = q_raw[src : src + elem]
+                src = (c * N + i) * ELEM_BYTES
+                row[c * ELEM_BYTES : (c + 1) * ELEM_BYTES] = q_raw[src : src + ELEM_BYTES]
             state.xmem.write_address(QROW_BASE + i * QROW_STRIDE, row)
 
     def setup(self, state: "IpuState") -> None:
-        wide = bool(getattr(state, "wide_vector_debug", False))
-        elem = 4 if wide else 1
-        if not wide:
-            state.dtype = self.dtype
+        self._stage_inputs(state)
 
-        self._stage_inputs(state, elem)
-
-        # XMEM .asm operands are ROW numbers, not byte addresses (issue #179).
-        # A row is LANES elements, so a row COUNT is the same in both narrow and
-        # wide-vector debug mode -- the `elem` factor that scales the byte
-        # strides above cancels out entirely, leaving mode-independent values.
-        k_stride_rows = N // LANES                  # 2 rows per K channel column
-        g0_start_rows = -k_stride_rows              # g=0: first live = row 0
-        g1_start_rows = -k_stride_rows + N_TPG // LANES   # g=1: first live = +1 row
+        # Startup skews, in rows. These are lane counts, so they carry no
+        # element-width factor.
+        g0_start_rows = -K_STRIDE_ROWS                       # g=0: first live = row 0
+        g1_start_rows = -K_STRIDE_ROWS + N_TPG // LANES      # g=1: first live = +1 row
 
         # CR1 (≡1) is read-only hardwired; QROW base lives on CR9.
         state.regfile.set_cr(0, K_BASE_ROW)             # data base
@@ -153,8 +124,8 @@ class QkScores256x36App(IpuApp):
         state.regfile.set_cr(8, D - 2)                   # contraction bound (34)
 
         state.regfile.set_lr(0, 0)                       # r_cyclic write-index / mask_shift
-        state.regfile.set_lr(2, k_stride_rows)           # K data stride per channel (rows)
-        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (8 rows)
+        state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
+        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
         state.regfile.set_lr(7, 0)                       # output query row offset
         state.regfile.set_lr(8, 0)                       # Q-row row offset
@@ -165,7 +136,7 @@ class QkScores256x36App(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             # N queries × N_TG groups × 512 B, in query-major group order:
-            #   row (i, g) at S_BASE + i*1024 + g*512.
+            #   row (i, g) at S_BASE_ROW + i*N_TG + g, in rows.
             dump_xmem_to_binary(
                 state, self.output_path,
                 S_BASE, OUTPUT_ROW_BYTES, N * N_TG,
