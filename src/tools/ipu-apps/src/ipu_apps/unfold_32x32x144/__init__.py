@@ -13,7 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
+import numpy as np
+
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -33,61 +34,34 @@ N_TG      = 2     # token groups per channel
 
 # -- Memory map -------------------------------------------------------------
 
-SRC_BASE  = 0x00000   # NHCW striped input: 8×144×128 B = 147,456 B (ends 0x23FFF)
-ONES_BASE = 0x24000   # 128 bytes of dtype-encoded 1.0 for r_cyclic (ends 0x2407F)
-DST_BASE  = 0x30000   # 4 streams × 288 rows × 512 B = 589,824 B (ends 0xBBFFF)
+# ---------------------------------------------------------------------------
+# Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
+# 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
+# kernel is written against; it belongs at the XMEM write boundary.
+#
+# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
+# overflows at 4 bytes/element and regions silently overwrite each other.
+# ---------------------------------------------------------------------------
+ELEM_BYTES = 4                               # FP32
+LANES      = 128                             # elements per XMEM row
+ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# Per-stripe byte size: 144 ch × 128 B per ch = 18,432 B
-_STRIPE_BYTES = C * 128
+OUTPUT_ROW_BYTES = 512                       # one r_acc store = one row in wide mode
 
-# Per-stream size: 288 rows × 512 B = 147,456 B
-_STREAM_BYTES = N_OUT * N_TG * 512
+_STRIPE_ROWS = C                             # one row per channel within a stripe
+_STREAM_ROWS = N_OUT * N_TG            # rows per output stream (2 token groups)
+SRC_STRIDE_ROWS = 1                          # one src row per channel
+DST_STRIDE_ROWS = N_TG                 # rows per output channel (one per tg)
+TG1_OFF_ROWS    = 1                    # tg=1 sits one row after tg=0
 
-OUTPUT_ROW_BYTES = 512   # FP32: 128 words × 4 bytes
+SRC_BASE_ROW  = 0
+ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
+DST_BASE_ROW  = ONES_BASE_ROW + 1
 
-# XMEM .asm operands are ROW numbers (one row = 128 elements), not byte
-# addresses -- see issue #179. The byte constants above stay as-is because they
-# only drive the harness's direct xmem read/write calls (which bypass row
-# translation); the CR/LR registers in setup() feed the .asm's XMEM
-# instructions instead, so they carry addresses and strides converted to rows.
-ROW_SIZE_BYTES = 128
-SRC_BASE_ROW    = SRC_BASE // ROW_SIZE_BYTES
-ONES_BASE_ROW   = ONES_BASE // ROW_SIZE_BYTES
-DST_BASE_ROW    = DST_BASE // ROW_SIZE_BYTES
-_STRIPE_ROWS    = _STRIPE_BYTES // ROW_SIZE_BYTES
-_STREAM_ROWS    = _STREAM_BYTES // ROW_SIZE_BYTES
-SRC_STRIDE_ROWS = 1                                      # 128 B per channel = 1 row
-DST_STRIDE_ROWS = 1024 // ROW_SIZE_BYTES                 # 8: dst stride per channel
-TG1_OFF_ROWS    = 512 // ROW_SIZE_BYTES                  # 4: tg=1 offset within a channel
-
-# -- Dtype 1.0 byte encoding ------------------------------------------------
-
-# These are the byte values representing 1.0 in each dtype.
-# Multiplying any value by 1.0 is the identity operation, used here to
-# pass data unchanged through the MULT stage into the accumulator.
-_ONES_BYTE: dict[DType, int] = {
-    DType.INT8:     0x01,   # signed int8: 1
-    DType.E4: 0x38,   # E4M3: sign=0 exp=0111(=7, bias 7 → 2^0=1) mant=000
-    DType.E5: 0x3C,   # E5M2: sign=0 exp=01111(=15, bias 15 → 2^0=1) mant=00
-}
-
-# -- Dtype helpers -----------------------------------------------------------
-
-_DTYPE_MAP = {
-    "INT8":     DType.INT8,
-    "int8":     DType.INT8,
-    "E4": DType.E4,
-    "fp8_e4": DType.E4,
-    "E5": DType.E5,
-    "fp8_e5": DType.E5,
-}
-
-
-def parse_dtype(dtype_str: str) -> DType:
-    dt = _DTYPE_MAP.get(dtype_str)
-    if dt is None:
-        raise ValueError(f"Invalid dtype '{dtype_str}'. Supported: INT8, E4, E5")
-    return dt
+SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
+ONES_BASE = ONES_BASE_ROW * ROW_BYTES
+DST_BASE  = DST_BASE_ROW * ROW_BYTES
 
 
 # -- XMEM loaders -----------------------------------------------------------
@@ -103,15 +77,9 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
-def _load_ones(state: "IpuState", dtype: DType) -> None:
-    """Load 128 bytes of dtype-encoded 1.0 into XMEM at ONES_BASE.
-
-    These are loaded into r_cyclic[0..127] at startup. Every mult.ev
-    then broadcasts r_cyclic[0] = 1.0 over the 128 input bytes, acting
-    as an identity: the MULT result equals the input, widened to FP32/INT32.
-    """
-    ones = bytearray([_ONES_BYTE[dtype]] * 128)
-    state.xmem.write_address(ONES_BASE, ones)
+def _load_ones(state: "IpuState") -> None:
+    """One XMEM row of FP32 1.0 for r_cyclic (the pass-through multiplier)."""
+    state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
 
 # -- App --------------------------------------------------------------------
@@ -126,15 +94,12 @@ class Unfold32x32x144App(IpuApp):
         dtype:      Data type string or :class:`DType`.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.input_path = Path(self.input_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
         _load_input(state, self.input_path)
-        _load_ones(state, self.dtype)
+        _load_ones(state)
         # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432).
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
         # writes are silently dropped — so the stripe-1 base goes to CR13 (free)
