@@ -1070,7 +1070,6 @@ class Ipu:
                 out_indices.extend(after_h[start : start + effective_row_len])
 
         base = (offset % 4) * 32
-        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -1160,6 +1159,9 @@ class Ipu:
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
         else:
+            # fmt == "<i" covers both narrow INT8 mode and wide-vector INT32 mode
+            # (_acc_agg_lane_fmt); ipu_add's DType.INT8 branch is plain 32-bit wrap
+            # with no 8-bit saturation, so it's correct for INT32 lanes too.
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
