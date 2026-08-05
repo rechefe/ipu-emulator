@@ -177,9 +177,18 @@ def test_torch_defaults_to_last_dim():
 
 @pytest.mark.parametrize("n", [16, 128, 300])
 def test_torch_1d_shape_is_a_single_row(n):
-    """A 1-D tensor is one row of n; dim=0 and dim=-1 are the same axis."""
-    assert lookup_torch((n,), dim=0) == lookup(axis="rows", n=n, rows=1)
-    assert lookup_torch((n,), dim=-1) == lookup_torch((n,), dim=0)
+    """A 1-D tensor is one row of n; dim=0 and dim=-1 are the same axis.
+
+    Compared on the routing outcome rather than by ``==``: verdicts now carry
+    the resolved shape bundle, which differs between the two spellings even
+    when they select the same kernel with the same arguments.
+    """
+    one_d = lookup_torch((n,), dim=0)
+    row = lookup(axis="rows", n=n, rows=1)
+    assert (one_d.app_name, one_d.kwargs) == (row.app_name, row.kwargs)
+
+    last = lookup_torch((n,), dim=-1)
+    assert (last.app_name, last.kwargs) == (one_d.app_name, one_d.kwargs)
 
 
 def test_torch_verdicts_construct():
@@ -189,10 +198,25 @@ def test_torch_verdicts_construct():
         _construct(verdict)
 
 
-@pytest.mark.parametrize("shape,dim", [((2, 3, 4), 1), ((2, 2, 2, 2), 0)])
-def test_torch_rejects_higher_rank(shape, dim):
-    with pytest.raises(ValueError, match="dimensions"):
-        lookup_torch(shape, dim=dim)
+@pytest.mark.parametrize("shape,dim", [
+    ((2, 3, 4), -1),      # reduced axis last  -> (6, 4)
+    ((2, 2, 2, 2), 0),    # reduced axis first -> (2, 8)
+])
+def test_higher_rank_is_flattened_and_disclosed(shape, dim):
+    """Rank > 2 is a batch of 2-D problems, so it is flattened rather than
+    refused -- and the reshape is stated in the verdict, never silent."""
+    verdict = lookup_torch(shape, dim=dim)
+    assert verdict.supported
+    assert any("flattened" in n for n in verdict.shapes.notes)
+
+
+def test_interior_reduction_axis_is_refused():
+    """Flattening around a middle axis would require transposing the others,
+    silently reinterpreting the caller's memory layout, so it is refused with
+    an actionable message instead."""
+    verdict = lookup_torch((2, 3, 4), dim=1)
+    assert not verdict.supported
+    assert "interior axis" in verdict.reason
 
 
 @pytest.mark.parametrize("dim", [2, -3, 99])

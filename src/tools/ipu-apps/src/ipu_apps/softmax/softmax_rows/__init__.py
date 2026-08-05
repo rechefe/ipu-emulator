@@ -57,6 +57,12 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
@@ -200,3 +206,49 @@ class SoftmaxRowsApp(IpuApp):
         # Always run on the FP32 wide-vector state unless caller supplied one.
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if not q.along_rows:
+        return no("reduces down columns, not along rows")
+    if q.n != LANES:
+        return no(f"handles exactly {LANES} elements per row; this row has {q.n}")
+    return yes()
+
+
+def _build(**params):
+    return {"rows": softmax_query(params["shape"], params["dim"]).rows}
+
+
+def _explain(**params):
+    return (
+        f"n == {LANES} exactly: the full-width row kernel. Rows are processed "
+        f"in groups of at most {LANES}, so any row count works."
+    )
+
+
+SPEC = KernelSpec(
+    name="softmax_rows",
+    op="softmax",
+    variant="rows",
+    app_class=SoftmaxRowsApp,
+    asm="softmax_rows.asm",
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    # Exact-width match: no padding, no chunking. Cheapest possible claim.
+    cost=lambda **params: 0.0,
+)

@@ -152,6 +152,20 @@ py_pytest_test(
     ],
 )
 
+# Kernel registry mechanics + the generic conformance suite, which assembles
+# and runs whichever kernel the registry resolves -- so every registered .asm
+# is data here, and a newly added kernel is covered without editing this rule.
+py_pytest_test(
+    name = "test_kernel_registry",
+    srcs = ["test/test_kernel_registry.py"],
+    data = glob(["src/ipu_apps/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Runs every softmax app, so it needs all five .asm files.
 py_pytest_test(
     name = "test_softmax_layout_roundtrip",
