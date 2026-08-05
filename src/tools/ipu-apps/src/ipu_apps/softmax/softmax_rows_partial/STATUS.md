@@ -124,5 +124,7 @@ No known correctness bugs. Possible future work:
 1. Performance: the group loop re-loads C_VEC and re-runs the Pass-1..4
    prologue per group; negligible for large groups, but it is per-128-rows
    overhead that could be hoisted.
-2. The packed output layout is a usability trap (see the router's caveat for
-   P>1) -- an optional row-major un-pack in `teardown` would remove it.
+2. The on-device packing (P logical rows per chunk, rows padded to a multiple
+   of P) is invisible in the files -- `teardown` un-packs to row-major, so the
+   output file has the same layout as the input. Only the intermediate NUM
+   region stays unpacked, which is what keeps the per-row reduce cheap.
