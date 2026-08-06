@@ -140,3 +140,21 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Runs every softmax app, so it needs all five .asm files.
+py_pytest_test(
+    name = "test_softmax_layout_roundtrip",
+    srcs = ["test/test_softmax_layout_roundtrip.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
