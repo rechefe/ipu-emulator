@@ -66,6 +66,12 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
@@ -127,13 +133,10 @@ class SoftmaxRowsPartialApp(IpuApp):
         self.input_path = Path(self.input_path)
         self.n = int(n)
         self.rows = int(rows)
-        if not 1 <= self.n <= LANES:
-            raise ValueError(
-                f"n ({self.n}) must be in 1..{LANES} "
-                f"(use softmax_rows_long for n > {LANES})"
-            )
-        if self.rows < 1:
-            raise ValueError(f"rows ({self.rows}) must be >= 1")
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain,
+        # so the guard and the router can never disagree.
+        SPEC.guard(shape=(self.rows, self.n), dim=1)
         self.ps = partition_size(self.n)
         self.parts_per_chunk = LANES // self.ps          # P
         # Pad logical rows up to a multiple of P so the last chunk is full.
@@ -285,3 +288,62 @@ class SoftmaxRowsPartialApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if not q.along_rows:
+        return no("reduces down columns, not along rows")
+    if q.n > LANES:
+        return no(
+            f"packs whole rows into one {LANES}-lane chunk, so it needs a row "
+            f"of at most {LANES} elements; this row has {q.n}"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    return {"n": q.n, "rows": q.rows}
+
+
+def _explain(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    ps = partition_size(q.n)
+    p = LANES // ps
+    return (
+        f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
+        f"P={p} logical rows per {LANES}-lane chunk, in groups of "
+        f"{LANES // p} chunks."
+    )
+
+
+SPEC = KernelSpec(
+    name="softmax_rows_partial",
+    op="softmax",
+    variant="rows_partial",
+    app_class=SoftmaxRowsPartialApp,
+    asm="softmax_rows_partial.asm",
+    tags=("fp32-wide", "packed"),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    # This kernel genuinely handles n == 128 too (that is just P=1), so it and
+    # softmax_rows both claim that width. `supports` states what the kernel CAN
+    # do; `cost` decides which one should WIN. softmax_rows is the specialised
+    # full-width path, so make it strictly cheaper at exactly 128 while this
+    # kernel stays the choice below it.
+    cost=lambda **params: (
+        2.0 if softmax_query(params["shape"], params["dim"]).n == LANES else 1.0
+    ),
+)
