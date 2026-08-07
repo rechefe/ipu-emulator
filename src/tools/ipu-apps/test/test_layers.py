@@ -2,10 +2,12 @@
 
 Covers: the width pad/pack/unpack/truncate roundtrip (framework-free), then
 run_layer end-to-end against F.conv2d/reference math for each dispatch path
-(plain conv, depthwise, depthwise stride=2, +bias/ReLU), plus the specific
-refusal cases layers.py documents (non-square params, unsupported groups,
-stride=2 for plain conv, bias without apply_relu, apply_relu with stride=2,
-width > 128).
+(plain conv, depthwise, depthwise stride=2, +bias/ReLU), the small-image
+sweep (width 1-63 padded to the next power of 2, PLUS row padding for the
+num_chunks>=2 / rows>=4 floors small images can miss even after column
+padding), and the specific refusal cases layers.py documents (non-square
+params, unsupported groups, stride=2 for plain conv, bias without
+apply_relu, apply_relu with stride=2, width > 128).
 
 CI status: like test_conv_universal_bn_activation_pytorch.py, this is a
 **local-only cross-check** -- importorskip'd, not in the Bazel BUILD targets
@@ -144,6 +146,42 @@ class TestRunLayerStride2:
         layer = torch.nn.Conv2d(c, c, kernel_size=3, stride=2, padding=1, groups=c, bias=False)
         layer.weight.data = torch.randint(-4, 5, (c, 1, 3, 3)).to(torch.float32)
         x = torch.randint(-4, 5, (c, 8, 100)).to(torch.float32)
+
+        out = run_layer(layer, x)
+        expected = _reference_conv(x, layer.weight.data, None, stride=2, groups=c, relu=False)
+        assert out.shape == expected.shape
+        assert torch.equal(out, expected)
+
+
+class TestSmallImages:
+    """Widths 1-63 (padded to the next power of 2 in {16,32,64}) and small
+    row counts that miss the underlying apps' own size floors even after
+    column padding -- num_chunks>=2 for stride 1, rows>=4 (mult. of 4) for
+    stride 2 -- and therefore need row padding too. Both floors are handled
+    internally by run_layer; verified here against direct app calls that
+    previously raised ValueError for these exact shapes."""
+
+    @pytest.mark.parametrize("width", [1, 2, 5, 8, 15, 16, 17, 31, 63])
+    @pytest.mark.parametrize("rows", [1, 2, 3, 4])
+    def test_stride1_small_width_small_rows(self, width: int, rows: int) -> None:
+        torch.manual_seed(9)
+        layer = torch.nn.Conv2d(2, 3, kernel_size=3, padding=1, bias=False)
+        layer.weight.data = torch.randint(-4, 5, (3, 2, 3, 3)).to(torch.float32)
+        x = torch.randint(-4, 5, (2, rows, width)).to(torch.float32)
+
+        out = run_layer(layer, x)
+        expected = _reference_conv(x, layer.weight.data, None, stride=1, groups=1, relu=False)
+        assert out.shape == expected.shape == (3, rows, width)
+        assert torch.equal(out, expected)
+
+    @pytest.mark.parametrize("width", [1, 2, 5, 8, 15, 16, 31, 63])
+    @pytest.mark.parametrize("rows", [1, 2, 3, 5, 7])
+    def test_stride2_small_width_small_rows(self, width: int, rows: int) -> None:
+        torch.manual_seed(9)
+        c = 3
+        layer = torch.nn.Conv2d(c, c, kernel_size=3, stride=2, padding=1, groups=c, bias=False)
+        layer.weight.data = torch.randint(-4, 5, (c, 1, 3, 3)).to(torch.float32)
+        x = torch.randint(-4, 5, (c, rows, width)).to(torch.float32)
 
         out = run_layer(layer, x)
         expected = _reference_conv(x, layer.weight.data, None, stride=2, groups=c, relu=False)
