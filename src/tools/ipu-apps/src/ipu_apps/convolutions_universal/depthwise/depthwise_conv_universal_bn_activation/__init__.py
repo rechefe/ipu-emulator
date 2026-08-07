@@ -166,7 +166,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         output_path:  Optional path to write output.
         dtype:        Data type string or :class:`DType`.
         rows:         Spatial height.
-        cols:         Spatial width (16, 32, or 64).
+        cols:         Spatial width (16, 32, 64, or 128).
         channels:     Number of channels (>= 1).
     """
 
@@ -185,7 +185,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         self.kernel_path = Path(self.kernel_path)
         self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
-        valid_cols = {16, 32, 64}
+        valid_cols = {16, 32, 64, 128}
         if cols not in valid_cols:
             raise ValueError(f"cols must be in {valid_cols}, got {cols}")
         num_chunks = (rows * cols) // 128
@@ -251,6 +251,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         # packed spatial row (group size == cols).  The asm's mask_shift then
         # injects the left/right edge-column zero at each packed-row boundary.
         cols_to_partition = {
+            128: Partition.P0,  # 1 group of 128 lanes (one packed row per chunk)
             64: Partition.P2,   # 2 groups of 64 lanes
             32: Partition.P4,   # 4 groups of 32 lanes
             16: Partition.P8,   # 8 groups of 16 lanes

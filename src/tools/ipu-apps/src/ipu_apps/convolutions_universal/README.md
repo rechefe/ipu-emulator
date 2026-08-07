@@ -23,12 +23,12 @@ the others.
 
 | App | Shape | Stride | Special | cyc/unit* | Status |
 |---|---|---|---|---|---|
-| [`conv/conv_universal`](conv/conv_universal/README.md) | 3×3, cols∈{16,32,64} | 1 | walking-pointer rotating-slot | ~11 cyc/ch | Mature |
-| [`conv/conv_universal_bn_activation`](conv/conv_universal_bn_activation) | 3×3, cols∈{16,32,64} | 1 | + per-channel bias, ReLU | ~9 cyc/ch | Mature |
+| [`conv/conv_universal`](conv/conv_universal/README.md) | 3×3, cols∈{16,32,64,128} | 1 | walking-pointer rotating-slot; cols=128 uses Partition.P0 (no left/right sub-row partitioning) | ~11 cyc/ch | Mature |
+| [`conv/conv_universal_bn_activation`](conv/conv_universal_bn_activation) | 3×3, cols∈{16,32,64,128} | 1 | + per-channel bias, ReLU | ~9 cyc/ch | Mature |
 | [`conv/conv_first_layer`](conv/conv_first_layer) | 3×3, 256×256×3→128×128×16 | 2 | fixed-shape first-layer conv, INT8+BN+ReLU | — | Mature, not generalized |
-| [`conv/conv_universal_wide384`](conv/conv_universal_wide384) | 3×3, width≥384 (mult. of 128), even out_channels | 1 | 3-slot R_CYCLIC strip generalizing `conv_first_layer`'s trick to arbitrary `cpr=width/128` | ~24% MULT util | **Correctness-first only** — no rotating-slot pipelining yet; 384 is just the minimum supported width, not a tuned target. See its own docstring. |
-| [`depthwise/depthwise_conv_universal`](depthwise/depthwise_conv_universal/GUIDE.md) | 3×3 depthwise, cols∈{16,32,64} | 1 | no bias, no activation | **9 cyc/ch** | Mature — see the guide |
-| [`depthwise/depthwise_conv_universal_bn_activation`](depthwise/depthwise_conv_universal_bn_activation) | 3×3 depthwise, cols∈{16,32,64} | 1 | + per-channel bias, ReLU | 10 cyc/ch | Mature |
+| [`conv/conv_universal_wide384`](conv/conv_universal_wide384) | 3×3, width≥384 (mult. of 128), even out_channels | 1 | 3-slot R_CYCLIC strip generalizing `conv_first_layer`'s trick to arbitrary `cpr=width/128` | ~24% MULT util | **Experimental only, not a finished goal** — correctness-first, no rotating-slot pipelining; 384 is just the minimum supported width. See its own docstring. |
+| [`depthwise/depthwise_conv_universal`](depthwise/depthwise_conv_universal/GUIDE.md) | 3×3 depthwise, cols∈{16,32,64,128} | 1 | no bias, no activation; cols=128 uses Partition.P0 | **9 cyc/ch** | Mature — see the guide |
+| [`depthwise/depthwise_conv_universal_bn_activation`](depthwise/depthwise_conv_universal_bn_activation) | 3×3 depthwise, cols∈{16,32,64,128} | 1 | + per-channel bias, ReLU | 10 cyc/ch | Mature |
 | [`depthwise/depthwise_conv_stride2_128`](depthwise/depthwise_conv_stride2_128) | 3×3 depthwise, cols=128 | 2 | two-stage: unmodified `depthwise_conv_universal` + ACC.STRIDE decimate pass | ~79% MULT util (stage 1 dominated) | Complete, benchmarked |
 | [`depthwise/depthwise_conv_stride2_narrow`](depthwise/depthwise_conv_stride2_narrow) | 3×3 depthwise, cols∈{16,32,64} | 2 | same two-stage pattern; ACC.STRIDE's `elements_in_row=cols` does row-splitting for free | ~103% (stats-composition quirk, see below) | Complete, benchmarked |
 | [`pointwise/pointwise_conv_unified`](pointwise/pointwise_conv_unified) | 1×1 | 1 | multi-pass, `oc_per_reg=1` padded kernel; wins on awkward `in_ch` | G+2 cyc/OC | Mature |

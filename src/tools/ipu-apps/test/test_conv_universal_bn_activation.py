@@ -112,6 +112,8 @@ class TestConvUniversalBnActivation:
             (10, 4, 16, 16),   # small partial block
             (16, 8, 32, 32),   # cross-chunk, multiple filters
             (40, 4, 16, 16),   # two super-blocks per filter (bias once)
+            (4, 2, 8, 128),    # cols=128: one packed row per chunk (Partition.P0)
+            (16, 4, 8, 128),   # cols=128, partial kernel block
         ],
     )
     def test_conv_bn_relu(
@@ -183,6 +185,7 @@ class TestConvUniversalBnActivation:
             (4, 4, 16, 16),
             (16, 4, 16, 16),
             (16, 8, 32, 32),   # cross-chunk
+            (4, 2, 8, 128),    # cols=128 (Partition.P0) parity check
         ],
     )
     def test_same_asm_runs_in_wide_vector_debug_mode(
