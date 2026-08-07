@@ -20,11 +20,17 @@ Supported today:
   - ``groups in {1, in_channels}`` (plain conv or fully depthwise)
   - ``dtype`` INT8 only (the only dtype the underlying apps' bias/activation
     path supports end-to-end)
-  - spatial width (and height, for the depthwise stride-2 path) up to 128,
-    via zero-padding up to the nearest supported ``cols`` and truncating the
-    output back to the true width -- verified bit-exact against a numpy
-    reference at width 65/99/100/101/125/126/127 for both stride 1 and 2
-    (see the throwaway probe this module promotes into real, tested code).
+  - ANY spatial width from 1 to 128 (columns are zero-padded up to the
+    nearest of {16, 32, 64, 128} and the output truncated back to the true
+    width), and ANY row count the underlying app's own floor would
+    otherwise reject -- stride-1 apps require ``rows*cols >= 256``
+    (``num_chunks >= 2``), stride-2's ``depthwise_conv_stride2_128``
+    requires ``rows`` to be a multiple of 4 and >= 4. Both floors are
+    satisfied by padding ROWS the same zero-pad-then-truncate way as
+    columns, entirely transparent to the caller. Verified bit-exact against
+    a numpy/F.conv2d reference across width 1/2/5/8/15/16/17/31/63/65/99/
+    100/101/125/126/127/128 crossed with rows 1-7, for both stride 1 and 2
+    (see test_layers.py's TestSmallImages and the boundary-width classes).
 
 Explicitly out of scope (raises :class:`UnsupportedLayer`):
   - ``dilation != 1``, ``kernel_size != 3``, non-"same" padding
@@ -105,8 +111,8 @@ class UnsupportedLayer(ValueError):
 
 
 # ============================================================================
-# Width padding / truncation (verified against a numpy reference; see the
-# module docstring and test_layers.py for the boundary-width checks this
+# Width/height padding + truncation (verified against a numpy reference; see
+# the module docstring and test_layers.py for the boundary checks this
 # promotes into real code)
 # ============================================================================
 
@@ -122,6 +128,20 @@ def _next_valid_cols(width: int) -> int:
     )
 
 
+def _min_rows_for_chunk_floor(rows: int, cols: int) -> int:
+    """Smallest ``padded_rows >= rows`` such that ``padded_rows * cols >= 256``
+    (the ``num_chunks >= 2`` floor every stride-1 app in this module enforces).
+
+    Small images (e.g. width <= 63 padded to cols=64, with only a handful of
+    real rows) can fail this floor even after column padding -- e.g. rows=2,
+    cols=64 gives only 128 < 256. Padding rows up to the floor (same
+    zero-pad-then-truncate principle as column padding) fixes it; verified
+    bit-exact against F.conv2d for rows as low as 1-2 with tiny widths.
+    """
+    needed = math.ceil(256 / cols)
+    return max(rows, needed)
+
+
 def pad_width_to_cols(input_chw: np.ndarray, cols: int) -> np.ndarray:
     """Zero-pad an ``[channels, rows, width]`` array's last axis up to ``cols``."""
     channels, rows, width = input_chw.shape
@@ -132,10 +152,26 @@ def pad_width_to_cols(input_chw: np.ndarray, cols: int) -> np.ndarray:
     return padded
 
 
+def pad_rows(input_chw: np.ndarray, padded_rows: int) -> np.ndarray:
+    """Zero-pad an ``[channels, rows, cols]`` array's row axis up to ``padded_rows``."""
+    channels, rows, cols = input_chw.shape
+    if rows == padded_rows:
+        return input_chw
+    padded = np.zeros((channels, padded_rows, cols), dtype=input_chw.dtype)
+    padded[:, :rows, :] = input_chw
+    return padded
+
+
 def truncate_width(output_cow: np.ndarray, true_out_width: int) -> np.ndarray:
     """Slice an ``[out_channels, out_rows, cols]`` array's last axis down to the
     true (unpadded) output width."""
     return output_cow[:, :, :true_out_width]
+
+
+def truncate_rows(output_cow: np.ndarray, true_out_rows: int) -> np.ndarray:
+    """Slice an ``[out_channels, rows, cols]`` array's row axis down to the
+    true (unpadded) output row count."""
+    return output_cow[:, :true_out_rows, :]
 
 
 # ============================================================================
@@ -371,11 +407,6 @@ def run_layer(
             "are supported (via pad+truncate); conv_universal_wide384 "
             "handles wider images but is not wired into this adapter"
         )
-    if desc.stride == 2 and height % 2 != 0:
-        raise UnsupportedLayer(
-            f"depthwise_conv_stride2_128 requires an even row count, got "
-            f"height={height}"
-        )
 
     input_np = quantize_int8(input_tensor)
     weight_np = quantize_int8(layer.weight)
@@ -384,11 +415,21 @@ def run_layer(
     is_depthwise = desc.groups == desc.in_channels
     cols = _next_valid_cols(width)
     padded = pad_width_to_cols(input_np, cols)
+    if desc.stride == 1:
+        # num_chunks = padded_rows*cols/128 must be >= 2 (every stride-1 app's
+        # own guard) -- a real gap for small width * small height combos even
+        # after column padding (e.g. rows=2, cols=64 gives only 128 < 256).
+        # Pad rows the same zero-pad-then-truncate way; verified bit-exact
+        # for rows as low as 1-2 (see test_layers.py).
+        padded_rows_stride1 = _min_rows_for_chunk_floor(height, cols)
+        if padded_rows_stride1 != height:
+            padded = pad_rows(padded, padded_rows_stride1)
+    else:
+        padded_rows_stride1 = height
 
     with tempfile.TemporaryDirectory(prefix="run_layer_") as tmp_s:
         tmp = Path(tmp_s)
         input_file = tmp / "input.bin"
-        input_file.write_bytes(pack_input_chunked(padded))
         output_file = tmp / "output.bin"
 
         if desc.stride == 2:
@@ -398,7 +439,18 @@ def run_layer(
             # what _next_valid_cols picked for a possibly-smaller width.
             if cols != 128:
                 padded = pad_width_to_cols(input_np, 128)
-                input_file.write_bytes(pack_input_chunked(padded))
+            # depthwise_conv_stride2_128 requires rows even, >=4, and rows/2
+            # even (i.e. rows a multiple of 4) -- pad up to the smallest such
+            # value >= height, same zero-pad-then-truncate principle as
+            # column padding. Real rows beyond `height` never get read by
+            # any output row we keep (out row r reads input rows 2r-1..2r+1,
+            # and we only keep out rows < ceil(height/2)).
+            padded_rows = height if height % 4 == 0 else height + (4 - height % 4)
+            padded_rows = max(padded_rows, 4)
+            if padded_rows != height:
+                padded = pad_rows(padded, padded_rows)
+            input_file.write_bytes(pack_input_chunked(padded))
+
             kernel_file = tmp / "kernel.bin"
             # depthwise_conv_stride2_128 -> depthwise_conv_universal's own
             # kernel_path format: channels*9 raw INT8 bytes, no bias (stride2
@@ -407,19 +459,21 @@ def run_layer(
             kernel_file.write_bytes(weight_np.reshape(desc.out_channels, 9).tobytes())
             app = DepthwiseConvStride2_128App(
                 input_path=input_file, kernel_path=kernel_file,
-                output_path=output_file, rows=height, channels=desc.out_channels,
+                output_path=output_file, rows=padded_rows, channels=desc.out_channels,
             )
             app.run(max_cycles=max_cycles)
-            true_out_rows = height // 2
-            true_out_cols = (width + 1) // 2
+            true_out_rows = math.ceil(height / 2)
+            true_out_cols = math.ceil(width / 2)
+            padded_out_rows = padded_rows // 2
             out_arr = unpack_output_chunked(
                 output_file.read_bytes(), desc.out_channels,
-                math.ceil(true_out_rows / 2) * 2, 64,
+                math.ceil(padded_out_rows / 2) * 2, 64,
             )
             out_arr = out_arr[:, :true_out_rows, :true_out_cols]
             return torch.from_numpy(out_arr.copy())
 
         # stride == 1: conv_universal / depthwise_conv_universal (+BN twins)
+        input_file.write_bytes(pack_input_chunked(padded))
         bin_path = tmp / "assembled.bin"
         if is_depthwise:
             kernel_file = tmp / "kernel.bin"
@@ -429,7 +483,8 @@ def run_layer(
                 app = DepthwiseConvUniversalBnActivationApp(
                     inst_path=bin_path, input_path=input_file,
                     kernel_path=kernel_file, bias=bias_np, output_path=output_file,
-                    dtype="INT8", rows=height, cols=cols, channels=desc.out_channels,
+                    dtype="INT8", rows=padded_rows_stride1, cols=cols,
+                    channels=desc.out_channels,
                 )
                 out_chunk_bytes = _DW_BN_OUTPUT_CHUNK_BYTES
             else:
@@ -437,7 +492,8 @@ def run_layer(
                 app = DepthwiseConvUniversalApp(
                     inst_path=bin_path, input_path=input_file,
                     kernel_path=kernel_file, output_path=output_file,
-                    dtype="INT8", rows=height, cols=cols, channels=desc.out_channels,
+                    dtype="INT8", rows=padded_rows_stride1, cols=cols,
+                    channels=desc.out_channels,
                 )
                 out_chunk_bytes = _DW_OUTPUT_CHUNK_BYTES
         else:
@@ -446,7 +502,7 @@ def run_layer(
                 app = ConvUniversalBnActivationApp(
                     inst_path=bin_path, input_path=input_file, kernel=weight_np,
                     bias=bias_np, output_path=output_file, dtype="INT8",
-                    rows=height, cols=cols, in_channels=desc.in_channels,
+                    rows=padded_rows_stride1, cols=cols, in_channels=desc.in_channels,
                     out_channels=desc.out_channels,
                 )
                 out_chunk_bytes = _CONV_BN_OUTPUT_CHUNK_BYTES
@@ -455,7 +511,7 @@ def run_layer(
                 app = ConvUniversalApp(
                     inst_path=bin_path, input_path=input_file, kernel=weight_np,
                     output_path=output_file, dtype="INT8",
-                    rows=height, cols=cols, in_channels=desc.in_channels,
+                    rows=padded_rows_stride1, cols=cols, in_channels=desc.in_channels,
                     out_channels=desc.out_channels,
                 )
                 out_chunk_bytes = _CONV_OUTPUT_CHUNK_BYTES
@@ -463,8 +519,9 @@ def run_layer(
         app.run(max_cycles=max_cycles)
         assert out_chunk_bytes == CHUNK_BYTES  # all stride-1 apps use 128B chunks
         out_arr = unpack_output_chunked(
-            output_file.read_bytes(), desc.out_channels, height, cols,
+            output_file.read_bytes(), desc.out_channels, padded_rows_stride1, cols,
         )
+        out_arr = truncate_rows(out_arr, height)
         out_arr = truncate_width(out_arr, width)
         return torch.from_numpy(out_arr.copy())
 
