@@ -213,8 +213,8 @@ class ConvUniversalApp(IpuApp):
         output_path:  Optional path to write output.
         dtype:        Data type string or :class:`DType`.
         rows:         Spatial height.
-        cols:         Spatial width; one of {16, 32, 64} (one packed row per
-                      mask partition group). cols=128 lives in a separate binary.
+        cols:         Spatial width; one of {16, 32, 64, 128} (one packed row
+                      per mask partition group; cols=128 uses Partition.P0).
         in_channels:  Number of input channels (>= 1).
         out_channels: Number of output channels (>= 1).
     """
@@ -243,9 +243,7 @@ class ConvUniversalApp(IpuApp):
         self.kernel_path = Path(kernel_path) if kernel_path is not None else None
 
         # Validate
-        # cols=128 is not yet supported by the walking-pointer asm; this
-        # binary handles 16/32/64. (cols=128 will live in a separate binary.)
-        valid_cols = {16, 32, 64}
+        valid_cols = {16, 32, 64, 128}
         if cols not in valid_cols:
             raise ValueError(f"cols must be in {valid_cols}, got {cols}")
         num_chunks = (rows * cols) // 128
@@ -341,6 +339,7 @@ class ConvUniversalApp(IpuApp):
         # packed spatial row (group size == cols).  The asm's mask_shift then
         # injects the left/right edge-column zero at each packed-row boundary.
         cols_to_partition = {
+            128: Partition.P0,  # 1 group of 128 lanes (one packed row per chunk)
             64: Partition.P2,   # 2 groups of 64 lanes
             32: Partition.P4,   # 4 groups of 32 lanes
             16: Partition.P8,   # 8 groups of 16 lanes

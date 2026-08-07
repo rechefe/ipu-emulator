@@ -115,6 +115,8 @@ class TestDepthwiseConvUniversal:
             (16, 16, 32),   # one full + one partial super-block
             (32, 32, 16),   # multi-chunk, partial super-block
             (64, 64, 50),   # two full super-blocks, larger spatial
+            (8, 128, 4),    # cols=128: one packed row per chunk (Partition.P0)
+            (16, 128, 30),  # cols=128, multi-chunk + super-block spanning
         ],
     )
     def test_depthwise(
@@ -223,6 +225,7 @@ class TestDepthwiseConvUniversalWideVectorDebug:
             (16, 16, 4),    # single chunk, partial super-block
             (16, 16, 32),   # one full + one partial super-block (exercises the
                              # cross-cycle lr12 super-block-row advance)
+            (8, 128, 4),    # cols=128 (Partition.P0) parity check
         ],
     )
     def test_same_asm_runs_in_wide_vector_debug_mode(
