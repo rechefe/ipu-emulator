@@ -47,9 +47,9 @@ The Cache Unit manages data movement between external DRAM and on-chip XMEM so t
 | `NUM_BANKS` | `16` | Number of XMEM banks/pages. |
 | `BANK_DATA_SIZE` | `1024 rows x 1024 bits = 128KB` | Size of one BANK/PAGE. |
 | `OFFSET_WIDTH` | `20` | Offset width inside the array address space. |
-| `ARRAY_ID_WIDTH` | `TBD` | Array ID width. |
+| `ARRAY_ID_WIDTH` | `4` | Array ID width. |
 | `XMEM_ROW_WIDTH` | `128` | Width of one XMEM row (bytes). |
-| `META_DATA_WIDTH` | `16` | Width of metadata carried alongside row data (bits): 8-bit scale, 4-bit exponent format, 4-bit mantissa format. |
+| `META_DATA_WIDTH` | `16` | Width of metadata carried alongside row data (bits): 8-bit scale, 1-bit sign/unsign, 4-bit exponent format, 3-bit mantissa format. |
 
 ## 5. Tables
 
@@ -67,14 +67,14 @@ A table is a data structure that defines the methodology of a data movement and 
 | `xmem_num_of_banks` | 4 | Amount of banks. |
 | `jump_back` | 16 | Flush all addresses that are below `table_addr - jump_back`. Actual flush is done for the entire bank, not per address. When accessing `table_addr < jump_back`, flush all table banks to prepare for another round of table traversing. |
 | `dma_en` | 1 | Enables read/write to DRAM. Used for tables that stay resident in XMEM. |
-| `num_loops` | 16 | Number of times to read the table. Used to invalidate banks (using `jump_back`) on the last round of the read. |
+| `repetitions` | 16 | Number of times to read the table. Used to invalidate banks (using `jump_back`) on the last round of the read. |
 
 ### 5.1 Table Types
 
-- `read_only` - Table data is loaded from DRAM. Once done working with the table, all bank tags of the table are invalidated.
-- `write_only` - Table data is written into DRAM. Once all data is written into DRAM, all bank tags of the table are invalidated.
-- `read_after_write` - Table is written by the IPU into XMEM and is not invalidated once writing is done. Once the table has been read back, the table is invalidated.
-- `scratch_pad` - Table can live while the layer is still executing on the IPU. It is invalidated only when the currently executing kernel finishes.
+- `read_only` — Table data is loaded from DRAM into XMEM. Once the IPU has finished reading the table, all of its bank tags are invalidated.
+- `write_only` — Table data is written from XMEM to DRAM. Once all of the table's data has been written to DRAM, all of its bank tags are invalidated.
+- `read_after_write` — Table data is written by the IPU into XMEM and stays valid until it has been read back; only then are its bank tags invalidated.
+- `scratch_pad` — Table data stays resident in XMEM for as long as the layer is executing on the IPU. Its bank tags are invalidated only when the currently executing kernel finishes.
 
 ## 6. Memory and Tag Model
 
@@ -84,8 +84,9 @@ A table is a data structure that defines the methodology of a data movement and 
 - Each row is **1024 bits**.
 - Each row contains metadata (`META_DATA_WIDTH` = 16 bits) alongside its data:
   - `scale[15:8]` = 8-bit scale
-  - `fe[7:4]` = 4-bit exponent format
-  - `fm[3:0]` = 4-bit mantissa format
+  - `sign/unsign[7]` = 1-bit sign/unsign (`0` = unsigned, `1` = signed)
+  - `fe[6:3]` = 4-bit exponent format
+  - `fm[2:0]` = 3-bit mantissa format
 - Address split:
   - `offset[9:0]` = row index in bank (0..1023)
   - `offset[19:10]` = tag and bank-list index component
@@ -105,18 +106,17 @@ A table is a data structure that defines the methodology of a data movement and 
 
 ## 8. DMA Operations
 
-DMA tables behave like DMA engines.
-
-DMA table note:
 - `banklist` is a cyclic linked list.
-- `array_size` is the number of pages this table instance must handle during its lifetime.
-- `base_dram_addr` is the DRAM base address used for this table's operations.
+- `repetitions` is the num of time this table must be loaded from dram during its lifetime.
+- `dram_base_address` is the DRAM base address used for this table's operations.
+
+DMA can only handel write_only/read only table 
 
 ### 8.1 DMA Read (DRAM -> XMEM)
 
 ```text
 
-dram_addr = base_dram_addr + dram_offset
+dram_addr = dram_base_address + dram_offset
 bank_pos = dram_offset[19:10] % NUM_BANKS
 bank = banklist[bank_pos]
 xmem_addr = {bank, dram_offset[9:0]}
@@ -131,7 +131,6 @@ if (done_filling_bank)
 ```
 
 Behavior:
-- DMA computes DRAM and XMEM addresses per table entry.
 - DMA cannot overwrite a busy bank (`bank.tag != FFFF`).
 - Tag is published only after the whole bank is filled.
 
