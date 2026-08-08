@@ -34,7 +34,7 @@ The Cache Unit manages data movement between external DRAM and on-chip XMEM so t
 | `dram_rd_metadata` | `input logic [META_DATA_WIDTH-1:0]` | Metadata read from DRAM. |
 | `dram_wr_data` | `output logic [7:0] [XMEM_ROW_WIDTH-1:0]` | Write data to DRAM (array of bytes). |
 | `dram_wr_metadata` | `output logic [META_DATA_WIDTH-1:0]` | Metadata written to DRAM. |
-| `ipu_addr` | `input logic [TBD:0]` | IPU virtual address (`array_id + offset`). |
+| `ipu_addr` | `input logic [ARRAY_ID_WIDTH+OFFSET_WIDTH-1:0]` | IPU virtual address (`array_id + offset`). |
 | `ipu_rd_data` | `output logic [7:0] [XMEM_ROW_WIDTH-1:0]` | Data returned to IPU (array of bytes). |
 | `ipu_rd_metadata` | `output logic [META_DATA_WIDTH-1:0]` | Metadata returned to IPU. |
 | `ipu_wr_data` | `input logic [7:0] [XMEM_ROW_WIDTH-1:0]` | Data written by IPU to XMEM (array of bytes). |
@@ -51,6 +51,16 @@ The Cache Unit manages data movement between external DRAM and on-chip XMEM so t
 | `XMEM_ROW_WIDTH` | `128` | Width of one XMEM row (bytes). |
 | `META_DATA_WIDTH` | `16` | Width of metadata carried alongside row data (bits): 8-bit scale, 1-bit sign/unsign, 4-bit exponent format, 3-bit mantissa format. |
 
+### 4.1 XMEM Bank Property
+
+Each XMEM bank carries the following per-bank state, in addition to its data rows.
+
+| Field | Width (bits) | Description |
+|-------|--------------|-------------|
+| `tag` | 14 | `{TABLE_ID, offset[19:10]}`. `FFFF` means the bank is free or not ready for the required operation. |
+| `table_id` | 4 | Table currently owning this bank. |
+| `flush` | 1 | When `True`, this bank is ready to be written to DRAM. |
+
 ## 5. Tables
 
 A table is a data structure that defines the methodology of a data movement and holds all the parameters needed for the task.
@@ -60,13 +70,12 @@ A table is a data structure that defines the methodology of a data movement and 
 | Field | Width (bits) | Description |
 |-------|--------------|-------------|
 | `table_id` | 4 | Table ID sent with the IPU address. |
-| `type` | 2 | `read_only`, `write_only`, `read_after_write`, `scratch_pad`. |
+| `type` | 2 | `read_only`, `write_only`, `read_after_write`, `scratch_pad`. reletive to IPU | 
 | `dram_base_address` | 32 | Resolution of `BANK_DATA_SIZE`. |
 | `size` | 16 | Resolution of `BANK_DATA_SIZE`. |
 | `xmem_bank_list[16]` | 4 | Ordered array of banks. |
 | `xmem_num_of_banks` | 4 | Amount of banks. |
 | `jump_back` | 16 | Flush all addresses that are below `table_addr - jump_back`. Actual flush is done for the entire bank, not per address. When accessing `table_addr < jump_back`, flush all table banks to prepare for another round of table traversing. |
-| `dma_en` | 1 | Enables read/write to DRAM. Used for tables that stay resident in XMEM. |
 | `repetitions` | 16 | Number of times to read the table. Used to invalidate banks (using `jump_back`) on the last round of the read. |
 
 ### 5.1 Table Types
@@ -78,7 +87,7 @@ A table is a data structure that defines the methodology of a data movement and 
 
 ## 6. Memory and Tag Model
 
-- Tag = {TABLE_ID, offset[19:0]}
+- Tag = {TABLE_ID, offset[19:10]}
 - In this design, **BANK = PAGE**.
 - Each BANK/PAGE has **1024 rows**.
 - Each row is **1024 bits**.
@@ -90,19 +99,26 @@ A table is a data structure that defines the methodology of a data movement and 
 - Address split:
   - `offset[9:0]` = row index in bank (0..1023)
   - `offset[19:10]` = tag and bank-list index component
-- `in_use` each bank contains a bit that signal if the bank is in use by a table  
 - `FFFF` tag means bank is free or not ready for the required operation.
 
 ## 7. Handshake Model
 
-- IPU and DMA are not directly connected.
+- IPU and DMA are not directly connected — they synchronize only through per-bank
+  `tag`/`flush` state in XMEM (Section 4.1).
 - IPU sends two things to CRM:
    - `ipu_addr` (virtual address)
-   - Requested table ID (example: `W_Table` or `Xout_Table`)
-- CRM checks tag ownership.
-- If the tag does not match, CRM stalls the IPU.
-- DMA runs in the background and fills or drains banks.
-- When DMA publishes the needed tag, CRM releases the stall and IPU continues.
+   - Requested table ID — symbolic table names (e.g. `W_Table`, `Xout_Table`) are
+     assigned a numeric `table_id` (0-15) at compile time.
+- CRM computes `bank_pos`/`tag` from the address and checks it against the bank's
+  current `tag`. If they don't match, CRM stalls the IPU.
+- **Read path:** DMA runs in the background, waits for a free bank (`tag == FFFF`),
+  fills it from DRAM, and publishes `bank.tag` when done. Once the published tag
+  matches what CRM is checking for, CRM releases the stall.
+- **Write path:** the IPU claims free banks ahead of writing (Section 9.2, thread 0)
+  and writes into them. When a jump boundary is crossed, CRM marks the *previous*
+  bank `flush = True` instead of invalidating its tag immediately. DMA drains
+  flushed banks to DRAM (Section 8.2) and clears the bank (`tag = FFFF`,
+  `flush = False`) once the drain completes.
 
 ## 8. DMA Operations
 
@@ -127,6 +143,7 @@ if (bank.tag != FFFF)
 
 if (done_filling_bank)
    bank.tag = tag
+   bank.table_id = TABLE_ID
 
 ```
 
@@ -143,11 +160,12 @@ bank_pos = dram_offset[19:10] % NUM_BANKS
 bank = banklist[bank_pos]
 tag = {TABLE_ID, dram_offset[19:10]}
 
-if (bank.tag != tag)
-   DMA_stall
+if (bank.tag != tag and bank.flush == False)
+     DMA_stall
 
 if (dram_offset[9:0] == 0x3FF)   // row 1023
    bank.tag = FFFF
+   bank.flush = False
  
 
 ```
@@ -158,7 +176,7 @@ Behavior:
 
 ## 9. CRM Operations
 
-### 9.1 CRM Read (XMEM -> IPU)
+### 9.1 IPU Read (XMEM -> IPU)
 
 ```text
 // IPU request carries: IPU_ADDR (virtual) + TABLE_ID
@@ -168,7 +186,7 @@ bank = banklist[bank_pos]
 xmem_addr = {bank, offset[9:0]}
 tag = {TABLE_ID, offset[19:10]}
 
-if (tag != bank.tag)
+if (tag != bank.tag or bank.table_id != TABLE_ID)
    IPU_stall
 
 if (offset[9:0] >= jump_back && offset[19:10] != 0)
@@ -180,11 +198,9 @@ if (offset == FFFF)
 ```
 
 Behavior:
-- CRM serves IPU reads only on tag match.
 - CRM can free previous bank at jump boundary.
-- Special invalidate command can clear all tags.
 
-### 9.2 CRM Write (IPU -> XMEM)
+### 9.2 IPU Write (IPU -> XMEM)
 
 ```text
 
@@ -194,21 +210,23 @@ while (i != array_size):
    bank = banklist[bank_pos]
    if(bank.tag == FFFF)
       bank.tag = i
+      bank.table_id = TABLE_ID
       i++
       
 thread 1
-
+bank_written_counter = 0 
 bank_pos = offset[19:10] % NUM_BANKS
 bank = banklist[bank_pos]
 tag = {TABLE_ID, offset[19:10]}
 
-if (tag != bank.tag)
+if (tag != bank.tag or bank.table_id != TABLE_ID)
    IPU_stall
 
 if (offset[9:0] >= jump_back && offset[19:10] != 0 )
    banklist[(bank_pos - 1) % NUM_BANKS].flush = True
+   bank_written_counter++ 
 
-if (offset == FFFF && flush_en)
+if (offset == FFFF && bank_written_counter == size)
    for bank in banklist:
       if(bank.tag != FFFF)
          bank.flush = True
@@ -216,10 +234,7 @@ if (offset == FFFF && flush_en)
 ```
 
 Behavior:
-- CRM write path uses jump-based wrap behavior.
 - CRM table provides `banklist` (linked list) and `jump_back` (numeric value).
-- Previous bank tag can be published after jump condition.
-- TODO (special edge case): add a dedicated ISA command to explicitly trigger `publish_tag` for current bank tag publication.
 
 ## 10. Layer1/Layer2 Timing Example
 
@@ -255,21 +270,6 @@ sequenceDiagram
    CRM->>IPU: Start
    IPU->>IPU: Start working L2
 ```
-
-## 11. RISC-V Control Tables
-
-### 11.1 DMA Table (Per Array ID)
-
-- `bank_list`: cyclic linked list of BANK/PAGE IDs.
-- `array_size`: number of pages this table must handle during its lifetime.
-- `base_dram_addr`: DRAM base address used for all table operations.
-
-### 11.2 CRM Table (Per Array ID)
-
-- `bank_list`: linked list of BANK/PAGE IDs used by CRM lookup.
-- `jump_back`: numeric wrap/jump threshold.
-- `array_size`: number of pages this table must handle during its lifetime.
-- `flush_en`: allow the table to be flushed via DMA to DRAM.
 
 
 
