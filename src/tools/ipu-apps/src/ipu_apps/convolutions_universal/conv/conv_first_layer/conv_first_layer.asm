@@ -67,14 +67,36 @@
     add                 lr10 lr9 cr8;;
     ldr_cyclic_mult_reg lr10 cr10 lr11;;
 {%- endmacro -%}
-{#- Emit the 3 kc taps of one (slot, ch, kr).  lr4 already at this kr's kc=-1 tap. -#}
-{%- macro kc_taps(slot) %}
-{#- Horizontal edges are zeroed by mask_shift alone (mask slot 0 = all keep,
+{#- Emit the 3 kc taps of one (slot, ch, kr).
+    lr4 CONVENTION: on entry lr4 holds (this kr's kc=-1 tap index) - 1, i.e. it
+    points at the LAST index the previous group consumed.  Each of the 3 tap
+    words carries its own `INC lr4 1` in the SAME word as its MULT.
+
+    Why that is correct, and why the obvious alternative is NOT:
+    MULT.RC.VE's `src` operand is read **LIVE**, not from the snapshot
+    (`_mult_resolve_lcr_scalar`, ipu.py:768 -- "the LR holds an INDEX into Ra ->
+    read it LIVE"), and the LR slot dispatches BEFORE the MULT slot within a
+    cycle (execute_vliw_cycle).  So an `INC lr4` sharing a word with a MULT is
+    visible to that MULT: the MULT reads the ALREADY-INCREMENTED value.
+
+    That makes the pre-increment form used here exact -- each word bumps lr4 and
+    then consumes the weight it just moved to.  It also means the previous
+    version's trailing standalone `INC lr4 1;;` could NOT simply be merged into
+    the third tap's word: that would have made the third MULT see L+3 instead of
+    L+2, silently reading the NEXT group's first weight.  (Verified empirically:
+    a MULT with a same-word INC reads weight[idx+1], not weight[idx].)
+
+    Folding the increments this way removes one standalone VLIW word per 3-tap
+    group -- 18 words per middle filter body, 12 per edge body.
+
+    Horizontal edges are zeroed by mask_shift alone (mask slot 0 = all keep,
     CR15 partition P1 -> shift +1 zeros lane 0 = col 0; shift -1 zeros lane 127
     = col 255).  Seam taps (slot0 kc=+1 lane127=col128; slot1 kc=-1 lane0=col127)
     must NOT shift-zero -> shift 0. -#}
+{%- macro kc_taps(slot) %}
 {%-   if slot == 0 %}
     SUB                 lr14 lr0 cr1;                # rc_idx = -1 (slot0 kc=-1)
+    INC                 lr4 1;
     MULT.RC.VE          lr14 lr4 0 lr2 cr15;         # left edge: shift +1 zeros lane0 (col0)
     acc.add;;
     INC                 lr4 1;
@@ -83,19 +105,18 @@
     INC                 lr4 1;
     MULT.RC.VE          lr1 lr4 0 lr0 cr15;          # slot0 kc=+1 (rc_idx=1): seam KEEP, no shift
     acc.add;;
-    INC                 lr4 1;;
 {%-   else %}
     SUB                 lr14 lr11 cr1;               # rc_idx = 127 (slot1 kc=-1 -> seam nbr col127)
+    INC                 lr4 1;
     MULT.RC.VE          lr14 lr4 0 lr0 cr15;         # seam KEEP, no shift
     acc.add;;
     INC                 lr4 1;
     MULT.RC.VE          lr11 lr4 0 lr0 cr15;         # rc_idx = 128 (slot1 kc=0)
     acc.add;;
-    INC                 lr4 1;
     ADD                 lr14 lr11 cr1;               # rc_idx = 129 (slot1 kc=+1)
+    INC                 lr4 1;
     MULT.RC.VE          lr14 lr4 0 lr3 cr15;         # right edge: shift -1 zeros lane127 (col255)
     acc.add;;
-    INC                 lr4 1;;
 {%-   endif %}
 {%- endmacro -%}
 {#- Full filter body for a given kr list (edge=[0,1], middle=[-1,0,1]). -#}
@@ -105,10 +126,15 @@
 {%-   if slot == 0 %}
     ldr_mult_reg        r0 lr7 cr3;;
 {%-   endif %}
+    # Bias tap: MULT.EE reads lr4 live too, so lr4 must be 0 (bias byte index)
+    # in THIS word.  The following `SET lr4 cr0` re-arms it to 0 = "last index
+    # consumed" under kc_taps' pre-increment convention, so the first tap's own
+    # `INC lr4 1` lands on weight index 1.  Both fit in one word (2 of 3 LR
+    # sub-slots): SET dispatches in the LR phase, and since both SETs write the
+    # same value there is no ordering hazard between them.
     SET                 lr4 cr0;
     MULT.EE             lr4 cr1 0 lr0 cr15;
     acc.add.first;;
-    SET                 lr4 cr1;;
 {%-   for ch in [0, 1, 2] %}
     # -- channel {{ch}} --
 {%-     if krlist == [0, 1] %}
