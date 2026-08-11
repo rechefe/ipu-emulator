@@ -324,6 +324,19 @@ class Ipu:
         buf = source.get_r_cyclic_wide_debug_at(cyclic_offset, self._row_size_bytes())
         return self._wide_unpack_lane_tuple(buf)
 
+    def _rc_element_to_byte_offset(self, rc_idx: int) -> int:
+        """Scale an r_cyclic ELEMENT index to a byte offset (mode-dependent width).
+
+        ``rc_idx`` (MULT.RC.* operand) addresses r_cyclic the same way
+        ``LDR_CYCLIC_MULT_REG``'s ``index`` operand does -- in elements, not
+        bytes -- so reads and writes to the same register share one unit. A
+        no-op in narrow mode (1 byte/element); scales by 4 in wide-vector
+        debug mode. See issue #182's follow-up: rc_idx used to be a raw byte
+        offset, which silently diverged from the write-side element index
+        once r_cyclic's wide-mode ring grew to 2048 B (512 elements x 4 B).
+        """
+        return rc_idx * self._element_width_bytes()
+
     def _acc_agg_lane_fmt(self) -> str:
         """Struct format for r_acc / agg when wide-vector debug is on."""
         if self._wide_vector_active():
@@ -777,9 +790,9 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
+            byte_off = self._rc_element_to_byte_offset(rc_idx)
             ra_vals = self._debug_ra_lane_vals(ra)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
+            rb_vals = self._debug_rb_lane_vals(byte_off, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(ra_vals[i]))
@@ -792,7 +805,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(self._rc_element_to_byte_offset(rc_idx), R_REG_SIZE)
 
         for i in range(LANES):
             result = ipu_mult(rc[i], ra[i], dtype)
@@ -806,9 +819,9 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
+            byte_off = self._rc_element_to_byte_offset(rc_idx)
             scalar = self._mult_resolve_lcr_scalar_wide(src)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
+            rb_vals = self._debug_rb_lane_vals(byte_off, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 scalar_f = float(scalar)
                 for i in range(LANES):
@@ -824,7 +837,7 @@ class Ipu:
 
         dtype = self.state.dtype
         scalar_byte = self._mult_resolve_lcr_scalar(src)
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(self._rc_element_to_byte_offset(rc_idx), R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -839,8 +852,8 @@ class Ipu:
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
-            self._wide_assert_lane_aligned_byte_offset("rc_idx", rc_idx)
-            rb_vals = self._debug_rb_lane_vals(rc_idx, self.snapshot)
+            byte_off = self._rc_element_to_byte_offset(rc_idx)
+            rb_vals = self._debug_rb_lane_vals(byte_off, self.snapshot)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(LANES):
                     struct.pack_into("<f", mult_res, i * 4, float(rb_vals[i]) * float(rb_vals[i]))
@@ -853,7 +866,7 @@ class Ipu:
             return
 
         dtype = self.state.dtype
-        rc = self.snapshot.get_r_cyclic_at(rc_idx, R_REG_SIZE)
+        rc = self.snapshot.get_r_cyclic_at(self._rc_element_to_byte_offset(rc_idx), R_REG_SIZE)
         fmt = "<i" if dtype == DType.INT8 else "<f"
 
         for i in range(LANES):
@@ -1070,7 +1083,6 @@ class Ipu:
                 out_indices.extend(after_h[start : start + effective_row_len])
 
         base = (offset % 4) * 32
-        dtype = self.state.dtype
         fmt = self._acc_agg_lane_fmt()
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -1160,6 +1172,9 @@ class Ipu:
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
         else:
+            # fmt == "<i" covers both narrow INT8 mode and wide-vector INT32 mode
+            # (_acc_agg_lane_fmt); ipu_add's DType.INT8 branch is plain 32-bit wrap
+            # with no 8-bit saturation, so it's correct for INT32 lanes too.
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
