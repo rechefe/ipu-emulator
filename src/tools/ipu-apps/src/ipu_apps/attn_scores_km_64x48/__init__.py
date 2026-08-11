@@ -49,6 +49,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ipu_emu.emulator import dump_xmem_to_binary
+
 from ipu_apps.base import IpuApp
 
 if TYPE_CHECKING:
@@ -98,8 +100,12 @@ QBASE    = QBASE_ROW * ROW_BYTES
 KBASE_KM = KBASE_KM_ROW * ROW_BYTES
 SBASE    = SBASE_ROW * ROW_BYTES
 
-# One store = one whole row; only the first N lanes hold query scores.
-OUTPUT_ROW_BYTES = N * ELEM_BYTES            # 256 valid bytes per stored row
+# Producers emit full rows; only the consumer crops (see kernel_layer_map.md).
+# attn_v_bcast_48 stages this kernel's output verbatim and addresses one key
+# per whole 512 B row, so the store pitch here must be the FULL row -- a
+# packed 256 B (N * ELEM_BYTES) pitch would misalign every key row the
+# consumer reads.
+OUTPUT_ROW_BYTES = ROW_BYTES                 # 512: full row, not the N-valid crop
 
 
 def _read_head(path: Path, head: int) -> np.ndarray:
@@ -185,18 +191,17 @@ class AttnScoresKM64x48App(IpuApp):
         state.regfile.set_lr(14, 0)              # stream counter p
 
     def teardown(self, state: "IpuState") -> None:
-        """Crop each key row's valid N queries out of its whole 512 B row.
+        """Emit each key's whole 512 B row uncropped.
 
-        Every store wrote a full row (one key per row -- rows are never shared),
-        but only the leading ``N * ELEM_BYTES`` bytes hold scores. The output
-        file is the densely packed crop: ``P * N`` rows of N FP32, key (p, s) at
-        row index ``p*N + s``.
+        Producers emit full rows and only the final consumer crops (see
+        kernel_layer_map.md). ``attn_v_bcast_48`` stages this output verbatim
+        and addresses one key per whole row, so the output file is ``P * N``
+        rows of ROW_BYTES, key (p, s) at row index ``p*N + s`` -- only the
+        leading ``N * ELEM_BYTES`` of each row hold real scores, the rest is
+        the padding ``attn_v_bcast_48`` also carries.
         """
-        if self.output_path is None:
-            return
-        stride = OUT_ROWS * ROW_BYTES
-        parts = [
-            bytes(state.xmem.read_address(SBASE + r * stride, OUTPUT_ROW_BYTES))
-            for r in range(P * N * N_TG)
-        ]
-        Path(self.output_path).write_bytes(b"".join(parts))
+        if self.output_path is not None:
+            dump_xmem_to_binary(
+                state, self.output_path,
+                SBASE, OUTPUT_ROW_BYTES, P * N * N_TG,
+            )

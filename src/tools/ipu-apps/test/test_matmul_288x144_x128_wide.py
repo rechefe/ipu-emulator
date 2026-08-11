@@ -3,6 +3,9 @@
 Runs the REAL kernel binary against a numpy reference in wide-vector debug mode.
 No checked-in golden: FP32 inputs are generated here and the expected result is
 computed directly, so the test does not depend on the quantized INT8/FP8 path.
+
+This is the FFN1 (expansion) matmul: the store applies `silu` (x*sigmoid(x)),
+the FFN nonlinearity, rather than `identity`.
 """
 
 from __future__ import annotations
@@ -45,7 +48,8 @@ def test_matmul_288x144_x128_wide_fp32(tmp_path: Path) -> None:
     state, cycles = app.run(max_cycles=20_000_000, state=state)
     assert cycles > 0
 
-    expected = W @ D                      # C[j, t] = sum_k W[j,k] * D[k,t]
+    pre_act = W @ D                       # C[j, t] = sum_k W[j,k] * D[k,t]
+    expected = pre_act * (1.0 / (1.0 + np.exp(-pre_act)))  # silu = x * sigmoid(x)
 
     raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
     assert raw.size == N_OUT * N_TG * LANES, (

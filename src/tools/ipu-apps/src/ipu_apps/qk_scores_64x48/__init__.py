@@ -136,6 +136,10 @@ class QkScores64x48App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         self._stage_inputs(state)
 
+        # Only N of the 128 lanes carry real keys; the rest must be excluded
+        # structurally rather than relying on the harness zero-filling them.
+        state.set_cr_dstructure(valid_elements=N)
+
         # Startup skew, in rows: the load runs one bundle ahead of the MULT that
         # consumes it, so the pointer starts one channel stride low.
         k_start_rows = -K_STRIDE_ROWS        # first live K column = block base

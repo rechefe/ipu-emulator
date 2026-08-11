@@ -23,6 +23,14 @@ The structural differences from L3 are both consequences of N = 64 <= LANES:
 Rows are never shared: each output channel owns a whole 512 B row and the
 teardown crops the valid ``N_TOK * ELEM_BYTES`` prefix.
 
+No AGG means no cross-lane reduction: ``ACC.ADD`` accumulates each of the 128
+lanes (queries) independently, so the 64 padding lanes can only ever waste
+lanes -- they cannot contaminate the 64 valid ones regardless of their
+content. (Contrast ``attn_v_64x48``, whose ``AGG.SUM.FIRST`` reduces across
+lanes and therefore needs ``valid_elements`` to exclude padding structurally.)
+The test proves this with a garbage-padding probe rather than relying on the
+harness's zero-fill.
+
 V and O use exactly the layouts of the query-major sibling ``attn_v_64x48`` --
 V channel-major on row ``b*D + t`` and O channel-major on row ``b*D + t``, both
 cropped to N_TOK FP32 -- so the two attn@V variants are directly comparable.

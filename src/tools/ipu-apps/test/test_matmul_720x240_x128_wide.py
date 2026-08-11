@@ -5,8 +5,10 @@ mode. No checked-in golden is involved: FP32 inputs are generated here and the
 expected result is computed directly.
 
 N_TOK=16 < LANES, so each output channel occupies a whole 512 B XMEM row of
-which only the first N_TOK*4 bytes are valid; the harness teardown crops them,
-leaving a densely packed N_OUT x N_TOK output file.
+which only the first N_TOK*4 bytes are valid. Per kernel_layer_map.md's crop
+convention, the PRODUCER emits full, uncropped rows (teardown dumps all
+LANES elements per channel) -- this test, as the final consumer, crops to
+the valid N_TOK prefix itself.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import numpy as np
 
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
-from ipu_apps.matmul_720x240_x128 import MatMul720x240x128App, K, N_OUT, N_TOK
+from ipu_apps.matmul_720x240_x128 import MatMul720x240x128App, K, N_OUT, N_TOK, LANES
 
 _INST_BIN = Path(os.environ["MATMUL_720X240_X128_INST_BIN"])
 
@@ -59,9 +61,9 @@ def test_matmul_720x240_x128_wide_fp32(tmp_path: Path) -> None:
     expected = W @ D                       # C[j, t] = sum_k W[j,k] * D[k,t]
 
     raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    assert raw.size == N_OUT * N_TOK, (
-        f"output has {raw.size} floats, expected {N_OUT * N_TOK}"
+    assert raw.size == N_OUT * LANES, (
+        f"output has {raw.size} floats, expected {N_OUT * LANES}"
     )
-    got = raw.reshape(N_OUT, N_TOK)
+    got = raw.reshape(N_OUT, LANES)
 
-    np.testing.assert_allclose(got, expected, rtol=1e-4, atol=1e-3)
+    np.testing.assert_allclose(got[:, :N_TOK], expected, rtol=1e-4, atol=1e-3)

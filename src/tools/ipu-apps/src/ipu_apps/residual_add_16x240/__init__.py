@@ -51,21 +51,13 @@ VALID_ROW_BYTES    = N_TOK * ELEM_BYTES      # 64 B of meaningful output per row
 OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B channel row per XMEM row
 
-ONES_ROWS = 1
 A_BASE_ROW      = 0
 B_BASE_ROW      = A_BASE_ROW + N_ROWS
-ONES_BASE_ROW   = B_BASE_ROW + N_ROWS
-OUTPUT_BASE_ROW = ONES_BASE_ROW + ONES_ROWS
+OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
 A_BASE      = A_BASE_ROW * ROW_BYTES
 B_BASE      = B_BASE_ROW * ROW_BYTES
-ONES_BASE   = ONES_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
-
-
-def _ones_row() -> bytearray:
-    """One XMEM row of FP32 1.0 -- the pass-through multiplier vector."""
-    return bytearray(np.ones(LANES, dtype=np.float32).tobytes())
 
 
 class ResidualAdd16x240App(IpuApp):
@@ -90,14 +82,12 @@ class ResidualAdd16x240App(IpuApp):
         )
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
-        state.xmem.write_address(ONES_BASE, _ones_row())
 
         # CR0 (=0) and CR1 (=1) are read-only hardwired constants; writes are
         # silently dropped. A_BASE_ROW is 0 so CR0 is a harmless no-op, and
         # B_BASE lives on CR9.
         state.regfile.set_cr(0, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
-        state.regfile.set_cr(2, ONES_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
         state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row

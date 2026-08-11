@@ -25,6 +25,7 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.attn_scores_km_16x60 import (
     AttnScoresKM16x60App, N_TOK, D, N_TG, N_TPG, N_HEADS, LANES,
+    ELEM_BYTES, ROW_BYTES, QBASE, Q_CHAN_ROWS,
 )
 
 _INST_BIN = Path(os.environ["ATTN_SCORES_KM_16X60_INST_BIN"])
@@ -81,4 +82,69 @@ def test_attn_scores_km_16x60_wide_fp32(tmp_path: Path) -> None:
             got[:, g, :N_TPG], expected[lo_q : lo_q + N_TPG, :].T,
             rtol=1e-4, atol=1e-3,
             err_msg=f"key-major scores mismatch for query group {g}",
+        )
+
+
+def test_attn_scores_km_16x60_wide_fp32_padding_lanes_not_stored(tmp_path: Path) -> None:
+    """valid_elements=N_TOK gates both MULT.RC.VE's mask (over Q's channel
+    columns, the R_CYCLIC operand) and ACTIVATE.QUANTIZE's store window. No
+    AGG here -- lanes are independent, so asserting on the VALID lanes (as
+    attn_v_64x48's padding probe does) proves nothing: garbage in lanes
+    N_TOK:128 stays in lanes N_TOK:128 and never reaches lanes 0:N_TOK
+    regardless of gating.
+
+    What the gate actually controls is the STORED EXTENT. Stage non-zero
+    garbage in Q's padding lanes (columns N_TOK..LANES-1 of every channel row
+    -- a real producer in a chained pipeline would leave another stream's
+    data there, not zeros) and assert the stored row is zero past byte
+    N_TOK*ELEM_BYTES. teardown already dumps whole uncropped rows.
+    """
+    rng = np.random.RandomState(0xD61)
+
+    n_chan = N_HEADS * D
+    Q = rng.uniform(-1.0, 1.0, size=(n_chan, N_TOK)).astype(np.float32)
+    K = rng.uniform(-1.0, 1.0, size=(n_chan, N_TOK)).astype(np.float32)
+
+    q_path = tmp_path / "q_fp32.bin"
+    k_path = tmp_path / "k_fp32.bin"
+    q_path.write_bytes(Q.tobytes())
+    k_path.write_bytes(K.tobytes())
+    output_path = tmp_path / "output.bin"
+
+    state = IpuState(
+        wide_vector_debug=True,
+        wide_vector_arithmetic=WideVectorArithmetic.FP32,
+    )
+    app = AttnScoresKM16x60App(
+        inst_path=_INST_BIN,
+        input_path=q_path,
+        weights_path=k_path,
+        output_path=output_path,
+        head=_HEAD,
+    )
+
+    app.setup(state)
+    garbage = np.full(LANES - N_TOK, 1e3, dtype=np.float32).tobytes()
+    for c in range(D):
+        addr = QBASE + c * Q_CHAN_ROWS * ROW_BYTES + N_TOK * ELEM_BYTES
+        state.xmem.write_address(addr, bytearray(garbage))
+
+    from ipu_emu.emulator import run_test
+    state, cycles = run_test(
+        inst_path=_INST_BIN,
+        setup=lambda s: None,
+        teardown=app.teardown,
+        max_cycles=20_000_000,
+        state=state,
+    )
+    assert cycles > 0
+
+    raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
+    got = raw.reshape(N_TOK, N_TG, LANES)
+    for g in range(N_TG):
+        tail = got[:, g, N_TPG:]
+        assert np.all(tail == 0.0), (
+            f"query group {g}: padding lanes {N_TPG}:{LANES} were stored "
+            f"non-zero -- valid_elements is not gating the ACTIVATE.QUANTIZE "
+            f"store window"
         )

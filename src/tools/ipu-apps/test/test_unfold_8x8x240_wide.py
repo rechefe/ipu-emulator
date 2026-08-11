@@ -19,7 +19,7 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.unfold_8x8x240 import (
     Unfold8x8x240App, H, W, C, N_STREAMS, N_OUT, N_TOK, LANES,
-    DST_BASE, OUTPUT_ROW_BYTES,
+    DST_BASE, OUTPUT_ROW_BYTES, _ROW_PACK_ORDER,
 )
 from ipu_apps.unfold_8x8x240.gen_debug_data import pack_stripe
 
@@ -122,3 +122,56 @@ def test_output_shape_and_stale_lanes(tmp_path: Path) -> None:
                 "input padding or r_acc slot usage changed"
             ),
         )
+
+
+def test_unfold_8x8x240_wide_fp32_padding_is_inert(tmp_path: Path) -> None:
+    """ACC.STRIDE with elements_in_row=16 views the WHOLE 128-lane row as 8
+    view-rows and every stream's vertical selector (on/on_inv) draws from both
+    the real-data view-rows (0..3, lanes 0..63) and the padding view-rows
+    (4..7, lanes 64..127) -- see the decimation trace in execute_acc_stride.
+    The padding contribution lands in r_acc[16:32], which teardown crops away,
+    but that is a fact about where ACC.STRIDE happens to place it, not a
+    guarantee -- so prove it rather than assume it.
+
+    Refill the padding lanes (64..127 of each channel's source row) with
+    garbage instead of zero and assert the cropped (valid, lanes 0..15)
+    output is bit-identical.
+    """
+    rng = np.random.RandomState(0x058)
+    x = rng.uniform(-1.0, 1.0, size=(C, H, W)).astype(np.float32)
+
+    def run(pad_value: float) -> np.ndarray:
+        src = np.full((C, LANES), pad_value, dtype=np.float32)
+        for slot, spatial_row in enumerate(_ROW_PACK_ORDER):
+            src[:, slot * W : (slot + 1) * W] = x[:, spatial_row, :]
+
+        input_path = tmp_path / f"input_fp32_{pad_value}.bin"
+        input_path.write_bytes(src.tobytes())
+        output_path = tmp_path / f"output_{pad_value}.bin"
+
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        )
+        app = Unfold8x8x240App(
+            inst_path=_INST_BIN,
+            input_path=input_path,
+            output_path=output_path,
+        )
+        state, cycles = app.run(max_cycles=20_000_000, state=state)
+        assert cycles > 0
+
+        raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
+        return raw.reshape(N_STREAMS, N_OUT, N_TOK)
+
+    zero_padded = run(0.0)
+    garbage_padded = run(1e3)
+
+    np.testing.assert_array_equal(
+        garbage_padded, zero_padded,
+        err_msg=(
+            "unfold_8x8x240 cropped output changed when the source row's "
+            "padding lanes (64..127) were filled with garbage -- the padding "
+            "decimation is not structurally isolated from the valid output"
+        ),
+    )

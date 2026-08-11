@@ -2,27 +2,30 @@
 #
 # Single token group (N_TOK=16 <= 128): one accumulate+store pass per output j.
 #
-# D: channel-major [K=480 channels, 128 tokens]  (16 valid, padded to 128)
-#    Row k at DATA_BASE + k*128
-# W: output-major [240 out_ch, 480 in_ch], NO transposition; 4 chunks of <=128 bytes
-#    W[j, 0..127] at WEIGHTS_BASE + j*512 + 0
-#    W[j, 128..255] at WEIGHTS_BASE + j*512 + 128
-#    W[j, 256..383] at WEIGHTS_BASE + j*512 + 256
-#    W[j, 384..479] at WEIGHTS_BASE + j*512 + 384 (padded to 128)
-# C: channel-major [240 out_ch, 16 tokens] FP32, packed at OUTPUT_BASE + j*64
+# All .asm operands are ROW numbers (issue #179), one row = 128 lanes.
+# D: channel-major [K=480 channels, 16 tokens], one channel per WHOLE row (16
+#    valid, padded to 128).  Row k at DATA_BASE + k.
+# W: output-major [240 out_ch, 480 in_ch], NO transposition; 4 chunks/row-quads
+#    per output channel.
+#    W[j, 0..127] at WEIGHTS_BASE + j*4 + 0
+#    W[j, 128..255] at WEIGHTS_BASE + j*4 + 1
+#    W[j, 256..383] at WEIGHTS_BASE + j*4 + 2
+#    W[j, 384..479] at WEIGHTS_BASE + j*4 + 3 (padded to a whole row)
+# C: channel-major [240 out_ch, 16 tokens] FP32, one row per channel at
+#    OUTPUT_BASE + j.
 #
-# lr4 (data ptr) advances continuously by 128 across chunks; lr5 reset to -1 per chunk.
+# lr4 (data ptr) advances continuously by 1 row across chunks; lr5 reset to -1 per chunk.
 # Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr3=WB+256, cr4=WB+384, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
-# LRs: lr0=0, lr2=128 (data stride), lr3=64 (output stride), lr6=126 (width-128 bound),
+# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr3=WB+2 rows, cr4=WB+3 rows, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
+# LRs: lr0=0, lr2=1 row (data stride), lr3=1 row (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=240 (j limit),
-#      lr11=94 (tail-chunk bound, width=96), lr12=512 (W_STRIDE)
+#      lr11=94 (tail-chunk bound, width=96), lr12=4 rows (W_STRIDE)
 #
-# Memory layout:
-#   DATA:    480 x 128 B      =   61440 B (0x00000..0x0EFFF)
-#   WEIGHTS: 240 rows x 512 B =  122880 B (0x10000..0x2DFFF)
-#   OUTPUT:  240 rows x 64 B =   15360 B (0x30000..0x33BFF)
+# Memory layout (row counts):
+#   DATA:    480 rows
+#   WEIGHTS: 960 rows (240 output channels x 4 rows/channel)
+#   OUTPUT:  240 rows
 
 j_loop:
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]

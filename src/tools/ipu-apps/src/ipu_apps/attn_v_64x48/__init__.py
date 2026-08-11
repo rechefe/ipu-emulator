@@ -23,6 +23,12 @@ The structural difference from L3 is that N = 64 <= LANES = 128:
     R_ACC lanes 64..127 are unused padding, cropped in ``teardown``.
 Rows are never shared: each output channel owns a whole 512 B row.
 
+AGG.SUM.FIRST reduces across the lane (key) axis, so the trailing 64 lanes of
+P and V must be excluded structurally rather than relied on to be zero: a real
+producer in a chained pipeline would leave another stream's data there.
+``setup`` sets ``valid_elements = N_TOK`` on the dstructure CR so the AGG
+reduction only ever sees the 64 live key lanes.
+
 It consumes QUERY-major scores, so it pairs with ``qk_scores_64x48``. The
 key-major chain is ``attn_scores_km_64x48`` + ``attn_v_bcast_48``; the two
 chains produce bit-different results by design and must not be mixed.
@@ -98,6 +104,11 @@ class AttnV64x48App(IpuApp):
         # P and V are staged verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
+
+        # AGG.SUM.FIRST reduces across the lane (key) axis, so the trailing
+        # 64 lanes must be excluded structurally: a chained producer would
+        # leave real data there, not zeros.
+        state.set_cr_dstructure(valid_elements=N_TOK)
 
         # CR0 (==0) and CR1 (==1) are hardwired read-only, so every base lives
         # on a writable CR -- PBASE_ROW happening to be 0 must not be relied on.

@@ -63,7 +63,6 @@
 
 {% set A_BASE     = "cr0"  %}  {# base of A #}
 {% set ONE        = "cr1"  %}  {# hardwired read-only 1 #}
-{% set ONES_BASE  = "cr2"  %}  {# one row of dtype-1.0 #}
 {% set OUT_BASE   = "cr3"  %}  {# output base #}
 {% set ZERO       = "cr4"  %}  {# const 0 #}
 {% set PTR_START  = "cr5"  %}  {# -1 row startup init for the A/B row pointers #}
@@ -83,7 +82,6 @@
     SET                 {{ row_limit }} {{ ROW_COUNT }};;
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
-    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;  # r0 = ONES_BASE[0..127] = dtype-1.0 x 128
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
     LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 

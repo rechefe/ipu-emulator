@@ -112,3 +112,58 @@ def test_attn_v_bcast_48_wide_fp32(tmp_path: Path) -> None:
         got, expected, rtol=1e-4, atol=1e-3,
         err_msg="attn@V (key-major + broadcast) mismatch",
     )
+
+
+def test_attn_v_bcast_48_wide_fp32_padding_is_inert(tmp_path: Path) -> None:
+    """Every lane (query) accumulates independently -- no AGG, no cross-lane
+    reduction -- so the trailing 64 padding lanes of P and V can only ever
+    waste lanes, never contaminate the 64 valid ones. Prove it: refill the
+    padding with garbage (a chained producer would leave real data there, not
+    zeros) and assert the valid-lane output is bit-identical.
+    """
+    rng = np.random.RandomState(0xB48)
+
+    P = rng.uniform(-1.0, 1.0, size=(N_BLOCK, N_TOK, N_TOK)).astype(np.float32)
+    V = rng.uniform(-1.0, 1.0, size=(N_BLOCK, D, N_TOK)).astype(np.float32)
+
+    def run(pad_value: float) -> np.ndarray:
+        p_buf = np.full((N_BLOCK * N_TOK, LANES), pad_value, dtype=np.float32)
+        for b in range(N_BLOCK):
+            p_buf[b * N_TOK:(b + 1) * N_TOK, :N_TOK] = P[b].T
+
+        v_buf = np.full((N_CHAN, LANES), pad_value, dtype=np.float32)
+        for b in range(N_BLOCK):
+            v_buf[b * D:(b + 1) * D, :N_TOK] = V[b]
+
+        p_path = tmp_path / f"p_fp32_{pad_value}.bin"
+        v_path = tmp_path / f"v_fp32_{pad_value}.bin"
+        p_path.write_bytes(p_buf.tobytes())
+        v_path.write_bytes(v_buf.tobytes())
+        output_path = tmp_path / f"output_{pad_value}.bin"
+
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        )
+        app = AttnVBcast48App(
+            inst_path=_INST_BIN,
+            p_path=p_path,
+            v_path=v_path,
+            output_path=output_path,
+        )
+        state, cycles = app.run(max_cycles=20_000_000, state=state)
+        assert cycles > 0
+
+        raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
+        return raw.reshape(N_BLOCK, D, N_TOK)
+
+    zero_padded = run(0.0)
+    garbage_padded = run(1e3)
+
+    np.testing.assert_array_equal(
+        garbage_padded, zero_padded,
+        err_msg=(
+            "attn_v_bcast_48 output changed when padding lanes were filled "
+            "with garbage -- per-lane ACC is not isolated from unused lanes"
+        ),
+    )

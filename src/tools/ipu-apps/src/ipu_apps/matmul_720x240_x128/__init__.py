@@ -15,6 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ipu_emu.emulator import dump_xmem_to_binary
+
 from ipu_apps.base import IpuApp
 
 if TYPE_CHECKING:
@@ -45,12 +47,13 @@ W_STRIDE_ROWS    = -(-K // LANES)   # weight chunks (rows) per output channel: 2
 DATA_STRIDE_ROWS = 1                # one row per input channel (N_TOK padded to LANES)
 
 # One accumulator store writes all 512 B of r_acc. In wide mode a row is also
-# 512 B, so a store is exactly one row: output channel j owns row j, holding
-# OUTPUT_ROW_BYTES of real output followed by unused tail. (In narrow mode the
-# packed 64 B stride was sub-row and needed a special fix; at 512 B/row the
-# stride is simply one row, like every other kernel.) teardown() crops each
-# row's prefix so the output file stays densely packed.
-OUTPUT_ROW_BYTES   = N_TOK * ELEM_BYTES   # 64
+# 512 B, so a store is exactly one row and one output channel owns one row.
+# Per kernel_layer_map.md's crop convention, a PRODUCER emits full, uncropped
+# rows -- only the FINAL consumer in a chain crops. teardown() below dumps the
+# full row; a caller that wants the densely-packed N_OUT x N_TOK form crops it
+# itself (this used to crop here, which silently broke residual_add_16x240's
+# full-row input contract -- see kernel_docs/kernel_layer_map.md).
+OUTPUT_ROW_BYTES   = 512
 OUTPUT_STRIDE_ROWS = 1
 
 DATA_ROWS   = K * DATA_STRIDE_ROWS
@@ -139,13 +142,11 @@ class MatMul720x240x128App(IpuApp):
         state.regfile.set_lr(12, W_STRIDE_ROWS)                # weight stride per j (rows)
 
     def teardown(self, state: "IpuState") -> None:
-        """Crop each output channel's valid N_TOK accumulators out of its row."""
-        if self.output_path is None:
-            return
-        row_stride = OUTPUT_STRIDE_ROWS * ROW_BYTES
-        parts = [
-            bytes(state.xmem.read_address(OUTPUT_BASE + j * row_stride,
-                                          OUTPUT_ROW_BYTES))
-            for j in range(N_OUT)
-        ]
-        Path(self.output_path).write_bytes(b"".join(parts))
+        """Dump full, uncropped rows -- see the crop-convention note above
+        OUTPUT_ROW_BYTES. Callers that need the densely-packed N_OUT x N_TOK
+        form crop it themselves (see the wide test for the pattern)."""
+        if self.output_path is not None:
+            dump_xmem_to_binary(
+                state, self.output_path,
+                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT,
+            )

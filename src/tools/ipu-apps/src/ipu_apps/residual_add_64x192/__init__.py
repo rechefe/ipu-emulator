@@ -18,8 +18,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.base import IpuApp
@@ -49,21 +47,13 @@ OUTPUT_ROW_BYTES   = ROW_BYTES
 OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
 
-ONES_ROWS = 1
 A_BASE_ROW      = 0
 B_BASE_ROW      = A_BASE_ROW + N_ROWS
-ONES_BASE_ROW   = B_BASE_ROW + N_ROWS
-OUTPUT_BASE_ROW = ONES_BASE_ROW + ONES_ROWS
+OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
 A_BASE      = A_BASE_ROW * ROW_BYTES
 B_BASE      = B_BASE_ROW * ROW_BYTES
-ONES_BASE   = ONES_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
-
-
-def _ones_row() -> bytearray:
-    """One XMEM row of FP32 1.0 -- the pass-through multiplier vector."""
-    return bytearray(np.ones(LANES, dtype=np.float32).tobytes())
 
 
 class ResidualAdd64x192App(IpuApp):
@@ -79,14 +69,12 @@ class ResidualAdd64x192App(IpuApp):
         raw_b = Path(self.input_b_path).read_bytes()
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
-        state.xmem.write_address(ONES_BASE, _ones_row())
 
         # CR1 (=1) is a read-only hardwired constant on the new architecture --
         # writes are silently dropped. B_BASE is therefore on CR9 (free).
         # cr0=A_BASE_ROW is 0 (harmless no-op, matches the hardwired 0).
         state.regfile.set_cr(0, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
-        state.regfile.set_cr(2, ONES_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
         state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row

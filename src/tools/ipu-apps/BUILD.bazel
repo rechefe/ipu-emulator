@@ -928,6 +928,520 @@ py_pytest_test(
     ],
 )
 
+# =============================================================================
+# Multi-stream (P=4) transformer projection matmuls: proj_<role>_<d>_p4
+#
+# One shared weight matrix W applied to 4 pixel-streams in a single
+# invocation (see each kernel's .asm header for the full design). Layer 4
+# (d=192, N_TOK=64/stream): qkv/outproj/ffn1/ffn2. Layer 5 (d=240,
+# N_TOK=16/stream): qkv/outproj/ffn1/ffn2. ffn1 kernels use
+# ACTIVATE.QUANTIZE silu; all others use identity.
+# =============================================================================
+
+# -- proj_qkv_192_p4 app (Layer 4 QKV, P=4) ----------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_192_p4",
+    src = "src/ipu_apps/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_192_p4",
+    srcs = ["src/ipu_apps/proj_qkv_192_p4/__main__.py"],
+    main = "src/ipu_apps/proj_qkv_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_192_p4_wide.py"],
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_192_p4",
+    src = "src/ipu_apps/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_192_p4",
+    srcs = ["src/ipu_apps/proj_outproj_192_p4/__main__.py"],
+    main = "src/ipu_apps/proj_outproj_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_192_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_192_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_192_p4_wide.py"],
+    data = [
+        ":assemble_proj_outproj_192_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_192_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_192_p4",
+    src = "src/ipu_apps/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_192_p4",
+    srcs = ["src/ipu_apps/proj_ffn1_192_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn1_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_192_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn1_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_192_p4",
+    src = "src/ipu_apps/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_192_p4",
+    srcs = ["src/ipu_apps/proj_ffn2_192_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn2_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_192_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn2_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_144_p4 app (Layer 3 OutProj, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/proj_outproj_144_p4/proj_outproj_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_144_p4",
+    src = "src/ipu_apps/proj_outproj_144_p4/proj_outproj_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_144_p4",
+    srcs = ["src/ipu_apps/proj_outproj_144_p4/__main__.py"],
+    main = "src/ipu_apps/proj_outproj_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_144_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_144_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_144_p4_wide.py"],
+    data = [
+        ":assemble_proj_outproj_144_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_144_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_qkv_144_p4 app (Layer 3 QKV, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/proj_qkv_144_p4/proj_qkv_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_144_p4",
+    src = "src/ipu_apps/proj_qkv_144_p4/proj_qkv_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_144_p4",
+    srcs = ["src/ipu_apps/proj_qkv_144_p4/__main__.py"],
+    main = "src/ipu_apps/proj_qkv_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_144_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_144_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_144_p4_wide.py"],
+    data = [
+        ":assemble_proj_qkv_144_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_144_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_144_p4 app (Layer 3 FFN1, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn1_144_p4/proj_ffn1_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_144_p4",
+    src = "src/ipu_apps/proj_ffn1_144_p4/proj_ffn1_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_144_p4",
+    srcs = ["src/ipu_apps/proj_ffn1_144_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn1_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_144_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn1_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_144_p4 app (Layer 3 FFN2, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn2_144_p4/proj_ffn2_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_144_p4",
+    src = "src/ipu_apps/proj_ffn2_144_p4/proj_ffn2_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_144_p4",
+    srcs = ["src/ipu_apps/proj_ffn2_144_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn2_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_144_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn2_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_qkv_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_240_p4",
+    src = "src/ipu_apps/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_240_p4",
+    srcs = ["src/ipu_apps/proj_qkv_240_p4/__main__.py"],
+    main = "src/ipu_apps/proj_qkv_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_240_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_240_p4_wide.py"],
+    data = [
+        ":assemble_proj_qkv_240_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_240_p4",
+    src = "src/ipu_apps/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_240_p4",
+    srcs = ["src/ipu_apps/proj_outproj_240_p4/__main__.py"],
+    main = "src/ipu_apps/proj_outproj_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_240_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_240_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_240_p4_wide.py"],
+    data = [
+        ":assemble_proj_outproj_240_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_240_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_240_p4",
+    src = "src/ipu_apps/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_240_p4",
+    srcs = ["src/ipu_apps/proj_ffn1_240_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn1_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_240_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn1_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_240_p4",
+    src = "src/ipu_apps/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_240_p4",
+    srcs = ["src/ipu_apps/proj_ffn2_240_p4/__main__.py"],
+    main = "src/ipu_apps/proj_ffn2_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_240_p4_wide.py"],
+    data = [
+        ":assemble_proj_ffn2_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # -- attn_scores_km_256x36 app (Agent D: kQᵀ → key-major scores) -------------
 
 exports_files([
@@ -1087,6 +1601,48 @@ py_pytest_test(
         ":assemble_attn_v_bcast_36.bin",
     ],
     env = {
+        "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- L3 seam tests (cross-kernel chains, no XMEM sharing beyond raw files) ---
+# These run two real kernel binaries back to back and feed the producer's
+# raw XMEM store output, byte-for-byte, as the consumer's staged input file.
+
+py_pytest_test(
+    name = "test_seam_qk_attn_v_256x36",
+    size = "large",
+    srcs = ["test/test_seam_qk_attn_v_256x36.py"],
+    data = [
+        ":assemble_qk_scores_256x36.bin",
+        ":assemble_attn_v_256x36.bin",
+    ],
+    env = {
+        "QK_SCORES_256X36_INST_BIN": "$(rootpath :assemble_qk_scores_256x36.bin)",
+        "ATTN_V_256X36_INST_BIN": "$(rootpath :assemble_attn_v_256x36.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_seam_km_bcast_36",
+    size = "large",
+    srcs = ["test/test_seam_km_bcast_36.py"],
+    data = [
+        ":assemble_attn_scores_km_256x36.bin",
+        ":assemble_attn_v_bcast_36.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_256X36_INST_BIN": "$(rootpath :assemble_attn_scores_km_256x36.bin)",
         "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
     },
     imports = ["src"],
@@ -1683,6 +2239,619 @@ py_pytest_test(
     env = {
         "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
     },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: attn_scores_km_64x48 -> attn_v_bcast_48 -----------
+
+py_pytest_test(
+    name = "test_seam_km_bcast_48",
+    size = "large",
+    srcs = ["test/test_seam_km_bcast_48.py"],
+    data = [
+        ":assemble_attn_scores_km_64x48.bin",
+        ":assemble_attn_v_bcast_48.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+        "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: matmul_576x192_x128 (QKV) -> attn_scores_km_64x48 --
+
+py_pytest_test(
+    name = "test_seam_qkv_matmul_scores_km_64x48",
+    size = "large",
+    srcs = ["test/test_seam_qkv_matmul_scores_km_64x48.py"],
+    data = [
+        ":assemble_matmul_576x192_x128.bin",
+        ":assemble_attn_scores_km_64x48.bin",
+    ],
+    env = {
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: proj_qkv_192_p4 / proj_qkv_240_p4 -> attn_scores_km (repack bridge) --
+
+py_pytest_test(
+    name = "test_seam_proj_qkv_to_scores_km_repack",
+    size = "large",
+    srcs = ["test/test_seam_proj_qkv_to_scores_km_repack.py"],
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+        ":assemble_attn_scores_km_64x48.bin",
+        ":assemble_proj_qkv_240_p4.bin",
+        ":assemble_attn_scores_km_16x60.bin",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+        "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: layernorm_64x192 -> matmul_192x192_x128, direct XMEM handoff (L4) --
+
+py_pytest_test(
+    name = "test_seam_layernorm_matmul_xmem_direct",
+    size = "large",
+    srcs = ["test/test_seam_layernorm_matmul_xmem_direct.py"],
+    data = [
+        ":assemble_layernorm_64x192.bin",
+        ":assemble_matmul_192x192_x128.bin",
+    ],
+    env = {
+        "LAYERNORM_64X192_INST_BIN": "$(rootpath :assemble_layernorm_64x192.bin)",
+        "MATMUL_192X192_X128_INST_BIN": "$(rootpath :assemble_matmul_192x192_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: layernorm_256x144 -> matmul_144x144_x128, direct XMEM handoff (L3) --
+
+py_pytest_test(
+    name = "test_seam_layernorm_matmul_xmem_direct_l3",
+    size = "large",
+    srcs = ["test/test_seam_layernorm_matmul_xmem_direct_l3.py"],
+    data = [
+        ":assemble_layernorm_256x144.bin",
+        ":assemble_matmul_144x144_x128.bin",
+    ],
+    env = {
+        "LAYERNORM_256X144_INST_BIN": "$(rootpath :assemble_layernorm_256x144.bin)",
+        "MATMUL_144X144_X128_INST_BIN": "$(rootpath :assemble_matmul_144x144_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: layernorm_16x240 -> matmul_240x240_x128, direct XMEM handoff (L5) --
+
+py_pytest_test(
+    name = "test_seam_layernorm_matmul_xmem_direct_l5",
+    size = "large",
+    srcs = ["test/test_seam_layernorm_matmul_xmem_direct_l5.py"],
+    data = [
+        ":assemble_layernorm_16x240.bin",
+        ":assemble_matmul_240x240_x128.bin",
+    ],
+    env = {
+        "LAYERNORM_16X240_INST_BIN": "$(rootpath :assemble_layernorm_16x240.bin)",
+        "MATMUL_240X240_X128_INST_BIN": "$(rootpath :assemble_matmul_240x240_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: unfold_16x16x192 -> matmul_576x192_x128, direct XMEM handoff (L4) --
+
+py_pytest_test(
+    name = "test_seam_unfold_matmul_xmem_direct_l4",
+    size = "large",
+    srcs = ["test/test_seam_unfold_matmul_xmem_direct_l4.py"],
+    data = [
+        ":assemble_unfold_16x16x192.bin",
+        ":assemble_matmul_576x192_x128.bin",
+    ],
+    env = {
+        "UNFOLD_16X16X192_INST_BIN": "$(rootpath :assemble_unfold_16x16x192.bin)",
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: unfold_8x8x240 -> matmul_720x240_x128, direct XMEM handoff (L5) --
+
+py_pytest_test(
+    name = "test_seam_unfold_matmul_xmem_direct_l5",
+    size = "large",
+    srcs = ["test/test_seam_unfold_matmul_xmem_direct_l5.py"],
+    data = [
+        ":assemble_unfold_8x8x240.bin",
+        ":assemble_matmul_720x240_x128.bin",
+    ],
+    env = {
+        "UNFOLD_8X8X240_INST_BIN": "$(rootpath :assemble_unfold_8x8x240.bin)",
+        "MATMUL_720X240_X128_INST_BIN": "$(rootpath :assemble_matmul_720x240_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: qk_scores_16x60 -> attn_v_16x60 (L5, query-major) --
+
+py_pytest_test(
+    name = "test_seam_qk_attn_v_16x60",
+    size = "large",
+    srcs = ["test/test_seam_qk_attn_v_16x60.py"],
+    data = [
+        ":assemble_qk_scores_16x60.bin",
+        ":assemble_attn_v_16x60.bin",
+    ],
+    env = {
+        "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
+        "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: attn_scores_km_16x60 -> attn_v_bcast_60 (L5, key-major) --
+
+py_pytest_test(
+    name = "test_seam_km_bcast_60",
+    size = "large",
+    srcs = ["test/test_seam_km_bcast_60.py"],
+    data = [
+        ":assemble_attn_scores_km_16x60.bin",
+        ":assemble_attn_v_bcast_60.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+        "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam audit: LayerNorm/matmul/residual_add pipeline boundaries (L4, L5) --
+# Outside the attention chains and the unfold->matmul seam (covered
+# elsewhere): LN->QKV matmul and OutProj matmul->residual_add.
+
+py_pytest_test(
+    name = "test_seam_pipeline_boundaries",
+    size = "large",
+    srcs = ["test/test_seam_pipeline_boundaries.py"],
+    data = [
+        ":assemble_layernorm_64x192.bin",
+        ":assemble_matmul_576x192_x128.bin",
+        ":assemble_matmul_240x240_x128.bin",
+        ":assemble_residual_add_16x240.bin",
+        ":assemble_matmul_192x192_x128.bin",
+        ":assemble_residual_add_64x192.bin",
+    ],
+    env = {
+        "LAYERNORM_64X192_INST_BIN": "$(rootpath :assemble_layernorm_64x192.bin)",
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+        "MATMUL_240X240_X128_INST_BIN": "$(rootpath :assemble_matmul_240x240_x128.bin)",
+        "RESIDUAL_ADD_16X240_INST_BIN": "$(rootpath :assemble_residual_add_16x240.bin)",
+        "MATMUL_192X192_X128_INST_BIN": "$(rootpath :assemble_matmul_192x192_x128.bin)",
+        "RESIDUAL_ADD_64X192_INST_BIN": "$(rootpath :assemble_residual_add_64x192.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- full transformer layer, end to end (L4: d=192, N_TOK=64, L=4 layers) --
+# LayerNorm -> QKV proj -> repack -> scores -> softmax stub -> attn@V ->
+# head concat -> out_proj -> residual -> LayerNorm -> FFN1 -> silu -> FFN2 ->
+# residual, both attention mappings (query-major, key-major), run separately.
+
+_L4_FULL_LAYER_DATA = [
+    ":assemble_layernorm_64x192.bin",
+    ":assemble_proj_qkv_192_p4.bin",
+    ":assemble_qk_scores_64x48.bin",
+    ":assemble_attn_scores_km_64x48.bin",
+    ":assemble_attn_v_64x48.bin",
+    ":assemble_attn_v_bcast_48.bin",
+    ":assemble_proj_outproj_192_p4.bin",
+    ":assemble_residual_add_64x192.bin",
+    ":assemble_proj_ffn1_192_p4.bin",
+    ":assemble_proj_ffn2_192_p4.bin",
+]
+
+_L4_FULL_LAYER_ENV = {
+    "LAYERNORM_64X192_INST_BIN": "$(rootpath :assemble_layernorm_64x192.bin)",
+    "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+    "QK_SCORES_64X48_INST_BIN": "$(rootpath :assemble_qk_scores_64x48.bin)",
+    "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+    "ATTN_V_64X48_INST_BIN": "$(rootpath :assemble_attn_v_64x48.bin)",
+    "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
+    "PROJ_OUTPROJ_192_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_192_p4.bin)",
+    "RESIDUAL_ADD_64X192_INST_BIN": "$(rootpath :assemble_residual_add_64x192.bin)",
+    "PROJ_FFN1_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_192_p4.bin)",
+    "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
+}
+
+_L4_FULL_LAYER_SRCS = [
+    "test/test_full_layer_l4.py",
+    "test/fixture_full_layer_chain.py",
+    "test/fixture_host_softmax_fold_stubs.py",
+]
+
+# Split into one bazel target per attention mapping (query-major, key-major)
+# -- combined into a single @pytest.mark.parametrize target, both mappings'
+# ~25-40 min runs together exceeded even a 3600s "enormous" bazel timeout in
+# the sandboxed environment. Each mapping now gets its own full budget.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major",
+    size = "enormous",
+    # A single "-k <expr>" bazel `args` entry containing spaces (e.g. "query_major
+    # and not scaled") arrives at pytest word-split into separate argv entries
+    # ("-k" "query_major" "and" "not" "scaled") -- some layer between bazel's
+    # test-runner and the rules_python_pytest shim re-tokenizes multi-word args
+    # entries on whitespace (reproduced with a plain "-k word1 word2 word3"
+    # entry too, so it is not specific to and/not/scaled; single-WORD args
+    # entries, including this file's "-k scale_is_visible"/"per_stage_error"
+    # elsewhere, are unaffected). Deselecting the one other test that would
+    # otherwise collide by substring match (--deselect takes one space-free
+    # node ID per flag) sidesteps the bug instead of fighting bazel/rule
+    # internals for it.
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major",
+    size = "enormous",
+    # See test_full_layer_l4_query_major's comment above for why this uses
+    # -k + --deselect instead of a single multi-word "-k" expression.
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# test_full_l4_attention_scale_is_visible matches neither "query_major" nor
+# "key_major" (it builds both references itself, no real kernel run) -- give
+# it its own small, fast target so it isn't silently dropped by the -k split
+# above.
+py_pytest_test(
+    name = "test_full_layer_l4_scale_visibility",
+    size = "small",
+    args = ["-k", "scale_is_visible"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Scale experiment (diagnostic, not a fix -- see kernel_docs) --
+# Scaled-Q counterparts of the stack-agreement tests: same chain, but with
+# 1/sqrt(head_dim) applied to Q on both the real-kernel side and the numpy
+# reference, to test whether the missing attention scale explains the
+# observed ~4x-per-layer error growth in the unscaled chain above.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_scaled",
+    size = "enormous",
+    args = ["-k", "query_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_scaled",
+    size = "enormous",
+    args = ["-k", "key_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Per-stage error instrumentation (scale experiment step 2): ONE layer,
+# query-major chain, every stage boundary compared against its own
+# independently-built numpy reference. Small/fast -- one layer, not four.
+py_pytest_test(
+    name = "test_full_layer_l4_per_stage_error",
+    size = "enormous",
+    args = ["-k", "per_stage_error"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- full transformer layer, end to end (L5: d=240, N_TOK=16, L=3 layers) --
+
+_L5_FULL_LAYER_DATA = [
+    ":assemble_layernorm_16x240.bin",
+    ":assemble_proj_qkv_240_p4.bin",
+    ":assemble_qk_scores_16x60.bin",
+    ":assemble_attn_scores_km_16x60.bin",
+    ":assemble_attn_v_16x60.bin",
+    ":assemble_attn_v_bcast_60.bin",
+    ":assemble_proj_outproj_240_p4.bin",
+    ":assemble_residual_add_16x240.bin",
+    ":assemble_proj_ffn1_240_p4.bin",
+    ":assemble_proj_ffn2_240_p4.bin",
+]
+
+_L5_FULL_LAYER_ENV = {
+    "LAYERNORM_16X240_INST_BIN": "$(rootpath :assemble_layernorm_16x240.bin)",
+    "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+    "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
+    "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+    "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
+    "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
+    "PROJ_OUTPROJ_240_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_240_p4.bin)",
+    "RESIDUAL_ADD_16X240_INST_BIN": "$(rootpath :assemble_residual_add_16x240.bin)",
+    "PROJ_FFN1_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_240_p4.bin)",
+    "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
+}
+
+_L5_FULL_LAYER_SRCS = [
+    "test/test_full_layer_l5.py",
+    "test/fixture_full_layer_chain.py",
+    "test/fixture_host_softmax_fold_stubs.py",
+]
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major",
+    size = "enormous",
+    # See test_full_layer_l4_query_major's comment (BUILD.bazel, L4 section)
+    # for why this uses -k + --deselect instead of a single multi-word "-k"
+    # expression (bazel/rules_python_pytest word-splits multi-word args).
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major",
+    size = "enormous",
+    # See test_full_layer_l4_query_major's comment (BUILD.bazel, L4 section)
+    # for why this uses -k + --deselect instead of a single multi-word "-k"
+    # expression (bazel/rules_python_pytest word-splits multi-word args).
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# test_full_l5_attention_scale_is_visible -- see test_full_layer_l4's
+# matching comment.
+py_pytest_test(
+    name = "test_full_layer_l5_scale_visibility",
+    size = "small",
+    args = ["-k", "scale_is_visible"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Scale experiment (diagnostic, not a fix -- see kernel_docs) --
+# See test_full_layer_l4's matching section for what these test.
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_scaled",
+    size = "enormous",
+    args = ["-k", "query_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_scaled",
+    size = "enormous",
+    args = ["-k", "key_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_per_stage_error",
+    size = "enormous",
+    args = ["-k", "per_stage_error"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_FULL_LAYER_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- softmax_rows_partial / softmax_columns_packed vs. the numpy stub --
+# Vendored from origin/pr4-registry-docs (see the kernels' own __init__.py
+# docstrings and test_softmax_kernels_vs_stub.py's module docstring for the
+# full story, including the rc_idx element/byte drift that currently blocks
+# any real multi-row use of these kernels in the full-layer chain tests).
+
+py_pytest_test(
+    name = "test_softmax_kernels_vs_stub",
+    size = "small",
+    srcs = ["test/test_softmax_kernels_vs_stub.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- mutation-based re-check: weight-row-pointer bug class across all 8 --
+# -- L4/L5 proj_*_p4 kernels (see kernel_docs/kernel_layer_map.md) --
+
+py_pytest_test(
+    name = "test_proj_p4_weight_pointer_mutation_check",
+    size = "large",
+    srcs = ["test/test_proj_p4_weight_pointer_mutation_check.py"],
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+        ":assemble_proj_qkv_240_p4.bin",
+        ":assemble_proj_outproj_192_p4.bin",
+        ":assemble_proj_outproj_240_p4.bin",
+        ":assemble_proj_ffn1_192_p4.bin",
+        ":assemble_proj_ffn1_240_p4.bin",
+        ":assemble_proj_ffn2_192_p4.bin",
+        ":assemble_proj_ffn2_240_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+        "PROJ_OUTPROJ_192_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_192_p4.bin)",
+        "PROJ_OUTPROJ_240_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_240_p4.bin)",
+        "PROJ_FFN1_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_192_p4.bin)",
+        "PROJ_FFN1_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_240_p4.bin)",
+        "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
+        "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- host-only unit test for the softmax/fold TEST FIXTURES (not kernels) --
+
+py_pytest_test(
+    name = "test_fixture_host_softmax_fold_stubs",
+    size = "small",
+    srcs = [
+        "test/fixture_host_softmax_fold_stubs_unit_test.py",
+        "test/fixture_host_softmax_fold_stubs.py",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",

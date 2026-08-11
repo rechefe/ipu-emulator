@@ -2,25 +2,28 @@
 #
 # Single token group (N_TOK=16 <= 128): one accumulate+store pass per output j.
 #
-# D: channel-major [K=240 channels, 128 tokens]  (16 valid, padded to 128)
-#    Row k at DATA_BASE + k*128
-# W: output-major [480 out_ch, 240 in_ch], NO transposition; 2 chunks of <=128 bytes
-#    W[j, 0..127] at WEIGHTS_BASE + j*256 + 0
-#    W[j, 128..239] at WEIGHTS_BASE + j*256 + 128 (padded to 128)
-# C: channel-major [480 out_ch, 16 tokens] FP32, packed at OUTPUT_BASE + j*64
+# All .asm operands are ROW numbers (issue #179), one row = 128 lanes.
+# D: channel-major [K=240 channels, 16 tokens], one channel per WHOLE row (16
+#    valid, padded to 128).  Row k at DATA_BASE + k.
+# W: output-major [480 out_ch, 240 in_ch], NO transposition; 2 chunks/row-pairs
+#    per output channel.
+#    W[j, 0..127] at WEIGHTS_BASE + j*2 + 0
+#    W[j, 128..239] at WEIGHTS_BASE + j*2 + 1 (padded to a whole row)
+# C: channel-major [480 out_ch, 16 tokens] FP32, one row per channel at
+#    OUTPUT_BASE + j.
 #
-# lr4 (data ptr) advances continuously by 128 across chunks; lr5 reset to -1 per chunk.
+# lr4 (data ptr) advances continuously by 1 row across chunks; lr5 reset to -1 per chunk.
 # Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
-# LRs: lr0=0, lr2=128 (data stride), lr3=64 (output stride), lr6=126 (width-128 bound),
+# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
+# LRs: lr0=0, lr2=1 row (data stride), lr3=1 row (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=480 (j limit),
-#      lr11=110 (tail-chunk bound, width=112), lr12=256 (W_STRIDE)
+#      lr11=110 (tail-chunk bound, width=112), lr12=2 rows (W_STRIDE)
 #
-# Memory layout:
-#   DATA:    240 x 128 B      =   30720 B (0x00000..0x077FF)
-#   WEIGHTS: 480 rows x 256 B =  122880 B (0x10000..0x2DFFF)
-#   OUTPUT:  480 rows x 64 B =   30720 B (0x30000..0x377FF)
+# Memory layout (row counts):
+#   DATA:    240 rows
+#   WEIGHTS: 960 rows (480 output channels x 2 rows/channel)
+#   OUTPUT:  480 rows
 
 j_loop:
     SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
@@ -56,9 +59,9 @@ k_chunk1:
     # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
     # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
-    # result and the store is free. `identity` + valid_elements=128 (the CR
-    # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
+    # result and the store is free. `silu` (FFN1 nonlinearity) + valid_elements=128
+    # (the CR default) applies x*sigmoid(x) lane-for-lane to r_acc in wide mode.
+    ACTIVATE.QUANTIZE silu cr15; STR_POST_AAQ_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
     ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j

@@ -3,14 +3,15 @@
 Computes, per attention head h in [0,4):
     O[i, t] = sum_s P[i, s] * V[s, t]      i, s in [0, 256),  t in [0, 36)
 
-Inputs (channel-major activation tensors, 1 byte/element):
-  P query-major  : P[i, s] at PBASE + h*65536 + i*256 + s   (4 heads, head-major)
-  V channel-major: V[s, t] at VBASE + (h*36 + t)*256 + s
+Inputs (channel-major activation tensors; .asm operands are ROW numbers,
+issue #179):
+  P query-major  : P[i, s] at PBASE + h*512 + i*2 + s//128 rows (4 heads, head-major)
+  V channel-major: V[s, t] at VBASE + (h*36 + t)*2 + s//128 rows
 
-Output (FP32 R_ACC, 512-byte group rows — same convention as the transformer
+Output (FP32 R_ACC, one row per group — same convention as the transformer
 matmuls):
-  O[i, t] at OBASE + (h*36 + t)*1024 + g*512 + local*4,  i = g*128 + local
-  i.e. channel (h*36 + t) occupies 1024 bytes (2 groups of 128 FP32 lanes).
+  O[i, t] at OBASE + (h*36 + t)*2 + g rows,  i = g*128 + local
+  i.e. channel (h*36 + t) occupies 2 rows (2 groups of 128 FP32 lanes).
 
 Usage::
 

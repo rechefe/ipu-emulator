@@ -6,6 +6,13 @@ O[i, t] = sum_s P[i, s] * V[s, t] is computed directly.
 
 This is the key-major P variant of attn@V; `attn_v_256x36` is the query-major
 + AGG kernel and shares V's and O's layouts.
+
+There is no AGG in this kernel: the contraction over all 256 keys is a single
+continuous ACC.ADD (ACC.ADD.FIRST at s=0) per-lane float32 running sum,
+rounded on every step -- not the AGG float64 left-fold `attn_v_256x36`'s
+reference needs. The reference mirrors that per-step fold exactly
+(`_acc_reference`), so it agrees with the kernel's output exactly, not merely
+within a loose tolerance.
 """
 
 from __future__ import annotations
@@ -23,6 +30,28 @@ from ipu_apps.attn_v_bcast_36 import (
 )
 
 _INST_BIN = Path(os.environ["ATTN_V_BCAST_36_INST_BIN"])
+
+
+def _acc_reference(P: np.ndarray, V: np.ndarray) -> np.ndarray:
+    """Reference mirroring the emulator's single continuous ACC.ADD datapath.
+
+    For each (head, channel t): a single s_loop over all 256 keys forms
+    float32 lane products mult_res[i] = P[i,s] * V[s,t] (lane = query i, ACC.ADD.FIRST
+    at s=0) and ACC.ADD writes the running sum back as float32 every step --
+    one continuous float32 left-fold over all 256 keys, with no group split
+    or reset (the 128/128 R0/R1 split is only how V's scalar source is
+    staged, not a break in the accumulation).
+    """
+    out = np.zeros((N_HEAD, N_TOK, D), dtype=np.float32)
+    for h in range(N_HEAD):
+        for t in range(D):
+            acc = np.zeros(N_TOK, dtype=np.float32)
+            for s in range(N_TOK):
+                prod = (P[h, :, s].astype(np.float32)
+                        * np.float32(V[h, t, s])).astype(np.float32)
+                acc = prod if s == 0 else (acc + prod).astype(np.float32)
+            out[h, :, t] = acc
+    return out
 
 
 def test_attn_v_bcast_36_wide_fp32(tmp_path: Path) -> None:
@@ -64,8 +93,8 @@ def test_attn_v_bcast_36_wide_fp32(tmp_path: Path) -> None:
     state, cycles = app.run(max_cycles=20_000_000, state=state)
     assert cycles > 0
 
-    # O[h, i, t] = sum_s P[h, i, s] * V[h, t, s]
-    expected = np.einsum("his,hts->hit", P, V)      # [N_HEAD, N_TOK, D]
+    # O[h, i, t] = sum_s P[h, i, s] * V[h, t, s], via the per-step ACC fold.
+    expected = _acc_reference(P, V)                  # [N_HEAD, N_TOK, D]
 
     # Output: channel (h*36 + t) occupies 2 group rows of LANES FP32 lanes;
     # query i = g*LANES + local.
@@ -79,6 +108,6 @@ def test_attn_v_bcast_36_wide_fp32(tmp_path: Path) -> None:
         for t in range(D):
             np.testing.assert_allclose(
                 got[h * D + t, :N_TOK], expected[h, :, t],
-                rtol=1e-4, atol=1e-3,
+                rtol=0, atol=0,
                 err_msg=f"attn@V mismatch for head {h}, channel {t}",
             )

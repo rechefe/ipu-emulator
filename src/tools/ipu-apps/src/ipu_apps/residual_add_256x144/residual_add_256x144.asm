@@ -1,9 +1,9 @@
 # Residual add: C[r] = A[r] + B[r]  for r = 0..287
 #
-# A, B: interleaved channel-major [256 tokens, 144 channels] = 288 rows × 128 bytes
-#   Row r at A_BASE + r*128  (resp. B_BASE + r*128)
-# C: FP32 accumulator output, 288 rows × 512 bytes
-#   Row r at OUTPUT_BASE + r*512
+# A, B: interleaved channel-major [256 tokens, 144 channels] = 288 rows.
+#   Row r at A_BASE + r  (resp. B_BASE + r), in ROW units (issue #179).
+# C: FP32 accumulator output, 288 rows × 512 bytes.
+#   Row r at OUTPUT_BASE + r, in ROW units.
 #
 # There is no add instruction in the vector path, so each addend is passed
 # through the multiplier against a constant 1.0 and summed in the accumulator.
@@ -28,7 +28,7 @@
 #   Total: 4 cycles × 288 rows = 1152 cycles, plus one priming load at startup.
 #
 # IMPORTANT — live-LR semantics:
-#   ADD fires before XMEM; ptrs init at -128 so first live = 0 after ADD.
+#   ADD fires before XMEM; ptrs init at -1 row so first live = 0 after ADD.
 #   Each a_ptr/b_ptr ADD stays co-issued with the load it feeds, so the load
 #   sees the already-advanced pointer -- that is what makes the prefetch in
 #   cycle 3 address row r+1 rather than row r.
@@ -49,23 +49,22 @@
 # ---------------------------------------------------------------------------
 {% set rc_slot0   = "lr0"  %}  {# const 0: r_cyclic slot-0 base / mask_shift #}
 {% set mask_off   = "lr1"  %}  {# const 0: mask_offset (kept separate for clarity) #}
-{% set a_ptr      = "lr2"  %}  {# byte offset into A (startup -128) #}
-{% set b_ptr      = "lr3"  %}  {# byte offset into B (startup -128) #}
-{% set out_ptr    = "lr4"  %}  {# byte offset into C, += 512 per row #}
+{% set a_ptr      = "lr2"  %}  {# row offset into A (startup -1) #}
+{% set b_ptr      = "lr3"  %}  {# row offset into B (startup -1) #}
+{% set out_ptr    = "lr4"  %}  {# row offset into C, += 1 per row #}
 {% set row_index  = "lr5"  %}  {# row counter 0..287 #}
 {% set row_limit  = "lr6"  %}  {# 288 = N_ROWS #}
-{% set row_stride = "lr7"  %}  {# 128 = row stride for A and B #}
-{% set out_stride = "lr8"  %}  {# 512 = output row stride #}
+{% set row_stride = "lr7"  %}  {# 1 = row stride for A and B #}
+{% set out_stride = "lr8"  %}  {# 1 = output row stride #}
 
 {% set A_BASE     = "cr0"  %}  {# base of A #}
 {% set ONE        = "cr1"  %}  {# hardwired read-only 1 #}
-{% set ONES_BASE  = "cr2"  %}  {# 128 bytes of dtype-1.0 #}
 {% set OUT_BASE   = "cr3"  %}  {# output base #}
 {% set ZERO       = "cr4"  %}  {# const 0 #}
-{% set PTR_START  = "cr5"  %}  {# -128 startup init for the A/B row pointers #}
+{% set PTR_START  = "cr5"  %}  {# -1 row startup init for the A/B row pointers #}
 {% set ROW_COUNT  = "cr6"  %}  {# 288 = N_ROWS #}
-{% set ROW_STRIDE = "cr7"  %}  {# 128 = A/B row stride #}
-{% set OUT_STRIDE = "cr8"  %}  {# 512 = output row stride #}
+{% set ROW_STRIDE = "cr7"  %}  {# 1 = A/B row stride #}
+{% set OUT_STRIDE = "cr8"  %}  {# 1 = output row stride #}
 {% set B_BASE     = "cr9"  %}  {# base of B #}
 {% set DTYPE_ONE  = "cr10" %}  {# dtype-encoded 1.0 scalar for the pass-through MULT #}
 {% set DSTRUCT    = "cr15" %}  {# reserved dstructure register #}
@@ -79,7 +78,6 @@
     SET                 {{ row_limit }} {{ ROW_COUNT }};;
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
-    LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;  # r0 = ONES_BASE[0..127] = dtype-1.0 × 128
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
     LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 

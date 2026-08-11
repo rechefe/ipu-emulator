@@ -11,7 +11,11 @@ only with ``attn_v_bcast_48``; the two chains produce bit-different results by
 design and never share a golden.
 
 Results are read back through the kernel's own store path
-(ACTIVATE.QUANTIZE + STR_POST_AAQ_REG -> XMEM -> teardown crop), never R_ACC.
+(ACTIVATE.QUANTIZE + STR_POST_AAQ_REG -> XMEM), never R_ACC. The producer
+emits full 512 B rows (the consumer crops convention, see
+kernel_layer_map.md) -- attn_v_bcast_48 stages this output verbatim as whole
+rows, so this test crops to the valid N lanes itself rather than relying on
+the harness to have done it.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import numpy as np
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.attn_scores_km_64x48 import (
-    AttnScoresKM64x48App, N, D, P, N_HEAD, N_BLOCK,
+    AttnScoresKM64x48App, N, D, P, N_HEAD, N_BLOCK, LANES,
 )
 
 _INST_BIN = Path(os.environ["ATTN_SCORES_KM_64X48_INST_BIN"])
@@ -69,10 +73,11 @@ def test_attn_scores_km_64x48_wide_fp32(tmp_path: Path) -> None:
     expected = np.einsum("pci,pcs->psi", q_head, k_head)   # [P, key, query]
 
     raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
-    assert raw.size == P * N * N, (
-        f"output has {raw.size} floats, expected {P * N * N}"
+    assert raw.size == P * N * LANES, (
+        f"output has {raw.size} floats, expected {P * N * LANES}"
     )
-    got = raw.reshape(P, N, N)                 # [stream, key, query]
+    # Producer emits full rows; crop to the valid N query lanes here.
+    got = raw.reshape(P, N, LANES)[:, :, :N]    # [stream, key, query]
 
     max_err = float(np.max(np.abs(got - expected)))
     print(f"attn_scores_km_64x48 max abs error = {max_err:.3e}")
@@ -114,7 +119,7 @@ def test_attn_scores_km_64x48_head_selection(tmp_path: Path) -> None:
         )
         got = np.frombuffer(
             output_path.read_bytes(), dtype=np.float32
-        ).reshape(P, N, N)
+        ).reshape(P, N, LANES)[:, :, :N]
         np.testing.assert_allclose(
             got, expected, rtol=1e-4, atol=1e-3,
             err_msg=f"key-major score mismatch for head {head}",

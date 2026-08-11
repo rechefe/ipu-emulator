@@ -21,8 +21,9 @@
 #   * A query group is 64 queries, so a single R_ACC store covers a whole
 #     output channel: AGG dest slots run 0..63 and R_ACC lanes 64..127 stay
 #     unused padding (the harness crops them; rows are never shared).
-#   The trailing 64 lanes of every P and V row are zero, so the AGG reduction
-#   over all 128 lanes adds nothing beyond the 64 real keys.
+#   AGG.SUM.FIRST is gated by DSTRUCT's valid_elements = N_TOK (64), set by the
+#   harness, so the reduction structurally sees only the 64 real key lanes --
+#   it does not depend on the trailing 64 lanes of P and V being zero.
 #
 # head_dim = 48 is a LOOP COUNT here (the t loop), not a lane count -- it needs
 # no padding.

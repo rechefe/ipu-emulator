@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ipu_apps.unfold_8x8x240 import H, W, C, LANES, _ROW_PACK_ORDER
+from ipu_apps.unfold_8x8x240 import H, W, C, pack_input_rows
 
 _SEED = 0x058
 
@@ -22,15 +22,10 @@ _SEED = 0x058
 def pack_stripe(x: np.ndarray) -> np.ndarray:
     """Pack a [C, H, W] spatial tensor into [C, LANES] XMEM rows.
 
-    Row ch holds channel ch's 8x8 grid in the first H*W = 64 lanes, with spatial
-    rows ordered by ``_ROW_PACK_ORDER`` so that ACC.STRIDE's even/odd view-row
-    split matches the even/odd spatial-row split. Lanes 64..127 are zeroed so
-    the stale tail of every output row is deterministic.
+    Thin wrapper over :func:`ipu_apps.unfold_8x8x240.pack_input_rows` -- the
+    single implementation of this kernel's input contract.
     """
-    src = np.zeros((C, LANES), dtype=np.float32)
-    for slot, spatial_row in enumerate(_ROW_PACK_ORDER):
-        src[:, slot * W : (slot + 1) * W] = x[:, spatial_row, :]
-    return src
+    return pack_input_rows(x)
 
 
 def generate(out_dir: Path) -> dict[str, Path]:

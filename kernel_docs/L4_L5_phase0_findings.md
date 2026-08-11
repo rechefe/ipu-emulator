@@ -5,6 +5,13 @@
 Every **[VERIFY]** item in the L4+L5 plan is resolved below. Each claim is backed by
 either a line-referenced source read or a probe that was actually run.
 
+> **Update:** the `matmul_144x288_x128` "redundant-K outlier" finding below (§1,
+> the tail-bound table, and the two "Side finding" / "Consequences" sections) has
+> since been **fixed** — `__init__.py:141` now gives it an exact 32-wide tail
+> bound. The sections below are left as the original point-in-time
+> investigation and measurement record; where the current status differs, it
+> is noted inline.
+
 ---
 
 ## Summary
@@ -178,27 +185,27 @@ bounded to the real remaining K, not padded up:
 | `matmul_240x480_x128` | 480 | 126 ×3 + **94 (w=96)** | 240 × 480 |
 | `matmul_192x192_x128` | 192 | 126 (w=128) + **62 (w=64)** | 192 × 192 |
 | `matmul_576x192_x128` | 192 | 126 (w=128) + **62 (w=64)** | 576 × 192 |
-| `matmul_144x288_x128` | 288 | **126 ×3 — no tail bound** | 144 × 384 |
+| `matmul_144x288_x128` | 288 | 126 (w=128) ×2 + **30 (w=32)** | 144 × 288 |
 
 `240x240` → 128+112 = 240 exactly, `240x480` → 3×128+96 = 480 exactly. These match
 runstats (57,600 and 115,200) with **no padding**, exactly as predicted.
 
-`matmul_144x288_x128` is the **outlier**: it runs three full 128-wide chunks for
-K=288, i.e. 384, and reports 144 × 384 × 2 groups = 110,592. Its own header
-documents only a `lr6=126` "per-chunk" bound with no tail-chunk register, so the
-third chunk over-runs K by 96 and relies on zero-padded weights for correctness.
+`matmul_144x288_x128` was previously the outlier here (ran three full 128-wide
+chunks for K=288, i.e. 384, 33% redundant) but has since been fixed:
+`__init__.py:141` now sets `lr11 = (K % LANES) - 2 = 30`, an exact 32-wide tail
+bound matching its siblings' pattern. K=288 = 128+128+32 exactly, no padding.
 
 ### Consequences
 
 1. **The 6.7% "d=240 pads to 256" lane cost claimed for L5 does not exist.** The
    d=240 kernels use exact tail bounds. §4's combined-utilization figure should
    stay at **50%**, not 46.9%, and AR-1's L5 saving needs no adjustment.
-2. `matmul_144x288_x128` is doing **~33% redundant multiply work** for its K
-   (384 issued vs 288 real). It is an L3 kernel, so it does not affect the L4/L5
-   baseline — but it is a real ~27,648-cycle saving available by giving it a
-   96-wide tail bound like its siblings. Worth a separate issue.
+2. **RESOLVED:** `matmul_144x288_x128` was doing ~33% redundant multiply work
+   for its K (384 issued vs 288 real). `__init__.py:141` now gives it an exact
+   32-wide tail bound (`lr11 = 30`), matching its siblings — the ~27,648-cycle
+   saving has been recovered.
 3. Any new L4/L5 kernel must use the **exact tail bound** pattern
-   (`lr11 = width - 2`), not the `144x288` pattern.
+   (`lr11 = width - 2`).
 
 ---
 
@@ -392,10 +399,11 @@ these are measured numbers, which is what §6 says makes it land.
 §1 above — the d=240 kernels use exact tail bounds). The gap between 12.1% and
 the theoretical 12.5% (16/128) is ordinary loop overhead, not padding.
 
-### Side finding: `matmul_144x288_x128` at 73.8%
+### Side finding: `matmul_144x288_x128` — RESOLVED
 
-Its siblings all read 95.7%. Giving it a 96-wide tail bound recovers
-**~28,000 cycles**. L3-only, so it does not affect the L4/L5 baseline.
+Was at 73.8% against siblings' 95.7%. Now has an exact 32-wide tail bound
+(`__init__.py:141`, `lr11 = 30`), recovering the ~27,648-cycle redundant-work
+gap. L3-only, so it never affected the L4/L5 baseline.
 
 ---
 

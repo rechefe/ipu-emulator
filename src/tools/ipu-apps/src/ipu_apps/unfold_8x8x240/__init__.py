@@ -77,7 +77,34 @@ N_TOK     = 16    # tokens per stream (4x4 decimated grid)
 # Slot k holds spatial row _ROW_PACK_ORDER[k] in lanes [k*W, (k+1)*W).
 # Pairing (0,2) (1,3) (4,6) (5,7) is what aligns ACC.STRIDE's even/odd view-row
 # split with the even/odd SPATIAL row split -- see the module docstring.
+#
+# This is an INPUT CONTRACT, not an implementation detail: nothing in this
+# kernel (or elsewhere in the repo) produces this ordering automatically. Any
+# caller staging real (non-test) input for this kernel MUST pre-permute
+# spatial rows into this order first -- use :func:`pack_input_rows` rather
+# than re-deriving the permutation. Getting it wrong does not look like
+# garbage: it silently selects the wrong stride-2 phase per output stream (a
+# plausible-looking row shuffle), which is harder to catch than an obviously
+# corrupt result.
 _ROW_PACK_ORDER = (0, 2, 1, 3, 4, 6, 5, 7)
+
+
+def pack_input_rows(x: np.ndarray) -> np.ndarray:
+    """Pack a ``[C, H, W]`` spatial tensor into ``[C, LANES]`` XMEM rows.
+
+    Row ``ch`` holds channel ``ch``'s 8x8 grid in the first ``H*W = 64``
+    lanes, with spatial rows reordered per :data:`_ROW_PACK_ORDER` so that
+    ``ACC.STRIDE``'s even/odd view-row split lines up with the even/odd
+    SPATIAL row split (see the module docstring). Lanes 64..127 are left
+    zero. This is the one place that permutation is implemented -- callers
+    should use this rather than re-deriving ``_ROW_PACK_ORDER`` themselves.
+    """
+    if x.shape != (C, H, W):
+        raise ValueError(f"expected shape {(C, H, W)}, got {x.shape}")
+    rows = np.zeros((C, LANES), dtype=np.float32)
+    for slot, spatial_row in enumerate(_ROW_PACK_ORDER):
+        rows[:, slot * W : (slot + 1) * W] = x[:, spatial_row, :]
+    return rows
 
 # -- Memory map -------------------------------------------------------------
 

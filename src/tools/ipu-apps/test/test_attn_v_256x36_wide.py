@@ -6,6 +6,17 @@ O[i, t] = sum_s P[i, s] * V[s, t] is computed directly.
 
 This is the query-major P + AGG variant of attn@V; `attn_v_bcast_36` is the
 key-major broadcast kernel and shares V's and O's layouts.
+
+L3 is the only shape with TWO key chunks (N_TOK=256 spans two 128-lane
+groups), so it is the only place cross-chunk AGG accumulation is exercised.
+The reference therefore mirrors AGG's actual datapath rather than calling
+``np.einsum``: chunk 0 is a float64 left-fold over 128 lanes rounded to
+float32 by ``AGG.SUM.FIRST``'s R_ACC write; chunk 1 is a second float64
+left-fold added, in float32, to that already-rounded chunk-0 result by
+``AGG.SUM`` (see ``execute_agg_sum``: it adds the new float64-folded partial
+to the float32 snapshot of R_ACC, then rounds once more). A plain
+``np.einsum`` accumulates in one pass with different rounding and cannot
+discriminate a wrong cross-chunk carry from a right one.
 """
 
 from __future__ import annotations
@@ -23,6 +34,36 @@ from ipu_apps.attn_v_256x36 import (
 )
 
 _INST_BIN = Path(os.environ["ATTN_V_256X36_INST_BIN"])
+
+
+def _agg_reference(P: np.ndarray, V: np.ndarray) -> np.ndarray:
+    """Reference mirroring the emulator's two-chunk AGG datapath.
+
+    For each (head, channel t, query i): chunk 0 (keys 0..127) is a float64
+    left-fold of the 128 float32 lane products, rounded to float32 once by
+    AGG.SUM.FIRST's R_ACC write. Chunk 1 (keys 128..255) is a second float64
+    left-fold of its own 128 lane products, added -- in float32, to the
+    already-rounded chunk-0 value -- by AGG.SUM, then rounded once more.
+    """
+    out = np.zeros((N_HEAD, N_TOK, D), dtype=np.float32)
+    for h in range(N_HEAD):
+        for t in range(D):
+            v = V[h, t].astype(np.float32)              # [N_TOK] keys
+            for i in range(N_TOK):
+                lanes = (P[h, i].astype(np.float32) * v).astype(np.float32)
+
+                total0 = 0.0
+                for x in lanes[:128]:
+                    total0 += float(x)
+                chunk0 = np.float32(total0)
+
+                total1 = 0.0
+                for x in lanes[128:]:
+                    total1 += float(x)
+                chunk1 = np.float32(total1)
+
+                out[h, i, t] = np.float32(float(chunk1) + float(chunk0))
+    return out
 
 
 def test_attn_v_256x36_wide_fp32(tmp_path: Path) -> None:
@@ -63,8 +104,8 @@ def test_attn_v_256x36_wide_fp32(tmp_path: Path) -> None:
     state, cycles = app.run(max_cycles=20_000_000, state=state)
     assert cycles > 0
 
-    # O[h, i, t] = sum_s P[h, i, s] * V[h, t, s]
-    expected = np.einsum("his,hts->hit", P, V)      # [N_HEAD, N_TOK, D]
+    # O[h, i, t] = sum_s P[h, i, s] * V[h, t, s], via the two-chunk AGG fold.
+    expected = _agg_reference(P, V)                  # [N_HEAD, N_TOK, D]
 
     # Output: channel (h*36 + t) occupies 2 group rows of LANES FP32 lanes;
     # query i = g*LANES + local.
@@ -78,6 +119,6 @@ def test_attn_v_256x36_wide_fp32(tmp_path: Path) -> None:
         for t in range(D):
             np.testing.assert_allclose(
                 got[h * D + t, :N_TOK], expected[h, :, t],
-                rtol=1e-4, atol=1e-3,
+                rtol=1e-6, atol=1e-6,
                 err_msg=f"attn@V mismatch for head {h}, channel {t}",
             )

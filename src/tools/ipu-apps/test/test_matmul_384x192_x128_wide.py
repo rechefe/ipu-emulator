@@ -8,6 +8,10 @@ Single token group (N_TOK=64 <= LANES): one store per output channel. In wide
 mode that store fills a whole 512 B row, so the output is one row per channel
 with the first N_TOK lanes valid -- the narrow harness's packed/overlapping
 store layout has no wide equivalent.
+
+This is the FFN1 (expansion) matmul: the store applies `silu` (x*sigmoid(x)),
+the FFN nonlinearity, rather than `identity` -- FFN1 and FFN2 stacked with no
+activation between them collapse to a single linear layer.
 """
 
 from __future__ import annotations
@@ -50,7 +54,8 @@ def test_matmul_384x192_x128_wide_fp32(tmp_path: Path) -> None:
     state, cycles = app.run(max_cycles=20_000_000, state=state)
     assert cycles > 0
 
-    expected = W @ D                      # C[j, t] = sum_k W[j,k] * D[k,t]
+    pre_act = W @ D                       # C[j, t] = sum_k W[j,k] * D[k,t]
+    expected = pre_act * (1.0 / (1.0 + np.exp(-pre_act)))  # silu = x * sigmoid(x)
 
     raw = np.frombuffer(output_path.read_bytes(), dtype=np.float32)
     assert raw.size == N_OUT * LANES, (
