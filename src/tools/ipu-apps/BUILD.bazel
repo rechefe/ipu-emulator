@@ -54,6 +54,25 @@ py_binary(
 )
 
 py_pytest_test(
+    name = "test_host_fc_e2e",
+    srcs = ["test/test_host_fc_e2e.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        "//src/tools/ipu-ctrl-rdl:ipu_ctrl_regs",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_fully_connected",
     srcs = ["test/test_fully_connected.py"],
     data = [
