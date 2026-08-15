@@ -32,7 +32,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
   - "ReshapeMaskImmediate": element-count mask for RESHAPE (0–7; limits how many of the 8 LrdIdx byte elements participate)
-  - "ActivationFn": keyword on `ACTIVATE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
+  - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
 
@@ -992,69 +992,42 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_aaq_nop",
         },
-        "AAQ": {
-            "operands": [
-                {"name": "cr_idx", "type": "DstructureCrIdx"},
-            ],
-            "doc": InstructionDoc(
-                title="AAQ Quantize",
-                summary=(
-                    "Quantize the active elements in **``POST_AAQ_REG``** (32-bit per element, written by "
-                    "a preceding ``ACTIVATE``) to INT8 bytes, storing clamped bytes in the leading "
-                    "active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
-                    "Requires INT8 mode. "
-                    "The active element count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
-                    "(any CR0–CR15; must be named explicitly)."
-                ),
-                syntax="AAQ cr_idx",
-                operands=[
-                    "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
-                ],
-                operation=(
-                    "Requires INT8 mode (IpuState.dtype == DType.INT8 in the Python emulator). "
-                    "Let n = min(CR[cr_idx].valid_elements, 128). "
-                    "For i in [0, n): POST_AAQ_REG[i] = clamp(POST_AAQ_REG wide element i, -128, 127) "
-                    "(interim direct INT8 clamp of the post-ACTIVATE element; a future per-128-element "
-                    "requantize will scale elements into INT8 range before this step and supersede the clamp). "
-                    "POST_AAQ_REG[n..511] = 0."
-                ),
-                example="AAQ CR15;;",
-            ),
-            "execute_fn": "execute_aaq",
-        },
-        "ACTIVATE": {
+        "ACTIVATE.QUANTIZE": {
             "operands": [
                 {"name": "activation_fn", "type": "ActivationFn"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
-                title="Accumulator Activation",
+                title="Activate and Quantize",
                 summary=(
-                    "Read active elements from ``r_acc`` (live), apply the selected element-wise activation, "
-                    "and write 32-bit results into the same element indices of **``POST_AAQ_REG``** "
-                    "(``r_acc`` is unchanged). "
+                    "Read active elements from ``r_acc`` (snapshot), apply the selected element-wise activation, "
+                    "clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to "
+                    "the leading active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
+                    "``r_acc`` is not modified. Requires INT8 mode. "
                     "The active element count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
                     "(any CR0–CR15; must be named explicitly). "
                     "Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
                     "``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11)."
                 ),
-                syntax="ACTIVATE activation_fn, cr_idx",
+                syntax="ACTIVATE.QUANTIZE activation_fn, cr_idx",
                 operands=[
                     "activation_fn: keyword naming the activation (one of identity, relu, relu6, sigmoid, tanh, gelu, softplus, elu, exp2, reciprocal, rsqrt, silu; see ACTIVATION_FN_NAMES)",
                     "cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly)",
                 ],
                 operation=(
+                    "Requires INT8 mode (IpuState.dtype == DType.INT8). "
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
-                    "For i in [0, n): POST_AAQ_REG[i] = activation_k(R_ACC[i]) (same 32-bit element "
-                    "format as R_ACC). R_ACC is not modified. "
+                    "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
+                    "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "
+                    "Clamping is a placeholder until a full per-element requantize is implemented. "
                     "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."
                 ),
-                example="ACTIVATE relu, CR3;;",
+                example="ACTIVATE.QUANTIZE relu, CR15;;",
             ),
-            "execute_fn": "execute_activate",
+            "execute_fn": "execute_activate_quantize",
         },
     },
 

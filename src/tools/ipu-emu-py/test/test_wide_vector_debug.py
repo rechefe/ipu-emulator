@@ -73,8 +73,8 @@ BKPT;;
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
 
-    def test_activate_fills_post_aaq_reg_with_wide_elements(self) -> None:
-        """ACTIVATE writes activated FP32 elements to POST_AAQ_REG; AAQ is a no-op without quantize_flag."""
+    def test_activate_quantize_noop_unless_quantize_flag(self) -> None:
+        """ACTIVATE.QUANTIZE without wide_vector_quantize_output leaves POST_AAQ_REG all zero."""
         state = _run_wide(
             """\
 SET lr0 cr6;;
@@ -85,18 +85,15 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity cr15;;
-AAQ cr15;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """,
             cr={6: 0x1000 // 512, 7: 0x2000 // 512, 8: 0, 9: 128},
         )
-        # All r_acc is zero (zero XMEM), so identity(0) = 0.0 → all zeros in post_aaq_reg.
-        # AAQ is a no-op without wide_vector_quantize_output.
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
-    def test_activate_then_aaq_fp32_acc_for_comparison(self) -> None:
-        """ACTIVATE + AAQ with wide_vector_quantize_output quantizes FP32 acc elements to INT8."""
+    def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
+        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc elements to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
@@ -117,8 +114,7 @@ LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
-ACTIVATE identity cr15;;
-AAQ cr15;;
+ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
 """
         state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
