@@ -1204,20 +1204,13 @@ class Ipu:
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
-    def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
-        """Apply element-wise activation then quantize to INT8.
+    def execute_activate(self, *, activation_fn: int, cr_idx: int) -> None:
+        """Read active R_ACC elements, apply activation, write 32-bit results to POST_AAQ_REG.
 
-        Reads each active element from the live ``r_acc`` register file, applies
-        the selected activation, clamps to the INT8 range ``[-128, 127]``, and stores
-        the resulting bytes in the leading active-element positions of ``post_aaq_reg``;
-        all remaining bytes are zeroed. ``r_acc`` is not modified.
-
-        The active element count comes from ``cr_idx``'s decoded dstructure
-        ``valid_elements`` field; the caller must name a CR register explicitly.
-
-        Requires INT8 mode in normal operation. In wide-vector debug mode, activation
-        is always applied; quantization only occurs when ``state.wide_vector_quantize_output``
-        is set (enabling comparison with the real INT8 path).
+        Does not modify R_ACC. The active element count comes from ``cr_idx``'s
+        decoded dstructure ``valid_elements`` field. Works in both normal and
+        wide-vector debug mode; the element format matches R_ACC (``<i`` or ``<f``).
+        Normally followed by ``AAQ`` to quantize POST_AAQ_REG to INT8.
         """
         fn_id = int(activation_fn) & REGISTER_WORD_VALUE_MASK
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
@@ -1226,23 +1219,36 @@ class Ipu:
         acc_buf = self.state.regfile.raw("r_acc")
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
-        if self._wide_vector_active():
-            for i in range(active):
-                raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-                y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
-                if fmt == "<i":
-                    yi = int(round(y))
-                    if yi < -2147483648:
-                        yi = -2147483648
-                    elif yi > 2147483647:
-                        yi = 2147483647
-                    struct.pack_into("<i", post_buf, i * 4, yi)
-                else:
-                    struct.pack_into("<f", post_buf, i * 4, float(y))
+        for i in range(active):
+            raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
+            y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
+            if fmt == "<i":
+                yi = int(round(y))
+                if yi < -2147483648:
+                    yi = -2147483648
+                elif yi > 2147483647:
+                    yi = 2147483647
+                struct.pack_into("<i", post_buf, i * 4, yi)
+            else:
+                struct.pack_into("<f", post_buf, i * 4, float(y))
 
+    def execute_aaq(self, *, cr_idx: int) -> None:
+        """Quantize POST_AAQ_REG 32-bit elements (written by ACTIVATE) to INT8 bytes.
+
+        Clamps each active element to the INT8 range ``[-128, 127]`` and writes the
+        resulting bytes into the leading active-element positions of ``post_aaq_reg``;
+        all remaining bytes are zeroed.
+
+        Requires INT8 mode in normal operation. In wide-vector debug mode, is a
+        no-op unless ``state.wide_vector_quantize_output`` is set.
+        """
+        if self._wide_vector_active():
             if not self.state.wide_vector_quantize_output:
                 return
 
+            valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
+            active = self._agg_active_lane_count(valid_elements)
+            post_buf = self.state.regfile.raw("post_aaq_reg")
             result = bytearray(128)
             if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
                 for i in range(active):
@@ -1256,13 +1262,15 @@ class Ipu:
             return
 
         if self.state.dtype != DType.INT8:
-            raise EmulatorError("ACTIVATE.QUANTIZE instruction requires INT8 mode")
+            raise EmulatorError("AAQ instruction requires INT8 mode")
 
+        valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
+        active = self._agg_active_lane_count(valid_elements)
+        post_buf = self.state.regfile.raw("post_aaq_reg")
         result = bytearray(128)
         for i in range(active):
-            raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
-            y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
-            result[i] = max(-128, min(127, int(round(y)))) & 0xFF
+            val = struct.unpack_from("<i", post_buf, i * 4)[0]
+            result[i] = max(-128, min(127, val)) & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
     def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:

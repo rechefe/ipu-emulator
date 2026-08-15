@@ -1549,17 +1549,18 @@ BKPT;;
         result = struct.unpack("<i", struct.pack("<I", raw))[0]
         assert result == 77, f"expected max=77, got {result}"
 
-    def test_agg_and_activate_quantize_same_cycle_sees_live_r_acc(self):
-        """AGG.SUM.FIRST in ACC slot and ACTIVATE.QUANTIZE in AAQ slot issued together.
+    def test_agg_and_activate_same_cycle_sees_live_r_acc(self):
+        """AGG.SUM.FIRST in ACC slot and ACTIVATE in AAQ slot issued together.
 
         AGG reads from MULT_RES (live) and writes r_acc[dest]. Since the ACC
         slot dispatches before the AAQ slot within the same VLIW cycle,
-        ACTIVATE.QUANTIZE must see that same-cycle write to r_acc, not the
-        cycle-start snapshot.
+        ACTIVATE must see that same-cycle write to r_acc, not the
+        cycle-start snapshot. AAQ then quantizes POST_AAQ_REG to INT8 in the next cycle.
         """
         state = _make_state(
             """\
-AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
+AGG.SUM.FIRST LR0 cr15; ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -1567,25 +1568,23 @@ BKPT;;
         state.regfile.set_lr(0, 0)  # AGG dest = r_acc[0]
         import struct as _struct
         for i in range(128):
-            # MULT_RES lanes = 3 (source for AGG.SUM.FIRST)
             state.regfile.set_mult_res_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
-            # r_acc lanes = 3 (overwritten at lane 0 by AGG.SUM.FIRST before ACTIVATE.QUANTIZE reads it)
             state.regfile.set_r_acc_word(i, _struct.unpack("<I", _struct.pack("<i", 3))[0])
 
         run_until_complete(state)
 
-        # AGG.SUM.FIRST must have summed MULT_RES (128 lanes × 3 = 384) into r_acc[0]
+        # AGG.SUM.FIRST must have summed MULT_RES (128 elements × 3 = 384) into r_acc[0]
         raw_agg = state.regfile.get_r_acc_word(0)
         agg_result = _struct.unpack("<i", _struct.pack("<I", raw_agg))[0]
         assert agg_result == 384, f"AGG saw wrong mult_res: expected 384, got {agg_result}"
 
-        # ACTIVATE.QUANTIZE relu must see the post-AGG r_acc (lane 0 = 384), not
-        # the cycle-start snapshot value (3).
-        # relu(384) = 384, clamped to INT8 byte range = 127.
+        # ACTIVATE must see the post-AGG r_acc (element 0 = 384), not the snapshot (3).
+        # relu(384) = 384 stored as int32 in POST_AAQ_REG[0].
+        # AAQ then clamps 384 to INT8 byte range → byte 127.
         post = state.regfile.raw("post_aaq_reg")
         lane0_byte = post[0]
         assert lane0_byte == 127, (
-            f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 127, got {lane0_byte}"
+            f"ACTIVATE saw wrong r_acc element 0: expected byte 127, got {lane0_byte}"
         )
 
 
@@ -2380,18 +2379,19 @@ BKPT;;
 
 
 # ============================================================================
-# ACTIVATE.QUANTIZE (combined activation + INT8 quantize: r_acc → POST_AAQ_REG bytes)
+# ACTIVATE + AAQ (activate r_acc → POST_AAQ_REG; then AAQ quantizes to INT8 bytes)
 # ============================================================================
 
 
-class TestActivateQuantize:
-    """ACTIVATE.QUANTIZE applies activation to r_acc and quantizes to INT8 bytes in POST_AAQ_REG."""
+class TestActivateAndAaq:
+    """ACTIVATE writes activated 32-bit elements to POST_AAQ_REG; AAQ quantizes them to INT8 bytes."""
 
     def test_relu_zeroes_negative_lane(self):
         """relu(-9) = 0 → byte 0; r_acc is unchanged."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr15;;
+ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2406,7 +2406,8 @@ BKPT;;
         """relu(5) = 5 → byte 5."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr15;;
+ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2420,7 +2421,8 @@ BKPT;;
         """identity(200) saturates to 127 byte; identity(-200) saturates to 0x80 byte."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE identity cr15;;
+ACTIVATE identity cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2437,7 +2439,8 @@ BKPT;;
         """Values in [-128, 127] are stored unchanged as bytes."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE identity cr15;;
+ACTIVATE identity cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2454,9 +2457,9 @@ BKPT;;
         assert result[128:] == bytearray(384)
 
     def test_requires_int8_mode(self):
-        """Raises EmulatorError when not in INT8 mode."""
+        """AAQ raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
-        state = _make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
+        state = _make_state("ACTIVATE relu cr15;;\nAAQ cr15;;\nBKPT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
@@ -2465,7 +2468,8 @@ BKPT;;
         """Inactive elements (beyond valid_elements) are zeroed in POST_AAQ_REG."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr15;;
+ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2485,7 +2489,8 @@ BKPT;;
         """CR3 with valid_elements=128 overrides CR15 with valid_elements=4."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr3;;
+ACTIVATE relu cr3;;
+AAQ cr3;;
 BKPT;;
 """
         )
@@ -2505,7 +2510,8 @@ BKPT;;
         """CR15.valid_elements=4 → only 4 active elements; rest zeroed."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr15;;
+ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
@@ -2525,7 +2531,8 @@ BKPT;;
         alpha = 0.5
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE elu cr15;;
+ACTIVATE elu cr15;;
+AAQ cr15;;
 BKPT;;
 """,
             elu_alpha=alpha,
@@ -2538,10 +2545,11 @@ BKPT;;
         assert state.regfile.get_post_aaq_reg()[0] == expected & 0xFF
 
     def test_r_acc_not_modified(self):
-        """ACTIVATE.QUANTIZE does not modify r_acc."""
+        """ACTIVATE does not modify r_acc."""
         state = _make_state(
             """\
-ACTIVATE.QUANTIZE relu cr15;;
+ACTIVATE relu cr15;;
+AAQ cr15;;
 BKPT;;
 """
         )
