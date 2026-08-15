@@ -2,7 +2,7 @@
 
 XMEM transfer sizes stay architectural (128-byte loads for r in normal mode);
 in wide-vector mode ``LDR_MULT_REG`` / ``LDR_CYCLIC_MULT_REG`` consume 512 bytes
-per transfer as 128×32-bit lanes. LR/CR are unchanged.
+per transfer as 128×32-bit elements. LR/CR are unchanged.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def _run_wide(
 
 class TestWideVectorFp32:
     def test_mult_ee_fp32_no_quantization_in_acc(self) -> None:
-        """128 float lanes multiply element-wise; acc holds float products."""
+        """128 float elements multiply element-wise; acc holds float products."""
         r0 = struct.pack("<128f", *([2.0] * 128))
         rc = struct.pack("<128f", *([3.0] * 128))
         state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
@@ -93,7 +93,7 @@ BKPT;;
         assert state.regfile.get_post_aaq_reg() == bytearray(512)
 
     def test_activate_quantize_fp32_acc_for_comparison(self) -> None:
-        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc lanes to INT8."""
+        """ACTIVATE.QUANTIZE with wide_vector_quantize_output quantizes FP32 acc elements to INT8."""
         # Use exact float product 3.0 so rounding is unambiguous (round-half-even).
         r0 = struct.pack("<128f", *([1.5] * 128))
         rc = struct.pack("<128f", *([2.0] * 128))
@@ -287,7 +287,7 @@ BKPT;;
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(10.0), f"lane {i}"
 
     def test_mult_rc_ve_fp32_lr_scalar_wraps(self) -> None:
-        """MULT.RC.VE (wide FP32, LR-encoded src): RC lanes wrap after element 512."""
+        """MULT.RC.VE (wide FP32, LR-encoded src): RC elements wrap after element 512."""
         buf = bytearray(2048)
         for k in range(32):
             struct.pack_into("<f", buf, (480 + k) * 4, 3.0)
@@ -402,7 +402,7 @@ class TestWideVectorAgg:
         return st
 
     def test_agg_sum_first_int32_wide(self) -> None:
-        """AGG.SUM.FIRST with INT32 wide lanes: 128×4 = 512 written to dest lane."""
+        """AGG.SUM.FIRST with INT32 wide elements: 128×4 = 512 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
         st = self._run_agg(
@@ -412,7 +412,7 @@ class TestWideVectorAgg:
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
 
     def test_agg_sum_first_fp32_wide(self) -> None:
-        """AGG.SUM.FIRST with FP32 wide lanes: 128×0.5 = 64.0 written to dest lane."""
+        """AGG.SUM.FIRST with FP32 wide elements: 128×0.5 = 64.0 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
         st = self._run_agg(
@@ -422,7 +422,7 @@ class TestWideVectorAgg:
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
     def test_agg_sum_int32_wide_running(self) -> None:
-        """AGG.SUM with INT32 wide lanes adds onto the existing r_acc[dest] (issue #182)."""
+        """AGG.SUM with INT32 wide elements adds onto the existing r_acc[dest] (issue #182)."""
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
@@ -438,7 +438,7 @@ class TestWideVectorAgg:
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 1512
 
     def test_agg_max_first_fp32_wide(self) -> None:
-        """AGG.MAX.FIRST with FP32 wide lanes picks the largest lane."""
+        """AGG.MAX.FIRST with FP32 wide elements picks the largest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)

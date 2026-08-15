@@ -1,4 +1,4 @@
-"""Element-wise activation functions for IPU accumulator lanes.
+"""Element-wise activation functions for IPU accumulator elements.
 
 Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. α for
 ``elu`` defaults to ``DEFAULT_ELU_ALPHA`` below; override per run via
@@ -6,7 +6,7 @@ Encodings match ``docs/content/specs/stage-aaq.md`` section 7.0. α for
 :meth:`IpuState.set_activation_alphas` (not CR-visible). Assembly uses
 ``ACTIVATE … <name>`` where ``<name>`` is one of the strings in
 ``ACTIVATION_FN_NAMES`` (same order as ids **0**–**11**); the emulator writes
-activated lanes into ``POST_AAQ_REG``. See
+activated elements into ``POST_AAQ_REG``. See
 ``docs/content/building-applications.md#activations-emulator`` for calibration,
 ``STR_POST_AAQ_REG`` (store that register to XMEM), and pipeline notes.
 """
