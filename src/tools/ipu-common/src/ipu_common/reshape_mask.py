@@ -10,6 +10,6 @@ The field supports both an immediate (0-7, encoded as 0-7) and an LR register
 bits of the selected LR value are used as the mask.
 """
 
-RESHAPE_LANE_COUNT = 8
+RESHAPE_ELEMENT_COUNT = 8
 RESHAPE_MASK_FIELD_BITS = 4
 RESHAPE_MASK_LR_OFFSET = 8

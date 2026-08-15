@@ -15,7 +15,7 @@ from ipu_common.mult_mask_offset import (
     MULT_MASK_SLOT_COUNT,
 )
 from ipu_common.reshape_mask import (
-    RESHAPE_LANE_COUNT,
+    RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_FIELD_BITS,
     RESHAPE_MASK_LR_OFFSET,
 )
@@ -135,9 +135,9 @@ class ReshapeMaskImmediate(ipu_token.IpuToken):
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (0 <= self.int < RESHAPE_LANE_COUNT):
+        if not (0 <= self.int < RESHAPE_ELEMENT_COUNT):
             self._raise_error(
-                f"Value {self.int} out of range [0, {RESHAPE_LANE_COUNT - 1}] "
+                f"Value {self.int} out of range [0, {RESHAPE_ELEMENT_COUNT - 1}] "
                 "for RESHAPE reshape_mask operand"
             )
 

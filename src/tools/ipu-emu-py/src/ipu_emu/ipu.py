@@ -40,7 +40,7 @@ from ipu_common.acc_stride_enums import (
     get_vertical_stride_bits,
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_common.reshape_mask import RESHAPE_LANE_COUNT
+from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 from ipu_common.activations import apply_activation
 
@@ -1104,22 +1104,21 @@ class Ipu:
         register (encoded 8-15, LR_index = encoded - RESHAPE_MASK_LR_OFFSET).
         All MULT_RES reads come from the pre-instruction snapshot.
         """
-        from ipu_common.reshape_mask import RESHAPE_MASK_LR_OFFSET
         assert self.snapshot is not None
-        src_lanes = self._get_lrd_bytes(source, self.snapshot)
-        dst_lanes = self._get_lrd_bytes(dest, self.snapshot)
+        src_bytes = self._get_lrd_bytes(source, self.snapshot)
+        dst_bytes = self._get_lrd_bytes(dest, self.snapshot)
 
         if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
             lr_idx = reshape_mask - RESHAPE_MASK_LR_OFFSET
-            mask = self.state.regfile.get_lr(lr_idx) & (RESHAPE_LANE_COUNT - 1)
+            mask = self.state.regfile.get_lr(lr_idx) & (RESHAPE_ELEMENT_COUNT - 1)
         else:
             mask = reshape_mask
 
         mult_res = self.snapshot.raw("mult_res")
         writes = [
-            (dst_lanes[i], struct.unpack_from("<I", mult_res, src_lanes[i] * 4)[0])
-            for i in range(mask, RESHAPE_LANE_COUNT)
-            if src_lanes[i] < LANES and dst_lanes[i] < LANES
+            (dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0])
+            for i in range(mask, RESHAPE_ELEMENT_COUNT)
+            if src_bytes[i] < LANES and dst_bytes[i] < LANES
         ]
         for dest_idx, value in writes:
             self.state.regfile.set_r_acc_word(dest_idx, value)
