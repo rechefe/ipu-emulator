@@ -968,7 +968,7 @@ INSTRUCTION_SPEC = {
                     "R_ACC[idx] indexes the 128 word elements (0-127), same addressing as "
                     "ACC.ADD/ACC.STRIDE. reshape_mask = 0 uses all 8 elements; reshape_mask = 7 "
                     "uses only element 0. Out-of-range source[i] or dest[i] (>= 128) skips that "
-                    "element. Because all reads come from the snapshot, a element whose dest equals "
+                    "element. Because all reads come from the snapshot, an element whose dest equals "
                     "another element's source resolves to the pre-instruction value, not an "
                     "in-progress write."
                 ),

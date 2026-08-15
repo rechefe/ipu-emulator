@@ -605,8 +605,8 @@ branch_taken = taken
 | LR   | `INCR_MOD_POW2`  | `dst step k`             | `dst = (dst + step) & ((1<<k) - 1)` |
 | LR   | `INC`            | `dest imm`               | `dest = (dest + imm)[31:0]` |
 | LR   | `DEC`            | `dest imm`               | `dest = (dest - imm)[31:0]` |
-| LR   | `ADDB`           | `dest src_b`             | broadcast-add signed `src_b[7:0]` to `dest`'s 8 lanes, clamp [0,255] |
-| LR   | `ADDBI`          | `dest imm`               | broadcast-add signed `imm` to `dest`'s 8 lanes, clamp [0,255] |
+| LR   | `ADDB`           | `dest src_b`             | broadcast-add signed `src_b[7:0]` to `dest`'s 8 elements, clamp [0,255] |
+| LR   | `ADDBI`          | `dest imm`               | broadcast-add signed `imm` to `dest`'s 8 elements, clamp [0,255] |
 | COND | `BEQ`            | `reg1 reg2 label`        | branch if `reg1 == reg2` |
 | COND | `BNE`            | `reg1 reg2 label`        | branch if `reg1 != reg2` |
 | COND | `BLT`            | `reg1 reg2 label`        | branch if `signed(reg1) < signed(reg2)` |

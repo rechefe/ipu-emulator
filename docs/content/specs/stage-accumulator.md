@@ -156,7 +156,7 @@ buffer's overall width.
 ## 5. Data and Register Model
 
 - `R_ACC` is **128 elements × 32 bits**, matching `MULT_RES`'s width and element
-  count (`LANES = 128`).
+  count. (The hardware parameter for this count is named `LANES`.)
 - Each element's numeric interpretation (INT32 vs FP32) tracks whatever format
   `MULT_RES` was produced in that cycle — ACC's ALU does not carry an
   independent dtype selector of its own.
