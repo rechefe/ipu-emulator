@@ -1095,23 +1095,30 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
     def execute_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
-        """Execute RESHAPE: permute R_ACC word elements via two LRDn byte-index arrays.
+        """Execute RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
 
         ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
-        elements read from the pre-instruction snapshot. Only the leading
-        ``8 - reshape_mask`` elements participate. All (source[i], dest[i]) guards
-        and reads are evaluated against the snapshot before any write, so a
-        element's dest overlapping another element's source resolves to the
-        pre-instruction value (no intra-instruction chaining).
+        elements read from the pre-instruction snapshot. Only the trailing
+        (8 - mask) elements (indices mask..7) participate, where mask is either
+        the immediate value (encoded 0-7) or the low 3 bits of the specified LR
+        register (encoded 8-15, LR_index = encoded - RESHAPE_MASK_LR_OFFSET).
+        All MULT_RES reads come from the pre-instruction snapshot.
         """
+        from ipu_common.reshape_mask import RESHAPE_MASK_LR_OFFSET
         assert self.snapshot is not None
         src_lanes = self._get_lrd_bytes(source, self.snapshot)
         dst_lanes = self._get_lrd_bytes(dest, self.snapshot)
 
-        n = RESHAPE_LANE_COUNT - reshape_mask
+        if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
+            lr_idx = reshape_mask - RESHAPE_MASK_LR_OFFSET
+            mask = self.state.regfile.get_lr(lr_idx) & (RESHAPE_LANE_COUNT - 1)
+        else:
+            mask = reshape_mask
+
+        mult_res = self.snapshot.raw("mult_res")
         writes = [
-            (dst_lanes[i], self.snapshot.get_r_acc_word(src_lanes[i]))
-            for i in range(n)
+            (dst_lanes[i], struct.unpack_from("<I", mult_res, src_lanes[i] * 4)[0])
+            for i in range(mask, RESHAPE_LANE_COUNT)
             if src_lanes[i] < LANES and dst_lanes[i] < LANES
         ]
         for dest_idx, value in writes:

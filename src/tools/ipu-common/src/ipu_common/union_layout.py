@@ -72,6 +72,7 @@ def get_operand_type_bits() -> dict[str, int]:
         "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
         "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
         "ReshapeMaskImmediate": RESHAPE_MASK_FIELD_BITS,
+        "LrOrReshapeMaskImmediate": RESHAPE_MASK_FIELD_BITS,
         "BreakImmediate": 16,
         "Label": 10,  # (MAX_PROGRAM_SIZE - 1).bit_length() for size 1024
         "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),

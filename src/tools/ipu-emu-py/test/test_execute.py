@@ -1601,10 +1601,10 @@ def _lrd_bytes(*vals: int) -> tuple[int, int]:
 
 
 class TestReshape:
-    """RESHAPE: permute R_ACC word elements via two LrdIdx byte-index arrays (issue #192)."""
+    """RESHAPE: scatter MULT_RES elements into R_ACC via two LrdIdx byte-index arrays (issue #192, #210)."""
 
-    def test_reshape_mask_zero_copies_all_eight_lanes(self):
-        """reshape_mask=0: all 8 elements participate."""
+    def test_reshape_mask_zero_copies_all_eight_slots(self):
+        """reshape_mask=0: all 8 element slots participate; reads from MULT_RES not R_ACC."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1619,17 +1619,15 @@ BKPT;;
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
         for i in range(8):
-            state.regfile.set_r_acc_word(i, 1000 + i)
+            state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
         for i in range(8):
             assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
-        for i in range(8):
-            assert state.regfile.get_r_acc_word(i) == 1000 + i
 
-    def test_reshape_mask_seven_copies_one_lane(self):
-        """reshape_mask=7: only element 0 participates; elements 1-7 are untouched."""
+    def test_reshape_mask_seven_copies_only_slot_seven(self):
+        """reshape_mask=7: only the trailing element (slot 7) participates; slots 0-6 untouched."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1644,13 +1642,41 @@ BKPT;;
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
         for i in range(8):
-            state.regfile.set_r_acc_word(i, 1000 + i)
+            state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
-        assert state.regfile.get_r_acc_word(100) == 1000
-        for i in range(101, 108):
+        # Only slot 7 participates: MULT_RES[7]=1007 → R_ACC[107].
+        assert state.regfile.get_r_acc_word(107) == 1007
+        for i in range(100, 107):
             assert state.regfile.get_r_acc_word(i) == 9999
+
+    def test_reshape_mask_six_copies_trailing_two_slots(self):
+        """reshape_mask=6: slots 6 and 7 participate; slots 0-5 are untouched."""
+        src_lo, src_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 20, 21)
+        dst_lo, dst_hi = _lrd_bytes(50, 51, 52, 53, 54, 55, 60, 61)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 6;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(128):
+            state.regfile.set_mult_res_word(i, 5000 + i)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        # Slots 6: MULT_RES[20] → R_ACC[60]; slot 7: MULT_RES[21] → R_ACC[61].
+        assert state.regfile.get_r_acc_word(60) == 5020
+        assert state.regfile.get_r_acc_word(61) == 5021
+        # Other dest indices untouched.
+        assert state.regfile.get_r_acc_word(50) == 9999
+        assert state.regfile.get_r_acc_word(55) == 9999
 
     def test_reshape_skips_out_of_range_source(self):
         """A source[i] >= 128 leaves that element's dest untouched."""
@@ -1668,11 +1694,11 @@ BKPT;;
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
         for i in range(8):
-            state.regfile.set_r_acc_word(i, 1000 + i)
+            state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
-        assert state.regfile.get_r_acc_word(100) == 9999  # lane 0 skipped (source out of range)
+        assert state.regfile.get_r_acc_word(100) == 9999  # slot 0 skipped (source 200 out of range)
         for i in range(1, 8):
             assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
 
@@ -1692,24 +1718,101 @@ BKPT;;
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
         for i in range(8):
-            state.regfile.set_r_acc_word(i, 1000 + i)
+            state.regfile.set_mult_res_word(i, 1000 + i)
         for i in range(100, 108):
             state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
-        # dest[0]=200 is out of range: no write (and no out-of-bounds R_ACC access) for lane 0.
+        # dest[0]=200 is out of range: no write for slot 0.
         for i in range(1, 8):
             assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
-        # Source words themselves are untouched.
-        for i in range(8):
-            assert state.regfile.get_r_acc_word(i) == 1000 + i
 
-    def test_reshape_same_instruction_reads_from_snapshot_not_in_progress_write(self):
-        """Element i's dest overlapping element j's source must resolve from the pre-instruction
-        snapshot, not another element's write within the same RESHAPE (no chaining)."""
-        # source[0]=0, source[1]=1; dest[0]=1, dest[1]=2 -> R_ACC[1] = old R_ACC[0],
-        # R_ACC[2] = old R_ACC[1] (not the value RESHAPE just wrote into R_ACC[1]).
+    def test_reshape_reads_from_mult_res_snapshot_not_r_acc(self):
+        """RESHAPE copies from MULT_RES, not R_ACC; R_ACC source values are ignored."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
-        dst_lo, dst_hi = _lrd_bytes(1, 2, 3, 4, 5, 6, 7, 8)
+        dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 0;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
+        )
+        for i in range(8):
+            state.regfile.set_mult_res_word(i, 2000 + i)
+            state.regfile.set_r_acc_word(i, 9999)  # must NOT be read by RESHAPE
+        for i in range(10, 18):
+            state.regfile.set_r_acc_word(i, 0)
+        run_until_complete(state)
+        for i in range(8):
+            assert state.regfile.get_r_acc_word(10 + i) == 2000 + i, (
+                f"R_ACC[{10+i}] should be MULT_RES[{i}]=={2000+i}, not R_ACC[{i}]"
+            )
+
+    def test_reshape_mask_lr_mode_uses_lr_low_bits(self):
+        """reshape_mask=LR4 with LR4.value=6: only slots 6 and 7 participate.
+
+        LR0-LR3 are used by the LRD pair setup (SET instructions), so LR4
+        is used as the mask register to avoid aliasing.
+        """
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr4 cr12;;
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 lr4;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi, 12: 6},
+        )
+        for i in range(8):
+            state.regfile.set_mult_res_word(i, 3000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        assert state.regfile.get_r_acc_word(106) == 3006
+        assert state.regfile.get_r_acc_word(107) == 3007
+        for i in range(100, 106):
+            assert state.regfile.get_r_acc_word(i) == 9999
+
+    def test_reshape_mask_lr_uses_low_3_bits(self):
+        """LR4 value 14 (0b1110 & 7 = 6) → only slots 6-7 participate."""
+        src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
+        state = _make_state(
+            """\
+SET lr4 cr12;;
+SET lr0 cr8;;
+SET lr1 cr9;;
+SET lr2 cr10;;
+SET lr3 cr11;;
+RESHAPE lrd0 lrd2 lr4;;
+BKPT;;
+""",
+            cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi, 12: 14},
+        )
+        for i in range(8):
+            state.regfile.set_mult_res_word(i, 4000 + i)
+        for i in range(100, 108):
+            state.regfile.set_r_acc_word(i, 9999)
+        run_until_complete(state)
+        # 14 & 7 = 6 → mask = 6, slots 6-7 participate
+        assert state.regfile.get_r_acc_word(106) == 4006
+        assert state.regfile.get_r_acc_word(107) == 4007
+        for i in range(100, 106):
+            assert state.regfile.get_r_acc_word(i) == 9999
+
+    def test_reshape_mult_res_reads_from_snapshot(self):
+        """MULT_RES is read from the pre-instruction snapshot (not live state)."""
+        src_lo, src_hi = _lrd_bytes(5, 6, 2, 3, 4, 5, 6, 7)
+        dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
         state = _make_state(
             """\
 SET lr0 cr8;;
@@ -1721,12 +1824,14 @@ BKPT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
-        state.regfile.set_r_acc_word(0, 10)
-        state.regfile.set_r_acc_word(1, 20)
-        state.regfile.set_r_acc_word(2, 30)
+        # Slots 6 and 7: src[6]=6 → dest[6]=16; src[7]=7 → dest[7]=17
+        state.regfile.set_mult_res_word(6, 700)
+        state.regfile.set_mult_res_word(7, 800)
+        for i in range(128):
+            state.regfile.set_r_acc_word(i, 9999)
         run_until_complete(state)
-        assert state.regfile.get_r_acc_word(1) == 10  # R_ACC[1] = old R_ACC[0]
-        assert state.regfile.get_r_acc_word(2) == 20  # R_ACC[2] = old R_ACC[1], not the new 10
+        assert state.regfile.get_r_acc_word(16) == 700
+        assert state.regfile.get_r_acc_word(17) == 800
 
 
 class TestProgramCounter:
