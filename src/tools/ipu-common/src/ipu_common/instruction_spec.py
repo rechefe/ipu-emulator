@@ -31,7 +31,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
-  - "ReshapeMaskImmediate": lane-count mask for RESHAPE (0–7; limits how many of the 8 LrdIdx byte lanes participate)
+  - "ReshapeMaskImmediate": element-count mask for RESHAPE (0–7; limits how many of the 8 LrdIdx byte elements participate)
   - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
@@ -253,7 +253,7 @@ INSTRUCTION_SPEC = {
                     "offset: Offset register (LR0–LR15), in XMEM rows.",
                     "base: Base address register (CR0–CR14), in XMEM rows.",
                 ],
-                operation="R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/lane and does not scale with element width",
+                operation="R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
             ),
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
@@ -282,7 +282,7 @@ INSTRUCTION_SPEC = {
                 title="Store Post-AAQ register",
                 summary=(
                     "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** "
-                    "the buffer is **512 bytes** (128×32-bit lanes) until quantization export is finalized."
+                    "the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized."
                 ),
                 syntax="STR_POST_AAQ_REG offset, base",
                 operands=[
@@ -485,11 +485,11 @@ INSTRUCTION_SPEC = {
                 title="Add Byte (Broadcast, Register)",
                 summary=(
                     "Broadcast-add a signed byte from an LR/CR register's low byte to each of "
-                    "the 8 byte lanes of an LRDn register pair, saturating each lane to [0, 255]."
+                    "the 8 byte elements of an LRDn register pair, saturating each element to [0, 255]."
                 ),
                 syntax="ADDB dest, src_b",
                 operands=[
-                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte elements; also the implicit source",
                     "src_b: LR0–LR15 or CR0–CR15; low byte is read and reinterpreted as a signed two's-complement byte",
                 ],
                 operation=(
@@ -500,8 +500,8 @@ INSTRUCTION_SPEC = {
                 notes=(
                     "There is no separate subtract opcode: since src_b's byte is reinterpreted as "
                     "signed, a value ≥ 128 (i.e. negative in two's complement) subtracts from every "
-                    "lane instead of adding. E.g. an LR/CR whose low byte is 200 (== -56) decreases "
-                    "each lane by 56. Because lanes saturate at both ends of [0, 255], subtracting "
+                    "element instead of adding. E.g. an LR/CR whose low byte is 200 (== -56) decreases "
+                    "each element by 56. Because elements saturate at both ends of [0, 255], subtracting "
                     "past 0 clamps at 0 rather than wrapping — it does not behave like a plain "
                     "two's-complement subtract."
                 ),
@@ -516,12 +516,12 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Add Byte Immediate (Broadcast)",
                 summary=(
-                    "Broadcast-add a signed immediate byte to each of the 8 byte lanes of an "
-                    "LRDn register pair, saturating each lane to [0, 255]."
+                    "Broadcast-add a signed immediate byte to each of the 8 byte elements of an "
+                    "LRDn register pair, saturating each element to [0, 255]."
                 ),
                 syntax="ADDBI dest, imm",
                 operands=[
-                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte lanes; also the implicit source",
+                    "dest: Destination register pair (LRD0, LRD2, LRD4, ..., LRD14 — named after the lower register); LRDn = LR(n+1):LR(n), 8 byte elements; also the implicit source",
                     "imm: Unsigned byte 0–255 (or an equivalent signed −128–127 literal); reinterpreted as a signed two's-complement byte for the add",
                 ],
                 operation=(
@@ -531,8 +531,8 @@ INSTRUCTION_SPEC = {
                 example="ADDBI LRD0, 200;;\nADDBI LRD2, 7;;",
                 notes=(
                     "There is no separate subtract opcode: write imm as a negative literal (e.g. "
-                    "-56) or its equivalent unsigned encoding (200) to subtract from every lane "
-                    "instead of adding — both spellings encode the same bit pattern. Because lanes "
+                    "-56) or its equivalent unsigned encoding (200) to subtract from every element "
+                    "instead of adding — both spellings encode the same bit pattern. Because elements "
                     "saturate at both ends of [0, 255], subtracting past 0 clamps at 0 rather than "
                     "wrapping — it does not behave like a plain two's-complement subtract."
                 ),
@@ -578,11 +578,11 @@ INSTRUCTION_SPEC = {
                     "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift using CR[cr_idx].partition.",
+                operation="For each element i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], ra[i]); then apply mask and shift using CR[cr_idx].partition.",
                 example="MULT.RC.VV LR0, R0, 0, LR2, CR15;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vv",
         },
@@ -608,11 +608,11 @@ INSTRUCTION_SPEC = {
                     "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
                 ],
-                operation="For each lane i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift using CR[cr_idx].partition.",
+                operation="For each element i: MULT_RES[i] = ipu_mult(R_CYCLIC[(rc_idx + i) % 512], src_value); then apply mask and shift using CR[cr_idx].partition.",
                 example="MULT.RC.VE LR0, LR3, 0, LR2, CR15;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_ve",
         },
@@ -635,11 +635,11 @@ INSTRUCTION_SPEC = {
                     "`rc_idx`: **`LR0`**…**`LR15`** — base byte offset into **`R_CYCLIC`** (cyclic, mod 512).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
+                    "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
                 ],
-                operation="For each lane i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift using CR[cr_idx].partition.",
+                operation="For each element i: rb = R_CYCLIC[(rc_idx + i) % 512]; MULT_RES[i] = ipu_mult(rb, rb); then apply mask and shift using CR[cr_idx].partition.",
                 example="MULT.RC.VS LR0, 0, LR2, CR15;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_rc_vs",
         },
@@ -674,11 +674,11 @@ INSTRUCTION_SPEC = {
                     "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
                 ],
-                operation="For each lane i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                operation="For each element i: ra = Ra[(ra_idx + i) % 256]; MULT_RES[i] = ipu_mult(ra, CR[cr_idx][0]); then apply mask and shift using CR[dstructure_cr_idx].partition.",
                 example="MULT.VE LR0, CR3, 0, LR2, CR15;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ve",
         },
@@ -693,7 +693,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Ra Element × CR Scalar Multiply (broadcast)",
                 summary=(
-                    "Multiply a single Ra element by a CR scalar; broadcast the product to all 128 lanes. "
+                    "Multiply a single Ra element by a CR scalar; broadcast the product to all 128 elements. "
                     "The partition used by mask_shift comes from dstructure_cr_idx's dstructure "
                     "configuration (any CR0-CR15; must be named explicitly)."
                 ),
@@ -703,11 +703,11 @@ INSTRUCTION_SPEC = {
                     "`cr_idx`: **`CR0`**…**`CR15`** — CR register whose low byte supplies the scalar multiplier.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
-                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated lanes (must be given explicitly).",
+                    "`dstructure_cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
                 ],
-                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each lane i: MULT_RES[i] = result; then apply mask and shift using CR[dstructure_cr_idx].partition.",
+                operation="ra = Ra[ra_idx % 256]; result = ipu_mult(ra, CR[cr_idx][0]); for each element i: MULT_RES[i] = result; then apply mask and shift using CR[dstructure_cr_idx].partition.",
                 example="MULT.EE LR0, CR3, 0, LR2, CR15;;",
-                notes="Lane masking via `mask_offset` and `mask_shift` fills lanes whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; lanes with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
+                notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
             "execute_fn": "execute_mult_ee",
         },
@@ -724,10 +724,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Add",
-                summary="Running add accumulation: add multiply result into each R_ACC lane.",
+                summary="Running add accumulation: add multiply result into each R_ACC element.",
                 syntax="ACC.ADD",
                 operands=[],
-                operation="R_ACC[i] += MULT_RES[i]  # for each lane i",
+                operation="R_ACC[i] += MULT_RES[i]  # for each element i",
                 example="ACC.ADD;;",
             ),
             "execute_fn": "execute_acc_add",
@@ -736,10 +736,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Add (First)",
-                summary="Clean-init add: overwrite each R_ACC lane with the multiply result (ignores previous R_ACC).",
+                summary="Clean-init add: overwrite each R_ACC element with the multiply result (ignores previous R_ACC).",
                 syntax="ACC.ADD.FIRST",
                 operands=[],
-                operation="R_ACC[i] = MULT_RES[i]  # for each lane i",
+                operation="R_ACC[i] = MULT_RES[i]  # for each element i",
                 example="ACC.ADD.FIRST;;",
             ),
             "execute_fn": "execute_acc_add_first",
@@ -748,10 +748,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Max",
-                summary="Running max accumulation: each R_ACC lane takes the max of its current value and the multiply result.",
+                summary="Running max accumulation: each R_ACC element takes the max of its current value and the multiply result.",
                 syntax="ACC.MAX",
                 operands=[],
-                operation="R_ACC[i] = max(R_ACC[i], MULT_RES[i])  # for each lane i",
+                operation="R_ACC[i] = max(R_ACC[i], MULT_RES[i])  # for each element i",
                 example="ACC.MAX;;",
             ),
             "execute_fn": "execute_acc_max",
@@ -760,10 +760,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Max (First)",
-                summary="Clean-init max: overwrite each R_ACC lane unconditionally with the multiply result.",
+                summary="Clean-init max: overwrite each R_ACC element unconditionally with the multiply result.",
                 syntax="ACC.MAX.FIRST",
                 operands=[],
-                operation="R_ACC[i] = MULT_RES[i]  # for each lane i (unconditional overwrite)",
+                operation="R_ACC[i] = MULT_RES[i]  # for each element i (unconditional overwrite)",
                 example="ACC.MAX.FIRST;;",
             ),
             "execute_fn": "execute_acc_max_first",
@@ -772,10 +772,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Subtract",
-                summary="Running subtract accumulation: subtract the multiply result from each R_ACC lane each cycle.",
+                summary="Running subtract accumulation: subtract the multiply result from each R_ACC element each cycle.",
                 syntax="ACC.SUB",
                 operands=[],
-                operation="R_ACC[i] -= MULT_RES[i]  # for each lane i",
+                operation="R_ACC[i] -= MULT_RES[i]  # for each element i",
                 example="ACC.SUB;;",
             ),
             "execute_fn": "execute_acc_sub",
@@ -784,10 +784,10 @@ INSTRUCTION_SPEC = {
             "operands": [],
             "doc": InstructionDoc(
                 title="Accumulate Subtract (First)",
-                summary="Clean-init subtract: set each R_ACC lane to the negated multiply result.",
+                summary="Clean-init subtract: set each R_ACC element to the negated multiply result.",
                 syntax="ACC.SUB.FIRST",
                 operands=[],
-                operation="R_ACC[i] = -MULT_RES[i]  # for each lane i",
+                operation="R_ACC[i] = -MULT_RES[i]  # for each element i",
                 example="ACC.SUB.FIRST;;",
             ),
             "execute_fn": "execute_acc_sub_first",
@@ -836,9 +836,9 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Sum (First)",
                 summary=(
-                    "Sum active MULT_RES lanes and write the result into R_ACC at the slot given by LR. "
+                    "Sum active MULT_RES elements and write the result into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT included in the sum (clean initialisation). "
-                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "The active element count and partition come from ``cr_idx``'s dstructure configuration "
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 syntax="AGG.SUM.FIRST dest_slot, cr_idx",
@@ -863,9 +863,9 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Sum",
                 summary=(
-                    "Sum active MULT_RES lanes and ADD the result to R_ACC at the slot given by LR "
+                    "Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR "
                     "(running cross-cycle accumulation). "
-                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "The active element count and partition come from ``cr_idx``'s dstructure configuration "
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 syntax="AGG.SUM dest_slot, cr_idx",
@@ -890,9 +890,9 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Max (First)",
                 summary=(
-                    "Find the maximum of active MULT_RES lanes and write it into R_ACC at the slot given by LR. "
+                    "Find the maximum of active MULT_RES elements and write it into R_ACC at the slot given by LR. "
                     "The current value at the destination slot is NOT used as a seed (clean initialisation). "
-                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "The active element count and partition come from ``cr_idx``'s dstructure configuration "
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 syntax="AGG.MAX.FIRST dest_slot, cr_idx",
@@ -904,7 +904,7 @@ INSTRUCTION_SPEC = {
                     "Let n = min(CR[cr_idx].valid_elements, 128). "
                     "dest = LR[dest_slot] % 128. "
                     "R_ACC[dest] = max(MULT_RES[0..n-1]); when n = 0 the identity seed "
-                    "(INT32_MIN for integer lanes, -inf for float lanes) is written."
+                    "(INT32_MIN for integer elements, -inf for float elements) is written."
                 ),
                 example="AGG.MAX.FIRST LR0, CR3;;",
             ),
@@ -918,9 +918,9 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Aggregate Max",
                 summary=(
-                    "Find the maximum of active MULT_RES lanes seeded with the current destination slot value "
+                    "Find the maximum of active MULT_RES elements seeded with the current destination slot value "
                     "(running cross-cycle max). "
-                    "The active lane count and partition come from ``cr_idx``'s dstructure configuration "
+                    "The active element count and partition come from ``cr_idx``'s dstructure configuration "
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 syntax="AGG.MAX dest_slot, cr_idx",
@@ -946,16 +946,16 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Reshape",
                 summary=(
-                    "Permute R_ACC word lanes: for each of the (8 - reshape_mask) leading byte "
-                    "lanes of the source/dest LRDn pairs, copy R_ACC[source[i]] to R_ACC[dest[i]] "
+                    "Permute R_ACC word elements: for each of the (8 - reshape_mask) leading byte "
+                    "elements of the source/dest LRDn pairs, copy R_ACC[source[i]] to R_ACC[dest[i]] "
                     "when both indices are in range. All copies read from the pre-instruction "
                     "R_ACC snapshot, so they do not chain within one instruction."
                 ),
                 syntax="RESHAPE source, dest, reshape_mask",
                 operands=[
-                    "source: LRDn register pair (LRD0, LRD2, ..., LRD14) read as source[0..7] — 8 byte lanes, each an R_ACC word index",
-                    "dest: LRDn register pair (LRD0, LRD2, ..., LRD14) read as dest[0..7] — 8 byte lanes, each an R_ACC word index",
-                    "reshape_mask: immediate 0-7; limits participation to the leading (8 - reshape_mask) lanes",
+                    "source: LRDn register pair (LRD0, LRD2, ..., LRD14) read as source[0..7] — 8 byte elements, each an R_ACC word index",
+                    "dest: LRDn register pair (LRD0, LRD2, ..., LRD14) read as dest[0..7] — 8 byte elements, each an R_ACC word index",
+                    "reshape_mask: immediate 0-7; limits participation to the leading (8 - reshape_mask) elements",
                 ],
                 operation=(
                     "snap = R_ACC (pre-instruction snapshot)\n"
@@ -965,11 +965,11 @@ INSTRUCTION_SPEC = {
                 ),
                 example="RESHAPE LRD0, LRD2, 0;;",
                 notes=(
-                    "R_ACC[idx] indexes the 128 word lanes (0-127), same addressing as "
-                    "ACC.ADD/ACC.STRIDE. reshape_mask = 0 uses all 8 lanes; reshape_mask = 7 "
-                    "uses only lane 0. Out-of-range source[i] or dest[i] (>= 128) skips that "
-                    "lane. Because all reads come from the snapshot, a lane whose dest equals "
-                    "another lane's source resolves to the pre-instruction value, not an "
+                    "R_ACC[idx] indexes the 128 word elements (0-127), same addressing as "
+                    "ACC.ADD/ACC.STRIDE. reshape_mask = 0 uses all 8 elements; reshape_mask = 7 "
+                    "uses only element 0. Out-of-range source[i] or dest[i] (>= 128) skips that "
+                    "element. Because all reads come from the snapshot, an element whose dest equals "
+                    "another element's source resolves to the pre-instruction value, not an "
                     "in-progress write."
                 ),
             ),
@@ -1000,11 +1000,11 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Activate and Quantize",
                 summary=(
-                    "Read active lanes from ``r_acc`` (snapshot), apply the selected element-wise activation, "
+                    "Read active elements from ``r_acc`` (snapshot), apply the selected element-wise activation, "
                     "clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to "
-                    "the leading active-lane positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
+                    "the leading active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
                     "``r_acc`` is not modified. Requires INT8 mode. "
-                    "The active lane count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
+                    "The active element count is taken from ``cr_idx``'s dstructure ``valid_elements`` field "
                     "(any CR0–CR15; must be named explicitly). "
                     "Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), "
                     "``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), "
@@ -1020,7 +1020,7 @@ INSTRUCTION_SPEC = {
                     "Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. "
                     "For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). "
                     "POST_AAQ_REG[n..511] = 0. R_ACC is not modified. "
-                    "Clamping is a placeholder until a full per-lane requantize is implemented. "
+                    "Clamping is a placeholder until a full per-element requantize is implemented. "
                     "The selector uses four bits; encodings outside the twelve named activations behave as identity. "
                     "α for elu is not an ISA operand; see "
                     "docs/content/building-applications.md#activations-emulator."

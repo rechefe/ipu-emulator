@@ -3,13 +3,13 @@
 ## 1. Purpose
 
 The AAQ (Activation and Quantization) stage applies element-wise activation
-functions to the 128-lane accumulator and/or quantizes the activated lanes
+functions to the 128-element accumulator and/or quantizes the activated elements
 into an 8-bit vector for output. It produces:
 
-- Activated 32-bit lanes in `POST_AAQ_REG` via `activate`.
+- Activated 32-bit elements in `POST_AAQ_REG` via `activate`.
 - A 128-byte `aaq_result` vector via `aaq` (any 8-bit format: INT8 or FP8 e(x)m(7-x)).
 
-Cross-lane **aggregation** (sum / max reduction of `r_acc`) is no longer an
+Cross-element **aggregation** (sum / max reduction of `r_acc`) is no longer an
 AAQ-stage operation: it is performed in the **ACC slot** by the
 `AGG.SUM` / `AGG.SUM.FIRST` / `AGG.MAX` / `AGG.MAX.FIRST` instructions, which
 reduce `r_acc` in place and write the scalar result into a single `r_acc`
@@ -71,29 +71,29 @@ flowchart LR
 | `rst` | `input logic` | Synchronous reset. |
 | `valid` | `input logic` | Stage enable. When deasserted(valid = 0), the stage executes `aaq_nop` regardless of `op`. |
 | `op` | `input logic [1:0]` | Selects the AAQ operation: `aaq`=1, `activate`=2. Sampled only when `valid`=1. |
-| `r_acc` | `input logic [127:0][31:0]` | 128-lane accumulator (128 × 32-bit). |
+| `r_acc` | `input logic [127:0][31:0]` | 128-element accumulator (128 × 32-bit). |
 | `activation_fn` | `input logic [3:0]` | Encoded activation function selector for `ACTIVATE` (see §7.0); carried directly in the instruction word, not read from a CR register. |
-| `dtype` | `input logic [2:0]` | Global data type forwarded from outside configuration; governs lane interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
-| `valid_elements` | `input logic [7:0]` | Active lane count. Sourced from the dstructure register named by the instruction's mandatory `cr_idx` operand (any `CR0`-`CR15`; CTRL resolves and forwards this value, see §5). |
+| `dtype` | `input logic [2:0]` | Global data type forwarded from outside configuration; governs element interpretation for all AAQ operations. Must be `DType.INT8` (0) for `aaq`. |
+| `valid_elements` | `input logic [7:0]` | Active element count. Sourced from the dstructure register named by the instruction's mandatory `cr_idx` operand (any `CR0`-`CR15`; CTRL resolves and forwards this value, see §5). |
 
 ### 3.2 Outputs
 
 | Name | Type and Direction | Description |
 |------|--------------------|-------------|
-| `aaq_result` | `output logic [1035:0]` | Quantized output: 128 × 8-bit lanes (1024 bits) plus 12 bits of metadata: bits [1035:1028] = 8-bit scale factor, bits [1027:1024] = 4-bit representation type (e.g. INT8, e6m1). |
+| `aaq_result` | `output logic [1035:0]` | Quantized output: 128 × 8-bit elements (1024 bits) plus 12 bits of metadata: bits [1035:1028] = 8-bit scale factor, bits [1027:1024] = 4-bit representation type (e.g. INT8, e6m1). |
 
 ## 4. Parameters
 
 | Name | Default | Description |
 |------|---------|-------------|
-| `LANES` | `128` | Number of accumulator lanes. |
-| `ACC_LANE_WIDTH` | `32` | Bits per accumulator lane. |
+| `LANES` | `128` | Number of accumulator elements. |
+| `ACC_LANE_WIDTH` | `32` | Bits per accumulator element. |
 | `AAQ_RESULT_BYTES` | `128` | Byte width of `aaq_result` output vector. |
 
 ## 5. Data and Register Model
 
-- `r_acc` is 512 bytes (128 × 32-bit lanes). Lanes are always FP32.
-- `POST_AAQ_REG` is a 512-byte staging register (same lane layout as `r_acc`)
+- `r_acc` is 512 bytes (128 × 32-bit elements). Elements are always FP32.
+- `POST_AAQ_REG` is a 512-byte staging register (same element layout as `r_acc`)
   written by `activate` and consumed by `aaq`.
 - `aaq_result` is produced only by `aaq`. It contains 128 × 8 bit quantized
   values (1024 bits) plus 12 bits of metadata appended by the Quantization
@@ -110,17 +110,17 @@ flowchart LR
 
 ### 7.0 Activation (`ACTIVATE`)
 
-The Activation block applies an element-wise function to every valid lane of
+The Activation block applies an element-wise function to every valid element of
 `r_acc` and writes the results to `POST_AAQ_REG` for downstream quantization.
 
 The function is selected by the `activation_fn` keyword carried directly in
-the instruction word (not read from a CR register). The active lane count
+the instruction word (not read from a CR register). The active element count
 comes from the mandatory `cr_idx` operand's `valid_elements` field — every
 `ACTIVATE` must name a CR register explicitly (any `CR0`-`CR15`); there is no
 implicit default.
 
 ```text
-// Applied to all valid lanes before quantization
+// Applied to all valid elements before quantization
 n = min(CR[cr_idx].valid_elements, 128)
 POST_AAQ_REG[i]  = activation_fn(r_acc[i])   for i in 0..n-1
 ```
@@ -144,7 +144,7 @@ Supported activation functions:
 
 ### 7.1 Aggregation (moved to the ACC stage)
 
-Earlier revisions of this stage owned the cross-lane sum/max reduction
+Earlier revisions of this stage owned the cross-element sum/max reduction
 (`agg` / `agg.first`) and a 4 × 32-bit scalar register file (`aaq0`–`aaq3`)
 with post functions. That functionality has been replaced by the ACC-slot
 `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, and `AGG.MAX.FIRST` instructions,
@@ -156,11 +156,11 @@ a register file and exposes no RF feedback to the MULT or ACC stages.
 ### 7.2 Quantize (`TBD`) Work in progress
 
 Requires INT8 mode (`dtype == DType.INT8`). Reads `POST_AAQ_REG`
-lanes as FP32, quantizes to INT8, clamps, and writes the 128-byte result to
+elements as FP32, quantizes to INT8, clamps, and writes the 128-byte result to
 `aaq_result`.
 
 ```text
-// dtype must be DType.INT8; POST_AAQ_REG lanes are FP32
+// dtype must be DType.INT8; POST_AAQ_REG elements are FP32
 n = min(CR[cr_idx].valid_elements, 128)
 for i in 0..n-1:
     val            = POST_AAQ_REG[i]        // FP32
@@ -193,11 +193,11 @@ duplicated here.
 
 > **Aggregation instructions** (`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`,
 > `AGG.MAX.FIRST`) live in the **ACC slot**, not the AAQ slot. They write a
-> single reduced scalar into a chosen `R_ACC` lane; see the ACC stage spec.
+> single reduced scalar into a chosen `R_ACC` element; see the ACC stage spec.
 
 The AAQ slot is resolved by CTRL and forwarded down the dispatch chain;
 the stage does not read the CR/LR register files itself (see the
-Control Stage spec, §5). The active lane count is determined by each
+Control Stage spec, §5). The active element count is determined by each
 instruction's mandatory `cr_idx` operand: `n = min(CR[cr_idx].valid_elements, 128)`
 at cycle start. There is no implicit default register — `cr_idx` must always
 be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
@@ -213,7 +213,7 @@ but is never assumed).
 
 ### 8.2 `AAQ` — Quantize Accumulator
 
-- **Summary:** Quantize wide lanes in `POST_AAQ_REG` to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode. The active lane count comes from the mandatory `cr_idx` operand.
+- **Summary:** Quantize wide elements in `POST_AAQ_REG` to 8-bit and write the 128-byte `aaq_result` register. Requires INT8 mode. The active element count comes from the mandatory `cr_idx` operand.
 - **Syntax:** `AAQ cr_idx`
 - **Operands:**
   - `cr_idx`: `CR0`…`CR15` — dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
@@ -231,7 +231,7 @@ but is never assumed).
 
 ### 8.3 `ACTIVATE` — Apply Activation Function
 
-- **Summary:** Apply an element-wise activation function to the active lanes of `r_acc` and write the activated 32-bit lanes into `POST_AAQ_REG`. `r_acc` is not modified.
+- **Summary:** Apply an element-wise activation function to the active elements of `r_acc` and write the activated 32-bit elements into `POST_AAQ_REG`. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE activation_fn, cr_idx`
 - **Operands:**
   - `activation_fn` — activation keyword (see §7.0): `identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`.

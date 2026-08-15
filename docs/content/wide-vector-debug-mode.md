@@ -1,12 +1,12 @@
 # Wide-vector debug mode (emulator only)
 
-The Python emulator can run in an optional **wide-vector debug mode** so multiply-stage vectors are treated as **128 lanes of 32-bit values** (float or integer) instead of 128 bytes of INT8/FP8. This is intended for debugging and analysis without 8-bit quantization on the multiply path.
+The Python emulator can run in an optional **wide-vector debug mode** so multiply-stage vectors are treated as **128 elements of 32-bit values** (float or integer) instead of 128 bytes of INT8/FP8. This is intended for debugging and analysis without 8-bit quantization on the multiply path.
 
 Hardware behaviour is unchanged; this mode exists only in `ipu_emu`.
 
 ## When to use it
 
-- Compare a model or kernel against a **full-precision** reference (FP32 lanes) or a **wider integer** path (INT32 lanes with 32-bit wrap on multiply/add).
+- Compare a model or kernel against a **full-precision** reference (FP32 elements) or a **wider integer** path (INT32 elements with 32-bit wrap on multiply/add).
 - Keep the **same assembly** and **same XMEM byte addresses**; only how loads are sized and how mult/acc interpret data changes.
 
 See [GitHub issue #33](https://github.com/rechefe/ipu-emulator/issues/33) for the original requirements.
@@ -18,8 +18,8 @@ Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/t
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `wide_vector_debug` | `False` | Turn wide-vector mode on. |
-| `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` lane arithmetic. |
-| `wide_vector_quantize_output` | `False` | If `True`, `AAQ` quantizes the **wide lanes in `POST_AAQ_REG`** (typically filled with **`ACTIVATE`** from `r_acc`, e.g. **`ACTIVATE` … `identity`** to copy) into the **leading 128 bytes** of that register. If `False`, `AAQ` does nothing in wide mode (wide lanes stay in `R_ACC` until you stage them). |
+| `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` element arithmetic. |
+| `wide_vector_quantize_output` | `False` | If `True`, `AAQ` quantizes the **wide elements in `POST_AAQ_REG`** (typically filled with **`ACTIVATE`** from `r_acc`, e.g. **`ACTIVATE` … `identity`** to copy) into the **leading 128 bytes** of that register. If `False`, `AAQ` does nothing in wide mode (wide elements stay in `R_ACC` until you stage them). |
 
 ```python
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -55,20 +55,20 @@ Prepare XMEM accordingly (e.g. raw `float32` or `int32` little-endian blobs).
 
 ## Alignment rules
 
-Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit lanes starting at a **byte offset**:
+Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit elements starting at a **byte offset**:
 
-- **`rc_idx`** (and any LR-encoded `src`/`ra_idx` used to further index into Ra) passed to mult instructions must be **4-byte aligned**. Unaligned values raise `EmulatorError` so you do not silently mis-read lane boundaries.
+- **`rc_idx`** (and any LR-encoded `src`/`ra_idx` used to further index into Ra) passed to mult instructions must be **4-byte aligned**. Unaligned values raise `EmulatorError` so you do not silently mis-read element boundaries.
 
 ## Semantics that differ from normal mode
 
-- **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 lanes.
-- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full lane results remain in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 512 elements of accumulator data.
+- **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 elements.
+- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full element results remain in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 512 elements of accumulator data.
 - **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32
 
-- **`WideVectorArithmetic.FP32`**: lane multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
-- **`WideVectorArithmetic.INT32`**: lane multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per lane. The **`AGG.*`** aggregation instructions reduce lanes as 32-bit signed integers (wrap semantics) when the lane format is INT32.
+- **`WideVectorArithmetic.FP32`**: element multiply and accumulate-add use IEEE float; good for spotting FP8/INT8 quantization effects.
+- **`WideVectorArithmetic.INT32`**: element multiply uses 32-bit signed wrap; add matches INT8-mode wrap semantics per element. The **`AGG.*`** aggregation instructions reduce elements as 32-bit signed integers (wrap semantics) when the element format is INT32.
 
 ## Related documentation
 

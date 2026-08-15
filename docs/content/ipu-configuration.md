@@ -46,7 +46,7 @@ class MyApp(IpuApp):
         state.dtype = self.dtype
 ```
 
-## Selecting lane count and partition
+## Selecting element count and partition
 
 The `AGG.*` aggregation instructions, `ACTIVATE`, and `AAQ` do not take a
 `valid_elements` assembly operand directly. Instead, they take a mandatory
@@ -64,11 +64,11 @@ partition = config.partition
 ```
 
 The emulator defaults `CR15` to `valid_elements=128` and `partition=0`.
-Activation clamps the active lane count to the available 128 lanes at execution
+Activation clamps the active element count to the available 128 elements at execution
 time.
 
 The ACC-slot aggregation instructions (`AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`,
-`AGG.MAX.FIRST`) take a mandatory `cr_idx` operand: the active lane count is
+`AGG.MAX.FIRST`) take a mandatory `cr_idx` operand: the active element count is
 read from that register's `valid_elements` at runtime. The destination slot in
 `R_ACC` is given by an LR register:
 
@@ -82,7 +82,7 @@ AGG.MAX.FIRST LR1, CR3;;
 ACTIVATE relu, CR3;;
 ```
 
-The MULT-slot lane-masking instructions (`MULT.RC.VV`, `MULT.RC.VE`,
+The MULT-slot element-masking instructions (`MULT.RC.VV`, `MULT.RC.VE`,
 `MULT.RC.VS`, `MULT.VE`, `MULT.EE`) likewise take a mandatory CR-index operand
 (`cr_idx` on `MULT.RC.*`, `dstructure_cr_idx` on `MULT.VE`/`MULT.EE`, since
 those two already use `cr_idx` for the scalar multiplier). The named register's
@@ -94,9 +94,9 @@ MULT.RC.VV LR2, R0, 0, LR4, CR15;;
 MULT.VE    LR0, CR3, 0, LR2, CR15;;
 ```
 
-## Padding masked-out MULT_RES lanes
+## Padding masked-out MULT_RES elements
 
-Any lane deactivated by the mask-and-shift logic above (see
+Any element deactivated by the mask-and-shift logic above (see
 `_mult_mask_and_shift`) is filled with a value chosen by the named register's
 `pad_mode` field instead of always being zeroed:
 
