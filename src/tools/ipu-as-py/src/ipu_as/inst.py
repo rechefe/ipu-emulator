@@ -577,7 +577,7 @@ class AaqInst(Inst):
     def description(cls) -> str:
         return cls._render_instruction_docs(
             heading="AAQ Instructions",
-            intro="Activation and quantization: apply activation to R_ACC lanes and write quantized INT8 bytes to POST_AAQ_REG.",
+            intro="Activation and quantization: apply activation to R_ACC elements and write quantized INT8 bytes to POST_AAQ_REG.",
             slot_type="aaq",
         )
 

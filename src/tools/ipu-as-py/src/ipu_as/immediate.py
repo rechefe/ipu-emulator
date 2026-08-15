@@ -113,7 +113,7 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
 
 
 class ReshapeMaskImmediate(ipu_token.IpuToken):
-    """Limit how many of RESHAPE's 8 lanes participate (values 0 .. 7)."""
+    """Limit how many of RESHAPE's 8 elements participate (values 0 .. 7)."""
 
     @classmethod
     def bits(cls) -> int:

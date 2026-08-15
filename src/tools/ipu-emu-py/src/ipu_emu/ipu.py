@@ -280,7 +280,7 @@ class Ipu:
         return addr
 
     def _wide_assert_lane_aligned_byte_offset(self, name: str, byte_off: int) -> None:
-        """Wide-vector mode treats r_cyclic in 4-byte lanes; misaligned offsets corrupt unpacking."""
+        """Wide-vector mode treats r_cyclic in 4-byte elements; misaligned offsets corrupt unpacking."""
         if byte_off % 4 != 0:
             raise EmulatorError(
                 f"Wide-vector debug: {name} must be 4-byte aligned, got {byte_off}"
@@ -307,7 +307,7 @@ class Ipu:
         return ipu_sub(int(a), int(b), DType.INT8)
 
     def _wide_cr_scalar_byte_as_int32(self, cr_idx: int) -> int:
-        """Low byte of CR as signed int32 lane (CR itself is not widened)."""
+        """Low byte of CR as signed int32 element (CR itself is not widened)."""
         b = self.state.regfile.get_cr(cr_idx) & 0xFF
         return b if b < 128 else b - 256
 
@@ -396,7 +396,7 @@ class Ipu:
         Used for positive mask_shift indices (+1, +2, +3).
         num_partitions must be in VALID_PARTITION_VALUES.
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of LANES/P lanes; bit 0 of each group is 0.
+        num_partitions=P: P groups of LANES/P elements; bit 0 of each group is 0.
         """
         assert isinstance(num_partitions, Partition), (
             f"partition must be a Partition enum value, got {num_partitions!r}"
@@ -417,7 +417,7 @@ class Ipu:
         Used for negative mask_shift indices (−1, −2, −3).
         num_partitions must be in VALID_PARTITION_VALUES.
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
-        num_partitions=P: P groups of LANES/P lanes; last bit of each group is 0.
+        num_partitions=P: P groups of LANES/P elements; last bit of each group is 0.
         """
         assert isinstance(num_partitions, Partition), (
             f"partition must be a Partition enum value, got {num_partitions!r}"
@@ -445,12 +445,12 @@ class Ipu:
           partition_vector         — 0 at the START of each group (used for left shifts)
           inverse_partition_vector — 0 at the END   of each group (used for right shifts)
 
-        Lanes in mult_res where the resulting mask bit is 0 are set to
+        Elements in mult_res where the resulting mask bit is 0 are set to
         CR[cr_idx].pad_mode's fill value (ZERO, +inf, or -inf). +inf/-inf
         require a floating-point dtype — they have no INT8 representation.
 
-        Mode-blind: the mask is 128 bits (one bit per lane) and MULT_RES is
-        128 four-byte lanes in both narrow and wide-vector debug mode, so the
+        Mode-blind: the mask is 128 bits (one bit per element) and MULT_RES is
+        128 four-byte elements in both narrow and wide-vector debug mode, so the
         same code drives both.
         """
         # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
@@ -488,14 +488,14 @@ class Ipu:
                 mult_res[i * 4:i * 4 + 4] = pad_bytes
 
     def _mult_pad_lane_bytes(self, pad_mode: PadMode) -> bytes:
-        """Encode the 4-byte MULT_RES fill value for a masked-out lane.
+        """Encode the 4-byte MULT_RES fill value for a masked-out element.
 
         ZERO is representable in both INT8 (int32) and float dtypes.
         POS_INF/NEG_INF only exist in floating-point representations, so
-        they are rejected under integer lane arithmetic.
+        they are rejected under integer element arithmetic.
 
         Which field decides that differs by mode: in wide-vector debug mode
-        lane arithmetic is governed by ``wide_vector_arithmetic``, not by
+        element arithmetic is governed by ``wide_vector_arithmetic``, not by
         ``dtype`` (which stays at its INT8 default unless a caller overrides
         it). Using ``dtype`` here would reject +inf/-inf in debug/FP32, where
         infinity is perfectly representable.
@@ -511,7 +511,7 @@ class Ipu:
         return struct.pack("<f", value)
 
     def _lanes_are_float(self) -> bool:
-        """Whether MULT_RES lanes hold floats, under whichever mode is active."""
+        """Whether MULT_RES elements hold floats, under whichever mode is active."""
         if self._wide_vector_active():
             return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
         return self.state.dtype != DType.INT8
@@ -522,9 +522,9 @@ class Ipu:
         return 2 * n, 2 * n + 1
 
     def _get_lrd_bytes(self, n: int, regfile: RegFile) -> bytes:
-        """Read LRDn's 8 byte lanes from a register file (snapshot or live).
+        """Read LRDn's 8 byte elements from a register file (snapshot or live).
 
-        Lanes 0-3 are LR(2n)'s bytes (little-endian), lanes 4-7 are LR(2n+1)'s.
+        Elements 0-3 are LR(2n)'s bytes (little-endian), elements 4-7 are LR(2n+1)'s.
         """
         lo_idx, hi_idx = self._lrd_lr_indices(n)
         return regfile.get_lr(lo_idx).to_bytes(4, "little") + regfile.get_lr(hi_idx).to_bytes(
@@ -532,7 +532,7 @@ class Ipu:
         )
 
     def _set_lrd_bytes(self, n: int, lanes: bytes | bytearray) -> None:
-        """Write LRDn's 8 byte lanes to the live register file (inverse of ``_get_lrd_bytes``)."""
+        """Write LRDn's 8 byte elements to the live register file (inverse of ``_get_lrd_bytes``)."""
         lo_idx, hi_idx = self._lrd_lr_indices(n)
         self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
         self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
@@ -614,7 +614,7 @@ class Ipu:
         """Execute LDR_MULT_MASK_REG: Load mask data from memory.
 
         Reads only the START of the row -- 128 bytes (8 x 128-bit slots) in
-        both modes. The mask is 1 bit per lane and does not scale with
+        both modes. The mask is 1 bit per element and does not scale with
         element width, so only the row address is translated; the read size
         stays R_REG_SIZE regardless of mode.
         """
@@ -651,7 +651,7 @@ class Ipu:
         self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
     def _addb_broadcast(self, dest: int, byte_val: int) -> None:
-        """Broadcast-add a signed byte to all 8 lanes of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
+        """Broadcast-add a signed byte to all 8 elements of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
         assert self.snapshot is not None
         lanes = bytearray(self._get_lrd_bytes(dest, self.snapshot))
         signed = byte_val - 256 if byte_val >= 128 else byte_val
@@ -660,11 +660,11 @@ class Ipu:
         self._set_lrd_bytes(dest, lanes)
 
     def execute_addb(self, *, dest: int, src_b: int) -> None:
-        """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRDn's 8 byte lanes."""
+        """Execute ADDB: broadcast-add an LR/CR's low byte (signed) to LRDn's 8 byte elements."""
         self._addb_broadcast(dest, src_b & 0xFF)
 
     def execute_addbi(self, *, dest: int, imm: int) -> None:
-        """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte lanes."""
+        """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte elements."""
         self._addb_broadcast(dest, imm)
 
     def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
@@ -914,7 +914,7 @@ class Ipu:
 
     def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
                         mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
-        """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 lanes."""
+        """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
         mult_res = self.state.regfile.raw("mult_res")
 
         if self._wide_vector_active():
@@ -982,7 +982,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
     def execute_acc_max(self) -> None:
-        """Execute ACC.MAX: Each R_ACC lane takes max(R_ACC[i], MULT_RES[i])."""
+        """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         snap_acc = self.snapshot.raw("r_acc")
@@ -995,7 +995,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_max_first(self) -> None:
-        """Execute ACC.MAX.FIRST: Overwrite each R_ACC lane with MULT_RES (clean init for max)."""
+        """Execute ACC.MAX.FIRST: Overwrite each R_ACC element with MULT_RES (clean init for max)."""
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
         fmt = self._acc_agg_lane_fmt()
@@ -1005,7 +1005,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, mult_val)
 
     def execute_acc_sub(self) -> None:
-        """Execute ACC.SUB: Subtract MULT_RES from each R_ACC lane (running subtract)."""
+        """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
         dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -1022,7 +1022,7 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, i * 4, result)
 
     def execute_acc_sub_first(self) -> None:
-        """Execute ACC.SUB.FIRST: Set each R_ACC lane to negated MULT_RES (clean init for subtract)."""
+        """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
         dtype = self.state.dtype
         acc_buf = self.state.regfile.raw("r_acc")
         mult_res = self.state.regfile.raw("mult_res")
@@ -1095,13 +1095,13 @@ class Ipu:
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
     def execute_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
-        """Execute RESHAPE: permute R_ACC word lanes via two LRDn byte-index arrays.
+        """Execute RESHAPE: permute R_ACC word elements via two LRDn byte-index arrays.
 
         ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
-        lanes read from the pre-instruction snapshot. Only the leading
-        ``8 - reshape_mask`` lanes participate. All (source[i], dest[i]) guards
+        elements read from the pre-instruction snapshot. Only the leading
+        ``8 - reshape_mask`` elements participate. All (source[i], dest[i]) guards
         and reads are evaluated against the snapshot before any write, so a
-        lane's dest overlapping another lane's source resolves to the
+        element's dest overlapping another element's source resolves to the
         pre-instruction value (no intra-instruction chaining).
         """
         assert self.snapshot is not None
@@ -1149,7 +1149,7 @@ class Ipu:
         return best
 
     def execute_agg_sum_first(self, *, dest_slot: int, cr_idx: int) -> None:
-        """Execute AGG.SUM.FIRST: sum active MULT_RES lanes, write to R_ACC[dest] (clean init)."""
+        """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
@@ -1161,7 +1161,7 @@ class Ipu:
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_sum(self, *, dest_slot: int, cr_idx: int) -> None:
-        """Execute AGG.SUM: sum active MULT_RES lanes and add to R_ACC[dest] (running accumulation)."""
+        """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
@@ -1179,9 +1179,9 @@ class Ipu:
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max_first(self, *, dest_slot: int, cr_idx: int) -> None:
-        """Execute AGG.MAX.FIRST: max of active MULT_RES lanes, write to R_ACC[dest] (no seed).
+        """Execute AGG.MAX.FIRST: max of active MULT_RES elements, write to R_ACC[dest] (no seed).
 
-        When no lanes are active (valid_elements=0) the identity seed
+        When no elements are active (valid_elements=0) the identity seed
         (INT32_MIN / -inf) is written, so the destination is always defined.
         """
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
@@ -1194,7 +1194,7 @@ class Ipu:
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
     def execute_agg_max(self, *, dest_slot: int, cr_idx: int) -> None:
-        """Execute AGG.MAX: max of active MULT_RES lanes seeded with R_ACC[dest] (running max)."""
+        """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
         mult_res = self.state.regfile.raw("mult_res")
@@ -1207,12 +1207,12 @@ class Ipu:
     def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
         """Apply element-wise activation then quantize to INT8.
 
-        Reads each active lane from the live ``r_acc`` register file, applies
+        Reads each active element from the live ``r_acc`` register file, applies
         the selected activation, clamps to the INT8 range ``[-128, 127]``, and stores
-        the resulting bytes in the leading active-lane positions of ``post_aaq_reg``;
+        the resulting bytes in the leading active-element positions of ``post_aaq_reg``;
         all remaining bytes are zeroed. ``r_acc`` is not modified.
 
-        The active lane count comes from ``cr_idx``'s decoded dstructure
+        The active element count comes from ``cr_idx``'s decoded dstructure
         ``valid_elements`` field; the caller must name a CR register explicitly.
 
         Requires INT8 mode in normal operation. In wide-vector debug mode, activation

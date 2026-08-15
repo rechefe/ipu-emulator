@@ -11,11 +11,11 @@ the MULT stage) into it. It is the third stage in the execute chain
 - `aaq_vliw_bus` and `str_vliw_bus`, forwarded unchanged to the AAQ stage
   (see the Control Stage spec, §7.2).
 
-Depending on the mnemonic, ACC either runs a per-lane elementwise
+Depending on the mnemonic, ACC either runs a per-element elementwise
 reduction against `MULT_RES` (`ACC.ADD`/`MAX`/`SUB`), decimates and
 reorders `MULT_RES` into a sub-range of `R_ACC` (`ACC.STRIDE`), reduces
-all active `MULT_RES` lanes to a single `R_ACC` word (`AGG.SUM`/`AGG.MAX`),
-or permutes `R_ACC`'s own word lanes (`RESHAPE`).
+all active `MULT_RES` elements to a single `R_ACC` word (`AGG.SUM`/`AGG.MAX`),
+or permutes `R_ACC`'s own word elements (`RESHAPE`).
 
 ## 2. Block Diagram
 
@@ -84,7 +84,7 @@ ACC does not read or modify their contents.
 | `clk` | `input logic` | Clock signal. |
 | `rst` | `input logic` | Synchronous reset. Clears `R_ACC` to 0. |
 | `op` | `input logic [3:0]` | Selects the ACC operation: `ACC_INST_OPCODE_ACC_ADD` = 0, `ACC_INST_OPCODE_ACC_ADD_FIRST` = 1, `ACC_INST_OPCODE_ACC_MAX` = 2, `ACC_INST_OPCODE_ACC_MAX_FIRST` = 3, `ACC_INST_OPCODE_ACC_SUB` = 4, `ACC_INST_OPCODE_ACC_SUB_FIRST` = 5, `ACC_INST_OPCODE_NOP` = 6, `ACC_INST_OPCODE_ACC_STRIDE` = 7, `ACC_INST_OPCODE_AGG_SUM_FIRST` = 8, `ACC_INST_OPCODE_AGG_SUM` = 9, `ACC_INST_OPCODE_AGG_MAX_FIRST` = 10, `ACC_INST_OPCODE_AGG_MAX` = 11, `ACC_INST_OPCODE_RESHAPE` = 12 (see §6 for the full opcode table; opcode = position in `instruction_spec.py`'s `"acc"` slot). |
-| `mult_res` | `input logic [127:0][31:0]` | This cycle's multiply result from the MULT stage: 128 lanes, each INT32 or FP32 depending on the active element dtype (INT8-mode multiplies produce INT32 products; FP8-mode multiplies produce FP32 products — see the MULT stage). |
+| `mult_res` | `input logic [127:0][31:0]` | This cycle's multiply result from the MULT stage: 128 elements, each INT32 or FP32 depending on the active element dtype (INT8-mode multiplies produce INT32 products; FP8-mode multiplies produce FP32 products — see the MULT stage). |
 | `resolved_operands` | `input logic [130:0]` | Opcode-dependent union payload packed onto `acc_vliw_bus` alongside `op`. CTRL resolves every CR/LR operand this instruction needs (see §5) and packs it in here before dispatch; ACC never reads the CR/LR register files itself. Width is sized to the opcode with the largest operand set (`ACC_INST_OPCODE_RESHAPE`, 131 bits); other opcodes use only their low bits, and the rest are don't-care. Layout per opcode is in §3.1.1. |
 | `aaq_vliw_bus` | `input logic [AAQ_BUS_W-1:0]` | AAQ-slot bus, forwarded from MULT. Passed through unchanged (see Control Stage spec §7.2). |
 | `str_vliw_bus` | `input logic [STR_BUS_W-1:0]` | STORE-slot bus, forwarded from MULT. Passed through unchanged. |
@@ -129,8 +129,8 @@ Total: 15 bits used (`[14:0]`); `[130:15]` is don't-care.
 
 | Bits | Field | Description |
 |---|---|---|
-| `[63:0]` | `source` | CTRL-resolved **snapshot** value of the `source` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte lanes (`source[0..7]`), each an `R_ACC` word index. |
-| `[127:64]` | `dest` | CTRL-resolved **snapshot** value of the `dest` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte lanes (`dest[0..7]`), each an `R_ACC` word index. |
+| `[63:0]` | `source` | CTRL-resolved **snapshot** value of the `source` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`source[0..7]`), each an `R_ACC` word index. |
+| `[127:64]` | `dest` | CTRL-resolved **snapshot** value of the `dest` `LrdIdx` operand — the concatenated `LR(n+1):LR(n)` pair, read as 8 byte elements (`dest[0..7]`), each an `R_ACC` word index. |
 | `[130:128]` | `reshape_mask` | The `reshape_mask` `ReshapeMaskImmediate` operand (0–7); an immediate slot field, not CR/LR-resolved. |
 
 Total: 131 bits used (`[130:0]`) — the widest opcode, so it sets the
@@ -155,9 +155,9 @@ buffer's overall width.
 
 ## 5. Data and Register Model
 
-- `R_ACC` is **128 lanes × 32 bits**, matching `MULT_RES`'s width and lane
-  count (`LANES = 128`).
-- Each lane's numeric interpretation (INT32 vs FP32) tracks whatever format
+- `R_ACC` is **128 elements × 32 bits**, matching `MULT_RES`'s width and element
+  count. (The hardware parameter for this count is named `LANES`.)
+- Each element's numeric interpretation (INT32 vs FP32) tracks whatever format
   `MULT_RES` was produced in that cycle — ACC's ALU does not carry an
   independent dtype selector of its own.
 - **No dedicated clear/reset instruction.** Initialization is done purely
@@ -171,21 +171,21 @@ buffer's overall width.
     `ACC.SUB`/`ACC.SUB.FIRST`, and `AGG.SUM`/`AGG.SUM.FIRST`,
     `AGG.MAX`/`AGG.MAX.FIRST`.
 - `AGG.SUM`/`AGG.MAX` (and their `.FIRST` variants) reduce **all active
-  lanes of `MULT_RES`** — not `R_ACC` — down to a single scalar, written
-  into one `R_ACC` word at an LR-selected index. The active lane count
+  elements of `MULT_RES`** — not `R_ACC` — down to a single scalar, written
+  into one `R_ACC` word at an LR-selected index. The active element count
   (`valid_elements`) and `partition` come from a `DstructureCrIdx` operand
   (`cr_idx`: any `CR0`–`CR15`, must be given explicitly; `CR15`
   conventionally holds dstructure config but is not an implicit default —
   see the CLAUDE.md project directives).
-- **Historical note:** cross-lane aggregation (`AGG.*`) was moved into the
+- **Historical note:** cross-element aggregation (`AGG.*`) was moved into the
   ACC slot specifically to remove a RAW hazard that existed when it lived
   in a separate AAQ-writable scalar register file consumed by MULT/ACC (see
   the Control Stage spec, §9).
 - `RESHAPE` is the only ACC mnemonic that reads `R_ACC` as a *source* for
-  something other than accumulation — it permutes `R_ACC`'s own word lanes.
+  something other than accumulation — it permutes `R_ACC`'s own word elements.
   All of its reads come from the pre-instruction `R_ACC` snapshot, so
-  permuted lanes do not chain within one instruction (a lane whose
-  destination equals another lane's source resolves to the
+  permuted elements do not chain within one instruction (an element whose
+  destination equals another element's source resolves to the
   pre-instruction value).
 
 ## 6. ISA: Instruction Reference
@@ -200,7 +200,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.1 `ACC.ADD` (opcode 0): Accumulate Add
 
-- **Summary:** Running add accumulation: add the multiply result into each `R_ACC` lane.
+- **Summary:** Running add accumulation: add the multiply result into each `R_ACC` element.
 - **Syntax:** `ACC.ADD`
 - **Operands:** none.
 - **Operation:**
@@ -212,7 +212,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.2 `ACC.ADD.FIRST` (opcode 1): Accumulate Add (First)
 
-- **Summary:** Clean-init add: overwrite each `R_ACC` lane with the multiply result, ignoring the previous `R_ACC`.
+- **Summary:** Clean-init add: overwrite each `R_ACC` element with the multiply result, ignoring the previous `R_ACC`.
 - **Syntax:** `ACC.ADD.FIRST`
 - **Operands:** none.
 - **Operation:**
@@ -224,7 +224,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.3 `ACC.MAX` (opcode 2): Accumulate Max
 
-- **Summary:** Running max accumulation: each `R_ACC` lane takes the max of its current value and the multiply result.
+- **Summary:** Running max accumulation: each `R_ACC` element takes the max of its current value and the multiply result.
 - **Syntax:** `ACC.MAX`
 - **Operands:** none.
 - **Operation:**
@@ -236,7 +236,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.4 `ACC.MAX.FIRST` (opcode 3): Accumulate Max (First)
 
-- **Summary:** Clean-init max: overwrite each `R_ACC` lane unconditionally with the multiply result.
+- **Summary:** Clean-init max: overwrite each `R_ACC` element unconditionally with the multiply result.
 - **Syntax:** `ACC.MAX.FIRST`
 - **Operands:** none.
 - **Operation:**
@@ -248,7 +248,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.5 `ACC.SUB` (opcode 4): Accumulate Subtract
 
-- **Summary:** Running subtract accumulation: subtract the multiply result from each `R_ACC` lane.
+- **Summary:** Running subtract accumulation: subtract the multiply result from each `R_ACC` element.
 - **Syntax:** `ACC.SUB`
 - **Operands:** none.
 - **Operation:**
@@ -260,7 +260,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.6 `ACC.SUB.FIRST` (opcode 5): Accumulate Subtract (First)
 
-- **Summary:** Clean-init subtract: set each `R_ACC` lane to the negated multiply result.
+- **Summary:** Clean-init subtract: set each `R_ACC` element to the negated multiply result.
 - **Syntax:** `ACC.SUB.FIRST`
 - **Operands:** none.
 - **Operation:**
@@ -281,7 +281,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 - **Summary:** Reorder `MULT_RES` into `R_ACC` using horizontal/vertical stride decimation. Only the written `R_ACC` indices change; the rest of `R_ACC` is left unchanged.
 - **Syntax:** `ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset`
 - **Operands:**
-  - `elements_in_row`: elements per row viewed over the 128-lane `MULT_RES` — encoded 0/1/2 → 16/32/64 elements (`elements_per_row`, minimum 16).
+  - `elements_in_row`: elements per row viewed over the 128-element `MULT_RES` — encoded 0/1/2 → 16/32/64 elements (`elements_per_row`, minimum 16).
   - `horizontal_stride`: column decimation mode — encoded 0/1/2 → `off`/`on`/`on_inv` (`on` keeps even-indexed columns per row, `on_inv` keeps odd-indexed columns).
   - `vertical_stride`: row decimation mode — encoded 0/1/2 → `off`/`on`/`on_inv` (`on` keeps even-indexed rows, `on_inv` keeps odd-indexed rows).
   - `offset`: `LR0`–`LR15` (`LrIdx`, live value); `(offset % 4) * 32` gives the start index in `R_ACC` (0, 32, 64, or 96).
@@ -300,7 +300,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.9 `AGG.SUM.FIRST` (opcode 8): Aggregate Sum (First)
 
-- **Summary:** Sum active `MULT_RES` lanes and write the result into `R_ACC` at the slot given by `LR[dest_slot]`. The current value at the destination slot is **not** included (clean initialization).
+- **Summary:** Sum active `MULT_RES` elements and write the result into `R_ACC` at the slot given by `LR[dest_slot]`. The current value at the destination slot is **not** included (clean initialization).
 - **Syntax:** `AGG.SUM.FIRST dest_slot, cr_idx`
 - **Operands:**
   - `dest_slot`: `LR0`–`LR15` (`LrIdx`, snapshot value) — its value gives the destination slot in `R_ACC` (0–127).
@@ -315,7 +315,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.10 `AGG.SUM` (opcode 9): Aggregate Sum
 
-- **Summary:** Sum active `MULT_RES` lanes and add the result to `R_ACC` at the slot given by `LR[dest_slot]` (running cross-cycle accumulation).
+- **Summary:** Sum active `MULT_RES` elements and add the result to `R_ACC` at the slot given by `LR[dest_slot]` (running cross-cycle accumulation).
 - **Syntax:** `AGG.SUM dest_slot, cr_idx`
 - **Operands:** identical to `AGG.SUM.FIRST`.
 - **Operation:**
@@ -328,7 +328,7 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.11 `AGG.MAX.FIRST` (opcode 10): Aggregate Max (First)
 
-- **Summary:** Find the maximum of active `MULT_RES` lanes and write it into `R_ACC` at the slot given by `LR[dest_slot]`. The current destination value is **not** used as a seed.
+- **Summary:** Find the maximum of active `MULT_RES` elements and write it into `R_ACC` at the slot given by `LR[dest_slot]`. The current destination value is **not** used as a seed.
 - **Syntax:** `AGG.MAX.FIRST dest_slot, cr_idx`
 - **Operands:** identical to `AGG.SUM.FIRST`.
 - **Operation:**
@@ -336,13 +336,13 @@ Per the project's opcode-derivation rule, opcode = position within the
   n = min(CR[cr_idx].valid_elements, 128)
   dest = LR[dest_slot] % 128
   R_ACC[dest] = max(MULT_RES[0..n-1])
-  // when n = 0: identity seed (INT32_MIN for integer lanes, -inf for float lanes)
+  // when n = 0: identity seed (INT32_MIN for integer elements, -inf for float elements)
   ```
 - **Example:** `AGG.MAX.FIRST LR0, CR3;;`
 
 ### 6.12 `AGG.MAX` (opcode 11): Aggregate Max
 
-- **Summary:** Find the maximum of active `MULT_RES` lanes seeded with the current destination slot value (running cross-cycle max).
+- **Summary:** Find the maximum of active `MULT_RES` elements seeded with the current destination slot value (running cross-cycle max).
 - **Syntax:** `AGG.MAX dest_slot, cr_idx`
 - **Operands:** identical to `AGG.SUM.FIRST`.
 - **Operation:**
@@ -355,12 +355,12 @@ Per the project's opcode-derivation rule, opcode = position within the
 
 ### 6.13 `RESHAPE` (opcode 12): Reshape
 
-- **Summary:** Permute `R_ACC` word lanes: for each of the `(8 - reshape_mask)` leading byte lanes of the `source`/`dest` `LRDn` pairs, copy `R_ACC[source[i]]` to `R_ACC[dest[i]]` when both indices are in range. All copies read from the pre-instruction `R_ACC` snapshot.
+- **Summary:** Permute `R_ACC` word elements: for each of the `(8 - reshape_mask)` leading byte elements of the `source`/`dest` `LRDn` pairs, copy `R_ACC[source[i]]` to `R_ACC[dest[i]]` when both indices are in range. All copies read from the pre-instruction `R_ACC` snapshot.
 - **Syntax:** `RESHAPE source, dest, reshape_mask`
 - **Operands:**
-  - `source`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `source[0..7]`, 8 byte lanes, each an `R_ACC` word index.
-  - `dest`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `dest[0..7]`, 8 byte lanes, each an `R_ACC` word index.
-  - `reshape_mask`: immediate 0–7 (`ReshapeMaskImmediate`) — limits participation to the leading `(8 - reshape_mask)` lanes.
+  - `source`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `source[0..7]`, 8 byte elements, each an `R_ACC` word index.
+  - `dest`: `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`, snapshot value) — read as `dest[0..7]`, 8 byte elements, each an `R_ACC` word index.
+  - `reshape_mask`: immediate 0–7 (`ReshapeMaskImmediate`) — limits participation to the leading `(8 - reshape_mask)` elements.
 - **Operation:**
   ```text
   snap = R_ACC   // pre-instruction snapshot
@@ -369,7 +369,7 @@ Per the project's opcode-derivation rule, opcode = position within the
           R_ACC[dest[i]] = snap[source[i]]
   ```
 - **Example:** `RESHAPE LRD0, LRD2, 0;;`
-- **Notes:** `reshape_mask = 0` uses all 8 lanes; `reshape_mask = 7` uses only lane 0. Out-of-range `source[i]`/`dest[i]` (`>= 128`) skips that lane.
+- **Notes:** `reshape_mask = 0` uses all 8 elements; `reshape_mask = 7` uses only element 0. Out-of-range `source[i]`/`dest[i]` (`>= 128`) skips that element.
 
 ### 6.14 Summary Table
 
@@ -387,4 +387,4 @@ Per the project's opcode-derivation rule, opcode = position within the
 | 9 | `AGG.SUM` | `dest_slot, cr_idx` | `R_ACC[dest] += sum(MULT_RES[0..n-1])` |
 | 10 | `AGG.MAX.FIRST` | `dest_slot, cr_idx` | `R_ACC[dest] = max(MULT_RES[0..n-1])` |
 | 11 | `AGG.MAX` | `dest_slot, cr_idx` | `R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest])` |
-| 12 | `RESHAPE` | `source, dest, reshape_mask` | permute `R_ACC` word lanes per `LRDn` index pairs |
+| 12 | `RESHAPE` | `source, dest, reshape_mask` | permute `R_ACC` word elements per `LRDn` index pairs |

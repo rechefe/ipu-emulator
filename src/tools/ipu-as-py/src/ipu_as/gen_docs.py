@@ -48,15 +48,15 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "LrdIdx": (
         "Register-pair index: **`lrd0`**, **`lrd2`**, **`lrd4`**, … **`lrd14`** — named after "
         "the lower register in the pair — each aliasing two adjacent **`LR`** registers as one "
-        "8-byte-lane value: **`LRDn`** = **`LR(n+1)`** (high lanes) concatenated with **`LR(n)`** "
-        "(low lanes). Purely an assembler/emulator view; there is no separate physical storage. "
+        "8-byte-element value: **`LRDn`** = **`LR(n+1)`** (high elements) concatenated with **`LR(n)`** "
+        "(low elements). Purely an assembler/emulator view; there is no separate physical storage. "
         "Used as **`dest`** on **`ADDB`** / **`ADDBI`**."
     ),
     "AddbiImmediate": (
         "8-bit byte immediate for **`ADDBI`**: written as an unsigned value **`0`**–**`255`** "
         "or an equivalent signed **`-128`**–**`127`** literal (both spellings encode the same "
         "bit pattern). The encoded byte is reinterpreted as a signed two's-complement `int8` "
-        "when broadcast-added to **`ADDB`**/**`ADDBI`**'s 8 destination byte lanes."
+        "when broadcast-added to **`ADDB`**/**`ADDBI`**'s 8 destination byte elements."
     ),
     "ElementsInRow": (
         "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
@@ -89,8 +89,8 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "ReshapeMaskImmediate": (
         "Unsigned **3-bit** immediate on **`RESHAPE`**: **`reshape_mask`** limits participation "
-        "to the leading **`(8 - reshape_mask)`** of the 8 byte lanes in the **`source`**/**`dest`** "
-        "**`LrdIdx`** pairs. **`0`** uses all 8 lanes; **`7`** uses only lane 0."
+        "to the leading **`(8 - reshape_mask)`** of the 8 byte elements in the **`source`**/**`dest`** "
+        "**`LrdIdx`** pairs. **`0`** uses all 8 elements; **`7`** uses only element 0."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
     "DstructureCrIdx": (
@@ -239,10 +239,10 @@ Relative labels such as `B +5` / `B -2` are supported where the grammar accepts 
     masking_section = """
 ## Masking
 
-Multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`) support **lane masking**: after the multiply, lanes in `MULT_RES` whose
-corresponding mask bit is **1** are **active** and pass through to accumulation; lanes whose bit is
-**0** are **zeroed** (deactivated). A mask of all-ones leaves every lane active (the reset default);
-a mask of all-zeros deactivates every lane.
+Multiply instructions (`MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE`) support **element masking**: after the multiply, elements in `MULT_RES` whose
+corresponding mask bit is **1** are **active** and pass through to accumulation; elements whose bit is
+**0** are **zeroed** (deactivated). A mask of all-ones leaves every element active (the reset default);
+a mask of all-zeros deactivates every element.
 
 ### R_MASK register
 
@@ -292,23 +292,23 @@ use `cr_idx` for the scalar multiplier) naming the CR register that supplies the
 configuration — there is no implicit default. Both vectors are derived from that named register's
 `partition` field (see [DstructureCrIdx](operand-types.md#dstructurecridx)). The valid values of P
 are **{0, 2, 4, 8, 16}**.
-With `partition = 0` both vectors are all-ones (no boundaries). With `partition = P` the 128 lanes
-are split into `P` equal groups of `128 / P` lanes:
+With `partition = 0` both vectors are all-ones (no boundaries). With `partition = P` the 128 elements
+are split into `P` equal groups of `128 / P` elements:
 
 | Vector | 0-bit positions | Used by |
 |---|---|---|
-| `partition_vector` | **first** lane of each group | positive shifts (+1, +2, +3) |
-| `inverse_partition_vector` | **last** lane of each group | negative shifts (−1, −2, −3) |
+| `partition_vector` | **first** element of each group | positive shifts (+1, +2, +3) |
+| `inverse_partition_vector` | **last** element of each group | negative shifts (−1, −2, −3) |
 
 For `partition = 2` (groups of 64):
 
-- `partition_vector` = `0 1`⁶³` 0 1`⁶³ — 0 at lane 0 and lane 64
-- `inverse_partition_vector` = `1`⁶³` 0 1`⁶³` 0` — 0 at lane 63 and lane 127
+- `partition_vector` = `0 1`⁶³` 0 1`⁶³ — 0 at element 0 and element 64
+- `inverse_partition_vector` = `1`⁶³` 0 1`⁶³` 0` — 0 at element 63 and element 127
 
 For `partition = 4` (groups of 32):
 
-- `partition_vector` = `0 1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹ — 0 at lanes 0, 32, 64, 96
-- `inverse_partition_vector` = `1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹` 0` — 0 at lanes 31, 63, 95, 127
+- `partition_vector` = `0 1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹ — 0 at elements 0, 32, 64, 96
+- `inverse_partition_vector` = `1`³¹` 0 1`³¹` 0 1`³¹` 0 1`³¹` 0` — 0 at elements 31, 63, 95, 127
 
 The AND at each step prevents mask bits from crossing the group boundary in either shift direction.
 
@@ -336,17 +336,17 @@ dstructure register supplying `partition` (any `CR0`–`CR15` may be named expli
 ### Worked examples
 
 Both examples load **all-ones** (`0xFF…FF`, 128 bits) into the selected `R_MASK` slot. At
-`mask_shift = 0` every mask bit is 1, so every lane is active. Each shift step clears one
-boundary bit to **0**, deactivating one lane at a time.
+`mask_shift = 0` every mask bit is 1, so every element is active. Each shift step clears one
+boundary bit to **0**, deactivating one element at a time.
 
-The tables show **active lanes** — those whose derived mask bit is **1** and therefore contribute
+The tables show **active elements** — those whose derived mask bit is **1** and therefore contribute
 to accumulation.
 
 #### Example 1 — no partitioning (`partition = 0`)
 
-With `partition = 0` the partition vector is all-ones, so shifts slide freely across all 128 lanes.
+With `partition = 0` the partition vector is all-ones, so shifts slide freely across all 128 elements.
 
-| `mask_shift` | Active lanes (mask bit = 1) |
+| `mask_shift` | Active elements (mask bit = 1) |
 |:---:|---|
 | `−3` | 0–124 |
 | `−2` | 0–125 |
@@ -356,18 +356,18 @@ With `partition = 0` the partition vector is all-ones, so shifts slide freely ac
 | `+2` | 2–127 |
 | `+3` | 3–127 |
 
-Positive shifts deactivate lanes from the low end (lane 0 first); negative shifts deactivate lanes
-from the high end (lane 127 first). Each step removes exactly one active lane.
+Positive shifts deactivate elements from the low end (element 0 first); negative shifts deactivate elements
+from the high end (element 127 first). Each step removes exactly one active element.
 
-#### Example 2 — two partitions of 64 lanes each (`partition = 2`)
+#### Example 2 — two partitions of 64 elements each (`partition = 2`)
 
-With `partition = 2` the 128 lanes are split into **group 0** (lanes 0–63) and **group 1**
-(lanes 64–127). Each group evolves independently and symmetrically:
+With `partition = 2` the 128 elements are split into **group 0** (elements 0–63) and **group 1**
+(elements 64–127). Each group evolves independently and symmetrically:
 
-- `partition_vector` has **0** at lane 0 and lane 64 (used for positive shifts).
-- `inverse_partition_vector` has **0** at lane 63 and lane 127 (used for negative shifts).
+- `partition_vector` has **0** at element 0 and element 64 (used for positive shifts).
+- `inverse_partition_vector` has **0** at element 63 and element 127 (used for negative shifts).
 
-| `mask_shift` | Group 0 active (lanes 0–63) | Group 1 active (lanes 64–127) |
+| `mask_shift` | Group 0 active (elements 0–63) | Group 1 active (elements 64–127) |
 |:---:|---|---|
 | `−3` | 0–60 | 64–124 |
 | `−2` | 0–61 | 64–125 |
@@ -377,9 +377,9 @@ With `partition = 2` the 128 lanes are split into **group 0** (lanes 0–63) and
 | `+2` | 2–63 | 66–127 |
 | `+3` | 3–63 | 67–127 |
 
-**Positive shifts** deactivate lanes from the **start** of each group (lane 0 and lane 64).
-**Negative shifts** deactivate lanes from the **end** of each group (lane 63 and lane 127).
-Each step removes exactly one lane per group — a perfectly symmetric sliding window.
+**Positive shifts** deactivate elements from the **start** of each group (element 0 and element 64).
+**Negative shifts** deactivate elements from the **end** of each group (element 63 and element 127).
+Each step removes exactly one element per group — a perfectly symmetric sliding window.
 
 """
 
