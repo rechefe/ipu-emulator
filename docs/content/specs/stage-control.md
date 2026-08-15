@@ -380,7 +380,7 @@ registers (`aaq0`–`aaq3`) in the RF that MULT (`MULT.VE.AAQ`) and ACC
 cycles until the in-flight AAQ write committed.
 
 The AAQ scalar register file and all of its consumers have been removed
-from the ISA — cross-lane aggregation is now performed in the **ACC slot**
+from the ISA — cross-element aggregation is now performed in the **ACC slot**
 (`AGG.SUM` / `AGG.SUM.FIRST` / `AGG.MAX` / `AGG.MAX.FIRST`), which reads and
 writes `r_acc` entirely within the ACC stage. With no cross-stage RF
 write-back path remaining, this hazard no longer arises and CTRL performs
@@ -494,7 +494,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 #### 10.1.7 `ADDB` — Add Byte (Broadcast, Register)
 
-- **Summary:** Broadcast-add a signed byte from an LR/CR register's low byte to each of the 8 byte lanes of an `LRDn` register pair, saturating each lane to `[0, 255]` (no wraparound in either direction).
+- **Summary:** Broadcast-add a signed byte from an LR/CR register's low byte to each of the 8 byte elements of an `LRDn` register pair, saturating each element to `[0, 255]` (no wraparound in either direction).
 - **Syntax:** `ADDB dest src_b`
 - **Operands:**
   - `dest` — destination register pair, `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`), named after the lower register; `LRDn` = `LR(n+1)`:`LR(n)`; also the implicit source.
@@ -508,7 +508,7 @@ destination LR from two lanes in the same VLIW word (see §10).
 
 #### 10.1.8 `ADDBI` — Add Byte Immediate (Broadcast)
 
-- **Summary:** Broadcast-add a signed immediate byte to each of the 8 byte lanes of an `LRDn` register pair, saturating each lane to `[0, 255]`.
+- **Summary:** Broadcast-add a signed immediate byte to each of the 8 byte elements of an `LRDn` register pair, saturating each element to `[0, 255]`.
 - **Syntax:** `ADDBI dest imm`
 - **Operands:**
   - `dest` — destination register pair, `LRD0`, `LRD2`, …, `LRD14` (`LrdIdx`), named after the lower register; also the implicit source.
