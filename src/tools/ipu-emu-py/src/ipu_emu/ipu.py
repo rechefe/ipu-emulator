@@ -40,7 +40,7 @@ from ipu_common.acc_stride_enums import (
     get_vertical_stride_bits,
 )
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_common.reshape_mask import RESHAPE_LANE_COUNT
+from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 from ipu_common.activations import apply_activation
 
@@ -1094,26 +1094,45 @@ class Ipu:
                 val = 0.0 if fmt == "<f" else 0
             struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
 
-    def execute_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
-        """Execute RESHAPE: permute R_ACC word elements via two LRDn byte-index arrays.
+    def execute_acc_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
+        """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
 
         ``source``/``dest`` are LrdIdx pair indices (0-7); each resolves to 8 byte
-        elements read from the pre-instruction snapshot. Only the leading
-        ``8 - reshape_mask`` elements participate. All (source[i], dest[i]) guards
-        and reads are evaluated against the snapshot before any write, so a
-        element's dest overlapping another element's source resolves to the
-        pre-instruction value (no intra-instruction chaining).
+        elements read from the pre-instruction snapshot. Only the trailing
+        (RESHAPE_ELEMENT_COUNT - mask) elements (indices mask..RESHAPE_ELEMENT_COUNT-1)
+        participate, where mask is either the immediate value (encoded 0-7) or
+        the value of the specified LR register (encoded >= RESHAPE_MASK_LR_OFFSET,
+        LR_index = encoded - RESHAPE_MASK_LR_OFFSET). A resolved mask greater than
+        RESHAPE_ELEMENT_COUNT raises rather than being clamped. All MULT_RES reads
+        come from the pre-instruction snapshot; a participating source[i]/dest[i]
+        outside [0, 127] raises rather than being silently skipped.
         """
         assert self.snapshot is not None
-        src_lanes = self._get_lrd_bytes(source, self.snapshot)
-        dst_lanes = self._get_lrd_bytes(dest, self.snapshot)
+        src_bytes = self._get_lrd_bytes(source, self.snapshot)
+        dst_bytes = self._get_lrd_bytes(dest, self.snapshot)
 
-        n = RESHAPE_LANE_COUNT - reshape_mask
-        writes = [
-            (dst_lanes[i], self.snapshot.get_r_acc_word(src_lanes[i]))
-            for i in range(n)
-            if src_lanes[i] < LANES and dst_lanes[i] < LANES
-        ]
+        if reshape_mask >= RESHAPE_MASK_LR_OFFSET:
+            lr_idx = reshape_mask - RESHAPE_MASK_LR_OFFSET
+            mask = self.state.regfile.get_lr(lr_idx)
+        else:
+            mask = reshape_mask
+        if mask > RESHAPE_ELEMENT_COUNT:
+            raise EmulatorError(
+                f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
+                f"({RESHAPE_ELEMENT_COUNT})"
+            )
+
+        mult_res = self.snapshot.raw("mult_res")
+        writes = []
+        for i in range(mask, RESHAPE_ELEMENT_COUNT):
+            if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
+                raise EmulatorError(
+                    f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
+                    f"must both be in [0, {LANES - 1}]"
+                )
+            writes.append(
+                (dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0])
+            )
         for dest_idx, value in writes:
             self.state.regfile.set_r_acc_word(dest_idx, value)
 

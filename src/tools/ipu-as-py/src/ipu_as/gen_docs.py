@@ -87,10 +87,13 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
         "**`0`**–**`7`**, each a **128-bit** region of **`R_MASK`** (eight mask slots total). "
         "**`mask_shift`** remains an **`LrIdx`**."
     ),
-    "ReshapeMaskImmediate": (
-        "Unsigned **3-bit** immediate on **`RESHAPE`**: **`reshape_mask`** limits participation "
-        "to the leading **`(8 - reshape_mask)`** of the 8 byte elements in the **`source`**/**`dest`** "
-        "**`LrdIdx`** pairs. **`0`** uses all 8 elements; **`7`** uses only element 0."
+    "LrOrReshapeMaskImmediate": (
+        "Operand on **`ACC.RESHAPE`** (bit width auto-derived from union layout): selects the "
+        "first participating element slot (elements **`reshape_mask`**…**`7`** of the "
+        "source/dest LRD pair participate). Accepts either an unsigned immediate **`0`**–**`7`** "
+        "or an LR register (its value is used directly as the mask; a resolved value "
+        "greater than **`8`** raises an error rather than being clamped). "
+        "**`0`** uses all 8 slots; **`7`** uses only slot 7; **`8`** uses none."
     ),
     "BreakImmediate": "16-bit value for **`BREAK`** / breakpoint slot conditions.",
     "DstructureCrIdx": (
