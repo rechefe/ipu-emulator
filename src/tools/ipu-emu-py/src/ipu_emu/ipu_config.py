@@ -37,7 +37,7 @@ DEFAULT_VALID_ELEMENTS = 128
 
 
 class Partition(IntEnum):
-    """Valid CR15.partition values. Controls how the 128 lanes are grouped for mask shifts."""
+    """Valid CR15.partition values. Controls how the 128 elements are grouped for mask shifts."""
     P0  = 0   # no partitioning — all 128 lanes in one group
     P2  = 2   # 2 groups of 64 lanes
     P4  = 4   # 4 groups of 32 lanes
@@ -46,7 +46,7 @@ class Partition(IntEnum):
 
 
 class PadMode(IntEnum):
-    """Fill value written into mask-deactivated MULT_RES lanes (see `_mult_mask_and_shift`)."""
+    """Fill value written into mask-deactivated MULT_RES elements (see `_mult_mask_and_shift`)."""
     ZERO     = 0   # lane is zeroed (default, matches historical behavior)
     POS_INF  = 1   # lane is set to +infinity in the active float dtype
     NEG_INF  = 2   # lane is set to -infinity in the active float dtype

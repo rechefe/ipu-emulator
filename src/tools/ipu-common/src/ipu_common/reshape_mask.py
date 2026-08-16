@@ -1,8 +1,8 @@
-"""Lane-count mask for RESHAPE (issue #192).
+"""Element-count mask for RESHAPE (issue #192).
 
-RESHAPE permutes up to 8 R_ACC word lanes per instruction, addressed via the
-8 byte lanes of a source/dest ``LrdIdx`` pair. ``reshape_mask`` limits how
-many of those 8 lanes participate, encoded in ``RESHAPE_MASK_FIELD_BITS``
+RESHAPE permutes up to 8 R_ACC word elements per instruction, addressed via the
+8 byte elements of a source/dest ``LrdIdx`` pair. ``reshape_mask`` limits how
+many of those 8 elements participate, encoded in ``RESHAPE_MASK_FIELD_BITS``
 bits (no LR indirection) — same shape as ``mult_mask_offset``.
 """
 

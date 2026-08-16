@@ -300,10 +300,10 @@ BKPT;;
 
 
 class TestAddb:
-    """ADDB/ADDBI: broadcast-add a signed byte to LRDn's 8 byte lanes, saturating to [0, 255]."""
+    """ADDB/ADDBI: broadcast-add a signed byte to LRDn's 8 byte elements, saturating to [0, 255]."""
 
     def test_addb_lr_source(self):
-        """Register source: each of the 8 lanes across LR0/LR1 gains the same byte."""
+        """Register source: each of the 8 elements across LR0/LR1 gains the same byte."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -328,7 +328,7 @@ BKPT;;
         assert state.regfile.get_lr(1) == 0x0F101112
 
     def test_addbi_immediate(self):
-        """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each lane."""
+        """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each element."""
         state = _run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -351,7 +351,7 @@ BKPT;;
         assert state.regfile.get_lr(0) == 0x2C2C2C2C
 
     def test_addbi_saturates_at_255_ceiling(self):
-        """A lane already near 255 clamps at 255 instead of wrapping."""
+        """An element already near 255 clamps at 255 instead of wrapping."""
         state = _run("""\
 SET lr0 cr8;;
 ADDBI lrd0 20;;
@@ -363,7 +363,7 @@ BKPT;;
         assert lanes[1] == 20   # 0 + 20, no saturation
 
     def test_addbi_saturates_at_0_floor(self):
-        """A negative byte pushes a low lane below 0, clamping at 0 instead of wrapping."""
+        """A negative byte pushes a low element below 0, clamping at 0 instead of wrapping."""
         state = _run("""\
 SET lr0 cr8;;
 ADDBI lrd0 200;;
@@ -662,7 +662,7 @@ BKPT;;
             assert words[i] == 0, f"word {i} should be 0 (deactivated)"
 
     def test_mask_pad_pos_inf(self):
-        """dstructure pad_mode=POS_INF fills masked-out mult_res lanes with +inf (FP8 dtype)."""
+        """dstructure pad_mode=POS_INF fills masked-out mult_res elements with +inf (FP8 dtype)."""
         r0_data = bytes([0x00] * 128)
         cyclic_data = bytes([0x00] * 512)
         # Mask: first 8 bytes = 0xFF (64 bits set), rest 0
@@ -702,7 +702,7 @@ BKPT;;
             assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
 
     def test_mask_pad_neg_inf(self):
-        """dstructure pad_mode=NEG_INF fills masked-out mult_res lanes with -inf (FP8 dtype)."""
+        """dstructure pad_mode=NEG_INF fills masked-out mult_res elements with -inf (FP8 dtype)."""
         r0_data = bytes([0x00] * 128)
         cyclic_data = bytes([0x00] * 512)
         mask_data = bytearray(128)
@@ -771,7 +771,7 @@ BKPT;;
     def test_mask_affects_multiplication_wide_vector_debug(self):
         """Same program as test_mask_affects_multiplication, run under wide-vector
         debug/FP32: masking must be honored identically to narrow mode — first 64
-        lanes active, last 64 masked to the pad value (ZERO)."""
+        elements active, last 64 masked to the pad value (ZERO)."""
         r0_data = struct.pack("<128f", *([2.0] * 128))
         cyclic_data = struct.pack("<128f", *([3.0] * 128))
         mask_data = bytearray(128)
@@ -810,8 +810,8 @@ BKPT;;
             assert words[i] == 0.0, f"word {i} should be masked to 0.0, got {words[i]}"
 
     def test_mask_pad_pos_inf_wide_vector_debug(self):
-        """pad_mode=POS_INF fills masked-out lanes with +inf under debug/FP32,
-        where dtype stays INT8-default but lane arithmetic is float — the
+        """pad_mode=POS_INF fills masked-out elements with +inf under debug/FP32,
+        where dtype stays INT8-default but element arithmetic is float — the
         defect this fix corrects (dtype-based rejection would wrongly reject
         this)."""
         r0_data = bytes([0x00] * 128)
@@ -854,7 +854,7 @@ BKPT;;
             assert words[i] == float("inf"), f"word {i} should be +inf (deactivated)"
 
     def test_mask_pad_inf_rejected_under_wide_vector_debug_int32(self):
-        """POS_INF pad_mode must still raise under debug/INT32 lanes, where
+        """POS_INF pad_mode must still raise under debug/INT32 elements, where
         infinity has no representation — the gate must key off
         wide_vector_arithmetic, not the (irrelevant, INT8-default) dtype field."""
         mask_data = bytearray(128)
@@ -1181,7 +1181,7 @@ BKPT;;
             assert state.regfile.get_r_acc_word(i) == 13, f"word {i}: expected 13, got {state.regfile.get_r_acc_word(i)}"
 
     def test_acc_max_takes_larger(self):
-        """ACC.MAX: each lane takes max(R_ACC[i], MULT_RES[i])."""
+        """ACC.MAX: each element takes max(R_ACC[i], MULT_RES[i])."""
         state = _make_state(
             """\
 ACC.MAX;;
@@ -1221,7 +1221,7 @@ BKPT;;
             assert got == 42, f"word {i}: expected 42, got {got}"
 
     def test_acc_sub_subtracts(self):
-        """ACC.SUB: subtracts MULT_RES from each R_ACC lane (running subtract)."""
+        """ACC.SUB: subtracts MULT_RES from each R_ACC element (running subtract)."""
         state = _make_state(
             """\
 ACC.SUB;;
@@ -1240,7 +1240,7 @@ BKPT;;
             assert got == 93, f"word {i}: expected 93, got {got}"
 
     def test_acc_sub_first_negates(self):
-        """ACC.SUB.FIRST: sets each R_ACC lane to negated MULT_RES (clean init)."""
+        """ACC.SUB.FIRST: sets each R_ACC element to negated MULT_RES (clean init)."""
         state = _make_state(
             """\
 ACC.SUB.FIRST;;
@@ -1327,7 +1327,7 @@ BKPT;;
             assert w == 0, f"word {i} (after segment): expected 0, got {w}"
 
     def test_agg_sum_first_basic(self):
-        """AGG.SUM.FIRST: sum all 128 MULT_RES lanes and write to R_ACC[dest] (clean init)."""
+        """AGG.SUM.FIRST: sum all 128 MULT_RES elements and write to R_ACC[dest] (clean init)."""
         state = _make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
@@ -1347,7 +1347,7 @@ BKPT;;
     def test_agg_sum_first_ignores_existing_dest(self):
         """AGG.SUM.FIRST: existing R_ACC[dest] is NOT added to the result (clean initialisation).
 
-        Dest is placed outside the active lane range so its value would be added
+        Dest is placed outside the active element range so its value would be added
         as a seed in the non-FIRST variant, but must be ignored here.
         """
         state = _make_state(
@@ -1407,9 +1407,9 @@ BKPT;;
         assert result == 128, f"expected sum of all 128 lanes = 128, got {result}"
 
     def test_agg_sum_accumulates(self):
-        """AGG.SUM: sum of active MULT_RES lanes is ADDED to existing R_ACC[dest] (running acc).
+        """AGG.SUM: sum of active MULT_RES elements is ADDED to existing R_ACC[dest] (running acc).
 
-        Dest is placed outside the active lane range so it acts as a pure accumulator
+        Dest is placed outside the active element range so it acts as a pure accumulator
         that is not double-counted in the sum.
         """
         state = _make_state(
@@ -1431,7 +1431,7 @@ BKPT;;
         assert result == 114, f"expected 64+50=114, got {result}"
 
     def test_agg_max_first_basic(self):
-        """AGG.MAX.FIRST: max of all 128 MULT_RES lanes, no seed from dest."""
+        """AGG.MAX.FIRST: max of all 128 MULT_RES elements, no seed from dest."""
         state = _make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
@@ -1452,9 +1452,9 @@ BKPT;;
     def test_agg_max_first_ignores_garbage_dest(self):
         """AGG.MAX.FIRST: existing R_ACC[dest] is NOT used as a seed.
 
-        Dest is placed outside the active lane range and pre-loaded with a
+        Dest is placed outside the active element range and pre-loaded with a
         large garbage value; a seeded implementation would return it, the
-        clean-init implementation must return the max of the active MULT_RES lanes.
+        clean-init implementation must return the max of the active MULT_RES elements.
         """
         state = _make_state(
             """\
@@ -1491,7 +1491,7 @@ BKPT;;
         assert result == -2147483648, f"expected INT32_MIN identity seed, got {result}"
 
     def test_agg_max_first_masks_tail(self):
-        """AGG.MAX.FIRST: MULT_RES tail lanes beyond valid_elements are excluded."""
+        """AGG.MAX.FIRST: MULT_RES tail elements beyond valid_elements are excluded."""
         state = _make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
@@ -1510,7 +1510,7 @@ BKPT;;
         assert result == 3, f"expected max of active MULT_RES prefix = 3, got {result}"
 
     def test_agg_max_seed_wins(self):
-        """AGG.MAX: existing R_ACC[dest] seed beats all active MULT_RES lanes — dest unchanged."""
+        """AGG.MAX: existing R_ACC[dest] seed beats all active MULT_RES elements — dest unchanged."""
         state = _make_state(
             """\
 AGG.MAX LR0 cr15;;
@@ -1529,7 +1529,7 @@ BKPT;;
         assert result == 99, f"expected seed 99 to remain (beats all MULT_RES lanes=10), got {result}"
 
     def test_agg_max_lane_wins(self):
-        """AGG.MAX: an active MULT_RES lane beats the existing R_ACC[dest] seed — dest updated."""
+        """AGG.MAX: an active MULT_RES element beats the existing R_ACC[dest] seed — dest updated."""
         state = _make_state(
             """\
 AGG.MAX LR0 cr15;;
@@ -1601,10 +1601,10 @@ def _lrd_bytes(*vals: int) -> tuple[int, int]:
 
 
 class TestReshape:
-    """RESHAPE: permute R_ACC word lanes via two LrdIdx byte-index arrays (issue #192)."""
+    """RESHAPE: permute R_ACC word elements via two LrdIdx byte-index arrays (issue #192)."""
 
     def test_reshape_mask_zero_copies_all_eight_lanes(self):
-        """reshape_mask=0: all 8 lanes participate."""
+        """reshape_mask=0: all 8 elements participate."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1629,7 +1629,7 @@ BKPT;;
             assert state.regfile.get_r_acc_word(i) == 1000 + i
 
     def test_reshape_mask_seven_copies_one_lane(self):
-        """reshape_mask=7: only lane 0 participates; lanes 1-7 are untouched."""
+        """reshape_mask=7: only element 0 participates; elements 1-7 are untouched."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1653,7 +1653,7 @@ BKPT;;
             assert state.regfile.get_r_acc_word(i) == 9999
 
     def test_reshape_skips_out_of_range_source(self):
-        """A source[i] >= 128 leaves that lane's dest untouched."""
+        """A source[i] >= 128 leaves that element's dest untouched."""
         src_lo, src_hi = _lrd_bytes(200, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1677,7 +1677,7 @@ BKPT;;
             assert state.regfile.get_r_acc_word(100 + i) == 1000 + i
 
     def test_reshape_skips_out_of_range_dest(self):
-        """A dest[i] >= 128 leaves R_ACC unmodified for that lane."""
+        """A dest[i] >= 128 leaves R_ACC unmodified for that element."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(200, 101, 102, 103, 104, 105, 106, 107)
         state = _make_state(
@@ -1704,8 +1704,8 @@ BKPT;;
             assert state.regfile.get_r_acc_word(i) == 1000 + i
 
     def test_reshape_same_instruction_reads_from_snapshot_not_in_progress_write(self):
-        """Lane i's dest overlapping lane j's source must resolve from the pre-instruction
-        snapshot, not another lane's write within the same RESHAPE (no chaining)."""
+        """Element i's dest overlapping element j's source must resolve from the pre-instruction
+        snapshot, not another element's write within the same RESHAPE (no chaining)."""
         # source[0]=0, source[1]=1; dest[0]=1, dest[1]=2 -> R_ACC[1] = old R_ACC[0],
         # R_ACC[2] = old R_ACC[1] (not the value RESHAPE just wrote into R_ACC[1]).
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
@@ -2115,7 +2115,7 @@ class TestMultRcVs:
     """MULT.RC.VS — self-multiply (square) of RC vector elements."""
 
     def test_mult_rc_vs_squares_rc(self):
-        """Each RC lane multiplied by itself (4 × 4 = 16)."""
+        """Each RC element multiplied by itself (4 × 4 = 16)."""
         cyclic_data = bytes([4] * 512)
 
         state = _make_state("""\
@@ -2159,7 +2159,7 @@ BKPT;;
             assert val == 9, f"acc word {i}: expected 9 (3×3), got {val}"
 
     def test_mult_rc_vs_mask_zeroes_lanes(self):
-        """mask_offset/mask_shift still gate lanes (first 64 active, rest zeroed)."""
+        """mask_offset/mask_shift still gate elements (first 64 active, rest zeroed)."""
         cyclic_data = bytes([3] * 512)   # squared → 9
         mask_data = bytearray(128)
         for i in range(8):           # 64 bits set → first 64 lanes active
@@ -2259,7 +2259,7 @@ BKPT;;
     # ------------------------------------------------------------------
 
     def test_idx_0_base_mask_unchanged(self):
-        """idx=0: base mask used as-is; only lane 32 is active, all others suppressed."""
+        """idx=0: base mask used as-is; only element 32 is active, all others suppressed."""
         acc = self._run_mask_shift(1 << 32, shift_idx=0, partition=0)
         assert not self._suppressed(acc, 32)
         for i in range(128):
@@ -2323,7 +2323,7 @@ BKPT;;
 
         With partition=2 (step=64), bit 63 is the last element of partition 0.
         Shifting left by 1 would move it to bit 64 (start of partition 1),
-        but partition_vector[64]=0 clears it → mask = 0 → all lanes deactivated.
+        but partition_vector[64]=0 clears it → mask = 0 → all elements deactivated.
         """
         acc = self._run_mask_shift(1 << 63, shift_idx=+1, partition=2)
         for i in range(128):
@@ -2333,7 +2333,7 @@ BKPT;;
         """A bit inside partition 1 shifts freely within partition 1.
 
         With partition=2, bit 65 shifted right by 1 → bit 64 (still inside partition 1).
-        inverse_partition_vector[64]=1, so the bit is NOT cleared → lane 64 is active.
+        inverse_partition_vector[64]=1, so the bit is NOT cleared → element 64 is active.
         """
         acc = self._run_mask_shift(1 << 65, shift_idx=-1, partition=2)
         assert not self._suppressed(acc, 64)
@@ -2353,13 +2353,13 @@ BKPT;;
                 assert self._suppressed(acc, i), f"lane {i} should be suppressed"
 
     def test_partition_4_boundary_constraint(self):
-        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross → all lanes deactivated."""
+        """partition=4 (4 partitions of 32): bit at last pos of partition cannot cross → all elements deactivated."""
         acc = self._run_mask_shift(1 << 31, shift_idx=+1, partition=4)
         for i in range(128):
             assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 4)"
 
     def test_partition_8_boundary_constraint(self):
-        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross → all lanes deactivated."""
+        """partition=8 (8 partitions of 16): bit at last pos of partition cannot cross → all elements deactivated."""
         acc = self._run_mask_shift(1 << 15, shift_idx=+1, partition=8)
         for i in range(128):
             assert self._suppressed(acc, i), f"lane {i} should be suppressed (partition 8)"
@@ -2370,7 +2370,7 @@ BKPT;;
         With partition=2, shift_idx=−2, using inverse_partition_vector (0 at end of each group):
           step 1: (1<<65 >> 1) = 1<<64; inverse_pv[64]=1 → 1<<64 (not cleared)
           step 2: (1<<64 >> 1) = 1<<63; inverse_pv[63]=0 → 0 (cleared at end of group 0)
-        Result: all lanes deactivated (bit cleared at second step → mask = 0).
+        Result: all elements deactivated (bit cleared at second step → mask = 0).
         Without the per-step AND, a 2-bit right shift of bit 65 would land at 63
         and survive since inverse_pv[63] is never checked in a single-step AND.
         """
@@ -2462,7 +2462,7 @@ BKPT;;
             run_until_complete(state)
 
     def test_inactive_lanes_zeroed(self):
-        """Inactive lanes (beyond valid_elements) are zeroed in POST_AAQ_REG."""
+        """Inactive elements (beyond valid_elements) are zeroed in POST_AAQ_REG."""
         state = _make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
@@ -2502,7 +2502,7 @@ BKPT;;
             assert result[i] == v, f"lane {i}: expected {v}, got {result[i]}"
 
     def test_cr15_uses_valid_elements(self):
-        """CR15.valid_elements=4 → only 4 active lanes; rest zeroed."""
+        """CR15.valid_elements=4 → only 4 active elements; rest zeroed."""
         state = _make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;

@@ -28,10 +28,10 @@ from ipu_emu.ipu_config import (
 INST_MEM_SIZE = 1024
 
 class WideVectorArithmetic(str, Enum):
-    """How 128-lane wide-vector debug math is performed (emulator-only; issue #33).
+    """How 128-element wide-vector debug math is performed (emulator-only; issue #33).
 
-    FP32: each lane is IEEE float32 (default for "no quantization" FP analysis).
-    INT32: each lane is signed int32 with wrap semantics matching INT8-mode acc ops.
+    FP32: each element is IEEE float32 (default for "no quantization" FP analysis).
+    INT32: each element is signed int32 with wrap semantics matching INT8-mode acc ops.
     """
 
     FP32 = "fp32"
