@@ -18,6 +18,7 @@ from ipu_common.reshape_mask import (
     RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_FIELD_BITS,
     RESHAPE_MASK_LR_OFFSET,
+    reshape_mask_field_max,
 )
 from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
@@ -113,55 +114,21 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
         return str(value)
 
 
-class ReshapeMaskImmediate(ipu_token.IpuToken):
-    """Limit how many of RESHAPE's 8 elements participate (values 0 .. 7). Legacy — use LrOrReshapeMaskImmediate."""
-
-    @classmethod
-    def bits(cls) -> int:
-        return RESHAPE_MASK_FIELD_BITS
-
-    @classmethod
-    def default(cls) -> "ipu_token.IpuToken":
-        return cls(
-            ipu_token.AnnotatedToken(
-                lark.Token("NUMBER", "0"),
-                0,
-            )
-        )
-
-    def __init__(self, token: ipu_token.AnnotatedToken):
-        super().__init__(token)
-        try:
-            self.int = int(token.token.value, 0)
-        except ValueError:
-            self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (0 <= self.int < RESHAPE_ELEMENT_COUNT):
-            self._raise_error(
-                f"Value {self.int} out of range [0, {RESHAPE_ELEMENT_COUNT - 1}] "
-                "for RESHAPE reshape_mask operand"
-            )
-
-    def encode(self) -> int:
-        return self.int
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return str(value)
-
-
 class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
-    """RESHAPE element-start index: immediate 0–7 or LR register LR0–LR7.
+    """ACC.RESHAPE element-start index: immediate 0–7 or an LR register.
 
-    Encoding (4 bits, see RESHAPE_MASK_FIELD_BITS):
-      - Immediate  0–7  → encoded as the value itself (0–7).
-      - LR0–LR7        → encoded as LR_index + RESHAPE_MASK_LR_OFFSET (8–15).
+    Encoding (width auto-derived, see RESHAPE_MASK_FIELD_BITS):
+      - Immediate  0–7 → encoded as the value itself (0–7).
+      - LRn            → encoded as LR_index + RESHAPE_MASK_LR_OFFSET; the
+        number of LR registers encodable is however much room remains above
+        RESHAPE_MASK_LR_OFFSET in the derived field width.
 
     At runtime the emulator uses the encoded value to decide:
       encoded < RESHAPE_MASK_LR_OFFSET → immediate mask.
-      encoded >= RESHAPE_MASK_LR_OFFSET → read LR[encoded - offset], take low 3 bits.
+      encoded >= RESHAPE_MASK_LR_OFFSET → read LR[encoded - offset] as the
+        mask value (full register value — the emulator raises if it exceeds
+        RESHAPE_ELEMENT_COUNT rather than clamping it).
     """
-
-    _MAX_LR_INDEX = RESHAPE_MASK_LR_OFFSET - 1  # 7: LR0–LR7 supported
 
     @classmethod
     def bits(cls) -> int:
@@ -179,12 +146,13 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
                 lr_idx = int(val[2:])
             except ValueError:
                 self._raise_error(
-                    f"Invalid LR register '{token.token.value}' for RESHAPE reshape_mask"
+                    f"Invalid LR register '{token.token.value}' for ACC.RESHAPE reshape_mask"
                 )
-            if not (0 <= lr_idx <= self._MAX_LR_INDEX):
+            max_lr_index = reshape_mask_field_max() - RESHAPE_MASK_LR_OFFSET
+            if not (0 <= lr_idx <= max_lr_index):
                 self._raise_error(
-                    f"LR{lr_idx} out of range for RESHAPE reshape_mask; "
-                    f"only LR0–LR{self._MAX_LR_INDEX} are supported"
+                    f"LR{lr_idx} out of range for ACC.RESHAPE reshape_mask; "
+                    f"only LR0–LR{max_lr_index} are supported"
                 )
             self.int = lr_idx + RESHAPE_MASK_LR_OFFSET
         else:
@@ -193,12 +161,12 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
             except ValueError:
                 self._raise_error(
                     f"Value '{token.token.value}' is not a valid immediate or LR register "
-                    "for RESHAPE reshape_mask"
+                    "for ACC.RESHAPE reshape_mask"
                 )
             if not (0 <= imm < RESHAPE_MASK_LR_OFFSET):
                 self._raise_error(
                     f"Immediate {imm} out of range [0, {RESHAPE_MASK_LR_OFFSET - 1}] "
-                    "for RESHAPE reshape_mask"
+                    "for ACC.RESHAPE reshape_mask"
                 )
             self.int = imm
 

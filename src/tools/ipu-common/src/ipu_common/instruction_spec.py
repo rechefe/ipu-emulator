@@ -31,7 +31,7 @@ OPERAND TYPE NAMES (resolved by ipu_as into actual token classes):
   - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
   - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
-  - "LrOrReshapeMaskImmediate": element-start index for RESHAPE; selects trailing elements (reshape_mask..7); accepts immediate 0–7 or LR register LR0–LR7
+  - "LrOrReshapeMaskImmediate": element-start index for RESHAPE; selects trailing elements (reshape_mask..7); accepts immediate 0–7 or an LR register (bit width, and therefore the range of encodable LR registers, derived from union layout)
   - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
   - "BreakImmediate": 16-bit BREAK condition value (BreakImmediateType)
   - "Label": Branch target label (LabelToken)
@@ -937,7 +937,7 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_agg_max",
         },
-        "RESHAPE": {
+        "ACC.RESHAPE": {
             "operands": [
                 {"name": "source", "type": "LrdIdx", "read": "snapshot"},
                 {"name": "dest", "type": "LrdIdx", "read": "snapshot"},
@@ -948,33 +948,31 @@ INSTRUCTION_SPEC = {
                 summary=(
                     "Scatter MULT_RES elements into R_ACC: for each of the trailing "
                     "(8 - reshape_mask) byte elements of the source/dest LRDn pairs "
-                    "(indices reshape_mask..7), copy MULT_RES[source[i]] to R_ACC[dest[i]] "
-                    "when both indices are in range. All reads come from the pre-instruction "
-                    "MULT_RES snapshot."
+                    "(indices reshape_mask..7), copy MULT_RES[source[i]] to R_ACC[dest[i]]."
                 ),
-                syntax="RESHAPE source, dest, reshape_mask",
+                syntax="ACC.RESHAPE source, dest, reshape_mask",
                 operands=[
                     "source: LRDn register pair (LRD0, LRD2, ..., LRD14) read as source[0..7] — 8 byte elements, each a MULT_RES word index",
                     "dest: LRDn register pair (LRD0, LRD2, ..., LRD14) read as dest[0..7] — 8 byte elements, each an R_ACC word index",
-                    "reshape_mask: immediate 0-7 or LR0-LR7; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its low 3 bits supply the mask value at runtime.",
+                    "reshape_mask: immediate 0-7 or an LR register; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its full value is used as the mask at runtime.",
                 ],
                 operation=(
-                    "snap = MULT_RES (pre-instruction snapshot)\n"
-                    "mask = reshape_mask if immediate else LR[reshape_mask] & 7\n"
+                    "mult_res = MULT_RES (pre-instruction snapshot)\n"
+                    "mask = reshape_mask if immediate else LR[reshape_mask]\n"
+                    "if mask > 8: raise error\n"
                     "for i in mask..7:\n"
-                    "    if source[i] < 128 and dest[i] < 128:\n"
-                    "        R_ACC[dest[i]] = snap[source[i]]"
+                    "    if source[i] >= 128 or dest[i] >= 128: raise error\n"
+                    "    R_ACC[dest[i]] = mult_res[source[i]]"
                 ),
-                example="RESHAPE LRD0, LRD2, 0;;",
+                example="ACC.RESHAPE LRD0, LRD2, 0;;",
                 notes=(
-                    "R_ACC[idx] and MULT_RES[idx] index 128 word elements (0-127). "
-                    "reshape_mask = 0 uses all 8 element slots; reshape_mask = 7 uses only slot 7. "
-                    "Out-of-range source[i] or dest[i] (>= 128) skips that element silently. "
-                    "When reshape_mask is an LR register (LR0-LR7), its low 3 bits are read live "
-                    "and used as the start index."
+                    "reshape_mask skips the lowest-indexed elements 0..reshape_mask-1; the "
+                    "rest participate. Example: reshape_mask = 2 skips elements 0, 1; "
+                    "elements 2-7 participate. Example: reshape_mask = 5 skips elements "
+                    "0-4; elements 5-7 participate."
                 ),
             ),
-            "execute_fn": "execute_reshape",
+            "execute_fn": "execute_acc_reshape",
         },
     },
 

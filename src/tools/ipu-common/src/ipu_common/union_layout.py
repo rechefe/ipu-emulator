@@ -31,12 +31,21 @@ from ipu_common.acc_stride_enums import (
 from ipu_common.activations import ACTIVATION_FN_NAMES
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
 from ipu_common.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
-from ipu_common.reshape_mask import RESHAPE_MASK_FIELD_BITS
 from ipu_common import lr_inc_dec_imm
+from ipu_common import reshape_mask
 from ipu_common.registers import REGISTER_DEFINITIONS
 
 # Operand types whose bit-width is determined by union packing, not a fixed constant.
-_DERIVED_OPERAND_TYPES: frozenset[str] = frozenset({"LrIncDecImmediate"})
+_DERIVED_OPERAND_TYPES: frozenset[str] = frozenset(
+    {"LrIncDecImmediate", "LrOrReshapeMaskImmediate"}
+)
+
+# operand type name -> (module, attribute) written by finalize_derived_operand_bits()
+# once the union field carrying that type has been packed.
+_DERIVED_OPERAND_TARGETS: dict[str, tuple] = {
+    "LrIncDecImmediate": (lr_inc_dec_imm, "LR_INC_DEC_IMM_FIELD_BITS"),
+    "LrOrReshapeMaskImmediate": (reshape_mask, "RESHAPE_MASK_FIELD_BITS"),
+}
 
 # Per-slot target widths (bits).  Padding is applied after union packing when the
 # solver's natural width is narrower — keeps encoded LR sub-instructions stable.
@@ -71,8 +80,9 @@ def get_operand_type_bits() -> dict[str, int]:
         "AddbiImmediate": 8,
         "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
         "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
-        "ReshapeMaskImmediate": RESHAPE_MASK_FIELD_BITS,
-        "LrOrReshapeMaskImmediate": RESHAPE_MASK_FIELD_BITS,
+        # Width 0 at layout time — the shared union field width is set in
+        # finalize_derived_operand_bits() after packing.
+        "LrOrReshapeMaskImmediate": 0,
         "BreakImmediate": 16,
         "Label": 10,  # (MAX_PROGRAM_SIZE - 1).bit_length() for size 1024
         "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),
@@ -257,17 +267,18 @@ def _pad_slot_to_target(su: SlotUnion) -> None:
 
 def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
     """Populate module-level constants for operand types with derived bit-widths."""
-    su = slot_unions.get("lr")
-    if su is None:
-        return
-    for field in su.fields:
-        for _opcode, (_operand_name, actual_type) in field.users.items():
-            if actual_type == "LrIncDecImmediate":
-                lr_inc_dec_imm.LR_INC_DEC_IMM_FIELD_BITS = field.bits
-                return
-    raise ValueError(
-        "LrIncDecImmediate not found in LR slot union layout"
-    )
+    remaining = dict(_DERIVED_OPERAND_TARGETS)
+    for su in slot_unions.values():
+        for field in su.fields:
+            for _opcode, (_operand_name, actual_type) in field.users.items():
+                target = remaining.pop(actual_type, None)
+                if target is not None:
+                    module, attr = target
+                    setattr(module, attr, field.bits)
+    if remaining:
+        raise ValueError(
+            f"Operand types not found in any slot union layout: {sorted(remaining)}"
+        )
 
 
 def compute_slot_layouts(instruction_spec: dict) -> dict[str, SlotUnion]:
