@@ -329,3 +329,145 @@ def test_seam_qk_to_attn_v_16x60_mutation_kills_test(tmp_path: Path) -> None:
                     got[h * D + t, :N_TOK], expected[h, :, t],
                     rtol=1e-4, atol=1e-3,
                 )
+
+
+def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(tmp_path: Path) -> None:
+    """Same chain as ``test_seam_qk_to_attn_v_16x60_agrees``, but qk_scores_16x60
+    and attn_v_16x60 run against ONE shared IpuState with base rows placed so
+    each head's qk_scores_16x60 run writes its S output DIRECTLY into
+    attn_v_16x60's expected P slot for that head -- no file round-trip, no
+    second IpuState, no Python byte copy of the score data between the two
+    kernels. Only Q/K (real inputs, never a producer kernel's output) and V
+    (no producer kernel in this repo) are staged from disk, exactly as a real
+    host loading initial tensors would; that is not the host-in-the-middle
+    pattern this test is checking for.
+
+    Made possible by constructor-parameterized base rows (qrow_base_row/
+    s_base_row on QkScores16x60App -- k_base_row is NOT relocatable, see
+    below; pbase_row/vbase_row/obase_row on AttnV16x60App) plus an optional
+    p_path=None on AttnV16x60App, which skips its own P disk-staging so the
+    bytes qk_scores_16x60 already wrote into the shared state's XMEM
+    survive.
+
+    NOTE: qk_scores_16x60.asm reads K_BASE from cr0, and cr0 is hardwired to
+    the constant 0 by the ISA (CR_ZERO_REG_INDEX in ipu_config.py; any write
+    to it is silently dropped) -- so K's base row can NEVER be relocated
+    without changing which CR the .asm uses, which is out of scope. K
+    therefore always occupies rows [0, K_ROWS); every other region in this
+    shared state is placed at row >= K_ROWS to avoid colliding with it.
+    """
+    from ipu_apps.qk_scores_16x60 import K_ROWS
+    from ipu_apps.attn_v_16x60 import (
+        P_HEAD_STRIDE_ROWS, V_ROWS, O_ROWS, OBASE, O_CHAN_BYTES,
+    )
+
+    rng = np.random.RandomState(0x51E2)
+    n_chan = N_HEAD * D
+    Q = rng.uniform(-1.0, 1.0, size=(n_chan, N_TOK)).astype(np.float32)
+    K = rng.uniform(-1.0, 1.0, size=(n_chan, N_TOK)).astype(np.float32)
+    V = rng.uniform(-1.0, 1.0, size=(N_HEAD, D, N_TOK)).astype(np.float32)
+
+    state = IpuState(
+        wide_vector_debug=True,
+        wide_vector_arithmetic=WideVectorArithmetic.FP32,
+    )
+
+    # Layout (rows), all in the ONE shared state:
+    #   [0 .. K_ROWS)                          K (fixed: cr0 is hardwired 0)
+    #   [K_ROWS .. +P_ROWS)                    P / S  (shared: qk_scores
+    #                                            writes, attn_v reads, in
+    #                                            place)
+    #   [.. +V_ROWS)                           V (host-staged; no producer)
+    #   [.. +O_ROWS)                           O (attn_v's output)
+    #   [.. +QROW_ROWS)                        qk_scores_16x60's staged-Q
+    #                                            scratch (reused per head,
+    #                                            never read by attn_v_16x60)
+    p_base_row = K_ROWS
+    v_base_row = p_base_row + P_ROWS
+    o_base_row = v_base_row + V_ROWS
+    qk_staging_base_row = o_base_row + O_ROWS
+
+    p_base = p_base_row * ROW_BYTES
+    v_base = v_base_row * ROW_BYTES
+    o_base = o_base_row * ROW_BYTES
+
+    # V: host-staged verbatim (V has no producer kernel in this repo), same
+    # layout attn_v_16x60.setup() would build from a file.
+    v_buf = np.zeros((N_CHAN, PV_STRIDE_ROWS * LANES), dtype=np.float32)
+    for h in range(N_HEAD):
+        for t in range(D):
+            v_buf[h * D + t, :N_TOK] = V[h, t, :]
+    state.xmem.write_address(v_base, bytearray(v_buf.astype(np.float32).tobytes()))
+
+    for h in range(N_HEAD):
+        lo = h * D
+        q_path = tmp_path / f"q_shared_h{h}.bin"
+        k_path = tmp_path / f"k_shared_h{h}.bin"
+        q_path.write_bytes(Q[lo:lo + D].tobytes())
+        k_path.write_bytes(K[lo:lo + D].tobytes())
+
+        # IpuApp.run() -> run_test() calls load_program_from_binary() but
+        # never resets program_counter/is_halted; re-running any kernel
+        # against a state left halted by a prior run needs an explicit reset
+        # first (the same idiom test_full_layer_l5_packed.py uses). This is
+        # test-harness state management, not App-class logic.
+        state.program_counter = 0
+
+        qk_app = QkScores16x60App(
+            inst_path=_QK_INST_BIN,
+            query_path=q_path,
+            key_path=k_path,
+            output_path=None,
+            # k_base_row is NOT overridden: qk_scores_16x60.asm hardwires
+            # K_BASE to cr0, which the ISA hardwires to the constant 0 (see
+            # CR_ZERO_REG_INDEX/CR_READ_ONLY_INITIAL_VALUES in ipu_config.py)
+            # -- any write to cr0 is silently dropped. K's base row can never
+            # be relocated without changing which CR the .asm reads K_BASE
+            # from, which is out of scope. K therefore always lands at row 0,
+            # so every other region here is placed at row >= K_ROWS (60).
+            qrow_base_row=qk_staging_base_row,
+            # lands directly in attn_v's P slot for this head
+            s_base_row=p_base_row + h * P_HEAD_STRIDE_ROWS,
+        )
+        _, cycles = qk_app.run(max_cycles=20_000_000, state=state)
+        assert cycles > 0
+
+    state.program_counter = 0
+    av_app = AttnV16x60App(
+        inst_path=_ATTN_V_INST_BIN,
+        p_path=None,   # P already in shared XMEM from the qk_scores runs above
+        v_path=None,   # V already in shared XMEM, staged above
+        output_path=None,
+        pbase_row=p_base_row,
+        vbase_row=v_base_row,
+        obase_row=o_base_row,
+    )
+    _, cycles = av_app.run(max_cycles=20_000_000, state=state)
+    assert cycles > 0
+
+    raw = state.xmem.read_address(o_base, N_CHAN * O_CHAN_BYTES)
+    got = np.frombuffer(bytes(raw), dtype=np.float32).reshape(N_CHAN, LANES)
+
+    S = np.zeros((N_HEAD, N_TOK, N_TOK), dtype=np.float64)
+    for h in range(N_HEAD):
+        lo = h * D
+        S[h] = Q[lo:lo + D].T.astype(np.float64) @ K[lo:lo + D].astype(np.float64)
+
+    expected = np.zeros((N_HEAD, N_TOK, D), dtype=np.float64)
+    for h in range(N_HEAD):
+        for t in range(D):
+            for i in range(N_TOK):
+                expected[h, i, t] = np.sum(
+                    S[h, i, :] * V[h, t, :].astype(np.float64)
+                )
+
+    for h in range(N_HEAD):
+        for t in range(D):
+            np.testing.assert_allclose(
+                got[h * D + t, :N_TOK].astype(np.float64), expected[h, :, t],
+                rtol=1e-4, atol=1e-3,
+                err_msg=(
+                    f"shared-state chain mismatch vs numpy float64 reference "
+                    f"(head {h}, channel {t})"
+                ),
+            )

@@ -87,15 +87,42 @@ O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
 class AttnV16x60App(IpuApp):
     """attn@V AGG kernel harness (4 heads, N=16, head_dim=60)."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        *,
+        pbase_row: int = PBASE_ROW,
+        vbase_row: int = VBASE_ROW,
+        obase_row: int = OBASE_ROW,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
-        self.p_path = Path(self.p_path)
-        self.v_path = Path(self.v_path)
+        # p_path/v_path may independently be None to skip disk staging for
+        # that input and use whatever is already in the shared IpuState's
+        # XMEM (e.g. P written there by an upstream qk_scores_16x60 run in
+        # the same chain). Existing callers always pass real paths, so their
+        # behaviour is unchanged.
+        self.p_path = Path(self.p_path) if self.p_path is not None else None
+        self.v_path = Path(self.v_path) if self.v_path is not None else None
+
+        # Base rows default to the module constants (PBASE_ROW=0 etc.) so
+        # every existing caller is unaffected; passing explicit values lets a
+        # caller place this kernel's regions inside a shared IpuState instead
+        # of the row-0 layout colliding with another kernel's data.
+        self.pbase_row = pbase_row
+        self.vbase_row = vbase_row
+        self.obase_row = obase_row
+        self.pbase = pbase_row * ROW_BYTES
+        self.vbase = vbase_row * ROW_BYTES
+        self.obase = obase_row * ROW_BYTES
 
     def setup(self, state: "IpuState") -> None:
         # P and V are stored verbatim (already in the kernel's row layout).
-        state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
-        state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
+        # A None path skips that input's staging (the caller has already
+        # placed it in XMEM at this app's base row).
+        if self.p_path is not None:
+            state.xmem.write_address(self.pbase, bytearray(self.p_path.read_bytes()))
+        if self.v_path is not None:
+            state.xmem.write_address(self.vbase, bytearray(self.v_path.read_bytes()))
 
         # Only N_TOK of the 128 lanes carry real keys. AGG.SUM reduces exactly
         # valid_elements lanes, and ACTIVATE.QUANTIZE writes exactly that many
@@ -103,9 +130,9 @@ class AttnV16x60App(IpuApp):
         state.set_cr_dstructure(valid_elements=N_TOK)
 
         # CR1 (==1) is read-only hardwired; cr0 (==0) is hardwired zero.
-        state.regfile.set_cr(2, PBASE_ROW)
-        state.regfile.set_cr(3, VBASE_ROW)
-        state.regfile.set_cr(4, OBASE_ROW)
+        state.regfile.set_cr(2, self.pbase_row)
+        state.regfile.set_cr(3, self.vbase_row)
+        state.regfile.set_cr(4, self.obase_row)
         state.regfile.set_cr(5, PV_STRIDE_ROWS)     # P query / V channel stride (rows)
         state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS) # P head stride (rows)
         # Inner bound is count-1: the INC and the BLT share one bundle, so BLT
@@ -120,5 +147,5 @@ class AttnV16x60App(IpuApp):
             # N_CHAN channels, each ONE whole 512-B FP32 row (16 live lanes).
             dump_xmem_to_binary(
                 state, self.output_path,
-                OBASE, O_CHAN_BYTES, N_CHAN,
+                self.obase, O_CHAN_BYTES, N_CHAN,
             )
