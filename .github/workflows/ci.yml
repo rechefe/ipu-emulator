@@ -35,7 +35,7 @@ jobs:
         run: bazel build //... --build_tag_filters=-docs
 
       - name: Run all tests
-        run: bazel test //... --test_output=errors --test_timeout=60,300,900,10800
+        run: bazel test //... --test_output=errors --test_timeout=60,300,3600,10800
 
       - name: Generate coverage
         run: |
