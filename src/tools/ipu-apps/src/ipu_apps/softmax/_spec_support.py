@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from ipu_apps.kernel_registry import ShapeBundle, softmax_bundle
 
 LANES = 128                  # datapath width every constraint is relative to
-SINGLE_GROUP_MAX_ROWS = 128  # rows whose per-row scalars fit one 128-lane vector
+SINGLE_GROUP_MAX_ROWS = 128  # rows whose per-row scalars fit one 128-element vector
 
 WIDE_VECTOR_ONLY = (
     "Wide-vector FP32 debug mode only (wide_vector_debug=True). These apps "

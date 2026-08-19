@@ -68,7 +68,7 @@ class KernelSpec:
         explain:    ``params -> str``, why this kernel suits these params.
         caveats:    ``params -> tuple[str, ...]``, non-blocking limits that
                     still apply. Computed per query so they can quantify the
-                    actual cost (e.g. how many lanes idle at this width).
+                    actual cost (e.g. how many elements idle at this width).
         cost:       ``params -> float``, lower wins when several kernels claim
                     the same query. Making this explicit keeps resolution from
                     depending on discovery order.
