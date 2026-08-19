@@ -56,6 +56,12 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
@@ -101,13 +107,12 @@ class SoftmaxColumnsPackedApp(IpuApp):
         self.rows = int(rows)
         self.width = int(width)
 
-        if self.rows < 1:
-            raise ValueError(f"rows ({self.rows}) must be >= 1")
-        if not 1 <= self.width <= MAX_WIDTH:
-            raise ValueError(
-                f"width ({self.width}) must be in 1..{MAX_WIDTH} "
-                f"(use softmax_columns above that)"
-            )
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain.
+        # (The message this replaced still advised "use softmax_columns for
+        # width >= 128" long after that boundary had moved to 65 -- exactly the
+        # drift a single source prevents.)
+        SPEC.guard(shape=(self.rows, self.width), dim=0)
 
         # Packed group width = next pow2, but at least 16 (rpv <= 8 keeps the
         # layout simple and matches the requested {16,32,64} bands).
@@ -243,3 +248,58 @@ class SoftmaxColumnsPackedApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if q.along_rows:
+        return no("reduces along rows, not down columns")
+    if q.width > MAX_WIDTH:
+        return no(
+            f"packs whole rows into one {LANES}-element vector, so it needs a "
+            f"width <= {MAX_WIDTH}; this input is {q.width} wide"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    return {"rows": q.rows, "width": q.width}
+
+
+def _explain(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    w_pad = 16
+    while w_pad < q.width:
+        w_pad *= 2
+    rpv = LANES // w_pad
+    return (
+        f"width ({q.width}) <= {MAX_WIDTH}: packed column kernel, {rpv} rows "
+        f"packed per {LANES}-element vector (padded width {w_pad})."
+    )
+
+
+SPEC = KernelSpec(
+    name="softmax_columns_packed",
+    op="softmax",
+    variant="columns_packed",
+    app_class=SoftmaxColumnsPackedApp,
+    asm="softmax_columns_packed.asm",
+    tags=("fp32-wide", "packed"),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    # Fits several rows per vector, so it is strictly better than the general
+    # column kernel wherever it applies.
+    cost=lambda **params: 0.0,
+)
