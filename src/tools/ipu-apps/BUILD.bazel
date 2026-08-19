@@ -70,3 +70,73 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- softmax apps (FP32 wide-vector) ---------------------------------------
+#
+# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
+# the app .asm is provided as data; no pre-assembled .bin target is needed.
+
+py_pytest_test(
+    name = "test_softmax_rows",
+    srcs = ["test/test_softmax_rows.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_rows_partial",
+    srcs = ["test/test_softmax_rows_partial.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_rows_long",
+    srcs = ["test/test_softmax_rows_long.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_columns",
+    srcs = ["test/test_softmax_columns.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_columns_packed",
+    srcs = ["test/test_softmax_columns_packed.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
