@@ -121,7 +121,7 @@ class TestConvUniversalWide384:
         assert cycles > 0
 
         total_bytes = rows * out_ch * cpr * 128
-        actual = state.xmem.read_address(0x100000, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_conv_wide384(weights, input_chw, rows, width)
 
         assert len(actual) == len(expected)
@@ -187,7 +187,7 @@ class TestConvUniversalWide384:
         assert cycles > 0
 
         total_bytes = rows * out_ch * cpr * 128
-        actual = state.xmem.read_address(0x100000, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_conv_wide384(weights, input_chw, rows, width)
 
         mismatches = []

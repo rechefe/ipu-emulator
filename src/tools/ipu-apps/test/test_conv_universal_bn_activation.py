@@ -21,8 +21,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     ConvUniversalBnActivationApp,
-    OUTPUT_BASE_ADDR,
-    OUTPUT_BASE_ROW,
     OUTPUT_CHUNK_BYTES,
 )
 
@@ -152,7 +150,7 @@ class TestConvUniversalBnActivation:
         assert cycles > 0
 
         total_bytes = num_chunks * out_ch * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_conv_bn_relu(weights, input_chw, bias, rows, cols)
 
         assert len(actual) == len(expected)
@@ -247,7 +245,7 @@ class TestConvUniversalBnActivation:
         # A row is 512 B in wide mode; each output chunk starts at its own row.
         mismatches = []
         for i in range(num_chunks * out_ch):
-            actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+            actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
             want = expected[i * 128:(i + 1) * 128]
             for j in range(128):
                 if actual[j] != want[j]:
@@ -277,5 +275,5 @@ class TestConvUniversalBnActivation:
         )
         num_chunks = (rows * cols) // 128
         state, _ = app.run(max_cycles=2_000 * num_chunks * out_ch + 50_000)
-        out = state.xmem.read_address(OUTPUT_BASE_ADDR, num_chunks * out_ch * OUTPUT_CHUNK_BYTES)
+        out = state.xmem.read_address(app.output_base_addr, num_chunks * out_ch * OUTPUT_CHUNK_BYTES)
         assert out == bytes(len(out)), "ReLU should zero all negative-bias outputs"

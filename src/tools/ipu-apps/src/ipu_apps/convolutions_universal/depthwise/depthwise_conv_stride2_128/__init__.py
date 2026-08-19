@@ -116,6 +116,12 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         # setup()'s cr11 override further down uses the correct value.
         rows = kwargs["rows"]
         self.num_chunks = (rows * 128) // 128
+        # The base ctor's region layout (self._regions/output_base_row/etc.)
+        # was just computed from the placeholder cols=64's HALVED num_chunks
+        # -- undersizing the output region. Recompute now that num_chunks is
+        # correct, or stage 2's real-sized writes overrun a too-small region
+        # (caught by test_depthwise_conv_stride2_128.py).
+        self._compute_regions()
 
     def setup(self, state: "IpuState") -> None:
         # Re-run the base setup logic but with Partition.P0 instead of the
@@ -137,12 +143,16 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
             build_border_mask_blob,
         )
-        from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
-            MASK_BASE_ROW,
-        )
+        # self.mask_base_row (NOT the depthwise_conv_universal module
+        # constant) -- the base class now computes its region layout
+        # dynamically per-instance (see DepthwiseConvUniversalApp's ctor), so
+        # the fixed module-level MASK_BASE_ROW may no longer be where THIS
+        # instance's mask blob actually lives. super().setup() above already
+        # wrote CR3 from self.mask_base_row; this override must target the
+        # same address or the two writes land in different places.
         row_bytes = CHUNK_BYTES * self._element_width
         state.xmem.write_address(
-            MASK_BASE_ROW * row_bytes, build_border_mask_blob(128),
+            self.mask_base_row * row_bytes, build_border_mask_blob(128),
         )
         # CR4 = cols, read by the asm's `add lr1 lr0 cr4` (lr1 = cols, used
         # only for the kc=-1/+1 walk step `add lr3 lr3 lr1`) -- must be 128.
@@ -198,15 +208,37 @@ class DepthwiseConvStride2_128App(IpuApp):
         self.out_rows = out_rows
         self.num_row_pairs = out_rows // 2
 
-        # Stage 1's output region is [STAGE1_OUTPUT_BASE_ADDR, +rows*channels*128)
-        # (num_chunks == rows at cols=128, one 128-byte chunk per channel per
-        # row). Place stage 2's output immediately after it, row-aligned, so
-        # it can never overlap stage 1's still-unread tail chunks regardless
-        # of rows*channels (see the module-level comment on OUTPUT_BASE_ADDR
-        # for the bug this replaces -- a fixed 0x180000 base only had 2560
-        # chunks of headroom before stage 1's output spilled into it).
+        # Build stage 1 now (paths are fixed up with real files in run(), but
+        # __init__ needs no real file to exist -- IpuApp.__init__ only stores
+        # Path objects). This is the SAME instance run() actually executes,
+        # so its region layout (computed dynamically per DepthwiseConvUniversalApp's
+        # ctor -- see that class for why the fixed *_BASE_ADDR gaps were
+        # replaced) is the single source of truth for where stage 1's output
+        # really lands, instead of assuming the stale module-level
+        # STAGE1_OUTPUT_BASE_ADDR/_ROW constants.
+        self._stage1_app = _Stage1FullWidthApp(
+            inst_path=STAGE1_ASM_PATH,
+            input_path=self.input_path,
+            kernel_path=self.kernel_path,
+            output_path=None,
+            dtype="INT8",
+            rows=rows,
+            cols=128,
+            channels=channels,
+        )
+
+        # Place stage 2's output immediately after stage 1's real output
+        # region ends, row-aligned, so it can never overlap stage 1's
+        # still-unread tail chunks regardless of rows*channels (see the
+        # module-level comment on OUTPUT_BASE_ADDR for the original bug this
+        # replaced -- a fixed 0x180000 base only had 2560 chunks of headroom
+        # before stage 1's output spilled into it; now BOTH stage1's output
+        # base and stage1's output SIZE are read from the real instance
+        # rather than assumed).
         stage1_output_bytes = rows * channels * CHUNK_BYTES
-        self.output_base_addr = STAGE1_OUTPUT_BASE_ADDR + stage1_output_bytes
+        self.output_base_addr = (
+            self._stage1_app.output_base_addr + stage1_output_bytes
+        )
         self.output_base_row = self.output_base_addr // CHUNK_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
@@ -214,16 +246,10 @@ class DepthwiseConvStride2_128App(IpuApp):
         stage1_bin_path = tmp_dir / "stage1.bin"
         assemble_to_bin_file(STAGE1_ASM_PATH.read_text(), str(stage1_bin_path))
 
-        stage1_app = _Stage1FullWidthApp(
-            inst_path=stage1_bin_path,
-            input_path=self.input_path,
-            kernel_path=self.kernel_path,
-            output_path=None,
-            dtype="INT8",
-            rows=self.rows,
-            cols=128,
-            channels=self.channels,
-        )
+        stage1_app = self._stage1_app
+        stage1_app.inst_path = stage1_bin_path
+        stage1_app.input_path = self.input_path
+        stage1_app.kernel_path = self.kernel_path
         state, cycles1 = stage1_app.run(max_cycles=max_cycles)
 
         stage2_bin_path = tmp_dir / "stage2.bin"
@@ -235,7 +261,7 @@ class DepthwiseConvStride2_128App(IpuApp):
             # actually executes stage 2's freshly loaded program instead of
             # exiting immediately with 0 cycles.
             s.program_counter = 0
-            s.regfile.set_cr(3, STAGE1_OUTPUT_BASE_ROW)
+            s.regfile.set_cr(3, stage1_app.output_base_row)
             s.regfile.set_cr(4, self.channels)
             s.regfile.set_cr(5, self.output_base_row)
             s.regfile.set_cr(6, self.num_row_pairs)

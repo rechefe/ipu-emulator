@@ -62,7 +62,7 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.ipu_math import DType
 
 from ipu_apps.base import IpuApp
-from ipu_apps.convolutions_universal import CHUNK_BYTES, parse_dtype, dump_outputs
+from ipu_apps.convolutions_universal import CHUNK_BYTES, parse_dtype, dump_outputs, allocate_regions
 from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
 
 if TYPE_CHECKING:
@@ -186,6 +186,27 @@ class ConvUniversalWide384App(IpuApp):
         self.kernel_row_stride = 1
         self.total_kernel_rows = out_channels * self.blocks_per_filter
 
+        # -- Dynamic region layout -------------------------------------------
+        # See conv_universal's identical comment for the full rationale: the
+        # fixed *_BASE_ADDR gaps silently overflow at realistic channel
+        # counts (kernel size scales with out_channels*in_channels). No
+        # guard-band shift is needed here (unlike conv_universal): this app
+        # writes input data straight to its region's own base.
+        self._regions = allocate_regions([
+            ("input", in_channels * rows * self.cpr * CHUNK_BYTES),
+            ("kernel", self.total_kernel_rows * CHUNK_BYTES),
+            ("mask", CHUNK_BYTES),
+            ("output", rows * out_channels * self.cpr * CHUNK_BYTES),
+        ])
+        self.input_base_row = self._regions["input"] // CHUNK_BYTES
+        self.input_base_addr = self._regions["input"]
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
+        self.kernel_base_addr = self._regions["kernel"]
+        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
+        self.mask_base_addr = self._regions["mask"]
+        self.output_base_row = self._regions["output"] // CHUNK_BYTES
+        self.output_base_addr = self._regions["output"]
+
     def _pack_kernel(self) -> bytes:
         if self._kernel_array is not None:
             weights = np.asarray(self._kernel_array)
@@ -223,17 +244,17 @@ class ConvUniversalWide384App(IpuApp):
                 f"input has {len(input_data)} bytes, expected {expected_input_bytes} "
                 "(in_channels * rows * cpr * 128)"
             )
-        state.xmem.write_address(INPUT_BASE_ADDR, input_data)
+        state.xmem.write_address(self.input_base_addr, input_data)
 
-        state.xmem.write_address(KERNEL_BASE_ADDR, self._pack_kernel())
-        state.xmem.write_address(MASK_BASE_ADDR, build_wide384_mask_blob())
+        state.xmem.write_address(self.kernel_base_addr, self._pack_kernel())
+        state.xmem.write_address(self.mask_base_addr, build_wide384_mask_blob())
 
         state.set_cr_dstructure(valid_elements=128)  # Partition.P0 default: whole-tap masking
 
-        state.regfile.set_cr(2, INPUT_BASE_ROW)
-        state.regfile.set_cr(3, KERNEL_BASE_ROW)
-        state.regfile.set_cr(4, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(5, MASK_BASE_ROW)
+        state.regfile.set_cr(2, self.input_base_row)
+        state.regfile.set_cr(3, self.kernel_base_row)
+        state.regfile.set_cr(4, self.output_base_row)
+        state.regfile.set_cr(5, self.mask_base_row)
         state.regfile.set_cr(6, self.in_channels)
         # cr7 = interior-row runtime-loop limit: out_row_base (RELATIVE to
         # cr4, like lr7 -- see the asm init section) of the LAST row (row
@@ -256,7 +277,7 @@ class ConvUniversalWide384App(IpuApp):
             total_outputs = self.rows * self.out_channels * self.cpr
             dump_outputs(
                 state, self.output_path,
-                OUTPUT_BASE_ADDR, CHUNK_BYTES, total_outputs,
+                self.output_base_addr, CHUNK_BYTES, total_outputs,
             )
 
     def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple["IpuState", int]:

@@ -130,8 +130,69 @@ def dump_outputs(
     dump_xmem_to_binary(state, path, base, chunk_bytes, count)
 
 
+# -- Dynamic XMEM region layout ----------------------------------------------
+
+# Total XMEM available to an app, in bytes. Narrow mode caps XMEM at 16384
+# rows of 128 B; wide-vector debug mode uses 4 B/element but the *row* count
+# is what the ISA addresses, so the row budget below is mode-independent and
+# the byte figure here is the narrow-mode equivalent used for host-side
+# planning.
+XMEM_ROWS = 16384
+XMEM_BYTES = XMEM_ROWS * CHUNK_BYTES  # 2 MiB
+
+
+class XmemOverflow(ValueError):
+    """Raised when an app's regions cannot fit inside XMEM.
+
+    Carries the per-region breakdown so callers can see *which* region is
+    responsible rather than only that the total is too large.
+    """
+
+
+def allocate_regions(regions, *, xmem_bytes: int = XMEM_BYTES) -> dict:
+    """Pack named byte-sized regions into non-overlapping, chunk-aligned bases.
+
+    ``regions`` is a sequence of ``(name, size_bytes)`` pairs, laid out in the
+    order given starting at 0. Each base is rounded up to a ``CHUNK_BYTES``
+    boundary, because every XMEM operand in the row-addressed ISA is a ROW
+    number -- a region starting mid-chunk is not addressable.
+
+    Returns ``{name: base_byte_address}``.
+
+    This replaces per-app hardcoded ``*_BASE_ADDR`` constants, which reserve
+    fixed gaps sized for a guessed worst case. Those gaps are silently wrong
+    in both directions: too small for large configurations (a region overruns
+    its successor and corrupts it with no error -- e.g. a pointwise kernel of
+    out_channels * ceil(in_ch/128) * 128 bytes exceeds a 64 KiB gap once
+    out_channels > 128 at in_channels >= 512), and needlessly large for small
+    ones. Sizing from the actual configuration fixes both.
+
+    Raises :class:`XmemOverflow` if the regions do not fit.
+    """
+    bases: dict = {}
+    cursor = 0
+    for name, size in regions:
+        if size < 0:
+            raise ValueError(f"region {name!r} has negative size {size}")
+        bases[name] = cursor
+        # Advance past this region, then align the next base to a chunk.
+        cursor += size
+        cursor = ((cursor + CHUNK_BYTES - 1) // CHUNK_BYTES) * CHUNK_BYTES
+    if cursor > xmem_bytes:
+        detail = ", ".join(f"{n}={sz} B @ {bases[n]:#x}" for n, sz in regions)
+        raise XmemOverflow(
+            f"regions need {cursor} bytes ({cursor / 1048576:.2f} MiB) but XMEM "
+            f"holds {xmem_bytes} ({xmem_bytes / 1048576:.2f} MiB): {detail}"
+        )
+    return bases
+
+
 __all__ = [
     "CHUNK_BYTES",
+    "XMEM_BYTES",
+    "XMEM_ROWS",
+    "XmemOverflow",
+    "allocate_regions",
     "ACC_CHUNK_BYTES",
     "parse_dtype",
     "build_border_mask_data",

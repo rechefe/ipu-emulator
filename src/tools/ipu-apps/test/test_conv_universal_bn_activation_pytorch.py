@@ -32,7 +32,6 @@ from ipu_as.lark_tree import assemble_to_bin_file  # noqa: E402
 
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (  # noqa: E402
     ConvUniversalBnActivationApp,
-    OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
 )
 
@@ -137,7 +136,7 @@ def test_matches_pytorch_int8(tmp_path: Path, in_ch, out_ch, rows, cols) -> None
     assert cycles > 0
 
     total_bytes = num_chunks * out_ch * OUTPUT_CHUNK_BYTES
-    actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+    actual = state.xmem.read_address(app.output_base_addr, total_bytes)
     expected = pytorch_int8_conv_bn_relu(weights, input_chw, bias, rows, cols)
 
     # Compare as signed int8.
