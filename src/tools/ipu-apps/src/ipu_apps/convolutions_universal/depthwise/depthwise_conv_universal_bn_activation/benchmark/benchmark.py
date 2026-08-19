@@ -25,7 +25,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal_bn_activation import (
     DepthwiseConvUniversalBnActivationApp,
-    OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
     FPB,
 )
@@ -136,7 +135,7 @@ def run_config(inst_file: Path, rows: int, cols: int, channels: int):
         state, cycles = app.run(max_cycles=max_cyc)
 
         total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_depthwise_bn_relu(weights, input_chw, bias, rows, cols)
 
     return cycles, compare(actual, expected), state.stats.mult_utilization

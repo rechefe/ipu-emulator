@@ -58,6 +58,7 @@ from ipu_apps.convolutions_universal import (
     CHUNK_BYTES,
     parse_dtype,
     dump_outputs,
+    allocate_regions,
 )
 from ipu_apps.convolutions_universal.weights import cast_to_wire_bytes
 
@@ -321,11 +322,32 @@ class ConvUniversalBnActivationApp(IpuApp):
         self.total_kernel_bytes = (
             out_channels * self.blocks_per_filter * SUPER_BLOCK_BYTES
         )
-        # Input sits one group stride above cr_input_base so the g0 kr=-1
-        # prefetch (offset lr_chunk_base - cr6) bottoms out at exactly 0.
-        self.input_data_row = INPUT_BASE_ROW + self.in_group_stride
         # Narrow-mode default; setup() overrides it once the state's mode is known.
         self._element_width = 1
+
+        # -- Dynamic region layout -------------------------------------------
+        # See conv_universal's identical comment for the full rationale: the
+        # fixed *_BASE_ADDR gaps silently overflow at realistic channel
+        # counts (kernel size scales with out_channels*in_channels). Bias is
+        # folded into the kernel super-block here (see _pack_kernel), so
+        # there is no separate bias region -- 4 regions, same as the base app.
+        #
+        # Input sits one group stride above its own region base so the g0
+        # kr=-1 prefetch (offset lr_chunk_base - cr6) bottoms out at exactly
+        # that base rather than underflowing.
+        input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
+        self._regions = allocate_regions([
+            ("input", input_region_rows * CHUNK_BYTES),
+            ("kernel", self.total_kernel_bytes),
+            ("mask", CHUNK_BYTES),
+            ("output", self.num_chunks * out_channels * CHUNK_BYTES),
+        ])
+        self.input_base_row = self._regions["input"] // CHUNK_BYTES
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
+        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
+        self.output_base_row = self._regions["output"] // CHUNK_BYTES
+        self.output_base_addr = self._regions["output"]
+        self.input_data_row = self.input_base_row + self.in_group_stride
 
     def _pack_kernel(self) -> bytes:
         if self._kernel_array is not None:
@@ -373,7 +395,7 @@ class ConvUniversalBnActivationApp(IpuApp):
 
         # Pack and load kernel (dense FPB=28 super-block layout)
         kernel_packed = self._pack_kernel()
-        state.xmem.write_address(KERNEL_BASE_ROW * row_bytes, kernel_packed)
+        state.xmem.write_address(self.kernel_base_row * row_bytes, kernel_packed)
 
         # Border masks: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
         # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
@@ -384,7 +406,7 @@ class ConvUniversalBnActivationApp(IpuApp):
         # The mask blob does NOT widen: LDR_MULT_MASK_REG reads a fixed 128 B
         # (1 bit per lane) in both modes -- only its row address scales.
         state.xmem.write_address(
-            MASK_BASE_ROW * row_bytes, build_border_mask_blob(self.cols)
+            self.mask_base_row * row_bytes, build_border_mask_blob(self.cols)
         )
 
         # CR15 dstructure: partition so each partition group is exactly one
@@ -415,10 +437,10 @@ class ConvUniversalBnActivationApp(IpuApp):
         #     CR5  = KERNEL_BASE_ROW  (was CR1; CR5's old num_chunks value is unused in asm)
         # All four are XMEM *row* numbers, not byte addresses (see "Row
         # addressing" above) -- the emulator scales them per active mode.
-        state.regfile.set_cr(10, INPUT_BASE_ROW)
-        state.regfile.set_cr(5, KERNEL_BASE_ROW)
-        state.regfile.set_cr(2, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(3, MASK_BASE_ROW)           # single mask blob (slots 0/3/6)
+        state.regfile.set_cr(10, self.input_base_row)
+        state.regfile.set_cr(5, self.kernel_base_row)
+        state.regfile.set_cr(2, self.output_base_row)
+        state.regfile.set_cr(3, self.mask_base_row)      # single mask blob (slots 0/3/6)
         # cr9 is no longer a mask base (no reload); left unset.
 
         # Set parameter CR registers
@@ -462,5 +484,5 @@ class ConvUniversalBnActivationApp(IpuApp):
             total_outputs = self.num_chunks * self.out_channels
             dump_outputs(
                 state, self.output_path,
-                OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, total_outputs,
+                self.output_base_addr, OUTPUT_CHUNK_BYTES, total_outputs,
             )

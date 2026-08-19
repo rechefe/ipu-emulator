@@ -66,8 +66,10 @@ from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
+    CHUNK_BYTES,
     parse_dtype,
     dump_outputs,
+    allocate_regions,
 )
 # Reuse the conv_universal_bn_activation mask-blob builder so the two apps share
 # one border-mask implementation: a single 128-byte blob (slots 0/3/6) where
@@ -211,12 +213,32 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         self.group_stride = channels
         self.num_super_blocks = math.ceil(channels / FPB)
         self.total_kernel_rows = self.num_super_blocks * SUPER_BLOCK_ROWS
-        # Guard band (see depthwise_conv_universal's identical fix): place the
-        # real input data one group_stride further into the address space;
-        # cr10 stays at INPUT_BASE_ROW, and the asm's own running pointer
-        # (lr8/lr2, seeded to group_stride at init) carries the shift.
-        self.input_data_row = INPUT_BASE_ROW + self.group_stride
         self._element_width = 1
+
+        # -- Dynamic region layout -------------------------------------------
+        # See depthwise_conv_universal's identical comment for the full
+        # rationale: fixed *_BASE_ADDR gaps silently overflow at realistic
+        # channel counts. Bias is folded into the kernel super-block here
+        # (see _pack_kernel), so there is no separate bias region -- 4
+        # regions, same as the base app.
+        #
+        # Guard band: place the real input data one group_stride further
+        # into the input region than its own base; cr10 stays at that base
+        # (the asm's own running pointer, lr8/lr2, seeded to group_stride at
+        # init, carries the shift).
+        input_region_rows = self.group_stride + self.num_chunks * self.group_stride
+        self._regions = allocate_regions([
+            ("input", input_region_rows * CHUNK_BYTES),
+            ("kernel", self.total_kernel_rows * CHUNK_BYTES),
+            ("mask", CHUNK_BYTES),
+            ("output", self.num_chunks * self.channels * CHUNK_BYTES),
+        ])
+        self.input_base_row = self._regions["input"] // CHUNK_BYTES
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
+        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
+        self.output_base_row = self._regions["output"] // CHUNK_BYTES
+        self.output_base_addr = self._regions["output"]
+        self.input_data_row = self.input_base_row + self.group_stride
 
     def setup(self, state: "IpuState") -> None:
         # Master ISA: dtype is a state attribute, not a CR register.
@@ -238,14 +260,14 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         kernel_packed = _pack_depthwise_kernel_bias(
             kernel_raw, bias_bytes, self.channels, self._element_width,
         )
-        state.xmem.write_address(KERNEL_BASE_ROW * row_bytes, kernel_packed)
+        state.xmem.write_address(self.kernel_base_row * row_bytes, kernel_packed)
 
         # Border mask: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
         # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
         # slot 3, the gN section selects slot 6 — no mid-program R_MASK reload.
         # Left/right edge columns are applied at runtime by mask_shift (CR15
         # partition below).  No zero region.
-        state.xmem.write_address(MASK_BASE_ROW * row_bytes, build_border_mask_blob(self.cols))
+        state.xmem.write_address(self.mask_base_row * row_bytes, build_border_mask_blob(self.cols))
 
         # CR15 dstructure: partition so each partition group is exactly one
         # packed spatial row (group size == cols).  The asm's mask_shift then
@@ -274,13 +296,13 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         #   CR10 = INPUT_BASE_ROW (cyclic-load base; UN-shifted -- the asm's
         #   own running pointer carries the guard-band group_stride).
         #   CR5 = KERNEL_BASE row, CR3 = mask blob row (single blob, slots 0/3/6).
-        state.regfile.set_cr(10, INPUT_BASE_ROW)
-        state.regfile.set_cr(5, KERNEL_BASE_ROW)
+        state.regfile.set_cr(10, self.input_base_row)
+        state.regfile.set_cr(5, self.kernel_base_row)
         # cr2 is pre-biased by -1 ROW for the deferred store (asm advances lr7
         # BEFORE the XMEM store at tap 2; store writes to lr7_advanced + cr2 =
         # lr7_old + OUTPUT_BASE_ROW).
-        state.regfile.set_cr(2, (OUTPUT_BASE_ROW - 1) & 0xFFFFFFFF)
-        state.regfile.set_cr(3, MASK_BASE_ROW)
+        state.regfile.set_cr(2, (self.output_base_row - 1) & 0xFFFFFFFF)
+        state.regfile.set_cr(3, self.mask_base_row)
         # cr9 = 384: r_cyclic ELEMENT slot-pointer step (+384 mod 512) for the
         # running write pointer lr5 -- unchanged by row addressing.
         state.regfile.set_cr(9, 384)
@@ -307,5 +329,5 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
             total_outputs = self.num_chunks * self.channels
             dump_outputs(
                 state, self.output_path,
-                OUTPUT_BASE_ADDR, OUTPUT_CHUNK_BYTES, total_outputs,
+                self.output_base_addr, OUTPUT_CHUNK_BYTES, total_outputs,
             )

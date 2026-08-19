@@ -18,8 +18,6 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
-    OUTPUT_BASE_ADDR,
-    OUTPUT_BASE_ROW,
     OUTPUT_CHUNK_BYTES,
     FPB,
 )
@@ -152,7 +150,7 @@ class TestDepthwiseConvUniversal:
         assert cycles > 0
 
         total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_depthwise(input_packed, kernel_raw, rows, cols, channels)
 
         assert len(actual) == len(expected)
@@ -198,7 +196,7 @@ class TestDepthwiseConvUniversal:
         num_chunks = (rows * cols) // 128
         state, _ = app.run(max_cycles=500_000)
         total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         assert all(struct.unpack_from("b", actual, i)[0] < 0 for i in range(len(actual))), (
             "expected all-negative outputs (no ReLU applied)"
         )
@@ -268,7 +266,7 @@ class TestDepthwiseConvUniversalWideVectorDebug:
         mismatches = []
         total = num_chunks * channels
         for i in range(total):
-            actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+            actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
             want = expected[i * 128:(i + 1) * 128]
             for j in range(128):
                 if actual[j] != want[j]:

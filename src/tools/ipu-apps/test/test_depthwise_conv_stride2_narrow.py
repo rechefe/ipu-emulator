@@ -18,7 +18,6 @@ import pytest
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_narrow import (
     DepthwiseConvStride2NarrowApp,
-    OUTPUT_BASE_ADDR,
     CHUNK_BYTES,
 )
 
@@ -126,7 +125,7 @@ class TestDepthwiseConvStride2Narrow:
             for ch in range(channels):
                 chunk_idx = og * channels + ch
                 actual = state.xmem.read_address(
-                    OUTPUT_BASE_ADDR + chunk_idx * CHUNK_BYTES, 128,
+                    app.output_base_addr + chunk_idx * CHUNK_BYTES, 128,
                 )
                 for local_row in range(out_rows_per_chunk):
                     orow = og * out_rows_per_chunk + local_row

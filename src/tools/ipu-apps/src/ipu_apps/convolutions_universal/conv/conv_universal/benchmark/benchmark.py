@@ -23,7 +23,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.conv.conv_universal import (
     ConvUniversalApp,
-    OUTPUT_BASE_ADDR,
     OUTPUT_CHUNK_BYTES,
 )
 from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
@@ -128,7 +127,7 @@ def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
         state, cycles = app.run(max_cycles=max_cyc)
 
         total_bytes = num_chunks * out_ch * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_conv(weights, input_chw, rows, cols)
 
     mismatches = compare(actual, expected, out_ch, cols)

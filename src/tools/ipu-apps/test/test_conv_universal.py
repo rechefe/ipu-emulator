@@ -21,8 +21,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.conv.conv_universal import (
     ConvUniversalApp,
-    OUTPUT_BASE_ADDR,
-    OUTPUT_BASE_ROW,
     OUTPUT_CHUNK_BYTES,
 )
 from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
@@ -163,7 +161,7 @@ class TestConvUniversal:
         assert cycles > 0
 
         total_bytes = num_chunks * out_ch * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
         expected = reference_conv_universal(weights, input_chw, rows, cols)
 
         assert len(actual) == len(expected)
@@ -259,7 +257,7 @@ class TestConvUniversalWideVectorDebug:
 
         mismatches = []
         for i in range(num_chunks * out_ch):
-            actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+            actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
             want = expected[i * 128:(i + 1) * 128]
             for j in range(128):
                 if actual[j] != want[j]:

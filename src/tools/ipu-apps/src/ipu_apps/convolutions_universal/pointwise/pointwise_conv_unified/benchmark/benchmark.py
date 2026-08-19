@@ -21,7 +21,6 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
     PointwiseConvUnifiedApp,
-    OUTPUT_BASE_ADDR,
 )
 from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
@@ -67,10 +66,10 @@ def reference_pointwise(weights, input_chw):
     return result.clip(-128, 127).astype(np.int8)
 
 
-def read_output(state, rows, cols, out_ch):
+def read_output(state, rows, cols, out_ch, output_base_addr):
     rows_per_chunk = 128 // cols
     row_groups = (rows * cols) // 128
-    raw = state.xmem.read_address(OUTPUT_BASE_ADDR, row_groups * out_ch * 128)
+    raw = state.xmem.read_address(output_base_addr, row_groups * out_ch * 128)
     vals = np.frombuffer(raw, dtype=np.uint8).reshape(row_groups, out_ch, 128)
     result = np.empty((out_ch, rows, cols), dtype=np.int8)
     for rg in range(row_groups):
@@ -107,7 +106,7 @@ def run_config(inst_file, rows, cols, in_ch, out_ch):
         max_cyc = 200 * in_ch * out_ch * (rows * cols // 128) + 100_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, rows, cols, out_ch)
+        actual = read_output(state, rows, cols, out_ch, app.output_base_addr)
         expected = reference_pointwise(weights, input_chw)
 
     mismatches = int(np.sum(actual != expected))

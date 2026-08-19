@@ -33,6 +33,42 @@ from ipu_apps.convolutions_universal.layers import (  # noqa: E402
     truncate_width,
     unpack_output_chunked,
 )
+from ipu_apps.convolutions_universal import (  # noqa: E402
+    CHUNK_BYTES,
+    XmemOverflow,
+    allocate_regions,
+)
+
+
+class TestAllocateRegions:
+    """allocate_regions -- the dynamic XMEM layout that replaced pointwise_conv_unified's
+    fixed *_BASE_ADDR gaps (see module docstring in convolutions_universal/__init__.py
+    for why: a fixed 64 KiB kernel gap silently overflowed into the mask region for
+    in_channels=512, out_channels=160, corrupting output with no error)."""
+
+    def test_bases_are_sequential_and_chunk_aligned(self) -> None:
+        bases = allocate_regions([("a", 100), ("b", 200), ("c", 128)])
+        assert bases["a"] == 0
+        # "a" is 100 B -> next base rounds up to the 128 B chunk boundary
+        assert bases["b"] == CHUNK_BYTES
+        # "b" is 200 B starting at 128 -> ends at 328 -> rounds up to 384
+        assert bases["c"] == 3 * CHUNK_BYTES
+        for base in bases.values():
+            assert base % CHUNK_BYTES == 0
+
+    def test_zero_size_region_takes_no_space(self) -> None:
+        bases = allocate_regions([("a", 0), ("b", 128)])
+        assert bases["a"] == 0
+        assert bases["b"] == 0
+
+    def test_overflow_raises_with_breakdown(self) -> None:
+        with pytest.raises(XmemOverflow, match="a=.*b="):
+            allocate_regions([("a", 3 * 1024 * 1024), ("b", 128)])
+
+    def test_exact_fit_does_not_raise(self) -> None:
+        from ipu_apps.convolutions_universal import XMEM_BYTES
+        bases = allocate_regions([("only", XMEM_BYTES)])
+        assert bases["only"] == 0
 
 
 class TestWidthPaddingRoundtrip:
@@ -72,12 +108,17 @@ class TestQuantizeInt8:
 
 def _reference_conv(
     x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None,
-    *, stride: int, groups: int, relu: bool,
+    *, stride: int, groups: int, relu: bool, padding: int = 1,
 ) -> torch.Tensor:
-    """IPU-math-equivalent reference: exact-int F.conv2d, +bias, ReLU, clamp."""
+    """IPU-math-equivalent reference: exact-int F.conv2d, +bias, ReLU, clamp.
+
+    ``padding`` defaults to 1 ("same" for the k=3 apps every other caller in
+    this file exercises); 1x1 (pointwise) callers pass padding=0 explicitly,
+    since a 1x1 kernel has no neighbourhood to pad for.
+    """
     out = F.conv2d(
         x.unsqueeze(0).to(torch.int64), weight.to(torch.int64),
-        bias=None, padding=1, stride=stride, groups=groups,
+        bias=None, padding=padding, stride=stride, groups=groups,
     )[0]
     if bias is not None:
         out = out + bias.to(torch.int64).view(-1, 1, 1)
@@ -189,6 +230,72 @@ class TestSmallImages:
         assert torch.equal(out, expected)
 
 
+class TestRunLayerPointwise:
+    """1x1 (pointwise) dispatch: no spatial neighbourhood, so no mask/edge
+    concerns -- see layers.py's _pointwise_pad_shape docstring. Covers the
+    plain single-pass case, the multi-pass kernel-region-overflow shape that
+    was found broken in pointwise_conv_unified itself (in_channels=512,
+    out_channels=160 needs 81,920 B against the app's old fixed 64 KiB kernel
+    gap -- fixed by dynamic region allocation, see allocate_regions in
+    convolutions_universal/__init__.py), and the 8x8 spatial floor a plain
+    1x1 conv has no other reason to reject."""
+
+    def test_plain_1x1_no_bias(self) -> None:
+        torch.manual_seed(4)
+        layer = torch.nn.Conv2d(16, 8, kernel_size=1, bias=False)
+        layer.weight.data = torch.randint(-4, 5, (8, 16, 1, 1)).to(torch.float32)
+        x = torch.randint(-4, 5, (16, 16, 16)).to(torch.float32)
+
+        out = run_layer(layer, x)
+        expected = _reference_conv(x, layer.weight.data, None, stride=1, groups=1, relu=False, padding=0)
+        assert out.shape == expected.shape == (8, 16, 16)
+        assert torch.equal(out, expected)
+
+    def test_1x1_bias_relu(self) -> None:
+        torch.manual_seed(5)
+        layer = torch.nn.Conv2d(16, 8, kernel_size=1, bias=True)
+        layer.weight.data = torch.randint(-4, 5, (8, 16, 1, 1)).to(torch.float32)
+        layer.bias.data = torch.randint(-40, 41, (8,)).to(torch.float32)
+        x = torch.randint(-4, 5, (16, 16, 16)).to(torch.float32)
+
+        out = run_layer(layer, x, apply_relu=True)
+        expected = _reference_conv(
+            x, layer.weight.data, layer.bias.data, stride=1, groups=1, relu=True, padding=0,
+        )
+        assert torch.equal(out, expected)
+
+    def test_1x1_8x8_spatial_floor(self) -> None:
+        """8x8 has no reason to be rejected for a 1x1 conv (no 3x3
+        neighbourhood, no {16,32,64,128} floor) -- verifies width pads only
+        to 16 (not to 64+), leaving row padding untouched."""
+        torch.manual_seed(6)
+        layer = torch.nn.Conv2d(160, 160, kernel_size=1, bias=False)
+        layer.weight.data = torch.randint(-3, 4, (160, 160, 1, 1)).to(torch.float32)
+        x = torch.randint(-3, 4, (160, 8, 8)).to(torch.float32)
+
+        out = run_layer(layer, x)
+        expected = _reference_conv(x, layer.weight.data, None, stride=1, groups=1, relu=False, padding=0)
+        assert out.shape == expected.shape == (160, 8, 8)
+        assert torch.equal(out, expected)
+
+    def test_1x1_multipass_kernel_region_overflow_shape(self) -> None:
+        """in_channels=512 (4 passes) x out_channels=160 needs a kernel
+        region of 81,920 B -- over pointwise_conv_unified's old fixed 64 KiB
+        gap, which silently corrupted output channel 128 onward with no
+        error before the dynamic-region-allocation fix. Regression guard for
+        that specific shape, at the 8x8 floor used by MobileViT's
+        stages.4.0.conv3_1x1."""
+        torch.manual_seed(7)
+        layer = torch.nn.Conv2d(512, 160, kernel_size=1, bias=False)
+        layer.weight.data = torch.randint(-3, 4, (160, 512, 1, 1)).to(torch.float32)
+        x = torch.randint(-3, 4, (512, 8, 8)).to(torch.float32)
+
+        out = run_layer(layer, x)
+        expected = _reference_conv(x, layer.weight.data, None, stride=1, groups=1, relu=False, padding=0)
+        assert out.shape == expected.shape == (160, 8, 8)
+        assert torch.equal(out, expected)
+
+
 class TestRefusals:
 
     def _depthwise_layer(self, **kw) -> torch.nn.Conv2d:
@@ -263,6 +370,36 @@ class TestRefusals:
         with pytest.raises(UnsupportedLayer, match="non-square"):
             run_layer(layer, x)
 
+    def test_1x1_stride2_refused(self) -> None:
+        layer = torch.nn.Conv2d(8, 8, kernel_size=1, stride=2, bias=False)
+        x = torch.zeros(8, 8, 8)
+        with pytest.raises(UnsupportedLayer, match="stride"):
+            run_layer(layer, x)
+
+    def test_1x1_groups_refused(self) -> None:
+        layer = torch.nn.Conv2d(8, 8, kernel_size=1, groups=8, bias=False)
+        x = torch.zeros(8, 8, 8)
+        with pytest.raises(UnsupportedLayer, match="groups"):
+            run_layer(layer, x)
+
+    def test_1x1_in_channels_not_multiple_of_8_refused(self) -> None:
+        layer = torch.nn.Conv2d(6, 8, kernel_size=1, bias=False)
+        x = torch.zeros(6, 8, 8)
+        with pytest.raises(UnsupportedLayer, match="in_channels"):
+            run_layer(layer, x)
+
+    def test_1x1_out_channels_not_multiple_of_4_refused(self) -> None:
+        layer = torch.nn.Conv2d(8, 6, kernel_size=1, bias=False)
+        x = torch.zeros(8, 8, 8)
+        with pytest.raises(UnsupportedLayer, match="out_channels"):
+            run_layer(layer, x)
+
+    def test_1x1_bias_without_apply_relu_refused(self) -> None:
+        layer = torch.nn.Conv2d(8, 8, kernel_size=1, bias=True)
+        x = torch.zeros(8, 8, 8)
+        with pytest.raises(UnsupportedLayer, match="apply_relu=False"):
+            run_layer(layer, x, apply_relu=False)
+
 
 class TestResolve:
     """Framework-free dispatch check (no torch layer needed, just the dataclass)."""
@@ -301,3 +438,17 @@ class TestResolve:
             padding=1, dilation=1, groups=4, has_bias=False,
         )
         assert resolve(desc) == "depthwise_conv_stride2_128"
+
+    def test_pointwise_no_bias(self) -> None:
+        desc = Conv2dDescription(
+            in_channels=8, out_channels=8, kernel_size=1, stride=1,
+            padding=0, dilation=1, groups=1, has_bias=False,
+        )
+        assert resolve(desc) == "pointwise_conv_unified"
+
+    def test_pointwise_bias_relu(self) -> None:
+        desc = Conv2dDescription(
+            in_channels=8, out_channels=8, kernel_size=1, stride=1,
+            padding=0, dilation=1, groups=1, has_bias=True, apply_relu=True,
+        )
+        assert resolve(desc) == "pointwise_conv_unified_bn_activation"

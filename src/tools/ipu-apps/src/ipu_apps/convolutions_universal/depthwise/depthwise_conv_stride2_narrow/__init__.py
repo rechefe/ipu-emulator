@@ -75,7 +75,6 @@ from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import dump_outputs
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
-    OUTPUT_BASE_ROW as STAGE1_OUTPUT_BASE_ROW,
     CHUNK_BYTES,
 )
 
@@ -158,21 +157,41 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         self.out_rows_per_chunk = 128 // self.out_cols
         self.num_out_groups = self.out_rows // self.out_rows_per_chunk
 
+        # Build stage 1 now (paths are fixed up with real files in run(), but
+        # __init__ needs no real file to exist -- IpuApp.__init__ only stores
+        # Path objects). This is the SAME instance run() actually executes,
+        # so its region layout (computed dynamically per DepthwiseConvUniversalApp's
+        # ctor -- see that class for why the fixed *_BASE_ADDR gaps were
+        # replaced) is the single source of truth for where stage 1's output
+        # really lands, instead of assuming the stale module-level
+        # STAGE1_OUTPUT_BASE_ROW constant (see depthwise_conv_stride2_128's
+        # identical fix for the bug this pattern caught there).
+        self._stage1_app = DepthwiseConvUniversalApp(
+            inst_path=STAGE1_ASM_PATH,
+            input_path=self.input_path,
+            kernel_path=self.kernel_path,
+            output_path=None,
+            dtype="INT8",
+            rows=rows,
+            cols=cols,
+            channels=channels,
+        )
+
+        # Place stage 2's output immediately after stage 1's real output
+        # region ends, row-aligned (same convention as the cols=128 sibling).
+        stage1_output_bytes = self.in_row_groups * channels * CHUNK_BYTES
+        self.output_base_addr = (
+            self._stage1_app.output_base_addr + stage1_output_bytes
+        )
+        self.output_base_row = self.output_base_addr // CHUNK_BYTES
+
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
         tmp_dir = Path(tempfile.mkdtemp(prefix="depthwise_stride2_narrow_"))
         stage1_bin_path = tmp_dir / "stage1.bin"
         assemble_to_bin_file(STAGE1_ASM_PATH.read_text(), str(stage1_bin_path))
 
-        stage1_app = DepthwiseConvUniversalApp(
-            inst_path=stage1_bin_path,
-            input_path=self.input_path,
-            kernel_path=self.kernel_path,
-            output_path=None,
-            dtype="INT8",
-            rows=self.rows,
-            cols=self.cols,
-            channels=self.channels,
-        )
+        stage1_app = self._stage1_app
+        stage1_app.inst_path = stage1_bin_path
         state, cycles1 = stage1_app.run(max_cycles=max_cycles)
 
         stage2_src = jinja2.Template(STAGE2_ASM_TEMPLATE_PATH.read_text()).render(
@@ -192,9 +211,9 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
             # MULT_RES/ACC.STRIDE/ACTIVATE.QUANTIZE view -- reset to no
             # partitioning, all 128 lanes active.
             s.set_cr_dstructure(valid_elements=128, partition=Partition.P0)
-            s.regfile.set_cr(3, STAGE1_OUTPUT_BASE_ROW)
+            s.regfile.set_cr(3, stage1_app.output_base_row)
             s.regfile.set_cr(4, self.channels)
-            s.regfile.set_cr(5, OUTPUT_BASE_ROW)
+            s.regfile.set_cr(5, self.output_base_row)
             s.regfile.set_cr(6, self.num_out_groups)
 
         state2, cycles2 = run_test(
@@ -209,7 +228,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
             total_outputs = self.num_out_groups * self.channels
             dump_outputs(
                 state2, self.output_path,
-                OUTPUT_BASE_ADDR, CHUNK_BYTES, total_outputs,
+                self.output_base_addr, CHUNK_BYTES, total_outputs,
             )
 
         return state2, cycles1 + cycles2

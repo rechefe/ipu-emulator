@@ -15,27 +15,37 @@ re-exposed as one more ``SPEC`` once that registry lands; until then this
 module has no registry dependency and works standalone.
 
 Supported today:
-  - ``kernel_size == 3``, ``dilation == 1``, zero-padding == 1 ("same" for k=3)
-  - ``stride in {1, 2}``
-  - ``groups in {1, in_channels}`` (plain conv or fully depthwise)
+  - ``kernel_size == 3`` (conv_universal / depthwise_conv_universal family):
+    ``dilation == 1``, zero-padding == 1 ("same" for k=3), ``stride in {1, 2}``,
+    ``groups in {1, in_channels}`` (plain conv or fully depthwise)
+  - ``kernel_size == 1`` (pointwise_conv_unified family): ``groups == 1``,
+    ``stride == 1``, ``padding == 0`` (no neighbourhood to pad), in_channels a
+    multiple of 8, out_channels a multiple of 4 -- pointwise_conv_unified's own
+    constraints
   - ``dtype`` INT8 only (the only dtype the underlying apps' bias/activation
     path supports end-to-end)
-  - ANY spatial width from 1 to 128 (columns are zero-padded up to the
-    nearest of {16, 32, 64, 128} and the output truncated back to the true
-    width), and ANY row count the underlying app's own floor would
-    otherwise reject -- stride-1 apps require ``rows*cols >= 256``
-    (``num_chunks >= 2``), stride-2's ``depthwise_conv_stride2_128``
-    requires ``rows`` to be a multiple of 4 and >= 4. Both floors are
-    satisfied by padding ROWS the same zero-pad-then-truncate way as
-    columns, entirely transparent to the caller. Verified bit-exact against
-    a numpy/F.conv2d reference across width 1/2/5/8/15/16/17/31/63/65/99/
-    100/101/125/126/127/128 crossed with rows 1-7, for both stride 1 and 2
-    (see test_layers.py's TestSmallImages and the boundary-width classes).
+  - ANY spatial width from 1 to 128. For k=3, columns are zero-padded up to
+    the nearest of {16, 32, 64, 128}; for k=1, columns pad only up to the
+    nearest divisor of 128 (finer-grained, since a 1x1 conv has no
+    neighbourhood a mask needs to protect -- e.g. width=8 needs no column
+    padding at all). ANY row count the underlying app's own floor would
+    otherwise reject is likewise handled by row padding -- k=3 stride-1 apps
+    require ``rows*cols >= 256`` (``num_chunks >= 2``), k=1 requires
+    ``rows*cols`` to be a whole number of 128-byte chunks, stride-2's
+    ``depthwise_conv_stride2_128`` requires ``rows`` to be a multiple of 4 and
+    >= 4. All are satisfied by padding ROWS the same zero-pad-then-truncate
+    way as columns, entirely transparent to the caller. Verified bit-exact
+    against a numpy/F.conv2d reference across width 1/2/5/8/15/16/17/31/63/
+    65/99/100/101/125/126/127/128 crossed with rows 1-7 for k=3 stride 1/2
+    (see test_layers.py's TestSmallImages and the boundary-width classes),
+    and at 8x8->8x16 padding plus in_channels up to 512 (crossing the
+    multi-pass kernel-region boundary) for k=1.
 
 Explicitly out of scope (raises :class:`UnsupportedLayer`):
-  - ``dilation != 1``, ``kernel_size != 3``, non-"same" padding
-  - ``groups`` not in ``{1, in_channels}`` (grouped-but-not-depthwise conv)
-  - ``stride`` not in ``{1, 2}``
+  - ``dilation != 1``, ``kernel_size`` not in ``{1, 3}``, non-"same" k=3 padding
+  - ``groups`` not in ``{1, in_channels}`` for k=3; any ``groups != 1`` for k=1
+    (a 1x1 depthwise conv has no matching app)
+  - ``stride`` not in ``{1, 2}`` for k=3; ``stride != 1`` for k=1
   - width > 128 (nothing but the experimental, unoptimized
     ``conv_universal_wide384`` handles that, and it is not wired in here)
   - folding a separate ``nn.BatchNorm2d`` -- only ``Conv2d.bias`` (a plain
@@ -75,6 +85,12 @@ from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal_bn_activ
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_128 import (
     DepthwiseConvStride2_128App,
 )
+from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
+    PointwiseConvUnifiedApp,
+)
+from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified_bn_activation import (
+    PointwiseConvUnifiedBnActivationApp,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -97,6 +113,15 @@ _DW_BN_ASM_PATH = (
     Path(__file__).resolve().parent
     / "depthwise" / "depthwise_conv_universal_bn_activation"
     / "depthwise_conv_universal_bn_activation.asm"
+)
+_PW_ASM_PATH = (
+    Path(__file__).resolve().parent
+    / "pointwise" / "pointwise_conv_unified" / "pointwise_conv_unified.asm"
+)
+_PW_BN_ASM_PATH = (
+    Path(__file__).resolve().parent
+    / "pointwise" / "pointwise_conv_unified_bn_activation"
+    / "pointwise_conv_unified_bn_activation.asm"
 )
 
 _VALID_COLS = (16, 32, 64, 128)
@@ -174,6 +199,31 @@ def truncate_rows(output_cow: np.ndarray, true_out_rows: int) -> np.ndarray:
     return output_cow[:, :true_out_rows, :]
 
 
+def _pointwise_pad_shape(rows: int, width: int) -> tuple[int, int]:
+    """Smallest ``(padded_rows, padded_cols)`` >= ``(rows, width)`` such that
+    ``padded_cols`` divides 128 and ``padded_rows * padded_cols`` is a whole
+    number of 128-byte chunks.
+
+    Pointwise (1x1) has no spatial neighbours, so a padded lane cannot leak
+    into a real lane through the conv -- unlike the k=3 apps, no mask care is
+    needed here (the app already loads an all-keep mask). Verified bit-exact
+    at 8x8->8x16 (padded columns read back as exactly zero, all real-column
+    outputs match a numpy reference).
+
+    Unlike k=3's ``_next_valid_cols``, this does not round up to {16,32,64,128}
+    -- pointwise's own constraint is only "divides 128", so e.g. width=8 stays
+    8 (no padding at all) unless rows*8 isn't already a multiple of 128, in
+    which case only ROWS pad (see the docstring's 8x8 example below).
+    """
+    padded_cols = width
+    while 128 % padded_cols != 0:
+        padded_cols += 1
+    padded_rows = rows
+    while (padded_rows * padded_cols) % 128 != 0:
+        padded_rows += 1
+    return padded_rows, padded_cols
+
+
 # ============================================================================
 # INT8 quantization (refuses to guess a scale for you)
 # ============================================================================
@@ -217,8 +267,11 @@ def pack_input_chunked(input_chw: np.ndarray) -> bytes:
     rows_per_chunk; offset = (chunk*channels + ch)*128 + local_row*cols + c.
     """
     channels, rows, cols = input_chw.shape
-    if cols not in _VALID_COLS:
-        raise ValueError(f"cols must be one of {_VALID_COLS}, got {cols}")
+    if 128 % cols != 0:
+        raise ValueError(
+            f"cols must divide 128 (the .asm packs whole spatial rows into a "
+            f"128-byte chunk), got {cols}"
+        )
     rows_per_chunk = 128 // cols
     num_chunks = math.ceil(rows / rows_per_chunk)
     packed = bytearray(num_chunks * channels * 128)
@@ -314,6 +367,48 @@ def from_torch_conv2d(
 
 
 def _validate(desc: Conv2dDescription) -> None:
+    if desc.kernel_size not in (1, 3):
+        raise UnsupportedLayer(
+            f"kernel_size={desc.kernel_size} is not supported; only 1x1 "
+            "(pointwise) and 3x3 kernels are implemented"
+        )
+    if desc.kernel_size == 1:
+        # 1x1 has its own, much smaller, constraint set -- it skips every
+        # k=3-specific check below (dilation/padding/stride/depthwise are
+        # about the 3x3 neighbourhood, which a pointwise conv doesn't have).
+        if desc.padding != 0:
+            raise UnsupportedLayer(
+                f"padding={desc.padding} is not supported for a 1x1 kernel; "
+                "only padding=0 (1x1 has no neighbourhood to pad for)"
+            )
+        if desc.stride != 1:
+            raise UnsupportedLayer(
+                f"stride={desc.stride} is not supported for a 1x1 kernel; "
+                "only stride=1 is implemented (pointwise_conv_unified)"
+            )
+        if desc.groups != 1:
+            raise UnsupportedLayer(
+                f"groups={desc.groups} is not supported for a 1x1 kernel; "
+                "only groups=1 is implemented (a 1x1 depthwise conv has no "
+                "matching app)"
+            )
+        if desc.in_channels % 8 != 0:
+            raise UnsupportedLayer(
+                f"in_channels={desc.in_channels} must be a multiple of 8 for "
+                "a 1x1 kernel (pointwise_conv_unified's own constraint)"
+            )
+        if desc.out_channels % 4 != 0:
+            raise UnsupportedLayer(
+                f"out_channels={desc.out_channels} must be a multiple of 4 "
+                "for a 1x1 kernel (pointwise_conv_unified's own constraint)"
+            )
+        if desc.has_bias and not desc.apply_relu:
+            raise UnsupportedLayer(
+                "has_bias=True with apply_relu=False has no matching app: "
+                "pointwise_conv_unified_bn_activation (the only 1x1 app with "
+                "bias support) unconditionally applies ReLU."
+            )
+        return
     if desc.kernel_size != 3:
         raise UnsupportedLayer(
             f"kernel_size={desc.kernel_size} is not supported; only 3x3 "
@@ -411,6 +506,53 @@ def run_layer(
     input_np = quantize_int8(input_tensor)
     weight_np = quantize_int8(layer.weight)
     bias_np = quantize_int8(layer.bias) if desc.has_bias else None
+
+    if desc.kernel_size == 1:
+        # 1x1 has no spatial neighbourhood, so it uses its own (finer-grained)
+        # padding rule rather than k=3's {16,32,64,128} set -- see
+        # _pointwise_pad_shape's docstring for why no mask care is needed.
+        padded_rows, padded_cols = _pointwise_pad_shape(height, width)
+        padded = pad_width_to_cols(input_np, padded_cols)
+        if padded_rows != height:
+            padded = pad_rows(padded, padded_rows)
+
+        with tempfile.TemporaryDirectory(prefix="run_layer_pw_") as tmp_s:
+            tmp = Path(tmp_s)
+            input_file = tmp / "input.bin"
+            kernel_file = tmp / "kernel.bin"
+            output_file = tmp / "output.bin"
+
+            input_file.write_bytes(pack_input_chunked(padded))
+            # Raw [out_channels, in_channels] layout -- the app's own
+            # _pack_kernel does the multi-pass/128-padding packing.
+            kernel_file.write_bytes(
+                weight_np.reshape(desc.out_channels, desc.in_channels).tobytes()
+            )
+
+            bin_path = tmp / "assembled.bin"
+            if desc.apply_relu:
+                assemble_to_bin_file(_PW_BN_ASM_PATH.read_text(), str(bin_path))
+                app = PointwiseConvUnifiedBnActivationApp(
+                    inst_path=bin_path, input_path=input_file,
+                    kernel_path=kernel_file, bias=bias_np, output_path=output_file,
+                    dtype="INT8", rows=padded_rows, cols=padded_cols,
+                    in_channels=desc.in_channels, out_channels=desc.out_channels,
+                )
+            else:
+                assemble_to_bin_file(_PW_ASM_PATH.read_text(), str(bin_path))
+                app = PointwiseConvUnifiedApp(
+                    inst_path=bin_path, input_path=input_file,
+                    kernel_path=kernel_file, output_path=output_file,
+                    dtype="INT8", rows=padded_rows, cols=padded_cols,
+                    in_channels=desc.in_channels, out_channels=desc.out_channels,
+                )
+            app.run(max_cycles=max_cycles)
+            out_arr = unpack_output_chunked(
+                output_file.read_bytes(), desc.out_channels, padded_rows, padded_cols,
+            )
+            out_arr = truncate_rows(out_arr, height)
+            out_arr = truncate_width(out_arr, width)
+            return torch.from_numpy(out_arr.copy())
 
     is_depthwise = desc.groups == desc.in_channels
     cols = _next_valid_cols(width)
@@ -533,6 +675,11 @@ def resolve(desc: Conv2dDescription) -> str:
     Does not run anything -- use :func:`run_layer` for that.
     """
     _validate(desc)
+    if desc.kernel_size == 1:
+        return (
+            "pointwise_conv_unified_bn_activation" if desc.apply_relu
+            else "pointwise_conv_unified"
+        )
     is_depthwise = desc.groups == desc.in_channels
     if desc.stride == 2:
         return "depthwise_conv_stride2_128"
