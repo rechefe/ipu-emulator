@@ -158,3 +158,36 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- Selective scan (Mamba / MambaVision) ----------------------------------
+#
+# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
+# the app .asm is provided as data; no pre-assembled .bin target is needed.
+
+# bazel run //src/tools/ipu-apps:selective_scan -- --stage 4
+# The .asm is data rather than a pre-assembled .bin because __main__ assembles
+# in-process; data puts it next to __main__.py in runfiles, where the module
+# looks for it.
+py_binary(
+    name = "selective_scan",
+    srcs = ["src/ipu_apps/selective_scan/__main__.py"],
+    main = "src/ipu_apps/selective_scan/__main__.py",
+    data = [
+        "src/ipu_apps/selective_scan/selective_scan.asm",
+    ],
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_selective_scan",
+    srcs = ["test/test_selective_scan.py"],
+    data = [
+        "src/ipu_apps/selective_scan/selective_scan.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
