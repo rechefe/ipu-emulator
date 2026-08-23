@@ -40,6 +40,7 @@ SPEC = KernelSpec(
     variant="columns",
     app_class=SoftmaxColumnsApp,
     asm="softmax_columns.asm",
+    requires=("shape", "dim"),  # params the callbacks index
     supports=_supports,   # params -> Support (the domain)
     build=_build,         # params -> constructor kwargs
     explain=_explain,     # params -> why this kernel
@@ -129,6 +130,13 @@ selects a kernel, so both are required.
 Adapters are matched on the layer's **class name**, so the registry never
 imports torch and torch stays an optional dependency.
 
+Every adapter lives beside the kernels it serves — softmax's are in
+`ipu_apps/softmax/_spec_support.py`, not in the registry core — so no
+operation's vocabulary leaks into the op-agnostic layer. They register as an
+import side effect of that package, which is why `from_layer` runs discovery
+before looking one up: an adapter in a package nothing has imported yet has not
+registered.
+
 Adapters follow two rules, because both failure modes are silent:
 
 - **Enumerate what you understand; refuse the rest.** An adapter that ignores
@@ -158,6 +166,11 @@ n (row length) 129..139      softmax_rows_long
 
 Because the table is probed rather than maintained, it cannot describe
 behaviour the kernels do not have.
+
+The routing tables printed in these pages *are* checked-in text, though, so
+`test/test_docs_routing.py` reads them back and probes the registry at every
+boundary they claim — including that each run really does change hands where it
+says. A kernel domain that moves without the docs following fails there.
 
 ## What keeps it honest
 

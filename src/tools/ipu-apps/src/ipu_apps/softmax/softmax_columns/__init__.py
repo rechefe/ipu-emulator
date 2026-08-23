@@ -280,6 +280,9 @@ SPEC = KernelSpec(
     variant="columns",
     app_class=SoftmaxColumnsApp,
     asm="softmax_columns.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
     tags=("fp32-wide",),
     supports=_supports,
     build=_build,

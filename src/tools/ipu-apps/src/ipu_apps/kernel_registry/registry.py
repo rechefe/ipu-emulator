@@ -71,6 +71,12 @@ def resolve(op: str, *, package: str = "ipu_apps", **params: Any) -> Verdict:
             f"no kernels are registered for operation {op!r} (known operations: {known})",
         )
 
+    # Note there is deliberately no ``except KeyError`` here. Specs index
+    # ``**params``, so an omitted parameter would surface that way -- but it is
+    # indistinguishable from a KeyError raised *inside* a callback, which is a
+    # bug in that kernel and must not be quietly downgraded to "unsupported".
+    # ``KernelSpec.requires`` states the contract instead, and ``check`` turns a
+    # missing parameter into a refusal before any callback runs.
     accepted: list[tuple[float, KernelSpec, str]] = []
     refusals: list[str] = []
     for spec in candidates:
@@ -100,29 +106,72 @@ def resolve(op: str, *, package: str = "ipu_apps", **params: Any) -> Verdict:
             refusals.append(f"{spec.name}: {support.reason}")
 
     if not accepted:
-        detail = "; ".join(refusals) if refusals else "no kernel claimed it"
+        detail = (
+            "; ".join(_distinct(refusals, len(candidates)))
+            if refusals else "no kernel claimed it"
+        )
         return Verdict(False, f"no {op} kernel covers this query -- {detail}")
 
     accepted.sort(key=lambda item: (item[0], item[1].name))
     _, best, support_reason = accepted[0]
     others = tuple(spec.name for _, spec, _ in accepted[1:])
 
+    # A kernel that said yes *with* a reason has said something specific about
+    # this query; only fall back to the generic explanation when it did not.
     reason = support_reason or best.explain(**params)
+
     # A kernel may normalise the query's shapes (flattening a rank>2 input,
     # deriving an output shape). Prefer what it reports, so any reinterpretation
     # reaches the caller instead of being lost between the spec and the verdict.
+    caveats = list(best.caveats(**params))
     shapes = params.get("shapes")
     if best.bundle is not None:
         try:
             shapes = best.bundle(**params) or shapes
-        except Exception:  # a bundle helper must never break resolution
-            pass
+        except Exception as exc:
+            # A broken bundle helper must not break resolution -- but it must
+            # not silently cost the caller a disclosure either. Everything else
+            # here refuses to hide a reinterpretation; swallowing this one
+            # would let a flatten note vanish without trace.
+            caveats.append(
+                f"could not report the shapes as {best.name} understands them "
+                f"({type(exc).__name__}: {exc}); any reinterpretation this "
+                f"kernel applies is NOT disclosed below"
+            )
     return Verdict(
         supported=True,
-        reason=best.explain(**params) if support_reason else reason,
+        reason=reason,
         kernel=best,
         kwargs=best.build(**params),
         shapes=shapes,
-        caveats=tuple(best.caveats(**params)),
+        caveats=tuple(caveats),
         alternatives=others,
     )
+
+
+def _distinct(reasons: list[str], candidates: int) -> list[str]:
+    """Collapse refusals that differ only by which kernel voiced them.
+
+    When a query fails to normalise at all -- a softmax around an interior axis,
+    say -- every candidate refuses with the same sentence, and repeating it once
+    per kernel buries the one thing the caller needs to read.
+    """
+    order: list[str] = []
+    voices: dict[str, list[str]] = {}
+    for entry in reasons:
+        name, _, detail = entry.partition(": ")
+        if detail not in voices:
+            order.append(detail)
+            voices[detail] = []
+        voices[detail].append(name)
+
+    collapsed = []
+    for detail in order:
+        names = voices[detail]
+        if len(names) == 1:
+            collapsed.append(f"{names[0]}: {detail}")
+        elif len(names) == candidates:
+            collapsed.append(f"every kernel ({', '.join(names)}): {detail}")
+        else:
+            collapsed.append(f"{', '.join(names)}: {detail}")
+    return collapsed
