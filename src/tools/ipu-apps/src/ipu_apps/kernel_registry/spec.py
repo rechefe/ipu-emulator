@@ -72,6 +72,13 @@ class KernelSpec:
         cost:       ``params -> float``, lower wins when several kernels claim
                     the same query. Making this explicit keeps resolution from
                     depending on discovery order.
+        requires:   Parameter names this kernel's callbacks index. Checked
+                    before any of them runs, so an omitted parameter is a
+                    refusal naming what is missing rather than a ``KeyError``
+                    escaping from inside ``supports``. Declaring it also keeps
+                    a genuine ``KeyError`` *inside* a callback recognisable as
+                    the kernel bug it is, instead of being guessed at and
+                    reported as a routing miss.
         bundle:     Optional ``params -> ShapeBundle``, reporting the shapes as
                     the kernel actually understands them. Needed whenever a
                     kernel reinterprets the query -- flattening a rank>2 input,
@@ -89,13 +96,25 @@ class KernelSpec:
     explain: Callable[..., str]
     variant: str = ""
     asm: str | None = None
+    requires: tuple[str, ...] = ()
     caveats: Callable[..., tuple[str, ...]] = lambda **_: ()
     cost: Callable[..., float] = lambda **_: 0.0
     bundle: Callable[..., ShapeBundle] | None = None
     tags: tuple[str, ...] = ()
 
+    def missing_params(self, params: Params) -> tuple[str, ...]:
+        """Names from :attr:`requires` that ``params`` does not carry."""
+        return tuple(name for name in self.requires if name not in params)
+
     def check(self, **params: Any) -> Support:
         """Evaluate :attr:`supports`, normalising a bare bool to a Support."""
+        absent = self.missing_params(params)
+        if absent:
+            return Support(
+                False,
+                f"needs parameter(s) {', '.join(repr(n) for n in absent)}, "
+                f"which this query does not carry",
+            )
         result = self.supports(**params)
         if isinstance(result, Support):
             return result

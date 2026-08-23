@@ -255,6 +255,9 @@ SPEC = KernelSpec(
     variant="rows_long",
     app_class=SoftmaxRowsLongApp,
     asm="softmax_rows_long.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
     tags=("fp32-wide",),
     supports=_supports,
     build=_build,

@@ -38,7 +38,6 @@ from ipu_apps.kernel_registry.layers import (
     adapters,
     from_layer,
     register_layer,
-    softmax_bundle,
 )
 from ipu_apps.kernel_registry.registry import kernels, load, operations, resolve
 from ipu_apps.kernel_registry.shapes import (
@@ -69,7 +68,7 @@ def lookup_layer(layer, input_shape, *, package: str = "ipu_apps") -> Verdict:
         UnsupportedLayer: if no adapter exists for this layer type, or the
             layer is configured in a way no kernel implements.
     """
-    op, params = from_layer(layer, input_shape)
+    op, params = from_layer(layer, input_shape, package=package)
     return resolve(op, package=package, **params)
 
 
@@ -100,6 +99,5 @@ __all__ = [
     "register_layer",
     "report",
     "resolve",
-    "softmax_bundle",
     "yes",
 ]

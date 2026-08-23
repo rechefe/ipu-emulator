@@ -15,6 +15,13 @@ Adapters are matched by class name rather than by ``isinstance``, which keeps
 torch an optional dependency: the registry never imports it. Anything exposing
 the right attributes works, including a stub in a test.
 
+This module holds only the *mechanism*. Every adapter lives beside the kernels
+it serves (softmax's are in :mod:`ipu_apps.softmax._spec_support`), so no
+operation's vocabulary leaks into the op-agnostic core, and supporting a new
+layer type never touches this file. :func:`from_layer` runs discovery before
+looking an adapter up, because a kernel package that has not been imported has
+not registered its adapters yet.
+
 Two rules adapters follow, because both failure modes are silent and severe:
 
 * **Enumerate what you understand; refuse the rest.** An adapter that ignores
@@ -69,12 +76,28 @@ def _require_attrs(layer: Any, *names: str) -> None:
         )
 
 
-def from_layer(layer: Any, input_shape: Shape) -> tuple[str, dict[str, Any]]:
+def from_layer(
+    layer: Any, input_shape: Shape, *, package: str = "ipu_apps"
+) -> tuple[str, dict[str, Any]]:
     """Translate ``layer`` + ``input_shape`` into ``(op, params)``.
+
+    Args:
+        layer:       A framework layer object, matched by class name.
+        input_shape: Shape of the tensor the layer will be applied to.
+        package:     Root package to discover adapters in. Discovery runs
+            first: adapters register as a side effect of importing the kernel
+            package that declares them, so without this an adapter declared
+            beside its kernel -- the documented way to add one -- would be
+            invisible until something else happened to import it.
 
     Raises:
         UnsupportedLayer: if no adapter is registered for this layer type.
     """
+    # Imported here rather than at module scope: registry imports discovery,
+    # which imports the app tree, which imports this module.
+    from ipu_apps.kernel_registry.registry import load
+
+    load(package)
     name = type(layer).__name__
     adapter = _ADAPTERS.get(name)
     if adapter is None:
@@ -85,62 +108,3 @@ def from_layer(layer: Any, input_shape: Shape) -> tuple[str, dict[str, Any]]:
             f"kernel that implements it."
         )
     return adapter(layer, tuple(int(d) for d in input_shape))
-
-
-# -- built-in adapters ------------------------------------------------------
-
-
-@register_layer("Softmax")
-def _softmax_layer(layer: Any, input_shape: Shape) -> tuple[str, dict[str, Any]]:
-    """``nn.Softmax(dim=...)`` -> the ``softmax`` operation.
-
-    ``nn.Softmax`` created without an explicit ``dim`` has ``dim=None``, which
-    torch itself treats as deprecated and resolves with a heuristic. Rather
-    than replicate that heuristic (and risk disagreeing with the framework on
-    which axis is normalised), it is refused.
-    """
-    _require_attrs(layer, "dim")
-    if layer.dim is None:
-        raise UnsupportedLayer(
-            "Softmax(dim=None) does not state which axis to normalise; torch "
-            "resolves it with a deprecated heuristic. Construct the layer with "
-            "an explicit dim."
-        )
-    return "softmax", {"dim": int(layer.dim), "shape": input_shape}
-
-
-@register_layer("LogSoftmax", "Softmin")
-def _unsupported_softmax_relatives(layer: Any, input_shape: Shape):
-    """Refuse near-neighbours of Softmax explicitly.
-
-    These sit beside ``Softmax`` in ``torch.nn`` and share its signature, so a
-    permissive adapter would route them to a softmax kernel and return
-    confidently wrong numbers.
-    """
-    name = type(layer).__name__
-    detail = {
-        "LogSoftmax": "computes log(softmax(x)), not softmax(x)",
-        "Softmin": "computes softmax(-x), not softmax(x)",
-    }[name]
-    raise UnsupportedLayer(
-        f"{name} {detail}; no kernel implements it. Using a softmax kernel "
-        f"here would return confidently wrong values."
-    )
-
-
-def softmax_bundle(shape: Shape, dim: int) -> tuple[ShapeBundle, int, tuple[int, int]]:
-    """Build the shape bundle for a softmax query.
-
-    Softmax is shape-preserving, so the output shape is derived and equal to
-    the input. A rank > 2 input is flattened around ``dim`` (recorded as a note
-    on the bundle, never silently).
-
-    Returns:
-        ``(bundle, dim_2d, shape_2d)``.
-    """
-    shape_2d, dim_2d, note = flatten_to_matrix(shape, dim)
-    bundle = ShapeBundle.of(input=shape).with_shapes(
-        derived={"output": shape},
-        notes=(note,) if note else (),
-    )
-    return bundle, dim_2d, shape_2d

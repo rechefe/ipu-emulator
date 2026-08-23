@@ -13,13 +13,23 @@ The query parameters a softmax kernel receives are:
 Everything a kernel actually routes on -- ``rows``, ``n``, ``width`` -- is
 derived from those two by :func:`softmax_query`, so the kernels cannot disagree
 about what a given ``(shape, dim)`` means.
+
+Softmax's framework-layer adapters live here too, for the same reason the specs
+live beside their kernels: the op-agnostic registry should carry no softmax
+vocabulary. They register on import, and discovery imports this module, so
+:func:`~ipu_apps.kernel_registry.lookup_layer` sees them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ipu_apps.kernel_registry import ShapeBundle, softmax_bundle
+from ipu_apps.kernel_registry import (
+    ShapeBundle,
+    UnsupportedLayer,
+    flatten_to_matrix,
+    register_layer,
+)
 
 LANES = 128                  # datapath width every constraint is relative to
 SINGLE_GROUP_MAX_ROWS = 128  # rows whose per-row scalars fit one 128-element vector
@@ -86,3 +96,66 @@ def positive_dims(q: SoftmaxQuery) -> str | None:
     if q.cols < 1:
         return f"columns ({q.cols}) must be >= 1"
     return None
+
+
+def softmax_bundle(shape, dim: int):
+    """Build the shape bundle for a softmax query.
+
+    Softmax is shape-preserving, so the output shape is derived and equal to
+    the input. A rank > 2 input is flattened around ``dim`` (recorded as a note
+    on the bundle, never silently).
+
+    Returns:
+        ``(bundle, dim_2d, shape_2d)``.
+    """
+    shape_2d, dim_2d, note = flatten_to_matrix(shape, dim)
+    bundle = ShapeBundle.of(input=shape).with_shapes(
+        derived={"output": shape},
+        notes=(note,) if note else (),
+    )
+    return bundle, dim_2d, shape_2d
+
+
+# -- framework-layer adapters -----------------------------------------------
+
+
+@register_layer("Softmax")
+def _softmax_layer(layer, input_shape):
+    """``nn.Softmax(dim=...)`` -> the ``softmax`` operation.
+
+    ``nn.Softmax`` created without an explicit ``dim`` has ``dim=None``, which
+    torch itself treats as deprecated and resolves with a heuristic. Rather
+    than replicate that heuristic (and risk disagreeing with the framework on
+    which axis is normalised), it is refused.
+    """
+    if not hasattr(layer, "dim"):
+        raise UnsupportedLayer(
+            f"{type(layer).__name__} is missing expected attribute(s) dim; it "
+            f"does not look like the layer this adapter was written for"
+        )
+    if layer.dim is None:
+        raise UnsupportedLayer(
+            "Softmax(dim=None) does not state which axis to normalise; torch "
+            "resolves it with a deprecated heuristic. Construct the layer with "
+            "an explicit dim."
+        )
+    return "softmax", {"dim": int(layer.dim), "shape": input_shape}
+
+
+@register_layer("LogSoftmax", "Softmin")
+def _unsupported_softmax_relatives(layer, input_shape):
+    """Refuse near-neighbours of Softmax explicitly.
+
+    These sit beside ``Softmax`` in ``torch.nn`` and share its signature, so a
+    permissive adapter would route them to a softmax kernel and return
+    confidently wrong numbers.
+    """
+    name = type(layer).__name__
+    detail = {
+        "LogSoftmax": "computes log(softmax(x)), not softmax(x)",
+        "Softmin": "computes softmax(-x), not softmax(x)",
+    }[name]
+    raise UnsupportedLayer(
+        f"{name} {detail}; no kernel implements it. Using a softmax kernel "
+        f"here would return confidently wrong values."
+    )

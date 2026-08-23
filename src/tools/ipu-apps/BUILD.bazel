@@ -183,3 +183,17 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Checks the routing tables printed in the docs against what the registry
+# actually answers. The tables are checked-in text, so without this they are a
+# second copy of the routing rules -- the copy that goes stale.
+py_pytest_test(
+    name = "test_docs_routing",
+    srcs = ["test/test_docs_routing.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)

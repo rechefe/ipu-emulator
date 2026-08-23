@@ -65,6 +65,7 @@ SPEC = KernelSpec(
     app_class=MyKernelApp,
     asm="my_kernel.asm",
     tags=("fp32-wide",),
+    requires=("shape", "dim"),  # params the callbacks below index
     supports=_supports,
     build=_build,
     explain=_explain,
@@ -72,6 +73,14 @@ SPEC = KernelSpec(
     cost=lambda **p: 1.0,
 )
 ```
+
+### `requires` — the parameters your callbacks index
+
+Callbacks receive `**params` and index it, so a query missing one would raise
+`KeyError` from inside `supports`. Naming them here makes the registry check
+first and refuse with *"needs parameter 'shape'"* — and keeps a `KeyError`
+raised *inside* your callback recognisable as the bug it is, rather than being
+downgraded to "no kernel covers this".
 
 ### `supports` — what the kernel *can* do
 
@@ -140,6 +149,11 @@ def _conv2d(layer, input_shape):
         raise UnsupportedLayer("grouped convolution has no kernel")
     return "conv2d", {...}
 ```
+
+Put it in a module the kernel package imports (softmax uses
+`softmax/_spec_support.py`). Adapters register as an import side effect, and
+discovery imports your package, so `lookup_layer` will find it — nothing
+central needs editing.
 
 Two obligations:
 

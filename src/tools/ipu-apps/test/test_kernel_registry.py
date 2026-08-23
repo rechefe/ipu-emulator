@@ -10,6 +10,8 @@ than in a user's hands.
 
 from __future__ import annotations
 
+import contextlib
+import sys
 import tempfile
 from pathlib import Path
 
@@ -18,6 +20,8 @@ import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
 
+import ipu_apps.kernel_registry.registry as registry
+from ipu_apps.kernel_registry.layers import _ADAPTERS
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
@@ -33,9 +37,24 @@ from ipu_apps.kernel_registry import (
     register_layer,
     report,
     resolve,
+    yes,
 )
 
 _APP_SRC = Path(__file__).resolve().parents[1] / "src/ipu_apps"
+
+
+@contextlib.contextmanager
+def _registered(*specs: KernelSpec, package: str = "_synthetic"):
+    """Expose synthetic specs under their own package name, then clean up.
+
+    Lets a test pin registry *mechanics* (how a claim, a reason or a failure is
+    reported) without inventing a real kernel for it.
+    """
+    registry._CACHE[package] = registry.Discovered(tuple(specs), ())
+    try:
+        yield package
+    finally:
+        registry._CACHE.pop(package, None)
 
 
 # -- discovery --------------------------------------------------------------
@@ -107,6 +126,90 @@ def test_overlapping_claims_resolve_by_cost_not_discovery_order():
     verdict = resolve("softmax", shape=(8, 128), dim=1)
     assert verdict.app_name == "softmax_rows"
     assert "softmax_rows_partial" in verdict.alternatives
+
+
+def test_a_kernels_own_support_reason_reaches_the_verdict():
+    """`yes("...")` says something specific about *this* query; a verdict that
+    always fell back to `explain` would discard it."""
+    spec = KernelSpec(
+        name="reasoned", op="reasoned_op", app_class=object,
+        supports=lambda **p: yes("claimed because the input is already aligned"),
+        build=lambda **p: {}, explain=lambda **p: "generic explanation",
+    )
+    with _registered(spec) as pkg:
+        assert resolve("reasoned_op", package=pkg).reason == (
+            "claimed because the input is already aligned"
+        )
+
+
+def test_a_kernel_that_claims_without_a_reason_falls_back_to_explain():
+    spec = KernelSpec(
+        name="silent", op="silent_op", app_class=object,
+        supports=lambda **p: yes(), build=lambda **p: {},
+        explain=lambda **p: "generic explanation",
+    )
+    with _registered(spec) as pkg:
+        assert resolve("silent_op", package=pkg).reason == "generic explanation"
+
+
+def test_a_missing_parameter_is_a_refusal_not_a_crash():
+    """Callers branch on the verdict, so an omitted parameter must come back as
+    one -- specs index ``**params``, so without a declared contract it would
+    escape as a raw KeyError."""
+    verdict = resolve("softmax")
+    assert not verdict
+    assert "needs parameter" in verdict.reason
+    assert "shape" in verdict.reason
+
+
+def test_every_spec_declares_the_parameters_it_indexes():
+    """`requires` is what turns a missing parameter into a named refusal; a
+    spec that omits it silently regains the raw-KeyError behaviour."""
+    for spec in kernels():
+        assert spec.requires, f"{spec.name} declares no required parameters"
+
+
+def test_a_kernels_own_keyerror_is_not_reported_as_unsupported():
+    """A KeyError raised *inside* a spec is a bug in that kernel. Folding it
+    into a refusal would turn it into a silent routing miss."""
+    def _buggy(**params):
+        return {"a": 1}["typo"]
+
+    spec = KernelSpec(
+        name="buggy", op="buggy_op", app_class=object, supports=_buggy,
+        build=lambda **p: {}, explain=lambda **p: "ok",
+        requires=("shape", "dim"),
+    )
+    with _registered(spec) as pkg:
+        with pytest.raises(KeyError, match="typo"):
+            resolve("buggy_op", package=pkg, shape=(8, 128), dim=1)
+
+
+def test_identical_refusals_are_reported_once():
+    """A query that fails to normalise at all is refused in the same words by
+    every kernel; repeating the sentence five times buries it."""
+    verdict = resolve("softmax", shape=(4, 5, 6), dim=1)
+    assert not verdict
+    assert verdict.reason.count("interior axis") == 1
+    # ...and the reader is still told it was unanimous, not one kernel's quirk.
+    assert "every kernel" in verdict.reason
+
+
+def test_a_broken_bundle_is_disclosed_rather_than_swallowed():
+    """Everything else here refuses to hide a reinterpretation. A bundle helper
+    that raises must not cost the caller that disclosure silently."""
+    def _explode(**params):
+        raise RuntimeError("bundle is broken")
+
+    spec = KernelSpec(
+        name="bad_bundle", op="bad_bundle_op", app_class=object,
+        supports=lambda **p: yes(), build=lambda **p: {},
+        explain=lambda **p: "ok", bundle=_explode,
+    )
+    with _registered(spec) as pkg:
+        verdict = resolve("bad_bundle_op", package=pkg)
+    assert verdict.supported
+    assert any("NOT disclosed" in c for c in verdict.caveats)
 
 
 @pytest.mark.parametrize("shape,dim,expected", [
@@ -205,7 +308,50 @@ def test_adapter_registration_is_additive():
     def _adapt(layer, input_shape):
         return "softmax", {"dim": layer.dim, "shape": input_shape}
 
-    assert lookup_layer(MadeUpLayer(), (8, 128)).app_name == "softmax_rows"
+    try:
+        assert lookup_layer(MadeUpLayer(), (8, 128)).app_name == "softmax_rows"
+    finally:
+        # The adapter table is process-global; leaving this behind would let
+        # one test change what `adapters()` reports to every later one.
+        _ADAPTERS.pop("MadeUpLayer", None)
+
+
+def test_adapter_declared_beside_its_kernel_is_found():
+    """The documented way to add an adapter must actually work.
+
+    Adapters register as an import side effect of the package that declares
+    them, so a lookup that does not discover first cannot see an adapter living
+    beside its kernel -- which is exactly what `from_layer`'s own error message
+    tells contributors to do.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "adapter_probe_apps"
+        (pkg / "probe_kernel").mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "probe_kernel" / "__init__.py").write_text(
+            "from ipu_apps.kernel_registry import KernelSpec, register_layer, yes\n"
+            "\n"
+            "@register_layer('ProbeLayer')\n"
+            "def _adapt(layer, input_shape):\n"
+            "    return 'probe_op', {'shape': input_shape}\n"
+            "\n"
+            "SPEC = KernelSpec(name='probe_kernel', op='probe_op', app_class=object,\n"
+            "                  supports=lambda **p: yes(), build=lambda **p: {},\n"
+            "                  explain=lambda **p: 'probe')\n"
+        )
+
+        class ProbeLayer:
+            pass
+
+        sys.path.insert(0, tmp)
+        try:
+            verdict = lookup_layer(ProbeLayer(), (8, 128), package="adapter_probe_apps")
+            assert verdict.app_name == "probe_kernel"
+        finally:
+            sys.path.remove(tmp)
+            _ADAPTERS.pop("ProbeLayer", None)
+            for name in [m for m in sys.modules if m.startswith("adapter_probe_apps")]:
+                del sys.modules[name]
 
 
 # -- coverage reporting -----------------------------------------------------

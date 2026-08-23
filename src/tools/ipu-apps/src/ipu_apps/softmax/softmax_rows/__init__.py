@@ -114,6 +114,12 @@ class SoftmaxRowsApp(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
         self.rows = int(rows)
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain.
+        # Width is fixed by the .asm and so cannot be wrong here, but the row
+        # count can be, and `supports` already refuses rows < 1 -- leaving the
+        # ctor to accept it is the very drift this delegation exists to stop.
+        SPEC.guard(shape=(self.rows, LANES), dim=1)
         # maxvec/rvec hold one scalar per row in a single 128-element vector, so the
         # kernel processes the rows in groups of at most 128. The group size is
         # exact (min(128, rows_left)) -- there is no padding.
@@ -243,6 +249,9 @@ SPEC = KernelSpec(
     variant="rows",
     app_class=SoftmaxRowsApp,
     asm="softmax_rows.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
     tags=("fp32-wide",),
     supports=_supports,
     build=_build,
