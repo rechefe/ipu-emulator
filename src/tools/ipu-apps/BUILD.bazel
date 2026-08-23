@@ -158,3 +158,28 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Router only -- no .asm needed; it constructs apps but never runs them.
+py_pytest_test(
+    name = "test_softmax_registry",
+    srcs = ["test/test_softmax_registry.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Kernel registry mechanics + the generic conformance suite, which assembles
+# and runs whichever kernel the registry resolves -- so every registered .asm
+# is data here, and a newly added kernel is covered without editing this rule.
+py_pytest_test(
+    name = "test_kernel_registry",
+    srcs = ["test/test_kernel_registry.py"],
+    data = glob(["src/ipu_apps/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
