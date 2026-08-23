@@ -53,6 +53,12 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
@@ -91,13 +97,10 @@ class SoftmaxRowsLongApp(IpuApp):
         self.rows = int(rows)
         self.n = int(n)
 
-        if self.n <= LANES:
-            raise ValueError(
-                f"n ({self.n}) must be > {LANES} (use softmax_rows for "
-                f"n == {LANES}, softmax_rows_partial for n < {LANES})"
-            )
-        if self.rows < 1:
-            raise ValueError(f"rows ({self.rows}) must be >= 1")
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain,
+        # so the guard and the router can never disagree.
+        SPEC.guard(shape=(self.rows, self.n), dim=1)
 
         self.full_chunks = self.n // 128            # number of full 128-wide chunks
         self.tail = self.n % 128                    # tail element count (0..127)
@@ -208,3 +211,58 @@ class SoftmaxRowsLongApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if not q.along_rows:
+        return no("reduces down columns, not along rows")
+    if q.n <= LANES:
+        return no(
+            f"splits a row across several {LANES}-element chunks, so it needs a "
+            f"row longer than {LANES}; this row has {q.n}"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    return {"n": q.n, "rows": q.rows}
+
+
+def _explain(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    full, tail = divmod(q.n, LANES)
+    shape = (
+        f"{full} full chunks + {tail}-element tail"
+        if tail else
+        f"exactly {full} full chunks (no tail chunk)"
+    )
+    return f"n ({q.n}) > {LANES}: {shape}, reduced with a running cross-chunk AGG."
+
+
+SPEC = KernelSpec(
+    name="softmax_rows_long",
+    op="softmax",
+    variant="rows_long",
+    app_class=SoftmaxRowsLongApp,
+    asm="softmax_rows_long.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    cost=lambda **params: 1.0,
+)

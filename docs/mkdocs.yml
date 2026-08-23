@@ -70,6 +70,11 @@ nav:
       - Building Applications: building-applications.md
       - IPU Configuration: ipu-configuration.md
       - Wide-vector debug mode: wide-vector-debug-mode.md
+  - Kernels:
+      - Overview: kernels/index.md
+      - Softmax: kernels/softmax.md
+      - Application Coverage: app-coverage.md
+      - Adding Applications: adding-applications.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:

@@ -1,36 +1,34 @@
 """Softmax applications (row / column variants).
 
-Five kernels split across two axes -- which direction the reduction runs, and
-how the reduced length relates to the 128-element datapath:
+Five apps split across two axes -- which direction the reduction runs, and how
+the reduced length relates to the 128-element datapath. Use :func:`lookup` to pick
+one for a given shape (or be told no app covers it), and :func:`catalog` for the
+whole coverage table::
 
-======================  ==========================================
-``softmax_rows``        one row of exactly 128 elements
-``softmax_rows_partial``  rows shorter than 128, several packed per chunk
-``softmax_rows_long``   rows longer than 128, reduced across chunks
-``softmax_columns``     softmax down each column, width >= 65
-``softmax_columns_packed``  softmax down each column, width <= 64
-======================  ==========================================
+    from ipu_apps.softmax import lookup
+    v = lookup(axis="rows", n=300, rows=8)
+    if v:
+        print(v.app_class, v.kwargs)
 
-All five share the base-2 reformulation
+If you already have the query in PyTorch terms, :func:`lookup_torch` takes the
+tensor shape and ``dim`` exactly as you'd write the ``torch.softmax`` call::
 
-    softmax(x_i) = 2^(c*(x_i - xmax)) / SUM_j 2^(c*(x_j - xmax)),  c = log2(e)
+    from ipu_apps.softmax import lookup_torch
+    lookup_torch((32, 300), dim=1)      # softmax over each row of a 32x300
 
-so the IPU's native ``exp2`` activation applies directly, and all five run the
-same four passes: row max, numerators, sum, normalise.
+The same answers are available from the command line::
 
-Each app is used directly::
-
-    from ipu_apps.softmax.softmax_rows_long import SoftmaxRowsLongApp
-
-    app = SoftmaxRowsLongApp(
-        inst_path="softmax_rows_long.bin",
-        input_path="logits.bin",
-        output_path="probs.bin",
-        rows=8, n=300,
-    )
-    state, cycles = app.run()
-
-Every app reads and writes row-major ``(rows, cols)`` float32: the output file
-has the same layout as the input file, whatever packing the kernel uses
-internally.
+    python -m ipu_apps.softmax --axis rows --n 300 --rows 8
+    python -m ipu_apps.softmax --shape 32,300 --dim 1
+    python -m ipu_apps.softmax --catalog
 """
+
+from ipu_apps.softmax.registry import (
+    GAPS,
+    Verdict,
+    catalog,
+    lookup,
+    lookup_torch,
+)
+
+__all__ = ["GAPS", "Verdict", "catalog", "lookup", "lookup_torch"]
