@@ -2528,6 +2528,16 @@ _L4_FULL_LAYER_SRCS = [
     "test/fixture_host_softmax_fold_stubs.py",
 ]
 
+# USE_REAL_SOFTMAX=1 routes softmax through softmax_rows_partial /
+# softmax_columns_packed instead of the numpy stub -- see USE_REAL_SOFTMAX in
+# test_full_layer_l4.py and real_softmax_query_major/real_softmax_key_major
+# in fixture_full_layer_chain.py. Real kernel calls are far slower than the
+# stub (~30-35 min per mapping observed for L4's 4-layer stack, vs seconds
+# for the stub), so these are `manual` -- not swept into `bazel test //...`
+# -- and must be run explicitly, e.g.:
+#   bazel test //src/tools/ipu-apps:test_full_layer_l4_query_major_real_softmax
+_L4_REAL_SOFTMAX_ENV = dict(_L4_FULL_LAYER_ENV, USE_REAL_SOFTMAX = "1")
+
 # Split into one bazel target per attention mapping (query-major, key-major)
 # -- combined into a single @pytest.mark.parametrize target, both mappings'
 # ~25-40 min runs together exceeded even a 3600s "enormous" bazel timeout in
@@ -2636,6 +2646,79 @@ py_pytest_test(
     ],
 )
 
+# -- Real softmax through the chain (USE_REAL_SOFTMAX=1) -- see comment on
+# -- _L4_REAL_SOFTMAX_ENV above. `manual`: not part of `bazel test //...`.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    data = _L4_FULL_LAYER_DATA,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Per-stage error instrumentation (scale experiment step 2): ONE layer,
 # query-major chain, every stage boundary compared against its own
 # independently-built numpy reference. Small/fast -- one layer, not four.
@@ -2686,6 +2769,9 @@ _L5_FULL_LAYER_SRCS = [
     "test/fixture_full_layer_chain.py",
     "test/fixture_host_softmax_fold_stubs.py",
 ]
+
+# See _L4_REAL_SOFTMAX_ENV's comment (BUILD.bazel, L4 section).
+_L5_REAL_SOFTMAX_ENV = dict(_L5_FULL_LAYER_ENV, USE_REAL_SOFTMAX = "1")
 
 py_pytest_test(
     name = "test_full_layer_l5_query_major",
@@ -2778,6 +2864,79 @@ py_pytest_test(
     ],
 )
 
+# -- Real softmax through the chain (USE_REAL_SOFTMAX=1) -- see
+# -- _L4_REAL_SOFTMAX_ENV's comment. `manual`: not part of `bazel test //...`.
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    data = _L5_FULL_LAYER_DATA,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_full_layer_l5_per_stage_error",
     size = "enormous",
@@ -2802,6 +2961,33 @@ py_pytest_test(
     name = "test_softmax_kernels_vs_stub",
     size = "small",
     srcs = ["test/test_softmax_kernels_vs_stub.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- softmax_rows_partial / softmax_columns_packed sanity at production
+# -- N_TOK shapes (64, 16), ahead of wiring either into the full-layer chain.
+
+py_pytest_test(
+    name = "test_softmax_kernel_sanity",
+    size = "medium",
+    srcs = ["test/test_softmax_kernel_sanity.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- THROWAWAY: decisive test, qk_scores_16x60 raw output -> softmax_rows_partial
+# -- with no numpy repack in between. Not part of the standing suite.
+py_pytest_test(
+    name = "test_decisive_l5_uncropped",
+    size = "small",
+    srcs = ["test/test_decisive_l5_uncropped.py"],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",

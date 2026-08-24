@@ -1,5 +1,26 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]   (Layer 4 FFN1)
 #
+# Layer:   L4
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   N_TOK=64, K=192, N=384
+# Status:  validated
+# Related: L4 FFN1 (single-stream, 2x output expansion). Sibling family:
+#          matmul_192x192_x128 (OutProj), matmul_576x192_x128 (QKV),
+#          matmul_192x384_x128 (FFN2, contracts back down). Consumed by
+#          proj_ffn1_192_p4, which wraps the same arithmetic (and the same
+#          silu activation) across all 4 pixel streams in one invocation.
+# Tests:   //src/tools/ipu-apps:test_matmul_384x192_x128_wide
+#
+# Computes the L4 FFN1 matmul: 192 input channels expanded to 384 hidden
+# channels, over 64 tokens (single token group). K=192 splits into two
+# weight chunks with the data pointer advancing continuously across chunks
+# and the per-chunk scalar index resetting; the first chunk's first
+# iteration is peeled to seed r_acc via ACC.ADD.FIRST, the rest accumulate
+# with ACC.ADD. Per kernel_docs/kernel_layer_map.md, the store applies
+# ACTIVATE.QUANTIZE silu (not identity) since FFN1 feeds directly into FFN2
+# with no other nonlinearity between them.
+#
 # Single token group (N_TOK=64 <= 128): one accumulate+store pass per output j.
 #
 # D: channel-major [K=192 channels, 128 tokens]  (64 valid, padded to 128)
@@ -39,38 +60,53 @@
 #   a bundle ahead. chunk1's startup is NOT biased -- chunk0's trailing prefetch
 #   already supplied that step of phase.
 j_loop:
-    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
+    SET lr4 cr6;
+    LDR_MULT_REG r0 lr8 cr9;;  # data startup -128; r0 = W[j, chunk0]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
     # No re-prime: chunk1's first row is already in flight from chunk0's
     # trailing prefetch, and lr5 is NOT biased here for the same reason.
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, chunk1]
+    SET lr5 cr8;
+    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk1;;
 
-    ACTIVATE.QUANTIZE silu cr15; STR_POST_AAQ_REG lr7 cr5;;# store 512B -> OUTPUT[j] (first 256B valid)
+    ACTIVATE.QUANTIZE silu cr15;
+    STR_POST_AAQ_REG lr7 cr5;;  # store 512B -> OUTPUT[j] (first 256B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j
+    ADD lr8 lr8 lr12;
+    ADD lr9 lr9 cr1;;  # next j
     BLT lr9 lr10 j_loop;;
 
 end:

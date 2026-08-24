@@ -1,5 +1,15 @@
 # attn@V, key-major scores -> channel-major output  (Agent B, broadcast / no AGG)
 #
+# Layer:   L3
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   256tok (2 groups x 128) x 36chan (head_dim), 4 heads
+# Status:  validated
+# Related: attn_v_bcast_48 (L4) / attn_v_bcast_60 (L5) are ports of this
+#          kernel; consumes attn_scores_km_256x36's key-major output;
+#          attn_v_256x36 is the query-major (AGG) sibling for the same layer
+# Tests:   test_attn_v_bcast_36_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Per attention head h in [0,4):
 #   O[i,t] = sum_s P[i,s] * V[s,t]
 #     i = query in [0,256)  (2 groups of 128 = the SIMD lanes)
@@ -116,34 +126,44 @@ g_loop:
     SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
     # Prime s=0's P row (the MULT below consumes it from the snapshot).
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
 s_loop_pre:
     ADD     {{ key_index }} {{ key_index }} {{ ONE }};;       # name the key just loaded
 s_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
 s_done:
 
     # -- store channel-major row O[g*128:+128, chan] ---------------------------
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};;# 512B FP32 -> OBASE + chan*1024 + g*512
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};;  # 512B FP32 -> OBASE + chan*1024 + g*512
     ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output-row offset by 512
 
     ADD     {{ p_group_off }} {{ p_group_off }} {{ group_step }};; # next group: P offset += 128
-    ADD     {{ group_index }}  {{ group_index }}  {{ ONE }}; BLT {{ group_index }} {{ GROUP_BOUND }} g_loop;;
+    ADD     {{ group_index }}  {{ group_index }}  {{ ONE }};
+    BLT {{ group_index }} {{ GROUP_BOUND }} g_loop;;
 
     ADD     {{ v_ptr_lo }} {{ v_ptr_lo }} {{ key_stride }};;  # next channel: R0 source += 256
     ADD     {{ v_ptr_hi }} {{ v_ptr_hi }} {{ key_stride }};;  # next channel: R1 source += 256
-    ADD     {{ chan_index }}  {{ chan_index }}  {{ ONE }}; BLT {{ chan_index }} {{ CHAN_BOUND }} t_loop;;
+    ADD     {{ chan_index }}  {{ chan_index }}  {{ ONE }};
+    BLT {{ chan_index }} {{ CHAN_BOUND }} t_loop;;
 
     ADD     {{ p_head_base }} {{ p_head_base }} {{ P_HEAD_STRIDE }};; # next head: P head base += 65536
-    ADD     {{ head_index }}  {{ head_index }}  {{ ONE }}; BLT {{ head_index }} {{ HEAD_BOUND }} h_loop;;
+    ADD     {{ head_index }}  {{ head_index }}  {{ ONE }};
+    BLT {{ head_index }} {{ HEAD_BOUND }} h_loop;;
 
 end:
     BKPT;;

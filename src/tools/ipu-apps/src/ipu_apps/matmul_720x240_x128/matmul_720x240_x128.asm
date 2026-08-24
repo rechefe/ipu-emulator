@@ -1,5 +1,27 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]   (Layer 5 QKV)
 #
+# Layer:   L5
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   N_TOK=16, K=240, N=720
+# Status:  validated
+# Related: L5 fused QKV projection (single-stream, 3x output = Q+K+V
+#          stacked, each 240 wide). Sibling family: matmul_240x240_x128
+#          (OutProj), matmul_480x240_x128 (FFN1), matmul_240x480_x128
+#          (FFN2). Consumed by proj_qkv_240_p4 (all 4 streams, one
+#          invocation, identity activation) and by
+#          test_seam_unfold_matmul_xmem_direct_l5 (unfold->matmul seam,
+#          direct XMEM handoff).
+# Tests:   //src/tools/ipu-apps:test_matmul_720x240_x128_wide
+#
+# Computes the L5 fused QKV matmul: 240 input channels projected to 720
+# output channels (Q, K, V concatenated, 240 each), over 16 tokens (single
+# token group; ROW-numbered operands per issue #179). K=240 splits into two
+# weight-row chunks with the data pointer advancing one row at a time
+# continuously across chunks and the per-chunk scalar index resetting; the
+# first chunk's first iteration is peeled to seed r_acc via ACC.ADD.FIRST,
+# the rest accumulate with ACC.ADD. Store activation is identity.
+#
 # Single token group (N_TOK=16 <= 128): one accumulate+store pass per output j.
 #
 # All .asm operands are ROW numbers (issue #179), one row = 128 lanes.
@@ -26,7 +48,8 @@
 #   OUTPUT:  720 rows
 
 j_loop:
-    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
+    SET lr4 cr6;
+    LDR_MULT_REG r0 lr8 cr9;;  # data startup -128; r0 = W[j, chunk0]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
@@ -36,24 +59,36 @@ j_loop:
     # in its OWN bundle -- it would multiply against the previous row. chunk1+
     # must NOT re-prime: their first row is already in flight from the previous
     # chunk's trailing prefetch.
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;;
 
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, chunk1]
+    SET lr5 cr8;
+    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk1;;
 
     # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
@@ -61,10 +96,12 @@ k_chunk1:
     # (CTRL -> MULT -> ACC -> AaQ -> STR), so STR consumes this cycle's AaQ
     # result and the store is free. `identity` + valid_elements=128 (the CR
     # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr7 cr5;;                    # store 512B -> OUTPUT[j] (first 64B valid)
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr7 cr5;;  # store 512B -> OUTPUT[j] (first 64B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j
+    ADD lr8 lr8 lr12;
+    ADD lr9 lr9 cr1;;  # next j
     BLT lr9 lr10 j_loop;;
 
 end:

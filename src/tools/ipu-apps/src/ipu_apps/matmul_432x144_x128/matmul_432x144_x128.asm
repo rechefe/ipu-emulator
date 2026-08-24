@@ -1,5 +1,25 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]
 #
+# Layer:   L3
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   M=256 tokens (2 token groups x 128), K=144, N=432
+# Status:  validated
+# Related: L3 fused QKV projection (single-stream, 3x output = Q+K+V stacked,
+#          each 144 wide). Body identical to matmul_144x144_x128 (§4.3 in
+#          kernel_docs/L3_kernel_reference.md: "3x the outputs" — only N_OUT
+#          and OUTPUT_BASE differ). Sibling family: matmul_288x144_x128
+#          (FFN1), matmul_144x288_x128 (FFN2). Consumed by proj_qkv_144_p4
+#          (all 4 streams, one invocation, same identity activation).
+# Tests:   //src/tools/ipu-apps:test_matmul_432x144_x128_wide
+#
+# Computes the L3 fused QKV matmul: 144 input channels projected to 432
+# output channels (Q, K, V concatenated, 144 each), over 256 tokens (two
+# 128-token groups). Same two-k-loop contraction as matmul_144x144_x128
+# (k=0..127 from r0, k=128..143 from r1), with the first iteration peeled
+# via ACC.ADD.FIRST to seed r_acc and the rest accumulated with ACC.ADD,
+# once per token group; store activation is identity.
+#
 # D: interleaved channel-major [K=144 channels, 2 tg, 128 tokens]
 #    Row (k, tg) at DATA_BASE + k*256 + tg*128
 # W: output-major [432 out_ch, 144 in_ch], NO transposition
@@ -87,28 +107,40 @@ j_loop:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased: load runs a bundle ahead)
 
     # Prime k=0's chunk for this token group (see the note above j_loop).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
     B after_k_tg0;;
 
 k_loop1_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
 
 after_k_tg0:
     SET {{ k_index }} {{ K_START_R1 }};;  # NOT biased: k_loop1's trailing prefetch already advanced the phase                # k-loop2 fixed_idx startup: 127 → first live=128 (r1[0])
 
 k_loop2_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;# store 512B → OUTPUT[j, tg=0]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -116,31 +148,44 @@ k_loop2_tg0:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased: load runs a bundle ahead)
 
     # Prime k=0's chunk for this token group (see the note above j_loop).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
     B after_k_tg1;;
 
 k_loop1_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
 
 after_k_tg1:
     SET {{ k_index }} {{ K_START_R1 }};;  # NOT biased: k_loop1's trailing prefetch already advanced the phase
 
 k_loop2_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;# store 512B → OUTPUT[j, tg=1]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
-    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};; # next j: weight offset += W_STRIDE, j++
+    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};
+    ADD {{ j_index }} {{ j_index }} {{ ONE }};;  # next j: weight offset += W_STRIDE, j++
     BLT {{ j_index }} {{ j_limit }} j_loop;;
 
 end:

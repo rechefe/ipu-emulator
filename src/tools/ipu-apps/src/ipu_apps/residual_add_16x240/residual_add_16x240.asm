@@ -1,5 +1,15 @@
 # Residual add (L5): C[ch] = A[ch] + B[ch]  for ch = 0..239
 #
+# Layer:   L5
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   16tok x 240chan (240 rows)
+# Status:  validated
+# Related: L5 port of residual_add_256x144 (L3) via residual_add_64x192 (L4);
+#          consumes layernorm_16x240's output (full-row, uncropped, per the
+#          producer-emits-full-rows / final-consumer-crops convention)
+# Tests:   test_residual_add_16x240_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # A, B: channel-major [240 channels, 16 tokens], ONE CHANNEL PER ROW.
 #   Row ch at A_BASE + ch  (resp. B_BASE + ch).
 #   A channel's 16 FP32 tokens occupy 64 of a row's 512 bytes; the rest is
@@ -83,14 +93,19 @@
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
+    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 
 row_loop:
     # Cycle 1: r_acc = A[ch] x 1.0  (A[ch] was loaded a cycle earlier)
     #   Co-issued load fetches B[ch] for cycle 2.
-    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }}; ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;;
     # Cycle 2: r_acc += B[ch] x 1.0
-    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;;
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;;
     # Cycle 3: stage r_acc into post_aaq_reg for the hardware store path.
     #   ACTIVATE.QUANTIZE and STR_POST_AAQ_REG co-issue in ONE VLIW word: AaQ
     #   and STR are consecutive pipeline stages within a word, and the in-word
@@ -98,9 +113,14 @@ row_loop:
     #   cycle's AaQ result. This is why the store is free and the loop stays
     #   4 cycles per row.
     #   Co-issued load prefetches A[ch+1] for the next row's cycle 1.
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }}; ADD {{ row_index }} {{ row_index }} {{ ONE }}; LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
+    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};
+    ADD {{ row_index }} {{ row_index }} {{ ONE }};
+    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
     # Cycle 4: advance output ptr; BLT reads snap row_index = already-incremented
-    ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }}; BLT {{ row_index }} {{ row_limit }} row_loop;;
+    ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }};
+    BLT {{ row_index }} {{ row_limit }} row_loop;;
 
 end:
     BKPT;;

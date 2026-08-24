@@ -1,7 +1,28 @@
 # Matrix multiplication: C = A x B
+#
+# Layer:   shared/multi-layer
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   M=128, K=128, N=128
+# Status:  validated
+# Related: generic matmul harness — not tied to any transformer layer; see
+#          kernel_docs/kernel_layer_map.md's "Not layer-specific" table.
+#          Siblings matmul_128x64x128 (K=64), matmul_128x64x64 (M=128,K=64,N=64),
+#          matmul_64x64x64 (M=64,K=64,N=64) share this same row_loop/MULT.RC.VE
+#          template at smaller sizes.
+# Tests:   //src/tools/ipu-apps:test_matmul_128x128_wide
+#
 # A: 128x128 input  (M=128 rows, K=128 cols)
 # B: 128x128 weights (K=128 rows, N=128 cols)
 # C: 128x128 output (M=128 rows, N=128 cols, stored as 128 int32/fp32 accumulators per row)
+#
+# Computes a dense 128x128x128 matrix product: for each of the 128 input rows
+# (M), the kernel loads that row's 128 elements into r0 as the "scalar"
+# operand, streams the 128x128 weight matrix through r_cyclic one column-row
+# at a time, and accumulates 128 output values per row. The first k-iteration
+# is peeled to seed the accumulator with ACC.ADD.FIRST (replacing the older
+# RESET_ACC instruction), then the remaining 127 steps accumulate with plain
+# ACC.ADD.
 #
 # New kernel: MULT.VE.CYCLIC replaces MULT.EV mem_bypass (mem_bypass removed in PR #69).
 #   Old shape: T[k] in mem_bypass (vector), A[m][k] scalar from r_cyclic via cyclic index.
@@ -83,7 +104,8 @@ k_loop:
     BNE                 lr5 lr6 k_loop_pre;;  # loop while live k != 127
 
 after_k_loop:
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr7 cr2;;# store 512 B → C[m]
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr7 cr2;;  # store 512 B → C[m]
     ADD                 lr7 lr7 lr14;    # out ptr += 512
     ADD                 lr0 lr0 lr13;;   # input ptr += 128
 

@@ -492,3 +492,119 @@ phase is the pre-existing `test_unfold_8x8x240_wide_fp32` /
 col-phase) output streams against an independent numpy golden computed
 directly from the un-packed `[C, H, W]` array. Do not credit the new padding
 probe with covering `_ROW_PACK_ORDER` correctness — it doesn't.
+
+## Packed activation layout — first committed documentation of this scheme
+
+**This section is new documentation, not an update to a pre-existing
+section.** Two rounds of exploratory work built a packed-activation-layout
+kernel family for Layer 5 and Layer 4 respectively, entirely as untracked
+files under `src/tools/ipu-apps/test/` with no bazel registration — this is
+the first time either round's design gets written up anywhere committed.
+The only prior record was `docs/isa_friction_log.md` (also previously
+untracked). If you are looking for where these kernels are *used* in
+production, they are not — they are a standalone viability/measurement
+exercise, runnable only via direct pytest against the `.asm`/`test_*.py`
+files listed below.
+
+### What "packed" means here
+
+Every kernel elsewhere in this document uses the repo's default convention:
+one channel occupies one whole 128-lane XMEM row, regardless of how many of
+those 128 lanes actually hold live data (`N_TOK` tokens, the rest zero
+padding). The packed layout instead fits **multiple channels into one row**,
+each in a fixed-width lane slot, so the wasted padding lanes of one channel
+become live data for its neighbor.
+
+The packing factor is derived from the same `partition_size()` rule
+`softmax_rows_partial` already implements for its own (unrelated) row
+packing (`src/tools/ipu-apps/src/ipu_apps/softmax/softmax_rows_partial/
+__init__.py:117-124`):
+
+```python
+def partition_size(n: int) -> int:
+    """Next power of two >= n, clamped to [16, 128]."""
+    ps = 16
+    while ps < n:
+        ps *= 2
+    return ps
+```
+
+`packing_factor = 128 // partition_size(N_TOK)`. Channel `p`'s `N_TOK`
+tokens occupy lanes `[p * partition_size(N_TOK), (p+1) * partition_size(N_TOK))`
+of its packed row.
+
+| Layer | N_TOK | `partition_size(N_TOK)` | packing factor | packed rows for D_MODEL channels |
+|---|---|---|---|---|
+| L5 | 16 | 16 | 8 | 240 / 8 = 30 |
+| L4 | 64 | 64 | 2 | 192 / 2 = 96 |
+
+L5's 8x packing factor gives large memory and cycle wins on the linear
+layers and layernorm. L4's factor of 2 is inherently much smaller — this is
+a direct consequence of `partition_size(64)=64` versus `partition_size(16)=16`,
+not an implementation gap, and the two rounds' measured results reflect
+that: L5's headline numbers should **not** be assumed to generalize, and did
+not — see `docs/isa_friction_log.md`'s L4 entry for a formula (replication
+slot count) that L4 directly contradicts.
+
+Attention (QK^T / softmax / attn·V) has no channel axis in either layer's
+kernels, so it is never packed — it always runs on the existing unpacked
+production kernels, with an on-chip pack/unpack conversion kernel at the
+seam.
+
+### Where the files live
+
+Both rounds' kernels are untracked, standalone, test-only — `.asm` sources
+and their `test_*.py` files sit side by side in `src/tools/ipu-apps/test/`,
+assembled and run via the direct `assemble_to_bin_file` → `IpuState(...)` →
+`load_program_from_binary` → `run_until_complete` pattern (no
+`ipu_apps.<name>.App` wrapper, no `BUILD.bazel` target).
+
+| Kernel role | L5 (240ch × 16tok, packing factor 8) | L4 (192ch × 64tok, packing factor 2) |
+|---|---|---|
+| Pack (unpacked→packed) | `asm_packed_pack_240x16.asm` | `asm_packed_pack_192x64.asm` |
+| Unpack (packed→unpacked) | `asm_packed_unpack_240x16.asm` | `asm_packed_unpack_192x64.asm` |
+| LayerNorm | `asm_packed_layernorm_240x16.asm` | `asm_packed_layernorm_192x64.asm` |
+| Linear, packed output | `asm_packed_output_linear_generic.asm` / `_silu.asm` / `_1slot.asm` / `_tiny.asm` | `asm_packed_output_linear_generic_p4.asm` / `_silu_p4.asm` |
+| Linear, masked (unpacked output) | `asm_packed_linear_240to8_masked.asm` / `_replicated.asm`, `asm_packed_linear_masked_generic.asm` | not built (output-linear construction carried forward instead) |
+| Residual add | `asm_packed_residual_add_240x16.asm` | `asm_packed_residual_add_192x64.asm` |
+| Cross-partition combine primitive | `asm_primitive_a_combine8x16.asm` | `asm_primitive_a_combine2x64.asm` |
+| Full end-to-end layer chain | `test_full_layer_l5_packed.py` | `test_full_layer_l4_packed.py` |
+| Instruction-counting fixture | `fixture_packed_l5_measure.py` | `fixture_packed_l4_measure.py` |
+
+### The `rc_idx` formulas, generalized
+
+Every masked gather/scatter in these kernels addresses `R_CYCLIC` (loaded via
+`LDR_CYCLIC_MULT_REG`, a 512-element cyclic ring across 4 slots of 128) with
+`rc_idx = ps * (...) mod 512`, where `ps = partition_size(N_TOK)` is the
+per-partition lane width — **not** a fixed constant carried over between
+layers:
+
+| Purpose | Formula | L5 (`ps=16`) | L4 (`ps=64`) |
+|---|---|---|---|
+| Pack scatter | `rc_idx = (-ps*p_out) mod 512` | `(-16*p_out) mod 512` | `(-64*p_out) mod 512` |
+| Unpack gather | `rc_idx = ps*p_in` | `16*p_in` | `64*p_in` |
+| Packed-output-linear scatter | `rc_idx = ps*(p_in-p_out) mod 512` | `16*(p_in-p_out) mod 512` | `64*(p_in-p_out) mod 512` |
+| LayerNorm broadcast | `rc_idx = (-ps*p) mod 512` | `(-16*p) mod 512` | `(-64*p) mod 512` |
+| Primitive-A combine | `rc_idx = ps*p` for `p=0..packing_factor-1` | `16*p`, `p=0..7` | `64*p`, `p=0..1` |
+
+The replication-slot count for the packed-output-linear scatter (how many of
+`R_CYCLIC`'s 4 slots must be loaded per packed chunk) is **not** a constant
+either — it depends on the actual range `rc_idx` sweeps for the layer's
+`(p_in, p_out)` pairs, and must be re-derived by direct enumeration per
+layer, not assumed: L5's formula stays within slot 0 (1 slot suffices); L4's
+formula reaches slot 3 for one pairing (2 slots needed, 0 and 3). See
+`docs/isa_friction_log.md` for both derivations in full.
+
+### No ISA segmented reduce — the shared workaround
+
+Neither layer's packed linear-output construction has access to a
+partition-wise (segmented) reduce instruction — `AGG.SUM` collapses all
+active lanes to one scalar, `RESHAPE` only moves up to 8 word-lanes
+`r_acc`→`r_acc` per call, and `CR15.partition` (or any `CR0`-`CR15` used as
+a `dstructure` register) only feeds mask/shift math, never data movement.
+Both rounds work around this with the same hand-built "primitive A"
+construction: store `r_acc` to XMEM, reload the row into `R_CYCLIC` via
+`LDR_CYCLIC_MULT_REG`, then one `MULT.RC.VE ×1.0` + `ACC.ADD[.FIRST]` per
+partition at `rc_idx = ps*p`. Cost scales with the packing factor: L5's
+8-term combine measured 23 cycles / 22 instructions standalone; L4's 2-term
+combine measured 11 cycles / 10 instructions.

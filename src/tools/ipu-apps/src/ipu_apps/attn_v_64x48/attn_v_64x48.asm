@@ -1,5 +1,15 @@
 # attn@V (AGG kernel), Layer 4 — query-major scores -> channel-major output.
 #
+# Layer:   L4
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   64tok x 48chan (head_dim), P=4 streams x 4 heads (16 blocks)
+# Status:  validated
+# Related: L4 port of attn_v_256x36 (L3); attn_v_16x60 is the L5 port;
+#          consumes qk_scores_64x48's query-major output; attn_v_bcast_48
+#          is the key-major (no-AGG) sibling for the same layer
+# Tests:   test_attn_v_64x48_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Per (stream, head) block b in [0,16)  (P=4 streams x h=4 heads):
 #   O[b, i, t] = sum_s P[b, i, s] * V[b, s, t]   i,s in [0,64), t in [0,48)
 #
@@ -111,12 +121,19 @@ t_loop:
     LDR_CYCLIC_MULT_REG {{ chan_off }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[b, 0..63, t]
     SUB {{ p_ptr }} {{ p_block_off }} {{ p_query_stride }};;       # P inner start = block base - 1 row
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 
 i_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} i_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} i_loop;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;# O[b, 0..63, t] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
 
     # ----- next t: advance the shared V/O channel row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ OUT_CHAN_STRIDE }};;      # channel row += 1

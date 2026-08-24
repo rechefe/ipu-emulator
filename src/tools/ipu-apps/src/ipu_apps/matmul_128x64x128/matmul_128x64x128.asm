@@ -1,7 +1,26 @@
 # Matrix multiplication: C = A x B
+#
+# Layer:   shared/multi-layer
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   M=128, K=64, N=128
+# Status:  validated
+# Related: generic matmul harness — not tied to any transformer layer; see
+#          kernel_docs/kernel_layer_map.md's "Not layer-specific" table.
+#          Same row_loop/MULT.RC.VE template as matmul_128x128 (K=128),
+#          matmul_128x64x64 (N=64 instead of 128), matmul_64x64x64 (M=64).
+# Tests:   //src/tools/ipu-apps:test_matmul_128x64x128_wide
+#
 # A: 128x64  input  (M=128 rows, K=64 cols)
 # B: 64x128  weights (K=64 rows, N=128 cols)
 # C: 128x128 output (M=128 rows, N=128 cols, stored as 128 int32/fp32 accumulators per row)
+#
+# Computes a 128x64x128 matrix product: 128 input rows each contracted over
+# only 64 columns (K=64, zero-padded to the 128-lane SIMD width) against a
+# 64x128 weight matrix, producing 128 output columns per row. Same
+# accumulation strategy as matmul_128x128: the first k-iteration is peeled
+# with ACC.ADD.FIRST to seed r_acc, then the remaining K-1 steps accumulate
+# with ACC.ADD.
 #
 # K=64 < SIMD width (128): each row of A is zero-padded to 128 bytes in XMEM.
 #
@@ -72,7 +91,8 @@ k_loop:
     BNE                 lr5 lr6 k_loop_pre;;
 
 after_k_loop:
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr7 cr2;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr7 cr2;;
     ADD                 lr7 lr7 lr14;
     ADD                 lr0 lr0 lr13;;
 

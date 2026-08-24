@@ -1,5 +1,14 @@
 # Residual add: C[r] = A[r] + B[r]  for r = 0..287
 #
+# Layer:   L3
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   256tok x 144chan (2 tg interleaved, 288 rows)
+# Status:  validated
+# Related: residual_add_64x192 (L4) / residual_add_16x240 (L5) are ports of
+#          this kernel; consumes layernorm_256x144's output
+# Tests:   test_residual_add_256x144_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # A, B: interleaved channel-major [256 tokens, 144 channels] = 288 rows.
 #   Row r at A_BASE + r  (resp. B_BASE + r), in ROW units (issue #179).
 # C: FP32 accumulator output, 288 rows × 512 bytes.
@@ -79,15 +88,20 @@
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
+    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 
 row_loop:
     # Cycle 1: r_acc = A[r] × 1.0  (A[r] was loaded a cycle earlier)
     #   MULT.RC.VE r_cyclic[0] × DTYPE_ONE(=dtype 1.0) → A[r] passed through.
     #   Co-issued load fetches B[r] for cycle 2.
-    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }}; ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }}; MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;;
     # Cycle 2: r_acc += B[r] × 1.0
-    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;;
+    MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;;
     # Cycle 3: stage r_acc into post_aaq_reg for the hardware store path.
     #   ACTIVATE.QUANTIZE and STR_POST_AAQ_REG co-issue in ONE VLIW word: AaQ
     #   and STR are consecutive pipeline stages within a word, and the in-word
@@ -98,9 +112,14 @@ row_loop:
     #   lane-for-lane FP32 copy of all 128 lanes, i.e. byte-identical to the
     #   STR_ACC_REG it replaces in wide mode.
     #   Co-issued load prefetches A[r+1] for the next row's cycle 1.
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }}; ADD {{ row_index }} {{ row_index }} {{ ONE }}; LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }}; ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
+    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};
+    ADD {{ row_index }} {{ row_index }} {{ ONE }};
+    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
     # Cycle 4: advance output ptr; BLT reads snap row_index = already-incremented
-    ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }}; BLT {{ row_index }} {{ row_limit }} row_loop;;
+    ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }};
+    BLT {{ row_index }} {{ row_limit }} row_loop;;
 
 end:
     BKPT;;

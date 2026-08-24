@@ -1,5 +1,28 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]
 #
+# Layer:   L3
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   M=256 tokens (2 token groups x 128), K=144, N=144
+# Status:  validated
+# Related: L3 OutProj (single-stream). One of 4 near-identical L3 matmuls —
+#          matmul_288x144_x128 (FFN1, K=144->288), matmul_432x144_x128
+#          (fused QKV, K=144->432), matmul_144x288_x128 (FFN2, K=288->144) —
+#          all share this j_loop/k-loop template. Full derivation in
+#          kernel_docs/L3_kernel_reference.md section 4.1; consumed by
+#          proj_outproj_144_p4, which wraps the same arithmetic across all 4
+#          pixel streams in one invocation.
+# Tests:   //src/tools/ipu-apps:test_matmul_144x144_x128_wide
+#
+# Computes the L3 OutProj matmul: 144 input channels contracted down to 144
+# output channels, over 256 tokens (handled as two 128-token groups, tg=0/1,
+# since one XMEM row holds 128 lanes). Because K=144 spans two SIMD-width
+# registers, each output channel's contraction is split into two k-loops —
+# k=0..127 read their weight scalar from r0, k=128..143 from r1 — with the
+# first iteration of the first k-loop peeled to seed r_acc via ACC.ADD.FIRST
+# (see the "Peeled first k-iter" comment below), and the rest accumulated
+# with ACC.ADD, once per token group.
+#
 # D: interleaved channel-major [K=144 channels, 2 tg, 128 tokens]
 #    Row (k, tg) at DATA_BASE + k*256 + tg*128
 # W: output-major [144 out_ch, 144 in_ch], NO transposition
@@ -100,17 +123,25 @@ j_loop:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased)
 
     # Prime k=0's chunk for this token group (see the note above j_loop).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
     B after_k_tg0;;
 
 k_loop1_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
 
 after_k_tg0:
@@ -121,8 +152,11 @@ after_k_tg0:
     # advanced the pipeline one step, so k_loop2 inherits the correct phase.
 
 k_loop2_tg0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
     # Hardware store path: ACTIVATE.QUANTIZE stages r_acc into post_aaq_reg and
@@ -132,7 +166,8 @@ k_loop2_tg0:
     # section 7.0), so STR consumes this cycle's AaQ result -- the store is free.
     # `identity` + DSTRUCT.valid_elements=128 makes this a lane-for-lane FP32
     # copy of all 128 lanes, i.e. byte-identical to the STR_ACC_REG it replaces.
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;# store 512B → OUTPUT[j, tg=0]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -140,17 +175,25 @@ k_loop2_tg0:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased)
 
     # Prime k=0's chunk for this token group.
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
     B after_k_tg1;;
 
 k_loop1_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
 
 after_k_tg1:
@@ -160,14 +203,19 @@ after_k_tg1:
     # advanced the pipeline one step, so k_loop2 inherits the correct phase.
 
 k_loop2_tg1:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }}; ADD {{ k_index }} {{ k_index }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
+    ADD {{ k_index }} {{ k_index }} {{ ONE }};
     BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;# store 512B → OUTPUT[j, tg=1]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
-    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }}; ADD {{ j_index }} {{ j_index }} {{ ONE }};; # next j
+    ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};
+    ADD {{ j_index }} {{ j_index }} {{ ONE }};;  # next j
     BLT {{ j_index }} {{ j_limit }} j_loop;;
 
 end:

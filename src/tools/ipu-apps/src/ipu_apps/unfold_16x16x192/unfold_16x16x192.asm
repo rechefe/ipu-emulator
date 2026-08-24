@@ -1,5 +1,15 @@
 # Unfold 16×16×192 → 4 streams of [64, 192] channel-major FP32   (L4)
 #
+# Layer:   L4
+# Scope:   single-stream (per-stripe; emits the 4 spatial streams)
+# Layout:  unpacked
+# Shape:   16x16x192 spatial input -> 4 streams x [64tok, 192chan]
+# Status:  validated
+# Related: L4 port of unfold_32x32x144 (L3) with re-derived geometry (NOT a
+#          direct port -- 2 stripes not 8, elements_in_row=16 not 32);
+#          unfold_8x8x240 is the L5 sibling; feeds layernorm_64x192
+# Tests:   test_unfold_16x16x192_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Rearranges a 16×16×192 spatial tensor (NHCW striped input) into
 # 4 streams (TL, TR, BL, BR) of 8×8 sub-grids, channel-major.
 #
@@ -105,27 +115,47 @@ ch_loop:
     # the chunk the NEXT bundle will multiply (snapshot contract, see header).
 
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on lr1;;
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr9;;# TL → DST_TL + ch×512 (lanes 0..63 valid)
+    LDR_MULT_REG r0 lr4 cr13;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on on lr0;;
+    LDR_MULT_REG r0 lr4 cr0;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on on lr1;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr8 cr9;;  # TL → DST_TL + ch×512 (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on lr1;;
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr10;;# TR
+    LDR_MULT_REG r0 lr4 cr13;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on_inv on lr0;;
+    LDR_MULT_REG r0 lr4 cr0;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on_inv on lr1;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr8 cr10;;  # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on on_inv lr1;;
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr11;;# BL
+    LDR_MULT_REG r0 lr4 cr13;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr0;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on on_inv lr1;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr8 cr11;;  # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
-    LDR_MULT_REG r0 lr4 cr13;MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr0;;
+    LDR_MULT_REG r0 lr4 cr13;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on_inv on_inv lr0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
-    LDR_MULT_REG r0 lr4 cr0; MULT.RC.VV lr0 r0 0 lr0 cr15; ACC.STRIDE 16 on_inv on_inv lr1;;
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG         lr8 cr12;;# BR
+    LDR_MULT_REG r0 lr4 cr0;
+    MULT.RC.VV lr0 r0 0 lr0 cr15;
+    ACC.STRIDE 16 on_inv on_inv lr1;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr8 cr12;;  # BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 lr8 lr8 lr6;;       # dst offset: next channel (+512)

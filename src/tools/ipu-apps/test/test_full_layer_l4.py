@@ -63,7 +63,16 @@ from fixture_full_layer_chain import (
     run_layernorm, run_proj_p4, run_qk_scores_query_major_all_blocks,
     run_attn_v_query_major_all_blocks, run_attn_scores_km_one_head, run_attn_v_bcast,
     run_residual_add, relative_error_stats, format_relative_error_stats,
+    real_softmax_query_major, real_softmax_key_major,
 )
+
+# USE_REAL_SOFTMAX=1 routes the chain through the real softmax_rows_partial /
+# softmax_columns_packed kernels instead of the host numpy stub -- see
+# docstrings on real_softmax_query_major/real_softmax_key_major in
+# fixture_full_layer_chain.py. Default (unset/0) keeps the numpy stub path
+# runnable so the two can be A/B'd; BUILD.bazel wires a second target per
+# config with this set for the real-kernel run.
+USE_REAL_SOFTMAX = os.environ.get("USE_REAL_SOFTMAX", "0") == "1"
 
 _LN_INST = Path(os.environ["LAYERNORM_64X192_INST_BIN"])
 _QKV_INST = Path(os.environ["PROJ_QKV_192_P4_INST_BIN"])
@@ -289,7 +298,10 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     if stages is not None:
         stages["scores"] = scores[0:N_HEAD].astype(np.float64)
 
-    probs = np.stack([softmax_query_major(scores[b]) for b in range(P_STREAM * N_HEAD)])
+    if USE_REAL_SOFTMAX:
+        probs = real_softmax_query_major(scores, tmp_path=tmp_path, tag=f"{tag}_sm")
+    else:
+        probs = np.stack([softmax_query_major(scores[b]) for b in range(P_STREAM * N_HEAD)])
     if stages is not None:
         stages["softmax"] = probs[0:N_HEAD].astype(np.float64)
 
@@ -429,8 +441,11 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
             key_rows = rows[p].copy()  # [N_TOK keys, LANES] key-major, row s = key s
             # Softmax stub, KEY-MAJOR: reduce over the key axis, which here is
             # the ROW axis (axis=-2) since row s = key s, column q = query q.
-            key_cols = key_rows[:, :N_TOK].T  # [query, key] -> transpose view for stub call
-            probs_km = softmax_key_major(key_cols.T)  # [key, query], row=key
+            key_cols = key_rows[:, :N_TOK]  # [key, query], row s = key s
+            if USE_REAL_SOFTMAX:
+                probs_km = real_softmax_key_major(key_cols, tmp_path=tmp_path, tag=f"{tag}_sm_h{h}_p{p}")
+            else:
+                probs_km = softmax_key_major(key_cols)  # [key, query], row=key
             out_rows = key_rows.copy()
             out_rows[:, :N_TOK] = probs_km
             lo = b * N_TOK * (ROW_BYTES // 4) * 4

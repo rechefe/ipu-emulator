@@ -1,4 +1,15 @@
 # QKᵀ scores (Layer 5), one attention head:
+#
+# Layer:   L5
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   16tok x 60chan (head_dim), one head
+# Status:  validated
+# Related: L5 port of qk_scores_256x36 (L3) / qk_scores_64x48 (L4); feeds
+#          attn_v_16x60 (query-major chain); attn_scores_km_16x60 is the
+#          key-major sibling for the same layer
+# Tests:   test_qk_scores_16x60_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 #   S[i, s] = sum_c Q[i, c] * K[s, c]   contraction over head_dim c = 0..59
 #
 # One head: N = 16 tokens (queries = keys), head_dim D = 60.
@@ -102,11 +113,15 @@ q_loop:
 
     # Prime c=0's K column: MULT reads r_cyclic from the snapshot, so the column
     # it consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }}; ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
     B after_c;;
 
@@ -114,15 +129,19 @@ c_loop_pre:
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;                                            # name the channel just loaded
 
 c_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }}; ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;# store one row -> S[i, keys 0..15]
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store one row -> S[i, keys 0..15]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1 row)
 
-    ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }}; ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 1 row, i++
+    ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};
+    ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 1 row, i++
     BLT {{ q_index }} {{ q_limit }} q_loop;;
 
 end:

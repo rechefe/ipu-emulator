@@ -1,5 +1,15 @@
 # Multi-stream transformer projection matmul (Layer 3 OutProj, P=4 pixel-streams).
 #
+# Layer:   L3
+# Scope:   all-stream/P4
+# Layout:  unpacked
+# Shape:   144ch, P4 (4-stream), K=144->N_OUT=144, N_TG=2
+# Status:  validated
+# Related: proj_qkv_144_p4 / proj_ffn1_144_p4 / proj_ffn2_144_p4 are the
+#          other L3 P4 projections; shape suffix 144/192/240 = L3/L4/L5
+#          (see kernel_docs/kernel_layer_map.md)
+# Tests:   test_proj_outproj_144_p4_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 #   C[p, tg, j, t] = sum_k W[j, k] * D[p, k, tg, t]
 #     p in [0,4), j in [0,N_OUT=144), k in [0,K=144), tg in [0,N_TG=2), t in [0,128)
 #
@@ -153,17 +163,25 @@ j_loop:
 
     # Prime k=0's row for tg0 chunk0 (snapshot contract, see header). data_ptr
     # already holds the ABSOLUTE row, so loads below use base=ZERO (cr0=0).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
     B tg0_after_chunk0;;
 
 tg0_k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
 
 tg0_after_chunk0:
@@ -177,7 +195,8 @@ tg0_after_chunk0:
     # is never reset), exactly as in the L4/L5 proj_*_p4 family.
 tg0_chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;     # this chunk's W row = weight_row_off + chunk_idx
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }}; SET {{ k_idx }} {{ NEG_ONE }};;   # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased)
+    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    SET {{ k_idx }} {{ NEG_ONE }};;  # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased)
 
     BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg0_use_full_bound;;
     SET {{ bound }} {{ TAIL_BOUND }};;
@@ -186,15 +205,19 @@ tg0_use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 tg0_chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ bound }} tg0_chunk_body;;
 
     INC {{ chunk_idx }} 1;;
     BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
 
 tg0_store:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;   # C[p,tg=0,j,:] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,tg=0,j,:] = R_ACC
 
     # ---- tg=1: chunk 0 (prime + peel first k-iter, ACC.ADD.FIRST) ----------
     # weight_row_off is UNCHANGED here -- tg=1 re-reads the SAME j's weights
@@ -208,16 +231,24 @@ tg0_store:
     SUB {{ k_idx }} {{ k_idx }} {{ ONE }};;                          # biased to -2
     SET {{ chunk_idx }} {{ ZERO }};;
 
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
     B tg1_after_chunk0;;
 
 tg1_k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
 
 tg1_after_chunk0:
@@ -227,7 +258,8 @@ tg1_after_chunk0:
 
 tg1_chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }}; SET {{ k_idx }} {{ NEG_ONE }};;
+    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    SET {{ k_idx }} {{ NEG_ONE }};;
 
     BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg1_use_full_bound;;
     SET {{ bound }} {{ TAIL_BOUND }};;
@@ -236,15 +268,19 @@ tg1_use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 tg1_chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ bound }} tg1_chunk_body;;
 
     INC {{ chunk_idx }} 1;;
     BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
 
 tg1_store:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr_tg1 }} {{ ZERO }};;   # C[p,tg=1,j,:] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr_tg1 }} {{ ZERO }};;  # C[p,tg=1,j,:] = R_ACC
 
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                      # advance tg=0 output ptr, packed (1 row/j)
     ADD {{ out_ptr_tg1 }} {{ out_ptr_tg1 }} {{ ONE }};;              # advance tg=1 output ptr, packed (1 row/j)

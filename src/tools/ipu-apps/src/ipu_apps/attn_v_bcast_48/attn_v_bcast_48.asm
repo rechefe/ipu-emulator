@@ -1,5 +1,15 @@
 # attn@V (broadcast / no AGG), Layer 4 — key-major scores -> channel-major output
 #
+# Layer:   L4
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   64tok x 48chan (head_dim), P=4 streams x 4 heads (16 blocks)
+# Status:  validated
+# Related: L4 port of attn_v_bcast_36 (L3); attn_v_bcast_60 is the L5 port;
+#          consumes attn_scores_km_64x48's key-major output; attn_v_64x48
+#          is the query-major (AGG) sibling for the same layer
+# Tests:   test_attn_v_bcast_48_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Per (stream, head) block b in [0,16)  (P=4 streams x h=4 heads):
 #   O[b, i, t] = sum_s P[b, i, s] * V[b, s, t]
 #     i = query in [0,64)   (the SIMD lanes)
@@ -132,11 +142,15 @@ t_loop:
 
     # Prime key 0's P row: MULT reads r_cyclic from the snapshot, so the row it
     # consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }}; ADD {{ key_index }} {{ key_index }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
 
@@ -144,12 +158,15 @@ s_loop_pre:
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;        # name the key just loaded
 
 s_loop:
-    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }}; ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
+    MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
 
 s_done:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;# O[b, 0..63, t] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
 
     ADD {{ chan_off }} {{ chan_off }} {{ CHAN_STRIDE }};;  # next channel row (V and O share the offset)
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;

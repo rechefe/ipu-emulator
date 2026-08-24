@@ -1,5 +1,15 @@
 # LayerNorm 128×16: per-PE normalization across 16 channels, 128 tokens
 #
+# Layer:   not layer-specific (16-channel LayerNorm, not one of the L3/L4/L5
+#          transformer-block shapes; see kernel_docs/kernel_layer_map.md)
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   128tok x 16chan
+# Status:  validated
+# Related: ancestor of layernorm_256x144/layernorm_64x192/layernorm_16x240
+#          (those document their differences relative to this kernel)
+# Tests:   test_layernorm_128x16 (src/tools/ipu-apps/BUILD.bazel)
+#
 # Wide-vector debug mode (512 B per row = 128 × FP32).
 #
 # VLIW execution order: LR → XMEM → MULT → ACC → AAQ → COND
@@ -69,18 +79,28 @@
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;             # lr5 = 1  (BLT reads snapshot; loop runs N_CH times)
 
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;   # prime x[ch=0]
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    ADD lr2 lr2 lr7;;  # prime x[ch=0]
 
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step1_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15;
+    ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    ADD lr2 lr2 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step1_loop;;
     B       step1_done;;
 step1_loop:
-    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step1_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15;
+    ACC.ADD;;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    ADD lr2 lr2 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step1_loop;;
 step1_done:
 
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr0 cr6;;      # NEG_MEAN_BASE = -μ
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr0 cr6;;  # NEG_MEAN_BASE = -μ
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: centered[ch,i] = x[ch,i] + (-μ[i])
@@ -103,12 +123,21 @@ step1_done:
     SUB     lr3  lr3 lr7;;
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;   # prime x[ch=0]
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    ADD lr2 lr2 lr7;;  # prime x[ch=0]
 step2_loop:
-    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
-    MULT.RC.VV lr0 r1 0 lr1 cr15; ACC.ADD;;
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr7; ADD lr3 lr3 lr7; LDR_CYCLIC_MULT_REG lr2 cr0 lr0; ADD lr2 lr2 lr7;;
-    ADD     lr5  lr5 cr1; BLT lr5 lr6 step2_loop;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
+    MULT.RC.VV lr0 r1 0 lr1 cr15;
+    ACC.ADD;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr3 cr7;
+    ADD lr3 lr3 lr7;
+    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    ADD lr2 lr2 lr7;;
+    ADD     lr5  lr5 cr1;
+    BLT lr5 lr6 step2_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 3: Σ_ch (centered[ch,i])²
@@ -123,20 +152,30 @@ step2_loop:
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
 
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime centered[ch=0]
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;;  # prime centered[ch=0]
 
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     # MULT.EE.RR (square r0) -> MULT.RC.VS (square r_cyclic): centered[ch] was
     # loaded into r_cyclic a cycle earlier, and is squared in place here.
-    MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step3_loop;;
+    MULT.RC.VS lr0 0 lr1 cr15;
+    ACC.ADD.FIRST;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step3_loop;;
     B       step3_done;;
 step3_loop:
-    MULT.RC.VS lr0 0 lr1 cr15; ACC.ADD;;
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step3_loop;;
+    MULT.RC.VS lr0 0 lr1 cr15;
+    ACC.ADD;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step3_loop;;
 step3_done:
 
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr0 cr8;;      # TEMP_BASE = Σ(x-μ)²
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr0 cr8;;  # TEMP_BASE = Σ(x-μ)²
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: variance = (1/N) × Σ(x-μ)²;  1/σ = ACTIVATE rsqrt
@@ -144,7 +183,8 @@ step3_done:
 
     LDR_MULT_REG        r0 lr0 cr8;;
     LDR_CYCLIC_MULT_REG lr0 cr5 lr0;;   # load 1/N a cycle ahead of the MULT
-    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15;
+    ACC.ADD.FIRST;;
 
     ACTIVATE.QUANTIZE rsqrt cr15;;
     STR_POST_AAQ_REG    lr0 cr9;;
@@ -171,14 +211,21 @@ step3_done:
     SET     lr3  cr0;;
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime centered[ch=0]
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;;  # prime centered[ch=0]
 step5_loop:
-    MULT.RC.VV lr0 r0 0 lr1 cr15; ACC.ADD.FIRST;;
+    MULT.RC.VV lr0 r0 0 lr1 cr15;
+    ACC.ADD.FIRST;;
     # STR_ACC_REG reads lr3 LIVE, so lr3 must NOT be bumped in the store word --
     # it advances in the branch word below, exactly as the original store
     # pointer did.
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr7; LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;
-    ADD     lr3 lr3 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step5_loop;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr3 cr7;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;;
+    ADD     lr3 lr3 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step5_loop;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: output[ch,i] = γ[ch] × normalized[ch,i] + β[ch]
@@ -210,15 +257,26 @@ step5_loop:
     SET     lr9  cr0;;               # fixed_idx γ = 0
     SET     lr10 cr14;;              # fixed_idx β = 128
 
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7;;   # prime normalized[ch=0]
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;;  # prime normalized[ch=0]
 step6_loop:
-    MULT.RC.VE lr0 lr9 0 lr1 cr15; ACC.ADD.FIRST; LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
-    MULT.RC.VE lr0 lr10 0 lr1 cr15; ACC.ADD;;
+    MULT.RC.VE lr0 lr9 0 lr1 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr0 cr3 lr0;;
+    MULT.RC.VE lr0 lr10 0 lr1 cr15;
+    ACC.ADD;;
     # Cycle C is already at the 3-LR-per-word limit (lr3, lr9, lr10), so the
     # prefetch load rides here but its lr2 bump moves to cycle D. lr2 is read
     # LIVE, so the load still uses the pre-bump value = the row it should fetch.
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr3 cr10; ADD lr3 lr3 lr7; ADD lr9 lr9 cr1; ADD lr10 lr10 cr1;;
-    LDR_CYCLIC_MULT_REG lr2 cr7 lr0; ADD lr2 lr2 lr7; ADD lr5 lr5 cr1; BLT lr5 lr6 step6_loop;;
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr3 cr10;
+    ADD lr3 lr3 lr7;
+    ADD lr9 lr9 cr1;
+    ADD lr10 lr10 cr1;;
+    LDR_CYCLIC_MULT_REG lr2 cr7 lr0;
+    ADD lr2 lr2 lr7;
+    ADD lr5 lr5 cr1;
+    BLT lr5 lr6 step6_loop;;
 
 end:
     BKPT;;

@@ -1,5 +1,15 @@
 # Multi-stream transformer projection matmul (Layer 4 QKV, P=4 pixel-streams).
 #
+# Layer:   L4
+# Scope:   all-stream/P4
+# Layout:  unpacked
+# Shape:   192ch, P4 (4-stream), K=192->N_OUT=576
+# Status:  validated
+# Related: proj_outproj_192_p4 / proj_ffn1_192_p4 / proj_ffn2_192_p4 are
+#          the other L4 P4 projections; shape suffix 144/192/240 = L3/L4/L5
+#          (see kernel_docs/kernel_layer_map.md)
+# Tests:   test_proj_qkv_192_p4_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 #   C[p, j, t] = sum_k W[j, k] * D[p, k, t]
 #     p in [0,4), j in [0,N_OUT=576), k in [0,K=192), t in [0,N_TOK=64)
 #
@@ -126,17 +136,25 @@ j_loop:
     # Prime k=0's row for chunk0 (snapshot contract, see header). data_ptr
     # already holds the ABSOLUTE row (stream_data_base includes DATA_BASE),
     # so every data load below uses base=ZERO (cr0=0).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
 
 after_chunk0:
@@ -150,7 +168,8 @@ after_chunk0:
     # is never reset), exactly as in the 3- and 4-chunk single-stream kernels.
 chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;    # this chunk's W row = weight_row_off + chunk_idx
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }}; SET {{ k_idx }} {{ NEG_ONE }};;   # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased -- prefetch already in flight)
+    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    SET {{ k_idx }} {{ NEG_ONE }};;  # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased -- prefetch already in flight)
 
     # bound_sel: is this the LAST chunk? last -> TAIL_BOUND, else FULL_BOUND.
     BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} use_full_bound;;
@@ -160,18 +179,23 @@ use_full_bound:
     SET {{ bound }} {{ FULL_BOUND }};;
 
 chunk_body:
-    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }}; ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }}; ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }}; ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
+    MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
+    ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ bound }} chunk_body;;
 
     INC {{ chunk_idx }} 1;;
     BLT {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
 
 store_out:
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,j,:] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,j,:] = R_ACC
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                     # advance output ptr, packed (1 row/j)
 
-    ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }}; INC {{ j_idx }} 1;;
+    ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};
+    INC {{ j_idx }} 1;;
     BLT {{ j_idx }} {{ N_OUT_CR }} j_loop;;
 
     # ----- next stream: stream D/C bases += stride, p++ -----

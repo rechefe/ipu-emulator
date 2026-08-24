@@ -424,3 +424,97 @@ def run_residual_add(App, *, inst_bin: Path, a: np.ndarray, b: np.ndarray, n_ch:
         got = raw.reshape(n_ch, n_tok)
     _assert_no_poison(got, f"{tag} residual_add")
     return got, cycles
+
+
+# ---------------------------------------------------------------------------
+# Real softmax kernels (softmax_rows_partial / softmax_columns_packed),
+# drop-in replacements for fixture_host_softmax_fold_stubs.softmax_query_major
+# / softmax_key_major. Assembled once per process (module-level cache) since
+# the .asm is fixed and every call in a test run reuses the same binary --
+# see test_softmax_kernels_vs_stub.py's _assemble for why reset_labels() is
+# required before each assembly.
+# ---------------------------------------------------------------------------
+
+_REAL_SOFTMAX_INST: dict[str, Path] = {}
+
+
+def _real_softmax_inst(name: str) -> Path:
+    """Assemble (once) and cache softmax_rows_partial.asm / softmax_columns_packed.asm."""
+    if name in _REAL_SOFTMAX_INST:
+        return _REAL_SOFTMAX_INST[name]
+
+    import tempfile
+    from ipu_as.lark_tree import assemble_to_bin_file
+    from ipu_as.label import reset_labels
+
+    src_dir = Path(__file__).resolve().parents[1] / "src/ipu_apps/softmax"
+    asm_rel = {
+        "rows_partial": "softmax_rows_partial/softmax_rows_partial.asm",
+        "columns_packed": "softmax_columns_packed/softmax_columns_packed.asm",
+    }[name]
+    tmp_dir = Path(tempfile.mkdtemp(prefix=f"real_softmax_{name}_"))
+    inst_path = tmp_dir / f"{name}.bin"
+    reset_labels()
+    assemble_to_bin_file((src_dir / asm_rel).read_text(), str(inst_path))
+    _REAL_SOFTMAX_INST[name] = inst_path
+    return inst_path
+
+
+def real_softmax_query_major(scores: np.ndarray, *, tmp_path: Path, tag: str) -> np.ndarray:
+    """Real-kernel drop-in for fixture_host_softmax_fold_stubs.softmax_query_major.
+
+    scores: [..., n_query, n_key], row i = query i's raw scores over all
+    keys (n_query == n_key == N_TOK here; softmax_rows_partial's `rows`/`n`
+    are exactly this shape). Reduces over the trailing axis, same contract
+    as the stub. Leading axes (heads, blocks) are looped on the host since
+    the kernel call itself only knows about one [rows, n] matrix at a time.
+    """
+    from ipu_apps.softmax.softmax_rows_partial import SoftmaxRowsPartialApp
+
+    inst_path = _real_softmax_inst("rows_partial")
+    orig_shape = scores.shape
+    n = orig_shape[-1]
+    rows = orig_shape[-2]
+    flat = scores.reshape(-1, rows, n).astype(np.float32)
+
+    out = np.empty_like(flat)
+    for i in range(flat.shape[0]):
+        inp = tmp_path / f"rsm_{tag}_{i}_in.bin"
+        outp = tmp_path / f"rsm_{tag}_{i}_out.bin"
+        inp.write_bytes(flat[i].tobytes())
+        app = SoftmaxRowsPartialApp(inst_path=inst_path, input_path=inp,
+                                     output_path=outp, n=n, rows=rows)
+        app.run(max_cycles=20_000_000)
+        out[i] = np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, n)
+
+    return out.reshape(orig_shape).astype(np.float64)
+
+
+def real_softmax_key_major(scores_km: np.ndarray, *, tmp_path: Path, tag: str) -> np.ndarray:
+    """Real-kernel drop-in for fixture_host_softmax_fold_stubs.softmax_key_major.
+
+    scores_km: [..., n_key, n_query], row s = key s's scores against every
+    query (column q = query q). Reduces over the row (key) axis, same
+    contract as the stub. softmax_columns_packed's `rows`/`width` map
+    directly: rows=n_key, width=n_query (width <= 64 required -- true for
+    both L4 (N_TOK=64) and L5 (N_TOK=16)).
+    """
+    from ipu_apps.softmax.softmax_columns_packed import SoftmaxColumnsPackedApp
+
+    inst_path = _real_softmax_inst("columns_packed")
+    orig_shape = scores_km.shape
+    width = orig_shape[-1]
+    rows = orig_shape[-2]
+    flat = scores_km.reshape(-1, rows, width).astype(np.float32)
+
+    out = np.empty_like(flat)
+    for i in range(flat.shape[0]):
+        inp = tmp_path / f"ksm_{tag}_{i}_in.bin"
+        outp = tmp_path / f"ksm_{tag}_{i}_out.bin"
+        inp.write_bytes(flat[i].tobytes())
+        app = SoftmaxColumnsPackedApp(inst_path=inst_path, input_path=inp,
+                                       output_path=outp, rows=rows, width=width)
+        app.run(max_cycles=20_000_000)
+        out[i] = np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, width)
+
+    return out.reshape(orig_shape).astype(np.float64)

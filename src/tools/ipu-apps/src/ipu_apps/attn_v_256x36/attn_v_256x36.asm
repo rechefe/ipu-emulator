@@ -1,5 +1,15 @@
 # Agent A — attn@V (AGG kernel), query-major scores -> channel-major output.
 #
+# Layer:   L3
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   256tok (2 groups x 128) x 36chan (head_dim), 4 heads
+# Status:  validated
+# Related: attn_v_64x48 (L4) / attn_v_16x60 (L5) are ports of this kernel;
+#          consumes qk_scores_256x36's query-major output; attn_v_bcast_36
+#          is the key-major (no-AGG) sibling for the same layer
+# Tests:   test_attn_v_256x36_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Per head (4 heads, head_dim D=36, N=256 tokens):
 #   O[i, t] = sum_s P[i, s] * V[s, t]      i,s in [0,256), t in [0,36)
 #
@@ -113,9 +123,15 @@ t_loop:
     LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..127, t]   (base VBASE)
     SUB {{ p_ptr }} {{ group_p_off }} {{ p_query_stride }};;       # P inner start = group P off - 2 rows
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c0_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g0c0_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} g0c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ CHUNK_OFF }};;               # V chunk1 offset = chan + 1 row
@@ -123,12 +139,19 @@ g0c0_loop:
     ADD {{ p_ptr }} {{ group_p_off }} {{ CHUNK_OFF }};;            # P chunk1 base = group P off + 1 row
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c1_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ ZERO }};;            # O g=0 offset = O chan offset
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;# O[0..127, t] = R_ACC   (base OBASE)
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;  # O[0..127, t] = R_ACC   (base OBASE)
 
     # ===================== group g = 1 (queries 128..255) ===================
     # ---- chunk 0: keys 0..127 ----
@@ -137,9 +160,15 @@ g0c1_loop:
     ADD {{ p_ptr }} {{ group_p_off }} {{ P_GROUP_STRIDE }};;       # g=1 P base = group P off + 256 rows
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c0_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g1c0_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} g1c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ CHUNK_OFF }};;               # V chunk1 offset = chan + 1 row
@@ -148,12 +177,19 @@ g1c0_loop:
     ADD {{ p_ptr }} {{ p_ptr }} {{ CHUNK_OFF }};;                  # + 1 row (chunk1)
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c1_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ OUT_GROUP_STRIDE }};; # O g=1 offset = O chan offset + 1 row
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;# O[128..255, t] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;  # O[128..255, t] = R_ACC
 
     # ----- next t: advance value-channel offset (+2 rows) and O offset (+2 rows), t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # chan += 2 rows

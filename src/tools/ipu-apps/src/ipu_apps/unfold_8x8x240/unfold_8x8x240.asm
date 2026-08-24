@@ -1,5 +1,17 @@
 # Unfold 8x8x240 -> 4 stride-2 streams of [16, 240] channel-major FP32   (L5)
 #
+# Layer:   L5
+# Scope:   single-stream (per-stripe; emits the 4 spatial streams)
+# Layout:  unpacked
+# Shape:   8x8x240 spatial input -> 4 streams x [16tok, 240chan]
+# Status:  validated
+# Related: L5 sibling of unfold_32x32x144 (L3) / unfold_16x16x192 (L4),
+#          geometry re-derived not ported (1 stripe, elements_in_row=16);
+#          requires the caller to pre-permute input rows per
+#          ipu_apps.unfold_8x8x240._ROW_PACK_ORDER (see
+#          kernel_docs/kernel_layer_map.md); feeds layernorm_16x240
+# Tests:   test_unfold_8x8x240_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Rearranges an 8x8x240 spatial tensor into 4 stride-2 decimated streams,
 # channel-major. The streams are the standard stride-2 space-to-depth
 # decomposition -- stream s takes phase (s // 2, s % 2) of every 2x2 block.
@@ -111,25 +123,34 @@ ch_loop:
     # r_acc slot 0, then stages and stores in one word.
 
     # -- Stream 0  (h=on=even cols, v=on=even spatial rows) ------------------
-    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }}; ACC.STRIDE 16 on on {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ dst_off }} {{ DST_S0 }};;
+    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
+    ACC.STRIDE 16 on on {{ slot0 }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S0 }};;
 
     # -- Stream 1  (h=on_inv=odd cols, v=on=even spatial rows) ---------------
-    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }}; ACC.STRIDE 16 on_inv on {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ dst_off }} {{ DST_S1 }};;
+    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
+    ACC.STRIDE 16 on_inv on {{ slot0 }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S1 }};;
 
     # -- Stream 2  (h=on=even cols, v=on_inv=odd spatial rows) ---------------
-    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }}; ACC.STRIDE 16 on on_inv {{ slot0 }};;
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ dst_off }} {{ DST_S2 }};;
+    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
+    ACC.STRIDE 16 on on_inv {{ slot0 }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S2 }};;
 
     # -- Stream 3  (h=on_inv=odd cols, v=on_inv=odd spatial rows) ------------
-    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }}; ACC.STRIDE 16 on_inv on_inv {{ slot0 }};;
+    MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
+    ACC.STRIDE 16 on_inv on_inv {{ slot0 }};;
     # src_off must advance BEFORE the load that uses the next channel's offset:
     # LR sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;
     # Prefetch channel ch+1 into r0 for the next iteration's first MULT.
     # dst_off is read LIVE by the store, so it is NOT touched in this word.
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ dst_off }} {{ DST_S3 }}; LDR_MULT_REG r0 {{ src_off }} {{ SRC_BASE }};;
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S3 }};
+    LDR_MULT_REG r0 {{ src_off }} {{ SRC_BASE }};;
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 {{ dst_off }} {{ dst_off }} {{ dst_stride }};;

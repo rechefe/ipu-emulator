@@ -1,5 +1,15 @@
 # Unfold 32×32×144 → 4 streams of [256, 144] channel-major FP32
 #
+# Layer:   L3
+# Scope:   single-stream (per-stripe; emits the 4 spatial streams)
+# Layout:  unpacked
+# Shape:   32x32x144 spatial input -> 4 streams x [256tok, 144chan]
+# Status:  validated
+# Related: unfold_16x16x192 (L4) / unfold_8x8x240 (L5) re-derive this
+#          kernel's geometry per layer (not direct ports -- stripe count and
+#          elements_in_row both change); feeds layernorm_256x144
+# Tests:   test_unfold_32x32x144_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Rearranges a 32×32×144 spatial tensor (NHCW striped input) into
 # 4 streams (TL, TR, BL, BR) of 16×16 sub-grids, channel-major.
 #
@@ -93,8 +103,11 @@
 
    MULT.RC.VV reads its r0 DATA from the start-of-cycle snapshot, so a MULT
    cannot consume a chunk loaded by an LDR_MULT_REG in its own bundle -- it
-   would see the PREVIOUS contents of r0. `;;` ends one VLIW word = one cycle
-   = one snapshot and `;` separates slots within it, so a load and a MULT in
+   would see the PREVIOUS contents of r0. `;
+   ;
+   ` ends one VLIW word = one cycle;;
+   = one snapshot and `;
+   ` separates slots within it, so a load and a MULT in;
    the same bundle always execute in the same cycle regardless of textual
    order: co-issuing them is fine, consuming the same-cycle load is not.
 
@@ -146,11 +159,15 @@ ch_loop:
     # src_off must advance in the word BEFORE it (LR slots precede LOAD).
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;     # src offset: next channel (+128)
 {%- endif %}
-    LDR_MULT_REG r0 {{ src_off }} {{ nstripe }}; MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }}; ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
+    LDR_MULT_REG r0 {{ src_off }} {{ nstripe }};
+    MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }};
+    ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
 {%- endfor %}
-    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }}; STR_POST_AAQ_REG    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;# {{ g[0] }} {{ g[3] }}
+    ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;  # {{ g[0] }} {{ g[3] }}
 {% endfor %}
-    ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }}; ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};; # dst offsets: +1024 per channel
+    ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }};
+    ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};;  # dst offsets: +1024 per channel
     ADD                 {{ ch_index }} {{ ch_index }} {{ ONE }};;
     BLT                 {{ ch_index }} {{ ch_limit }} ch_loop;;            # loop while ch < 144
 

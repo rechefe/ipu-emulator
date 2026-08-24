@@ -47,7 +47,11 @@ from fixture_full_layer_chain import (
     run_layernorm, run_proj_p4, run_qk_scores_query_major_one_head,
     run_attn_v_query_major_one_stream, run_attn_scores_km_one_head, run_attn_v_bcast,
     run_residual_add, relative_error_stats, format_relative_error_stats,
+    real_softmax_query_major, real_softmax_key_major,
 )
+
+# See test_full_layer_l4.py's matching flag for what this does.
+USE_REAL_SOFTMAX = os.environ.get("USE_REAL_SOFTMAX", "0") == "1"
 
 _LN_INST = Path(os.environ["LAYERNORM_16X240_INST_BIN"])
 _QKV_INST = Path(os.environ["PROJ_QKV_240_P4_INST_BIN"])
@@ -252,7 +256,10 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
         s_rows = np.frombuffer(raw_s, dtype=np.float32).reshape(N_TOK, lanes)
         scores = s_rows[:, :N_TOK]
         scores_by_head[head] = scores.astype(np.float64)
-        probs = softmax_query_major(scores)
+        if USE_REAL_SOFTMAX:
+            probs = real_softmax_query_major(scores, tmp_path=tmp_path, tag=f"{tag}_sm_h{head}")
+        else:
+            probs = softmax_query_major(scores)
         probs_by_head[head] = probs
         out_rows = s_rows.copy()
         out_rows[:, :N_TOK] = probs
@@ -379,7 +386,10 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
         # axis, which is the ROW axis here (axis=-2 in [key, query] shape).
         key_rows = np.frombuffer(raw, dtype=np.float32).reshape(N_TOK, lanes).copy()
         key_cols = key_rows[:, :N_TOK]  # [key, query]
-        probs_km = softmax_key_major(key_cols)  # still [key, query], row=key
+        if USE_REAL_SOFTMAX:
+            probs_km = real_softmax_key_major(key_cols, tmp_path=tmp_path, tag=f"{tag}_sm_h{head}")
+        else:
+            probs_km = softmax_key_major(key_cols)  # still [key, query], row=key
         out_rows = key_rows.copy()
         out_rows[:, :N_TOK] = probs_km
         p_bytes_per_head.append(out_rows.astype(np.float32).tobytes())

@@ -1,5 +1,27 @@
 # Transformer matmul: C[j, t] = sum_k W[j, k] * D[k, t]   (Layer 4 FFN2)
 #
+# Layer:   L4
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   N_TOK=64, K=384, N=192
+# Status:  validated
+# Related: L4 FFN2 (single-stream, contracts the 384-wide FFN hidden back to
+#          192). Sibling family: matmul_192x192_x128 (OutProj),
+#          matmul_384x192_x128 (FFN1, the expansion this kernel reverses),
+#          matmul_576x192_x128 (QKV). Consumed by proj_ffn2_192_p4 (all 4
+#          streams, one invocation, identity activation). Also feeds
+#          test_seam_layernorm_matmul_xmem_direct (L4 layernorm->matmul seam,
+#          via matmul_192x192_x128).
+# Tests:   //src/tools/ipu-apps:test_matmul_192x384_x128_wide
+#
+# Computes the L4 FFN2 matmul: the 384-wide FFN hidden representation
+# contracted back down to 192 output channels, over 64 tokens (single token
+# group). K=384 splits into three weight chunks (widths [128, 128, 128])
+# with the data pointer advancing continuously across all three and the
+# per-chunk scalar index resetting; the first chunk's first iteration is
+# peeled to seed r_acc via ACC.ADD.FIRST, every other step accumulates with
+# ACC.ADD. Store activation is identity.
+#
 # Single token group (N_TOK=64 <= 128): one accumulate+store pass per output j.
 #
 # D: channel-major [K=384 channels, 128 tokens]  (64 valid, padded to 128)
@@ -41,46 +63,65 @@
 #   ahead. chunk1/chunk2 startups are NOT biased.
 
 j_loop:
-    SET lr4 cr6; LDR_MULT_REG r0 lr8 cr9;;   # data startup -128; r0 = W[j, chunk0]
+    SET lr4 cr6;
+    LDR_MULT_REG r0 lr8 cr9;;  # data startup -128; r0 = W[j, chunk0]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
 
 after_chunk0:
 
     # No re-prime/bias: chunk1's first row is already in flight.
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr2;;   # chunk1 startup; r0 = W[j, chunk1]
+    SET lr5 cr8;
+    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk1;;
 
     # No re-prime/bias: chunk2's first row is already in flight.
-    SET lr5 cr8; LDR_MULT_REG r0 lr8 cr3;;   # chunk2 startup; r0 = W[j, chunk2]
+    SET lr5 cr8;
+    LDR_MULT_REG r0 lr8 cr3;;  # chunk2 startup; r0 = W[j, chunk2]
 
 k_chunk2:
-    MULT.RC.VE lr0 lr5 0 lr0 cr15; ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0; ADD lr4 lr4 lr2; ADD lr5 lr5 cr1;
+    MULT.RC.VE lr0 lr5 0 lr0 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    ADD lr4 lr4 lr2;
+    ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk2;;
 
-    ACTIVATE.QUANTIZE identity cr15; STR_POST_AAQ_REG lr7 cr5;;# store 512B -> OUTPUT[j] (first 256B valid)
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG lr7 cr5;;  # store 512B -> OUTPUT[j] (first 256B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
-    ADD lr8 lr8 lr12; ADD lr9 lr9 cr1;;        # next j
+    ADD lr8 lr8 lr12;
+    ADD lr9 lr9 cr1;;  # next j
     BLT lr9 lr10 j_loop;;
 
 end:

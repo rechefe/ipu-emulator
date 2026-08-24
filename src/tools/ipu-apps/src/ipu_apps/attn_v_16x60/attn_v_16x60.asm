@@ -1,5 +1,15 @@
 # attn@V (AGG kernel, Layer 5), query-major scores -> channel-major output.
 #
+# Layer:   L5
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   16tok x 60chan (head_dim), 4 heads
+# Status:  validated
+# Related: L5 port of attn_v_256x36 (L3) / attn_v_64x48 (L4); consumes
+#          qk_scores_16x60's query-major output; attn_v_bcast_60 is the
+#          key-major (no-AGG) sibling for the same layer
+# Tests:   test_attn_v_16x60_wide (src/tools/ipu-apps/BUILD.bazel)
+#
 # Per head (4 heads, head_dim D=60, N=16 tokens):
 #   O[i, t] = sum_s P[i, s] * V[s, t]      i,s in [0,16), t in [0,60)
 #
@@ -114,11 +124,18 @@ t_loop:
     LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..15, t]
     SUB {{ p_ptr }} {{ group_p_off }} {{ p_query_stride }};;       # P inner start = group P off - stride
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 inner_loop:
-    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }}; AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }}; LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }}; ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }}; INC {{ agg_slot }} 1; BLT {{ agg_slot }} {{ INNER_BOUND }} inner_loop;;
+    MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
+    AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
+    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
+    INC {{ agg_slot }} 1;
+    BLT {{ agg_slot }} {{ INNER_BOUND }} inner_loop;;
 
-    ACTIVATE.QUANTIZE identity {{ DSTRUCT }}; STR_POST_AAQ_REG {{ out_chan_off }} {{ OUT_BASE }};;# O[0..15, t] = R_ACC
+    ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
+    STR_POST_AAQ_REG {{ out_chan_off }} {{ OUT_BASE }};;  # O[0..15, t] = R_ACC
 
     # ----- next t: advance V channel row offset and O row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # V chan row offset += PV_STRIDE
