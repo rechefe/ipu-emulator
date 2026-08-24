@@ -1,0 +1,77 @@
+// Generated from src/hw/ipu_ctrl.rdl — do not edit by hand.
+#![no_std]
+
+//! IPU host-control register PAC (generated).
+
+/// Host RAM region for firmware code/data/stack.
+pub const RAM_BASE: u32 = {{ "0x%08X" | format(model.ram_base) }};
+pub const RAM_SIZE: u32 = {{ "0x%08X" | format(model.ram_size) }};
+
+/// MMIO control register window base.
+pub const MMIO_BASE: u32 = {{ "0x%08X" | format(model.ctrl_base) }};
+pub const MMIO_SIZE: u32 = {{ "0x%08X" | format(mmio_size) }};
+
+/// Fully mapped instruction memory region.
+pub const IMEM_BASE: u32 = {{ "0x%08X" | format(imem_base) }};
+pub const IMEM_DEPTH: u32 = {{ model.imem_depth }};
+pub const INST_ALIGNED_BYTES: u32 = {{ model.inst_aligned_bytes }};
+pub const IMEM_MAP_SIZE: u32 = {{ imem_map_size }};
+
+{% for reg in model.registers %}
+pub mod {{ reg.name }} {
+    pub const OFFSET: u32 = {{ "0x%03X" | format(reg.offset) }};
+    pub const ABS: u32 = {{ "0x%08X" | format(reg.absolute_offset) }};
+{% for f in reg.fields %}
+    pub const {{ f.name | upper }}_MASK: u32 = {{ "0x%08X" | format(f.mask) }};
+    pub const {{ f.name | upper }}_SHIFT: u32 = {{ f.low }};
+{% if f.singlepulse %}
+    pub const {{ f.name | upper }}_PULSE: u32 = 1 << {{ f.low }};
+{% endif %}
+{% endfor %}
+}
+{% endfor %}
+
+{% for enum in model.enums %}
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum {{ enum.rust_enum_name }} {
+{% for entry in enum.entries %}
+    {{ entry.name }} = {{ entry.value }},
+{% endfor %}
+}
+
+{% endfor %}
+
+/// Volatile MMIO read (32-bit).
+#[inline(always)]
+pub unsafe fn read_mmio(addr: u32) -> u32 {
+    core::ptr::read_volatile(addr as *const u32)
+}
+
+/// Volatile MMIO write (32-bit).
+#[inline(always)]
+pub unsafe fn write_mmio(addr: u32, value: u32) {
+    core::ptr::write_volatile(addr as *mut u32, value);
+}
+
+/// Write a pulse bit to a control register (W1S / self-clearing semantics).
+#[inline(always)]
+pub unsafe fn pulse_ctrl(bit: u32) {
+    write_mmio(MMIO_BASE + ctrl::OFFSET, bit);
+}
+
+/// Read the status register.
+#[inline(always)]
+pub unsafe fn read_status() -> u32 {
+    read_mmio(MMIO_BASE + status::OFFSET)
+}
+
+/// Poll until STATUS.halted is set.
+#[inline(always)]
+pub unsafe fn wait_halted() {
+    loop {
+        if read_status() & status::HALTED_MASK != 0 {
+            break;
+        }
+    }
+}

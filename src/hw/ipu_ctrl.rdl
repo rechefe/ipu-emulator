@@ -1,0 +1,163 @@
+// IPU host-control register block — single source of truth for Python, Rust, and docs.
+// Address map matches docs/content/specs/riscv-host-integration.md §4 and §7.
+
+enum ipu_dtype {
+    INT8    = 8'h00;
+    E1      = 8'h01;
+    E2      = 8'h02;
+    E3      = 8'h03;
+    E4      = 8'h04;
+    E5      = 8'h05;
+    E6      = 8'h06;
+    E7      = 8'h07;
+};
+
+enum ipu_err_code {
+    NONE                      = 8'h00;
+    IMEM_ACCESS_WHILE_RUNNING = 8'h01;
+    PC_WRITE_WHILE_RUNNING    = 8'h02;
+    CR_READ_ONLY_WRITE        = 8'h03;
+    PROG_LEN_WHILE_RUNNING    = 8'h04;
+    INVALID_PC                = 8'h05;
+};
+
+addrmap ipu_host_ctrl {
+    default regwidth = 32;
+    default accesswidth = 32;
+
+    reg {
+        field { sw = r; hw = w; reset = 16'h4950; } magic[15:0];   // "IP"
+        field { sw = r; hw = w; reset = 16'h0001; } version[31:16];
+    } id @ 0x000;
+
+    reg {
+        field { sw = w; hw = r; singlepulse; reset = 0; } start[0:0];
+        field { sw = w; hw = r; singlepulse; reset = 0; } halt[1:1];
+        field { sw = w; hw = r; singlepulse; reset = 0; } step[2:2];
+        field { sw = w; hw = r; singlepulse; reset = 0; } reset_cmd[3:3];
+        field { sw = w; hw = r; singlepulse; reset = 0; } imem_swap[4:4];
+        field { sw = w; hw = r; singlepulse; reset = 0; } cont[5:5];
+    } ctrl @ 0x004;
+
+    reg {
+        field { sw = r; hw = w; reset = 0; } running[0:0];
+        field { sw = r; hw = w; reset = 1; } halted[1:1];
+        field { sw = r; hw = w; reset = 0; } break_hit[2:2];
+        field { sw = r; hw = w; reset = 0; } error[3:3];
+        field {
+            sw = r;
+            hw = w;
+            reset = ipu_err_code::NONE;
+            encode = ipu_err_code;
+        } err_code[15:8];
+    } status @ 0x008;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } pc[31:0];
+    } pc @ 0x00c;
+
+    reg {
+        field { sw = r; hw = w; reset = 0; } cycles[31:0];
+    } cycles @ 0x010;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } max_cycles[31:0];
+    } max_cycles @ 0x014;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } prog_len[31:0];
+    } prog_len @ 0x018;
+
+    reg {
+        field {
+            sw = rw;
+            hw = r;
+            reset = ipu_dtype::INT8;
+            encode = ipu_dtype;
+        } dtype[7:0];
+    } dtype @ 0x020;
+
+    reg {
+        field { sw = rw; hw = r; reset = 128; } valid_elements[7:0];
+        field { sw = rw; hw = r; reset = 0; } partition[11:8];
+    } dstructure @ 0x024;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } elu_alpha[31:0];
+    } elu_alpha @ 0x028;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr0[31:0];
+    } cr0 @ 0x040;
+
+    reg {
+        field { sw = rw; hw = r; reset = 1; } cr1[31:0];
+    } cr1 @ 0x044;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr2[31:0];
+    } cr2 @ 0x048;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr3[31:0];
+    } cr3 @ 0x04c;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr4[31:0];
+    } cr4 @ 0x050;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr5[31:0];
+    } cr5 @ 0x054;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr6[31:0];
+    } cr6 @ 0x058;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr7[31:0];
+    } cr7 @ 0x05c;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr8[31:0];
+    } cr8 @ 0x060;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr9[31:0];
+    } cr9 @ 0x064;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr10[31:0];
+    } cr10 @ 0x068;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr11[31:0];
+    } cr11 @ 0x06c;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr12[31:0];
+    } cr12 @ 0x070;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr13[31:0];
+    } cr13 @ 0x074;
+
+    reg {
+        field { sw = rw; hw = r; reset = 0; } cr14[31:0];
+    } cr14 @ 0x078;
+
+    reg {
+        field { sw = rw; hw = r; reset = 128; } cr15[7:0];
+        field { sw = rw; hw = r; reset = 0; } cr15_partition[11:8];
+    } cr15 @ 0x07c;
+};
+
+// Top-level host address map (firmware RAM is separate — see generated address constants).
+addrmap ipu_host_map {
+    ipu_host_ctrl ctrl @ 0x1000_0000;
+    external mem {
+        memwidth = 8;
+        mementries = 65536;
+        sw = rw;
+    } imem @ 0x1001_0000;
+};
