@@ -17,7 +17,7 @@ from ipu_emu.ipu_config import (
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 
 # ---------------------------------------------------------------------------
@@ -364,19 +364,99 @@ class TestIpuState:
         )
 
     def test_load_store_r_reg_xmem(self):
-        """Load data into XMEM, then load into R register, verify."""
+        """Load data into XMEM, then load into R register, verify.
+
+        load_r_reg_from_xmem takes a ROW number (narrow row = 128 B), matching
+        LDR_MULT_REG's addressing (#179): row 2 = byte 256.
+        """
         state = IpuState()
         data = bytearray(range(128))
         state.xmem.write_address(256, data)
-        state.load_r_reg_from_xmem(256, 0)
+        state.load_r_reg_from_xmem(2, 0)
         assert state.regfile.get_r(0) == data
 
     def test_store_r_reg_to_xmem(self):
+        """store_r_reg_to_xmem takes a ROW number: row 4 = byte 512 (narrow)."""
         state = IpuState()
         data = bytearray([0xAB] * 128)
         state.regfile.set_r(1, data)
-        state.store_r_reg_to_xmem(512, 1)
+        state.store_r_reg_to_xmem(4, 1)
         assert state.xmem.read_address(512, 128) == data
+
+    def test_load_r_reg_from_xmem_debug_mode_row_size(self):
+        """In debug mode a row is 512 B, not 128. R0/R1 are fixed 128-byte
+        registers in both modes (unlike r_cyclic) -- the real emulator stages
+        debug-mode R0/R1 data as Python floats in _debug_mult_stage_vectors,
+        the same mechanism LDR_MULT_REG uses, not as raw register bytes. This
+        helper must use the active mode's row size to read XMEM, and land the
+        unpacked values in that staging list, not the (too-small) r register.
+        """
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        data = struct.pack("<128f", *([2.5] * 128))
+        state.xmem.write_address(3 * 512, data)  # row 3, debug row size = 512 B
+        state.load_r_reg_from_xmem(3, 0)
+        assert state._debug_mult_stage_vectors[0] == [2.5] * 128
+
+    def test_store_r_reg_from_xmem_debug_mode_round_trip(self):
+        """store_r_reg_to_xmem in debug mode reads back from
+        _debug_mult_stage_vectors, mirroring the load helper above."""
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        state._debug_mult_stage_vectors[1] = [7] * 128
+        state.store_r_reg_to_xmem(2, 1)  # row 2, debug row size = 512 B -> byte 1024
+        stored = state.xmem.read_address(2 * 512, 512)
+        assert struct.unpack("<128i", stored) == tuple([7] * 128)
+
+    def test_load_r_cyclic_from_xmem_defaults_to_slot_0(self):
+        state = IpuState()
+        data = bytearray(range(128))
+        state.xmem.write_address(256, data)  # row 2, narrow row size = 128 B
+        state.load_r_cyclic_from_xmem(2)
+        assert state.regfile.get_r_cyclic_at(0, 128, wrap_size=512) == data
+
+    def test_load_r_cyclic_from_xmem_targets_nonzero_slot(self):
+        """slot_element_idx lets the caller target slots 1-3, not just slot 0 --
+        the capability gap #180/#181 exist to fix."""
+        state = IpuState()
+        data = bytearray(range(128))
+        state.xmem.write_address(256, data)
+        state.load_r_cyclic_from_xmem(2, slot_element_idx=256)
+        written = state.regfile.get_r_cyclic_at(256, 128, wrap_size=512)
+        assert written == data
+        # slot 0 must be untouched
+        assert state.regfile.get_r_cyclic_at(0, 128, wrap_size=512) == bytearray(128)
+
+    def test_load_r_cyclic_from_xmem_debug_mode(self):
+        """In debug mode, slot_element_idx=128 writes at byte 512 (4 B/element)."""
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        data = struct.pack("<128f", *([1.5] * 128))
+        state.xmem.write_address(1 * 512, data)  # row 1, debug row size = 512 B
+        state.load_r_cyclic_from_xmem(1, slot_element_idx=128)
+        written = state.regfile.get_r_cyclic_at(128 * 4, 512)  # byte 512
+        assert written == bytearray(data)
+
+    def test_store_acc_to_xmem_row_addressed(self):
+        state = IpuState()
+        data = bytearray([0x07] * 512)
+        state.regfile.set_r_acc_bytes(data)
+        state.store_acc_to_xmem(5)  # row 5, narrow row size = 128 B -> byte 640
+        assert state.xmem.read_address(640, 512) == data
+
+    def test_load_r_mask_from_xmem_row_addressed(self):
+        state = IpuState()
+        mask_data = bytearray(range(128))
+        state.xmem.write_address(384, mask_data)  # row 3, narrow row size = 128 B
+        state.load_r_mask_from_xmem(3)
+        assert state.regfile.get_r_mask() == mask_data
+
+    def test_load_r_mask_from_xmem_debug_mode_still_reads_128_bytes(self):
+        """The mask is 1 bit/lane and does not scale with element width -- the
+        row ADDRESS is translated by the debug row size (512 B), but the READ
+        stays 128 bytes in both modes."""
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        mask_data = bytearray(range(128))
+        state.xmem.write_address(2 * 512, mask_data)  # row 2, debug row size = 512 B
+        state.load_r_mask_from_xmem(2)
+        assert state.regfile.get_r_mask() == mask_data
 
     def test_post_aaq_reg_debug_alias_aaq_result(self):
         """Legacy debug name ``aaq_result`` resolves to ``post_aaq_reg``."""
