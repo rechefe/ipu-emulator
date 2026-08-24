@@ -1,0 +1,64 @@
+# VS Code extension for IPU assembly.
+#
+# The grammar is GENERATED from the assembler's own parser (see
+# //src/tools/ipu-as-py:ipu_as_lib -> gen_vscode.py), so it cannot drift from
+# the language the assembler accepts.
+#
+# Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the two
+# Python binaries below; the agreement test and the .vsix build both run in
+# .github/workflows/vscode-extension.yml. Please do not add a JS ruleset here.
+
+load("@rules_python//python:defs.bzl", "py_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "package.json",
+    ".vscodeignore",
+])
+
+filegroup(
+    name = "agreement_test_srcs",
+    srcs = ["test/agreement.js"],
+)
+
+# Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json.
+#   bazel run //vscode-ipu-asm:gen_vscode          -> into the source tree
+#   bazel build //vscode-ipu-asm:generate_grammar  -> into bazel-out
+py_binary(
+    name = "gen_vscode",
+    srcs = ["gen_vscode_wrapper.py"],
+    main = "gen_vscode_wrapper.py",
+    python_version = "PY3",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+)
+
+# Ground truth for the agreement test: the parser's own tokenization of the
+# corpus, including each token's structural role.
+py_binary(
+    name = "dump_parser_tokens",
+    srcs = ["dump_parser_tokens_wrapper.py"],
+    main = "dump_parser_tokens_wrapper.py",
+    python_version = "PY3",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+)
+
+genrule(
+    name = "generate_grammar",
+    outs = [
+        "generated/syntaxes/ipu-asm.tmLanguage.json",
+        "generated/language-configuration.json",
+        # Hover data. Undeclared, this rule produced an extension whose hover
+        # was silently missing rather than a build error.
+        "generated/data/isa.json",
+    ],
+    cmd = "$(location :gen_vscode) $(RULEDIR)/generated",
+    tools = [":gen_vscode"],
+)
+
+# The corpus is passed on the command line rather than declared as srcs:
+#
+#   bazel run //vscode-ipu-asm:dump_parser_tokens -- <out.json> <file.asm>...
+#
+# `bazel run` needs no declared inputs, which keeps the app package free of a
+# filegroup that exists only for this tool. See the workflow for the invocation.

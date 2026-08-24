@@ -45,6 +45,26 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_diagnostics",
+    srcs = ["test/test_diagnostics.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_hover_data",
+    srcs = ["test/test_hover_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_gen_codegen",
     srcs = ["test/test_gen_codegen.py"],
     imports = ["src"],

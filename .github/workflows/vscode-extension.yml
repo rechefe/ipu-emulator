@@ -1,0 +1,159 @@
+name: VS Code Extension
+
+# Generates the TextMate grammar from the assembler's parser, proves the two
+# agree on a real corpus, then packages the .vsix.
+#
+# The paths filter deliberately includes the upstream sources: the grammar is
+# derived from asm_grammar.lark and instruction_spec.py, so a change to either
+# must re-run the agreement test even though it touches no file under
+# vscode-ipu-asm/.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'vscode-ipu-asm/**'
+      - 'src/tools/ipu-as-py/src/ipu_as/asm_grammar.lark'
+      - 'src/tools/ipu-as-py/src/ipu_as/gen_vscode.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/dump_parser_tokens.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/lark_tree.py'
+      - 'src/tools/ipu-common/src/ipu_common/instruction_spec.py'
+      - 'src/tools/ipu-common/src/ipu_common/registers.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/reg.py'
+      - '.github/workflows/vscode-extension.yml'
+  pull_request:
+    branches: [ "**" ]
+    paths:
+      - 'vscode-ipu-asm/**'
+      - 'src/tools/ipu-as-py/src/ipu_as/asm_grammar.lark'
+      - 'src/tools/ipu-as-py/src/ipu_as/gen_vscode.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/dump_parser_tokens.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/lark_tree.py'
+      - 'src/tools/ipu-common/src/ipu_common/instruction_spec.py'
+      - 'src/tools/ipu-common/src/ipu_common/registers.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/reg.py'
+      - '.github/workflows/vscode-extension.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Mirrors ci.yml's setup, which is the sequence known to build this repo.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      # Required before any bazel invocation: tools/python_deps.bzl shells out
+      # to `uv` to compile requirements from pyproject.toml, so without it the
+      # repository fetch fails with execvp(uv): No such file or directory.
+      # Both PATH entries are added because the installer's location has moved
+      # between releases (~/.cargo/bin historically, ~/.local/bin now).
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Bazelisk
+        run: |
+          sudo curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          sudo chmod +x /usr/local/bin/bazel
+
+      # Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json
+      # into the extension directory. Both are build outputs, not committed.
+      - name: Generate grammar from the parser
+        run: bazel run //vscode-ipu-asm:gen_vscode
+
+      # Passed as arguments rather than declared as Bazel srcs, so the app
+      # package needs no filegroup existing solely for this tool.
+      - name: Dump the parser's tokenization of the corpus
+        run: |
+          bazel run //vscode-ipu-asm:dump_parser_tokens -- \
+            "$PWD/parser-tokens.json" \
+            "$PWD"/src/tools/ipu-apps/src/ipu_apps/**/*.asm \
+            "$PWD/vscode-ipu-asm/test/corpus/edge_cases.asm"
+        shell: bash --noprofile --norc -eo pipefail -O globstar {0}
+
+      # The real VS Code tokenizer; validating with Python's re would be a
+      # different regex engine and so a misleading oracle.
+      - name: Install the VS Code tokenizer
+        working-directory: vscode-ipu-asm
+        run: npm install --no-save --no-package-lock vscode-textmate@9.3.2 vscode-oniguruma@2.0.1
+
+      - name: Check the grammar agrees with the parser
+        run: |
+          node vscode-ipu-asm/test/agreement.js \
+            parser-tokens.json \
+            vscode-ipu-asm/syntaxes/ipu-asm.tmLanguage.json
+
+      # The Marketplace refuses a version it has already seen, so every publish
+      # needs a new one. The patch number comes from the run counter rather than
+      # from a commit: writing a bumped package.json back to master would land
+      # under this workflow's own paths filter and retrigger it indefinitely.
+      # `--no-git-tag-version` keeps the edit local to the runner.
+      - name: Set the published version
+        working-directory: vscode-ipu-asm
+        run: |
+          base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          npm version "${base}.${GITHUB_RUN_NUMBER}" --no-git-tag-version --allow-same-version
+          node -p "'publishing version ' + require('./package.json').version"
+
+      # --no-dependencies skips vsce's `npm list --production` probe. The vsce
+      # version is pinned because an unpinned npx floats onto the next major.
+      # --skip-license and </dev/null keep it from stopping on an interactive
+      # "continue? [y/N]", which would hang or abort the job.
+      - name: Package vsix
+        working-directory: vscode-ipu-asm
+        run: |
+          npx --yes @vscode/vsce@3.6.0 package \
+            --no-dependencies --skip-license --out ipu-asm.vsix < /dev/null
+
+      - name: Upload vsix artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ipu-asm-vsix
+          path: vscode-ipu-asm/ipu-asm.vsix
+
+      # Publishes the exact vsix that was just built and checked, rather than
+      # repackaging. Skipped when VSCE_PAT is unset, so the release path below
+      # still works before the Marketplace publisher is set up — a missing
+      # secret should not fail an otherwise good build.
+      - name: Publish to the VS Code Marketplace
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        working-directory: vscode-ipu-asm
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "VSCE_PAT is not set; skipping Marketplace publish." >&2
+            exit 0
+          fi
+          npx --yes @vscode/vsce@3.6.0 publish \
+            --packagePath ipu-asm.vsix --skip-license < /dev/null
+
+      # Gated on master, mirroring how docs.yml gates its Pages deployment.
+      - name: Publish rolling prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view vscode-latest >/dev/null 2>&1 \
+            || gh release create vscode-latest --prerelease \
+                 --title "IPU Assembly VS Code extension (latest master)" \
+                 --notes "Rebuilt automatically from master."
+          gh release upload vscode-latest vscode-ipu-asm/ipu-asm.vsix --clobber
+          gh release edit vscode-latest \
+            --notes "Rebuilt automatically from master (${GITHUB_SHA})."

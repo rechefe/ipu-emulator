@@ -6,7 +6,11 @@ class Labels:
 
     def add_label(self, token: any):
         if token.token.value in self.labels:
-            print(token)
+            # No debug print here: `ipu-as check --json` writes diagnostics to
+            # stdout, so anything else on that stream makes the output
+            # unparseable and the editor reports a broken toolchain instead of
+            # the duplicate label. The exception below already says everything
+            # the print did.
             existing_token = self.labels[token.token.value].token
             raise ValueError(
                 f"Label '{token.token.value}' is defined for the second time at Line {token.token.line}, Column {token.token.column}. "
