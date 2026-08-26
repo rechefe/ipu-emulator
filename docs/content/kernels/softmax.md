@@ -22,17 +22,19 @@ what the registry actually answers.
 
 **Along each row** (`torch.softmax(x, dim=1)` on a `(rows, n)` tensor):
 
+<!-- doc-routing-check: op="softmax" param="shape" label="n" values="range(1,140)" build="lambda n: (8, n)" dim=1 -->
 ```
-n 1..127        softmax_rows_partial
-n = 128         softmax_rows
-n 129..         softmax_rows_long
+n 1..127                     softmax_rows_partial
+n = 128                      softmax_rows
+n 129..139                   softmax_rows_long
 ```
 
 **Down each column** (`dim=0` on a `(rows, width)` tensor):
 
+<!-- doc-routing-check: op="softmax" param="shape" label="width" values="range(1,140)" build="lambda w: (8, w)" dim=0 -->
 ```
-width 1..64     softmax_columns_packed
-width 65..      softmax_columns
+width 1..64                  softmax_columns_packed
+width 65..139                softmax_columns
 ```
 
 Row count never affects routing: every row kernel loops internally.
