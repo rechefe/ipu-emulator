@@ -22,10 +22,13 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.convolutions_universal.conv.conv_first_layer import (
     ConvFirstLayerApp,
+    CHUNK_BYTES,
     OUTPUT_BASE_ADDR,
+    OUTPUT_BASE_ROW,
     IN_ROWS,
     IN_COLS,
     IN_CHANNELS,
@@ -127,3 +130,60 @@ def test_256x256x3_to_128x128x16(tmp_path: Path) -> None:
             e = struct.unpack("b", bytes([expected[i]]))[0]
             mism.append(f"  row={orow} filter={filt} col={col} got={a} exp={e}")
     assert not mism, f"{len(mism)} mismatches (first 20):\n" + "\n".join(mism[:20])
+
+
+def test_256x256x3_to_128x128x16_wide_vector_debug_mode(tmp_path: Path) -> None:
+    """The SAME assembled binary must also be correct in wide-vector debug mode.
+
+    See test_conv_universal.py's twin test for the rationale: XMEM operands
+    are row numbers and r_cyclic operands are element indices, neither
+    depending on 1 B/element (narrow) vs 4 B/element (wide) width. Here that
+    means ``ConvFirstLayerApp.setup()``/``teardown()`` must scale their raw
+    ``xmem.write_address``/``read_address`` calls by the active mode's row
+    size themselves (unlike CR values, which the emulator already scales).
+    """
+    input_bytes, kernel, bias = _gen(seed=99)
+    input_file = tmp_path / "input.bin"
+    input_file.write_bytes(input_bytes)
+
+    inst_file = tmp_path / "prog.bin"
+    assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
+
+    app = ConvFirstLayerApp(
+        inst_path=inst_file,
+        input_path=input_file,
+        kernel=kernel,
+        bias=bias,
+        output_path=None,
+    )
+    state = IpuState(
+        wide_vector_debug=True,
+        wide_vector_arithmetic=WideVectorArithmetic.INT32,
+        wide_vector_quantize_output=False,
+    )
+    state, cycles = app.run(max_cycles=500_000_000, state=state)
+    assert cycles > 0
+
+    total = OUT_ROWS * OUT_ROW_GROUP
+    row_bytes = CHUNK_BYTES * 4
+    raw = state.xmem.read_address(OUTPUT_BASE_ROW * row_bytes, total * 4)
+    actual = bytes(
+        (max(-128, min(127, struct.unpack_from("<i", raw, i * 4)[0])) & 0xFF)
+        for i in range(total)
+    )
+    expected = reference(input_bytes, kernel, bias)
+    assert len(actual) == len(expected)
+
+    mism = []
+    for i in range(len(expected)):
+        if actual[i] != expected[i]:
+            orow = i // OUT_ROW_GROUP
+            rem = i % OUT_ROW_GROUP
+            filt = rem // OUT_COLS
+            col = rem % OUT_COLS
+            a = struct.unpack("b", bytes([actual[i]]))[0]
+            e = struct.unpack("b", bytes([expected[i]]))[0]
+            mism.append(f"  row={orow} filter={filt} col={col} got={a} exp={e}")
+    assert not mism, (
+        f"{len(mism)} wide-mode mismatches (first 20):\n" + "\n".join(mism[:20])
+    )

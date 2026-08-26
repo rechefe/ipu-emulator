@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_128 import (
     DepthwiseConvStride2_128App,
     CHUNK_BYTES,
@@ -125,6 +126,93 @@ class TestDepthwiseConvStride2_128:
                             )
         assert not mismatches, (
             f"{len(mismatches)} mismatches (first 20):\n" + "\n".join(mismatches[:20])
+        )
+
+    @pytest.mark.parametrize(
+        "rows,channels,seed",
+        [
+            (8, 2, 3),
+            (16, 4, 7),
+        ],
+    )
+    def test_same_asm_runs_in_wide_vector_debug_mode(
+        self, tmp_path: Path, rows: int, channels: int, seed: int,
+    ) -> None:
+        """The SAME assembled binaries (both stages) must also be correct in
+        wide-vector debug mode. See test_conv_universal.py's twin test for the
+        rationale. Neither stage does an intermediate QUANTIZE->reload (stage 1
+        is depthwise_conv_universal, already mode-blind; stage 2 is a single
+        load->decimate->QUANTIZE->store pass), so
+        wide_vector_quantize_output=True is safe for both.
+        """
+        input_packed, kernel_raw, input_chw, kernel_ch9 = _gen_test_data(
+            rows, channels, seed,
+        )
+
+        # Unlike conv_universal/conv_first_layer (which widen the on-disk
+        # narrow input internally), depthwise_conv_universal's setup() -- and
+        # therefore this app's stage 1 -- writes input_path's bytes VERBATIM
+        # at the scaled row address, so the caller must pre-widen to 4
+        # B/element itself (see depthwise_conv_universal's own wide test).
+        packed = bytearray(len(input_packed) * 4)
+        for i, byte in enumerate(input_packed):
+            struct.pack_into(
+                "<i", packed, i * 4, struct.unpack_from("b", input_packed, i)[0]
+            )
+        input_file = tmp_path / "input_wide.bin"
+        input_file.write_bytes(bytes(packed))
+        kernel_file = tmp_path / "kernel.bin"
+        kernel_file.write_bytes(kernel_raw)
+
+        app = DepthwiseConvStride2_128App(
+            input_path=input_file,
+            kernel_path=kernel_file,
+            output_path=None,
+            rows=rows,
+            channels=channels,
+        )
+        # wide_vector_quantize_output MUST be False: stage 1's output feeds
+        # stage 2's ldr_mult_reg as full-precision 4 B/element data. With
+        # quantize_output=True, stage 1's ACTIVATE.QUANTIZE would overwrite
+        # its post_aaq_reg with 128 INT8-narrowed bytes + 384 zero-padding
+        # (ipu.py:1262-1274) BEFORE str_post_aaq_reg writes it to XMEM --
+        # destroying the 4B/element layout stage 2 expects to reload. Same
+        # trap as conv_first_layer's intermediate reload, just spanning the
+        # stage1->stage2 XMEM handoff instead of one asm. Clamp to INT8
+        # ourselves on read-back instead (matches narrow's final quantize).
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.INT32,
+            wide_vector_quantize_output=False,
+        )
+        state, cycles = app.run(max_cycles=2_000_000, state=state)
+        assert cycles > 0
+
+        expected = reference_stride2(input_chw, kernel_ch9, rows, channels)
+        out_rows = rows // 2
+        num_row_pairs = out_rows // 2
+
+        mismatches = []
+        for rp in range(num_row_pairs):
+            for ch in range(channels):
+                chunk_idx = rp * channels + ch
+                actual = state.xmem.read_address(
+                    (app.output_base_row + chunk_idx) * 512, 512,
+                )
+                for local_row, orow in enumerate((2 * rp, 2 * rp + 1)):
+                    for c in range(64):
+                        elem = local_row * 64 + c
+                        a_val = max(
+                            -128, min(127, struct.unpack_from("<i", actual, elem * 4)[0])
+                        )
+                        e_val = int(expected[ch, orow, c])
+                        if a_val != e_val:
+                            mismatches.append(
+                                f"  ch={ch} orow={orow} col={c} got={a_val} expected={e_val}"
+                            )
+        assert not mismatches, (
+            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
+            + "\n".join(mismatches[:20])
         )
 
     def test_rejects_odd_rows(self, tmp_path: Path) -> None:

@@ -94,12 +94,22 @@ OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 bytes: one output row, all 16 fi
 #
 # Row-addressed ISA (mb/195): every XMEM offset/base operand this app uses
 # (ldr_mult_reg / ldr_cyclic_mult_reg's offset+base / str_post_aaq_reg) is a
-# ROW number, not a byte address -- *_BASE_ADDR below stay byte constants for
-# host-side xmem pokes; *_BASE_ROW feeds the CR registers the asm loads
-# through. Unlike the depthwise/conv apps, this app has NO r_cyclic-index CR
-# overload to split: every ldr_cyclic_mult_reg's `index` operand here is a
-# literal LR holding 0 or 128 (lr0/lr11), never a CR, so all the byte-stride
-# CRs (256/768/128/1536/2048) are purely XMEM-space and divide evenly by 128.
+# ROW number, not a byte address -- *_BASE_ADDR below stay narrow-byte
+# constants used only to derive the ROW numbers; *_BASE_ROW feeds the CR
+# registers the asm loads through, and (scaled by the active mode's row size)
+# the host-side xmem pokes in setup()/teardown(). Unlike the depthwise/conv
+# apps, this app has NO r_cyclic-index CR overload to split: every
+# ldr_cyclic_mult_reg's `index` operand here is a literal LR holding 0 or 128
+# (lr0/lr11), never a CR, so all the byte-stride CRs (256/768/128/1536/2048)
+# are purely XMEM-space and divide evenly by 128.
+#
+# Mode-blindness: host-side pokes (write_address/read_address) are always
+# byte-granular and mode-UNAWARE, so setup()/teardown() must scale every
+# address by the active mode's row size (128 B narrow, 512 B wide-vector
+# debug) themselves -- see ``self._element_width`` / ``row_bytes`` below.
+# Packed data must also widen from 1 B/element to 4 B/element so each row's
+# 128 elements still fill exactly one row's worth of bytes in wide mode
+# (128*4 = 512, no gap); see ``_pack_kernel_data``/``_pack_mask_data``.
 
 INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 B = 196608 bytes
 KERNEL_BASE_ADDR = 0x040000   # 16 filters x 128-byte block = 2048 bytes
@@ -133,6 +143,10 @@ def _build_mask_data() -> bytes:
       slot 0: all KEEP                 (interior / kc=0, and non-boundary slots)
       slot 1: ZERO lane 0              (kc=-1 applied to slot 0: strip position 0)
       slot 2: ZERO lane 127            (kc=+1 applied to slot 1: strip position 255)
+
+    The mask blob does NOT widen with the active element width -- like every
+    other app in this package, it is 1 bit per lane in both modes; only its
+    row address (in ``setup()``) scales.
     """
     mask = bytearray(128)
     for slot in (MASK_SLOT_KEEP, MASK_SLOT_LEFT, MASK_SLOT_RIGHT):
@@ -141,6 +155,28 @@ def _build_mask_data() -> bytes:
     mask[MASK_SLOT_LEFT * 16 + 0] &= ~(1 << 0)              # slot 1: zero lane 0
     mask[MASK_SLOT_RIGHT * 16 + 127 // 8] &= ~(1 << (127 % 8))  # slot 2: zero lane 127
     return bytes(mask)
+
+
+def _as_signed_byte(value: int) -> int:
+    """Reinterpret a wire byte as the signed INT8 it encodes."""
+    v = value & 0xFF
+    return v - 256 if v > 127 else v
+
+
+def _widen_int8_bytes(data: bytes, element_width: int) -> bytes:
+    """Widen a 1 B/element INT8 byte string to ``element_width`` B/element.
+
+    Every element becomes a little-endian signed 32-bit int at ``element_width
+    == 4`` (wide-vector debug mode), so a 128-byte narrow row still occupies
+    exactly one row's worth of bytes (128*4 = 512) with no gap. A no-op at
+    ``element_width == 1`` (narrow mode).
+    """
+    if element_width == 1:
+        return data
+    out = bytearray(len(data) * element_width)
+    for i, b in enumerate(data):
+        struct.pack_into("<i", out, i * element_width, _as_signed_byte(b))
+    return bytes(out)
 
 
 class ConvFirstLayerApp(IpuApp):
@@ -208,7 +244,8 @@ class ConvFirstLayerApp(IpuApp):
         return np.frombuffer(raw, dtype=np.int8).reshape(OUT_CHANNELS, IN_CHANNELS, 9)
 
     def _build_kernel_data(self) -> bytes:
-        """Pack 16 filters into 16 x 128-byte blocks.
+        """Pack 16 filters into 16 x 128-byte blocks (1 B/element, narrow-mode
+        layout -- widened to the active element width by ``setup()``).
 
         Each block: byte 0 = filter bias, bytes [1 .. 28) = 27 conv taps
         (ch0 taps 0..8, ch1 9..17, ch2 18..26), rest padding.
@@ -236,15 +273,29 @@ class ConvFirstLayerApp(IpuApp):
     def setup(self, state: "IpuState") -> None:
         state.dtype = self.dtype
 
+        # Element width of the active mode: 1 B narrow, 4 B wide-vector debug.
+        # Row *numbers* handed to CRs are mode-independent, but the host-side
+        # byte pokes below must land at the same rows, so both the row stride
+        # and the packed payloads (1 B/element on disk) scale by it.
+        element_width = 4 if state.wide_vector_debug else 1
+        row_bytes = CHUNK_BYTES * element_width
+
         input_data = self.input_path.read_bytes()
         if len(input_data) != IN_ROWS * IN_ROW_GROUP:
             raise ValueError(
                 f"input has {len(input_data)} bytes, expected "
                 f"{IN_ROWS * IN_ROW_GROUP} (256 rows * 3 ch * 256 cols)"
             )
-        state.xmem.write_address(INPUT_BASE_ADDR, input_data)
-        state.xmem.write_address(KERNEL_BASE_ADDR, self._build_kernel_data())
-        state.xmem.write_address(MASK_BASE_ADDR, _build_mask_data())
+        state.xmem.write_address(
+            INPUT_BASE_ROW * row_bytes, _widen_int8_bytes(input_data, element_width)
+        )
+        state.xmem.write_address(
+            KERNEL_BASE_ROW * row_bytes,
+            _widen_int8_bytes(self._build_kernel_data(), element_width),
+        )
+        # The mask blob does NOT widen (1 bit/lane in both modes) -- only its
+        # row address scales.
+        state.xmem.write_address(MASK_BASE_ROW * row_bytes, _build_mask_data())
 
         # CR15 dstructure: one 128-lane slot is fully valid.
         state.set_cr_dstructure(valid_elements=128)
@@ -268,8 +319,25 @@ class ConvFirstLayerApp(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            total_bytes = OUT_ROWS * OUT_ROW_GROUP  # 128 * 2048 = 262144
-            data = state.xmem.read_address(OUTPUT_BASE_ADDR, total_bytes)
+            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
+            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
+            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
+            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
+            # back at the mode's actual row size, then narrow to 1 B/element
+            # so ``output_path`` always holds the same canonical INT8 layout.
+            element_width = 4 if state.wide_vector_debug else 1
+            row_bytes = CHUNK_BYTES * element_width
+            total_elements = OUT_ROWS * OUT_ROW_GROUP  # 128 * 2048 = 262144
+            raw = state.xmem.read_address(
+                OUTPUT_BASE_ROW * row_bytes, total_elements * element_width
+            )
+            if element_width == 1:
+                data = bytes(raw)
+            else:
+                data = bytes(
+                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
+                    for i in range(total_elements)
+                )
             Path(self.output_path).write_bytes(data)
 
     def run(self, **kwargs):

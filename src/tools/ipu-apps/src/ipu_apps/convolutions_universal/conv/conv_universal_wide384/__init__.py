@@ -51,6 +51,7 @@ Usage::
 from __future__ import annotations
 
 import math
+import struct
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -62,7 +63,7 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.ipu_math import DType
 
 from ipu_apps.base import IpuApp
-from ipu_apps.convolutions_universal import CHUNK_BYTES, parse_dtype, dump_outputs, allocate_regions
+from ipu_apps.convolutions_universal import CHUNK_BYTES, parse_dtype, allocate_regions
 from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
 
 if TYPE_CHECKING:
@@ -100,6 +101,28 @@ MASK_SLOT_KEEP = 0
 MASK_SLOT_ZERO = 1
 MASK_SLOT_ZERO_LANE0 = 2
 MASK_SLOT_ZERO_LANE127 = 3
+
+
+def _as_signed_byte(value: int) -> int:
+    """Reinterpret a wire byte as the signed INT8 it encodes."""
+    v = value & 0xFF
+    return v - 256 if v > 127 else v
+
+
+def _widen_int8_bytes(data: bytes, element_width: int) -> bytes:
+    """Widen a 1 B/element INT8 byte string to ``element_width`` B/element.
+
+    Every element becomes a little-endian signed 32-bit int at
+    ``element_width == 4`` (wide-vector debug mode), so a 128-byte narrow row
+    still occupies exactly one row's worth of bytes (128*4 = 512) with no
+    gap. A no-op at ``element_width == 1`` (narrow mode).
+    """
+    if element_width == 1:
+        return data
+    out = bytearray(len(data) * element_width)
+    for i, b in enumerate(data):
+        struct.pack_into("<i", out, i * element_width, _as_signed_byte(b))
+    return bytes(out)
 
 
 def build_wide384_mask_blob() -> bytes:
@@ -237,6 +260,14 @@ class ConvUniversalWide384App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         state.dtype = self.dtype
 
+        # Element width of the active mode: 1 B narrow, 4 B wide-vector debug.
+        # Row *numbers* handed to CRs are mode-independent, but the host-side
+        # byte pokes below (write_address is always byte-granular and
+        # mode-UNAWARE) must land at the same rows, so both the row stride
+        # and the packed payloads (1 B/element on disk) scale by it.
+        element_width = 4 if state.wide_vector_debug else 1
+        row_bytes = CHUNK_BYTES * element_width
+
         expected_input_bytes = self.in_channels * self.rows * self.cpr * CHUNK_BYTES
         input_data = self.input_path.read_bytes()
         if len(input_data) != expected_input_bytes:
@@ -244,10 +275,17 @@ class ConvUniversalWide384App(IpuApp):
                 f"input has {len(input_data)} bytes, expected {expected_input_bytes} "
                 "(in_channels * rows * cpr * 128)"
             )
-        state.xmem.write_address(self.input_base_addr, input_data)
+        state.xmem.write_address(
+            self.input_base_row * row_bytes, _widen_int8_bytes(input_data, element_width)
+        )
 
-        state.xmem.write_address(self.kernel_base_addr, self._pack_kernel())
-        state.xmem.write_address(self.mask_base_addr, build_wide384_mask_blob())
+        state.xmem.write_address(
+            self.kernel_base_row * row_bytes,
+            _widen_int8_bytes(self._pack_kernel(), element_width),
+        )
+        # The mask blob does NOT widen (1 bit/lane in both modes) -- only its
+        # row address scales.
+        state.xmem.write_address(self.mask_base_row * row_bytes, build_wide384_mask_blob())
 
         state.set_cr_dstructure(valid_elements=128)  # Partition.P0 default: whole-tap masking
 
@@ -274,11 +312,27 @@ class ConvUniversalWide384App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
+            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
+            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
+            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
+            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
+            # back at the mode's actual row size, then narrow to 1 B/element
+            # so ``output_path`` always holds the same canonical INT8 layout.
             total_outputs = self.rows * self.out_channels * self.cpr
-            dump_outputs(
-                state, self.output_path,
-                self.output_base_addr, CHUNK_BYTES, total_outputs,
+            element_width = 4 if state.wide_vector_debug else 1
+            row_bytes = CHUNK_BYTES * element_width
+            total_elements = total_outputs * CHUNK_BYTES
+            raw = state.xmem.read_address(
+                self.output_base_row * row_bytes, total_elements * element_width
             )
+            if element_width == 1:
+                data = bytes(raw)
+            else:
+                data = bytes(
+                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
+                    for i in range(total_elements)
+                )
+            Path(self.output_path).write_bytes(data)
 
     def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple["IpuState", int]:
         tmp_dir = Path(tempfile.mkdtemp(prefix="conv_universal_wide384_"))

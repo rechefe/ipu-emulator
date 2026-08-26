@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.convolutions_universal.conv.conv_universal_wide384 import (
     ConvUniversalWide384App,
@@ -143,6 +144,75 @@ class TestConvUniversalWide384:
                 )
         assert not mismatches, (
             f"{len(mismatches)} mismatches (first 20):\n"
+            + "\n".join(mismatches[:20])
+        )
+
+    @pytest.mark.parametrize(
+        "width,rows,in_ch,out_ch",
+        [
+            (384, 8, 1, 2),
+            (384, 16, 2, 2),
+        ],
+    )
+    def test_same_asm_runs_in_wide_vector_debug_mode(
+        self,
+        tmp_path: Path,
+        width: int,
+        rows: int,
+        in_ch: int,
+        out_ch: int,
+    ) -> None:
+        """The SAME assembled binary must also be correct in wide-vector debug mode.
+
+        See test_conv_universal.py's twin test for the rationale: XMEM
+        operands are row numbers and r_cyclic operands are element indices,
+        neither depending on 1 B/element (narrow) vs 4 B/element (wide)
+        width. Only a single ACTIVATE.QUANTIZE runs per output element (no
+        intermediate reload chain like conv_first_layer), so
+        wide_vector_quantize_output=True is safe here.
+        """
+        rng = np.random.RandomState(42 + in_ch * 7 + out_ch + width)
+        weights = rng.randint(-8, 9, size=(out_ch, in_ch, 3, 3), dtype=np.int8)
+        input_chw = rng.randint(-8, 9, size=(in_ch, rows, width), dtype=np.int8)
+
+        # setup() widens the on-disk (narrow, 1 B/element) input itself once
+        # it knows the active mode -- unlike conv_universal's test fixture,
+        # the file here must stay in the plain narrow layout.
+        input_file = tmp_path / "input_wide.bin"
+        input_file.write_bytes(_pack_input_wide384(input_chw, width))
+
+        app = ConvUniversalWide384App(
+            input_path=input_file,
+            kernel=weights,
+            output_path=None,
+            width=width,
+            rows=rows,
+            in_channels=in_ch,
+            out_channels=out_ch,
+        )
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.INT32,
+            wide_vector_quantize_output=True,
+        )
+        cpr = width // 128
+        max_cyc = 200 * rows * out_ch * cpr * in_ch * 9 + 50_000
+        state, cycles = app.run(max_cycles=max_cyc, state=state)
+        assert cycles > 0
+
+        expected = reference_conv_wide384(weights, input_chw, rows, width)
+
+        mismatches = []
+        for i in range(rows * out_ch * cpr):
+            actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
+            want = expected[i * 128:(i + 1) * 128]
+            for j in range(128):
+                if actual[j] != want[j]:
+                    a_val = struct.unpack_from("b", actual, j)[0]
+                    e_val = struct.unpack_from("b", want, j)[0]
+                    mismatches.append(f"  out_row={i} elem={j} got={a_val} expected={e_val}")
+        assert not mismatches, (
+            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
             + "\n".join(mismatches[:20])
         )
 

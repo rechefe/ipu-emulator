@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_narrow import (
     DepthwiseConvStride2NarrowApp,
     CHUNK_BYTES,
@@ -140,6 +141,86 @@ class TestDepthwiseConvStride2Narrow:
                             )
         assert not mismatches, (
             f"{len(mismatches)} mismatches (first 20):\n" + "\n".join(mismatches[:20])
+        )
+
+    @pytest.mark.parametrize(
+        "cols,rows,channels,seed",
+        [
+            (64, 8, 2, 3),
+            (32, 16, 4, 7),
+        ],
+    )
+    def test_same_asm_runs_in_wide_vector_debug_mode(
+        self, tmp_path: Path, cols: int, rows: int, channels: int, seed: int,
+    ) -> None:
+        """The SAME assembled binaries (both stages) must also be correct in
+        wide-vector debug mode. See depthwise_conv_stride2_128's twin test for
+        the rationale and the two traps it caught:
+          - depthwise_conv_universal's setup() writes input_path's bytes
+            VERBATIM (does not widen internally) -- the caller must pre-widen
+            the on-disk input to 4 B/element itself.
+          - wide_vector_quantize_output MUST be False: stage 1's output feeds
+            stage 2's ldr_mult_reg as full-precision 4 B/element data; True
+            would narrow stage 1's post_aaq_reg to INT8+zero-pad before
+            str_post_aaq_reg writes it, corrupting what stage 2 reloads.
+        """
+        input_packed, kernel_raw, input_chw, kernel_ch9 = _gen_test_data(
+            rows, cols, channels, seed,
+        )
+
+        packed = bytearray(len(input_packed) * 4)
+        for i, byte in enumerate(input_packed):
+            struct.pack_into(
+                "<i", packed, i * 4, struct.unpack_from("b", input_packed, i)[0]
+            )
+        input_file = tmp_path / "input_wide.bin"
+        input_file.write_bytes(bytes(packed))
+        kernel_file = tmp_path / "kernel.bin"
+        kernel_file.write_bytes(kernel_raw)
+
+        app = DepthwiseConvStride2NarrowApp(
+            input_path=input_file,
+            kernel_path=kernel_file,
+            output_path=None,
+            rows=rows,
+            cols=cols,
+            channels=channels,
+        )
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.INT32,
+            wide_vector_quantize_output=False,
+        )
+        state, cycles = app.run(max_cycles=2_000_000, state=state)
+        assert cycles > 0
+
+        expected = reference_stride2_narrow(input_chw, kernel_ch9, rows, cols, channels)
+        out_cols = cols // 2
+        out_rows_per_chunk = 128 // out_cols
+        num_out_groups = (rows // 2) // out_rows_per_chunk
+
+        mismatches = []
+        for og in range(num_out_groups):
+            for ch in range(channels):
+                chunk_idx = og * channels + ch
+                actual = state.xmem.read_address(
+                    (app.output_base_row + chunk_idx) * 512, 512,
+                )
+                for local_row in range(out_rows_per_chunk):
+                    orow = og * out_rows_per_chunk + local_row
+                    for c in range(out_cols):
+                        elem = local_row * out_cols + c
+                        a_val = max(
+                            -128, min(127, struct.unpack_from("<i", actual, elem * 4)[0])
+                        )
+                        e_val = int(expected[ch, orow, c])
+                        if a_val != e_val:
+                            mismatches.append(
+                                f"  ch={ch} orow={orow} col={c} got={a_val} expected={e_val}"
+                            )
+        assert not mismatches, (
+            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
+            + "\n".join(mismatches[:20])
         )
 
     def test_rejects_odd_rows(self, tmp_path: Path) -> None:

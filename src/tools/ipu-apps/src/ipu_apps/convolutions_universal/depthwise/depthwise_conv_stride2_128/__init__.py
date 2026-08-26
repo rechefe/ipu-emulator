@@ -46,6 +46,7 @@ Usage::
 
 from __future__ import annotations
 
+import struct
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -55,7 +56,6 @@ from ipu_emu.emulator import run_test
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
-from ipu_apps.convolutions_universal import dump_outputs
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
     OUTPUT_BASE_ROW as STAGE1_OUTPUT_BASE_ROW,
@@ -84,6 +84,12 @@ STAGE2_ASM_PATH = Path(__file__).resolve().parent / "decimate_stage2.asm"
 _DEFAULT_OUTPUT_BASE_ADDR = 0x180000
 OUTPUT_BASE_ADDR = _DEFAULT_OUTPUT_BASE_ADDR  # kept for backwards-compat imports
 OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
+
+
+def _as_signed_byte(value: int) -> int:
+    """Reinterpret a wire byte as the signed INT8 it encodes."""
+    v = value & 0xFF
+    return v - 256 if v > 127 else v
 
 
 class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
@@ -250,7 +256,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         stage1_app.inst_path = stage1_bin_path
         stage1_app.input_path = self.input_path
         stage1_app.kernel_path = self.kernel_path
-        state, cycles1 = stage1_app.run(max_cycles=max_cycles)
+        state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
 
         stage2_bin_path = tmp_dir / "stage2.bin"
         assemble_to_bin_file(STAGE2_ASM_PATH.read_text(), str(stage2_bin_path))
@@ -275,10 +281,26 @@ class DepthwiseConvStride2_128App(IpuApp):
         )
 
         if self.output_path is not None:
+            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
+            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
+            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
+            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
+            # back at the mode's actual row size, then narrow to 1 B/element
+            # so ``output_path`` always holds the same canonical INT8 layout.
             total_outputs = self.num_row_pairs * self.channels
-            dump_outputs(
-                state2, self.output_path,
-                self.output_base_addr, CHUNK_BYTES, total_outputs,
+            element_width = 4 if state2.wide_vector_debug else 1
+            row_bytes = CHUNK_BYTES * element_width
+            total_elements = total_outputs * CHUNK_BYTES
+            raw = state2.xmem.read_address(
+                self.output_base_row * row_bytes, total_elements * element_width
             )
+            if element_width == 1:
+                data = bytes(raw)
+            else:
+                data = bytes(
+                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
+                    for i in range(total_elements)
+                )
+            Path(self.output_path).write_bytes(data)
 
         return state2, cycles1 + cycles2
