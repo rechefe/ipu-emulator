@@ -197,3 +197,155 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# -- convolutions_universal --------------------------------------------------
+#
+# All 10 apps are FP32-only (wide-vector debug mode); each assembles its own
+# .asm in-process (assemble_to_bin_file in the test fixture), so the app .asm
+# is provided as data, same convention as the softmax block above.
+
+py_pytest_test(
+    name = "test_conv_universal",
+    srcs = ["test/test_conv_universal.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_universal/conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_conv_universal_bn_activation",
+    srcs = ["test/test_conv_universal_bn_activation.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_universal_bn_activation/conv_universal_bn_activation.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_conv_first_layer",
+    srcs = ["test/test_conv_first_layer.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_first_layer/conv_first_layer.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_conv_universal_wide384",
+    srcs = ["test/test_conv_universal_wide384.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/conv/conv_universal_wide384/conv_universal_wide384.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_universal",
+    srcs = ["test/test_depthwise_conv_universal.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal/depthwise_conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_universal_bn_activation",
+    srcs = ["test/test_depthwise_conv_universal_bn_activation.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal_bn_activation/depthwise_conv_universal_bn_activation.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_stride2_128",
+    srcs = ["test/test_depthwise_conv_stride2_128.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_stride2_128/decimate_stage2.asm",
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal/depthwise_conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_depthwise_conv_stride2_narrow",
+    srcs = ["test/test_depthwise_conv_stride2_narrow.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_stride2_narrow/decimate_stage2.asm",
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal/depthwise_conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_pointwise_conv_unified",
+    srcs = ["test/test_pointwise_conv_unified.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/pointwise/pointwise_conv_unified/pointwise_conv_unified.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_pointwise_conv_unified_bn_activation",
+    srcs = ["test/test_pointwise_conv_unified_bn_activation.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/pointwise/pointwise_conv_unified_bn_activation/pointwise_conv_unified_bn_activation.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Framework-free registry dispatch + torch.nn.Conv2d adapter -- resolves
+# through kernel_registry, so every conv2d kernel's .asm is data here (same
+# convention as test_kernel_registry above).
+py_pytest_test(
+    name = "test_layers",
+    srcs = ["test/test_layers.py"],
+    data = glob(["src/ipu_apps/convolutions_universal/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
