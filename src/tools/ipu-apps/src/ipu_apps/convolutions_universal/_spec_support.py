@@ -71,6 +71,16 @@ class ConvQuery:
         return self.groups == self.in_channels
 
     @property
+    def out_height(self) -> int:
+        span = self.dilation * (self.kernel_size - 1) + 1
+        return (self.height + 2 * self.padding - span) // self.stride + 1
+
+    @property
+    def out_width(self) -> int:
+        span = self.dilation * (self.kernel_size - 1) + 1
+        return (self.width + 2 * self.padding - span) // self.stride + 1
+
+    @property
     def bundle(self) -> ShapeBundle:
         return ShapeBundle.of(
             **{
@@ -82,7 +92,7 @@ class ConvQuery:
                 **({BIAS: (self.out_channels,)} if self.has_bias else {}),
             }
         ).with_shapes(
-            derived={OUTPUT: (self.out_channels, self.height, self.width)},
+            derived={OUTPUT: (self.out_channels, self.out_height, self.out_width)},
         )
 
 

@@ -1,9 +1,9 @@
 """Depthwise 3x3 stride-2 convolution, cols=128 (no packing): 128xNxC -> 64x(N/2)xC.
 
-Two-stage design (built on TOP of the already-verified depthwise_conv_universal
-rather than a fresh from-scratch pipeline, per the project's row-addressing
-migration playbook -- the base app's fused 9-cyc/ch pipeline is too tightly
-timed to safely retrofit ACC.STRIDE decimation into):
+FP32 wide-vector mode. Two-stage design (built on TOP of the already-verified
+depthwise_conv_universal rather than a fresh from-scratch pipeline, per the
+project's row-addressing migration playbook -- the base app's fused 9-cyc/ch
+pipeline is too tightly timed to safely retrofit ACC.STRIDE decimation into):
 
   Stage 1: run depthwise_conv_universal's OWN asm, completely UNMODIFIED,
   against the full-resolution input at cols=128. Its harness only supports
@@ -19,7 +19,7 @@ timed to safely retrofit ACC.STRIDE decimation into):
   no masks, no r_cyclic, just XMEM loads + ACC.STRIDE + a store): reads
   ROW PAIRS (2j, 2j+1) from stage 1's output and column-decimates each
   128->64 via ACC.STRIDE (which reads MULT_RES, not R_ACC, hence the
-  identity-MULT passthrough), packing the pair into one 128-byte output
+  identity-MULT passthrough), packing the pair into one 128-element output
   chunk. Reading only rows 2j/2j+1 and skipping 2j+2.. per iteration IS the
   vertical stride-2 decimation -- stage 1 already computed every row, so
   skipping the odd ones is free (no separate vertical-stride logic needed).
@@ -35,9 +35,8 @@ Usage::
     )
 
     app = DepthwiseConvStride2_128App(
-        inst_path=None,  # unused; stage binaries are assembled internally
-        input_path="input.bin",     # rows * channels * 128 bytes, row-interleaved chunks
-        kernel_path="kernel.bin",   # channels * 9 bytes, INT8 raw
+        input_path="input.bin",     # raw [channels, rows, 128] float32
+        kernel=weights,              # np.ndarray [channels, 3, 3] float32
         output_path="output.bin",
         rows=128, channels=8,
     )
@@ -46,22 +45,23 @@ Usage::
 
 from __future__ import annotations
 
-import struct
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
+import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import run_test
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal import CHUNK_ELEMENTS
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
-    OUTPUT_BASE_ROW as STAGE1_OUTPUT_BASE_ROW,
-    OUTPUT_BASE_ADDR as STAGE1_OUTPUT_BASE_ADDR,
-    CHUNK_BYTES,
 )
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -73,29 +73,13 @@ STAGE1_ASM_PATH = (
 )
 STAGE2_ASM_PATH = Path(__file__).resolve().parent / "decimate_stage2.asm"
 
-# Stage 1's own output region starts at STAGE1_OUTPUT_BASE_ADDR and grows by
-# rows*channels*128 bytes (chunk-interleaved, one chunk per channel per row
-# -- num_chunks == rows at cols=128). A FIXED stage-2 output address (the
-# original 0x180000) only gave 0x50000 bytes of headroom (2560 chunks worth)
-# before stage 1's own output spilled past it and stage 2's early writes
-# clobbered still-unread stage-1 tail chunks. Fixed: compute the stage-2
-# base per-instance, in DepthwiseConvStride2_128App.__init__, always placed
-# right after stage 1's output region ends (see self.output_base_addr).
-_DEFAULT_OUTPUT_BASE_ADDR = 0x180000
-OUTPUT_BASE_ADDR = _DEFAULT_OUTPUT_BASE_ADDR  # kept for backwards-compat imports
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
-
-
-def _as_signed_byte(value: int) -> int:
-    """Reinterpret a wire byte as the signed INT8 it encodes."""
-    v = value & 0xFF
-    return v - 256 if v > 127 else v
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 
 class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
     """depthwise_conv_universal with the cols=128 (no-packing) case allowed.
 
-    At cols=128 there's exactly one packed spatial row per 128-byte chunk --
+    At cols=128 there's exactly one packed spatial row per 128-element chunk --
     the ``Partition.P0`` (no partitioning) case the base app's mask-shift
     scheme doesn't enumerate because it was written for cols in {16,32,64}
     (multi-row-per-chunk packing). This subclass overrides ONLY the two
@@ -104,85 +88,42 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
     """
 
     def __init__(self, **kwargs) -> None:
-        cols = kwargs.pop("cols", 128)
-        if cols != 128:
-            raise ValueError(f"_Stage1FullWidthApp is for cols=128 only, got {cols}")
-        # Bypass the base __init__'s `cols not in {16,32,64}` check by
-        # temporarily satisfying it with a placeholder, then fixing self.cols.
-        super().__init__(cols=64, **{k: v for k, v in kwargs.items() if k != "rows"},
-                          rows=kwargs["rows"])
-        self.cols = 128
-        # __init__ computed self.num_chunks = rows*cols//128 using the
-        # temporary cols=64 view -- HALF the true cols=128 value (a "chunk"
-        # is 128/cols packed spatial rows; at cols=128 that's 1 row/chunk, at
-        # cols=64 it's 2 rows/chunk). This was the actual remaining bug: the
-        # chunk-loop limit (cr11 in setup()) derives from num_chunks, so the
-        # loop ran for half as many chunks as it should, silently truncating
-        # (and misinterpreting the stride of) the row loop. Recompute here so
-        # setup()'s cr11 override further down uses the correct value.
-        rows = kwargs["rows"]
-        self.num_chunks = (rows * 128) // 128
-        # The base ctor's region layout (self._regions/output_base_row/etc.)
-        # was just computed from the placeholder cols=64's HALVED num_chunks
-        # -- undersizing the output region. Recompute now that num_chunks is
-        # correct, or stage 2's real-sized writes overrun a too-small region
-        # (caught by test_depthwise_conv_stride2_128.py).
-        self._compute_regions()
+        width = kwargs.pop("width", 128)
+        if width != 128:
+            raise ValueError(f"_Stage1FullWidthApp is for width=128 only, got {width}")
+        # The base class picks cols via next_valid_cols(width); width=128
+        # already lands on cols=128, so no bypass trick is needed here (the
+        # narrow-mode {16,32,64} restriction the old INT8 version worked
+        # around no longer applies -- next_valid_cols supports 128 directly).
+        super().__init__(width=128, **kwargs)
 
     def setup(self, state: "IpuState") -> None:
-        # Re-run the base setup logic but with Partition.P0 instead of the
-        # base's cols_to_partition lookup (which doesn't have a 128 entry).
-        # Simplest correct approach: monkeypatch set_cr_dstructure's default
-        # by calling super().setup() is not viable (it would raise on
-        # cols=128's absence from cols_to_partition), so setup is
-        # reimplemented here by delegating to the base class via a saved
-        # cols value trick: temporarily present cols=64 for the parts of
-        # setup that don't depend on partitioning, then override CR15.
-        original_cols = self.cols
-        self.cols = 64  # satisfies base setup's cols_to_partition lookup
         super().setup(state)
-        self.cols = original_cols
-        # Override CR15 dstructure: 128 lanes, ONE group (no packing).
+        # Override CR15 dstructure: 128 lanes, ONE group (no packing). The
+        # base class's cols_to_partition already maps 128 -> Partition.P0,
+        # so this override is now redundant but kept explicit for clarity.
         state.set_cr_dstructure(valid_elements=128, partition=Partition.P0)
-        # Re-write the mask blob for the TRUE cols=128 (base's setup wrote
-        # it for its temporary cols=64 view, which is wrong for this app).
-        from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
-            build_border_mask_blob,
-        )
-        # self.mask_base_row (NOT the depthwise_conv_universal module
-        # constant) -- the base class now computes its region layout
-        # dynamically per-instance (see DepthwiseConvUniversalApp's ctor), so
-        # the fixed module-level MASK_BASE_ROW may no longer be where THIS
-        # instance's mask blob actually lives. super().setup() above already
-        # wrote CR3 from self.mask_base_row; this override must target the
-        # same address or the two writes land in different places.
-        row_bytes = CHUNK_BYTES * self._element_width
-        state.xmem.write_address(
-            self.mask_base_row * row_bytes, build_border_mask_blob(128),
-        )
-        # CR4 = cols, read by the asm's `add lr1 lr0 cr4` (lr1 = cols, used
-        # only for the kc=-1/+1 walk step `add lr3 lr3 lr1`) -- must be 128.
-        state.regfile.set_cr(4, 128)
-        # CR14 = 256 - 2*cols - 2 (r_cyclic ELEMENT end-of-9 walking step from
-        # tap 9 to the next channel's tap 1). Base setup computed this off the
-        # temporary cols=64 view above (126, WRONG); the true cols=128 value
-        # is -2 (as unsigned 32-bit: 0xFFFFFFFE). Missing this override was
-        # the actual bug the first time -- it silently produced wrong (not
-        # faulting) conv results everywhere, since the walk step only shows
-        # up as a subtle per-channel kernel-index drift.
-        state.regfile.set_cr(14, (256 - 2 * 128 - 2) & 0xFFFFFFFF)
 
 
 class DepthwiseConvStride2_128App(IpuApp):
-    """Depthwise 3x3 stride-2 conv, cols=128, INT8 only (two-stage, see module doc).
+    """Depthwise 3x3 stride-2 conv, cols=128, FP32 (two-stage, see module doc).
+
+    Exactly one of ``kernel`` or ``kernel_path`` must be supplied.
+
+    ``input_path``/``output_path`` hold the TRUE (unpadded) tensor -- see
+    ``pointwise_conv_unified``'s class docstring for the exact file-layout
+    contract this mirrors.
 
     Args:
-        input_path:   Path to input image binary, row-interleaved by channel:
-                      (row r, channel ch) at (r*channels + ch)*128 bytes.
-        kernel_path:  Path to kernel binary (channels * 9 bytes, INT8 raw).
-        output_path:  Optional path to write output.
+        input_path:   Path to input image binary, raw ``[channels, rows,
+                      128]`` float32.
+        kernel:       Numpy weights of shape ``[channels, 3, 3]`` float32.
+        kernel_path:  Alternative: path to a raw ``[channels, 9]`` contiguous
+                      float32 file.
+        output_path:  Optional path to write output (raw ``[channels,
+                      rows/2, 64]`` float32).
         rows:         Spatial height (must be even, out_rows = rows/2 must
-                      also be even to pair 2 output rows per 128-byte chunk).
+                      also be even to pair 2 output rows per chunk).
         channels:     Number of channels (>= 1).
     """
 
@@ -191,12 +132,19 @@ class DepthwiseConvStride2_128App(IpuApp):
         *,
         rows: int,
         channels: int,
+        kernel: Optional[np.ndarray] = None,
         **kwargs,
     ) -> None:
         kwargs.pop("inst_path", None)  # unused; stages assemble their own
         super().__init__(inst_path=STAGE1_ASM_PATH, **kwargs)
         self.input_path = Path(self.input_path)
-        self.kernel_path = Path(self.kernel_path)
+
+        kernel_path = getattr(self, "kernel_path", None)
+        if kernel is not None and kernel_path is not None:
+            raise ValueError("Provide exactly one of kernel= or kernel_path=")
+        if kernel is None and kernel_path is None:
+            raise ValueError("Provide one of kernel= or kernel_path=")
+        self.kernel_path = Path(kernel_path) if kernel_path is not None else None
 
         if rows < 4 or rows % 2 != 0:
             raise ValueError(f"rows must be even and >= 4, got {rows}")
@@ -204,7 +152,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         if out_rows % 2 != 0:
             raise ValueError(
                 f"rows/2 (out_rows={out_rows}) must be even to pair 2 output "
-                f"rows per 128-byte chunk; got rows={rows}"
+                f"rows per chunk; got rows={rows}"
             )
         if channels < 1:
             raise ValueError(f"channels ({channels}) must be >= 1")
@@ -218,34 +166,27 @@ class DepthwiseConvStride2_128App(IpuApp):
         # __init__ needs no real file to exist -- IpuApp.__init__ only stores
         # Path objects). This is the SAME instance run() actually executes,
         # so its region layout (computed dynamically per DepthwiseConvUniversalApp's
-        # ctor -- see that class for why the fixed *_BASE_ADDR gaps were
-        # replaced) is the single source of truth for where stage 1's output
-        # really lands, instead of assuming the stale module-level
-        # STAGE1_OUTPUT_BASE_ADDR/_ROW constants.
+        # ctor) is the single source of truth for where stage 1's output
+        # really lands.
         self._stage1_app = _Stage1FullWidthApp(
             inst_path=STAGE1_ASM_PATH,
             input_path=self.input_path,
+            kernel=kernel,
             kernel_path=self.kernel_path,
             output_path=None,
-            dtype="INT8",
-            rows=rows,
-            cols=128,
+            height=rows,
+            width=128,
             channels=channels,
         )
 
         # Place stage 2's output immediately after stage 1's real output
         # region ends, row-aligned, so it can never overlap stage 1's
-        # still-unread tail chunks regardless of rows*channels (see the
-        # module-level comment on OUTPUT_BASE_ADDR for the original bug this
-        # replaced -- a fixed 0x180000 base only had 2560 chunks of headroom
-        # before stage 1's output spilled into it; now BOTH stage1's output
-        # base and stage1's output SIZE are read from the real instance
-        # rather than assumed).
-        stage1_output_bytes = rows * channels * CHUNK_BYTES
+        # still-unread tail chunks regardless of rows*channels.
+        stage1_output_elements = rows * channels * CHUNK_ELEMENTS
         self.output_base_addr = (
-            self._stage1_app.output_base_addr + stage1_output_bytes
+            self._stage1_app.output_base_addr + stage1_output_elements * 4
         )
-        self.output_base_row = self.output_base_addr // CHUNK_BYTES
+        self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
         tmp_dir = Path(tempfile.mkdtemp(prefix="depthwise_stride2_128_"))
@@ -255,7 +196,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         stage1_app = self._stage1_app
         stage1_app.inst_path = stage1_bin_path
         stage1_app.input_path = self.input_path
-        stage1_app.kernel_path = self.kernel_path
+        kwargs.setdefault("state", stage1_app.make_state())
         state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
 
         stage2_bin_path = tmp_dir / "stage2.bin"
@@ -281,26 +222,78 @@ class DepthwiseConvStride2_128App(IpuApp):
         )
 
         if self.output_path is not None:
-            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
-            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
-            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
-            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
-            # back at the mode's actual row size, then narrow to 1 B/element
-            # so ``output_path`` always holds the same canonical INT8 layout.
             total_outputs = self.num_row_pairs * self.channels
-            element_width = 4 if state2.wide_vector_debug else 1
-            row_bytes = CHUNK_BYTES * element_width
-            total_elements = total_outputs * CHUNK_BYTES
+            total_elements = total_outputs * CHUNK_ELEMENTS
             raw = state2.xmem.read_address(
-                self.output_base_row * row_bytes, total_elements * element_width
+                self.output_base_row * ROW_BYTES, total_elements * 4
             )
-            if element_width == 1:
-                data = bytes(raw)
-            else:
-                data = bytes(
-                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
-                    for i in range(total_elements)
-                )
-            Path(self.output_path).write_bytes(data)
+            Path(self.output_path).write_bytes(raw)
 
         return state2, cycles1 + cycles2
+
+
+# -- registry declaration ---------------------------------------------------
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 2:
+        return no(f"handles only stride=2; got {q.stride}")
+    if not q.is_depthwise:
+        return no(f"handles only depthwise (groups==in_channels); got groups={q.groups}, in_channels={q.in_channels}")
+    if q.out_channels != q.in_channels:
+        return no(f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}")
+    if q.apply_relu or q.has_bias:
+        return no("bias/ReLU are not supported by this kernel")
+    if q.width != 128:
+        return no(f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in 16/32/64); got {q.width}")
+    if q.height < 4 or q.height % 4 != 0:
+        return no(f"height must be a multiple of 4 (>= 4) so out_rows/2 pairs evenly; got {q.height}")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {"rows": q.height, "channels": q.in_channels}
+
+
+def _explain(**params):
+    return (
+        "kernel_size=3, groups=in_channels (depthwise), stride=2, padding=1, "
+        "width=128: two-stage depthwise stride-2 conv (FP32), full-res conv "
+        "then column+row decimation."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        "Not cycle-optimized: unfused two-stage composition (full-res conv "
+        "then a separate decimation pass).",
+    )
+
+
+SPEC = KernelSpec(
+    name="depthwise_conv_stride2_128",
+    op="conv2d",
+    variant="depthwise_stride2_128",
+    app_class=DepthwiseConvStride2_128App,
+    asm="depthwise_conv_universal/depthwise_conv_universal.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

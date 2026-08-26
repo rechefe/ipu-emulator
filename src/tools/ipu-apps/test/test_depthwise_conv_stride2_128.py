@@ -1,103 +1,61 @@
-"""Self-contained tests for depthwise 3x3 stride-2 conv, cols=128 (two-stage app).
+"""Self-contained tests for depthwise 3x3 stride-2 conv, cols=128 (two-stage app, FP32).
 
-Verifies the two-stage pipeline (unmodified depthwise_conv_universal at full
-resolution + a decimate pass) matches an ipu_math reference: depthwise conv
-(zero-pad) + clamp, output row/col stride 2, no bias, no ReLU.
+Runtime-generates random FP32 weights and inputs, runs the two-stage
+emulator pipeline, and compares against a real
+``torch.nn.functional.conv2d`` (groups=channels, stride=2) reference
+(tolerance-based).
 """
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_stride2_128 import (
     DepthwiseConvStride2_128App,
-    CHUNK_BYTES,
 )
+from ipu_apps.convolutions_universal import unpack_output_chunked
+
+_TOL = 1e-2
 
 
-def reference_stride2(
-    input_chw: np.ndarray, kernel_ch9: np.ndarray, rows: int, channels: int,
-) -> np.ndarray:
-    """Depthwise 3x3 conv (zero-pad), stride 2 in both row and column.
+def reference_stride2(weights: np.ndarray, input_chw: np.ndarray) -> np.ndarray:
+    """Real PyTorch reference: depthwise 3x3 conv, stride 2, groups=channels."""
+    import torch
+    import torch.nn.functional as F
 
-    input_chw: [channels, rows, 128] int8. kernel_ch9: [channels, 9] int8
-    (taps ordered dr*3+dc, dr/dc in -1..1). Returns [channels, rows//2, 64].
-    """
-    out_rows = rows // 2
-    out_cols = 64
-    dtype = DType.INT8
-    out = np.zeros((channels, out_rows, out_cols), dtype=np.int8)
-    for ch in range(channels):
-        for orow in range(out_rows):
-            r_center = 2 * orow
-            for ocol in range(out_cols):
-                c_center = 2 * ocol
-                acc = 0
-                for dr in range(3):
-                    for dc in range(3):
-                        ir = r_center + dr - 1
-                        ic = c_center + dc - 1
-                        if 0 <= ir < rows and 0 <= ic < 128:
-                            a = int(kernel_ch9[ch, dr * 3 + dc])
-                            b = int(input_chw[ch, ir, ic])
-                            prod = ipu_mult(a, b, dtype)
-                            acc = ipu_add(acc, prod, dtype)
-                out[ch, orow, ocol] = max(-128, min(127, acc))
-    return out
-
-
-def _gen_test_data(
-    rows: int, channels: int, seed: int,
-) -> tuple[bytes, bytes, np.ndarray, np.ndarray]:
-    rng = np.random.RandomState(seed)
-    input_chw = rng.randint(-4, 5, size=(channels, rows, 128)).astype(np.int8)
-    kernel_ch9 = rng.randint(-4, 5, size=(channels, 9)).astype(np.int8)
-
-    # Row-interleaved by channel: (row r, ch) chunk at (r*channels + ch)*128.
-    packed = bytearray(rows * channels * 128)
-    for r in range(rows):
-        for ch in range(channels):
-            off = (r * channels + ch) * 128
-            packed[off:off + 128] = input_chw[ch, r, :].tobytes()
-
-    return bytes(packed), kernel_ch9.tobytes(), input_chw, kernel_ch9
+    channels = input_chw.shape[0]
+    x = torch.from_numpy(input_chw).unsqueeze(0)
+    w = torch.from_numpy(weights).unsqueeze(1)  # [channels, 1, 3, 3]
+    return F.conv2d(x, w, padding=1, stride=2, groups=channels).squeeze(0).numpy()
 
 
 class TestDepthwiseConvStride2_128:
 
     @pytest.mark.parametrize(
-        "rows,channels,seed",
+        "channels,rows,seed",
         [
-            (8, 2, 3),     # minimal case
-            (16, 4, 7),    # exercises the ch_loop cross-word row advance twice
-            (32, 3, 11),   # odd channel count, larger spatial extent
-            (128, 32, 13), # rows*channels=4096 > 2560: previously corrupted
-                           # stage 1's output tail via a fixed stage-2 output
-                           # base address that stage 1's own growing output
-                           # region could spill past; now computed dynamically.
+            (2, 8, 3),      # minimal case
+            (4, 16, 7),     # exercises the ch_loop cross-word row advance twice
+            (3, 32, 11),    # odd channel count, larger spatial extent
+            (32, 128, 13),  # rows*channels large: exercises dynamic region sizing
         ],
     )
     def test_stride2(
-        self, tmp_path: Path, rows: int, channels: int, seed: int,
+        self, tmp_path: Path, channels: int, rows: int, seed: int,
     ) -> None:
-        input_packed, kernel_raw, input_chw, kernel_ch9 = _gen_test_data(
-            rows, channels, seed,
-        )
+        rng = np.random.RandomState(seed)
+        weights = (rng.randn(channels, 3, 3) * 0.2).astype(np.float32)
+        input_chw = (rng.randn(channels, rows, 128) * 0.5).astype(np.float32)
 
         input_file = tmp_path / "input.bin"
-        kernel_file = tmp_path / "kernel.bin"
-        input_file.write_bytes(input_packed)
-        kernel_file.write_bytes(kernel_raw)
+        input_file.write_bytes(input_chw.tobytes())
 
         app = DepthwiseConvStride2_128App(
             input_path=input_file,
-            kernel_path=kernel_file,
+            kernel=weights,
             output_path=None,
             rows=rows,
             channels=channels,
@@ -105,123 +63,32 @@ class TestDepthwiseConvStride2_128:
         state, cycles = app.run(max_cycles=2_000_000)
         assert cycles > 0
 
-        expected = reference_stride2(input_chw, kernel_ch9, rows, channels)
         out_rows = rows // 2
         num_row_pairs = out_rows // 2
-
-        mismatches = []
+        total_outputs = num_row_pairs * channels
+        raw = state.xmem.read_address(app.output_base_addr, total_outputs * 128 * 4)
+        # Two output rows per chunk, packed as [row_pair, channel, 128 elements].
+        arr = np.frombuffer(raw, dtype=np.float32).reshape(num_row_pairs, channels, 2, 64)
+        actual = np.zeros((channels, out_rows, 64), dtype=np.float32)
         for rp in range(num_row_pairs):
             for ch in range(channels):
-                chunk_idx = rp * channels + ch
-                actual = state.xmem.read_address(
-                    app.output_base_addr + chunk_idx * CHUNK_BYTES, 128,
-                )
-                for local_row, orow in enumerate((2 * rp, 2 * rp + 1)):
-                    for c in range(64):
-                        a_val = struct.unpack_from("b", actual, local_row * 64 + c)[0]
-                        e_val = int(expected[ch, orow, c])
-                        if a_val != e_val:
-                            mismatches.append(
-                                f"  ch={ch} orow={orow} col={c} got={a_val} expected={e_val}"
-                            )
-        assert not mismatches, (
-            f"{len(mismatches)} mismatches (first 20):\n" + "\n".join(mismatches[:20])
-        )
+                actual[ch, 2 * rp] = arr[rp, ch, 0]
+                actual[ch, 2 * rp + 1] = arr[rp, ch, 1]
 
-    @pytest.mark.parametrize(
-        "rows,channels,seed",
-        [
-            (8, 2, 3),
-            (16, 4, 7),
-        ],
-    )
-    def test_same_asm_runs_in_wide_vector_debug_mode(
-        self, tmp_path: Path, rows: int, channels: int, seed: int,
-    ) -> None:
-        """The SAME assembled binaries (both stages) must also be correct in
-        wide-vector debug mode. See test_conv_universal.py's twin test for the
-        rationale. Neither stage does an intermediate QUANTIZE->reload (stage 1
-        is depthwise_conv_universal, already mode-blind; stage 2 is a single
-        load->decimate->QUANTIZE->store pass), so
-        wide_vector_quantize_output=True is safe for both.
-        """
-        input_packed, kernel_raw, input_chw, kernel_ch9 = _gen_test_data(
-            rows, channels, seed,
-        )
-
-        # Unlike conv_universal/conv_first_layer (which widen the on-disk
-        # narrow input internally), depthwise_conv_universal's setup() -- and
-        # therefore this app's stage 1 -- writes input_path's bytes VERBATIM
-        # at the scaled row address, so the caller must pre-widen to 4
-        # B/element itself (see depthwise_conv_universal's own wide test).
-        packed = bytearray(len(input_packed) * 4)
-        for i, byte in enumerate(input_packed):
-            struct.pack_into(
-                "<i", packed, i * 4, struct.unpack_from("b", input_packed, i)[0]
-            )
-        input_file = tmp_path / "input_wide.bin"
-        input_file.write_bytes(bytes(packed))
-        kernel_file = tmp_path / "kernel.bin"
-        kernel_file.write_bytes(kernel_raw)
-
-        app = DepthwiseConvStride2_128App(
-            input_path=input_file,
-            kernel_path=kernel_file,
-            output_path=None,
-            rows=rows,
-            channels=channels,
-        )
-        # wide_vector_quantize_output MUST be False: stage 1's output feeds
-        # stage 2's ldr_mult_reg as full-precision 4 B/element data. With
-        # quantize_output=True, stage 1's ACTIVATE.QUANTIZE would overwrite
-        # its post_aaq_reg with 128 INT8-narrowed bytes + 384 zero-padding
-        # (ipu.py:1262-1274) BEFORE str_post_aaq_reg writes it to XMEM --
-        # destroying the 4B/element layout stage 2 expects to reload. Same
-        # trap as conv_first_layer's intermediate reload, just spanning the
-        # stage1->stage2 XMEM handoff instead of one asm. Clamp to INT8
-        # ourselves on read-back instead (matches narrow's final quantize).
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.INT32,
-            wide_vector_quantize_output=False,
-        )
-        state, cycles = app.run(max_cycles=2_000_000, state=state)
-        assert cycles > 0
-
-        expected = reference_stride2(input_chw, kernel_ch9, rows, channels)
-        out_rows = rows // 2
-        num_row_pairs = out_rows // 2
-
-        mismatches = []
-        for rp in range(num_row_pairs):
-            for ch in range(channels):
-                chunk_idx = rp * channels + ch
-                actual = state.xmem.read_address(
-                    (app.output_base_row + chunk_idx) * 512, 512,
-                )
-                for local_row, orow in enumerate((2 * rp, 2 * rp + 1)):
-                    for c in range(64):
-                        elem = local_row * 64 + c
-                        a_val = max(
-                            -128, min(127, struct.unpack_from("<i", actual, elem * 4)[0])
-                        )
-                        e_val = int(expected[ch, orow, c])
-                        if a_val != e_val:
-                            mismatches.append(
-                                f"  ch={ch} orow={orow} col={c} got={a_val} expected={e_val}"
-                            )
-        assert not mismatches, (
-            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
-            + "\n".join(mismatches[:20])
+        expected = reference_stride2(weights, input_chw)
+        diff = np.abs(actual - expected).max()
+        assert diff < _TOL, (
+            f"max diff {diff:.3e} for channels={channels} rows={rows}\n"
+            f"  actual[0,0,:8]:   {actual[0, 0, :8]}\n"
+            f"  expected[0,0,:8]: {expected[0, 0, :8]}"
         )
 
     def test_rejects_odd_rows(self, tmp_path: Path) -> None:
         input_file = tmp_path / "input.bin"
-        kernel_file = tmp_path / "kernel.bin"
-        input_file.write_bytes(b"\x00" * 128)
-        kernel_file.write_bytes(b"\x00" * 9)
+        input_file.write_bytes(np.zeros((1, 5, 128), dtype=np.float32).tobytes())
         with pytest.raises(ValueError):
             DepthwiseConvStride2_128App(
-                input_path=input_file, kernel_path=kernel_file,
+                input_path=input_file,
+                kernel=np.zeros((1, 3, 3), dtype=np.float32),
                 output_path=None, rows=5, channels=1,
             )
