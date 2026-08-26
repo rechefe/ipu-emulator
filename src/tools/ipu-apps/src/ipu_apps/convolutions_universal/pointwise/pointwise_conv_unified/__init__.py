@@ -24,12 +24,24 @@ from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
 
+import numpy as np
+
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
     parse_dtype,
     dump_outputs,
     allocate_regions,
+    pack_input_chunked,
+    unpack_output_chunked,
 )
+from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    bias_requires_relu,
+    conv_query,
+    pointwise_pad_shape,
+    positive_dims,
+)
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -68,14 +80,26 @@ def _as_signed_byte(value: int) -> int:
 class PointwiseConvUnifiedApp(IpuApp):
     """Unified pointwise (1x1) convolution application harness.
 
+    ``input_path``/``output_path`` hold the TRUE (unpadded) tensor, matching
+    the repo-wide rule that a caller's file layout is never leaked into by
+    internal packing/padding (see docs/content/adding-applications.md):
+
+      - ``input_path``:  raw ``[in_channels, height, width]`` INT8 bytes,
+        row-major (i.e. ``input.astype(np.int8).tobytes()``).
+      - ``output_path``: raw ``[out_channels, height, width]`` INT8 bytes,
+        same convention -- padding this app applies internally (to satisfy
+        the hardware's ``cols`` divides 128 / whole-chunk constraints) is
+        truncated back off before the file is written.
+
     Args:
         inst_path:    Path to assembled binary.
-        input_path:   Path to input image binary.
-        kernel_path:  Path to kernel binary.
-        output_path:  Optional path to write output.
+        input_path:   Path to input image binary (see above).
+        kernel_path:  Path to kernel binary, raw ``[out_channels, in_channels]``.
+        output_path:  Optional path to write output (see above).
         dtype:        Data type string or :class:`DType`.
-        rows:         Spatial height (>= 1; rows*cols must be a multiple of 128).
-        cols:         Spatial width (must divide 128: 1, 2, 4, ..., 128).
+        height:       Spatial height (>= 1). Any value works -- padded
+                      internally to satisfy the hardware's chunk constraints.
+        width:        Spatial width (>= 1). Any value works, same as height.
         in_channels:  Number of input channels (multiple of 8).
         out_channels: Number of output channels (multiple of 4).
     """
@@ -84,8 +108,8 @@ class PointwiseConvUnifiedApp(IpuApp):
         self,
         *,
         dtype: str | DType = "INT8",
-        rows: int,
-        cols: int,
+        height: int,
+        width: int,
         in_channels: int,
         out_channels: int,
         **kwargs,
@@ -103,45 +127,28 @@ class PointwiseConvUnifiedApp(IpuApp):
             raise ValueError(
                 f"out_channels ({out_channels}) must be a positive multiple of 4"
             )
+        if height < 1:
+            raise ValueError(f"height must be >= 1, got {height}")
+        if width < 1:
+            raise ValueError(f"width must be >= 1, got {width}")
 
-        # Spatial constraints, as the hardware actually imposes them.
-        #
-        # The .asm never sees `rows` or `cols` -- the only shape parameter
-        # reaching it is cr5 = row_groups = rows*cols/128 (see the CR map in
-        # the .asm header).  `rows_per_chunk` is used purely host-side by the
-        # packing helpers.  So the real requirements are:
-        #
-        #   * `cols` must divide 128, so that whole spatial rows tile a
-        #     128-byte chunk without straddling its edge (the packing loop
-        #     writes packed[dst + r*cols : dst + r*cols + cols]).  The
-        #     divisors of 128 are exactly the powers of two <= 128.
-        #   * rows*cols must be a whole number of 128-byte chunks.
-        #
-        # The previous check also demanded rows be a power of two in
-        # [16..128].  That had no hardware basis and rejected legitimate
-        # shapes such as 8x16 (one full chunk, row_groups=1), which is what a
-        # padded 8x8 pointwise layer becomes.  This is a pure widening: every
-        # shape accepted before is still accepted.
-        valid_cols = {1, 2, 4, 8, 16, 32, 64, 128}
-        if cols not in valid_cols:
-            raise ValueError(
-                f"cols must divide 128 (one of {sorted(valid_cols)}), got {cols}"
-            )
-        if rows < 1:
-            raise ValueError(f"rows must be >= 1, got {rows}")
-        if (rows * cols) % 128 != 0:
-            raise ValueError(
-                f"rows*cols ({rows}*{cols} = {rows * cols}) must be a multiple "
-                "of 128 (a whole number of 128-byte chunks)"
-            )
+        self.height = height
+        self.width = width
+        # Padded to satisfy the hardware's real constraints: `cols` must
+        # divide 128 (a spatial row must tile a 128-byte chunk without
+        # straddling its edge -- the packing loop writes
+        # packed[dst + r*cols : dst + r*cols + cols]), and rows*cols must be
+        # a whole number of 128-byte chunks. Pointwise has no spatial
+        # neighbourhood, so a padded lane can never leak into a real lane
+        # through the conv -- see _spec_support.pointwise_pad_shape.
+        self.rows, self.cols = pointwise_pad_shape(height, width)
+        rows, cols = self.rows, self.cols
 
         # Derive multi-pass parameters
         num_passes = (in_channels + 127) // 128
         # tail_size: ICs handled by the LAST pass (1..128)
         tail_size = in_channels - (num_passes - 1) * 128
 
-        self.rows = rows
-        self.cols = cols
         self.in_channels = in_channels
         self.out_channels = out_channels
 
@@ -240,7 +247,14 @@ class PointwiseConvUnifiedApp(IpuApp):
         self._element_width = 4 if state.wide_vector_debug else 1
         row_bytes = CHUNK_BYTES * self._element_width
 
-        input_data = self.input_path.read_bytes()
+        # input_path holds the TRUE (unpadded) [in_channels, height, width]
+        # tensor -- pad + chunk-pack to the on-device layout here, internal to
+        # this method (see the class docstring's file-layout contract).
+        input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.int8)
+        input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
+        padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.int8)
+        padded[:, :self.height, :self.width] = input_chw
+        input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_base_row * row_bytes, input_data)
 
         kernel_raw = self.kernel_path.read_bytes()
@@ -298,3 +312,93 @@ class PointwiseConvUnifiedApp(IpuApp):
                 state, self.output_path,
                 self.output_base_addr, OUTPUT_ROW_BYTES, total_rows,
             )
+
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain: kernel_size==1
+# (pointwise has no 3x3 neighbourhood), groups==1 (a 1x1 depthwise conv has no
+# matching app), stride==1, padding==0 (nothing to pad for -- no neighbourhood).
+# See _spec_support.ConvQuery for the full query shape shared across this
+# package's kernels.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 1:
+        return no(f"handles only kernel_size=1 (pointwise); got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 0:
+        return no(f"handles only padding=0 (no neighbourhood to pad for); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (a 1x1 depthwise conv has no matching app); got {q.groups}")
+    if q.in_channels % 8 != 0:
+        return no(f"in_channels ({q.in_channels}) must be a multiple of 8")
+    if q.out_channels % 4 != 0:
+        return no(f"out_channels ({q.out_channels}) must be a multiple of 4")
+    if q.apply_relu:
+        return no("apply_relu=True has no matching app here; see pointwise_conv_unified_bn_activation")
+    if bad := bias_requires_relu(q):
+        return no(bad)
+    if q.has_bias:
+        return no("bias is not supported by this kernel; see pointwise_conv_unified_bn_activation")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return {
+        "rows": padded_rows, "cols": padded_cols,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return (
+        f"kernel_size=1, groups=1, stride=1, padding=0: the unified pointwise "
+        f"kernel. {q.height}x{q.width} pads to {padded_rows}x{padded_cols} "
+        "(no mask care needed -- a 1x1 conv has no spatial neighbourhood for a "
+        "padded lane to leak into)."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    if (padded_rows, padded_cols) == (q.height, q.width):
+        return ()
+    real = q.height * q.width
+    padded = padded_rows * padded_cols
+    return (
+        f"{q.height}x{q.width} pads to {padded_rows}x{padded_cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="pointwise_conv_unified",
+    op="conv2d",
+    variant="pointwise",
+    app_class=PointwiseConvUnifiedApp,
+    asm="pointwise_conv_unified.asm",
+    requires=REQUIRES,
+    tags=("int8",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    # No bias/activation support: strictly cheaper than the BN twin whenever
+    # both would otherwise tie (they never overlap today since has_bias/
+    # apply_relu split them, but cost still expresses the specialisation).
+    cost=lambda **params: 0.0,
+)

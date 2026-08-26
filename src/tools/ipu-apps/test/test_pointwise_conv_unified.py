@@ -19,7 +19,6 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
     PointwiseConvUnifiedApp,
-    OUTPUT_BASE_ROW,
 )
 from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified.test_unified import (
     ASM_PATH,
@@ -122,7 +121,7 @@ class TestPointwiseConvUnifiedWideVectorDebug:
             for rg in range(row_groups):
                 for oc in range(out_ch):
                     i = rg * out_ch + oc
-                    actual = state.xmem.read_address((OUTPUT_BASE_ROW + i) * 512, 128)
+                    actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
                     block = np.frombuffer(actual, dtype=np.uint8)[
                         :rows_per_chunk * cols
                     ].view(np.int8).reshape(rows_per_chunk, cols)

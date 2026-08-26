@@ -113,6 +113,63 @@ def pack_input_paired(
     return bytes(packed)
 
 
+# -- Shared chunk-interleaved packing (channel-per-128-byte-chunk layout) ----
+#
+# Every app in this package uses the same on-device layout for a
+# [channels, rows, cols] tensor: rows_per_chunk = 128 // cols spatial rows
+# share one 128-byte chunk, chunks are grouped by channel. This is strictly
+# internal plumbing -- see docs/content/adding-applications.md's "output file
+# must have the same layout as the input file" rule -- so these helpers pack
+# a caller's raw tensor on the way IN and unpack it on the way OUT; no app's
+# input_path/output_path files are ever in this format.
+
+def pack_input_chunked(input_chw, cols: int) -> bytes:
+    """Pack ``[channels, rows, cols]`` int8 into the chunk-interleaved layout
+    every conv/depthwise/pointwise app in this package uses internally.
+
+    ``cols`` must divide 128. Offset formula: chunk = r // rows_per_chunk;
+    local_row = r % rows_per_chunk; offset = (chunk*channels + ch)*128 +
+    local_row*cols + c.
+    """
+    import numpy as np
+
+    channels, rows, w = input_chw.shape
+    if w != cols:
+        raise ValueError(f"input_chw width {w} does not match cols {cols}")
+    if 128 % cols != 0:
+        raise ValueError(
+            f"cols must divide 128 (a spatial row must tile a 128-byte chunk "
+            f"without straddling its edge), got {cols}"
+        )
+    rows_per_chunk = 128 // cols
+    num_chunks = (rows + rows_per_chunk - 1) // rows_per_chunk
+    packed = bytearray(num_chunks * channels * 128)
+    for ch in range(channels):
+        for r in range(rows):
+            chunk = r // rows_per_chunk
+            local_row = r % rows_per_chunk
+            row_off = (chunk * channels + ch) * 128 + local_row * cols
+            packed[row_off:row_off + cols] = input_chw[ch, r, :].astype(np.int8).tobytes()
+    return bytes(packed)
+
+
+def unpack_output_chunked(raw: bytes, out_channels: int, out_rows: int, cols: int):
+    """Inverse of :func:`pack_input_chunked`. Returns ``[out_channels, out_rows,
+    cols]`` int8."""
+    import numpy as np
+
+    rows_per_chunk = 128 // cols
+    out = np.zeros((out_channels, out_rows, cols), dtype=np.int8)
+    arr = np.frombuffer(raw, dtype=np.int8)
+    for ch in range(out_channels):
+        for r in range(out_rows):
+            chunk = r // rows_per_chunk
+            local_row = r % rows_per_chunk
+            off = (chunk * out_channels + ch) * 128 + local_row * cols
+            out[ch, r, :] = arr[off:off + cols]
+    return out
+
+
 # -- Shared output dumper ----------------------------------------------------
 
 def dump_outputs(
@@ -197,5 +254,7 @@ __all__ = [
     "parse_dtype",
     "build_border_mask_data",
     "pack_input_paired",
+    "pack_input_chunked",
+    "unpack_output_chunked",
     "dump_outputs",
 ]

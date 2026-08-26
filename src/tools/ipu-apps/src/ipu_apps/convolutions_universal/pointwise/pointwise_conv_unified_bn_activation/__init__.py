@@ -48,6 +48,13 @@ from ipu_apps.convolutions_universal import (
     dump_outputs,
     allocate_regions,
 )
+from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
+    pointwise_pad_shape,
+    positive_dims,
+)
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -361,3 +368,92 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
                 state, self.output_path,
                 self.output_base_addr, OUTPUT_ROW_BYTES, total_rows,
             )
+
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. Same
+# domain as pointwise_conv_unified except this twin REQUIRES apply_relu=True
+# (it unconditionally applies ReLU) -- see _spec_support.bias_requires_relu.
+#
+# `bias` (the actual tensor, not just has_bias:bool) is not part of the
+# registry query -- like every other kernel here, the registry carries only
+# shapes/config, never tensor data. A caller that resolves this kernel passes
+# its own quantized bias array to the constructor directly (see
+# convolutions_universal.layers.run_layer).
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 1:
+        return no(f"handles only kernel_size=1 (pointwise); got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 0:
+        return no(f"handles only padding=0 (no neighbourhood to pad for); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (a 1x1 depthwise conv has no matching app); got {q.groups}")
+    if q.in_channels % 8 != 0:
+        return no(f"in_channels ({q.in_channels}) must be a multiple of 8")
+    if q.out_channels % 4 != 0:
+        return no(f"out_channels ({q.out_channels}) must be a multiple of 4")
+    if not q.apply_relu:
+        return no(
+            "this kernel unconditionally applies ReLU; apply_relu=False has "
+            "no matching app here (see pointwise_conv_unified for the "
+            "no-bias/no-activation path)"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return {
+        "rows": padded_rows, "cols": padded_cols,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return (
+        f"kernel_size=1, groups=1, stride=1, padding=0, apply_relu=True: the "
+        f"unified pointwise kernel with folded bias + ReLU. {q.height}x"
+        f"{q.width} pads to {padded_rows}x{padded_cols} (no mask care needed)."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    if (padded_rows, padded_cols) == (q.height, q.width):
+        return ()
+    real = q.height * q.width
+    padded = padded_rows * padded_cols
+    return (
+        f"{q.height}x{q.width} pads to {padded_rows}x{padded_cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="pointwise_conv_unified_bn_activation",
+    op="conv2d",
+    variant="pointwise_bn_activation",
+    app_class=PointwiseConvUnifiedBnActivationApp,
+    asm="pointwise_conv_unified_bn_activation.asm",
+    requires=REQUIRES,
+    tags=("int8",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)
