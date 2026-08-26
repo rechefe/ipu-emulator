@@ -1,27 +1,25 @@
-"""Self-contained tests for depthwise 3x3 conv + folded bias + ReLU (FPB=25).
+"""Self-contained tests for depthwise 3x3 conv + folded bias + ReLU (FP32).
 
-Verifies the parameterized binary produces INT8 output matching an ipu_math
-reference: depthwise conv (zero-pad) + per-channel folded bias + ReLU + clamp.
+Runtime-generates random FP32 weights, inputs, and per-channel biases, runs
+the emulator, and compares against a real ``torch.nn.functional.conv2d``
+(groups=channels) + bias + ReLU reference (tolerance-based, since IPU FP32
+accumulation order differs from PyTorch's).
 """
 
 from __future__ import annotations
 
 import math
-import struct
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from ipu_emu.ipu_math import DType, ipu_mult, ipu_add
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal_bn_activation import (
     DepthwiseConvUniversalBnActivationApp,
-    OUTPUT_CHUNK_BYTES,
     FPB,
 )
-
+from ipu_apps.convolutions_universal import unpack_output_chunked
 
 ASM_PATH = (
     Path(__file__).resolve().parents[1]
@@ -30,74 +28,21 @@ ASM_PATH = (
     / "depthwise_conv_universal_bn_activation.asm"
 )
 
+_TOL = 1e-2
+
 
 def reference_depthwise_bn_relu(
-    input_bytes: bytes,
-    kernel_bytes: bytes,
-    bias: np.ndarray,
-    rows: int,
-    cols: int,
-    channels: int,
-) -> bytes:
-    """IPU-math-accurate reference: depthwise 3x3 + per-channel bias + ReLU + clamp.
+    weights: np.ndarray, input_chw: np.ndarray, bias: np.ndarray,
+) -> np.ndarray:
+    """Real PyTorch reference: depthwise 3x3 conv (groups=channels) + bias -> ReLU."""
+    import torch
+    import torch.nn.functional as F
 
-    Accumulator is seeded with the channel's bias, then the 3x3 conv (zero-pad)
-    is added, ReLU = max(0, .), output clamped to [-128, 127].
-    Layouts (input + output) match depthwise_conv_universal (chunk-interleaved).
-    """
-    dtype = DType.INT8
-    rows_per_chunk = 128 // cols
-    num_chunks = (rows * cols) // 128
-    output = bytearray(num_chunks * channels * 128)
-
-    for ch in range(channels):
-        for r in range(rows):
-            for c in range(cols):
-                acc: int = int(bias[ch])      # folded bias seed
-                for dr in range(3):
-                    for dc in range(3):
-                        ir = r + dr - 1
-                        ic = c + dc - 1
-                        if 0 <= ir < rows and 0 <= ic < cols:
-                            ki = ch * 9 + dr * 3 + dc
-                            a = kernel_bytes[ki]
-                            ig = ir // rows_per_chunk
-                            ilr = ir % rows_per_chunk
-                            in_idx = (ig * channels + ch) * 128 + ilr * cols + ic
-                            b = input_bytes[in_idx]
-                            prod = ipu_mult(a, b, dtype)
-                            acc = ipu_add(acc, prod, dtype)
-                acc = max(0, acc)             # ReLU
-                clamped = max(-128, min(127, acc))
-                og = r // rows_per_chunk
-                olr = r % rows_per_chunk
-                out_idx = (og * channels + ch) * 128 + olr * cols + c
-                output[out_idx] = clamped & 0xFF
-
-    return bytes(output)
-
-
-def _gen_test_data(
-    rows: int, cols: int, channels: int, seed: int = 42,
-) -> tuple[bytes, bytes, np.ndarray]:
-    rng = np.random.RandomState(seed)
-    rows_per_chunk = 128 // cols
-    num_chunks = (rows * cols) // 128
-
-    input_raw = rng.randint(-4, 5, size=(channels, rows, cols), dtype=np.int8)
-    input_packed = bytearray(num_chunks * channels * 128)
-    for ch in range(channels):
-        for r in range(rows):
-            for c in range(cols):
-                chunk = r // rows_per_chunk
-                local_row = r % rows_per_chunk
-                offset = (chunk * channels + ch) * 128 + local_row * cols + c
-                input_packed[offset] = np.uint8(input_raw[ch, r, c]).item()
-
-    kernel_raw = rng.randint(-4, 5, size=channels * 9, dtype=np.int8)
-    bias = rng.randint(-80, 81, size=channels).astype(np.int8)
-
-    return bytes(input_packed), kernel_raw.view(np.uint8).tobytes(), bias
+    channels = input_chw.shape[0]
+    x = torch.from_numpy(input_chw).unsqueeze(0)
+    w = torch.from_numpy(weights).unsqueeze(1)  # [channels, 1, 3, 3]
+    b = torch.from_numpy(bias)
+    return F.relu(F.conv2d(x, w, b, padding=1, groups=channels)).squeeze(0).numpy()
 
 
 class TestDepthwiseConvUniversalBnActivation:
@@ -110,173 +55,80 @@ class TestDepthwiseConvUniversalBnActivation:
         return inst_file
 
     @pytest.mark.parametrize(
-        "rows,cols,channels",
+        "channels,height,width",
         [
-            (16, 16, 4),    # minimal: single chunk worth, partial super-block
-            (16, 16, 25),   # exactly one full FPB=25 super-block
-            (16, 16, 32),   # one full + one partial super-block
-            (32, 32, 16),   # multi-chunk, partial super-block
-            (64, 64, 50),   # two full super-blocks, larger spatial
-            (8, 128, 4),    # cols=128: one packed row per chunk (Partition.P0)
-            (16, 128, 27),  # cols=128, multi-chunk + super-block spanning
+            (4, 16, 16),    # minimal, partial super-block
+            (25, 16, 16),   # exactly one full FPB=25 super-block
+            (32, 16, 16),   # one full + one partial super-block
+            (16, 32, 32),   # multi-chunk, partial super-block
+            (50, 64, 64),   # two full super-blocks, larger spatial
+            (4, 8, 128),    # cols=128: one packed row per chunk (Partition.P0)
+            (30, 16, 128),  # cols=128, multi-chunk + super-block spanning
+            # Non-power-of-2 / padding-heavy shapes.
+            (4, 8, 8),
+            (4, 5, 5),
         ],
     )
     def test_depthwise_bn_relu(
         self,
         inst_file: Path,
         tmp_path: Path,
-        rows: int,
-        cols: int,
         channels: int,
+        height: int,
+        width: int,
     ) -> None:
-        input_packed, kernel_raw, bias = _gen_test_data(rows, cols, channels)
+        rng = np.random.RandomState(42 + channels * 7 + height + width)
+        weights = (rng.randn(channels, 3, 3) * 0.2).astype(np.float32)
+        input_chw = (rng.randn(channels, height, width) * 0.5).astype(np.float32)
+        bias = (rng.randn(channels) * 0.3).astype(np.float32)
 
         input_file = tmp_path / "input.bin"
-        kernel_file = tmp_path / "kernel.bin"
-        input_file.write_bytes(input_packed)
-        kernel_file.write_bytes(kernel_raw)
+        input_file.write_bytes(input_chw.tobytes())
 
         app = DepthwiseConvUniversalBnActivationApp(
             inst_path=inst_file,
             input_path=input_file,
-            kernel_path=kernel_file,
+            kernel=weights,
             bias=bias,
             output_path=None,
-            dtype="INT8",
-            rows=rows,
-            cols=cols,
-            channels=channels,
+            height=height, width=width, channels=channels,
         )
 
-        num_chunks = (rows * cols) // 128
         num_super_blocks = math.ceil(channels / FPB)
-        max_cyc = 2_000 * num_chunks * channels * num_super_blocks + 100_000
+        max_cyc = 2_000 * app.num_chunks * channels * num_super_blocks + 100_000
         state, cycles = app.run(max_cycles=max_cyc)
         assert cycles > 0
 
-        total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
-        expected = reference_depthwise_bn_relu(
-            input_packed, kernel_raw, bias, rows, cols, channels,
-        )
+        total_elements = app.num_chunks * channels * 128
+        raw = state.xmem.read_address(app.output_base_addr, total_elements * 4)
+        padded_out = unpack_output_chunked(raw, channels, app.rows, app.cols)
+        actual = padded_out[:, :height, :width]
+        expected = reference_depthwise_bn_relu(weights, input_chw, bias)
 
-        assert len(actual) == len(expected)
-
-        rows_per_chunk = 128 // cols
-        mismatches = []
-        for i in range(len(expected)):
-            a_val = struct.unpack_from("b", actual, i)[0]
-            e_val = struct.unpack_from("b", expected, i)[0]
-            if a_val != e_val:
-                chunk = i // (channels * 128)
-                rem = i % (channels * 128)
-                ch = rem // 128
-                elem = rem % 128
-                local_row = elem // cols
-                col = elem % cols
-                row = chunk * rows_per_chunk + local_row
-                mismatches.append(
-                    f"  ch={ch} row={row} col={col} got={a_val} expected={e_val}"
-                )
-        assert not mismatches, (
-            f"{len(mismatches)} mismatches (first 20):\n" + "\n".join(mismatches[:20])
+        diff = np.abs(actual - expected).max()
+        assert diff < _TOL, (
+            f"max diff {diff:.3e} for channels={channels} {height}x{width}\n"
+            f"  actual[0,0,:8]:   {actual[0, 0, :8]}\n"
+            f"  expected[0,0,:8]: {expected[0, 0, :8]}"
         )
 
     def test_relu_zeros_negative_outputs(self, inst_file: Path, tmp_path: Path) -> None:
-        """All-negative pre-activation must clamp to 0 after ReLU."""
-        rows = cols = 16
+        """A strongly negative bias with zero weights must produce all-zero (ReLU) output."""
+        height = width = 16
         channels = 4
-        # Positive input, negative weights, negative bias -> sums < 0 -> ReLU 0.
-        input_packed = bytes([5]) * ((rows * cols) // 128 * channels * 128)
-        kernel_raw = bytes([0xFF]) * (channels * 9)   # -1 weights
-        bias = np.full(channels, -50, dtype=np.int8)
+        weights = np.zeros((channels, 3, 3), dtype=np.float32)  # conv contributes 0
+        input_chw = np.ones((channels, height, width), dtype=np.float32)
+        bias = np.array([-5.0, -0.1, -3.0, -1.0], dtype=np.float32)
 
         input_file = tmp_path / "input.bin"
-        kernel_file = tmp_path / "kernel.bin"
-        input_file.write_bytes(input_packed)
-        kernel_file.write_bytes(kernel_raw)
+        input_file.write_bytes(input_chw.tobytes())
 
         app = DepthwiseConvUniversalBnActivationApp(
-            inst_path=inst_file, input_path=input_file, kernel_path=kernel_file,
-            bias=bias, output_path=None, dtype="INT8",
-            rows=rows, cols=cols, channels=channels,
+            inst_path=inst_file, input_path=input_file, kernel=weights, bias=bias,
+            output_path=None, height=height, width=width, channels=channels,
         )
-        num_chunks = (rows * cols) // 128
-        state, _ = app.run(max_cycles=500_000)
-        total_bytes = num_chunks * channels * OUTPUT_CHUNK_BYTES
-        actual = state.xmem.read_address(app.output_base_addr, total_bytes)
-        assert all(b == 0 for b in actual), "ReLU must zero all-negative outputs"
-
-
-class TestDepthwiseConvUniversalBnActivationWideVectorDebug:
-    """The SAME assembled binary must also be correct in wide-vector debug mode."""
-
-    @pytest.fixture(scope="class")
-    def inst_file(self, tmp_path_factory) -> Path:
-        tmp = tmp_path_factory.mktemp("dw_bn_wide")
-        inst_file = tmp / "depthwise_conv_universal_bn_activation.bin"
-        assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
-        return inst_file
-
-    @pytest.mark.parametrize(
-        "rows,cols,channels",
-        [
-            (16, 16, 4),    # single chunk, partial super-block
-            (16, 16, 32),   # one full + one partial super-block (exercises the
-                             # cross-cycle lr12 super-block-row advance)
-            (8, 128, 4),    # cols=128 (Partition.P0) parity check
-        ],
-    )
-    def test_same_asm_runs_in_wide_vector_debug_mode(
-        self,
-        inst_file: Path,
-        tmp_path: Path,
-        rows: int,
-        cols: int,
-        channels: int,
-    ) -> None:
-        input_packed, kernel_raw, bias = _gen_test_data(rows, cols, channels, seed=7 + channels)
-
-        num_chunks = (rows * cols) // 128
-        packed = bytearray(num_chunks * channels * 128 * 4)
-        for i, _ in enumerate(input_packed):
-            struct.pack_into("<i", packed, i * 4, struct.unpack_from("b", input_packed, i)[0])
-        input_file = tmp_path / "input_wide.bin"
-        input_file.write_bytes(bytes(packed))
-
-        kernel_file = tmp_path / "kernel.bin"
-        kernel_file.write_bytes(kernel_raw)
-
-        app = DepthwiseConvUniversalBnActivationApp(
-            inst_path=inst_file, input_path=input_file, kernel_path=kernel_file,
-            bias=bias, output_path=None, dtype="INT8",
-            rows=rows, cols=cols, channels=channels,
-        )
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.INT32,
-            wide_vector_quantize_output=True,
-        )
-        num_super_blocks = math.ceil(channels / FPB)
-        max_cyc = 2_000 * num_chunks * channels * num_super_blocks + 100_000
-        state, cycles = app.run(max_cycles=max_cyc, state=state)
-        assert cycles > 0
-
-        expected = reference_depthwise_bn_relu(
-            input_packed, kernel_raw, bias, rows, cols, channels,
-        )
-
-        mismatches = []
-        total = num_chunks * channels
-        for i in range(total):
-            actual = state.xmem.read_address((app.output_base_row + i) * 512, 128)
-            want = expected[i * 128:(i + 1) * 128]
-            for j in range(128):
-                if actual[j] != want[j]:
-                    a_val = struct.unpack_from("b", actual, j)[0]
-                    e_val = struct.unpack_from("b", want, j)[0]
-                    mismatches.append(f"  out_row={i} elem={j} got={a_val} expected={e_val}")
-        assert not mismatches, (
-            f"{len(mismatches)} wide-mode mismatches (first 20):\n"
-            + "\n".join(mismatches[:20])
-        )
+        state, _ = app.run(max_cycles=2_000 * app.num_chunks * channels + 50_000)
+        total_elements = app.num_chunks * channels * 128
+        raw = state.xmem.read_address(app.output_base_addr, total_elements * 4)
+        arr = np.frombuffer(raw, dtype=np.float32)
+        assert np.all(arr == 0.0), "ReLU should zero all negative-bias outputs"

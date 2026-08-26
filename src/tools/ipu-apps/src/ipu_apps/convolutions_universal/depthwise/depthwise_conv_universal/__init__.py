@@ -1,13 +1,11 @@
-"""Universal depthwise 3x3 convolution harness (no bias, no activation).
+"""Universal depthwise 3x3 convolution harness (no bias, no activation, FP32).
 
 Base app for ``depthwise_conv_universal_bn_activation``. Same chunk-interleaved
 I/O layout and walking-pointer / rotating-cyclic-slot pipeline, minus:
 
   * **no folded bias** — ``r_acc`` is seeded by tap 1's own product
     (``acc.add.first``) instead of a bias multiply-broadcast.
-  * **no ReLU** — ``ACTIVATE.QUANTIZE`` runs with ``identity``; it is still
-    required as the only INT8 clamp/quantize step (``r_acc`` is not directly
-    storable).
+  * **no ReLU** — ``ACTIVATE`` runs with ``identity``.
 
 Per-channel budget: **10 cyc/ch** = 9 weight taps + 1 ACTIVATE cycle (tap 1
 doubles as the r_acc reset via ``acc.add.first``, replacing the BN twin's
@@ -17,18 +15,20 @@ BN twin's placeholder cycle) and now also co-issues the next channel's kr=-1
 prefetch load, since ACTIVATE occupies its own slot type and leaves the
 LR/XMEM slots free that cycle — replacing the load the BN twin's bias-seed
 cycle used to carry. The deferred-store pipeline (store the previous
-channel's quantized result while the current channel computes) is preserved.
+channel's result while the current channel computes) is preserved. Runs on
+the emulator's wide-vector debug datapath (FP32) -- weights and activations
+are genuine floats, no INT8 quantization anywhere in this kernel.
 
-Kernel super-block layout (FPB=28, 9-byte stride, no bias byte):
-  Depthwise produces one output PER channel; each channel occupies a **9-byte
-  slot** (its 9 weight taps only — no bias byte to reserve). 28 channels * 9 =
-  252 <= 256, so one 256-byte super-block (R0 = bytes 0..127, R1 = 128..255)
+Kernel super-block layout (FPB=28, 9-element stride, no bias element):
+  Depthwise produces one output PER channel; each channel occupies a **9-element
+  slot** (its 9 weight taps only — no bias element to reserve). 28 channels * 9 =
+  252 <= 256, so one 256-element super-block (R0 = elements 0..127, R1 = 128..255)
   holds 28 channels. The shared ``mult.ve`` fixed_idx (0..255) addresses both
   halves transparently.
 
-  The asm walks one continuous kernel byte index ``lr6`` at +1 per cycle: for
+  The asm walks one continuous kernel element index ``lr6`` at +1 per cycle: for
   channel ``s`` taps 1..9 read ``fixed_idx = s*9 .. s*9 + 9``; the next
-  channel's tap 1 is the following byte, so the 9-cycle/channel body advances
+  channel's tap 1 is the following element, so the 9-cycle/channel body advances
   ``lr6`` by exactly one channel stride.
 
 Usage::
@@ -39,11 +39,10 @@ Usage::
 
     app = DepthwiseConvUniversalApp(
         inst_path="depthwise_conv_universal.bin",
-        input_path="input.bin",
-        kernel_path="kernel.bin",   # channels * 9 bytes, INT8 raw
+        input_path="input.bin",      # raw [channels, height, width] float32
+        kernel=weights,               # np.ndarray [channels, 3, 3] float32
         output_path="output.bin",
-        dtype="INT8",
-        rows=64, cols=64, channels=256,
+        height=64, width=64, channels=256,
     )
     state, cycles = app.run()
 """
@@ -51,21 +50,27 @@ Usage::
 from __future__ import annotations
 
 import math
-import struct
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
-    CHUNK_BYTES,
-    parse_dtype,
+    CHUNK_ELEMENTS,
     dump_outputs,
     allocate_regions,
+    pack_input_chunked,
+)
+from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
+    min_rows_for_chunk_floor,
+    next_valid_cols,
+    positive_dims,
 )
 # Reuse the conv_universal_bn_activation mask-blob builder so the depthwise
 # apps share one border-mask implementation: a single 128-byte blob (slots
@@ -74,138 +79,123 @@ from ipu_apps.convolutions_universal import (
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     build_border_mask_blob,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu_state import IpuState
+    pass
 
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA (mb/195): XMEM offset/base operands on LDR_*/STR_*
 # (including LDR_CYCLIC_MULT_REG's offset/base -- only its `index` is
-# r_cyclic-element-space) are ROW numbers, not byte addresses. *_BASE_ADDR
-# below stay as byte constants for host-side xmem pokes (write_address /
-# read_address are byte-granular); *_BASE_ROW = *_BASE_ADDR // CHUNK_BYTES
-# feeds the CR registers the asm actually loads/stores through.
+# r_cyclic-element-space) are ROW numbers, not byte addresses. This app runs
+# FP32 wide-vector only, so ROW_BYTES is always 512.
 #
 # r_cyclic ELEMENT addressing is untouched by this migration: lr5 (the
 # LDR_CYCLIC_MULT_REG `index`) and lr3/lr4 (MULT.RC.VE `rc_idx` / read-slot
 # rotation) index a 512-ELEMENT ring in both modes, so cr12/cr13/cr9/cr14 in
 # their r_cyclic role (slot-size 128, slot-step 256/384) are unchanged.
 
-INPUT_BASE_ADDR = 0x000000
-KERNEL_BASE_ADDR = 0x110000
-# Border handling is done entirely with masks (no zero region). A single
-# 128-byte blob carries all three slots (0=none, 3=top-row zero, 6=bottom-row
-# zero); the g0 section selects slot 3 and the gN section selects slot 6, so no
-# mid-program R_MASK reload is needed.  Left/right edge columns are applied at
-# runtime by mask_shift (CR15 partition = cols).
-MASK_BASE_ADDR = 0x120000
-OUTPUT_BASE_ADDR = 0x130000
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
-OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output channel per chunk (int8)
-CHUNK_BYTES = 128         # XMEM row size in narrow mode; row-number unit
+OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output channel per chunk (FP32)
 
-INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
-KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
-MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
-
-FPB = 28           # channels per 256-byte super-block (9 taps each, no bias)
-CH_SLOT_BYTES = 9  # per-channel slot: 9 weight taps, no bias byte
-SUPER_BLOCK_BYTES = 256
-SUPER_BLOCK_ROWS = SUPER_BLOCK_BYTES // CHUNK_BYTES
+FPB = 28           # channels per 256-element super-block (9 taps each, no bias)
+CH_SLOT_ELEMENTS = 9  # per-channel slot: 9 weight taps, no bias element
+SUPER_BLOCK_ELEMENTS = 256
+SUPER_BLOCK_ROWS = SUPER_BLOCK_ELEMENTS * 4 // ROW_BYTES  # = 2
 
 
-def _as_signed_byte(value: int) -> int:
-    v = value & 0xFF
-    return v - 256 if v > 127 else v
+def _pack_depthwise_kernel(kernel_raw: np.ndarray, channels: int) -> bytes:
+    """Pack per-channel 9 weight taps into FPB=28 super-blocks (float32).
 
-
-def _pack_depthwise_kernel(
-    kernel_raw: bytes, channels: int, element_width: int = 1,
-) -> bytes:
-    """Pack per-channel 9 weight taps into FPB=28 super-blocks.
-
-    Input:  ``kernel_raw`` = channels*9 bytes (channel ch's 9 taps at ch*9).
-    Output: ceil(channels/28) super-blocks of ``256 * element_width`` bytes.
+    Input:  ``kernel_raw`` = [channels, 9] float32 (channel ch's 9 taps).
+    Output: ceil(channels/28) super-blocks of ``256`` elements each.
 
     Within one super-block, channel ``s`` (0..27) occupies ELEMENTS
     ``[s*9 .. s*9 + 9)``. 28*9 = 252 <= 256.  R0 holds elements 0..127, R1
     holds 128..255; the shared-index ``mult.ve`` (fixed_idx 0..255) spans both
-    halves.  ``element_width`` is 1 (narrow, raw INT8 byte) or 4 (wide-vector
-    debug, one INT32 lane per element -- MULT.VE/EE index ra_idx by lane).
+    halves.
     """
     num_blocks = math.ceil(channels / FPB)
-    total = num_blocks * SUPER_BLOCK_BYTES * element_width
-    packed = bytearray(total)
-
-    def put(elem_idx: int, value: int) -> None:
-        if element_width == 1:
-            packed[elem_idx] = value & 0xFF
-        else:
-            struct.pack_into("<i", packed, elem_idx * 4, _as_signed_byte(value))
+    total_elements = num_blocks * SUPER_BLOCK_ELEMENTS
+    packed = np.zeros(total_elements, dtype=np.float32)
 
     for sb in range(num_blocks):
-        sb_base = sb * SUPER_BLOCK_BYTES
+        sb_base = sb * SUPER_BLOCK_ELEMENTS
         for s in range(FPB):
             ch = sb * FPB + s
             if ch >= channels:
                 break
-            slot = sb_base + s * CH_SLOT_BYTES
-            for t in range(9):
-                put(slot + t, kernel_raw[ch * 9 + t])
-    return bytes(packed)
+            slot = sb_base + s * CH_SLOT_ELEMENTS
+            packed[slot:slot + 9] = kernel_raw[ch]
+    return packed.tobytes()
 
 
 class DepthwiseConvUniversalApp(IpuApp):
-    """Universal depthwise 3x3 convolution harness (no bias, no activation).
+    """Universal depthwise 3x3 convolution harness (no bias, no activation, FP32).
+
+    Exactly one of ``kernel`` or ``kernel_path`` must be supplied.
+
+    ``input_path``/``output_path`` hold the TRUE (unpadded) tensor -- see
+    ``pointwise_conv_unified``'s class docstring for the exact file-layout
+    contract this mirrors.
 
     Args:
         inst_path:    Path to assembled binary.
-        input_path:   Path to input image binary (chunk-interleaved layout).
-        kernel_path:  Path to kernel binary (channels * 9 bytes, INT8 raw).
-        output_path:  Optional path to write output.
-        dtype:        Data type string or :class:`DType`.
-        rows:         Spatial height.
-        cols:         Spatial width (16, 32, 64, or 128).
+        input_path:   Path to input image binary, raw ``[channels, height,
+                      width]`` float32.
+        kernel:       Numpy weights of shape ``[channels, 3, 3]`` float32.
+        kernel_path:  Alternative: path to a raw ``[channels, 9]`` contiguous
+                      float32 file.
+        output_path:  Optional path to write output (raw ``[channels, height,
+                      width]`` float32).
+        height:       Spatial height (>= 1). Padded internally.
+        width:        Spatial width (>= 1). Padded internally.
         channels:     Number of channels (>= 1).
     """
 
     def __init__(
         self,
         *,
-        dtype: str | DType = "INT8",
-        rows: int,
-        cols: int,
+        height: int,
+        width: int,
         channels: int,
+        kernel: Optional[np.ndarray] = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
-        self.kernel_path = Path(self.kernel_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
-        valid_cols = {16, 32, 64, 128}
-        if cols not in valid_cols:
-            raise ValueError(f"cols must be in {valid_cols}, got {cols}")
-        num_chunks = (rows * cols) // 128
-        if num_chunks < 2:
-            raise ValueError(
-                f"Need at least 2 chunks (rows*cols >= 256), got {rows}*{cols}={rows*cols}"
-            )
+        kernel_path = getattr(self, "kernel_path", None)
+        if kernel is not None and kernel_path is not None:
+            raise ValueError("Provide exactly one of kernel= or kernel_path=")
+        if kernel is None and kernel_path is None:
+            raise ValueError("Provide one of kernel= or kernel_path=")
+        self._kernel_array = kernel
+        self.kernel_path = Path(kernel_path) if kernel_path is not None else None
+
+        if height < 1:
+            raise ValueError(f"height must be >= 1, got {height}")
+        if width < 1:
+            raise ValueError(f"width must be >= 1, got {width}")
         if channels < 1:
             raise ValueError(f"channels ({channels}) must be >= 1")
 
+        self.height = height
+        self.width = width
+        cols = next_valid_cols(width)
+        rows = min_rows_for_chunk_floor(height, cols)
         self.rows = rows
         self.cols = cols
         self.channels = channels
-        self.num_chunks = num_chunks
+        self.num_chunks = (rows * cols) // CHUNK_ELEMENTS
         # group_stride is a row-count (XMEM-space): one "chunk group" of
         # `channels` rows, one row per channel.
         self.group_stride = channels
         self.num_super_blocks = math.ceil(channels / FPB)
         self.total_kernel_rows = self.num_super_blocks * SUPER_BLOCK_ROWS
-        self._element_width = 1
+        self.total_kernel_elements = self.num_super_blocks * SUPER_BLOCK_ELEMENTS
 
         self._compute_regions()
 
@@ -219,11 +209,7 @@ class DepthwiseConvUniversalApp(IpuApp):
         passes cols=64 to bypass this class's cols-in-{16,32,64} check, then
         fixes self.cols/self.num_chunks to the true cols=128 values) can
         re-run this to get region sizes that reflect the TRUE shape, not the
-        placeholder one __init__ saw. Regressed once already: the base
-        __init__'s region computation ran with the placeholder's HALVED
-        num_chunks, undersizing the output region and letting stage 2's
-        genuinely-sized writes overrun it -- caught by
-        test_depthwise_conv_stride2_128.py.
+        placeholder one __init__ saw.
 
         See conv_universal's identical comment for why fixed *_BASE_ADDR
         gaps are replaced: they silently overflow at realistic channel
@@ -238,46 +224,64 @@ class DepthwiseConvUniversalApp(IpuApp):
         """
         input_region_rows = self.group_stride + self.num_chunks * self.group_stride
         self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_BYTES),
-            ("kernel", self.total_kernel_rows * CHUNK_BYTES),
-            ("mask", CHUNK_BYTES),
-            ("output", self.num_chunks * self.channels * CHUNK_BYTES),
+            ("input", input_region_rows * CHUNK_ELEMENTS),
+            ("kernel", self.total_kernel_elements),
+            ("mask", CHUNK_ELEMENTS),
+            ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
         ])
-        self.input_base_row = self._regions["input"] // CHUNK_BYTES
-        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
-        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
-        self.output_base_row = self._regions["output"] // CHUNK_BYTES
-        self.output_base_addr = self._regions["output"]
+        self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
+        self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
+        self.output_base_row = self._regions["output"] // CHUNK_ELEMENTS
+        self.output_base_addr = self._regions["output"] * 4  # bytes, FP32
         self.input_data_row = self.input_base_row + self.group_stride
-        self.input_data_addr = self.input_data_row * CHUNK_BYTES
+
+    def _pack_kernel(self) -> bytes:
+        if self._kernel_array is not None:
+            weights = np.asarray(self._kernel_array, dtype=np.float32)
+        else:
+            raw = self.kernel_path.read_bytes()
+            expected = self.channels * 9 * 4
+            if len(raw) != expected:
+                raise ValueError(
+                    f"kernel_path file has {len(raw)} bytes, "
+                    f"expected {expected} (channels * 9 * 4 B float32)"
+                )
+            weights = (
+                np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
+            )
+        w_flat = weights.reshape(self.channels, 9)
+        return _pack_depthwise_kernel(w_flat, self.channels)
+
+    @staticmethod
+    def make_state() -> IpuState:
+        """Build the FP32 wide-vector state this app requires (see
+        pointwise_conv_unified.make_state for the same convention)."""
+        return IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=False,
+        )
 
     def setup(self, state: "IpuState") -> None:
-        # Master ISA: dtype is a state attribute, not a CR register.
-        state.dtype = self.dtype
-        self._element_width = 4 if state.wide_vector_debug else 1
-        row_bytes = CHUNK_BYTES * self._element_width
+        # input_path holds the TRUE (unpadded) [channels, height, width]
+        # float32 tensor -- pad + chunk-pack to the on-device layout here.
+        input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
+        input_chw = input_raw.reshape(self.channels, self.height, self.width)
+        padded = np.zeros((self.channels, self.rows, self.cols), dtype=np.float32)
+        padded[:, :self.height, :self.width] = input_chw
+        input_data = pack_input_chunked(padded, self.cols)
+        state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
-        input_data = self.input_path.read_bytes()
-        state.xmem.write_address(self.input_data_row * row_bytes, input_data)
-
-        kernel_raw = self.kernel_path.read_bytes()
-        expected = self.channels * 9
-        if len(kernel_raw) != expected:
-            raise ValueError(
-                f"kernel_path file has {len(kernel_raw)} bytes, "
-                f"expected {expected} (channels * 9)"
-            )
-        kernel_packed = _pack_depthwise_kernel(
-            kernel_raw, self.channels, self._element_width,
-        )
-        state.xmem.write_address(self.kernel_base_row * row_bytes, kernel_packed)
+        kernel_packed = self._pack_kernel()
+        state.xmem.write_address(self.kernel_base_row * ROW_BYTES, kernel_packed)
 
         # Border mask: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
         # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
         # slot 3, the gN section selects slot 6 — no mid-program R_MASK reload.
         # Left/right edge columns are applied at runtime by mask_shift (CR15
         # partition below).  No zero region.
-        state.xmem.write_address(self.mask_base_row * row_bytes, build_border_mask_blob(self.cols))
+        state.xmem.write_address(self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols))
 
         # CR15 dstructure: partition so each partition group is exactly one
         # packed spatial row (group size == cols).  The asm's mask_shift then
@@ -288,12 +292,6 @@ class DepthwiseConvUniversalApp(IpuApp):
             32: Partition.P4,   # 4 groups of 32 lanes
             16: Partition.P8,   # 8 groups of 16 lanes
         }
-        if self.cols not in cols_to_partition:
-            raise ValueError(
-                f"depthwise_conv_universal mask-shift scheme requires "
-                f"cols in {sorted(cols_to_partition)} (one packed row per partition "
-                f"group); got cols={self.cols}"
-            )
         state.set_cr_dstructure(
             valid_elements=128,
             partition=cols_to_partition[self.cols],
@@ -341,7 +339,91 @@ class DepthwiseConvUniversalApp(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
-            dump_outputs(
-                state, self.output_path,
-                self.output_base_addr, OUTPUT_CHUNK_BYTES, total_outputs,
-            )
+            raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
+            from ipu_apps.convolutions_universal import unpack_output_chunked
+            padded_out = unpack_output_chunked(raw, self.channels, self.rows, self.cols)
+            out = padded_out[:, :self.height, :self.width]
+            self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
+    def run(self, **kwargs):
+        kwargs.setdefault("state", self.make_state())
+        return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+# groups == in_channels (depthwise); no bias, no ReLU here.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if not q.is_depthwise:
+        return no(f"handles only depthwise (groups==in_channels); got groups={q.groups}, in_channels={q.in_channels}")
+    if q.out_channels != q.in_channels:
+        return no(f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}")
+    if q.apply_relu:
+        return no("apply_relu=True has no matching app here; see depthwise_conv_universal_bn_activation")
+    if q.has_bias:
+        return no("bias is not supported by this kernel; see depthwise_conv_universal_bn_activation")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {"height": q.height, "width": q.width, "channels": q.in_channels}
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    return (
+        f"kernel_size=3, groups=in_channels (depthwise), stride=1, padding=1: "
+        f"the universal depthwise 3x3 conv kernel (FP32). {q.height}x{q.width} "
+        f"pads internally to {rows}x{cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (rows, cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = rows * cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {rows}x{cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="depthwise_conv_universal",
+    op="conv2d",
+    variant="depthwise",
+    app_class=DepthwiseConvUniversalApp,
+    asm="depthwise_conv_universal.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

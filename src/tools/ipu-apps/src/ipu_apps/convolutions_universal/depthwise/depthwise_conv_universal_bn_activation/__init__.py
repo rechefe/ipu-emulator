@@ -1,38 +1,37 @@
-"""Universal depthwise 3x3 convolution + folded-bias + ReLU harness.
+"""Universal depthwise 3x3 convolution + folded-bias + ReLU harness (FP32).
 
 Derived from ``depthwise_conv_universal``. Same chunk-interleaved I/O layout and
 walking-pointer / rotating-cyclic-slot pipeline, with three additions
 (mirroring ``conv_universal_bn_activation``):
 
-  * **Folded bias** — one INT8 bias per channel, injected as a single extra
+  * **Folded bias** — one float32 bias per channel, injected as a single extra
     "multiply by 1" accumulate (``acc.first``) at the start of each channel.
     Batch-norm is assumed already folded into the depthwise weights + this bias.
-  * **ReLU activation** — applied via ``ACTIVATE relu`` before quantization.
+  * **ReLU activation** — applied via ``ACTIVATE relu``.
   * **Mask-based borders** — the top/bottom out-of-bounds rows are zeroed with
     a single 3-slot mask blob (slots 0/3/6) instead of loading a zero chunk into
     the cyclic register (no zero region); left/right edge columns are applied at
     runtime by mask_shift (CR15 partition = cols), mirroring conv.
 
 Per-channel budget: **11 cyc/ch** = 1 bias-seed cycle + 9 weight taps + 1
-standalone ACTIVATE cycle (the base app runs 9 cyc/ch with no bias). The extra
-ACTIVATE cycle is a placeholder: ACTIVATE reads the cycle-start snapshot of
-``r_acc``, so it must run a cycle after tap 9's final ``acc`` rather than fused
-into it; a future revision folds it back once ACTIVATE reads ``r_acc`` live,
-restoring 10 cyc/ch. The deferred-store pipeline (store the previous channel's
-quantized result while the current channel computes) is preserved.
+standalone ACTIVATE cycle (the base app runs 9 cyc/ch with no bias). Runs on
+the emulator's wide-vector debug datapath (FP32) -- weights, bias, and
+activations are genuine floats, no INT8 quantization anywhere in this kernel.
 
 Kernel super-block layout (FPB=25, stride 10):
   Depthwise produces one output PER channel, so each channel needs its OWN bias
-  byte — conv's "one bias byte shared across a super-block's in-channels" does
-  not apply. Instead each channel occupies a **10-byte slot**: byte 0 = its INT8
-  bias, bytes 1..9 = its 9 weight taps. 25 channels * 10 = 250 <= 256, so one
-  256-byte super-block (R0 = bytes 0..127, R1 = 128..255) holds 25 channels.
-  The shared ``mult.ve`` fixed_idx (0..255) addresses both halves transparently.
+  element — conv's "one bias element shared across a super-block's in-channels"
+  does not apply. Instead each channel occupies a **10-element slot**: element 0
+  = its float32 bias, elements 1..9 = its 9 weight taps. 25 channels * 10 = 250
+  <= 256, so one 256-element super-block (R0 = elements 0..127, R1 = 128..255)
+  holds 25 channels. The shared ``mult.ve`` fixed_idx (0..255) addresses both
+  halves transparently.
 
-  The asm walks one continuous kernel byte index ``lr6`` at +1 per cycle: for
-  channel ``s`` the bias-seed reads ``fixed_idx = s*10`` (bias), then the 9 taps
-  read ``s*10 + 1 .. s*10 + 9``; the next channel's bias is the following byte,
-  so the 10-cycle/channel body advances ``lr6`` by exactly one channel stride.
+  The asm walks one continuous kernel element index ``lr6`` at +1 per cycle:
+  for channel ``s`` the bias-seed reads ``fixed_idx = s*10`` (bias), then the 9
+  taps read ``s*10 + 1 .. s*10 + 9``; the next channel's bias is the following
+  element, so the 10-cycle/channel body advances ``lr6`` by exactly one channel
+  stride.
 
 Usage::
 
@@ -42,12 +41,11 @@ Usage::
 
     app = DepthwiseConvUniversalBnActivationApp(
         inst_path="depthwise_conv_universal_bn_activation.bin",
-        input_path="input.bin",
-        kernel_path="kernel.bin",   # channels * 9 bytes, INT8 raw
-        bias=bias,                  # np.ndarray [channels], INT8 (defaults zeros)
+        input_path="input.bin",       # raw [channels, height, width] float32
+        kernel=weights,                # np.ndarray [channels, 3, 3] float32
+        bias=bias,                     # np.ndarray [channels], float32 (defaults zeros)
         output_path="output.bin",
-        dtype="INT8",
-        rows=64, cols=64, channels=256,
+        height=64, width=64, channels=256,
     )
     state, cycles = app.run()
 """
@@ -55,21 +53,28 @@ Usage::
 from __future__ import annotations
 
 import math
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import (
-    CHUNK_BYTES,
-    parse_dtype,
+    CHUNK_ELEMENTS,
     dump_outputs,
     allocate_regions,
+    pack_input_chunked,
+    unpack_output_chunked,
+)
+from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
+    min_rows_for_chunk_floor,
+    next_valid_cols,
+    positive_dims,
 )
 # Reuse the conv_universal_bn_activation mask-blob builder so the two apps share
 # one border-mask implementation: a single 128-byte blob (slots 0/3/6) where
@@ -77,257 +82,298 @@ from ipu_apps.convolutions_universal import (
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     build_border_mask_blob,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu_state import IpuState
+    pass
 
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA (mb/195): XMEM offset/base operands on LDR_*/STR_* are
-# ROW numbers, not byte addresses. *_BASE_ADDR stay byte constants for
-# host-side xmem pokes; *_BASE_ROW = *_BASE_ADDR // CHUNK_BYTES feeds the CR
-# registers the asm loads/stores through. r_cyclic index/rc_idx operands
-# (lr5, lr3/lr4) stay ELEMENT-addressed and are untouched by this migration.
+# ROW numbers, not byte addresses. This app runs FP32 wide-vector only, so
+# ROW_BYTES is always 512. r_cyclic index/rc_idx operands (lr5, lr3/lr4) stay
+# ELEMENT-addressed and are untouched by this migration.
 
-INPUT_BASE_ADDR = 0x000000
-KERNEL_BASE_ADDR = 0x110000
-# Border handling is done entirely with masks (no zero region). A single
-# 128-byte blob carries all three slots (0=none, 3=top-row zero, 6=bottom-row
-# zero); the g0 section selects slot 3 and the gN section selects slot 6, so no
-# mid-program R_MASK reload is needed.  Left/right edge columns are applied at
-# runtime by mask_shift (CR15 partition = cols).
-MASK_BASE_ADDR = 0x120000
-OUTPUT_BASE_ADDR = 0x130000
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
-OUTPUT_CHUNK_BYTES = 128  # 128 bytes per output channel per chunk (int8)
-CHUNK_BYTES = 128         # XMEM row size in narrow mode; row-number unit
+OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output channel per chunk (FP32)
 
-INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
-KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
-MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
-
-FPB = 25            # channels per 256-byte super-block (1 bias + 9 taps each)
-CH_SLOT_BYTES = 10  # per-channel slot: byte 0 = bias, bytes 1..9 = 9 taps
-SUPER_BLOCK_BYTES = 256
-SUPER_BLOCK_ROWS = SUPER_BLOCK_BYTES // CHUNK_BYTES
-
-
-def _as_signed_byte(value: int) -> int:
-    v = value & 0xFF
-    return v - 256 if v > 127 else v
+FPB = 25            # channels per 256-element super-block (1 bias + 9 taps each)
+CH_SLOT_ELEMENTS = 10  # per-channel slot: element 0 = bias, 1..9 = 9 taps
+SUPER_BLOCK_ELEMENTS = 256
+SUPER_BLOCK_ROWS = SUPER_BLOCK_ELEMENTS * 4 // ROW_BYTES  # = 2
 
 
 def _pack_depthwise_kernel_bias(
-    kernel_raw: bytes, bias_bytes: bytes, channels: int, element_width: int = 1,
+    weights: np.ndarray, bias: np.ndarray, channels: int,
 ) -> bytes:
-    """Pack per-channel (bias + 9 weight taps) into FPB=25 super-blocks.
+    """Pack per-channel (bias + 9 weight taps) into FPB=25 super-blocks (float32).
 
-    Input:  ``kernel_raw`` = channels*9 bytes (channel ch's 9 taps at ch*9);
-            ``bias_bytes`` = channels bytes (channel ch's INT8 bias).
-    Output: ceil(channels/25) super-blocks of ``256 * element_width`` bytes.
+    Input:  ``weights`` = [channels, 9] float32; ``bias`` = [channels] float32.
+    Output: ceil(channels/25) super-blocks of ``256`` elements each.
 
     Within one super-block, channel ``s`` (0..24) occupies ELEMENTS
     ``[s*10 .. s*10 + 10)``: element ``s*10`` = bias, ``s*10+1 .. s*10+9`` =
     taps. 25*10 = 250 <= 256.  R0 holds elements 0..127, R1 holds 128..255;
     the shared-index ``mult.ve`` (fixed_idx 0..255) spans both halves.
-    ``element_width`` is 1 (narrow) or 4 (wide-vector debug).
     """
     num_blocks = math.ceil(channels / FPB)
-    total = num_blocks * SUPER_BLOCK_BYTES * element_width
-    packed = bytearray(total)
-
-    def put(elem_idx: int, value: int) -> None:
-        if element_width == 1:
-            packed[elem_idx] = value & 0xFF
-        else:
-            struct.pack_into("<i", packed, elem_idx * 4, _as_signed_byte(value))
+    total_elements = num_blocks * SUPER_BLOCK_ELEMENTS
+    packed = np.zeros(total_elements, dtype=np.float32)
 
     for sb in range(num_blocks):
-        sb_base = sb * SUPER_BLOCK_BYTES
+        sb_base = sb * SUPER_BLOCK_ELEMENTS
         for s in range(FPB):
             ch = sb * FPB + s
             if ch >= channels:
                 break
-            slot = sb_base + s * CH_SLOT_BYTES
-            put(slot, bias_bytes[ch])                            # bias
-            for t in range(9):
-                put(slot + 1 + t, kernel_raw[ch * 9 + t])
-    return bytes(packed)
+            slot = sb_base + s * CH_SLOT_ELEMENTS
+            packed[slot] = bias[ch]
+            packed[slot + 1:slot + 10] = weights[ch]
+    return packed.tobytes()
 
 
 class DepthwiseConvUniversalBnActivationApp(IpuApp):
-    """Universal depthwise 3x3 convolution + folded-bias + ReLU harness.
+    """Universal depthwise 3x3 convolution + folded-bias + ReLU harness (FP32).
+
+    Exactly one of ``kernel`` or ``kernel_path`` must be supplied.
+
+    ``input_path``/``output_path`` hold the TRUE (unpadded) tensor -- see
+    ``pointwise_conv_unified``'s class docstring for the exact file-layout
+    contract this mirrors.
 
     Args:
         inst_path:    Path to assembled binary.
-        input_path:   Path to input image binary (chunk-interleaved layout).
-        kernel_path:  Path to kernel binary (channels * 9 bytes, INT8 raw).
-        bias:         Per-channel INT8 bias, shape ``[channels]``. Added once to
-                      the accumulator before ReLU. Defaults to zeros.
-        output_path:  Optional path to write output.
-        dtype:        Data type string or :class:`DType`.
-        rows:         Spatial height.
-        cols:         Spatial width (16, 32, 64, or 128).
+        input_path:   Path to input image binary, raw ``[channels, height,
+                      width]`` float32.
+        kernel:       Numpy weights of shape ``[channels, 3, 3]`` float32.
+        kernel_path:  Alternative: path to a raw ``[channels, 9]`` contiguous
+                      float32 file.
+        bias:         Per-channel float32 bias, shape ``[channels]``. Added
+                      once to the accumulator before ReLU. Defaults to zeros.
+        output_path:  Optional path to write output (raw ``[channels, height,
+                      width]`` float32).
+        height:       Spatial height (>= 1). Padded internally.
+        width:        Spatial width (>= 1). Padded internally.
         channels:     Number of channels (>= 1).
     """
 
     def __init__(
         self,
         *,
-        dtype: str | DType = "INT8",
-        rows: int,
-        cols: int,
+        height: int,
+        width: int,
         channels: int,
+        kernel: Optional[np.ndarray] = None,
         bias: Optional[np.ndarray] = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(self.input_path)
-        self.kernel_path = Path(self.kernel_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
 
-        valid_cols = {16, 32, 64, 128}
-        if cols not in valid_cols:
-            raise ValueError(f"cols must be in {valid_cols}, got {cols}")
-        num_chunks = (rows * cols) // 128
-        if num_chunks < 2:
-            raise ValueError(
-                f"Need at least 2 chunks (rows*cols >= 256), got {rows}*{cols}={rows*cols}"
-            )
+        kernel_path = getattr(self, "kernel_path", None)
+        if kernel is not None and kernel_path is not None:
+            raise ValueError("Provide exactly one of kernel= or kernel_path=")
+        if kernel is None and kernel_path is None:
+            raise ValueError("Provide one of kernel= or kernel_path=")
+        self._kernel_array = kernel
+        self.kernel_path = Path(kernel_path) if kernel_path is not None else None
+
+        if height < 1:
+            raise ValueError(f"height must be >= 1, got {height}")
+        if width < 1:
+            raise ValueError(f"width must be >= 1, got {width}")
         if channels < 1:
             raise ValueError(f"channels ({channels}) must be >= 1")
 
         if bias is None:
-            bias = np.zeros(channels, dtype=np.int8)
-        bias = np.asarray(bias)
+            bias = np.zeros(channels, dtype=np.float32)
+        bias = np.asarray(bias, dtype=np.float32)
         if bias.shape != (channels,):
             raise ValueError(f"bias must have shape ({channels},), got {bias.shape}")
         self._bias_array = bias
 
+        self.height = height
+        self.width = width
+        cols = next_valid_cols(width)
+        rows = min_rows_for_chunk_floor(height, cols)
         self.rows = rows
         self.cols = cols
         self.channels = channels
-        self.num_chunks = num_chunks
-        # group_stride is a row-count (XMEM-space): one row per channel.
+        self.num_chunks = (rows * cols) // CHUNK_ELEMENTS
         self.group_stride = channels
         self.num_super_blocks = math.ceil(channels / FPB)
         self.total_kernel_rows = self.num_super_blocks * SUPER_BLOCK_ROWS
-        self._element_width = 1
+        self.total_kernel_elements = self.num_super_blocks * SUPER_BLOCK_ELEMENTS
 
-        # -- Dynamic region layout -------------------------------------------
-        # See depthwise_conv_universal's identical comment for the full
-        # rationale: fixed *_BASE_ADDR gaps silently overflow at realistic
-        # channel counts. Bias is folded into the kernel super-block here
-        # (see _pack_kernel), so there is no separate bias region -- 4
-        # regions, same as the base app.
-        #
-        # Guard band: place the real input data one group_stride further
-        # into the input region than its own base; cr10 stays at that base
-        # (the asm's own running pointer, lr8/lr2, seeded to group_stride at
-        # init, carries the shift).
         input_region_rows = self.group_stride + self.num_chunks * self.group_stride
         self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_BYTES),
-            ("kernel", self.total_kernel_rows * CHUNK_BYTES),
-            ("mask", CHUNK_BYTES),
-            ("output", self.num_chunks * self.channels * CHUNK_BYTES),
+            ("input", input_region_rows * CHUNK_ELEMENTS),
+            ("kernel", self.total_kernel_elements),
+            ("mask", CHUNK_ELEMENTS),
+            ("output", self.num_chunks * self.channels * CHUNK_ELEMENTS),
         ])
-        self.input_base_row = self._regions["input"] // CHUNK_BYTES
-        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
-        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
-        self.output_base_row = self._regions["output"] // CHUNK_BYTES
-        self.output_base_addr = self._regions["output"]
+        self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
+        self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
+        self.output_base_row = self._regions["output"] // CHUNK_ELEMENTS
+        self.output_base_addr = self._regions["output"] * 4  # bytes, FP32
         self.input_data_row = self.input_base_row + self.group_stride
 
-    def setup(self, state: "IpuState") -> None:
-        # Master ISA: dtype is a state attribute, not a CR register.
-        state.dtype = self.dtype
-        self._element_width = 4 if state.wide_vector_debug else 1
-        row_bytes = CHUNK_BYTES * self._element_width
-
-        input_data = self.input_path.read_bytes()
-        state.xmem.write_address(self.input_data_row * row_bytes, input_data)
-
-        kernel_raw = self.kernel_path.read_bytes()
-        expected = self.channels * 9
-        if len(kernel_raw) != expected:
-            raise ValueError(
-                f"kernel_path file has {len(kernel_raw)} bytes, "
-                f"expected {expected} (channels * 9)"
+    def _pack_kernel(self) -> bytes:
+        if self._kernel_array is not None:
+            weights = np.asarray(self._kernel_array, dtype=np.float32)
+        else:
+            raw = self.kernel_path.read_bytes()
+            expected = self.channels * 9 * 4
+            if len(raw) != expected:
+                raise ValueError(
+                    f"kernel_path file has {len(raw)} bytes, "
+                    f"expected {expected} (channels * 9 * 4 B float32)"
+                )
+            weights = (
+                np.frombuffer(raw, dtype=np.float32).reshape(self.channels, 3, 3)
             )
-        bias_bytes = self._bias_array.astype(np.int8).view(np.uint8).tobytes()
-        kernel_packed = _pack_depthwise_kernel_bias(
-            kernel_raw, bias_bytes, self.channels, self._element_width,
+        w_flat = weights.reshape(self.channels, 9)
+        return _pack_depthwise_kernel_bias(w_flat, self._bias_array, self.channels)
+
+    @staticmethod
+    def make_state() -> IpuState:
+        """Build the FP32 wide-vector state this app requires (see
+        pointwise_conv_unified.make_state for the same convention)."""
+        return IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=False,
         )
-        state.xmem.write_address(self.kernel_base_row * row_bytes, kernel_packed)
 
-        # Border mask: a SINGLE blob carrying all 3 slots (0=none, 3=top-row
-        # zero, 6=bottom-row zero), loaded once at init.  The g0 section selects
-        # slot 3, the gN section selects slot 6 — no mid-program R_MASK reload.
-        # Left/right edge columns are applied at runtime by mask_shift (CR15
-        # partition below).  No zero region.
-        state.xmem.write_address(self.mask_base_row * row_bytes, build_border_mask_blob(self.cols))
+    def setup(self, state: "IpuState") -> None:
+        input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
+        input_chw = input_raw.reshape(self.channels, self.height, self.width)
+        padded = np.zeros((self.channels, self.rows, self.cols), dtype=np.float32)
+        padded[:, :self.height, :self.width] = input_chw
+        input_data = pack_input_chunked(padded, self.cols)
+        state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
-        # CR15 dstructure: partition so each partition group is exactly one
-        # packed spatial row (group size == cols).  The asm's mask_shift then
-        # injects the left/right edge-column zero at each packed-row boundary.
+        kernel_packed = self._pack_kernel()
+        state.xmem.write_address(self.kernel_base_row * ROW_BYTES, kernel_packed)
+
+        state.xmem.write_address(self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols))
+
         cols_to_partition = {
-            128: Partition.P0,  # 1 group of 128 lanes (one packed row per chunk)
-            64: Partition.P2,   # 2 groups of 64 lanes
-            32: Partition.P4,   # 4 groups of 32 lanes
-            16: Partition.P8,   # 8 groups of 16 lanes
+            128: Partition.P0,
+            64: Partition.P2,
+            32: Partition.P4,
+            16: Partition.P8,
         }
-        if self.cols not in cols_to_partition:
-            raise ValueError(
-                f"depthwise_conv_universal_bn_activation mask-shift scheme requires "
-                f"cols in {sorted(cols_to_partition)} (one packed row per partition "
-                f"group); got cols={self.cols}"
-            )
         state.set_cr_dstructure(
             valid_elements=128,
             partition=cols_to_partition[self.cols],
         )
 
-        # CR map (master ISA: CR0 = read-only 0, CR1 = read-only 1, CR15 = dstructure).
-        # Relocate the input/kernel bases off CR0/CR1 (mirroring
-        # conv_universal_bn_activation), keeping CR0 free as the read-only zero
-        # constant used by "SET lr<n>, cr0":
-        #   CR10 = INPUT_BASE_ROW (cyclic-load base; UN-shifted -- the asm's
-        #   own running pointer carries the guard-band group_stride).
-        #   CR5 = KERNEL_BASE row, CR3 = mask blob row (single blob, slots 0/3/6).
         state.regfile.set_cr(10, self.input_base_row)
         state.regfile.set_cr(5, self.kernel_base_row)
-        # cr2 is pre-biased by -1 ROW for the deferred store (asm advances lr7
-        # BEFORE the XMEM store at tap 2; store writes to lr7_advanced + cr2 =
-        # lr7_old + OUTPUT_BASE_ROW).
         state.regfile.set_cr(2, (self.output_base_row - 1) & 0xFFFFFFFF)
         state.regfile.set_cr(3, self.mask_base_row)
-        # cr9 = 384: r_cyclic ELEMENT slot-pointer step (+384 mod 512) for the
-        # running write pointer lr5 -- unchanged by row addressing.
         state.regfile.set_cr(9, 384)
 
-        # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
-        # cr6 = group_stride in ROWS (XMEM-space).
         state.regfile.set_cr(6, self.group_stride)
-        state.regfile.set_cr(7, FPB)               # channel group inner-loop size, in rows
+        state.regfile.set_cr(7, FPB)
         state.regfile.set_cr(8, self.total_kernel_rows)
-        # cr11: chunk-loop limit, biased by the same guard-band group_stride
-        # added to lr8/lr2 above.
         state.regfile.set_cr(
             11, (self.num_chunks - 1) * self.group_stride + self.group_stride,
         )
-        # cr12 = 128: r_cyclic ELEMENT slot size (index step for lr5) -- NOT
-        # an XMEM stride anymore; that role is CR1 (one XMEM chunk == one row).
         state.regfile.set_cr(12, 128)
-        state.regfile.set_cr(13, 256)  # r_cyclic ELEMENT half-slot step
+        state.regfile.set_cr(13, 256)
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.channels
-            dump_outputs(
-                state, self.output_path,
-                self.output_base_addr, OUTPUT_CHUNK_BYTES, total_outputs,
-            )
+            raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
+            padded_out = unpack_output_chunked(raw, self.channels, self.rows, self.cols)
+            out = padded_out[:, :self.height, :self.width]
+            self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
+    def run(self, **kwargs):
+        kwargs.setdefault("state", self.make_state())
+        return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if not q.is_depthwise:
+        return no(f"handles only depthwise (groups==in_channels); got groups={q.groups}, in_channels={q.in_channels}")
+    if q.out_channels != q.in_channels:
+        return no(f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}")
+    if not q.apply_relu:
+        return no("this kernel always applies ReLU; see depthwise_conv_universal for the plain twin")
+    if not q.has_bias:
+        return no("this kernel requires bias (folded); see depthwise_conv_universal for the bias-free twin")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {"height": q.height, "width": q.width, "channels": q.in_channels}
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    return (
+        f"kernel_size=3, groups=in_channels (depthwise), stride=1, padding=1, "
+        f"bias+ReLU: the universal depthwise 3x3 conv kernel (FP32). "
+        f"{q.height}x{q.width} pads internally to {rows}x{cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (rows, cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = rows * cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {rows}x{cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="depthwise_conv_universal_bn_activation",
+    op="conv2d",
+    variant="depthwise_bn_activation",
+    app_class=DepthwiseConvUniversalBnActivationApp,
+    asm="depthwise_conv_universal_bn_activation.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)
