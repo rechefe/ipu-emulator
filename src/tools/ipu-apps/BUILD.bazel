@@ -297,6 +297,20 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_depthwise_conv_stride2_16",
+    srcs = ["test/test_depthwise_conv_stride2_16.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_stride2_16/decimate_stage2.asm",
+        "src/ipu_apps/convolutions_universal/depthwise/depthwise_conv_universal/depthwise_conv_universal.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_depthwise_conv_stride2_narrow",
     srcs = ["test/test_depthwise_conv_stride2_narrow.py"],
     data = [
