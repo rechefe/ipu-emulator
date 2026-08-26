@@ -1,9 +1,9 @@
-"""Wide (W >= 384) standard 3x3 convolution harness, stride 1.
+"""Wide (W >= 384) standard 3x3 convolution harness, stride 1, FP32.
 
 Handles spatial widths that don't fit the usual <=256-wide chunk-interleaved
 layout other conv apps assume. Per the user's explicit addressing spec: one
 spatial row of ONE channel occupies ``W // 128`` (``cpr``, "chunks per row")
-consecutive 128-byte XMEM rows, channel-interleaved per spatial row --
+consecutive XMEM rows, channel-interleaved per spatial row --
 
     [ch0 row0: cpr rows][ch1 row0: cpr rows]...[ch(C-1) row0: cpr rows]
     [ch0 row1: cpr rows][ch1 row1: cpr rows]...
@@ -33,6 +33,11 @@ at run() time (bypassing the base class's raw-binary-in / no-Jinja-context
 path other apps use), landing the freshly assembled bytes in a tempdir -- no
 .bin build artifacts are written into the source tree.
 
+``input_path``/``output_path`` hold the TRUE ``[channels, rows, width]``
+float32 tensor -- see ``pointwise_conv_unified``'s class docstring for the
+exact file-layout contract this mirrors; the channel-interleaved-per-row
+on-device layout is strictly internal.
+
 Usage::
 
     from ipu_apps.convolutions_universal.conv.conv_universal_wide384 import (
@@ -40,8 +45,8 @@ Usage::
     )
 
     app = ConvUniversalWide384App(
-        input_path="input.bin",   # channel-interleaved-per-row layout, INT8
-        kernel=weights_nhwc,      # np.ndarray [out_ch, in_ch, 3, 3]
+        input_path="input.bin",   # raw [in_channels, rows, width] float32
+        kernel=weights,           # np.ndarray [out_ch, in_ch, 3, 3] float32
         output_path="output.bin",
         width=384, rows=16, in_channels=3, out_channels=4,
     )
@@ -51,7 +56,6 @@ Usage::
 from __future__ import annotations
 
 import math
-import struct
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -60,30 +64,21 @@ import jinja2
 import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
-from ipu_apps.convolutions_universal import CHUNK_BYTES, parse_dtype, allocate_regions
-from ipu_apps.convolutions_universal.weights import pack_conv_weights_dense
+from ipu_apps.convolutions_universal import CHUNK_ELEMENTS, allocate_regions
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu_state import IpuState
+    pass
 
 ASM_TEMPLATE_PATH = Path(__file__).resolve().parent / "conv_universal_wide384.asm"
 
-# -- Memory layout (byte constants for host-side pokes) -----------------------
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
-INPUT_BASE_ADDR = 0x000000
-KERNEL_BASE_ADDR = 0x0C0000
-MASK_BASE_ADDR = 0x0E0000
-OUTPUT_BASE_ADDR = 0x100000
-
-INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
-KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
-MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
-
-FPB = 128 // 9  # 14: channels per 128-byte dense kernel block (see weights.py)
+FPB = 128 // 9  # 14: channels per 128-element dense kernel block
 
 # Mask blob: 4 slots used.
 #   0 = KEEP all       -> fully in-bounds taps
@@ -103,28 +98,6 @@ MASK_SLOT_ZERO_LANE0 = 2
 MASK_SLOT_ZERO_LANE127 = 3
 
 
-def _as_signed_byte(value: int) -> int:
-    """Reinterpret a wire byte as the signed INT8 it encodes."""
-    v = value & 0xFF
-    return v - 256 if v > 127 else v
-
-
-def _widen_int8_bytes(data: bytes, element_width: int) -> bytes:
-    """Widen a 1 B/element INT8 byte string to ``element_width`` B/element.
-
-    Every element becomes a little-endian signed 32-bit int at
-    ``element_width == 4`` (wide-vector debug mode), so a 128-byte narrow row
-    still occupies exactly one row's worth of bytes (128*4 = 512) with no
-    gap. A no-op at ``element_width == 1`` (narrow mode).
-    """
-    if element_width == 1:
-        return data
-    out = bytearray(len(data) * element_width)
-    for i, b in enumerate(data):
-        struct.pack_into("<i", out, i * element_width, _as_signed_byte(b))
-    return bytes(out)
-
-
 def build_wide384_mask_blob() -> bytes:
     """Build the 128-byte R_MASK blob (see the 4-slot layout above)."""
     mask = bytearray(128)
@@ -140,17 +113,46 @@ def build_wide384_mask_blob() -> bytes:
     return bytes(mask)
 
 
+def _pack_conv_weights_dense_fp32(weights: np.ndarray) -> bytes:
+    """Pack ``[out_ch, in_ch, 3, 3]`` float32 weights into dense 128-element blocks.
+
+    One 128-element block holds ``FPB = 14`` input-channel slots of one
+    output filter (9 taps each, 126 of 128 elements used). Blocks for filter
+    0 come first (``ceil(in_ch / FPB)`` of them), then filter 1, and so on.
+    The last block of each filter zero-pads any unused slots.
+    """
+    out_ch, in_ch, kh, kw = weights.shape
+    if kh != 3 or kw != 3:
+        raise ValueError(f"weights trailing dims must be (3, 3), got ({kh}, {kw})")
+
+    blocks_per_filter = math.ceil(in_ch / FPB)
+    total_elements = out_ch * blocks_per_filter * 128
+    packed = np.zeros(total_elements, dtype=np.float32)
+    taps = weights.reshape(out_ch, in_ch, 9)
+
+    for f in range(out_ch):
+        for b in range(blocks_per_filter):
+            block_base = (f * blocks_per_filter + b) * 128
+            for s in range(FPB):
+                ic = b * FPB + s
+                if ic >= in_ch:
+                    break
+                dst = block_base + s * 9
+                packed[dst:dst + 9] = taps[f, ic]
+    return packed.tobytes()
+
+
 class ConvUniversalWide384App(IpuApp):
-    """Wide (W>=384) standard 3x3 convolution, stride 1, INT8 only.
+    """Wide (W>=384) standard 3x3 convolution, stride 1, FP32.
 
     Args:
-        input_path:   Path to the input image binary, channel-interleaved
-                      PER SPATIAL ROW (see module docstring for the exact
-                      layout): ``in_channels * rows * cpr`` 128-byte rows.
-        kernel:       Numpy weights of shape ``[out_ch, in_ch, 3, 3]``.
+        input_path:   Path to the input image binary, raw ``[in_channels,
+                      rows, width]`` float32.
+        kernel:       Numpy weights of shape ``[out_ch, in_ch, 3, 3]`` float32.
         kernel_path:  Alternative: path to a raw ``[out_ch, in_ch, 9]``
-                      contiguous int8 byte file.
-        output_path:  Optional path to write the output region verbatim.
+                      contiguous float32 file.
+        output_path:  Optional path to write the output (raw ``[out_channels,
+                      rows, width]`` float32).
         width:        Spatial width; multiple of 128, >= 384.
         rows:         Spatial height (>= 1).
         in_channels:  Number of input channels (>= 1).
@@ -173,7 +175,6 @@ class ConvUniversalWide384App(IpuApp):
         kwargs.pop("inst_path", None)  # unused; this app assembles its own binary
         super().__init__(inst_path=ASM_TEMPLATE_PATH, **kwargs)
         self.input_path = Path(input_path)
-        self.dtype = DType.INT8
 
         if width % 128 != 0 or width < 384:
             raise ValueError(f"width must be a multiple of 128 and >= 384, got {width}")
@@ -199,8 +200,8 @@ class ConvUniversalWide384App(IpuApp):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.blocks_per_filter = math.ceil(in_channels / FPB)
-        # Each dense FPB=14 kernel block is exactly 128 bytes = 1 XMEM row, so
-        # the per-block reload advance (cr9, added to lr9 in the asm's
+        # Each dense FPB=14 kernel block is exactly 128 elements = 1 XMEM row,
+        # so the per-block reload advance (cr9, added to lr9 in the asm's
         # `_reload` path) is always 1 row -- NOT blocks_per_filter (that would
         # skip whole filters' worth of blocks on every reload once
         # in_channels > FPB). total_kernel_rows (the filter-loop bound,
@@ -216,23 +217,23 @@ class ConvUniversalWide384App(IpuApp):
         # guard-band shift is needed here (unlike conv_universal): this app
         # writes input data straight to its region's own base.
         self._regions = allocate_regions([
-            ("input", in_channels * rows * self.cpr * CHUNK_BYTES),
-            ("kernel", self.total_kernel_rows * CHUNK_BYTES),
-            ("mask", CHUNK_BYTES),
-            ("output", rows * out_channels * self.cpr * CHUNK_BYTES),
+            ("input", in_channels * rows * self.cpr * CHUNK_ELEMENTS),
+            ("kernel", self.total_kernel_rows * CHUNK_ELEMENTS),
+            ("mask", CHUNK_ELEMENTS),
+            ("output", rows * out_channels * self.cpr * CHUNK_ELEMENTS),
         ])
-        self.input_base_row = self._regions["input"] // CHUNK_BYTES
-        self.input_base_addr = self._regions["input"]
-        self.kernel_base_row = self._regions["kernel"] // CHUNK_BYTES
-        self.kernel_base_addr = self._regions["kernel"]
-        self.mask_base_row = self._regions["mask"] // CHUNK_BYTES
-        self.mask_base_addr = self._regions["mask"]
-        self.output_base_row = self._regions["output"] // CHUNK_BYTES
-        self.output_base_addr = self._regions["output"]
+        self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
+        self.input_base_addr = self._regions["input"] * 4
+        self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
+        self.kernel_base_addr = self._regions["kernel"] * 4
+        self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
+        self.mask_base_addr = self._regions["mask"] * 4
+        self.output_base_row = self._regions["output"] // CHUNK_ELEMENTS
+        self.output_base_addr = self._regions["output"] * 4
 
     def _pack_kernel(self) -> bytes:
         if self._kernel_array is not None:
-            weights = np.asarray(self._kernel_array)
+            weights = np.asarray(self._kernel_array, dtype=np.float32)
             if weights.shape != (self.out_channels, self.in_channels, 3, 3):
                 raise ValueError(
                     f"kernel must be [{self.out_channels}, {self.in_channels}, 3, 3], "
@@ -240,52 +241,56 @@ class ConvUniversalWide384App(IpuApp):
                 )
         else:
             raw = self.kernel_path.read_bytes()
-            expected = self.out_channels * self.in_channels * 9
+            expected = self.out_channels * self.in_channels * 9 * 4
             if len(raw) != expected:
                 raise ValueError(
                     f"kernel_path file has {len(raw)} bytes, expected {expected} "
-                    "(out_ch * in_ch * 9)"
+                    "(out_ch * in_ch * 9 * 4 B float32)"
                 )
             weights = (
-                np.frombuffer(raw, dtype=np.int8)
+                np.frombuffer(raw, dtype=np.float32)
                 .reshape(self.out_channels, self.in_channels, 3, 3)
             )
-        return pack_conv_weights_dense(weights, self.dtype, kernel_size=3)
+        return _pack_conv_weights_dense_fp32(weights)
 
     def _render_asm(self) -> str:
         text = ASM_TEMPLATE_PATH.read_text()
         template = jinja2.Template(text)
         return template.render(cpr=self.cpr, rows=self.rows)
 
+    @staticmethod
+    def make_state() -> IpuState:
+        """Build the FP32 wide-vector state this app requires (see
+        pointwise_conv_unified.make_state for the same convention)."""
+        return IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=False,
+        )
+
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-
-        # Element width of the active mode: 1 B narrow, 4 B wide-vector debug.
-        # Row *numbers* handed to CRs are mode-independent, but the host-side
-        # byte pokes below (write_address is always byte-granular and
-        # mode-UNAWARE) must land at the same rows, so both the row stride
-        # and the packed payloads (1 B/element on disk) scale by it.
-        element_width = 4 if state.wide_vector_debug else 1
-        row_bytes = CHUNK_BYTES * element_width
-
-        expected_input_bytes = self.in_channels * self.rows * self.cpr * CHUNK_BYTES
-        input_data = self.input_path.read_bytes()
-        if len(input_data) != expected_input_bytes:
+        # input_path holds the TRUE [in_channels, rows, width] float32
+        # tensor -- repack to the channel-interleaved-per-row on-device layout.
+        raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
+        expected = self.in_channels * self.rows * self.width
+        if raw.size != expected:
             raise ValueError(
-                f"input has {len(input_data)} bytes, expected {expected_input_bytes} "
-                "(in_channels * rows * cpr * 128)"
+                f"input has {raw.size} elements, expected {expected} "
+                "(in_channels * rows * width)"
             )
+        input_chw = raw.reshape(self.in_channels, self.rows, self.width)
+        # row(r, ic, cc) = (r * in_channels + ic) * cpr + cc, i.e. transpose
+        # to [rows, in_channels, width] then flatten (width already splits
+        # into cpr*128 contiguous elements = cpr rows).
+        input_data = np.ascontiguousarray(input_chw.transpose(1, 0, 2))
         state.xmem.write_address(
-            self.input_base_row * row_bytes, _widen_int8_bytes(input_data, element_width)
+            self.input_base_row * ROW_BYTES, input_data.astype(np.float32).tobytes()
         )
 
-        state.xmem.write_address(
-            self.kernel_base_row * row_bytes,
-            _widen_int8_bytes(self._pack_kernel(), element_width),
-        )
+        state.xmem.write_address(self.kernel_base_row * ROW_BYTES, self._pack_kernel())
         # The mask blob does NOT widen (1 bit/lane in both modes) -- only its
         # row address scales.
-        state.xmem.write_address(self.mask_base_row * row_bytes, build_wide384_mask_blob())
+        state.xmem.write_address(self.mask_base_row * ROW_BYTES, build_wide384_mask_blob())
 
         state.set_cr_dstructure(valid_elements=128)  # Partition.P0 default: whole-tap masking
 
@@ -312,31 +317,94 @@ class ConvUniversalWide384App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
-            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
-            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
-            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
-            # back at the mode's actual row size, then narrow to 1 B/element
-            # so ``output_path`` always holds the same canonical INT8 layout.
             total_outputs = self.rows * self.out_channels * self.cpr
-            element_width = 4 if state.wide_vector_debug else 1
-            row_bytes = CHUNK_BYTES * element_width
-            total_elements = total_outputs * CHUNK_BYTES
+            total_elements = total_outputs * CHUNK_ELEMENTS
             raw = state.xmem.read_address(
-                self.output_base_row * row_bytes, total_elements * element_width
+                self.output_base_row * ROW_BYTES, total_elements * 4
             )
-            if element_width == 1:
-                data = bytes(raw)
-            else:
-                data = bytes(
-                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
-                    for i in range(total_elements)
-                )
-            Path(self.output_path).write_bytes(data)
+            out = np.frombuffer(raw, dtype=np.float32).reshape(
+                self.rows, self.out_channels, self.width,
+            )
+            out_chw = np.ascontiguousarray(out.transpose(1, 0, 2))
+            Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
     def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple["IpuState", int]:
         tmp_dir = Path(tempfile.mkdtemp(prefix="conv_universal_wide384_"))
         bin_path = tmp_dir / "conv_universal_wide384.bin"
         assemble_to_bin_file(self._render_asm(), str(bin_path))
         self.inst_path = bin_path
+        kwargs.setdefault("state", self.make_state())
         return super().run(max_cycles=max_cycles, **kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups}")
+    if q.apply_relu:
+        return no("apply_relu=True is not supported by this kernel")
+    if q.has_bias:
+        return no("bias is not supported by this kernel")
+    if q.width % 128 != 0 or q.width < 384:
+        return no(
+            f"handles only width a multiple of 128 and >= 384 (see "
+            f"conv_universal for narrower widths); got {q.width}"
+        )
+    if q.out_channels % 2 != 0:
+        return no(f"out_channels must be even; got {q.out_channels}")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "width": q.width, "rows": q.height,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    return (
+        "kernel_size=3, groups=1, stride=1, padding=1, width%128==0 and "
+        ">=384: the wide-image 3x3 conv kernel (FP32), unoptimized "
+        "(no rotating-slot pipelining) but handles arbitrarily wide images."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        "Deliberately unoptimized: no rotating-slot pipelining, reloads a "
+        "fresh 3-slot strip per tap.",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_universal_wide384",
+    op="conv2d",
+    variant="wide384",
+    app_class=ConvUniversalWide384App,
+    asm="conv_universal_wide384.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 1.0,  # unoptimized fallback: prefer conv_universal when it applies
+)
