@@ -1,4 +1,4 @@
-"""CLI entry point for the pointwise conv + BN bias + ReLU app."""
+"""CLI entry point for the pointwise conv + BN bias + ReLU app (FP32 wide-vector)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Run unified pointwise (1x1) convolution + folded BN bias + ReLU "
-            "on the IPU emulator."
+            "on the IPU emulator (FP32 wide-vector debug mode). "
+            "input/kernel/bias/output are raw float32 files."
         ),
     )
     parser.add_argument("--inst", type=Path, required=True)
@@ -26,12 +27,11 @@ def main() -> None:
         "--bias",
         type=Path,
         default=None,
-        help="Optional raw INT8 bias file, one byte per output channel.",
+        help="Optional raw float32 bias file, one element per output channel.",
     )
     parser.add_argument("--output", "-o", type=Path, default=None)
-    parser.add_argument("--dtype", default="INT8")
-    parser.add_argument("--rows", type=int, required=True)
-    parser.add_argument("--cols", type=int, required=True)
+    parser.add_argument("--height", type=int, required=True)
+    parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--in-channels", type=int, required=True)
     parser.add_argument("--out-channels", type=int, required=True)
     parser.add_argument("--max-cycles", type=int, default=10_000_000)
@@ -39,7 +39,7 @@ def main() -> None:
 
     bias = None
     if args.bias is not None:
-        bias = np.frombuffer(args.bias.read_bytes(), dtype=np.int8)
+        bias = np.frombuffer(args.bias.read_bytes(), dtype=np.float32)
 
     app = PointwiseConvUnifiedBnActivationApp(
         inst_path=args.inst,
@@ -47,9 +47,8 @@ def main() -> None:
         kernel_path=args.kernel,
         bias=bias,
         output_path=args.output,
-        dtype=args.dtype,
-        rows=args.rows,
-        cols=args.cols,
+        height=args.height,
+        width=args.width,
         in_channels=args.in_channels,
         out_channels=args.out_channels,
     )

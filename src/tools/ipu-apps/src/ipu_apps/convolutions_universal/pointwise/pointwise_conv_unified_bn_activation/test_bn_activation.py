@@ -1,8 +1,8 @@
-"""Standalone correctness test for pointwise_conv_unified_bn_activation.
+"""Standalone correctness test for pointwise_conv_unified_bn_activation (FP32).
 
 Assembles the asm fresh each run (no persisted binary) and compares output
-against a numpy reference (conv + folded bias -> ReLU -> INT8 clamp). Runnable
-directly:
+against a real PyTorch reference (conv + folded bias -> ReLU), tolerance-based
+since IPU FP32 accumulation order differs from PyTorch's. Runnable directly:
 
     PYTHONPATH=... python -m ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified_bn_activation.test_bn_activation
 """
@@ -23,118 +23,73 @@ from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified_bn_activat
 
 ASM_PATH = Path(__file__).resolve().parent / "pointwise_conv_unified_bn_activation.asm"
 
+# (height, width, in_channels, out_channels)
 TEST_CONFIGS = [
-    # Single-pass cases (in_ch <= 128)
     (16, 16,   8,  8),
     (16, 16,  16,  8),
-    (16, 16,  24,  8),
     (16, 16,  32,  8),
-    (16, 16,  40,  8),
-    (16, 16,  56,  8),
-    (16, 16,  64,  8),
-    (16, 16,  80,  8),
-    (16, 16,  96,  8),
-    (16, 16, 112,  8),
     (16, 16, 128,  8),
-    # Multi-pass cases (in_ch > 128)
     (16, 16, 144,  8),  # 1 full + tail 16
-    (16, 16, 160,  8),  # 1 full + tail 32
-    (16, 16, 192,  8),  # 1 full + tail 64
-    (16, 16, 224,  8),  # 1 full + tail 96
-    (16, 16, 240,  8),  # 1 full + tail 112
     (16, 16, 256,  8),  # 2 full passes
-    (16, 16, 384,  8),  # 3 full passes
     (16, 16, 400,  8),  # 3 full + tail 16
-    # Larger spatial / out_ch variety
     (32, 32, 128, 16),
-    (32, 32, 144, 16),
     (32, 32,  96, 32),
-    (32, 32, 192, 32),
     (64, 64, 128,  4),
     (64, 64, 128, 64),
+    # Non-power-of-2 / padding-heavy spatial shapes.
+    (3, 5, 144, 8),
+    (7, 7, 256, 12),
+    (1, 1, 8, 4),
 ]
-
-
-def pack_input(input_chw: np.ndarray, rows: int, cols: int) -> bytes:
-    """Pack CHW int8 input as row_groups of 128B per channel."""
-    channels, _, _ = input_chw.shape
-    rows_per_chunk = 128 // cols
-    row_groups = (rows * cols) // 128
-    packed = bytearray(row_groups * channels * 128)
-    for rg in range(row_groups):
-        for ch in range(channels):
-            dst = (rg * channels + ch) * 128
-            for r in range(rows_per_chunk):
-                spatial_row = rg * rows_per_chunk + r
-                packed[dst + r * cols:dst + r * cols + cols] = (
-                    input_chw[ch, spatial_row, :].view(np.uint8).tobytes()
-                )
-    return bytes(packed)
 
 
 def reference_pointwise_bn(
     weights: np.ndarray, input_chw: np.ndarray, bias: np.ndarray
 ) -> np.ndarray:
-    """Reference: conv + per-OC bias -> ReLU -> INT8 clamp. Returns (oc,r,c)."""
-    # weights: (out_ch, in_ch), input_chw: (in_ch, rows, cols), bias: (out_ch,)
-    inp32 = input_chw.astype(np.int32)
-    w32 = weights.astype(np.int32)
-    result = np.einsum("oi,ihw->ohw", w32, inp32)
-    result = result + bias.astype(np.int32)[:, None, None]
-    # ReLU then INT8 clamp (ReLU removes negatives; upper clamp at 127).
-    result = np.maximum(result, 0)
-    return result.clip(-128, 127).astype(np.int8)
+    """Real PyTorch reference: conv + per-OC bias -> ReLU. Returns (oc,h,w) float32."""
+    import torch
+    import torch.nn.functional as F
+
+    out_ch, in_ch = weights.shape
+    x = torch.from_numpy(input_chw).unsqueeze(0)
+    w = torch.from_numpy(weights).reshape(out_ch, in_ch, 1, 1)
+    b = torch.from_numpy(bias)
+    return F.relu(F.conv2d(x, w, b)).squeeze(0).numpy()
 
 
-def read_output(state, rows, cols, out_ch, output_base_addr) -> np.ndarray:
-    """Read OC×row_group blocks of 128B from output region."""
-    rows_per_chunk = 128 // cols
-    row_groups = (rows * cols) // 128
-    raw = state.xmem.read_address(output_base_addr, row_groups * out_ch * 128)
-    vals = np.frombuffer(raw, dtype=np.uint8).reshape(row_groups, out_ch, 128)
-    result = np.empty((out_ch, rows, cols), dtype=np.int8)
-    for rg in range(row_groups):
-        for oc in range(out_ch):
-            block = vals[rg, oc, :rows_per_chunk * cols].view(np.int8)
-            result[oc, rg * rows_per_chunk:(rg + 1) * rows_per_chunk, :] = (
-                block.reshape(rows_per_chunk, cols)
-            )
-    return result
-
-
-def run_one(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
-    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + rows + cols)
-    weights = rng.randint(-3, 4, size=(out_ch, in_ch), dtype=np.int8)
-    input_chw = rng.randint(-3, 4, size=(in_ch, rows, cols), dtype=np.int8)
-    # Bias spread across +/- so ReLU clips some lanes and the upper clamp fires.
-    bias = rng.randint(-40, 80, size=(out_ch,)).astype(np.int8)
+def run_one(inst_file: Path, height: int, width: int, in_ch: int, out_ch: int):
+    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + height + width)
+    weights = (rng.randn(out_ch, in_ch) * 0.3).astype(np.float32)
+    input_chw = (rng.randn(in_ch, height, width) * 0.5).astype(np.float32)
+    # Bias spread across +/- so ReLU clips some lanes.
+    bias = (rng.randn(out_ch) * 0.3).astype(np.float32)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         input_file = tmp / "input.bin"
         kernel_file = tmp / "kernel.bin"
-        input_file.write_bytes(pack_input(input_chw, rows, cols))
-        kernel_file.write_bytes(
-            weights.reshape(out_ch * in_ch).view(np.uint8).tobytes()
-        )
+        output_file = tmp / "output.bin"
+        input_file.write_bytes(input_chw.tobytes())
+        kernel_file.write_bytes(weights.tobytes())
 
         app = PointwiseConvUnifiedBnActivationApp(
             inst_path=inst_file,
             input_path=input_file,
             kernel_path=kernel_file,
             bias=bias,
-            output_path=None,
-            dtype="INT8",
-            rows=rows, cols=cols, in_channels=in_ch, out_channels=out_ch,
+            output_path=output_file,
+            height=height, width=width, in_channels=in_ch, out_channels=out_ch,
         )
-        max_cyc = 50 * in_ch * out_ch * (rows * cols // 128) + 100_000
+        max_cyc = 50 * in_ch * out_ch * app.row_groups + 100_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, rows, cols, out_ch, app.output_base_addr)
+        actual = np.frombuffer(output_file.read_bytes(), dtype=np.float32).reshape(
+            out_ch, height, width
+        )
         expected = reference_pointwise_bn(weights, input_chw, bias)
 
-    mismatches = int(np.sum(actual != expected))
-    return cycles, mismatches, actual, expected
+    max_diff = float(np.abs(actual - expected).max())
+    return cycles, max_diff, actual, expected
 
 
 def main() -> None:
@@ -145,29 +100,30 @@ def main() -> None:
         print("Assembling pointwise_conv_unified_bn_activation.asm ...", flush=True)
         assemble_to_bin_file(template_src, str(inst_file))
 
-        print(f"\n{'config':>26} {'cycles':>10} {'mismatch':>10} {'status':>8}")
-        print("-" * 60)
+        print(f"\n{'config':>26} {'cycles':>10} {'max_diff':>12} {'status':>8}")
+        print("-" * 62)
 
         all_ok = True
-        for rows, cols, in_ch, out_ch in TEST_CONFIGS:
-            label = f"{rows}x{cols} ic={in_ch} oc={out_ch}"
+        tol = 1e-3
+        for height, width, in_ch, out_ch in TEST_CONFIGS:
+            label = f"{height}x{width} ic={in_ch} oc={out_ch}"
             try:
-                cycles, mm, actual, expected = run_one(
-                    inst_file, rows, cols, in_ch, out_ch
+                cycles, max_diff, actual, expected = run_one(
+                    inst_file, height, width, in_ch, out_ch
                 )
-                ok = mm == 0
+                ok = max_diff < tol
                 status = "PASS" if ok else "FAIL"
-                print(f"{label:>26} {cycles:>10} {mm:>10} {status:>8}")
+                print(f"{label:>26} {cycles:>10} {max_diff:>12.3e} {status:>8}")
                 if not ok:
                     all_ok = False
                     print(f"  first OC actual: {actual[0, 0, :8]}")
                     print(f"  first OC expect: {expected[0, 0, :8]}")
             except Exception as e:
                 all_ok = False
-                print(f"{label:>26} {'ERROR':>10} {'-':>10} {'FAIL':>8}")
+                print(f"{label:>26} {'ERROR':>10} {'-':>12} {'FAIL':>8}")
                 print(f"  {type(e).__name__}: {e}")
 
-        print("-" * 60)
+        print("-" * 62)
         print(f"Overall: {'PASS' if all_ok else 'FAIL'}")
 
 

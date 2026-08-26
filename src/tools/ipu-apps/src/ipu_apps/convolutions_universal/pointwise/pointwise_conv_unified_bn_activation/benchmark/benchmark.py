@@ -1,8 +1,10 @@
 """Benchmark pointwise_conv_unified_bn_activation: cycles + real MULT util.
 
-Reuses the app's own reference/packing helpers (test_bn_activation.py, next
-to this app) so the reference math can't drift from the test suite's.
-Reports cycles and MULT-slot utilization read directly from ``state.stats``.
+Reuses the app's own reference helper (test_bn_activation.py, next to this
+app) so the reference math can't drift from the test suite's. FP32
+wide-vector mode: correctness compared against a real PyTorch reference with
+a tolerance. Reports cycles and MULT-slot utilization read directly from
+``state.stats``.
 
 Usage::
 
@@ -24,12 +26,11 @@ from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified_bn_activat
 )
 from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified_bn_activation.test_bn_activation import (
     ASM_PATH,
-    pack_input,
-    read_output,
     reference_pointwise_bn,
 )
 from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
+_TOL = 1e-3
 
 # Mirrors pointwise_conv_unified's benchmark CONFIGS for comparison.
 CONFIGS = [
@@ -44,38 +45,38 @@ CONFIGS = [
 ]
 
 
-def run_config(inst_file: Path, rows: int, cols: int, in_ch: int, out_ch: int):
-    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + rows + cols)
-    weights = rng.randint(-3, 4, size=(out_ch, in_ch), dtype=np.int8)
-    input_chw = rng.randint(-3, 4, size=(in_ch, rows, cols), dtype=np.int8)
-    bias = rng.randint(-40, 80, size=(out_ch,)).astype(np.int8)
+def run_config(inst_file: Path, height: int, width: int, in_ch: int, out_ch: int):
+    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + height + width)
+    weights = (rng.randn(out_ch, in_ch) * 0.3).astype(np.float32)
+    input_chw = (rng.randn(in_ch, height, width) * 0.5).astype(np.float32)
+    bias = (rng.randn(out_ch) * 0.3).astype(np.float32)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         input_file = tmp / "input.bin"
         kernel_file = tmp / "kernel.bin"
-        input_file.write_bytes(pack_input(input_chw, rows, cols))
-        kernel_file.write_bytes(
-            weights.reshape(out_ch * in_ch).view(np.uint8).tobytes()
-        )
+        output_file = tmp / "output.bin"
+        input_file.write_bytes(input_chw.tobytes())
+        kernel_file.write_bytes(weights.tobytes())
 
         app = PointwiseConvUnifiedBnActivationApp(
             inst_path=inst_file,
             input_path=input_file,
             kernel_path=kernel_file,
             bias=bias,
-            output_path=None,
-            dtype="INT8",
-            rows=rows, cols=cols, in_channels=in_ch, out_channels=out_ch,
+            output_path=output_file,
+            height=height, width=width, in_channels=in_ch, out_channels=out_ch,
         )
-        max_cyc = 50 * in_ch * out_ch * (rows * cols // 128) + 100_000
+        max_cyc = 50 * in_ch * out_ch * app.row_groups + 100_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, rows, cols, out_ch)
+        actual = np.frombuffer(output_file.read_bytes(), dtype=np.float32).reshape(
+            out_ch, height, width
+        )
         expected = reference_pointwise_bn(weights, input_chw, bias)
 
-    mismatches = int(np.sum(actual != expected))
-    return cycles, mismatches, state.stats.mult_utilization
+    max_diff = float(np.abs(actual - expected).max())
+    return cycles, max_diff, state.stats.mult_utilization
 
 
 def main() -> None:
@@ -85,15 +86,15 @@ def main() -> None:
         assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
 
         rows_out = []
-        for rows, cols, in_ch, out_ch in CONFIGS:
+        for height, width, in_ch, out_ch in CONFIGS:
             t0 = time.time()
-            cycles, mm, mult_util = run_config(inst_file, rows, cols, in_ch, out_ch)
+            cycles, max_diff, mult_util = run_config(inst_file, height, width, in_ch, out_ch)
             elapsed = time.time() - t0
             rows_out.append(BenchRow(
-                label=f"{rows}x{cols} ic={in_ch} oc={out_ch}",
+                label=f"{height}x{width} ic={in_ch} oc={out_ch}",
                 cycles=cycles,
                 mult_utilization=mult_util,
-                correct=(mm == 0),
+                correct=(max_diff < _TOL),
                 elapsed_s=elapsed,
             ))
 
