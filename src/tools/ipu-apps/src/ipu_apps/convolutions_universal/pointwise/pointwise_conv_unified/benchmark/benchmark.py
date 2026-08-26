@@ -4,6 +4,9 @@ Theoretical floor per output position: in_channels mults at 1 MAC/cyc.
 Per row-group of 128 spatial positions: in_ch * out_ch mults across the
 whole conv. Total mults = rows * cols * in_ch * out_ch / 128.
 
+FP32 wide-vector mode: correctness compared against a real PyTorch reference
+with a tolerance (IPU FP32 accumulation order differs from PyTorch's).
+
 Usage::
 
     PYTHONPATH=... python -m ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified.benchmark.benchmark
@@ -22,6 +25,9 @@ from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
     PointwiseConvUnifiedApp,
 )
+from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified.test_unified import (
+    reference_pointwise,
+)
 from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_write_table
 
 
@@ -29,9 +35,10 @@ ASM_PATH = (
     Path(__file__).resolve().parents[1] / "pointwise_conv_unified.asm"
 )
 
-# (rows, cols, in_ch, out_ch). Sized to fit XMEM (2 MB).
+_TOL = 1e-3
+
+# (height, width, in_ch, out_ch). Sized to fit XMEM (2 MB).
 CONFIGS = [
-    # Mirror the configs from pointwise_conv_universal benchmark for comparison
     (128, 128,  64,  32),
     (128, 128,  32,  48),
     ( 64,  64, 128,  64),
@@ -43,74 +50,36 @@ CONFIGS = [
 ]
 
 
-def pack_input(input_chw, rows, cols):
-    channels, _, _ = input_chw.shape
-    rows_per_chunk = 128 // cols
-    row_groups = (rows * cols) // 128
-    packed = bytearray(row_groups * channels * 128)
-    for rg in range(row_groups):
-        for ch in range(channels):
-            dst = (rg * channels + ch) * 128
-            for r in range(rows_per_chunk):
-                spatial_row = rg * rows_per_chunk + r
-                packed[dst + r * cols:dst + r * cols + cols] = (
-                    input_chw[ch, spatial_row, :].view(np.uint8).tobytes()
-                )
-    return bytes(packed)
-
-
-def reference_pointwise(weights, input_chw):
-    inp32 = input_chw.astype(np.int32)
-    w32 = weights.astype(np.int32)
-    result = np.einsum("oi,ihw->ohw", w32, inp32)
-    return result.clip(-128, 127).astype(np.int8)
-
-
-def read_output(state, rows, cols, out_ch, output_base_addr):
-    rows_per_chunk = 128 // cols
-    row_groups = (rows * cols) // 128
-    raw = state.xmem.read_address(output_base_addr, row_groups * out_ch * 128)
-    vals = np.frombuffer(raw, dtype=np.uint8).reshape(row_groups, out_ch, 128)
-    result = np.empty((out_ch, rows, cols), dtype=np.int8)
-    for rg in range(row_groups):
-        for oc in range(out_ch):
-            block = vals[rg, oc, :rows_per_chunk * cols].view(np.int8)
-            result[oc, rg * rows_per_chunk:(rg + 1) * rows_per_chunk, :] = (
-                block.reshape(rows_per_chunk, cols)
-            )
-    return result
-
-
-def run_config(inst_file, rows, cols, in_ch, out_ch):
-    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + rows + cols)
-    weights = rng.randint(-3, 4, size=(out_ch, in_ch), dtype=np.int8)
-    input_chw = rng.randint(-3, 4, size=(in_ch, rows, cols), dtype=np.int8)
+def run_config(inst_file, height, width, in_ch, out_ch):
+    rng = np.random.RandomState(42 + in_ch * 7 + out_ch + height + width)
+    weights = (rng.randn(out_ch, in_ch) * 0.3).astype(np.float32)
+    input_chw = (rng.randn(in_ch, height, width) * 0.5).astype(np.float32)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         input_file = tmp / "input.bin"
         kernel_file = tmp / "kernel.bin"
-        input_file.write_bytes(pack_input(input_chw, rows, cols))
-        kernel_file.write_bytes(
-            weights.reshape(out_ch * in_ch).view(np.uint8).tobytes()
-        )
+        output_file = tmp / "output.bin"
+        input_file.write_bytes(input_chw.tobytes())
+        kernel_file.write_bytes(weights.tobytes())
 
         app = PointwiseConvUnifiedApp(
             inst_path=inst_file,
             input_path=input_file,
             kernel_path=kernel_file,
-            output_path=None,
-            dtype="INT8",
-            rows=rows, cols=cols, in_channels=in_ch, out_channels=out_ch,
+            output_path=output_file,
+            height=height, width=width, in_channels=in_ch, out_channels=out_ch,
         )
-        max_cyc = 200 * in_ch * out_ch * (rows * cols // 128) + 100_000
+        max_cyc = 200 * in_ch * out_ch * app.row_groups + 100_000
         state, cycles = app.run(max_cycles=max_cyc)
 
-        actual = read_output(state, rows, cols, out_ch, app.output_base_addr)
+        actual = np.frombuffer(output_file.read_bytes(), dtype=np.float32).reshape(
+            out_ch, height, width
+        )
         expected = reference_pointwise(weights, input_chw)
 
-    mismatches = int(np.sum(actual != expected))
-    return cycles, mismatches, state.stats.mult_utilization
+    max_diff = float(np.abs(actual - expected).max())
+    return cycles, max_diff, state.stats.mult_utilization
 
 
 def main() -> None:
@@ -121,15 +90,15 @@ def main() -> None:
         assemble_to_bin_file(src, str(inst_file))
 
         rows_out = []
-        for rows, cols, in_ch, out_ch in CONFIGS:
+        for height, width, in_ch, out_ch in CONFIGS:
             t0 = time.time()
-            cycles, mm, mult_util = run_config(inst_file, rows, cols, in_ch, out_ch)
+            cycles, max_diff, mult_util = run_config(inst_file, height, width, in_ch, out_ch)
             elapsed = time.time() - t0
             rows_out.append(BenchRow(
-                label=f"{rows}x{cols} ic={in_ch} oc={out_ch}",
+                label=f"{height}x{width} ic={in_ch} oc={out_ch}",
                 cycles=cycles,
                 mult_utilization=mult_util,
-                correct=(mm == 0),
+                correct=(max_diff < _TOL),
                 elapsed_s=elapsed,
             ))
 
