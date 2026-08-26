@@ -1,23 +1,24 @@
-"""First-layer 3x3 convolution + folded-bias + ReLU: 256x256x3 -> 128x128x16.
+"""First-layer 3x3 convolution + folded-bias + ReLU: 256x256x3 -> 128x128x16 (FP32).
 
 Hardcoded shapes for the network's first layer (stride 2, pad 1):
 
-    Input:  256x256x3   (INT8, ROW-INTERLEAVED by channel: for each spatial row
-                         r, ch0's 256 cols, then ch1's, then ch2's, then row r+1.
-                         Address of (row r, channel ch): (r*3 + ch)*256.)
+    Input:  256x256x3   (float32, raw [in_channels, height, width]).
     Kernel: 16 filters x 3 channels x 3x3 taps, packed by the harness.
-    Output: 128x128x16  (INT8, ROW-INTERLEAVED by channel, written to its FINAL
-                         address by the asm: (row r, filter f) -> (r*16 + f)*128.
-                         One output row = one 128-byte chunk (never split).)
+    Output: 128x128x16  (float32, raw [out_channels, height, width]).
 
-The **input image is stored verbatim** — the harness only places the raw bytes in
-the row-interleaved order above; it does NOT slice, pad, or seam-fix. All conv
-logic (windowing, borders, stride, the half seam) lives in the asm.
+``input_path``/``output_path`` hold the TRUE, unpacked ``[channels, height,
+width]`` tensor -- see ``pointwise_conv_unified``'s class docstring for the
+exact file-layout contract this mirrors. Internally the harness repacks to
+the row-interleaved-by-channel on-device layout the asm expects: (row r,
+channel ch) at element (r*3 + ch)*256, and unpacks the output back from (row
+r, filter f) at (r*16 + f)*128.
 
 This is the ``_bn_activation`` flavour: per-output-filter **BN bias** is folded
-into the kernel (byte 0 of each filter's 128-byte block) and accumulated once
-before the conv taps; **ReLU** is applied before INT8 quantization. Batch-norm
-scale is assumed folded into the conv weights, so only the bias remains separate.
+into the kernel (element 0 of each filter's 128-element block) and accumulated
+once before the conv taps; **ReLU** is applied at the end. Batch-norm scale is
+assumed folded into the conv weights, so only the bias remains separate. Runs
+on the emulator's wide-vector debug datapath (FP32) -- weights and
+activations are genuine floats, no INT8 quantization anywhere in this kernel.
 
 The 256-wide input strip trick (no seam):
   Each channel-row is 256 wide = two 128-lane R_CYCLIC slots (slot 0 = cols
@@ -45,9 +46,9 @@ Usage::
 
     app = ConvFirstLayerApp(
         inst_path="conv_first_layer.bin",
-        input_path="input.bin",   # 256*256*3 bytes, row-interleaved, INT8
+        input_path="input.bin",   # raw [3, 256, 256] float32
         kernel=weights,           # np.ndarray [16, 3, 3, 3]  (out,in,kh,kw)
-        bias=bias_int8,           # np.ndarray [16], folded BN bias (INT8)
+        bias=bias,                # np.ndarray [16], folded BN bias, float32
         output_path="output.bin",
     )
     state, cycles = app.run()
@@ -55,19 +56,19 @@ Usage::
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from ipu_emu.ipu_math import DType
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
-from ipu_apps.convolutions_universal.weights import cast_to_wire_bytes
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
-    from ipu_emu.ipu_state import IpuState
+    pass
 
 # -- Fixed shapes ------------------------------------------------------------
 
@@ -80,53 +81,43 @@ OUT_CHANNELS = 16
 KERNEL_SIZE = 3
 STRIDE = 2
 
-# Row-interleaved input: (row r, channel ch) at (r*IN_CHANNELS + ch)*IN_COLS.
-IN_ROW_GROUP = IN_CHANNELS * IN_COLS   # 768 bytes: one spatial row, all 3 channels
+# Row-interleaved input: (row r, channel ch) at element (r*IN_CHANNELS + ch)*IN_COLS.
+IN_ROW_GROUP = IN_CHANNELS * IN_COLS   # 768 elements: one spatial row, all 3 channels
 CHANNEL_STRIDE = IN_COLS               # 256: ch-to-ch step within a row group
 
 TAPS_PER_CHANNEL = KERNEL_SIZE * KERNEL_SIZE          # 9
 TAPS_PER_FILTER = IN_CHANNELS * TAPS_PER_CHANNEL      # 27
 
-# Row-interleaved output: (row r, filter f) at (r*OUT_CHANNELS + f)*OUT_COLS.
-OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 bytes: one output row, all 16 filters
+# Row-interleaved output: (row r, filter f) at element (r*OUT_CHANNELS + f)*OUT_COLS.
+OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16 filters
 
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA (mb/195): every XMEM offset/base operand this app uses
 # (ldr_mult_reg / ldr_cyclic_mult_reg's offset+base / str_post_aaq_reg) is a
-# ROW number, not a byte address -- *_BASE_ADDR below stay narrow-byte
-# constants used only to derive the ROW numbers; *_BASE_ROW feeds the CR
-# registers the asm loads through, and (scaled by the active mode's row size)
-# the host-side xmem pokes in setup()/teardown(). Unlike the depthwise/conv
-# apps, this app has NO r_cyclic-index CR overload to split: every
-# ldr_cyclic_mult_reg's `index` operand here is a literal LR holding 0 or 128
-# (lr0/lr11), never a CR, so all the byte-stride CRs (256/768/128/1536/2048)
-# are purely XMEM-space and divide evenly by 128.
-#
-# Mode-blindness: host-side pokes (write_address/read_address) are always
-# byte-granular and mode-UNAWARE, so setup()/teardown() must scale every
-# address by the active mode's row size (128 B narrow, 512 B wide-vector
-# debug) themselves -- see ``self._element_width`` / ``row_bytes`` below.
-# Packed data must also widen from 1 B/element to 4 B/element so each row's
-# 128 elements still fill exactly one row's worth of bytes in wide mode
-# (128*4 = 512, no gap); see ``_pack_kernel_data``/``_pack_mask_data``.
+# ROW number, not a byte address -- *_BASE_ADDR below stay byte constants used
+# only to derive the ROW numbers; *_BASE_ROW feeds the CR registers the asm
+# loads through. This app runs FP32 wide-vector only, so ROW_BYTES is always
+# 512.
 
-INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 B = 196608 bytes
-KERNEL_BASE_ADDR = 0x040000   # 16 filters x 128-byte block = 2048 bytes
-MASK_BASE_ADDR = 0x041000     # 128-byte mask blob (8 slots x 16 bytes)
-TEMP_BASE_ADDR = 0x041100     # 256 bytes: temp0[0..127] (slot0 half) + temp1[128..255]
-OUTPUT_BASE_ADDR = 0x050000   # 128 rows * 2048 B = 262144 bytes
+INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 elements * 4 B
+KERNEL_BASE_ADDR = 0x100000   # 16 filters x 128-element block * 4 B
+MASK_BASE_ADDR = 0x104000     # 128-element mask blob (8 slots x 16 elements)
+TEMP_BASE_ADDR = 0x104400     # 256 elements: temp0[0..127] (slot0 half) + temp1[128..255]
+OUTPUT_BASE_ADDR = 0x140000   # 128 rows * 2048 elements * 4 B
 
-CHUNK_BYTES = 128
-INPUT_BASE_ROW = INPUT_BASE_ADDR // CHUNK_BYTES
-KERNEL_BASE_ROW = KERNEL_BASE_ADDR // CHUNK_BYTES
-MASK_BASE_ROW = MASK_BASE_ADDR // CHUNK_BYTES
-TEMP_BASE_ROW = TEMP_BASE_ADDR // CHUNK_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // CHUNK_BYTES
+CHUNK_ELEMENTS = 128
+ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
-# Bias in byte 0 of each filter's 128-byte kernel block; 27 conv taps at [1..28).
-BIAS_BYTE_OFFSET = 1
-FILTER_BLOCK_BYTES = 128
+INPUT_BASE_ROW = INPUT_BASE_ADDR // ROW_BYTES
+KERNEL_BASE_ROW = KERNEL_BASE_ADDR // ROW_BYTES
+MASK_BASE_ROW = MASK_BASE_ADDR // ROW_BYTES
+TEMP_BASE_ROW = TEMP_BASE_ADDR // ROW_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // ROW_BYTES
+
+# Bias in element 0 of each filter's 128-element kernel block; 27 conv taps at [1..28).
+BIAS_ELEMENT_OFFSET = 1
+FILTER_BLOCK_ELEMENTS = 128
 
 # -- Mask slots (polarity: bit 1 = KEEP, bit 0 = ZERO) -----------------------
 
@@ -144,9 +135,8 @@ def _build_mask_data() -> bytes:
       slot 1: ZERO lane 0              (kc=-1 applied to slot 0: strip position 0)
       slot 2: ZERO lane 127            (kc=+1 applied to slot 1: strip position 255)
 
-    The mask blob does NOT widen with the active element width -- like every
-    other app in this package, it is 1 bit per lane in both modes; only its
-    row address (in ``setup()``) scales.
+    The mask blob does NOT widen with the active element width -- it is 1 bit
+    per lane regardless of mode; only its row address (in ``setup()``) scales.
     """
     mask = bytearray(128)
     for slot in (MASK_SLOT_KEEP, MASK_SLOT_LEFT, MASK_SLOT_RIGHT):
@@ -157,44 +147,22 @@ def _build_mask_data() -> bytes:
     return bytes(mask)
 
 
-def _as_signed_byte(value: int) -> int:
-    """Reinterpret a wire byte as the signed INT8 it encodes."""
-    v = value & 0xFF
-    return v - 256 if v > 127 else v
-
-
-def _widen_int8_bytes(data: bytes, element_width: int) -> bytes:
-    """Widen a 1 B/element INT8 byte string to ``element_width`` B/element.
-
-    Every element becomes a little-endian signed 32-bit int at ``element_width
-    == 4`` (wide-vector debug mode), so a 128-byte narrow row still occupies
-    exactly one row's worth of bytes (128*4 = 512) with no gap. A no-op at
-    ``element_width == 1`` (narrow mode).
-    """
-    if element_width == 1:
-        return data
-    out = bytearray(len(data) * element_width)
-    for i, b in enumerate(data):
-        struct.pack_into("<i", out, i * element_width, _as_signed_byte(b))
-    return bytes(out)
-
-
 class ConvFirstLayerApp(IpuApp):
-    """First-layer 3x3 stride-2 conv + folded-bias + ReLU (256x256x3 -> 128x128x16).
+    """First-layer 3x3 stride-2 conv + folded-bias + ReLU (256x256x3 -> 128x128x16, FP32).
 
     Exactly one of ``kernel`` or ``kernel_path`` must be supplied.
 
     Args:
         inst_path:    Path to the assembled instruction binary.
-        input_path:   Path to the input image binary (256*256*3 bytes,
-                      row-interleaved by channel, INT8).
+        input_path:   Path to the input image binary, raw ``[3, 256, 256]``
+                      float32.
         kernel:       Numpy weights of shape ``[16, 3, 3, 3]`` (out, in, kh, kw).
-        kernel_path:  Alternative: raw ``[16, 3, 9]`` contiguous int8 file
-                      (432 bytes), tap order kr=-1..+1, kc=-1..+1.
-        bias:         Per-output-filter INT8 bias, shape ``[16]``. Added once to
-                      the accumulator before ReLU. Defaults to zeros.
-        output_path:  Optional path to write the output region verbatim
-                      (row-interleaved 128x128x16, ready for the next layer).
+        kernel_path:  Alternative: raw ``[16, 3, 9]`` contiguous float32 file,
+                      tap order kr=-1..+1, kc=-1..+1.
+        bias:         Per-output-filter float32 bias, shape ``[16]``. Added
+                      once to the accumulator before ReLU. Defaults to zeros.
+        output_path:  Optional path to write the output (raw ``[16, 128,
+                      128]`` float32).
     """
 
     ASM_PATH = Path(__file__).resolve().parent / "conv_first_layer.asm"
@@ -209,7 +177,6 @@ class ConvFirstLayerApp(IpuApp):
     ) -> None:
         super().__init__(**kwargs)
         self.input_path = Path(input_path)
-        self.dtype = DType.INT8
 
         kernel_path = getattr(self, "kernel_path", None)
         if kernel is not None and kernel_path is not None:
@@ -220,82 +187,80 @@ class ConvFirstLayerApp(IpuApp):
         self.kernel_path = Path(kernel_path) if kernel_path is not None else None
 
         if bias is None:
-            bias = np.zeros(OUT_CHANNELS, dtype=np.int8)
-        bias = np.asarray(bias)
+            bias = np.zeros(OUT_CHANNELS, dtype=np.float32)
+        bias = np.asarray(bias, dtype=np.float32)
         if bias.shape != (OUT_CHANNELS,):
             raise ValueError(f"bias must have shape ({OUT_CHANNELS},), got {bias.shape}")
         self._bias_array = bias
 
-    # -- kernel packing (input image is left untouched) ---------------------
+    # -- kernel packing -------------------------------------------------
 
     def _kernel_taps(self) -> np.ndarray:
-        """Return weights as ``[16, 3, 9]`` int8 (taps kr=-1..+1, kc=-1..+1)."""
+        """Return weights as ``[16, 3, 9]`` float32 (taps kr=-1..+1, kc=-1..+1)."""
         if self._kernel_array is not None:
-            w = np.asarray(self._kernel_array)
+            w = np.asarray(self._kernel_array, dtype=np.float32)
             if w.shape != (OUT_CHANNELS, IN_CHANNELS, KERNEL_SIZE, KERNEL_SIZE):
                 raise ValueError(f"kernel must be [16, 3, 3, 3], got {w.shape}")
             return w.reshape(OUT_CHANNELS, IN_CHANNELS, 9)
         raw = self.kernel_path.read_bytes()
-        expected = OUT_CHANNELS * IN_CHANNELS * 9
+        expected = OUT_CHANNELS * IN_CHANNELS * 9 * 4
         if len(raw) != expected:
             raise ValueError(
                 f"kernel_path file has {len(raw)} bytes, expected {expected}"
             )
-        return np.frombuffer(raw, dtype=np.int8).reshape(OUT_CHANNELS, IN_CHANNELS, 9)
+        return np.frombuffer(raw, dtype=np.float32).reshape(OUT_CHANNELS, IN_CHANNELS, 9)
 
     def _build_kernel_data(self) -> bytes:
-        """Pack 16 filters into 16 x 128-byte blocks (1 B/element, narrow-mode
-        layout -- widened to the active element width by ``setup()``).
+        """Pack 16 filters into 16 x 128-element blocks (float32).
 
-        Each block: byte 0 = filter bias, bytes [1 .. 28) = 27 conv taps
+        Each block: element 0 = filter bias, elements [1 .. 28) = 27 conv taps
         (ch0 taps 0..8, ch1 9..17, ch2 18..26), rest padding.
         """
-        taps = self._kernel_taps()                        # [16, 3, 9]
-        tap_bytes = cast_to_wire_bytes(taps, self.dtype)  # 16*27 contiguous
-        bias_bytes = cast_to_wire_bytes(self._bias_array, self.dtype)
-        block = bytearray(OUT_CHANNELS * FILTER_BLOCK_BYTES)
+        taps = self._kernel_taps()  # [16, 3, 9]
+        packed = np.zeros(OUT_CHANNELS * FILTER_BLOCK_ELEMENTS, dtype=np.float32)
         for f in range(OUT_CHANNELS):
-            dst = f * FILTER_BLOCK_BYTES
-            block[dst] = bias_bytes[f]
-            src = f * TAPS_PER_FILTER
-            block[dst + BIAS_BYTE_OFFSET:dst + BIAS_BYTE_OFFSET + TAPS_PER_FILTER] = (
-                tap_bytes[src:src + TAPS_PER_FILTER]
+            dst = f * FILTER_BLOCK_ELEMENTS
+            packed[dst] = self._bias_array[f]
+            packed[dst + BIAS_ELEMENT_OFFSET:dst + BIAS_ELEMENT_OFFSET + TAPS_PER_FILTER] = (
+                taps[f].reshape(-1)
             )
-        return bytes(block)
+        return packed.tobytes()
 
     # -- state / setup ------------------------------------------------------
 
     @staticmethod
-    def make_state() -> "IpuState":
-        from ipu_emu.ipu_state import IpuState
-        return IpuState()
+    def make_state() -> IpuState:
+        """Build the FP32 wide-vector state this app requires (see
+        pointwise_conv_unified.make_state for the same convention)."""
+        return IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=False,
+        )
 
     def setup(self, state: "IpuState") -> None:
-        state.dtype = self.dtype
-
-        # Element width of the active mode: 1 B narrow, 4 B wide-vector debug.
-        # Row *numbers* handed to CRs are mode-independent, but the host-side
-        # byte pokes below must land at the same rows, so both the row stride
-        # and the packed payloads (1 B/element on disk) scale by it.
-        element_width = 4 if state.wide_vector_debug else 1
-        row_bytes = CHUNK_BYTES * element_width
-
-        input_data = self.input_path.read_bytes()
-        if len(input_data) != IN_ROWS * IN_ROW_GROUP:
+        # input_path holds the TRUE [in_channels, height, width] float32
+        # tensor -- repack to row-interleaved-by-channel on-device layout.
+        raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
+        expected = IN_CHANNELS * IN_ROWS * IN_COLS
+        if raw.size != expected:
             raise ValueError(
-                f"input has {len(input_data)} bytes, expected "
-                f"{IN_ROWS * IN_ROW_GROUP} (256 rows * 3 ch * 256 cols)"
+                f"input has {raw.size} elements, expected {expected} "
+                f"(3 ch * 256 rows * 256 cols)"
             )
-        state.xmem.write_address(
-            INPUT_BASE_ROW * row_bytes, _widen_int8_bytes(input_data, element_width)
+        input_chw = raw.reshape(IN_CHANNELS, IN_ROWS, IN_COLS)
+        input_data = np.ascontiguousarray(
+            input_chw.transpose(1, 0, 2)  # [row, channel, col] -> row-interleaved
         )
         state.xmem.write_address(
-            KERNEL_BASE_ROW * row_bytes,
-            _widen_int8_bytes(self._build_kernel_data(), element_width),
+            INPUT_BASE_ROW * ROW_BYTES, input_data.astype(np.float32).tobytes()
         )
-        # The mask blob does NOT widen (1 bit/lane in both modes) -- only its
-        # row address scales.
-        state.xmem.write_address(MASK_BASE_ROW * row_bytes, _build_mask_data())
+        state.xmem.write_address(
+            KERNEL_BASE_ROW * ROW_BYTES, self._build_kernel_data(),
+        )
+        # The mask blob does NOT widen (1 bit/lane regardless of mode) -- only
+        # its row address scales.
+        state.xmem.write_address(MASK_BASE_ROW * ROW_BYTES, _build_mask_data())
 
         # CR15 dstructure: one 128-lane slot is fully valid.
         state.set_cr_dstructure(valid_elements=128)
@@ -305,13 +270,13 @@ class ConvFirstLayerApp(IpuApp):
         state.regfile.set_cr(3, KERNEL_BASE_ROW)
         state.regfile.set_cr(4, MASK_BASE_ROW)
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(6, CHANNEL_STRIDE // CHUNK_BYTES)     # 2: ch-to-ch step, rows
-        state.regfile.set_cr(7, IN_ROW_GROUP // CHUNK_BYTES)       # 6: one input spatial row (3 ch), rows
-        state.regfile.set_cr(8, FILTER_BLOCK_BYTES // CHUNK_BYTES)  # 1: chunk / slot size, rows
-        state.regfile.set_cr(9, 2 * IN_ROW_GROUP // CHUNK_BYTES)   # 12: input advance per OUTPUT row (stride 2), rows
+        state.regfile.set_cr(6, CHANNEL_STRIDE // CHUNK_ELEMENTS)     # 2: ch-to-ch step, rows
+        state.regfile.set_cr(7, IN_ROW_GROUP // CHUNK_ELEMENTS)       # 6: one input spatial row (3 ch), rows
+        state.regfile.set_cr(8, FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS)  # 1: chunk / slot size, rows
+        state.regfile.set_cr(9, 2 * IN_ROW_GROUP // CHUNK_ELEMENTS)   # 12: input advance per OUTPUT row (stride 2), rows
         state.regfile.set_cr(10, INPUT_BASE_ROW)                  # input base row
         state.regfile.set_cr(11, OUT_ROWS)                        # 128: output-row loop bound (not XMEM-space)
-        state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_BYTES // CHUNK_BYTES)  # 16: kernel limit / output row group, rows
+        state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS)  # 16: kernel limit / output row group, rows
         state.regfile.set_cr(13, TEMP_BASE_ROW)                   # temp0 (slot0 half) at +0, temp1 at +128
         # cr14 = 128: r_cyclic ELEMENT slot1 index, split off cr8 (which is now
         # the XMEM filter-block ROW stride = 1 and would otherwise collide).
@@ -319,27 +284,85 @@ class ConvFirstLayerApp(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # str_post_aaq_reg always writes a fixed 512-byte POST_AAQ_REG
-            # payload per output row (see ipu.py::execute_str_post_aaq_reg),
-            # which spans 4 rows in narrow mode (128 B each, INT8-packed) but
-            # only 1 row in wide-vector debug mode (512 B, 4 B/element). Read
-            # back at the mode's actual row size, then narrow to 1 B/element
-            # so ``output_path`` always holds the same canonical INT8 layout.
-            element_width = 4 if state.wide_vector_debug else 1
-            row_bytes = CHUNK_BYTES * element_width
             total_elements = OUT_ROWS * OUT_ROW_GROUP  # 128 * 2048 = 262144
             raw = state.xmem.read_address(
-                OUTPUT_BASE_ROW * row_bytes, total_elements * element_width
+                OUTPUT_BASE_ROW * ROW_BYTES, total_elements * 4
             )
-            if element_width == 1:
-                data = bytes(raw)
-            else:
-                data = bytes(
-                    _as_signed_byte(struct.unpack_from("<i", raw, i * 4)[0]) & 0xFF
-                    for i in range(total_elements)
-                )
-            Path(self.output_path).write_bytes(data)
+            out = np.frombuffer(raw, dtype=np.float32).reshape(OUT_ROWS, OUT_CHANNELS, OUT_COLS)
+            out_chw = np.ascontiguousarray(out.transpose(1, 0, 2))  # -> [filter, row, col]
+            Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
     def run(self, **kwargs):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+# Fixed shape: 256x256x3 -> 128x128x16, stride 2, padding 1, kernel_size 3.
+# bias is always folded and ReLU always applied.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 2:
+        return no(f"handles only stride=2; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups}")
+    if not q.apply_relu:
+        return no("this kernel always applies ReLU")
+    if not q.has_bias:
+        return no("this kernel requires bias (folded)")
+    if (q.in_channels, q.out_channels, q.height, q.width) != (IN_CHANNELS, OUT_CHANNELS, IN_ROWS, IN_COLS):
+        return no(
+            f"fixed-shape kernel: only in_channels={IN_CHANNELS}, "
+            f"out_channels={OUT_CHANNELS}, height={IN_ROWS}, width={IN_COLS} "
+            f"are supported; got in_channels={q.in_channels}, "
+            f"out_channels={q.out_channels}, height={q.height}, width={q.width}"
+        )
+    return yes()
+
+
+def _build(**params):
+    return {}
+
+
+def _explain(**params):
+    return (
+        f"kernel_size=3, stride=2, padding=1, bias+ReLU, fixed shape "
+        f"{IN_CHANNELS}x{IN_ROWS}x{IN_COLS} -> {OUT_CHANNELS}x{OUT_ROWS}x{OUT_COLS}: "
+        f"the network's first-layer conv (FP32), hand-optimized for this exact shape."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        f"Fixed shape only: {IN_CHANNELS}x{IN_ROWS}x{IN_COLS} -> "
+        f"{OUT_CHANNELS}x{OUT_ROWS}x{OUT_COLS}. No parameterization.",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_first_layer",
+    op="conv2d",
+    variant="first_layer",
+    app_class=ConvFirstLayerApp,
+    asm="conv_first_layer.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

@@ -1,8 +1,9 @@
 """Benchmark conv_first_layer: cycles + real MULT util.
 
 Fixed shape (256x256x3 -> 128x128x16, stride 2), so there's only one config
--- unlike the other apps' benchmarks, this reports a single row. Reports
-cycles and MULT-slot utilization read directly from ``state.stats``.
+-- unlike the other apps' benchmarks, this reports a single row. Compares
+against a real PyTorch reference (tolerance-based, FP32 wide-vector mode).
+Reports cycles and MULT-slot utilization read directly from ``state.stats``.
 
 Usage::
 
@@ -26,8 +27,8 @@ from ipu_apps.convolutions_universal.conv.conv_first_layer import (
     IN_CHANNELS,
     IN_COLS,
     OUT_ROWS,
+    OUT_COLS,
     OUT_CHANNELS,
-    OUT_ROW_GROUP,
 )
 from ipu_apps.convolutions_universal.conv.conv_first_layer.test_conv_first_layer import (
     reference,
@@ -37,22 +38,24 @@ from ipu_apps.convolutions_universal.benchmarking import BenchRow, print_and_wri
 
 ASM_PATH = Path(__file__).resolve().parents[1] / "conv_first_layer.asm"
 
+_TOL = 1e-2
+
 
 def gen(seed: int = 42):
     rng = np.random.RandomState(seed)
-    x = rng.randint(-3, 4, size=IN_ROWS * IN_CHANNELS * IN_COLS, dtype=np.int8)
-    k = rng.randint(-3, 4, size=(OUT_CHANNELS, IN_CHANNELS, 3, 3)).astype(np.int8)
-    b = rng.randint(-5, 6, size=OUT_CHANNELS).astype(np.int8)
-    return x.view(np.uint8).tobytes(), k, b
+    x = (rng.randn(IN_CHANNELS, IN_ROWS, IN_COLS) * 0.5).astype(np.float32)
+    k = (rng.randn(OUT_CHANNELS, IN_CHANNELS, 3, 3) * 0.2).astype(np.float32)
+    b = (rng.randn(OUT_CHANNELS) * 0.3).astype(np.float32)
+    return x, k, b
 
 
 def run_config(inst_file: Path):
-    input_bytes, kernel, bias = gen()
+    input_chw, kernel, bias = gen()
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         input_file = tmp / "input.bin"
-        input_file.write_bytes(input_bytes)
+        input_file.write_bytes(input_chw.tobytes())
 
         app = ConvFirstLayerApp(
             inst_path=inst_file,
@@ -63,12 +66,14 @@ def run_config(inst_file: Path):
         )
         state, cycles = app.run(max_cycles=500_000_000)
 
-        total = OUT_ROWS * OUT_ROW_GROUP
-        actual = bytes(state.xmem.read_address(OUTPUT_BASE_ADDR, total))
+        total_elements = OUT_ROWS * OUT_CHANNELS * OUT_COLS
+        raw = state.xmem.read_address(OUTPUT_BASE_ADDR, total_elements * 4)
+        out = np.frombuffer(raw, dtype=np.float32).reshape(OUT_ROWS, OUT_CHANNELS, OUT_COLS)
+        actual = np.ascontiguousarray(out.transpose(1, 0, 2))
 
-    expected = reference(input_bytes, kernel, bias)
-    mismatches = sum(1 for i in range(len(expected)) if actual[i] != expected[i])
-    return cycles, mismatches, state.stats.mult_utilization
+    expected = reference(kernel, input_chw, bias)
+    max_diff = float(np.abs(actual - expected).max())
+    return cycles, max_diff, state.stats.mult_utilization
 
 
 def main() -> None:
@@ -77,14 +82,14 @@ def main() -> None:
         assemble_to_bin_file(ASM_PATH.read_text(), str(inst_file))
 
         t0 = time.time()
-        cycles, mismatches, mult_util = run_config(inst_file)
+        cycles, max_diff, mult_util = run_config(inst_file)
         elapsed = time.time() - t0
 
         rows_out = [BenchRow(
             label="256x256x3->128x128x16 (stride2)",
             cycles=cycles,
             mult_utilization=mult_util,
-            correct=(mismatches == 0),
+            correct=(max_diff < _TOL),
             elapsed_s=elapsed,
         )]
 
