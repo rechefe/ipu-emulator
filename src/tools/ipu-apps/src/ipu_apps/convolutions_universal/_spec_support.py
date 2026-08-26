@@ -181,7 +181,14 @@ def pointwise_pad_shape(rows: int, width: int) -> tuple[int, int]:
     ``padded_cols`` divides 128 and ``padded_rows * padded_cols`` is a whole
     number of 128-byte chunks. See ``layers.py``'s original docstring for the
     pointwise-specific reasoning (no spatial neighbourhood, so no mask care
-    is needed for the padded lanes)."""
+    is needed for the padded lanes).
+
+    ``width`` must be <= 128: no integer greater than 128 divides 128, so the
+    search for ``padded_cols`` has no terminating value above it (callers
+    must refuse width > 128 in their own ``supports`` before reaching here;
+    see ``pointwise_conv_unified``'s width bound)."""
+    if width > 128:
+        raise ValueError(f"width ({width}) must be <= 128; no divisor of 128 exists above it")
     padded_cols = width
     while 128 % padded_cols != 0:
         padded_cols += 1

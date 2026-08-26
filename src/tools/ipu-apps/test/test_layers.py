@@ -200,6 +200,18 @@ class TestRefusals:
         with pytest.raises(UnsupportedLayer):
             run_layer(layer, x)
 
+    def test_pointwise_width_over_128_refused_not_hung(self) -> None:
+        # Regression: pointwise_conv_unified's _supports() used to have no
+        # width bound at all, so a width > 128 query fell through to
+        # pointwise_pad_shape()'s "while 128 % padded_cols != 0: padded_cols
+        # += 1" search -- which never terminates above 128 (no integer above
+        # 128 divides it). That turned an unsupported shape into an infinite
+        # loop instead of a clean refusal. Must return promptly.
+        layer = torch.nn.Conv2d(16, 16, kernel_size=1, bias=False)
+        x = torch.zeros(16, 8, 129)
+        with pytest.raises(UnsupportedLayer):
+            run_layer(layer, x)
+
     def test_non_square_stride_refused(self) -> None:
         layer = torch.nn.Conv2d(3, 4, kernel_size=3, padding=1, stride=(1, 2), bias=False)
         x = torch.zeros(3, 8, 8)

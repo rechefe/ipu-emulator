@@ -329,6 +329,8 @@ def _supports(**params):
         return no(f"in_channels ({q.in_channels}) must be a multiple of 8")
     if q.out_channels % 4 != 0:
         return no(f"out_channels ({q.out_channels}) must be a multiple of 4")
+    if q.width > 128:
+        return no(f"width ({q.width}) exceeds 128, the largest width this app supports")
     if q.apply_relu:
         return no("apply_relu=True has no matching app here; see pointwise_conv_unified_bn_activation")
     if bad := bias_requires_relu(q):
