@@ -145,6 +145,11 @@ def _pack_conv_weights_dense_fp32(weights: np.ndarray) -> bytes:
 class ConvUniversalWide384App(IpuApp):
     """Wide (W>=384) standard 3x3 convolution, stride 1, FP32.
 
+    Assembles its own binary at ``run()`` time (see the module docstring);
+    callers should not pass ``inst_path`` -- ``layers.py``'s dispatcher
+    checks :attr:`SELF_ASSEMBLES` to know not to pre-assemble ``kernel.asm``
+    for this app.
+
     Args:
         input_path:   Path to the input image binary, raw ``[in_channels,
                       rows, width]`` float32.
@@ -159,6 +164,8 @@ class ConvUniversalWide384App(IpuApp):
         out_channels: Number of output channels (>= 1, even per the task
                       brief, though the asm itself does not require it).
     """
+
+    SELF_ASSEMBLES = True
 
     def __init__(
         self,

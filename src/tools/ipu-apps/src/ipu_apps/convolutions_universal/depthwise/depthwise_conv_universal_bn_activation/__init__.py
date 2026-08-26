@@ -324,6 +324,11 @@ def _supports(**params):
         return no("this kernel always applies ReLU; see depthwise_conv_universal for the plain twin")
     if not q.has_bias:
         return no("this kernel requires bias (folded); see depthwise_conv_universal for the bias-free twin")
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports"
+        )
     return yes()
 
 

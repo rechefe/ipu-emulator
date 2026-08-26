@@ -433,6 +433,11 @@ def _supports(**params):
         return no("apply_relu=True has no matching app here; see conv_universal_bn_activation")
     if q.has_bias:
         return no("bias is not supported by this kernel; see conv_universal_bn_activation")
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports; see conv_universal_wide384 for wider images"
+        )
     return yes()
 
 

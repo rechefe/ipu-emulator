@@ -117,6 +117,8 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         channels:     Number of channels (>= 1).
     """
 
+    SELF_ASSEMBLES = True
+
     def __init__(
         self,
         *,
@@ -239,7 +241,18 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
             raw = state2.xmem.read_address(
                 self.output_base_row * ROW_BYTES, total_elements * 4
             )
-            Path(self.output_path).write_bytes(raw)
+            # raw is packed [out_group, channel, out_rows_per_chunk, out_cols]
+            # -- output_path holds the TRUE [channels, out_rows, out_cols]
+            # tensor (see class docstring's file-layout contract).
+            arr = np.frombuffer(raw, dtype=np.float32).reshape(
+                self.num_out_groups, self.channels, self.out_rows_per_chunk, self.out_cols,
+            )
+            out = np.empty((self.channels, self.out_rows, self.out_cols), dtype=np.float32)
+            for og in range(self.num_out_groups):
+                for local_row in range(self.out_rows_per_chunk):
+                    orow = og * self.out_rows_per_chunk + local_row
+                    out[:, orow, :] = arr[og, :, local_row, :]
+            Path(self.output_path).write_bytes(out.tobytes())
 
         return state2, cycles1 + cycles2
 

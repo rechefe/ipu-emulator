@@ -382,6 +382,11 @@ def _supports(**params):
             "no matching app here (see conv_universal for the no-bias/"
             "no-activation path)"
         )
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports"
+        )
     return yes()
 
 
