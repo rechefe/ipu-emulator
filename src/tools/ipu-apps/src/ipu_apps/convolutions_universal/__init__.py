@@ -5,6 +5,25 @@ and Python harness that replaces all specialized per-configuration apps.
 
 Shared helpers (input packing, output dumping) live here so sub-packages can
 import them without duplicating code.
+
+Use :func:`lookup` to pick a kernel for a given conv2d shape (or be told no
+kernel covers it), and :func:`catalog` for the whole coverage table::
+
+    from ipu_apps.convolutions_universal import lookup
+    v = lookup(in_channels=32, out_channels=32, kernel_size=3, stride=1,
+               padding=1, groups=32, height=64, width=64)
+    if v:
+        print(v.app_class, v.kwargs)
+
+If you already have a real ``torch.nn.Conv2d``, :func:`lookup_torch` takes it
+and the input shape directly::
+
+    from ipu_apps.convolutions_universal import lookup_torch
+    lookup_torch(conv_layer, (32, 64, 64), apply_relu=True)
+
+The same answers are available from the command line::
+
+    python -m ipu_apps.convolutions_universal --catalog
 """
 
 from __future__ import annotations
@@ -162,6 +181,23 @@ def allocate_regions(regions, *, xmem_bytes: int = XMEM_BYTES) -> dict:
     return bases
 
 
+# -- Registry front end -------------------------------------------------
+#
+# Imported at the bottom (not the top) of the file: registry.py imports from
+# ipu_apps.convolutions_universal.layers, which is a plain submodule (it does
+# not import back from this __init__.py), so there is no real cycle -- this
+# is just conventional placement, keeping the shared low-level helpers above
+# and the higher-level lookup/catalog surface below.
+
+from ipu_apps.convolutions_universal.registry import (  # noqa: E402
+    GAPS,
+    Verdict,
+    catalog,
+    lookup,
+    lookup_torch,
+)
+
+
 __all__ = [
     "CHUNK_BYTES",
     "XMEM_BYTES",
@@ -172,4 +208,9 @@ __all__ = [
     "pack_input_chunked",
     "unpack_output_chunked",
     "dump_outputs",
+    "GAPS",
+    "Verdict",
+    "catalog",
+    "lookup",
+    "lookup_torch",
 ]
