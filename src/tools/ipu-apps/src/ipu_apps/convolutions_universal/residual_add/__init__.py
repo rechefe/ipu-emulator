@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 # -- Constants ---------------------------------------------------------------
 
@@ -133,3 +134,45 @@ class ResidualAddApp(IpuApp):
         # Always run on the FP32 wide-vector state unless caller supplied one.
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
+
+
+# -- Kernel registry -----------------------------------------------------
+
+def _supports(**params):
+    num_channels = params["num_channels"]
+    if num_channels < 1:
+        return no(f"num_channels must be >= 1, got {num_channels}")
+    return yes()
+
+
+def _build(**params):
+    return {"num_channels": params["num_channels"]}
+
+
+def _explain(**params):
+    return (
+        "elementwise FP32 tensor add, running the emulator's wide-vector "
+        "debug datapath (one channel per 512-byte/128-lane chunk)."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+
+
+SPEC = KernelSpec(
+    name="residual_add",
+    op="residual_add",
+    app_class=ResidualAddApp,
+    asm="residual_add.asm",
+    requires=("num_channels",),
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    cost=lambda **params: 0.0,
+)

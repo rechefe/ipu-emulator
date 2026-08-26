@@ -336,6 +336,19 @@ py_pytest_test(
     ],
 )
 
+py_pytest_test(
+    name = "test_residual_add_conv_universal",
+    srcs = ["test/test_residual_add_conv_universal.py"],
+    data = [
+        "src/ipu_apps/convolutions_universal/residual_add/residual_add.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Framework-free registry dispatch + torch.nn.Conv2d adapter -- resolves
 # through kernel_registry, so every conv2d kernel's .asm is data here (same
 # convention as test_kernel_registry above).
