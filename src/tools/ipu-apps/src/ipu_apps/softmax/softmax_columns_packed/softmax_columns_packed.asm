@@ -5,18 +5,18 @@
     c = log2(e), so 2^(c*d) == e^d and the IPU's native exp2 applies directly.
 
     ONE matrix, narrow rows (real width <= 64) packed rpv = 128/W_pad rows per
-    128-lane vector (W_pad in {16,32,64}; lanes [g*W_pad : g*W_pad+W_pad) hold
+    128-element vector (W_pad in {16,32,64}; elements [g*W_pad : g*W_pad+W_pad) hold
     matrix row that maps to group g). Softmax is per column, reduced DOWN all
-    rows -- and a column's members span BOTH lane-groups (within a vector) AND
+    rows -- and a column's members span BOTH element-groups (within a vector) AND
     vectors. So each reduce has two stages:
 
       (1) DOWN-VECTOR partial: running ACC.MAX / ACC.ADD over num_vectors gives,
-          per lane g*W+col, the reduce over the rows that landed in group g.
+          per element g*W+col, the reduce over the rows that landed in group g.
       (2) CROSS-GROUP fold: a linear rc_idx walk (0, W, 2W, ... (rpv-1)*W, with
           ACC.MAX / ACC.ADD) folds the rpv groups together AND broadcasts the
-          full per-column result back across every group's lanes (see the
+          full per-column result back across every group's elements (see the
           CROSS-GROUP FOLD section below for the full derivation). After the
-          fold, cmax / rvec are full 128-lane vectors lane-aligned for the
+          fold, cmax / rvec are full 128-element vectors element-aligned for the
           Pass 2/4 trips.
 
     CROSS-GROUP FOLD (rewritten -- see issue #182/PR #196 background): rc_idx
@@ -36,14 +36,14 @@
     -- reads only ever land inside [0:256), i.e. always real data, no masking
     needed at all. Each step's read pairs group p (real, at rc_idx=p*W) with
     whatever already-folded value sits at r_acc; running ACC.MAX/ACC.ADD
-    converges every lane to the true combined value after rpv steps (verified
+    converges every element to the true combined value after rpv steps (verified
     numerically for rpv in {2,4,8} before implementing -- see the harness
     docstring for the derivation).
 
     Issue #157: MULT reads Ra/r_cyclic DATA from the snapshot (visible NEXT
     cycle), so loads sit one VLIW word before the MULT that consumes them.
 
-    Pad lanes (intra-group width padding + the last vector's missing rows) are
+    Pad elements (intra-group width padding + the last vector's missing rows) are
     zeroed in the output by folding a resident KEEP-mask (1.0 real / 0.0 pad,
     a plain data vector multiplied in via MULT.RC.VV) into rvec once before
     Pass 4 (rvec <- rvec*keep).
@@ -54,7 +54,7 @@
       duplicate LDR_CYCLIC_MULT_REG's index operand)  CR10=INPUT row
       CR11=NUM_VECTORS  CR12=SCRATCH_ADDR row  CR13=W (fold rc_idx step,
       elements)  CR14=rpv (fold step count)  CR15=dstructure
-      valid_elements=128 (default; every lane live throughout)
+      valid_elements=128 (default; every element live throughout)
 
     ";;" ends a VLIW word, ";" separates sub-instructions; LR has 3 sub-slots.
 ========================================================================== -#}

@@ -1,50 +1,35 @@
 """Packed sub-128 column-softmax harness (FP32 wide-vector mode).
 
-Vendored, UNMODIFIED apart from the trim noted below, from David Sheinenzon's
-softmax kernel family on `origin/pr4-registry-docs` (commit 9629113, "softmax:
-five FP32 wide-vector kernels"), for the scale-experiment task's step 2 (real
-softmax vs. the host numpy stub in fixture_host_softmax_fold_stubs.py). This is
-a diagnostic-only import: no kernel logic below is changed. The ONLY removal is
-the `SPEC = KernelSpec(...)` registry declaration at the file's end and its
-`from ipu_apps.kernel_registry import ...` / `from ipu_apps.softmax._spec_support
-import ...` imports -- `kernel_registry` is later (unmerged) infrastructure for
-auto-selecting a kernel by shape, which this direct-construction usage (exactly
-how the branch's own test_softmax_layout_roundtrip.py uses these classes) never
-calls. The `SPEC.guard(...)` bound check in `__init__` is replaced with an
-inline equivalent of the same bound (see the constructor below); it enforces
-the same `1 <= width <= 64` domain this kernel's docstring already documents,
-just without the registry's `Verdict` machinery to phrase the message.
-
 Companion to ``softmax_columns`` for **narrow** rows: real width ``W <= 64``.
 Softmax is still taken **down each column** (``x[r,col]`` normalised across all
-rows of that column), but because a row is shorter than the 128-lane datapath,
-several whole rows are **packed side-by-side into one 128-lane vector** to keep
-the lanes busy:
+rows of that column), but because a row is shorter than the 128-element datapath,
+several whole rows are **packed side-by-side into one 128-element vector** to keep
+the elements busy:
 
     W padded up to the next power of two in {16, 32, 64} (15->16, 17..31->32,
     33..63->64; exact 16/32/64 unchanged). rpv = 128 / W_pad in {2, 4, 8} rows
-    share one vector: lanes [0:W_pad)=row g, [W_pad:2*W_pad)=row g+1, ...
+    share one vector: elements [0:W_pad)=row g, [W_pad:2*W_pad)=row g+1, ...
 
-Each lane is still an *independent* column, and the column reduce runs **down the
+Each element is still an *independent* column, and the column reduce runs **down the
 row dimension** (across vectors) exactly as in ``softmax_columns`` -- so the four
-passes are the same per-lane ACC.MAX / ACC.ADD kernel with **one chunk per packed
-vector**. Packing just means each 128-lane reduce now advances rpv input rows at
+passes are the same per-element ACC.MAX / ACC.ADD kernel with **one chunk per packed
+vector**. Packing just means each 128-element reduce now advances rpv input rows at
 once. ``num_vectors = ceil(rows / rpv)``; the last vector zero-pads any missing
 rows (a missing row is an all-zero column group, dropped on read-back).
 
-Two kinds of padding lane exist, both zero in the input and both kept zero in the
+Two kinds of padding element exist, both zero in the input and both kept zero in the
 output:
   * intra-group width padding (W_real..W_pad within each group) when W isn't a
     clean power of two;
   * the tail of the last vector when rows isn't a multiple of rpv.
 Because the MULT hardware mask is inert in wide FP32 mode, padding is zeroed on
-chip by a **resident keep-mask vector** (1.0 in real-data lanes, 0.0 elsewhere)
+chip by a **resident keep-mask vector** (1.0 in real-data elements, 0.0 elsewhere)
 multiplied into the Pass 4 output. Teardown additionally emits a dense
 ``rows x W_real`` file.
 
     softmax(x[r,col]) = 2^(c*(x[r,col]-cmax[col])) / SUM_r 2^(c*(x[r,col]-cmax[col]))
 
-with ``c = log2(e)`` resident in a 128-lane vector ``C_VEC`` (``2^(c*d)==e^d``).
+with ``c = log2(e)`` resident in a 128-element vector ``C_VEC`` (``2^(c*d)==e^d``).
 
 Usage::
 
@@ -71,20 +56,26 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
 
 # -- Constants --------------------------------------------------------------
 
-LANES = 128                  # lanes per vector (fixed by the 128-lane datapath)
+LANES = 128                  # elements per vector (fixed by the 128-element datapath)
 CHUNK_BYTES = LANES * 4      # 512 bytes per FP32 vector
 MAX_WIDTH = 64               # this app: real width <= 64 (>=65 -> softmax_columns)
 
 INPUT_BASE_ADDR = 0x10000    # x   (input logits, FP32)
 
 LOG2E = math.log2(math.e)    # c = 1.4426950408889634
-NEG_PAD = -1.0e30            # padding-lane fill: loses every max, exp2 -> 0 in the sum
+NEG_PAD = -1.0e30            # padding-element fill: loses every max, exp2 -> 0 in the sum
 
 
 def _pack_pow2(n: int) -> int:
@@ -107,7 +98,7 @@ class SoftmaxColumnsPackedApp(IpuApp):
         rows:        Number of rows (>= 1; any count).
         width:       Real elements per row, 1..64. Padded up to the next power of
                      two W_pad in {16, 32, 64}; rpv = 128 / W_pad rows pack per
-                     128-lane vector.
+                     128-element vector.
     """
 
     def __init__(self, *, rows: int, width: int, **kwargs) -> None:
@@ -116,10 +107,12 @@ class SoftmaxColumnsPackedApp(IpuApp):
         self.rows = int(rows)
         self.width = int(width)
 
-        if not 1 <= self.width <= MAX_WIDTH:
-            raise ValueError(
-                f"softmax_columns_packed: width must be in 1..{MAX_WIDTH}; got {self.width}"
-            )
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain.
+        # (The message this replaced still advised "use softmax_columns for
+        # width >= 128" long after that boundary had moved to 65 -- exactly the
+        # drift a single source prevents.)
+        SPEC.guard(shape=(self.rows, self.width), dim=0)
 
         # Packed group width = next pow2, but at least 16 (rpv <= 8 keeps the
         # layout simple and matches the requested {16,32,64} bands).
@@ -154,13 +147,13 @@ class SoftmaxColumnsPackedApp(IpuApp):
 
     def _pack_input(self) -> bytes:
         """Pack row-major (rows x W_real) float32 into vectors of rpv rows each.
-        Row r -> vector (r // rpv), group (r % rpv), lane group_offset + col.
+        Row r -> vector (r // rpv), group (r % rpv), element group_offset + col.
 
-        All padding lanes -- both intra-group width padding and the last vector's
+        All padding elements -- both intra-group width padding and the last vector's
         missing-row groups -- are initialised to a large negative (NEG_PAD) rather
         than zero. The cross-group fold then ignores them for free: NEG_PAD never
         wins the max, and exp2(c*NEG_PAD - cmax) underflows to 0 so it adds nothing
-        to the sum. (Width-pad lanes are separate junk columns dropped on read-back;
+        to the sum. (Width-pad elements are separate junk columns dropped on read-back;
         missing-row groups must not pollute a real column's reduce -- this is the
         all-negative-column hazard, real here because the fold mixes groups.)
         """
@@ -176,8 +169,8 @@ class SoftmaxColumnsPackedApp(IpuApp):
         return bytes(packed)
 
     def _keep_mask(self) -> bytes:
-        """128-lane FP32 keep-mask: 1.0 in real-column lanes of every group,
-        0.0 in the intra-group width-padding lanes. (The last-vector missing-row
+        """128-element FP32 keep-mask: 1.0 in real-column elements of every group,
+        0.0 in the intra-group width-padding elements. (The last-vector missing-row
         groups are handled by the input being zero -> exp2(.)=finite but the
         teardown drops them; the keep-mask only needs the per-group width.)
         """
@@ -227,7 +220,7 @@ class SoftmaxColumnsPackedApp(IpuApp):
         state.regfile.set_cr(11, self.num_vectors)        # vector loop bound (rows reduced)
         state.regfile.set_cr(12, self.scratch_addr // CHUNK_BYTES)  # fold scratch chunk row
         # CR13/CR14: cross-group fold walk. The fold combines the rows_per_vec
-        # (rpv) groups packed into one 128-lane partial by duplicating it into
+        # (rpv) groups packed into one 128-element partial by duplicating it into
         # two adjacent ring slots then reading rc_idx = 0, W, ..., (rpv-1)*W
         # (rpv steps, W=group_width) via a running ACC.MAX/ACC.ADD -- see the
         # .asm comment for the full derivation.
@@ -235,7 +228,7 @@ class SoftmaxColumnsPackedApp(IpuApp):
         state.regfile.set_cr(14, self.rows_per_vec)        # rpv: fold step count (loop bound)
 
         # CR15 = dstructure, valid_elements = 128, pad_mode = ZERO (default;
-        # every lane live, no masking except where a mask_offset says so).
+        # every element live, no masking except where a mask_offset says so).
         state.set_cr_dstructure(valid_elements=LANES)
 
     def teardown(self, state: "IpuState") -> None:
@@ -254,3 +247,62 @@ class SoftmaxColumnsPackedApp(IpuApp):
     def run(self, **kwargs):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if q.along_rows:
+        return no("reduces along rows, not down columns")
+    if q.width > MAX_WIDTH:
+        return no(
+            f"packs whole rows into one {LANES}-element vector, so it needs a "
+            f"width <= {MAX_WIDTH}; this input is {q.width} wide"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    return {"rows": q.rows, "width": q.width}
+
+
+def _explain(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    w_pad = 16
+    while w_pad < q.width:
+        w_pad *= 2
+    rpv = LANES // w_pad
+    return (
+        f"width ({q.width}) <= {MAX_WIDTH}: packed column kernel, {rpv} rows "
+        f"packed per {LANES}-element vector (padded width {w_pad})."
+    )
+
+
+SPEC = KernelSpec(
+    name="softmax_columns_packed",
+    op="softmax",
+    variant="columns_packed",
+    app_class=SoftmaxColumnsPackedApp,
+    asm="softmax_columns_packed.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
+    tags=("fp32-wide", "packed"),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    # Fits several rows per vector, so it is strictly better than the general
+    # column kernel wherever it applies.
+    cost=lambda **params: 0.0,
+)

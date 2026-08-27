@@ -63,6 +63,7 @@ flowchart LR
     function_type  ─────>│             AaQ Stage                ├────> to STR stage
  invalid_elements  ─────>│                                      │      [128×8b elements | 8b scale | 7b format
         partition  ─────>│                                      │       | write_addr | str_opcode]
+   partition_mask  ─────>│                                      │
            format  ─────>│                                      │
         quan_mode  ─────>│                                      │
        write_addr  ─────>│                                      │
@@ -83,6 +84,7 @@ flowchart LR
 | `function_type` | `input logic [2:0]` | Encoded activation/special-function selector for `ACTIVATE.QUANTIZE` (see section 5.0). |
 | `invalid_elements` | `input logic [6:0]` | Element count. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
+| `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their `aaq_out` elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
 | `format` | `input logic [6:0]` | Output element format, replacing the old fixed `dtype`: bit `[6]` = sign (`0`=unsigned, `1`=signed), bits `[5:3]` = exponent bits (3 bits), bits `[2:0]` = mantissa bits (3 bits). |
 | `quan_mode` | `input logic` | Scale-factor mode: `1` = dynamic, `0` = static. |
 | `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). Received here and passed through to the STR stage. |
@@ -212,7 +214,9 @@ by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 The AaQ slot is resolved by CTRL and forwarded down the pipeline;
 the stage does not read the CR/LR register files itself (see the
 Control Stage spec, section 5). The active element count is determined by each
-instruction's mandatory `cr_idx` operand: `n = min(invalid_elements, 128)`
+instruction's mandatory `cr_idx` operand together with `partition_mask`
+(section 3.1): `masked = partition_mask * (128 / partition)` elements are
+excluded from the right, so `n = min(invalid_elements, 128 - masked)`
 at cycle start. There is no implicit default register; `cr_idx` must always
 be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
 but is never assumed).
@@ -232,7 +236,8 @@ but is never assumed).
   - `cr_idx`: `CR0`…`CR15`, dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
 - **Operation:**
   ```text
-  n = min(invalid_elements, 128)
+  masked = partition_mask * (128 / partition)          // section 3.1
+  n = min(invalid_elements, 128 - masked)
   for i in 0..n-1:
       activated[i] = LUT[function_type](r_acc[i])     // section 5.0
       aaq_out.elements[i] = quantize(activated[i])     // section 5.1
@@ -247,7 +252,7 @@ but is never assumed).
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AaQ | `NOP`               | -                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(invalid_elements, 128) |
+| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(invalid_elements, 128 - partition_mask * (128/partition)) |
 
 ## 7. STR (Store) Stage
 

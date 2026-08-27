@@ -1,22 +1,22 @@
 {#- ==========================================================================
     softmax_rows_partial.asm -- packed row-softmax for N<=128, P=128/ps rows/chunk
 
-    P logical rows share one 128-lane chunk. C_VEC=log2(e) resident in R0
+    P logical rows share one 128-element chunk. C_VEC=log2(e) resident in R0
     (broadcast); x-chunk in r_cyclic. Per partition p, MULT.RC.VV rc_idx=p*ps
     (ELEMENT offset -- matches LDR_CYCLIC_MULT_REG's index; issue #182/PR #196)
-    reads r_cyclic[p*ps + i]*R0[i] = c*x[p][i] into mult_res lanes 0..N-1; masked
-    AGG/ACTIVATE.QUANTIZE name CR15 (valid_elements=N) to act on those N lanes
+    reads r_cyclic[p*ps + i]*R0[i] = c*x[p][i] into mult_res elements 0..N-1; masked
+    AGG/ACTIVATE.QUANTIZE name CR15 (valid_elements=N) to act on those N elements
     only. The full-row drains (MAXVEC/RVEC/output chunk) instead name CR8, whose
-    value 128 decodes to valid_elements=128, so they cover the whole 128-lane
+    value 128 decodes to valid_elements=128, so they cover the whole 128-element
     row vector. (Master ISA: every MULT/AGG/ACTIVATE.QUANTIZE names its
-    dstructure CR explicitly; the old full_xmem_row 0/1 lane-count flag is gone.)
+    dstructure CR explicitly; the old full_xmem_row 0/1 element-count flag is gone.)
 
     Addressing: cyclic/mult loads take (offset_lr, base_cr, index_lr); base CRs
     are fixed, the chunk byte offset walks in an LR. The partition slide rc_idx is
     a SEPARATE intra-register offset (0, ps, ...), not an XMEM address.
 
     Layout: input/output PACKED; numerators UNPACKED (1 chunk/row); maxvec=c*xmax
-    and rvec=1/sum are 128-lane scalar vectors (slot per row).
+    and rvec=1/sum are 128-element scalar vectors (slot per row).
 
     CR map (CR0=0, CR1=1 read-only):
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
@@ -28,7 +28,7 @@
       MULT.RC's rc_idx wraps at the ring boundary, not the row boundary)
       CR12=ps partition element stride  CR13=chunks_per_group (=128/P)  CR14=P
 
-    GROUP LOOP: maxvec/rvec are single shared 128-lane vectors (one slot per
+    GROUP LOOP: maxvec/rvec are single shared 128-element vectors (one slot per
     logical row), so at most 128 logical rows -- i.e. CR13 = 128/P chunks -- can
     be in flight at once. All four passes therefore run over a GROUP of up to
     that many chunks, and the whole group is processed (Pass 1..4) before the
@@ -57,7 +57,7 @@
 {%- set lr_bound  = "lr14" -%} {#- this group's logical-row count = cbound * P (Pass 3) -#}
 
 {#- ===================================================================== -#}
-{#- PASS 1 -- maxvec[row] = c*xmax over each partition's N lanes.          -#}
+{#- PASS 1 -- maxvec[row] = c*xmax over each partition's N elements.          -#}
 {#- ===================================================================== -#}
     SET {{lr_cyc}} cr0 ;;
     SET {{lr_cdone}} cr0 ;
@@ -82,7 +82,7 @@ p1_chunk:
     SET {{lr_slide}} cr0 ;;
 
 p1_part:
-    MULT.RC.VV    {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;          {#- c*x[p] at lanes 0..N-1 -#}
+    MULT.RC.VV    {{lr_slide}} r0 0 {{lr_cyc}} cr15 ;          {#- c*x[p] at elements 0..N-1 -#}
     AGG.MAX.FIRST {{lr_row}} cr15 ;;                          {#- masked -> maxvec[row] -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;
@@ -121,7 +121,7 @@ p2_part:
     acc.add.first ;;
     MULT.EE {{lr_maxid}} cr1 0 {{lr_cyc}} cr15 ;              {#- maxvec[row]*1.0 -#}
     acc.sub ;                                                {#- r_acc = c*x[p] - maxvec[row] -#}
-    ACTIVATE.QUANTIZE exp2 cr15;                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] lanes 0..N-1 -#}
+    ACTIVATE.QUANTIZE exp2 cr15;                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] elements 0..N-1 -#}
     STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
@@ -152,17 +152,17 @@ p3_row:
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                     {#- RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
-{#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk lanes.     -#}
+{#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk elements.     -#}
 {#-   per chunk: per partition p: r_cyclic=num[row]; MULT.RC.VE with        -#}
 {#-   rc_idx = lr_rslide = (RING - p*ps) mod RING places product at        -#}
-{#-   lanes p*ps. mask_offset=p selects a per-partition R_MASK slot (built  -#}
+{#-   elements p*ps. mask_offset=p selects a per-partition R_MASK slot (built  -#}
 {#-   by the harness in PART_MASK_ADDR, loaded once below) with bits        -#}
 {#-   [p*ps, p*ps+N) set and every other bit clear -- so MULT.RC.VE's own   -#}
 {#-   masking (mask_shift=0, i.e. the slot's raw bits, unshifted) restricts -#}
-{#-   mult_res to EXACTLY this partition's lanes, zeroing everywhere else   -#}
+{#-   mult_res to EXACTLY this partition's elements, zeroing everywhere else   -#}
 {#-   (PadMode.ZERO). acc.add/acc.add.first then only ever add zero outside -#}
 {#-   a partition's own range, so partitions can never contaminate each     -#}
-{#-   other's r_acc lanes regardless of P (fixes the cross-partition        -#}
+{#-   other's r_acc elements regardless of P (fixes the cross-partition        -#}
 {#-   contamination bug in STATUS.md, uniformly for P=1/2/4/8).             -#}
 {#-   RING = r_cyclic's full ring size, 512 ELEMENTS (rc_idx is an element  -#}
 {#-   offset, matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196),  -#}

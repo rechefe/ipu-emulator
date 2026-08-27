@@ -2369,6 +2369,17 @@ py_pytest_test(
         "LAYERNORM_16X240_INST_BIN": "$(rootpath :assemble_layernorm_16x240.bin)",
         "MATMUL_240X240_X128_INST_BIN": "$(rootpath :assemble_matmul_240x240_x128.bin)",
     },
+# -- softmax apps (FP32 wide-vector) ---------------------------------------
+#
+# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
+# the app .asm is provided as data; no pre-assembled .bin target is needed.
+
+py_pytest_test(
+    name = "test_softmax_rows",
+    srcs = ["test/test_softmax_rows.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2390,6 +2401,12 @@ py_pytest_test(
         "UNFOLD_16X16X192_INST_BIN": "$(rootpath :assemble_unfold_16x16x192.bin)",
         "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
     },
+py_pytest_test(
+    name = "test_softmax_rows_partial",
+    srcs = ["test/test_softmax_rows_partial.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2411,6 +2428,12 @@ py_pytest_test(
         "UNFOLD_8X8X240_INST_BIN": "$(rootpath :assemble_unfold_8x8x240.bin)",
         "MATMUL_720X240_X128_INST_BIN": "$(rootpath :assemble_matmul_720x240_x128.bin)",
     },
+py_pytest_test(
+    name = "test_softmax_rows_long",
+    srcs = ["test/test_softmax_rows_long.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2432,6 +2455,12 @@ py_pytest_test(
         "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
         "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
     },
+py_pytest_test(
+    name = "test_softmax_columns",
+    srcs = ["test/test_softmax_columns.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2453,6 +2482,12 @@ py_pytest_test(
         "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
         "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
     },
+py_pytest_test(
+    name = "test_softmax_columns_packed",
+    srcs = ["test/test_softmax_columns_packed.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2975,6 +3010,17 @@ py_pytest_test(
     name = "test_softmax_kernel_sanity",
     size = "medium",
     srcs = ["test/test_softmax_kernel_sanity.py"],
+# Runs every softmax app, so it needs all five .asm files.
+py_pytest_test(
+    name = "test_softmax_layout_roundtrip",
+    srcs = ["test/test_softmax_layout_roundtrip.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -2988,6 +3034,10 @@ py_pytest_test(
     name = "test_decisive_l5_uncropped",
     size = "small",
     srcs = ["test/test_decisive_l5_uncropped.py"],
+# Router only -- no .asm needed; it constructs apps but never runs them.
+py_pytest_test(
+    name = "test_softmax_registry",
+    srcs = ["test/test_softmax_registry.py"],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -3022,6 +3072,13 @@ py_pytest_test(
         "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
         "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
     },
+# Kernel registry mechanics + the generic conformance suite, which assembles
+# and runs whichever kernel the registry resolves -- so every registered .asm
+# is data here, and a newly added kernel is covered without editing this rule.
+py_pytest_test(
+    name = "test_kernel_registry",
+    srcs = ["test/test_kernel_registry.py"],
+    data = glob(["src/ipu_apps/**/*.asm"]),
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",
@@ -3038,6 +3095,13 @@ py_pytest_test(
         "test/fixture_host_softmax_fold_stubs_unit_test.py",
         "test/fixture_host_softmax_fold_stubs.py",
     ],
+# Checks the routing tables printed in the docs against what the registry
+# actually answers. The tables are checked-in text, so without this they are a
+# second copy of the routing rules -- the copy that goes stale.
+py_pytest_test(
+    name = "test_docs_routing",
+    srcs = ["test/test_docs_routing.py"],
+    data = ["//docs:doc_sources"],
     imports = ["src"],
     deps = [
         ":ipu_apps_lib",

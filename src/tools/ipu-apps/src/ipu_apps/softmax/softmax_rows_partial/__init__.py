@@ -1,35 +1,20 @@
-"""Row-softmax for N < 128 elements/row, packed P rows per 128-lane chunk.
+"""Row-softmax for N < 128 elements/row, packed P rows per 128-element chunk.
 
-Vendored, UNMODIFIED apart from the trim noted below, from David Sheinenzon's
-softmax kernel family on `origin/pr4-registry-docs` (commit 9629113, "softmax:
-five FP32 wide-vector kernels"), for the scale-experiment task's step 2 (real
-softmax vs. the host numpy stub in fixture_host_softmax_fold_stubs.py). This is
-a diagnostic-only import: no kernel logic below is changed. The ONLY removal is
-the `SPEC = KernelSpec(...)` registry declaration at the file's end and its
-`from ipu_apps.kernel_registry import ...` / `from ipu_apps.softmax._spec_support
-import ...` imports -- `kernel_registry` is later (unmerged) infrastructure for
-auto-selecting a kernel by shape, which this direct-construction usage (exactly
-how the branch's own test_softmax_layout_roundtrip.py uses these classes) never
-calls. The `SPEC.guard(...)` bound check in `__init__` is replaced with an
-inline equivalent of the same bound (see the constructor below); it enforces
-the same `1 <= n <= 128` domain this kernel's docstring already documents,
-just without the registry's `Verdict` machinery to phrase the message.
-
-Logical rows of ``N`` elements are packed into 128-lane physical chunks. The
+Logical rows of ``N`` elements are packed into 128-element physical chunks. The
 partition size ``ps`` is the next power of two >= N (clamped to [16, 128]), so
 ``P = 128 / ps`` rows share one chunk:
 
     N in 65..128 -> ps=128, P=1     N in 17..32 -> ps=32,  P=4
     N in 33..64  -> ps=64,  P=2     N in  1..16 -> ps=16,  P=8
 
-Row p occupies lanes ``p*ps .. p*ps + N-1`` of its chunk; lanes ``N..ps-1`` are
+Row p occupies elements ``p*ps .. p*ps + N-1`` of its chunk; elements ``N..ps-1`` are
 padding. ``CR15.valid_elements = N`` masks every AGG/ACTIVATE so only the first
-N lanes of each partition contribute (max/sum ignore the padding tail).
+N elements of each partition contribute (max/sum ignore the padding tail).
 
 Reduction trick (probe-validated): to reduce partition p, ``MULT.RC.VV`` reads
 r_cyclic at ELEMENT offset ``p*ps`` (rc_idx is element-addressed, matching
 ``LDR_CYCLIC_MULT_REG``'s index -- issue #182/PR #196) so partition p lands in
-mult_res lanes 0..N-1, then a masked ``AGG`` reduces exactly those into r_acc
+mult_res elements 0..N-1, then a masked ``AGG`` reduces exactly those into r_acc
 slot = row index.
 
 Layout:
@@ -38,22 +23,22 @@ Layout:
                      the partition/row padding on the way in and teardown drops
                      it on the way out, so the output file has exactly the input
                      file's shape.
-  * numerators     : UNPACKED (one 512B chunk per logical row, lanes 0..N-1) --
+  * numerators     : UNPACKED (one 512B chunk per logical row, elements 0..N-1) --
                      intermediate, free to be convenient.
-  * maxvec/rvec    : 128-lane scalar vectors, slot per logical row.
+  * maxvec/rvec    : 128-element scalar vectors, slot per logical row.
 
 Only Pass 4 re-packs: for partition p, ``MULT.RC.VE`` places row p's product
-at lanes ``[p*ps, p*ps+N)`` (same rc_idx trick, reversed), masked via a
+at elements ``[p*ps, p*ps+N)`` (same rc_idx trick, reversed), masked via a
 per-partition ``R_MASK`` slot (``mask_offset=p``, built by ``_partition_masks``
-and loaded once per chunk via ``LDR_MULT_MASK_REG``) so every OTHER lane is
+and loaded once per chunk via ``LDR_MULT_MASK_REG``) so every OTHER element is
 zeroed before ``acc.add``/``acc.add.first`` accumulates it into the shared
 r_acc -- this is what lets P separate partitions safely share one accumulator
-without corrupting each other (see the branch's STATUS.md for "Pass-4
-cross-partition contamination"). One ACTIVATE+store then drains the fully
-assembled packed chunk. ``mask_offset`` is a compile-time immediate, so the
-per-partition instruction sequence is unrolled per P value via Jinja in the
-``.asm`` (one block each for P=1/2/4/8), with a runtime dispatch on P
-selecting which block runs.
+without corrupting each other (see STATUS.md's "Pass-4 cross-partition
+contamination" for why this masking is necessary). One ACTIVATE+store then
+drains the fully assembled packed chunk. ``mask_offset`` is a compile-time
+immediate, so the per-partition instruction sequence is unrolled per P value
+via Jinja in the ``.asm`` (one block each for P=1/2/4/8), with a runtime
+dispatch on P selecting which block runs.
 
 The base softmax_rows app is the ps=128/P=1 special case; this app handles the
 P>1 packed regimes. Same base-2 / max-subtraction math (see softmax_rows).
@@ -81,13 +66,19 @@ from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.softmax._spec_support import (
+    WIDE_VECTOR_ONLY,
+    positive_dims,
+    softmax_query,
+)
 
 if TYPE_CHECKING:
     pass
 
 # -- Constants --------------------------------------------------------------
 
-LANES = 128                  # lanes per physical chunk
+LANES = 128                  # elements per physical chunk
 CHUNK_BYTES = LANES * 4      # 512 bytes per FP32 chunk
 # r_cyclic's full ring: 512 ELEMENTS (MULT.RC's rc_idx is element-addressed,
 # matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196). The Pass-4
@@ -142,15 +133,17 @@ class SoftmaxRowsPartialApp(IpuApp):
         self.input_path = Path(self.input_path)
         self.n = int(n)
         self.rows = int(rows)
-        if not 1 <= self.n <= LANES:
-            raise ValueError(f"softmax_rows_partial: n must be in 1..{LANES}; got {self.n}")
+        # Delegate to the registry declaration rather than restating the bounds:
+        # SPEC.supports is the single source of truth for this kernel's domain,
+        # so the guard and the router can never disagree.
+        SPEC.guard(shape=(self.rows, self.n), dim=1)
         self.ps = partition_size(self.n)
         self.parts_per_chunk = LANES // self.ps          # P
         # Pad logical rows up to a multiple of P so the last chunk is full.
         rem = self.rows % self.parts_per_chunk
         self.padded_rows = self.rows + (self.parts_per_chunk - rem) % self.parts_per_chunk
         self.num_chunks = self.padded_rows // self.parts_per_chunk
-        # maxvec/rvec are single 128-lane vectors holding one slot per logical
+        # maxvec/rvec are single 128-element vectors holding one slot per logical
         # row, so at most LANES logical rows -- i.e. LANES//P chunks -- can be
         # in flight. Rows beyond that are handled by re-running all four passes
         # on the next group (see the .asm group loop). This is a correctness
@@ -193,16 +186,16 @@ class SoftmaxRowsPartialApp(IpuApp):
 
         8 slots of 16 bytes (128 bits) each. Slot p (p in 0..P-1) has bits
         [p*ps, p*ps+N) set (keep) and every other bit clear (zero out) --
-        see mask polarity convention: bit 1 = KEEP lane, bit 0 = ZERO lane.
+        see mask polarity convention: bit 1 = KEEP element, bit 0 = ZERO element.
         Unused slots (p >= P) are left all-zero (never selected).
 
         This lets each partition's own MULT.RC.VE (mask_offset=p, mask_shift=0)
-        restrict its result to EXACTLY that partition's [p*ps, p*ps+N) lanes --
-        every other lane (including the real-but-wrong-row data the rc_idx
+        restrict its result to EXACTLY that partition's [p*ps, p*ps+N) elements --
+        every other element (including the real-but-wrong-row data the rc_idx
         wraparound trick leaves in mult_res) is masked to PadMode.ZERO, so
         acc.add/acc.add.first accumulate 0 there and never contaminate a
         neighboring partition's slot. Fixes the Pass-4 cross-partition
-        contamination bug (see the branch's STATUS.md) uniformly for every P.
+        contamination bug (see STATUS.md) uniformly for every P.
         """
         buf = bytearray(128)
         for p in range(self.parts_per_chunk):
@@ -214,7 +207,7 @@ class SoftmaxRowsPartialApp(IpuApp):
 
     def _pack_input(self) -> bytes:
         """Read row-major (rows x N) float32, zero-pad to padded_rows, pack into
-        chunks of P rows; row p at lanes p*ps..p*ps+N-1, padding lanes zero."""
+        chunks of P rows; row p at elements p*ps..p*ps+N-1, padding elements zero."""
         raw = self.input_path.read_bytes()
         flat = struct.unpack(f"<{self.rows * self.n}f", raw[: self.rows * self.n * 4])
         packed = bytearray(self.num_chunks * CHUNK_BYTES)
@@ -231,7 +224,7 @@ class SoftmaxRowsPartialApp(IpuApp):
         state.xmem.write_address(CVEC_ADDR, struct.pack("<128f", *([LOG2E] * LANES)))
         state.xmem.write_address(PART_MASK_ADDR, self._partition_masks())
 
-        # CR15.valid_elements = N masks every AGG/ACTIVATE to the first N lanes.
+        # CR15.valid_elements = N masks every AGG/ACTIVATE to the first N elements.
         state.set_cr_dstructure(valid_elements=self.n)
 
         # CR0=0, CR1=1 are read-only hardware constants (reused as zero source /
@@ -258,7 +251,7 @@ class SoftmaxRowsPartialApp(IpuApp):
         state.regfile.set_cr(11, RING_ELEMENTS)
         state.regfile.set_cr(12, self.ps)              # partition element stride (ps)
         # CR13 = chunks in a FULL group. maxvec/rvec hold one slot per logical
-        # row in a single 128-lane vector, so a group is at most 128 logical
+        # row in a single 128-element vector, so a group is at most 128 logical
         # rows = 128/P chunks. The .asm caps each group at this and runs a
         # short final group; see the group-loop note in the .asm header.
         state.regfile.set_cr(13, self.chunks_per_group)
@@ -268,9 +261,9 @@ class SoftmaxRowsPartialApp(IpuApp):
         """Write the output in the SAME row-major layout as the input file.
 
         Pass 4 already re-packs on-device: its reverse r_cyclic slide places
-        logical row p back at lanes [p*ps, p*ps+N) of the output chunk, so the
+        logical row p back at elements [p*ps, p*ps+N) of the output chunk, so the
         chunk in XMEM mirrors the input chunk exactly. What XMEM additionally
-        holds is *padding* the input file never had -- the (ps - N) dead lanes
+        holds is *padding* the input file never had -- the (ps - N) dead elements
         inside each partition, and the rows padded up to a multiple of P to
         fill the last chunk. Dropping those here is the read-back mirror of
         _pack_input, and makes the output file byte-for-byte the same shape as
@@ -294,3 +287,66 @@ class SoftmaxRowsPartialApp(IpuApp):
     def run(self, **kwargs):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
+
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain -- the constructor
+# guard delegates to it rather than restating the bounds.
+
+
+def _supports(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    bad = positive_dims(q)
+    if bad:
+        return no(bad)
+    if not q.along_rows:
+        return no("reduces down columns, not along rows")
+    if q.n > LANES:
+        return no(
+            f"packs whole rows into one {LANES}-element chunk, so it needs a row "
+            f"of at most {LANES} elements; this row has {q.n}"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    return {"n": q.n, "rows": q.rows}
+
+
+def _explain(**params):
+    q = softmax_query(params["shape"], params["dim"])
+    ps = partition_size(q.n)
+    p = LANES // ps
+    return (
+        f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
+        f"P={p} logical rows per {LANES}-element chunk, in groups of "
+        f"{LANES // p} chunks."
+    )
+
+
+SPEC = KernelSpec(
+    name="softmax_rows_partial",
+    op="softmax",
+    variant="rows_partial",
+    app_class=SoftmaxRowsPartialApp,
+    asm="softmax_rows_partial.asm",
+    # Every callback below indexes these, so the registry checks them first:
+    # an omitted parameter is then a refusal that names what is missing.
+    requires=("shape", "dim"),
+    tags=("fp32-wide", "packed"),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=lambda **params: (WIDE_VECTOR_ONLY,),
+    bundle=lambda **params: softmax_query(params["shape"], params["dim"]).bundle,
+    # This kernel genuinely handles n == 128 too (that is just P=1), so it and
+    # softmax_rows both claim that width. `supports` states what the kernel CAN
+    # do; `cost` decides which one should WIN. softmax_rows is the specialised
+    # full-width path, so make it strictly cheaper at exactly 128 while this
+    # kernel stays the choice below it.
+    cost=lambda **params: (
+        2.0 if softmax_query(params["shape"], params["dim"]).n == LANES else 1.0
+    ),
+)

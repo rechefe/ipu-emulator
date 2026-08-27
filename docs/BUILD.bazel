@@ -5,6 +5,7 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 filegroup(
     name = "doc_sources",
     srcs = glob(["content/**/*.md"]),
+    visibility = ["//visibility:public"],
 )
 
 py_binary(
