@@ -20,6 +20,12 @@ dependencies = [
 ipu-emu-py = { path = "../ipu-emu-py", editable = true }
 ipu-as-py = { path = "../ipu-as-py", editable = true }
 ipu-common = { path = "../ipu-common", editable = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.optional-dependencies]
 dev = [
