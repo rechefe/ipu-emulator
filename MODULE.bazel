@@ -56,5 +56,11 @@ pip.parse(
     hub_name = "ipu_as_deps",
     python_version = "3.10",
     requirements_lock = "@ipu_as_requirements//:requirements.txt",
+    # torch is locked to its +cpu build (see ipu-apps/pyproject.toml's
+    # tool.uv.index); that wheel variant is only published on PyTorch's own
+    # index, not PyPI, so pip needs it too when installing the lock file.
+    extra_pip_args = [
+        "--extra-index-url=https://download.pytorch.org/whl/cpu",
+    ],
 )
 use_repo(pip, "ipu_as_deps")
