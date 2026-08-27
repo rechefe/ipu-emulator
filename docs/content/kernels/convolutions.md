@@ -110,6 +110,29 @@ must divide 128), which is why width is capped at 128 for every kernel except
 `conv_universal_wide384` (built for exactly width=384, spanning 3 chunks per
 row) and the fixed-shape `conv_first_layer`.
 
+## Taps are hand-unrolled, not looped
+
+Every 3x3 kernel here (`conv_universal`, `depthwise_conv_universal`, and
+their `_bn_activation` twins) processes its 9 taps as 9 separate, individually
+written VLIW cycles in the `.asm` -- there is no runtime loop over taps, and
+no Jinja macro generating them from a template either; each tap's instruction
+words are hardcoded in sequence.
+
+This is a direct consequence of the taps not being identical work. Each tap
+reads a different spatial offset (`kr, kc` relative to the output pixel, see
+the tap-offset table in `conv_universal.asm`'s header comment), so the offset
+arithmetic differs tap to tap; several taps additionally double as a load
+cycle for an upcoming channel or a store/activation cycle (tap 1 doubles as
+the `r_acc` reset via `acc.add.first`, the last tap fuses in
+`ACTIVATE.QUANTIZE`). A runtime loop body would have to be the union of all
+of that -- branch-selected per iteration -- which costs a branch and a
+mispredict-adjacent stall every cycle instead of every 9. Unrolling lets each
+cycle issue exactly the slots it needs and nothing else, which is what gets
+these kernels to 9 cycles/channel (see [Cost](#cost)) in the first place.
+
+Pointwise's single tap has no such structure to unroll -- one MULT/ACC pair
+per channel already is the loop body.
+
 ## Standard and pointwise convolution
 
 `conv_universal` and `pointwise_conv_unified` (plus their `_bn_activation`
