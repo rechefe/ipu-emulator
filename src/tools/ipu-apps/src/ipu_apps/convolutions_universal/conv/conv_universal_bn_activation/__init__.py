@@ -61,9 +61,13 @@ from ipu_apps.convolutions_universal import (
     unpack_output_chunked,
 )
 from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
     min_rows_for_chunk_floor,
     next_valid_cols,
+    positive_dims,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -85,6 +89,7 @@ FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1
 
 BIAS_ELEMENT_OFFSET = 1  # super-block element 0 is the bias; channels start at element 1
 
+
 # Mask slot assignment — a single R_MASK blob (loaded once at init) carries all
 # three slots the asm needs.  Left/right edge columns are applied by mask_shift,
 # NOT by slots; the slots only zero whole out-of-bounds rows:
@@ -95,6 +100,7 @@ BIAS_ELEMENT_OFFSET = 1  # super-block element 0 is the bias; channels start at 
 MASK_SLOT_NONE = 0
 MASK_SLOT_TOP = 3
 MASK_SLOT_BOTTOM = 6
+
 
 def build_border_mask_blob(cols: int) -> bytes:
     """Build the single 128-byte (8 x 16-byte slot) R_MASK blob.
@@ -121,6 +127,7 @@ def build_border_mask_blob(cols: int) -> bytes:
                 byte_idx = slot * 16 + bit // 8
                 mask[byte_idx] |= 1 << (bit % 8)
     return bytes(mask)
+
 
 def _pack_conv_weights_fpb28(
     weights_reordered: np.ndarray, bias: np.ndarray,
@@ -158,6 +165,7 @@ def _pack_conv_weights_fpb28(
                 dst = sb_base + BIAS_ELEMENT_OFFSET + s * 9  # 1,10,19,...
                 packed[dst:dst + 9] = weights_reordered[f, ic, :]
     return packed.tobytes()
+
 
 class ConvUniversalBnActivationApp(IpuApp):
     """Universal 3x3 convolution + folded-bias + ReLU application harness (FP32).
@@ -347,3 +355,91 @@ class ConvUniversalBnActivationApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. Same
+# domain as conv_universal except this twin REQUIRES apply_relu=True (it
+# unconditionally applies ReLU).
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups} (depthwise has its own kernel)")
+    if not q.apply_relu:
+        return no(
+            "this kernel unconditionally applies ReLU; apply_relu=False has "
+            "no matching app here (see conv_universal for the no-bias/"
+            "no-activation path)"
+        )
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "height": q.height, "width": q.width,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    return (
+        f"kernel_size=3, groups=1, stride=1, padding=1, apply_relu=True: the "
+        f"universal 3x3 conv kernel (FP32) with folded bias + ReLU. {q.height}"
+        f"x{q.width} pads internally to {rows}x{cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (rows, cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = rows * cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {rows}x{cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_universal_bn_activation",
+    op="conv2d",
+    variant="standard_bn_activation",
+    app_class=ConvUniversalBnActivationApp,
+    asm="conv_universal_bn_activation.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

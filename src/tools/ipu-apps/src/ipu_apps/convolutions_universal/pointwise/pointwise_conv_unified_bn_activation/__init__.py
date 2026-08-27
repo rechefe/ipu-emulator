@@ -51,8 +51,12 @@ from ipu_apps.convolutions_universal import (
     CHUNK_ELEMENTS,
 )
 from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
     pointwise_pad_shape,
+    positive_dims,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -69,6 +73,7 @@ if TYPE_CHECKING:
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 MASK_SLOT_BYTES = 16  # 128-bit mask, mode-blind (not widened)
+
 
 class PointwiseConvUnifiedBnActivationApp(IpuApp):
     """Unified pointwise (1x1) convolution + folded-bias + ReLU harness (FP32).
@@ -318,3 +323,96 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. Same
+# domain as pointwise_conv_unified except this twin REQUIRES apply_relu=True
+# (it unconditionally applies ReLU) -- see _spec_support.bias_requires_relu.
+#
+# `bias` (the actual tensor, not just has_bias:bool) is not part of the
+# registry query -- like every other kernel here, the registry carries only
+# shapes/config, never tensor data. A caller that resolves this kernel passes
+# its own bias array to the constructor directly (see
+# convolutions_universal.layers.run_layer).
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 1:
+        return no(f"handles only kernel_size=1 (pointwise); got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 0:
+        return no(f"handles only padding=0 (no neighbourhood to pad for); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (a 1x1 depthwise conv has no matching app); got {q.groups}")
+    if q.in_channels % 8 != 0:
+        return no(f"in_channels ({q.in_channels}) must be a multiple of 8")
+    if q.out_channels % 4 != 0:
+        return no(f"out_channels ({q.out_channels}) must be a multiple of 4")
+    if q.width > 128:
+        return no(f"width ({q.width}) exceeds 128, the largest width this app supports")
+    if not q.apply_relu:
+        return no(
+            "this kernel unconditionally applies ReLU; apply_relu=False has "
+            "no matching app here (see pointwise_conv_unified for the "
+            "no-bias/no-activation path)"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "height": q.height, "width": q.width,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return (
+        f"kernel_size=1, groups=1, stride=1, padding=0, apply_relu=True: the "
+        f"unified pointwise kernel (FP32) with folded bias + ReLU. {q.height}x"
+        f"{q.width} pads internally to {padded_rows}x{padded_cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (padded_rows, padded_cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = padded_rows * padded_cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {padded_rows}x{padded_cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="pointwise_conv_unified_bn_activation",
+    op="conv2d",
+    variant="pointwise_bn_activation",
+    app_class=PointwiseConvUnifiedBnActivationApp,
+    asm="pointwise_conv_unified_bn_activation.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

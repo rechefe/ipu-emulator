@@ -66,8 +66,11 @@ from ipu_apps.convolutions_universal import (
     pack_input_chunked,
 )
 from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
     min_rows_for_chunk_floor,
     next_valid_cols,
+    positive_dims,
 )
 # Reuse the conv_universal_bn_activation mask-blob builder so the depthwise
 # apps share one border-mask implementation: a single 128-byte blob (slots
@@ -76,6 +79,7 @@ from ipu_apps.convolutions_universal._spec_support import (
 from ipu_apps.convolutions_universal.conv.conv_universal_bn_activation import (
     build_border_mask_blob,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -101,6 +105,7 @@ CH_SLOT_ELEMENTS = 9  # per-channel slot: 9 weight taps, no bias element
 SUPER_BLOCK_ELEMENTS = 256
 SUPER_BLOCK_ROWS = SUPER_BLOCK_ELEMENTS * 4 // ROW_BYTES  # = 2
 
+
 def _pack_depthwise_kernel(kernel_raw: np.ndarray, channels: int) -> bytes:
     """Pack per-channel 9 weight taps into FPB=28 super-blocks (float32).
 
@@ -125,6 +130,7 @@ def _pack_depthwise_kernel(kernel_raw: np.ndarray, channels: int) -> bytes:
             slot = sb_base + s * CH_SLOT_ELEMENTS
             packed[slot:slot + 9] = kernel_raw[ch]
     return packed.tobytes()
+
 
 class DepthwiseConvUniversalApp(IpuApp):
     """Universal depthwise 3x3 convolution harness (no bias, no activation, FP32).
@@ -343,3 +349,86 @@ class DepthwiseConvUniversalApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# groups == in_channels (depthwise); no bias, no ReLU here.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if not q.is_depthwise:
+        return no(f"handles only depthwise (groups==in_channels); got groups={q.groups}, in_channels={q.in_channels}")
+    if q.out_channels != q.in_channels:
+        return no(f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}")
+    if q.apply_relu:
+        return no("apply_relu=True has no matching app here; see depthwise_conv_universal_bn_activation")
+    if q.has_bias:
+        return no("bias is not supported by this kernel; see depthwise_conv_universal_bn_activation")
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {"height": q.height, "width": q.width, "channels": q.in_channels}
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    return (
+        f"kernel_size=3, groups=in_channels (depthwise), stride=1, padding=1: "
+        f"the universal depthwise 3x3 conv kernel (FP32). {q.height}x{q.width} "
+        f"pads internally to {rows}x{cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (rows, cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = rows * cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {rows}x{cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="depthwise_conv_universal",
+    op="conv2d",
+    variant="depthwise",
+    app_class=DepthwiseConvUniversalApp,
+    asm="depthwise_conv_universal.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

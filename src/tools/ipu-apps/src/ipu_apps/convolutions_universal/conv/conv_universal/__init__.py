@@ -54,9 +54,13 @@ from ipu_apps.convolutions_universal import (
     unpack_output_chunked,
 )
 from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    conv_query,
     min_rows_for_chunk_floor,
     next_valid_cols,
+    positive_dims,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -81,6 +85,7 @@ SUPER_BLOCK_ROWS = 2                       # the same super-block, in XMEM rows
 HALF_FPB = CHUNK_ELEMENTS // 9             # 14: channels per 128-element half (9 taps each)
 FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1 shared index)
 
+
 # Mask slot assignment — a single R_MASK blob (loaded once at init) carries all
 # three slots the asm needs.  Left/right edge columns are applied by mask_shift,
 # NOT by slots; the slots only zero whole out-of-bounds rows:
@@ -91,6 +96,7 @@ FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1
 MASK_SLOT_NONE = 0
 MASK_SLOT_TOP = 3
 MASK_SLOT_BOTTOM = 6
+
 
 def build_border_mask_blob(cols: int) -> bytes:
     """Build the single 128-byte (8 x 16-byte slot) R_MASK blob.
@@ -131,6 +137,7 @@ def build_border_mask_blob(cols: int) -> bytes:
                 mask[byte_idx] |= 1 << (bit % 8)
     return bytes(mask)
 
+
 def _pack_conv_weights_fpb28(weights_reordered: np.ndarray) -> bytes:
     """Pack [out_ch, in_ch, 9] float32 (taps already reordered) into FPB=28
     super-blocks.
@@ -159,6 +166,7 @@ def _pack_conv_weights_fpb28(weights_reordered: np.ndarray) -> bytes:
                 dst = sb_base + s * 9  # linear layout: 0,9,18,...,243
                 packed[dst:dst + 9] = weights_reordered[f, ic, :]
     return packed.tobytes()
+
 
 class ConvUniversalApp(IpuApp):
     """Universal standard 3x3 convolution application harness (FP32).
@@ -398,3 +406,91 @@ class ConvUniversalApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain: kernel_size==3,
+# groups==1 (plain conv; depthwise has its own kernel), stride==1, padding==1
+# ("same" padding for a 3x3 kernel, the only mode this app's masking scheme
+# implements). See _spec_support.ConvQuery for the full query shape.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups} (depthwise has its own kernel)")
+    if q.apply_relu:
+        return no("apply_relu=True has no matching app here; see conv_universal_bn_activation")
+    if q.has_bias:
+        return no("bias is not supported by this kernel; see conv_universal_bn_activation")
+    if q.width > 128:
+        return no(
+            f"width ({q.width}) exceeds 128, the largest width this app "
+            "supports; see conv_universal_wide384 for wider images"
+        )
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "height": q.height, "width": q.width,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    return (
+        f"kernel_size=3, groups=1, stride=1, padding=1: the universal 3x3 "
+        f"conv kernel (FP32). {q.height}x{q.width} pads internally to "
+        f"{rows}x{cols}."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    cols = next_valid_cols(q.width)
+    rows = min_rows_for_chunk_floor(q.height, cols)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (rows, cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = rows * cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {rows}x{cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_universal",
+    op="conv2d",
+    variant="standard",
+    app_class=ConvUniversalApp,
+    asm="conv_universal.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

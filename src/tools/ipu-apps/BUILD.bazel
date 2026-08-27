@@ -362,3 +362,17 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Framework-free registry dispatch + torch.nn.Conv2d adapter -- resolves
+# through kernel_registry, so every conv2d kernel's .asm is data here (same
+# convention as test_kernel_registry above).
+py_pytest_test(
+    name = "test_layers",
+    srcs = ["test/test_layers.py"],
+    data = glob(["src/ipu_apps/convolutions_universal/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
