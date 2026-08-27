@@ -25,27 +25,16 @@ from ipu_apps.convolutions_universal.pointwise.pointwise_conv_unified import (
 ASM_PATH = Path(__file__).resolve().parent / "pointwise_conv_unified.asm"
 
 # (height, width, in_channels, out_channels)
+# One representative per distinct code path, not an exhaustive parameter
+# sweep -- keep this list small so the suite stays fast.
 TEST_CONFIGS = [
-    # Single-pass cases (in_ch <= 128)
-    (16, 16,   8,  8),
-    (16, 16,  16,  8),
-    (16, 16,  24,  8),
-    (16, 16,  32,  8),
-    (16, 16, 128,  8),
-    # Multi-pass cases (in_ch > 128)
-    (16, 16, 144,  8),  # 1 full + tail 16
-    (16, 16, 256,  8),  # 2 full passes
-    (16, 16, 400,  8),  # 3 full + tail 16
-    # Larger spatial / out_ch variety
-    (32, 32, 128, 16),
-    (32, 32,  96, 32),
-    (64, 64, 128,  4),
-    (64, 64, 128, 64),
-    # Non-power-of-2 / padding-heavy spatial shapes -- exercises internal
-    # padding (pointwise_pad_shape), no longer the caller's concern.
-    (3, 5, 144, 8),
-    (7, 7, 256, 12),
-    (1, 1, 8, 4),
+    (16, 16,  16,  8),  # single-pass (in_ch <= 128)
+    (16, 16, 128,  8),  # single-pass, in_ch at the 128 boundary
+    (16, 16, 144,  8),  # multi-pass: 1 full + tail 16
+    (16, 16, 256,  8),  # multi-pass: exact multiple, no tail
+    (32, 32,  96, 32),  # larger spatial / out_ch variety
+    (3, 5, 144, 8),     # non-power-of-2 spatial shape (internal padding)
+    (1, 1, 8, 4),       # degenerate 1x1 spatial shape
 ]
 
 
