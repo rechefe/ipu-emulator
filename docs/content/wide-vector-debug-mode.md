@@ -61,7 +61,7 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit elements starting at a **
 
 ## Semantics that differ from normal mode
 
-- **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 elements.
+- **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **mode-blind** — it runs identically in wide mode as in narrow mode (each of the 128 mask bits gates the corresponding FP32/INT32 element one-for-one, the same lane mapping as narrow mode's per-byte gating). This has been true since the mode-blindness work landed (commit `08b5e21`, "honor masking and pad_mode in wide-vector debug mode").
 - **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full element results remain in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
 - **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
 
