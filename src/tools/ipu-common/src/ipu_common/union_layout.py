@@ -1,0 +1,294 @@
+"""Automatic union layout solver for IPU instruction slots.
+
+Given INSTRUCTION_SPEC, this module computes the optimal binary field layout
+for each slot by minimising total bit-width while correctly sharing fields
+across opcodes that never co-occur.
+
+Algorithm (per slot)
+====================
+1. For each operand type T, count the maximum simultaneous uses in any single
+   instruction.  Allocate that many *atomic slots* for T.
+2. Assign each instruction's operands to atomic slots (greedy, declaration
+   order within each type).
+3. Build a *user set* for every atomic slot — the set of opcode names whose
+   encoding touches that slot.
+4. Greedy bin-packing: merge atomic slots into *union fields* when no
+   instruction uses both (disjoint user sets).  Atomic slots are processed in
+   alphabetical order (type name then slot index) for determinism.
+5. Canonical type for a merged field = widest type; ties broken by
+   alphabetical type name (first alphabetically wins).
+6. Field order = bin-creation order (deterministic by the sorted input).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from ipu_common.acc_stride_enums import (
+    ELEMENTS_IN_ROW_NAMES,
+    HORIZONTAL_STRIDE_NAMES,
+    VERTICAL_STRIDE_NAMES,
+)
+from ipu_common.activations import ACTIVATION_FN_NAMES
+from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
+from ipu_common.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
+from ipu_common import lr_inc_dec_imm
+from ipu_common import reshape_mask
+from ipu_common.registers import REGISTER_DEFINITIONS
+
+# Operand types whose bit-width is determined by union packing, not a fixed constant.
+_DERIVED_OPERAND_TYPES: frozenset[str] = frozenset(
+    {"LrIncDecImmediate", "LrOrReshapeMaskImmediate"}
+)
+
+# operand type name -> (module, attribute) written by finalize_derived_operand_bits()
+# once the union field carrying that type has been packed.
+_DERIVED_OPERAND_TARGETS: dict[str, tuple] = {
+    "LrIncDecImmediate": (lr_inc_dec_imm, "LR_INC_DEC_IMM_FIELD_BITS"),
+    "LrOrReshapeMaskImmediate": (reshape_mask, "RESHAPE_MASK_FIELD_BITS"),
+}
+
+# Per-slot target widths (bits).  Padding is applied after union packing when the
+# solver's natural width is narrower — keeps encoded LR sub-instructions stable.
+_SLOT_TARGET_BITS: dict[str, int] = {
+    "lr": 20,
+}
+
+
+def _enum_bits(names: tuple) -> int:
+    return (len(names) - 1).bit_length()
+
+
+def get_operand_type_bits() -> dict[str, int]:
+    """Return the bit-width for each operand type string used in instruction_spec."""
+    lr_count: int = REGISTER_DEFINITIONS["lr"]["count"]
+    cr_count: int = REGISTER_DEFINITIONS["cr"]["count"]
+
+    return {
+        "MultStageReg": 2,  # MultStageRegField overrides bits() → 2
+        "LrIdx": (lr_count - 1).bit_length(),
+        "CrIdx": (cr_count - 1).bit_length(),
+        "DstructureCrIdx": (cr_count - 1).bit_length(),
+        "LcrIdx": (lr_count + cr_count - 1).bit_length(),
+        # Width 0 at layout time — the shared union field width is set in
+        # finalize_derived_operand_bits() after packing.
+        "LrIncDecImmediate": 0,
+        # LRD0, LRD2, ..., LRD14: register-pair alias over LR (named after the
+        # lower register), one pair per two LR registers.
+        "LrdIdx": ((lr_count // 2) - 1).bit_length(),
+        # ADDBI's immediate is a plain byte — width is intrinsic (8 bits), not
+        # derived from union packing (unlike LrIncDecImmediate).
+        "AddbiImmediate": 8,
+        "LrModPow2KImmediate": LR_MOD_POW2_K_FIELD_BITS,
+        "MultMaskOffsetImmediate": MULT_MASK_OFFSET_FIELD_BITS,
+        # Width 0 at layout time — the shared union field width is set in
+        # finalize_derived_operand_bits() after packing.
+        "LrOrReshapeMaskImmediate": 0,
+        "BreakImmediate": 16,
+        "Label": 10,  # (MAX_PROGRAM_SIZE - 1).bit_length() for size 1024
+        "ElementsInRow": _enum_bits(ELEMENTS_IN_ROW_NAMES),
+        "HorizontalStride": _enum_bits(HORIZONTAL_STRIDE_NAMES),
+        "VerticalStride": _enum_bits(VERTICAL_STRIDE_NAMES),
+        "ActivationFn": _enum_bits(ACTIVATION_FN_NAMES),
+    }
+
+
+@dataclass
+class UnionField:
+    """One field in a slot's union layout.
+
+    Attributes:
+        index: 0-based position in the slot's non-opcode field list.
+        canonical_type: Operand type name that determines bit-width and the
+            field-key suffix in the decoded instruction dict.
+        bits: Bit-width of this field (== type_bits[canonical_type]).
+        users: Maps opcode_name → (operand_name, actual_type) for every
+            instruction that writes a meaningful value here.  Instructions
+            that leave this field at its default are absent from the dict.
+    """
+    index: int
+    canonical_type: str
+    bits: int
+    users: dict[str, tuple[str, str]] = field(default_factory=dict)
+
+
+@dataclass
+class SlotUnion:
+    """Complete union layout for one VLIW slot.
+
+    Attributes:
+        slot: Slot name (e.g. ``"lr"``, ``"mult"``).
+        opcode_bits: Number of bits used by the opcode field.
+        fields: Ordered list of union fields (opcode not included).
+        opcode_bindings: Maps opcode_name → [(field_index, operand_name)]
+            in operand declaration order.  Every opcode appears here; those
+            with no operands map to an empty list.
+    """
+    slot: str
+    opcode_bits: int
+    fields: list[UnionField]
+    opcode_bindings: dict[str, list[tuple[int, str]]]
+
+
+def compute_slot_layout(
+    slot_name: str,
+    instructions: dict,
+    type_bits: dict[str, int],
+) -> SlotUnion:
+    """Compute the union layout for a single slot."""
+
+    # ------------------------------------------------------------------ #
+    # Step 1 & 2: assign each operand to a typed atomic slot              #
+    # ------------------------------------------------------------------ #
+    # type_slots[type_name][slot_idx] = mutable set of opcode names using it
+    type_slots: dict[str, list[set[str]]] = {}
+    # slot_assignment[opcode_name] = [(type_name, slot_idx), ...] per operand
+    slot_assignment: dict[str, list[tuple[str, int]]] = {}
+
+    for opcode_name, inst_def in instructions.items():
+        assignment: list[tuple[str, int]] = []
+        type_cursor: dict[str, int] = {}
+        for op in inst_def["operands"]:
+            t = op["type"]
+            idx = type_cursor.get(t, 0)
+            type_cursor[t] = idx + 1
+            if t not in type_slots:
+                type_slots[t] = []
+            while len(type_slots[t]) <= idx:
+                type_slots[t].append(set())
+            type_slots[t][idx].add(opcode_name)
+            assignment.append((t, idx))
+        slot_assignment[opcode_name] = assignment
+
+    # ------------------------------------------------------------------ #
+    # Step 3: sorted list of atomic slots (alphabetical type, then idx)  #
+    # ------------------------------------------------------------------ #
+    atomic_slots: list[tuple[str, int, frozenset[str]]] = [
+        (t, i, frozenset(users))
+        for t in sorted(type_slots)
+        for i, users in enumerate(type_slots[t])
+    ]
+
+    # ------------------------------------------------------------------ #
+    # Step 4: greedy bin-packing                                          #
+    # ------------------------------------------------------------------ #
+    bins: list[list[tuple[str, int, frozenset[str]]]] = []
+    for t, idx, users in atomic_slots:
+        placed = False
+        for bin_ in bins:
+            if all(users.isdisjoint(eu) for _, _, eu in bin_):
+                bin_.append((t, idx, users))
+                placed = True
+                break
+        if not placed:
+            bins.append([(t, idx, users)])
+
+    # (t, slot_idx) → bin_index
+    slot_to_bin: dict[tuple[str, int], int] = {
+        (t, si): bin_idx
+        for bin_idx, bin_ in enumerate(bins)
+        for (t, si, _) in bin_
+    }
+
+    # ------------------------------------------------------------------ #
+    # Step 5 & 6: build UnionField objects                                #
+    # ------------------------------------------------------------------ #
+    fields: list[UnionField] = []
+    for bin_idx, bin_ in enumerate(bins):
+        max_width = max(type_bits[t] for t, _, _ in bin_)
+        canonical = min(
+            (t for t, _, _ in bin_ if type_bits[t] == max_width),
+        )
+
+        # Build users dict: opcode_name → (operand_name, actual_type)
+        users_map: dict[str, tuple[str, str]] = {}
+        for (t, si, user_set) in bin_:
+            for opcode_name in user_set:
+                count = 0
+                for op in instructions[opcode_name]["operands"]:
+                    if op["type"] == t:
+                        if count == si:
+                            users_map[opcode_name] = (op["name"], t)
+                            break
+                        count += 1
+
+        fields.append(UnionField(
+            index=bin_idx,
+            canonical_type=canonical,
+            bits=max_width,
+            users=users_map,
+        ))
+
+    # ------------------------------------------------------------------ #
+    # Step 7: build opcode_bindings                                       #
+    # ------------------------------------------------------------------ #
+    opcode_bindings: dict[str, list[tuple[int, str]]] = {
+        opcode_name: [
+            (slot_to_bin[(t, si)], op["name"])
+            for op, (t, si) in zip(
+                instructions[opcode_name]["operands"],
+                slot_assignment[opcode_name],
+            )
+        ]
+        for opcode_name in instructions
+    }
+
+    n_opcodes = len(instructions)
+    opcode_bits = max(1, (n_opcodes - 1).bit_length()) if n_opcodes > 1 else 1
+
+    return SlotUnion(
+        slot=slot_name,
+        opcode_bits=opcode_bits,
+        fields=fields,
+        opcode_bindings=opcode_bindings,
+    )
+
+
+def _pad_slot_to_target(su: SlotUnion) -> None:
+    """Grow union fields when packing is narrower than the hardware slot width."""
+    target = _SLOT_TARGET_BITS.get(su.slot)
+    if target is None:
+        return
+    total = su.opcode_bits + sum(f.bits for f in su.fields)
+    deficit = target - total
+    if deficit <= 0:
+        return
+    # Prefer padding the field that carries LrModPow2K (k); the extra bit is unused.
+    for field in su.fields:
+        if any(
+            actual_type == "LrModPow2KImmediate"
+            for _opcode, (_operand_name, actual_type) in field.users.items()
+        ):
+            field.bits += deficit
+            return
+    raise ValueError(
+        f"Cannot pad {su.slot} slot to {target} bits (currently {total})"
+    )
+
+
+def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
+    """Populate module-level constants for operand types with derived bit-widths."""
+    remaining = dict(_DERIVED_OPERAND_TARGETS)
+    for su in slot_unions.values():
+        for field in su.fields:
+            for _opcode, (_operand_name, actual_type) in field.users.items():
+                target = remaining.pop(actual_type, None)
+                if target is not None:
+                    module, attr = target
+                    setattr(module, attr, field.bits)
+    if remaining:
+        raise ValueError(
+            f"Operand types not found in any slot union layout: {sorted(remaining)}"
+        )
+
+
+def compute_slot_layouts(instruction_spec: dict) -> dict[str, SlotUnion]:
+    """Compute union layouts for all slots in *instruction_spec*."""
+    type_bits = get_operand_type_bits()
+    slot_unions = {
+        slot: compute_slot_layout(slot, instructions, type_bits)
+        for slot, instructions in instruction_spec.items()
+    }
+    for su in slot_unions.values():
+        _pad_slot_to_target(su)
+    finalize_derived_operand_bits(slot_unions)
+    return slot_unions

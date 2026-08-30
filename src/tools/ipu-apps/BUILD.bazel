@@ -1,0 +1,479 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//:asm_rules.bzl", "assemble_asm")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pyproject.toml",
+])
+
+py_library(
+    name = "ipu_apps_lib",
+    srcs = glob(["src/ipu_apps/**/*.py"]),
+    imports = ["src"],
+    deps = [
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-common:ipu_common_lib",
+    ] + get_requirements(requirement),
+)
+
+# -- Fully-connected app ---------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/fully_connected/fully_connected.asm",
+])
+
+filegroup(
+    name = "fc_test_data",
+    srcs = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_fully_connected",
+    src = "src/ipu_apps/fully_connected/fully_connected.asm",
+)
+
+py_binary(
+    name = "fully_connected",
+    srcs = ["src/ipu_apps/fully_connected/__main__.py"],
+    main = "src/ipu_apps/fully_connected/__main__.py",
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_fully_connected",
+    srcs = ["test/test_fully_connected.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- softmax apps (FP32 wide-vector) ---------------------------------------
+#
+# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
+# the app .asm is provided as data; no pre-assembled .bin target is needed.
+
+py_pytest_test(
+    name = "test_softmax_rows",
+    srcs = ["test/test_softmax_rows.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_rows_partial",
+    srcs = ["test/test_softmax_rows_partial.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_rows_long",
+    srcs = ["test/test_softmax_rows_long.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_columns",
+    srcs = ["test/test_softmax_columns.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_softmax_columns_packed",
+    srcs = ["test/test_softmax_columns_packed.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Runs every softmax app, so it needs all five .asm files.
+py_pytest_test(
+    name = "test_softmax_layout_roundtrip",
+    srcs = ["test/test_softmax_layout_roundtrip.py"],
+    data = [
+        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
+        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
+        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
+        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
+        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Router only -- no .asm needed; it constructs apps but never runs them.
+py_pytest_test(
+    name = "test_softmax_registry",
+    srcs = ["test/test_softmax_registry.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Kernel registry mechanics + the generic conformance suite, which assembles
+# and runs whichever kernel the registry resolves -- so every registered .asm
+# is data here, and a newly added kernel is covered without editing this rule.
+py_pytest_test(
+    name = "test_kernel_registry",
+    srcs = ["test/test_kernel_registry.py"],
+    data = glob(["src/ipu_apps/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Checks the routing tables printed in the docs against what the registry
+# actually answers. The tables are checked-in text, so without this they are a
+# second copy of the routing rules -- the copy that goes stale.
+py_pytest_test(
+    name = "test_docs_routing",
+    srcs = ["test/test_docs_routing.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Reshape to token view -------------------------------------------------
+
+exports_files([
+    "src/ipu_apps/reshape_token_view/reshape_token_view.asm",
+])
+
+filegroup(
+    name = "reshape_test_data",
+    srcs = glob(["src/ipu_apps/reshape_token_view/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_reshape_token_view",
+    src = "src/ipu_apps/reshape_token_view/reshape_token_view.asm",
+)
+
+py_binary(
+    name = "reshape_token_view",
+    srcs = ["src/ipu_apps/reshape_token_view/__main__.py"],
+    main = "src/ipu_apps/reshape_token_view/__main__.py",
+    data = [
+        ":assemble_reshape_token_view.bin",
+        ":reshape_test_data",
+    ],
+    env = {
+        "RESHAPE_INST_BIN": "$(rootpath :assemble_reshape_token_view.bin)",
+        "RESHAPE_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/reshape_token_view/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_reshape_token_view",
+    srcs = ["test/test_reshape_token_view.py"],
+    data = [
+        ":assemble_reshape_token_view.bin",
+        ":reshape_test_data",
+    ],
+    env = {
+        "RESHAPE_INST_BIN": "$(rootpath :assemble_reshape_token_view.bin)",
+        "RESHAPE_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/reshape_token_view/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Split to the x and z branches -----------------------------------------
+
+exports_files([
+    "src/ipu_apps/split_xz/split_xz.asm",
+])
+
+filegroup(
+    name = "split_xz_test_data",
+    srcs = glob(["src/ipu_apps/split_xz/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_split_xz",
+    src = "src/ipu_apps/split_xz/split_xz.asm",
+)
+
+py_binary(
+    name = "split_xz",
+    srcs = ["src/ipu_apps/split_xz/__main__.py"],
+    main = "src/ipu_apps/split_xz/__main__.py",
+    data = [
+        ":assemble_split_xz.bin",
+        ":split_xz_test_data",
+    ],
+    env = {
+        "SPLIT_XZ_INST_BIN": "$(rootpath :assemble_split_xz.bin)",
+        "SPLIT_XZ_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/split_xz/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_split_xz",
+    srcs = ["test/test_split_xz.py"],
+    data = [
+        ":assemble_split_xz.bin",
+        ":split_xz_test_data",
+    ],
+    env = {
+        "SPLIT_XZ_INST_BIN": "$(rootpath :assemble_split_xz.bin)",
+        "SPLIT_XZ_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/split_xz/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Concat the y and z branches -------------------------------------------
+
+exports_files([
+    "src/ipu_apps/concat_yz/concat_yz.asm",
+])
+
+filegroup(
+    name = "concat_yz_test_data",
+    srcs = glob(["src/ipu_apps/concat_yz/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_concat_yz",
+    src = "src/ipu_apps/concat_yz/concat_yz.asm",
+)
+
+py_binary(
+    name = "concat_yz",
+    srcs = ["src/ipu_apps/concat_yz/__main__.py"],
+    main = "src/ipu_apps/concat_yz/__main__.py",
+    data = [
+        ":assemble_concat_yz.bin",
+        ":concat_yz_test_data",
+    ],
+    env = {
+        "CONCAT_YZ_INST_BIN": "$(rootpath :assemble_concat_yz.bin)",
+        "CONCAT_YZ_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/concat_yz/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_concat_yz",
+    srcs = ["test/test_concat_yz.py"],
+    data = [
+        ":assemble_concat_yz.bin",
+        ":concat_yz_test_data",
+    ],
+    env = {
+        "CONCAT_YZ_INST_BIN": "$(rootpath :assemble_concat_yz.bin)",
+        "CONCAT_YZ_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/concat_yz/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Residual connection of the mixer --------------------------------------
+
+exports_files([
+    "src/ipu_apps/residual_mixer/residual_mixer.asm",
+])
+
+filegroup(
+    name = "residual_mixer_test_data",
+    srcs = glob(["src/ipu_apps/residual_mixer/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_residual_mixer",
+    src = "src/ipu_apps/residual_mixer/residual_mixer.asm",
+)
+
+py_binary(
+    name = "residual_mixer",
+    srcs = ["src/ipu_apps/residual_mixer/__main__.py"],
+    main = "src/ipu_apps/residual_mixer/__main__.py",
+    data = [
+        ":assemble_residual_mixer.bin",
+        ":residual_mixer_test_data",
+    ],
+    env = {
+        "RESIDUAL_MIXER_INST_BIN": "$(rootpath :assemble_residual_mixer.bin)",
+        "RESIDUAL_MIXER_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_mixer/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_residual_mixer",
+    srcs = ["test/test_residual_mixer.py"],
+    data = [
+        ":assemble_residual_mixer.bin",
+        ":residual_mixer_test_data",
+    ],
+    env = {
+        "RESIDUAL_MIXER_INST_BIN": "$(rootpath :assemble_residual_mixer.bin)",
+        "RESIDUAL_MIXER_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_mixer/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Residual connection of the MLP ----------------------------------------
+
+exports_files([
+    "src/ipu_apps/residual_mlp/residual_mlp.asm",
+])
+
+filegroup(
+    name = "residual_mlp_test_data",
+    srcs = glob(["src/ipu_apps/residual_mlp/test_data_format/**/*.bin"]),
+)
+
+assemble_asm(
+    name = "assemble_residual_mlp",
+    src = "src/ipu_apps/residual_mlp/residual_mlp.asm",
+)
+
+py_binary(
+    name = "residual_mlp",
+    srcs = ["src/ipu_apps/residual_mlp/__main__.py"],
+    main = "src/ipu_apps/residual_mlp/__main__.py",
+    data = [
+        ":assemble_residual_mlp.bin",
+        ":residual_mlp_test_data",
+    ],
+    env = {
+        "RESIDUAL_MLP_INST_BIN": "$(rootpath :assemble_residual_mlp.bin)",
+        "RESIDUAL_MLP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_mlp/test_data_format",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_residual_mlp",
+    srcs = ["test/test_residual_mlp.py"],
+    data = [
+        ":assemble_residual_mlp.bin",
+        ":residual_mlp_test_data",
+    ],
+    env = {
+        "RESIDUAL_MLP_INST_BIN": "$(rootpath :assemble_residual_mlp.bin)",
+        "RESIDUAL_MLP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_mlp/test_data_format",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Chains all five MambaVision kernels the way Block.forward sequences them, so
+# it needs every .bin and the reference data the chain starts from.
+py_pytest_test(
+    name = "test_mamba_vision_block",
+    srcs = ["test/test_mamba_vision_block.py"],
+    data = [
+        ":assemble_concat_yz.bin",
+        ":assemble_reshape_token_view.bin",
+        ":assemble_residual_mixer.bin",
+        ":assemble_residual_mlp.bin",
+        ":assemble_split_xz.bin",
+        ":reshape_test_data",
+        ":residual_mixer_test_data",
+    ],
+    env = {
+        "CONCAT_YZ_INST_BIN": "$(rootpath :assemble_concat_yz.bin)",
+        "RESHAPE_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/reshape_token_view/test_data_format",
+        "RESHAPE_INST_BIN": "$(rootpath :assemble_reshape_token_view.bin)",
+        "RESIDUAL_MIXER_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/residual_mixer/test_data_format",
+        "RESIDUAL_MIXER_INST_BIN": "$(rootpath :assemble_residual_mixer.bin)",
+        "RESIDUAL_MLP_INST_BIN": "$(rootpath :assemble_residual_mlp.bin)",
+        "SPLIT_XZ_INST_BIN": "$(rootpath :assemble_split_xz.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
