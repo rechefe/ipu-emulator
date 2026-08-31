@@ -23,11 +23,12 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.projections.proj_ffn1_240_p4 import ProjFFN1240P4App, K, N_OUT, N_TOK, N_STREAM
 
-_INST_BIN = Path(os.environ["PROJ_FFN1_240_P4_INST_BIN"])
 _SEED = 0xC0FFEE
 
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["PROJ_FFN1_240_P4_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="proj_ffn1_240_p4_"))
     rng = np.random.RandomState(_SEED)
 
