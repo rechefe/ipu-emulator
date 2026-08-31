@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.attention.attn_v_64x48 import AttnV64x48App
 from ipu_apps.attention.attn_v_64x48.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["ATTN_V_64X48_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["ATTN_V_64X48_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="attn_v_64x48_"))
     kwargs = generate(work)
 

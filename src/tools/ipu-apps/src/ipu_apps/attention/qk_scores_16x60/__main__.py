@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.attention.qk_scores_16x60 import QkScores16x60App
 from ipu_apps.attention.qk_scores_16x60.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["QK_SCORES_16X60_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["QK_SCORES_16X60_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="qk_scores_16x60_"))
     kwargs = generate(work)
 

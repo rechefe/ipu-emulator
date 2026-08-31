@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.attention.attn_scores_km_256x36 import AttnScoresKM256x36App
 from ipu_apps.attention.attn_scores_km_256x36.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["ATTN_SCORES_KM_256X36_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["ATTN_SCORES_KM_256X36_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="attn_scores_km_256x36_"))
     kwargs = generate(work)
 
