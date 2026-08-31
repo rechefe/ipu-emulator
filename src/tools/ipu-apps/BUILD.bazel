@@ -197,3 +197,465 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# =============================================================================
+# Cross-family seam tests and full-layer conformance checks for the
+# matmuls/projections/layernorm/residual_add/unfold/attention families ported
+# from ZDlinear -- see kernel_docs/kernel_layer_map.md. NOTE: these targets
+# reference apps defined in the matmuls/projections/attention families' own
+# BUILD.bazel blocks (pr-linear-kernels, pr-projections, pr-attention) and
+# will not resolve until those are merged.
+# =============================================================================
+
+# -- seam: matmul_576x192_x128 (QKV) -> attn_scores_km_64x48 --
+
+py_pytest_test(
+    name = "test_seam_qkv_matmul_scores_km_64x48",
+    size = "large",
+    srcs = ["test/test_seam_qkv_matmul_scores_km_64x48.py"],
+    data = [
+        ":assemble_matmul_576x192_x128.bin",
+        "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+    ],
+    env = {
+        "MATMUL_576X192_X128_INST_BIN": "$(rootpath :assemble_matmul_576x192_x128.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: proj_qkv_192_p4 / proj_qkv_240_p4 -> attn_scores_km (repack bridge) --
+
+py_pytest_test(
+    name = "test_seam_proj_qkv_to_scores_km_repack",
+    size = "large",
+    srcs = ["test/test_seam_proj_qkv_to_scores_km_repack.py"],
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+        "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+        ":assemble_proj_qkv_240_p4.bin",
+        "src/ipu_apps/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- full transformer layer, end to end (L4: d=192, N_TOK=64, L=4 layers) --
+# LayerNorm -> QKV proj -> repack -> scores -> softmax stub -> attn@V ->
+# head concat -> out_proj -> residual -> LayerNorm -> FFN1 -> silu -> FFN2 ->
+# residual, both attention mappings (query-major, key-major), run separately.
+#
+# Every target below that chains 2+ kernels through part or all of a layer
+# is `manual`: the full 4-layer stack measured 2h14m for a single mapping in
+# this environment, and per_stage_error still runs the whole single-layer
+# chain. Automatic per-push CI coverage for these kernels comes from each
+# app's own standalone test (`test_<app>_wide.py`) plus the pairwise `seam`
+# tests; run these explicitly when validating a cross-kernel change, e.g.:
+#   bazel test //src/tools/ipu-apps:test_full_layer_l4_query_major
+# The one exception is scale_visibility, which builds no kernels at all
+# (pure numpy arithmetic) and stays automatic as a free sanity check.
+
+_L4_FULL_LAYER_SRCS = [
+    "test/test_full_layer_l4.py",
+    "test/fixture_full_layer_chain.py",
+    "test/fixture_host_softmax_fold_stubs.py",
+]
+
+# USE_REAL_SOFTMAX=1 routes softmax through softmax_rows_partial /
+# softmax_columns_packed instead of the numpy stub -- see USE_REAL_SOFTMAX in
+# test_full_layer_l4.py and real_softmax_query_major/real_softmax_key_major
+# in fixture_full_layer_chain.py. Real kernel calls are far slower than the
+# stub (~30-35 min per mapping observed for L4's 4-layer stack, vs seconds
+# for the stub), so these are `manual` -- not swept into `bazel test //...`
+# -- and must be run explicitly, e.g.:
+#   bazel test //src/tools/ipu-apps:test_full_layer_l4_query_major_real_softmax
+_L4_REAL_SOFTMAX_ENV = {"USE_REAL_SOFTMAX": "1"}
+
+# Split into one bazel target per attention mapping (query-major, key-major)
+# -- combined into a single @pytest.mark.parametrize target, both mappings'
+# ~25-40 min runs together exceeded even a 3600s "enormous" bazel timeout in
+# the sandboxed environment. Each mapping now gets its own full budget.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major",
+    size = "enormous",
+    tags = ["manual"],
+    # A single "-k <expr>" bazel `args` entry containing spaces (e.g. "query_major
+    # and not scaled") arrives at pytest word-split into separate argv entries
+    # ("-k" "query_major" "and" "not" "scaled") -- some layer between bazel's
+    # test-runner and the rules_python_pytest shim re-tokenizes multi-word args
+    # entries on whitespace (reproduced with a plain "-k word1 word2 word3"
+    # entry too, so it is not specific to and/not/scaled; single-WORD args
+    # entries, including this file's "-k scale_is_visible"/"per_stage_error"
+    # elsewhere, are unaffected). Deselecting the one other test that would
+    # otherwise collide by substring match (--deselect takes one space-free
+    # node ID per flag) sidesteps the bug instead of fighting bazel/rule
+    # internals for it.
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major",
+    size = "enormous",
+    tags = ["manual"],
+    # See test_full_layer_l4_query_major's comment above for why this uses
+    # -k + --deselect instead of a single multi-word "-k" expression.
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# test_full_l4_attention_scale_is_visible matches neither "query_major" nor
+# "key_major" (it builds both references itself, no real kernel run) -- give
+# it its own small, fast target so it isn't silently dropped by the -k split
+# above.
+py_pytest_test(
+    name = "test_full_layer_l4_scale_visibility",
+    size = "small",
+    args = ["-k", "scale_is_visible"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Scale experiment (diagnostic, not a fix -- see kernel_docs) --
+# Scaled-Q counterparts of the stack-agreement tests: same chain, but with
+# 1/sqrt(head_dim) applied to Q on both the real-kernel side and the numpy
+# reference, to test whether the missing attention scale explains the
+# observed ~4x-per-layer error growth in the unscaled chain above.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_scaled",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_scaled",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Real softmax through the chain (USE_REAL_SOFTMAX=1) -- see comment on
+# -- _L4_REAL_SOFTMAX_ENV above. `manual`: not part of `bazel test //...`.
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l4.py::test_full_l4_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L4_FULL_LAYER_SRCS,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_query_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l4_key_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    env = _L4_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Per-stage error instrumentation (scale experiment step 2): ONE layer,
+# query-major chain, every stage boundary compared against its own
+# independently-built numpy reference. Small/fast -- one layer, not four.
+py_pytest_test(
+    name = "test_full_layer_l4_per_stage_error",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "per_stage_error"],
+    srcs = _L4_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- full transformer layer, end to end (L5: d=240, N_TOK=16, L=3 layers) --
+
+_L5_FULL_LAYER_SRCS = [
+    "test/test_full_layer_l5.py",
+    "test/fixture_full_layer_chain.py",
+    "test/fixture_host_softmax_fold_stubs.py",
+]
+
+# See _L4_REAL_SOFTMAX_ENV's comment (BUILD.bazel, L4 section).
+_L5_REAL_SOFTMAX_ENV = {"USE_REAL_SOFTMAX": "1"}
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major",
+    size = "enormous",
+    tags = ["manual"],
+    # See test_full_layer_l4_query_major's comment (BUILD.bazel, L4 section)
+    # for why this uses -k + --deselect instead of a single multi-word "-k"
+    # expression (bazel/rules_python_pytest word-splits multi-word args).
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major",
+    size = "enormous",
+    tags = ["manual"],
+    # See test_full_layer_l4_query_major's comment (BUILD.bazel, L4 section)
+    # for why this uses -k + --deselect instead of a single multi-word "-k"
+    # expression (bazel/rules_python_pytest word-splits multi-word args).
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# test_full_l5_attention_scale_is_visible -- see test_full_layer_l4's
+# matching comment.
+py_pytest_test(
+    name = "test_full_layer_l5_scale_visibility",
+    size = "small",
+    args = ["-k", "scale_is_visible"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Scale experiment (diagnostic, not a fix -- see kernel_docs) --
+# See test_full_layer_l4's matching section for what these test.
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_scaled",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_scaled",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- Real softmax through the chain (USE_REAL_SOFTMAX=1) -- see
+# -- _L4_REAL_SOFTMAX_ENV's comment. `manual`: not part of `bazel test //...`.
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "query_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_query_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = [
+        "-k",
+        "key_major",
+        "--deselect",
+        "src/tools/ipu-apps/test/test_full_layer_l5.py::test_full_l5_layer_stack_agrees_key_major_scaled",
+    ],
+    srcs = _L5_FULL_LAYER_SRCS,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_query_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "query_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_key_major_scaled_real_softmax",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "key_major_scaled"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    env = _L5_REAL_SOFTMAX_ENV,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_full_layer_l5_per_stage_error",
+    size = "enormous",
+    tags = ["manual"],
+    args = ["-k", "per_stage_error"],
+    srcs = _L5_FULL_LAYER_SRCS,
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Same conformance pattern as test_kernel_registry, for the 6 families ported
+# from ZDlinear (matmuls, projections, layernorm, residual_add, unfold,
+# attention) -- see the module docstring for why each op only needs one query.
+py_pytest_test(
+    name = "test_kernel_registry_new_families",
+    srcs = ["test/test_kernel_registry_new_families.py"],
+    data = glob(["src/ipu_apps/**/*.asm"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)

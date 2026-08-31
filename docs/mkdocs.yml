@@ -73,6 +73,9 @@ nav:
   - Kernels:
       - Overview: kernels/index.md
       - Softmax: kernels/softmax.md
+      - Linear Layers: kernels/linear-layers.md
+      - Normalization and Shaping: kernels/normalization-and-shaping.md
+      - Attention: kernels/attention.md
       - Application Coverage: app-coverage.md
       - Adding Applications: adding-applications.md
   - Contributing:
