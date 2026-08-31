@@ -676,6 +676,11 @@ py_pytest_test(
 
 py_pytest_test(
     name = "test_proj_p4_weight_pointer_mutation_check",
+    # Measured up to ~53 min locally across all 8 apps (assembles + runs each
+    # twice, once mutated). "large" tests get Bazel's default 900s (LONG
+    # bucket) timeout, which is too short -- see the CI workflow's
+    # --test_timeout override (raises LONG to 3600s), the same fix already
+    # applied for this exact test earlier in this branch's history.
     size = "large",
     srcs = ["test/test_proj_p4_weight_pointer_mutation_check.py"],
     data = [
