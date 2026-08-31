@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.matmuls.matmul_144x144_x128 import MatMul144x144x128App
 from ipu_apps.matmuls.matmul_144x144_x128.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["MATMUL_144X144_X128_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["MATMUL_144X144_X128_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="matmul_144x144_x128_"))
     kwargs = generate(work)
 

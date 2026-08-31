@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.residual_add.residual_add_64x192 import ResidualAdd64x192App
 from ipu_apps.residual_add.residual_add_64x192.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["RESIDUAL_ADD_64X192_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["RESIDUAL_ADD_64X192_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="residual_add_64x192_"))
     kwargs = generate(work)
 

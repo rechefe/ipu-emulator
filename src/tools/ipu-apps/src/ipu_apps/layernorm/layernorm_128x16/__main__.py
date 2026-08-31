@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.layernorm.layernorm_128x16 import LayerNorm128x16App
 from ipu_apps.layernorm.layernorm_128x16.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["LAYERNORM_128X16_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["LAYERNORM_128X16_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="layernorm_128x16_"))
     kwargs = generate(work)
 

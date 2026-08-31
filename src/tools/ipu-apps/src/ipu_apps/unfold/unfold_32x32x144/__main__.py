@@ -21,10 +21,10 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_apps.unfold.unfold_32x32x144 import Unfold32x32x144App
 from ipu_apps.unfold.unfold_32x32x144.gen_debug_data import generate
 
-_INST_BIN = Path(os.environ["UNFOLD_32X32X144_INST_BIN"])
-
 
 def main() -> None:
+    _INST_BIN = Path(os.environ["UNFOLD_32X32X144_INST_BIN"])
+
     work = Path(tempfile.mkdtemp(prefix="unfold_32x32x144_"))
     kwargs = generate(work)
 
