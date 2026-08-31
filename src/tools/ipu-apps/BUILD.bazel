@@ -197,3 +197,500 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# =============================================================================
+# Projection kernels (Layer 3/4 QKV, OutProj, FFN1, FFN2, P=4) ported from
+# ZDlinear -- see kernel_docs/kernel_layer_map.md.
+# =============================================================================
+
+# -- proj_qkv_192_p4 app (Layer 4 QKV, P=4) ----------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_192_p4",
+    src = "src/ipu_apps/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_192_p4",
+    srcs = ["src/ipu_apps/projections/proj_qkv_192_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_qkv_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_192_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_192_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_192_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_192_p4",
+    src = "src/ipu_apps/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_192_p4",
+    srcs = ["src/ipu_apps/projections/proj_outproj_192_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_outproj_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_192_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_192_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_192_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_192_p4",
+    src = "src/ipu_apps/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_192_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn1_192_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn1_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_192_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_192_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_192_p4",
+    src = "src/ipu_apps/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_192_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn2_192_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn2_192_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_192_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_192_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_192_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_192_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_192_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_144_p4 app (Layer 3 OutProj, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_outproj_144_p4/proj_outproj_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_144_p4",
+    src = "src/ipu_apps/projections/proj_outproj_144_p4/proj_outproj_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_144_p4",
+    srcs = ["src/ipu_apps/projections/proj_outproj_144_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_outproj_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_144_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_144_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_144_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_outproj_144_p4/proj_outproj_144_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_qkv_144_p4 app (Layer 3 QKV, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_qkv_144_p4/proj_qkv_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_144_p4",
+    src = "src/ipu_apps/projections/proj_qkv_144_p4/proj_qkv_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_144_p4",
+    srcs = ["src/ipu_apps/projections/proj_qkv_144_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_qkv_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_144_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_144_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_144_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_qkv_144_p4/proj_qkv_144_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_144_p4 app (Layer 3 FFN1, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn1_144_p4/proj_ffn1_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_144_p4",
+    src = "src/ipu_apps/projections/proj_ffn1_144_p4/proj_ffn1_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_144_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn1_144_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn1_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_144_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn1_144_p4/proj_ffn1_144_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_144_p4 app (Layer 3 FFN2, P=4) --------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn2_144_p4/proj_ffn2_144_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_144_p4",
+    src = "src/ipu_apps/projections/proj_ffn2_144_p4/proj_ffn2_144_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_144_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn2_144_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn2_144_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_144_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_144_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_144_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_144_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_144_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn2_144_p4/proj_ffn2_144_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_qkv_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_qkv_240_p4",
+    src = "src/ipu_apps/projections/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_qkv_240_p4",
+    srcs = ["src/ipu_apps/projections/proj_qkv_240_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_qkv_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_qkv_240_p4.bin",
+    ],
+    env = {
+        "PROJ_QKV_240_P4_INST_BIN": "$(rootpath :assemble_proj_qkv_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_qkv_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_qkv_240_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_outproj_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_outproj_240_p4",
+    src = "src/ipu_apps/projections/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_outproj_240_p4",
+    srcs = ["src/ipu_apps/projections/proj_outproj_240_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_outproj_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_outproj_240_p4.bin",
+    ],
+    env = {
+        "PROJ_OUTPROJ_240_P4_INST_BIN": "$(rootpath :assemble_proj_outproj_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_outproj_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_outproj_240_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn1_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn1_240_p4",
+    src = "src/ipu_apps/projections/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn1_240_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn1_240_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn1_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn1_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN1_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn1_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn1_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn1_240_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- proj_ffn2_240_p4 app -----------------------------------------------
+
+exports_files([
+    "src/ipu_apps/projections/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+])
+
+assemble_asm(
+    name = "assemble_proj_ffn2_240_p4",
+    src = "src/ipu_apps/projections/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+)
+
+py_binary(
+    name = "proj_ffn2_240_p4",
+    srcs = ["src/ipu_apps/projections/proj_ffn2_240_p4/__main__.py"],
+    main = "src/ipu_apps/projections/proj_ffn2_240_p4/__main__.py",
+    data = [
+        ":assemble_proj_ffn2_240_p4.bin",
+    ],
+    env = {
+        "PROJ_FFN2_240_P4_INST_BIN": "$(rootpath :assemble_proj_ffn2_240_p4.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_proj_ffn2_240_p4_wide",
+    size = "large",
+    srcs = ["test/test_proj_ffn2_240_p4_wide.py"],
+    data = [
+        "src/ipu_apps/projections/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- mutation-based re-check: weight-row-pointer bug class across all 8 --
+# -- L4/L5 proj_*_p4 kernels (see kernel_docs/kernel_layer_map.md) --
+
+py_pytest_test(
+    name = "test_proj_p4_weight_pointer_mutation_check",
+    size = "large",
+    srcs = ["test/test_proj_p4_weight_pointer_mutation_check.py"],
+    data = [
+        "src/ipu_apps/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm",
+        "src/ipu_apps/projections/proj_qkv_240_p4/proj_qkv_240_p4.asm",
+        "src/ipu_apps/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm",
+        "src/ipu_apps/projections/proj_outproj_240_p4/proj_outproj_240_p4.asm",
+        "src/ipu_apps/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
+        "src/ipu_apps/projections/proj_ffn1_240_p4/proj_ffn1_240_p4.asm",
+        "src/ipu_apps/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
+        "src/ipu_apps/projections/proj_ffn2_240_p4/proj_ffn2_240_p4.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
