@@ -416,7 +416,11 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_144x144_x128_wide",
+    # Same K=144 grouped (N_TG=2) template as matmul_432x144_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_144x144_x128_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_matmul_144x144_x128_wide.py"],
     data = [
         "src/ipu_apps/matmuls/matmul_144x144_x128/matmul_144x144_x128.asm",
@@ -455,7 +459,11 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_288x144_x128_wide",
+    # Same K=144 grouped (N_TG=2) template as matmul_432x144_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_288x144_x128_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_matmul_288x144_x128_wide.py"],
     data = [
         "src/ipu_apps/matmuls/matmul_288x144_x128/matmul_288x144_x128.asm",
@@ -572,7 +580,11 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_192x192_x128_wide",
+    # Same K=192 single-token-group template as matmul_576x192_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_192x192_x128_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_matmul_192x192_x128_wide.py"],
     data = [
         "src/ipu_apps/matmuls/matmul_192x192_x128/matmul_192x192_x128.asm",
@@ -611,6 +623,10 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_384x192_x128_wide",
+    # Same K=192 single-token-group template as matmul_576x192_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_384x192_x128_wide
+    tags = ["manual"],
     size = "large",
     srcs = ["test/test_matmul_384x192_x128_wide.py"],
     data = [
@@ -728,6 +744,10 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_240x240_x128_wide",
+    # Same K=240 single-token-group template as matmul_720x240_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_240x240_x128_wide
+    tags = ["manual"],
     size = "large",
     srcs = ["test/test_matmul_240x240_x128_wide.py"],
     data = [
@@ -767,6 +787,10 @@ py_binary(
 
 py_pytest_test(
     name = "test_matmul_480x240_x128_wide",
+    # Same K=240 single-token-group template as matmul_720x240_x128 (kept
+    # automatic, largest N_OUT in this K-bucket); differs only in N_OUT, not
+    # code path. manual: bazel test //src/tools/ipu-apps:test_matmul_480x240_x128_wide
+    tags = ["manual"],
     size = "large",
     srcs = ["test/test_matmul_480x240_x128_wide.py"],
     data = [
