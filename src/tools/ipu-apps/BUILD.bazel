@@ -230,7 +230,13 @@ py_binary(
 
 py_pytest_test(
     name = "test_proj_qkv_192_p4_wide",
+    # Same runtime-chunk-loop template + single-token-group structure as
+    # proj_qkv_240_p4 (kept automatic, covers the larger/worst-case K); this
+    # 192-wide variant differs only in K/N_OUT size, not code path. The
+    # proj_qkv_144_p4 test (kept automatic) covers the other structural
+    # variant (N_TG=2). manual: bazel test //src/tools/ipu-apps:test_proj_qkv_192_p4_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_proj_qkv_192_p4_wide.py"],
     data = [
         "src/ipu_apps/projections/proj_qkv_192_p4/proj_qkv_192_p4.asm",
@@ -269,7 +275,13 @@ py_binary(
 
 py_pytest_test(
     name = "test_proj_outproj_192_p4_wide",
+    # Same runtime-chunk-loop template + single-token-group structure as
+    # proj_outproj_240_p4 (kept automatic, covers the larger/worst-case K);
+    # this 192-wide variant differs only in K/N_OUT size, not code path. The
+    # proj_outproj_144_p4 test (kept automatic) covers the other structural
+    # variant (N_TG=2). manual: bazel test //src/tools/ipu-apps:test_proj_outproj_192_p4_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_proj_outproj_192_p4_wide.py"],
     data = [
         "src/ipu_apps/projections/proj_outproj_192_p4/proj_outproj_192_p4.asm",
@@ -308,7 +320,13 @@ py_binary(
 
 py_pytest_test(
     name = "test_proj_ffn1_192_p4_wide",
+    # Same runtime-chunk-loop template + single-token-group structure as
+    # proj_ffn1_240_p4 (kept automatic, covers the larger/worst-case K); this
+    # 192-wide variant differs only in K/N_OUT size, not code path. The
+    # proj_ffn1_144_p4 test (kept automatic) covers the other structural
+    # variant (N_TG=2). manual: bazel test //src/tools/ipu-apps:test_proj_ffn1_192_p4_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_proj_ffn1_192_p4_wide.py"],
     data = [
         "src/ipu_apps/projections/proj_ffn1_192_p4/proj_ffn1_192_p4.asm",
@@ -347,7 +365,13 @@ py_binary(
 
 py_pytest_test(
     name = "test_proj_ffn2_192_p4_wide",
+    # Same runtime-chunk-loop template + single-token-group structure as
+    # proj_ffn2_240_p4 (kept automatic, covers the larger/worst-case K); this
+    # 192-wide variant differs only in K/N_OUT size, not code path. The
+    # proj_ffn2_144_p4 test (kept automatic) covers the other structural
+    # variant (N_TG=2). manual: bazel test //src/tools/ipu-apps:test_proj_ffn2_192_p4_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_proj_ffn2_192_p4_wide.py"],
     data = [
         "src/ipu_apps/projections/proj_ffn2_192_p4/proj_ffn2_192_p4.asm",
