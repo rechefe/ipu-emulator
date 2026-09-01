@@ -11,8 +11,8 @@ harnesses and tests.
 | `IpuState.dtype` | Arithmetic data type used by emulator math paths. It is not stored in a `CR` register. | `state.dtype = DType.INT8` or `IpuState(dtype=DType.INT8)` |
 | `CR0` | Read-only constant zero. | Already initialized; writes are ignored. |
 | `CR1` | Read-only constant one. | Already initialized; writes are ignored. |
-| `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
-| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
+| `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, scalar constants, or additional dstructure configurations. | `state.regfile.set_cr(index, value)` or `state.set_cr_dstructure(..., cr_idx=index)` |
+| `CR15` | Conventional dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[12:8]` hold `partition`; bits `[14:13]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
 `LR` and `CR` registers store 32-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
@@ -61,9 +61,14 @@ state.set_cr_dstructure(valid_elements=64, partition=0)
 config = state.get_cr_dstructure()
 valid_elements = config.valid_elements
 partition = config.partition
+
+# Configure and read a different dstructure CR.
+state.set_cr_dstructure(valid_elements=32, partition=4, cr_idx=3)
+config3 = state.get_dstructure_for(3)
 ```
 
-The emulator defaults `CR15` to `valid_elements=128` and `partition=0`.
+When `cr_idx` is omitted, `set_cr_dstructure` writes `CR15`. The emulator
+defaults `CR15` to `valid_elements=128` and `partition=0`.
 Activation clamps the active element count to the available 128 elements at execution
 time.
 
