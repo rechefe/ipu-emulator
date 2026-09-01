@@ -94,7 +94,6 @@ BKPT;;
         state = IpuState()
         encoded = assemble(asm)
         decoded = [decode_instruction_word(w) for w in encoded]
-        state.regfile.set_cr(0, 0)
         state.xmem.write_address(0, bytearray(128))
         load_program(state, decoded)
         run_until_complete(state)
@@ -112,14 +111,13 @@ BKPT;;
         # LDR_MULT_REG reads from xmem
         asm = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr1;;
+LDR_MULT_REG r0 lr0 cr2;;
 BKPT;;
 """
         state = IpuState()
         encoded = assemble(asm)
         decoded = [decode_instruction_word(w) for w in encoded]
-        state.regfile.set_cr(0, 0)
-        state.regfile.set_cr(1, 0x1000 // 128)  # row number
+        state.regfile.set_cr(2, 0x1000 // 128)  # row number
         state.xmem.write_address(0x1000, bytearray(128))
         load_program(state, decoded)
         run_until_complete(state)
@@ -129,14 +127,14 @@ BKPT;;
     def test_xmem_write_counted(self):
         # STR_ACC_REG writes to xmem
         asm = """\
-STR_ACC_REG lr0 cr1;;
+STR_ACC_REG lr0 cr2;;
 BKPT;;
 """
         state = IpuState()
         encoded = assemble(asm)
         decoded = [decode_instruction_word(w) for w in encoded]
         state.regfile.set_lr(0, 0)
-        state.regfile.set_cr(1, 0x1000 // 128)  # row number
+        state.regfile.set_cr(2, 0x1000 // 128)  # row number
         import warnings
         load_program(state, decoded)
         with warnings.catch_warnings():

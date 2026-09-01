@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_config import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
@@ -113,13 +114,16 @@ class RegFile:
         *,
         allow_read_only: bool = False,
     ) -> None:
-        """Write a scalar register (LR / CR) at *index*."""
+        """Write a scalar register (LR / CR) at *index*.
+
+        Raises ``EmulatorError`` when attempting to write hard-wired CR0 or CR1.
+        """
         desc = self._desc(name)
         assert not desc.is_vector, f"{name} is not a scalar register"
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
 
         if self._is_read_only_cr(desc, index) and not allow_read_only:
-            return
+            raise EmulatorError(f"CR{index} is read-only")
 
         if desc.kind in (RegKind.CR, RegKind.LR):
             value &= LR_CR_SCALAR_VALUE_MASK
