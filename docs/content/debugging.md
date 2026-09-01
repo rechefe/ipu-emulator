@@ -103,6 +103,7 @@ bazel run //app -- <args> --debug --debug-level=2
 | `continue` / `c` | Continue execution until next break |
 | `step` | Execute one instruction, then break again |
 | `quit` / `q` | Halt execution and exit |
+| Up / Down Arrow | Move through command history in an interactive terminal |
 
 ### Register Inspection
 
@@ -137,6 +138,66 @@ debug >>> getw acc 0 8         # First 8 words of accumulator
 debug >>> getw rcyclic 32 4    # 4 words from word offset 32
 ```
 
+### Reading XMEM
+
+Use `xmem` to inspect external memory by assembly row number or raw byte
+address:
+
+```text
+debug >>> xmem row cr4 lr0 16 f32
+debug >>> xmem row 4 1 128 u32
+debug >>> xmem byte 0x1000 0 32 hex
+debug >>> xmem byte 0x1000 0 32 int8
+debug >>> xmem byte 0x1000 0 32 u8
+debug >>> xmem byte 0x1000 0 16 cell16
+debug >>> xmem byte cr3 lr2 16 f32
+```
+
+The syntax is:
+
+```text
+xmem row|byte BASE OFFSET COUNT hex|int8|u8|cell16|u32|f32
+```
+
+`BASE` and `OFFSET` may each be a decimal or hexadecimal immediate, an LR
+register, or a CR register. The debugger adds the resolved values. In `row`
+mode the sum is an assembly XMEM row number; in `byte` mode it is a raw byte
+address.
+
+The active execution mode determines the row size: 128 bytes normally and 512
+bytes in wide-vector mode. Raw byte addressing can inspect the complete 8 MB
+physical allocation.
+
+`COUNT` is measured in bytes for `hex`, `int8`, and `u8`; in 16-bit values for
+`cell16`; and in 32-bit values for `u32` and `f32`. `u8` values use three
+decimal digits and `u32` values use ten decimal digits, both padded with leading
+zeroes. Numeric formats use fixed-width display columns. `cell16` requires a
+2-byte-aligned address, while the 32-bit formats require a 4-byte-aligned
+address.
+
+In wide-vector mode, `hex` output inserts two spaces after every group of four
+bytes. Normal-mode hex output keeps one space between every byte.
+
+`cell16` interprets each little-endian value as an ANSI terminal cell:
+
+```text
+bits  0..7  character index in the 256-character visible alphabet
+bits 8..11  foreground color (0..15)
+bits 12..15 background color (0..15)
+```
+
+The alphabet begins with visible ASCII and visible Latin-1 characters. The
+remaining entries use Latin Extended-A characters so every byte value,
+including index 200, maps to a printable character. The display inserts one
+plain space after every two rendered `cell16` characters and prints 32
+characters per output line. A complete 512-byte XMEM row therefore occupies
+eight character lines.
+
+The display never combines values from two XMEM rows on one line. Each section
+prints the XMEM row number and the real byte address where that row begins. If
+a raw byte-addressed read starts in the middle of a row, the section also
+prints the exact byte address where the requested display begins.
+
 ### Modifying State
 
 ```bash
@@ -163,6 +224,26 @@ PC 3: break lr0 0; add lr0 lr0 0; mult_nop; acc_nop; b lr0 lr0 @4;;
 debug >>> save my_debug_state.json
 Registers saved to my_debug_state.json
 ```
+
+Plain `save` remains register-only. To save XMEM with the registers, request a
+selected row or byte range, or the complete physical allocation:
+
+```text
+debug >>> save row-state.json xmem row cr4 lr0 2
+Registers saved to row-state.json
+XMEM saved to row-state.xmem.bin
+
+debug >>> save byte-state.json xmem byte 0x1000 0 512
+debug >>> save full-state.json xmem all
+debug >>> save "state with spaces.json" xmem all
+```
+
+For a row range, the final argument is the number of XMEM rows. For a byte
+range, it is the number of bytes. The JSON file contains the registers plus
+the resolved XMEM byte address, size, addressing mode, and sidecar filename.
+The `.xmem.bin` sidecar contains the unmodified memory bytes. `xmem all` writes
+the complete 8 MB allocation.
+Quote a filename containing spaces when it is followed by `xmem` arguments.
 
 The JSON file contains all register values:
 ```json
