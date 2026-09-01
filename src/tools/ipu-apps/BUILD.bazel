@@ -420,7 +420,12 @@ py_binary(
 
 py_pytest_test(
     name = "test_qk_scores_64x48_wide",
+    # Same N_TG=1 (N<=LANES) query-major structure as qk_scores_16x60 (kept
+    # automatic) -- both are L4/L5 ports of qk_scores_256x36 (L3, N_TG=2,
+    # kept automatic) with "the mapping carried over unchanged," only counts
+    # differ. manual: bazel test //src/tools/ipu-apps:test_qk_scores_64x48_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_qk_scores_64x48_wide.py"],
     data = [
         "src/ipu_apps/attention/qk_scores_64x48/qk_scores_64x48.asm",
@@ -459,7 +464,12 @@ py_binary(
 
 py_pytest_test(
     name = "test_attn_v_64x48_wide",
+    # Same query-major AGG.SUM structure as attn_v_16x60 (kept automatic) --
+    # both are L4/L5 ports of attn_v_256x36 (L3, kept automatic) with "the
+    # mapping carried over unchanged," only counts differ.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_v_64x48_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_attn_v_64x48_wide.py"],
     data = [
         "src/ipu_apps/attention/attn_v_64x48/attn_v_64x48.asm",
@@ -658,7 +668,12 @@ py_binary(
 
 py_pytest_test(
     name = "test_attn_scores_km_64x48_wide",
+    # Same N_TG=1 (N<=LANES) key-major structure as attn_scores_km_16x60
+    # (kept automatic) -- both are L4/L5 ports of attn_scores_km_256x36 (L3,
+    # N_TG=2, kept automatic), mapping carried over unchanged.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_scores_km_64x48_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_attn_scores_km_64x48_wide.py"],
     data = [
         "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
@@ -697,7 +712,14 @@ py_binary(
 
 py_pytest_test(
     name = "test_attn_v_bcast_48_wide",
+    # Same N_TG=1 (N<=LANES) key-major-broadcast structure as attn_v_bcast_60
+    # (kept automatic) -- this app's own docstring notes the L3->L4 structural
+    # change (N_TG collapses to 1); attn_v_bcast_60 (L5) inherits that same
+    # structure, only the head_dim loop count differs. attn_v_bcast_36 (L3,
+    # N_TG=2, kept automatic) covers the other structural variant.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_v_bcast_48_wide
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_attn_v_bcast_48_wide.py"],
     data = [
         "src/ipu_apps/attention/attn_v_bcast_48/attn_v_bcast_48.asm",
@@ -713,7 +735,12 @@ py_pytest_test(
 
 py_pytest_test(
     name = "test_seam_km_bcast_48",
+    # Same key-major-broadcast seam structure as test_seam_km_bcast_60 (kept
+    # automatic) -- L4/L5 share the N_TG=1 mapping. test_seam_km_bcast_36
+    # (L3, N_TG=2, kept automatic) covers the other structural variant.
+    # manual: bazel test //src/tools/ipu-apps:test_seam_km_bcast_48
     size = "large",
+    tags = ["manual"],
     srcs = ["test/test_seam_km_bcast_48.py"],
     data = [
         "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
