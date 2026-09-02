@@ -573,3 +573,51 @@ BKPT;;
             assert values[i] == pytest.approx(1.0), f"element {64 + i} (from slot 0): got {values[i]}"
         for i in range(64, 128):
             assert values[i] == pytest.approx(2.0), f"element {64 + i} (from slot 1): got {values[i]}"
+
+
+class TestWindowActivationFp32:
+    """The ``window`` indicator on fractional FP32 accumulator elements."""
+
+    def test_default_bounds_on_fractional_elements(self) -> None:
+        """Default bounds [0.0, 0.1): 0.0 and 0.05 are inside; -0.01 and 0.1 are not."""
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=True,
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(4)
+        acc = state.regfile.raw("r_acc")
+        for i, x in enumerate((0.0, 0.05, -0.01, 0.1)):
+            struct.pack_into("<f", acc, i * 4, x)
+        encoded = assemble("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n")
+        load_program(state, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(state)
+
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 1, "window(0.0) = 1 (a is inclusive)"
+        assert result[1] == 1, "window(0.05) = 1"
+        assert result[2] == 0, "window(-0.01) = 0 (below a)"
+        assert result[3] == 0, "window(0.1) = 0 (b is exclusive)"
+
+    def test_bounds_are_configurable(self) -> None:
+        """set_activation_alphas overrides the window bounds for later ACTIVATEs."""
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+            wide_vector_quantize_output=True,
+        )
+        state.dtype = DType.INT8
+        state.set_activation_alphas(window_a=0.25, window_b=0.75)
+        state.set_cr_dstructure(3)
+        acc = state.regfile.raw("r_acc")
+        for i, x in enumerate((0.2, 0.25, 0.75)):
+            struct.pack_into("<f", acc, i * 4, x)
+        encoded = assemble("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n")
+        load_program(state, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(state)
+
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 0, "window(0.2) = 0 (below a = 0.25)"
+        assert result[1] == 1, "window(0.25) = 1 (a is inclusive)"
+        assert result[2] == 0, "window(0.75) = 0 (b is exclusive)"

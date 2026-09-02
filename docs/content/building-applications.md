@@ -29,7 +29,7 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE/AAQ
+    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE.QUANTIZE
     # instructions name via their mandatory cr_idx operand.
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
@@ -42,70 +42,74 @@ def setup(self, state: IpuState) -> None:
     state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, every `AGG.*`/`ACTIVATE`/`AAQ` instruction must name its
+In assembly, every `AGG.*`/`ACTIVATE.QUANTIZE` instruction must name its
 dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
 no implicit default:
 
 ```asm
 AGG.SUM LR0, CR15;;
-ACTIVATE relu, CR15;;
+ACTIVATE.QUANTIZE relu, CR15;;
 AGG.SUM LR0, CR3;;
-ACTIVATE relu, CR3;;
+ACTIVATE.QUANTIZE relu, CR3;;
 ```
 
 For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
 ## Wide-vector debug mode (optional)
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
+The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
 
-## Activations, `ACTIVATE`, and virtual α (Python emulator) {#activations-emulator}
+## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 
 The [AaQ and Store stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu, CR15;;
+ACTIVATE.QUANTIZE relu, CR15;;
 ```
 
-- **Syntax:** `ACTIVATE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
+- **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
 - **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
-- **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated elements into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
+- **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
-- **`AAQ`** (INT8 mode) quantizes the **wide elements currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide elements) then **`AAQ`** (quantize in place into the same register’s byte prefix).
+- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In **wide-vector debug mode** the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `wide_vector_quantize_output` is set.
 - **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
-### Virtual α in the emulator (elu)
+### Virtual α and window bounds in the emulator (elu, window)
 
-The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (field `elu_alpha`). If you do not set it, it is initialized from the default float in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`).
+The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
 
-Configure α the same way you think about dtype on state — **not via CR**:
+**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
+
+Configure these the same way you think about dtype on state — **not via CR**:
 
 ```python
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_test
 
-state = IpuState(elu_alpha=1.0)
+state = IpuState(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 # or after construction:
-state.set_activation_alphas(elu_alpha=1.0)
+state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 
 # High-level harness (optional kwargs mirror IpuState):
 state, cycles = run_test(
     inst_path="prog.bin",
     setup=my_setup,
     elu_alpha=1.0,
+    window_a=0.0,
+    window_b=0.1,
 )
 ```
 
 Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
 
 ```python
-app = MyApp(inst_path="prog.bin", elu_alpha=1.0)
+app = MyApp(inst_path="prog.bin", elu_alpha=1.0, window_a=0.0, window_b=0.1)
 state, cycles = app.run()  # uses 1.0
 state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
 ```

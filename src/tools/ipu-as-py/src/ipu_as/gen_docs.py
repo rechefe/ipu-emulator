@@ -73,8 +73,9 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "
-        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu** "
-        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α) "
+        "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** "
+        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α and the "
+        "**window** bounds a, b) "
         "is described in **Building Applications** "
         "(`docs/content/building-applications.md`)."
     ),

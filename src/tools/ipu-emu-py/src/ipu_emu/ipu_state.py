@@ -56,6 +56,8 @@ class IpuState:
         wide_vector_arithmetic: WideVectorArithmetic = WideVectorArithmetic.FP32,
         wide_vector_quantize_output: bool = False,
         elu_alpha: float | None = None,
+        window_a: float | None = None,
+        window_b: float | None = None,
         dtype: DType = DType.INT8,
     ) -> None:
         self.regfile = RegFile()
@@ -80,6 +82,14 @@ class IpuState:
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         self.elu_alpha: float = (
             float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
+        )
+
+        # --- Window bounds [a, b) for the ``window`` activation (emulator-only) ---
+        self.window_a: float = (
+            float(window_a) if window_a is not None else float(_activations.DEFAULT_WINDOW_A)
+        )
+        self.window_b: float = (
+            float(window_b) if window_b is not None else float(_activations.DEFAULT_WINDOW_B)
         )
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
@@ -112,14 +122,21 @@ class IpuState:
         self,
         *,
         elu_alpha: float | None = None,
+        window_a: float | None = None,
+        window_b: float | None = None,
     ) -> None:
-        """Override α for ``elu`` (emulator-only; not CR).
+        """Override α for ``elu`` and the ``[a, b)`` bounds of ``window``
+        (emulator-only; not CR).
 
         Only arguments that are not ``None`` are updated. Values apply to subsequent
         ``ACTIVATE`` instructions executed on this state.
         """
         if elu_alpha is not None:
             self.elu_alpha = float(elu_alpha)
+        if window_a is not None:
+            self.window_a = float(window_a)
+        if window_b is not None:
+            self.window_b = float(window_b)
 
     # -- register file snapshot (for VLIW dispatch) -------------------------
 

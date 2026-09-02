@@ -241,6 +241,8 @@ def run_test(
     debug_callback: DebugCallback | None = None,
     state: IpuState | None = None,
     elu_alpha: float | None = None,
+    window_a: float | None = None,
+    window_b: float | None = None,
 ) -> tuple[IpuState, int]:
     """Full test harness matching the C ``emulator__run_test`` pattern.
 
@@ -252,15 +254,18 @@ def run_test(
 
     Returns ``(state, cycles)`` so callers can inspect final state.
 
-    Optional ``elu_alpha`` configures the emulator-only activation α value
-    (same idea as dtype setup, but not via CR). It is applied when constructing
-    a new ``IpuState``; if *state* is passed, a non-``None`` α argument is
-    forwarded to :meth:`IpuState.set_activation_alphas`.
+    Optional ``elu_alpha``, ``window_a`` and ``window_b`` configure the
+    emulator-only activation parameters (same idea as dtype setup, but not via
+    CR): α for ``elu`` and the ``[a, b)`` bounds of ``window``. They are applied
+    when constructing a new ``IpuState``; if *state* is passed, non-``None``
+    arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
     """
     if state is None:
-        state = IpuState(elu_alpha=elu_alpha)
-    elif elu_alpha is not None:
-        state.set_activation_alphas(elu_alpha=elu_alpha)
+        state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
+    elif elu_alpha is not None or window_a is not None or window_b is not None:
+        state.set_activation_alphas(
+            elu_alpha=elu_alpha, window_a=window_a, window_b=window_b
+        )
     load_program_from_binary(state, inst_path)
 
     if setup is not None:
