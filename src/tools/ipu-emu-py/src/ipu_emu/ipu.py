@@ -16,6 +16,7 @@ Key Design:
 
 from __future__ import annotations
 
+import math
 import struct
 import warnings
 from enum import IntEnum
@@ -27,6 +28,7 @@ import numpy as np
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
@@ -45,7 +47,12 @@ from ipu_common.acc_stride_enums import (
 from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
-from ipu_common.activations import apply_activation
+from ipu_common.activations import (
+    ACTIVATION_EXP2,
+    ACTIVATION_IDENTITY,
+    ACTIVATION_RECIPROCAL,
+    apply_activation,
+)
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-common
@@ -112,6 +119,9 @@ _LANE_INDEX = np.arange(LANES)
 # format ``Ipu._acc_agg_lane_fmt`` returns.
 _ROW_FMT = {"<f": f"<{LANES}f", "<i": f"<{LANES}i"}
 
+# Exactly the double used by ``apply_activation`` for EXP2, computed once.
+_LOG_2 = math.log(2.0)
+
 
 def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray, values, byte_off: int = 0) -> None:
     """The lane-by-lane store, kept for the failure path.
@@ -136,6 +146,10 @@ def _store_row(buf: bytearray, lane_fmt: str, values) -> None:
         _pack_lanes_one_by_one(lane_fmt, buf, values)  # raises at the offending lane
         return
     buf[: LANES * 4] = packed
+
+
+# One R_MASK slot (128 bits) with every lane active.
+_ALL_ONES_MASK_SLOT = b"\xff" * 16
 
 
 @lru_cache(maxsize=512)
@@ -415,6 +429,13 @@ class Ipu:
             state: IPU state containing regfile, xmem, instruction memory, etc.
         """
         self.state = state
+        # Prototyping mode's shortcuts, read once: the flag belongs to the run,
+        # not to the cycle (see ipu_emu/prototyping.py).
+        self._prototyping: bool = state.prototyping
+        # PC -> (instruction copy, work that instruction actually does). The
+        # copied fields detect debugger replacements and in-place edits without
+        # penalising the faithful path.
+        self._cycle_cache: dict[int, tuple[dict[str, int], tuple]] = {}
         # Snapshot buffer reused across cycles. Every register is refreshed from
         # the live file at the start of each cycle, so the snapshot is exactly
         # what a fresh copy would hold; reusing the object just avoids
@@ -725,6 +746,14 @@ class Ipu:
         128 four-byte elements in both narrow and wide-vector debug mode, so the
         same code drives both.
         """
+        if self._prototyping and shift == 0:
+            # Prototyping shortcut: an unshifted all-ones mask slot deactivates
+            # no lane, so the whole mask pipeline below leaves MULT_RES exactly
+            # as the multiply wrote it. The hardware still applies the mask.
+            slot = (mask_idx % (LANES // 16)) * 16
+            if self.state.regfile.raw("r_mask")[slot:slot + 16] == _ALL_ONES_MASK_SLOT:
+                return
+
         # LR registers are LR_CR_SCALAR_BITS wide; sign-extend before clamping
         if shift >= (1 << (LR_CR_SCALAR_BITS - 1)):
             shift = shift - (1 << LR_CR_SCALAR_BITS)
@@ -1491,6 +1520,47 @@ class Ipu:
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
 
+    def _execute_prototype_wide_fp32_activation(
+        self, fn_id: int, acc_buf: bytearray, post_buf: bytearray
+    ) -> bool:
+        """Batch the full-row activations used by FP32 softmax.
+
+        This is deliberately prototype-only: the physical pipeline still
+        activates each lane. The arithmetic is nevertheless the parent's
+        arithmetic -- Python ``math.exp`` and double division -- with the same
+        float32 store boundary. Computing the row first removes 128 pairs of
+        ``struct`` calls and repeated activation dispatch. If scalar
+        arithmetic raises, the caller replays the original lane loop so its
+        exception and partial-write state remain authoritative.
+        """
+        if fn_id not in (
+            ACTIVATION_IDENTITY,
+            ACTIVATION_EXP2,
+            ACTIVATION_RECIPROCAL,
+        ):
+            return False
+
+        lanes = self._wide_lanes_from(acc_buf)
+        try:
+            if fn_id == ACTIVATION_IDENTITY:
+                activated = lanes
+            elif fn_id == ACTIVATION_EXP2:
+                activated = np.asarray(
+                    [math.exp(float(value) * _LOG_2) for value in lanes],
+                    dtype=np.float64,
+                )
+            else:
+                values = []
+                for value in lanes:
+                    scalar = float(value)
+                    values.append(1.0 / scalar if scalar != 0.0 else 0.0)
+                activated = np.asarray(values, dtype=np.float64)
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return False
+
+        self._wide_store_lanes(post_buf, activated)
+        return True
+
     def execute_activate_quantize(self, *, activation_fn: int, cr_idx: int) -> None:
         """Apply element-wise activation then quantize to INT8.
 
@@ -1514,6 +1584,17 @@ class Ipu:
         post_buf = self.state.regfile.raw("post_aaq_reg")
 
         if self._wide_vector_active():
+            if (
+                self._prototyping
+                and active == LANES
+                and fmt == "<f"
+                and not self.state.wide_vector_quantize_output
+                and self._execute_prototype_wide_fp32_activation(
+                    fn_id, acc_buf, post_buf
+                )
+            ):
+                return
+
             for i in range(active):
                 raw = struct.unpack_from(fmt, acc_buf, i * 4)[0]
                 y = apply_activation(fn_id, float(raw), elu_alpha=self.state.elu_alpha)
@@ -1683,9 +1764,155 @@ class Ipu:
             else:
                 kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
 
+    def _resolve_reads_prototype(self, plan: _Plan, kwargs: dict[str, Any]) -> None:
+        """Resolve cached-plan reads without generic RegFile lookup overhead.
+
+        LR and CR storage is always a packed array of little-endian uint32
+        values. Cached instructions also make their encoded indices stable, so
+        prototype mode can read the bytearrays directly. Invalid debugger edits
+        deliberately fall back to the public accessor to retain its assertion
+        type and message.
+        """
+        for read in plan.reads:
+            source = (
+                self._snapshot_buffer
+                if read.from_snapshot
+                else self.state.regfile
+            )
+            raw = kwargs[read.name]
+            code = read.code
+            if code == _READ_LR:
+                buf = source._storage["lr"]
+                if 0 <= raw < len(buf) // 4:
+                    kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
+                else:
+                    kwargs[read.name] = source.get_lr(raw)
+            elif code == _READ_CR:
+                buf = source._storage["cr"]
+                if 0 <= raw < len(buf) // 4:
+                    kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
+                else:
+                    kwargs[read.name] = source.get_cr(raw)
+            elif code == _READ_LCR:
+                if raw < LR_REG_COUNT:
+                    buf = source._storage["lr"]
+                    if 0 <= raw < len(buf) // 4:
+                        kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
+                    else:
+                        kwargs[read.name] = source.get_lr(raw)
+                else:
+                    cr_idx = raw - LR_REG_COUNT
+                    buf = source._storage["cr"]
+                    if 0 <= cr_idx < len(buf) // 4:
+                        kwargs[read.name] = struct.unpack_from("<I", buf, cr_idx * 4)[0]
+                    else:
+                        kwargs[read.name] = source.get_cr(cr_idx)
+            elif read.op_type == "MultStageReg" and self._wide_vector_active():
+                if raw > 1:
+                    raise EmulatorError(
+                        "Mult-stage operand must encode r0 (0) or r1 (1); "
+                        f"got {raw}"
+                    )
+                # Wide handlers consume the encoded R0/R1 index directly.
+            else:
+                kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
+
     # -----------------------------------------------------------------------
     # VLIW Execution
     # -----------------------------------------------------------------------
+
+    # Slot dispatch order for a cycle: load before store, cond last.
+    _SLOT_ORDER = ("load", "mult", "acc", "aaq", "store", "acc_store", "cond")
+
+    # Slots whose NOP handler is not a no-op (execute_cond_nop advances the PC).
+    _SLOTS_WITH_ACTIVE_NOP = frozenset({"cond"})
+
+    def _cycle_plan(self, pc: int, inst: dict[str, int]) -> tuple:
+        """The work this PC's instruction word does, cached (prototyping only).
+
+        Which slots hold something other than a NOP, the raw operand values they
+        read out of the word, and whether the LR sub-slots collide are all
+        properties of the *word*, so they are reused while that word is
+        unchanged. Comparing with a stored field copy also detects in-place
+        debugger edits before continuing from a break.
+        """
+        cached = self._cycle_cache.get(pc)
+        if cached is not None:
+            cached_inst, cached_plan = cached
+            if cached_inst == inst:
+                return cached_plan
+
+        break_plan = _SLOT_PLANS["break"][inst[_SLOT_OPCODE_FIELDS["break"]]]
+        if break_plan.inst_name == "NOP":
+            break_work = None
+        else:
+            break_work = (break_plan, {n: inst[k] for n, k in break_plan.fields})
+
+        lr_work = []
+        targets: list[int] = []
+        for slot_idx, slot_plans in enumerate(_LR_PLANS):
+            plan = slot_plans[inst[_LR_OPCODE_FIELDS[slot_idx]]]
+            kwargs = {name: inst[field_key] for name, field_key in plan.fields}
+            if plan.write_operand is not None:
+                raw = kwargs[plan.write_operand]
+                if plan.write_is_lrd:
+                    targets.extend(Ipu._lrd_lr_indices(raw))
+                else:
+                    targets.append(raw)
+            if plan.inst_name != "NOP":
+                lr_work.append((plan, kwargs))
+        conflict = (
+            f"LR conflict: multiple writes to the same LR register in same cycle "
+            f"(targets: {targets})"
+            if len(targets) != len(set(targets))
+            else None
+        )
+
+        # A NOP is skippable only where its handler does nothing. The cond
+        # slot's NOP is the exception: it advances the PC, so it always runs.
+        slot_work = [
+            (plan, {name: inst[field_key] for name, field_key in plan.fields})
+            for slot, plan in (
+                (slot, _SLOT_PLANS[slot][inst[_SLOT_OPCODE_FIELDS[slot]]])
+                for slot in Ipu._SLOT_ORDER
+            )
+            if plan.inst_name != "NOP" or slot in Ipu._SLOTS_WITH_ACTIVE_NOP
+        ]
+
+        cycle_plan = (break_work, conflict, tuple(lr_work), tuple(slot_work))
+        self._cycle_cache[pc] = (dict(inst), cycle_plan)
+        return cycle_plan
+
+    def _run_plan(self, plan: _Plan, raw_kwargs: dict[str, int], stats: RunStats) -> Any:
+        kwargs = dict(raw_kwargs)
+        if plan.reads:
+            self._resolve_reads_prototype(plan, kwargs)
+        if plan.stat is not None:
+            setattr(stats, plan.stat, getattr(stats, plan.stat) + 1)
+        return plan.fn(self, **kwargs)
+
+    def _execute_cycle_fast(self, inst: dict[str, int], pc: int, *, with_break: bool):
+        """Prototyping mode's cycle: skip the slots that hold a NOP.
+
+        A NOP handler does nothing, so not calling it leaves identical state --
+        but the real machine still issues that slot, which is why this lives
+        behind the prototyping flag rather than in the faithful path.
+        """
+        break_work, conflict, lr_work, slot_work = self._cycle_plan(pc, inst)
+        stats = self.state.stats
+
+        if with_break and break_work is not None:
+            if self._run_plan(*break_work, stats) == BreakResult.BREAK:
+                return BreakResult.BREAK
+
+        # Conflict detection runs before any LR write, as in the faithful path.
+        if conflict is not None:
+            raise RuntimeError(conflict)
+        for plan, raw_kwargs in lr_work:
+            self._run_plan(plan, raw_kwargs, stats)
+        for plan, raw_kwargs in slot_work:
+            self._run_plan(plan, raw_kwargs, stats)
+        return BreakResult.CONTINUE
 
     def execute_vliw_cycle(self) -> BreakResult:
         """Execute one VLIW cycle.
@@ -1699,13 +1926,17 @@ class Ipu:
         Returns:
             BreakResult.BREAK if break condition occurred, CONTINUE otherwise
         """
-        inst = self.state.inst_mem[self.state.program_counter]
+        pc = self.state.program_counter
+        inst = self.state.inst_mem[pc]
         if inst is None:
             # NOP — just advance PC
             self.state.program_counter += 1
             return BreakResult.CONTINUE
 
         self._take_snapshot()
+
+        if self._prototyping:
+            return self._execute_cycle_fast(inst, pc, with_break=True)
 
         # Break runs first — may halt before side effects
         result = self.dispatch_instruction("break", inst)
@@ -1729,12 +1960,17 @@ class Ipu:
 
         Used after returning from a debug break to complete the cycle.
         """
-        inst = self.state.inst_mem[self.state.program_counter]
+        pc = self.state.program_counter
+        inst = self.state.inst_mem[pc]
         if inst is None:
             self.state.program_counter += 1
             return
 
         self._take_snapshot()
+
+        if self._prototyping:
+            self._execute_cycle_fast(inst, pc, with_break=False)
+            return
 
         # Execute all slots except break
         self._dispatch_lr_slots(inst)

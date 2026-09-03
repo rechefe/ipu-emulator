@@ -9,6 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
+from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
@@ -47,6 +48,7 @@ class IpuState:
         program_counter: Current instruction address.
         inst_mem:        Instruction memory (list of decoded instruction dicts).
         dtype:           Arithmetic data type (not stored in CR; emulator-only).
+        prototyping:     Whether the opt-in fast paths are active (emulator-only).
     """
 
     def __init__(
@@ -57,6 +59,7 @@ class IpuState:
         wide_vector_quantize_output: bool = False,
         elu_alpha: float | None = None,
         dtype: DType = DType.INT8,
+        prototyping: bool | None = None,
     ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
@@ -76,6 +79,12 @@ class IpuState:
         self.wide_vector_debug: bool = wide_vector_debug
         self.wide_vector_arithmetic: WideVectorArithmetic = wide_vector_arithmetic
         self.wide_vector_quantize_output: bool = wide_vector_quantize_output
+
+        # --- Prototyping mode (emulator-only; see ipu_emu/prototyping.py) --------
+        # Opt-in fast paths that produce bit-identical state while skipping work
+        # the hardware really does. The Bazel flag is a mandatory capability;
+        # runtime controls may only select the mode inside a flagged build.
+        self.prototyping: bool = _resolve_prototyping(prototyping)
 
         # --- Activation α (emulator-only; not mapped to CR) ----------------------
         self.elu_alpha: float = (
