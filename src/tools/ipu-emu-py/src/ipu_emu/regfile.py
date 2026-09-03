@@ -24,13 +24,13 @@ takes an index argument (multi-element) or not (single-element).
 
 from __future__ import annotations
 
-import copy
 import struct
 from typing import Any
 
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_config import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
@@ -64,8 +64,13 @@ class RegFile:
                 self._alias_map[alias] = desc.name
         
         # Attach dynamically generated accessor methods
-        # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods)
-        _attach_dynamic_accessors(self)
+        # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods).
+        # The default schema attaches them to the class once; only a custom
+        # schema pays for per-instance generation.
+        if self._schema is REGFILE_SCHEMA:
+            _attach_default_accessors_to_class()
+        else:
+            _attach_dynamic_accessors(self)
 
         for index, value in CR_READ_ONLY_INITIAL_VALUES.items():
             self.set_scalar(
@@ -98,12 +103,12 @@ class RegFile:
 
     def get_scalar(self, name: str, index: int) -> int:
         """Read a 32-bit scalar register (LR / CR) at *index*."""
-        desc = self._desc(name)
+        canon = self._resolve(name)
+        desc = self._descriptors[canon]
         assert not desc.is_vector, f"{name} is not a scalar register"
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
         offset = index * desc.size_bytes
-        buf = self._storage[self._resolve(name)]
-        return struct.unpack_from("<I", buf, offset)[0]
+        return struct.unpack_from("<I", self._storage[canon], offset)[0]
 
     def set_scalar(
         self,
@@ -114,12 +119,13 @@ class RegFile:
         allow_read_only: bool = False,
     ) -> None:
         """Write a scalar register (LR / CR) at *index*."""
-        desc = self._desc(name)
+        canon = self._resolve(name)
+        desc = self._descriptors[canon]
         assert not desc.is_vector, f"{name} is not a scalar register"
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
 
         if self._is_read_only_cr(desc, index) and not allow_read_only:
-            return
+            raise EmulatorError(f"CR{index} is read-only")
 
         if desc.kind in (RegKind.CR, RegKind.LR):
             value &= LR_CR_SCALAR_VALUE_MASK
@@ -127,8 +133,7 @@ class RegFile:
             value &= REGISTER_WORD_VALUE_MASK
 
         offset = index * desc.size_bytes
-        buf = self._storage[self._resolve(name)]
-        struct.pack_into("<I", buf, offset, value)
+        struct.pack_into("<I", self._storage[canon], offset, value)
 
     def _is_read_only_cr(self, desc: RegDescriptor, index: int) -> bool:
         return desc.kind == RegKind.CR and index in CR_READ_ONLY_INITIAL_VALUES
@@ -163,16 +168,44 @@ class RegFile:
         end = start + desc.size_bytes
         self._storage[canon][start:end] = data
 
-    # -- snapshot (deep copy for VLIW) --------------------------------------
+    # -- snapshot (cycle-start copy for VLIW) -------------------------------
 
     def snapshot(self) -> RegFile:
-        """Return a deep copy of this register file.
+        """Return an independent copy of this register file.
 
         Used to implement VLIW read-before-write semantics: all sub-
         instructions within a cycle read from the snapshot while
         writes go to the live register file.
+
+        Only the register *storage* is copied. The schema, the descriptors and
+        the alias map describe the layout rather than the state — they are
+        never mutated, so the copy shares them. This runs once per emulated
+        cycle, and ``copy.deepcopy`` spent 384 us of it walking descriptors and
+        per-instance bound accessors (73% of total emulator runtime) to produce
+        a register file that differs only in its bytes.
         """
-        return copy.deepcopy(self)
+        new = object.__new__(type(self))
+        new._schema = self._schema
+        new._descriptors = self._descriptors
+        new._alias_map = self._alias_map
+        new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
+        if self._schema is not REGFILE_SCHEMA:
+            # A custom schema keeps its accessors on the instance, so the copy
+            # needs its own bound set (the default schema's live on the class).
+            _attach_dynamic_accessors(new)
+        return new
+
+    def copy_into(self, other: RegFile) -> None:
+        """Overwrite *other*'s register storage with this register file's bytes.
+
+        The counterpart to :meth:`snapshot` for a snapshot buffer reused across
+        cycles: same result as taking a fresh snapshot, without allocating one.
+        ``other`` must have been produced by :meth:`snapshot` from a register
+        file with this layout; the caller is responsible for that.
+        """
+        dst = other._storage
+        for name, buf in self._storage.items():
+            dst[name][:] = buf
 
     # -- iteration (for debug / serialisation) ------------------------------
 
@@ -352,14 +385,17 @@ def _add_indexed_vector_accessors(
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
 
-    ``RegFile`` has no concept of "mode" -- ``r_cyclic`` is allocated a fixed
-    2048 B always, but must wrap at 512 B in narrow mode and 2048 B in
-    wide-vector debug mode (both are 512 *elements*, just a different byte
-    count per element). Rather than have ``RegFile`` know about modes, the
-    wrap size is an explicit ``wrap_size`` argument the mode-aware caller
-    (``Ipu``) supplies on every call; it defaults to the full allocation
-    (``total_size``) for callers that don't need mode-dependent wrapping
-    (tests, debug tooling).
+    ``RegFile`` has no concept of "mode", and since #180 it needs none: the two
+    cyclic rings are separate registers -- ``r_cyclic`` (512 B, 1 B/element) and
+    ``r_cyclic_wide_debug`` (2048 B, 4 B/element) -- so each wraps at its own
+    allocation. Both hold 512 *elements*; only the byte count per element
+    differs.
+
+    ``wrap_size`` predates that split, when a single 2048 B ``r_cyclic`` had to
+    wrap at 512 B in narrow mode and the mode-aware caller (``Ipu``) supplied
+    the size on every call. It defaults to the register's full allocation
+    (``total_size``), which is now always the right answer -- nothing in
+    ``src/`` overrides it.
     """
     def _make_get(n: str = name, default_sz: int = total_size):
         def get_at(self, start_idx: int, length: int = 128, wrap_size: int | None = None) -> bytearray:
@@ -448,9 +484,11 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
     """Attach dynamically generated accessor methods to a RegFile instance.
 
-    Called in ``__init__``.  Every convenience method (``get_lr``,
-    ``set_r_acc_bytes``, ``get_r_cyclic_at``, …) is created here — no
-    hand-coded per-register methods exist on the class.
+    Called from ``__init__`` only for a **custom** schema.  The default schema
+    attaches its accessors to the class instead (see
+    ``_attach_default_accessors_to_class``), because building ~50 closures and
+    binding them per instance is pure overhead when every instance shares one
+    schema — and the emulator builds a ``RegFile`` per snapshot.
     """
     methods = _create_accessor_methods(regfile_instance._schema)
     for method_name, method in methods.items():
@@ -459,3 +497,20 @@ def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
             method_name,
             method.__get__(regfile_instance, type(regfile_instance)),
         )
+
+
+_DEFAULT_ACCESSORS_ATTACHED = False
+
+
+def _attach_default_accessors_to_class() -> None:
+    """Attach the default schema's accessors to ``RegFile`` itself, once.
+
+    Instance attachment stays available for a custom schema, and those
+    instance attributes shadow these class methods for every name they define.
+    """
+    global _DEFAULT_ACCESSORS_ATTACHED
+    if _DEFAULT_ACCESSORS_ATTACHED:
+        return
+    for method_name, method in _create_accessor_methods(REGFILE_SCHEMA).items():
+        setattr(RegFile, method_name, method)
+    _DEFAULT_ACCESSORS_ATTACHED = True

@@ -1,10 +1,10 @@
 import functools
 import os
 import lark
-import jinja2
 import ipu_as.compound_inst as compound_inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.label as ipu_label
+import ipu_as.template as template
 from ipu_common.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -167,6 +167,18 @@ def parse(text: str) -> list[dict[str, any]]:
     # calls. (App harnesses, tests, and benchmarks assemble several .asm files in
     # one process rather than spawning a fresh process per file.)
     ipu_label.reset_labels()
+    # Render the Jinja layer, if any, before parsing. Sandboxed: see
+    # ipu_as/template.py -- an .asm source is executable input, so an
+    # unsandboxed render makes assembling a file someone sent you the same
+    # thing as running whatever they put in it.
+    if template.has_markers(text):
+        text = template.render(text)
+    
+    script_dir = os.path.dirname(__file__)
+    parser = lark.Lark.open(
+        os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
+    )
+
     try:
         tree = parse_tree(text)
         ast = ASTBuilder().transform(tree)

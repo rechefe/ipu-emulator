@@ -234,7 +234,7 @@ INSTRUCTION_SPEC = {
                 operands=[
                     "offset: Offset register (LR0–LR15), in XMEM rows.",
                     "base: Base address register (CR0–CR14), in XMEM rows.",
-                    "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries. Any other value raises an error. In wide-vector debug mode index must be 0 (the load fills the whole register).",
+                    "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in narrow and wide-vector debug mode alike, and a load always replaces one whole 128-element slot.",
                 ],
                 operation="R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
             ),
