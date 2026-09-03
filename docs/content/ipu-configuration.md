@@ -62,9 +62,14 @@ state.set_cr_dstructure(valid_elements=64, partition=0)
 config = state.get_cr_dstructure()
 valid_elements = config.valid_elements
 partition = config.partition
+
+# Configure and read a different dstructure CR.
+state.set_cr_dstructure(valid_elements=32, partition=4, cr_idx=3)
+config3 = state.get_dstructure_for(3)
 ```
 
-The emulator defaults `CR15` to `valid_elements=128` and `partition=0`.
+When `cr_idx` is omitted, `set_cr_dstructure` writes `CR15`. The emulator
+defaults `CR15` to `valid_elements=128` and `partition=0`.
 Activation clamps the active element count to the available 128 elements at execution
 time.
 

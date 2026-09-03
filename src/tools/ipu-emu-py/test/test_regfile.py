@@ -321,6 +321,17 @@ class TestIpuState:
         assert config.valid_elements == 64
         assert config.partition == 2
 
+    def test_set_cr_dstructure_accepts_cr_idx(self):
+        state = IpuState()
+        cr15_before = state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX)
+
+        state.set_cr_dstructure(7, 4, cr_idx=3)
+
+        config = state.get_dstructure_for(3)
+        assert config.valid_elements == 7
+        assert config.partition == 4
+        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == cr15_before
+
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
         state.set_cr_dstructure(valid_elements=DSTRUCTURE_VALID_ELEMENTS_MASK + 1)
