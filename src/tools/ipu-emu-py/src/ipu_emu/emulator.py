@@ -23,9 +23,8 @@ from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.execute import (
     BreakResult,
+    Ipu,
     decode_instruction_word,
-    execute_next_instruction,
-    execute_instruction_skip_break,
     load_binary_instructions,
 )
 
@@ -68,16 +67,19 @@ def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
     Raises ``RuntimeError`` if *max_cycles* is exceeded (likely infinite loop).
     """
     cycles = 0
+    # One engine for the whole run: it carries no per-cycle state beyond the
+    # snapshot buffer it reuses, and building one per cycle was pure overhead.
+    ipu = Ipu(state)
     while not state.is_halted:
         if cycles >= max_cycles:
             raise RuntimeError(
                 f"Exceeded {max_cycles} cycles — possible infinite loop "
                 f"(PC={state.program_counter})"
             )
-        result = execute_next_instruction(state)
+        result = ipu.execute_vliw_cycle()
         if result == BreakResult.BREAK:
             # In "run" mode, skip the break and execute the instruction anyway
-            execute_instruction_skip_break(state)
+            ipu.execute_vliw_cycle_skip_break()
         cycles += 1
     state.stats.total_cycles = cycles
     return cycles
@@ -102,6 +104,7 @@ def run_with_debug(
     """
     cycles = 0
     stepping = False
+    ipu = Ipu(state)
 
     while not state.is_halted:
         if cycles >= max_cycles:
@@ -110,7 +113,7 @@ def run_with_debug(
                 f"(PC={state.program_counter})"
             )
 
-        result = execute_next_instruction(state)
+        result = ipu.execute_vliw_cycle()
 
         if result == BreakResult.BREAK or stepping:
             action = debug_callback(state, cycles)
@@ -119,7 +122,7 @@ def run_with_debug(
             stepping = action == DebugAction.STEP
             # Execute the instruction (skipping the break re-check)
             if result == BreakResult.BREAK:
-                execute_instruction_skip_break(state)
+                ipu.execute_vliw_cycle_skip_break()
 
         cycles += 1
 

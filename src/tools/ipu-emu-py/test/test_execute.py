@@ -2978,3 +2978,104 @@ BKPT;;
         stored = state.xmem.read_address(row * 128, 512)
         assert stored == state.regfile.get_r_acc_bytes()
 
+
+
+class TestNarrowStoreOverflow:
+    """A narrow FP8 accumulate whose float32 store overflows fails lane by lane.
+
+    Same contract as the wide-vector case: lanes before the offender written,
+    the offender zeroed (``struct.pack_into`` clears the field before packing),
+    lanes after it untouched, and struct's own OverflowError propagates.
+    """
+
+    def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
+        from ipu_emu.ipu import Ipu, LANES
+
+        state = IpuState()
+        state.dtype = DType.E4
+        k = 7
+        acc = [1.0] * LANES
+        mult = [2.0] * LANES
+        acc[k] = mult[k] = 3e38
+        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
+        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
+
+        ipu = Ipu(state)
+        ipu._take_snapshot()
+        with pytest.raises(OverflowError, match="float too large to pack with f format"):
+            ipu.execute_acc_add()
+
+        expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
+        assert state.regfile.raw("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+
+
+class TestFirstStoreBitExactness:
+    @pytest.mark.parametrize(
+        ("wide_vector_debug", "dtype"),
+        [
+            (False, DType.E4),
+            (True, DType.INT8),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "handler_name",
+        ["execute_acc_add_first", "execute_acc_max_first"],
+    )
+    def test_signaling_nan_is_quietened_like_parent_lane_store(
+        self,
+        wide_vector_debug: bool,
+        dtype: DType,
+        handler_name: str,
+    ) -> None:
+        from ipu_emu.ipu import Ipu
+
+        state = IpuState(
+            wide_vector_debug=wide_vector_debug,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        )
+        state.dtype = dtype
+        signaling_nan = struct.pack("<I", 0x7F800001)
+        quiet_nan = struct.pack("<I", 0x7FC00001)
+        state.regfile.raw("mult_res")[:] = signaling_nan * 128
+
+        getattr(Ipu(state), handler_name)()
+
+        assert state.regfile.raw("r_acc") == quiet_nan * 128
+
+
+class TestInspectableSnapshot:
+    def test_retained_snapshot_is_stable_and_lazily_replaced(self) -> None:
+        from ipu_emu.ipu import Ipu
+
+        state = _make_state(
+            """\
+SET lr0 cr8;;
+SET lr0 cr9;;
+BKPT;;
+""",
+            cr={8: 1, 9: 2},
+        )
+        ipu = Ipu(state)
+
+        ipu.execute_vliw_cycle()
+        first = ipu.snapshot
+        assert first is not None
+        assert ipu.snapshot is first
+        assert first.get_lr(0) == 0
+
+        ipu.execute_vliw_cycle()
+        assert ipu._public_snapshot is None
+        assert first.get_lr(0) == 0
+        second = ipu.snapshot
+        assert second is not None
+        assert second is not first
+        assert second.get_lr(0) == 1
+
+
+class TestDispatchPlans:
+    def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
+        from ipu_emu.ipu import _build_plan
+
+        spec = {"execute_fn": "execute_no_such_handler", "operands": []}
+        with pytest.raises(RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"):
+            _build_plan("mult", "FAKE", spec, {})
