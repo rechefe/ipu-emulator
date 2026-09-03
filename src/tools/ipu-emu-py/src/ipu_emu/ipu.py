@@ -24,6 +24,7 @@ from typing import Any
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_common.instruction_spec import (
@@ -43,14 +44,6 @@ from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_
 from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 from ipu_common.activations import apply_activation
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-class EmulatorError(RuntimeError):
-    """Raised when the emulator detects an invalid operation."""
-
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-common

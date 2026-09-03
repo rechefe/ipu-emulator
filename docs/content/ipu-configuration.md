@@ -9,10 +9,10 @@ harnesses and tests.
 | Location | Purpose | How to set it in Python |
 | --- | --- | --- |
 | `IpuState.dtype` | Arithmetic data type used by emulator math paths. It is not stored in a `CR` register. | `state.dtype = DType.INT8` or `IpuState(dtype=DType.INT8)` |
-| `CR0` | Read-only constant zero. | Already initialized; writes are ignored. |
-| `CR1` | Read-only constant one. | Already initialized; writes are ignored. |
-| `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, scalar constants, or additional dstructure configurations. | `state.regfile.set_cr(index, value)` or `state.set_cr_dstructure(..., cr_idx=index)` |
-| `CR15` | Conventional dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[12:8]` hold `partition`; bits `[14:13]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
+| `CR0` | Read-only constant zero. | Already initialized; writes raise `EmulatorError`. |
+| `CR1` | Read-only constant one. | Already initialized; writes raise `EmulatorError`. |
+| `CR2`-`CR14` | Application configuration such as base addresses, strides, loop bounds, and scalar constants. | `state.regfile.set_cr(index, value)` |
+| `CR15` | Dstructure register. Bits `[7:0]` hold `valid_elements`; bits `[11:8]` hold `partition`; bits `[13:12]` hold `pad_mode`. | `state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.ZERO)` |
 
 `LR` and `CR` registers store 32-bit scalar values. Use
 `LR_CR_SCALAR_VALUE_MASK` when encoding negative or wrapped constants for those
@@ -52,8 +52,9 @@ The `AGG.*` aggregation instructions, `ACTIVATE`, and `AAQ` do not take a
 `valid_elements` assembly operand directly. Instead, they take a mandatory
 `cr_idx` operand naming the CR register that supplies `valid_elements` — there
 is no implicit default, every instruction must name a CR register explicitly
-(any `CR0`-`CR15`). Configure the chosen register from Python before running
-the program:
+(any `CR0`-`CR15`). Configure writable `CR2`-`CR15` from Python before running
+the program. `CR0` and `CR1` may be selected as dstructure operands, but retain
+their hard-wired raw values `0` and `1`:
 
 ```python
 state.set_cr_dstructure(valid_elements=64, partition=0)
