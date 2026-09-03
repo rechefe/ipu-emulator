@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import struct
 
+import numpy as np
 import pytest
 
 from ipu_emu.emulator import load_program, run_until_complete
@@ -452,7 +453,7 @@ class TestWideVectorAlignment:
         element_width_bytes(), so any rc_idx value produces a byte offset that is
         always a multiple of 4 in wide-vector debug mode -- misalignment via
         rc_idx is no longer reachable (unlike when rc_idx was a raw byte offset).
-        The 4-byte-aligned guard in _debug_rb_lane_vals stays as defense-in-depth."""
+        The 4-byte-aligned guard in _wide_rb_lanes stays as defense-in-depth."""
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
         st.xmem.write_address(0x1000, struct.pack("<128f", *([1.0] * 128)))
@@ -570,3 +571,88 @@ BKPT;;
             assert values[i] == pytest.approx(1.0), f"element {64 + i} (from slot 0): got {values[i]}"
         for i in range(64, 128):
             assert values[i] == pytest.approx(2.0), f"element {64 + i} (from slot 1): got {values[i]}"
+
+
+class TestWideVectorStoreOverflow:
+    """A float32 store that overflows must fail exactly as the lane-by-lane store did.
+
+    ``struct.pack_into("<f", ...)`` zeroes the field, then raises OverflowError
+    on a finite double too large for float32. The whole-row store replays that
+    lane by lane on failure, so a debugger that catches the exception sees the
+    same register: lanes before the offender written, the offender zeroed, the
+    rest untouched.
+    """
+
+    def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.dtype = DType.INT8
+        k = 5
+        acc = [1.0] * LANES
+        mult = [2.0] * LANES
+        acc[k] = mult[k] = 3e38  # 6e38 does not fit float32
+        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
+        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
+
+        ipu = Ipu(state)
+        ipu._take_snapshot()
+        with np.errstate(all="raise"):
+            with pytest.raises(OverflowError, match="float too large to pack with f format"):
+                ipu.execute_acc_add()
+
+        expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
+        assert state.regfile.raw("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+        # and the lane-by-lane reference, run on a fresh copy, agrees byte for byte
+        ref = bytearray(struct.pack(f"<{LANES}f", *acc))
+        with pytest.raises(OverflowError):
+            for i in range(LANES):
+                struct.pack_into("<f", ref, i * 4, acc[i] + mult[i])
+        assert state.regfile.raw("r_acc")[:] == ref
+
+
+class TestWideVectorNumpyErrorPolicy:
+    """The embedding application's NumPy policy must not change emulation."""
+
+    @staticmethod
+    def _state() -> IpuState:
+        state = IpuState(
+            wide_vector_debug=True,
+            wide_vector_arithmetic=WideVectorArithmetic.FP32,
+        )
+        state.dtype = DType.INT8
+        return state
+
+    def test_acc_invalid_ignores_caller_seterr(self) -> None:
+        state = self._state()
+        state.regfile.raw("r_acc")[:] = struct.pack(
+            f"<{LANES}f", *([float("inf")] * LANES)
+        )
+        state.regfile.raw("mult_res")[:] = struct.pack(
+            f"<{LANES}f", *([float("-inf")] * LANES)
+        )
+        ipu = Ipu(state)
+        ipu._take_snapshot()
+
+        with np.errstate(all="raise"):
+            ipu.execute_acc_add()
+
+        expected_lane = struct.pack("<f", float("inf") + float("-inf"))
+        assert state.regfile.raw("r_acc") == expected_lane * LANES
+
+    def test_mult_invalid_ignores_caller_seterr(self) -> None:
+        state = self._state()
+        state.regfile.raw("r_wide_debug")[: LANES * 4] = struct.pack(
+            f"<{LANES}f", *([0.0] * LANES)
+        )
+        state.regfile.raw("r_cyclic_wide_debug")[: LANES * 4] = struct.pack(
+            f"<{LANES}f", *([float("inf")] * LANES)
+        )
+        ipu = Ipu(state)
+        ipu._take_snapshot()
+
+        with np.errstate(all="raise"):
+            ipu.execute_mult_rc_vv(
+                rc_idx=0, ra=0, mask_offset=0, mask_shift=0, cr_idx=15
+            )
+
+        expected_lane = struct.pack("<f", float("inf") * 0.0)
+        assert state.regfile.raw("mult_res") == expected_lane * LANES
