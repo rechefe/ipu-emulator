@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.errors import EmulatorError
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
@@ -39,12 +40,14 @@ class TestRegFileScalars:
 
     def test_cr0_is_permanently_zero(self):
         rf = RegFile()
-        rf.set_cr(0, 0xFFFFFF)  # write is silently ignored
+        with pytest.raises(EmulatorError, match="CR0 is read-only"):
+            rf.set_cr(0, 0xFFFFFF)
         assert rf.get_cr(0) == 0
 
     def test_cr1_is_permanently_one(self):
         rf = RegFile()
-        rf.set_cr(1, 0xFFFFFF)  # write is silently ignored
+        with pytest.raises(EmulatorError, match="CR1 is read-only"):
+            rf.set_cr(1, 0xFFFFFF)
         assert rf.get_cr(1) == 1
 
     def test_cr_32bit_mask(self):
@@ -317,6 +320,17 @@ class TestIpuState:
         config = state.get_cr_dstructure()
         assert config.valid_elements == 64
         assert config.partition == 2
+
+    def test_set_cr_dstructure_accepts_cr_idx(self):
+        state = IpuState()
+        cr15_before = state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX)
+
+        state.set_cr_dstructure(7, 4, cr_idx=3)
+
+        config = state.get_dstructure_for(3)
+        assert config.valid_elements == 7
+        assert config.partition == 4
+        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == cr15_before
 
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import cmd
 import json
+import shlex
 import struct
 import sys
 import types
@@ -33,18 +34,108 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, TextIO
 
+try:
+    import readline  # noqa: F401 -- importing enables input() history/editing
+except ImportError:  # pragma: no cover - unavailable on some platforms
+    readline = None
+
 # Single source of truth — import register types/schema from ipu_common
 from ipu_common.types import RegDescriptor, RegDtype, RegKind
 from ipu_common.registers import create_regfile_schema
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
+from ipu_emu.ipu import XMEM_ADDRESSABLE_ROWS, xmem_row_size_bytes
+from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
 
 # Re-export so callers only need this module
-__all__ = ["debug_prompt", "DebugAction", "format_register", "DebugCLI"]
+__all__ = [
+    "debug_prompt",
+    "DebugAction",
+    "format_register",
+    "DebugCLI",
+    "VISIBLE_ALPHABET",
+    "encode_16bit_cell",
+    "decode_16bit_cell",
+]
 
 # Build the schema once at import time
 REGFILE_SCHEMA: list[RegDescriptor] = create_regfile_schema()
+
+_XMEM_FORMAT_ITEM_SIZE_BYTES = {
+    "hex": 1,
+    "int8": 1,
+    "u8": 1,
+    "cell16": 2,
+    "u32": 4,
+    "f32": 4,
+}
+_XMEM_FORMATS = tuple(_XMEM_FORMAT_ITEM_SIZE_BYTES)
+_XMEM_FORMATS_TEXT = "|".join(_XMEM_FORMATS)
+_XMEM_VALUES_PER_LINE = {
+    "hex": 16,
+    "int8": 16,
+    "u8": 16,
+    "cell16": 32,
+    "u32": 4,
+    "f32": 4,
+}
+
+_HEX_BYTES_PER_GROUP = 4
+_CELL16_CHARACTERS_PER_GROUP = 2
+_INT8_DECIMAL_WIDTH = 4
+_U8_DECIMAL_WIDTH = 3
+_U32_DECIMAL_WIDTH = 10
+_F32_DISPLAY_WIDTH = 15
+_F32_SIGNIFICANT_DIGITS = 9
+
+_CELL16_CHARACTER_MASK = 0xFF
+_CELL16_COLOR_MASK = 0xF
+_CELL16_FOREGROUND_SHIFT = 8
+_CELL16_BACKGROUND_SHIFT = 12
+_ANSI_STANDARD_COLOR_COUNT = 8
+_ANSI_STANDARD_FG_BASE = 30
+_ANSI_BRIGHT_FG_BASE = 90
+_ANSI_STANDARD_BG_BASE = 40
+_ANSI_BRIGHT_BG_BASE = 100
+
+# A control-free character for every possible 8-bit cell value. The ASCII and
+# Latin-1 ranges provide 188 entries; Latin Extended-A supplies the remaining
+# 68 so all indices 0..255 are valid.
+_VISIBLE_ASCII = [chr(i) for i in range(33, 127)]
+_VISIBLE_LATIN1 = [chr(i) for i in range(161, 256) if i != 173]
+_VISIBLE_EXTENDED = [chr(i) for i in range(0x100, 0x144)]
+VISIBLE_ALPHABET = _VISIBLE_ASCII + _VISIBLE_LATIN1 + _VISIBLE_EXTENDED
+assert len(VISIBLE_ALPHABET) == 256
+
+
+def encode_16bit_cell(char_byte: int, fg_4bit: int, bg_4bit: int) -> str:
+    """Render one character/color cell as an ANSI terminal string."""
+    char = VISIBLE_ALPHABET[char_byte & _CELL16_CHARACTER_MASK]
+    fg = fg_4bit & _CELL16_COLOR_MASK
+    bg = bg_4bit & _CELL16_COLOR_MASK
+    ansi_fg = (
+        _ANSI_STANDARD_FG_BASE + fg
+        if fg < _ANSI_STANDARD_COLOR_COUNT
+        else _ANSI_BRIGHT_FG_BASE + (fg - _ANSI_STANDARD_COLOR_COUNT)
+    )
+    ansi_bg = (
+        _ANSI_STANDARD_BG_BASE + bg
+        if bg < _ANSI_STANDARD_COLOR_COUNT
+        else _ANSI_BRIGHT_BG_BASE + (bg - _ANSI_STANDARD_COLOR_COUNT)
+    )
+    return f"\033[{ansi_fg};{ansi_bg}m{char}\033[0m"
+
+
+def decode_16bit_cell(
+    char_code: int, fg_4bit: int, bg_4bit: int
+) -> tuple[str, int, int]:
+    """Return the visible character and normalized 4-bit colors."""
+    return (
+        VISIBLE_ALPHABET[char_code & _CELL16_CHARACTER_MASK],
+        fg_4bit & _CELL16_COLOR_MASK,
+        bg_4bit & _CELL16_COLOR_MASK,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +379,213 @@ def _parse_int(s: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
+# XMEM helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_address_term(state: IpuState, token: str) -> tuple[int | None, str | None]:
+    """Resolve an XMEM address term from an immediate or indexed LR/CR."""
+    immediate = _parse_int(token)
+    if immediate is not None:
+        return immediate, None
+
+    lower = token.lower()
+    if not (lower.startswith("lr") or lower.startswith("cr")):
+        return None, f"Invalid address term '{token}': expected an immediate, lrN, or crN"
+
+    prefix = lower[:2]
+    suffix = lower[2:]
+    if not suffix.isdigit():
+        return None, f"Invalid address register '{token}': expected {prefix}N"
+
+    desc, index = _resolve_register(lower)
+    if desc is None or desc.name != prefix:
+        return None, f"Unknown address register: {token}"
+    return state.regfile.get_scalar(desc.name, index), None
+
+
+def _resolve_xmem_address(
+    state: IpuState, mode: str, base_token: str, offset_token: str
+) -> tuple[int | None, dict[str, int | str] | None, str | None]:
+    """Resolve row/byte debugger operands to a physical XMEM byte address."""
+    mode = mode.lower()
+    if mode not in ("row", "byte"):
+        return None, None, "XMEM address mode must be 'row' or 'byte'"
+
+    base, error = _resolve_address_term(state, base_token)
+    if error is not None:
+        return None, None, error
+    offset, error = _resolve_address_term(state, offset_token)
+    if error is not None:
+        return None, None, error
+    assert base is not None and offset is not None
+
+    effective = base + offset
+    if effective < 0:
+        return None, None, f"XMEM {mode} address must be non-negative; got {effective}"
+
+    metadata: dict[str, int | str] = {"address_mode": mode}
+    if mode == "row":
+        row_size = xmem_row_size_bytes(state)
+        if effective >= XMEM_ADDRESSABLE_ROWS:
+            return (
+                None,
+                None,
+                f"XMEM row {effective} out of range "
+                f"[0, {XMEM_ADDRESSABLE_ROWS - 1}]",
+            )
+        byte_address = effective * row_size
+        metadata.update(
+            {
+                "row": effective,
+                "row_size_bytes": row_size,
+                "byte_address": byte_address,
+            }
+        )
+    else:
+        if effective >= XMEM_SIZE_BYTES:
+            return (
+                None,
+                None,
+                f"XMEM byte address {effective} out of range [0, {XMEM_SIZE_BYTES - 1}]",
+            )
+        byte_address = effective
+        metadata["byte_address"] = byte_address
+
+    return byte_address, metadata, None
+
+
+def _xmem_range_error(
+    byte_address: int, byte_count: int, limit: int = XMEM_SIZE_BYTES
+) -> str | None:
+    if byte_count < 1:
+        return "XMEM read size must be positive"
+    end = byte_address + byte_count
+    if end > limit:
+        return (
+            f"XMEM range out of bounds: byte address {byte_address}, "
+            f"size {byte_count}, end {end}, max {limit}"
+        )
+    return None
+
+
+def _xmem_address_limit(state: IpuState, mode: str) -> int:
+    """Return the accessible byte count for an XMEM addressing mode."""
+    if mode == "row":
+        return XMEM_ADDRESSABLE_ROWS * xmem_row_size_bytes(state)
+    return XMEM_SIZE_BYTES
+
+
+def _format_xmem(
+    data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
+) -> str:
+    """Format an already-validated XMEM range for interactive display."""
+    values_per_line = _XMEM_VALUES_PER_LINE[fmt]
+    item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
+    lines: list[str] = []
+    total_items = len(data) // item_size
+    start = 0
+
+    while start < total_items:
+        address = byte_address + start * item_size
+        row = address // row_size
+        row_address = row * row_size
+        if start == 0 or address == row_address:
+            marker = f"--- XMEM row {row} starts at byte address 0x{row_address:08x}"
+            if address != row_address:
+                marker += f"; display starts at 0x{address:08x}"
+            lines.append(marker + " ---")
+
+        items_left_in_row = (row_address + row_size - address) // item_size
+        count = min(values_per_line, total_items - start, items_left_in_row)
+        if fmt == "hex":
+            byte_values = [f"{value:02x}" for value in data[start : start + count]]
+            if row_size > XMEM_WIDTH_BYTES:
+                values = "  ".join(
+                    " ".join(byte_values[i : i + _HEX_BYTES_PER_GROUP])
+                    for i in range(0, len(byte_values), _HEX_BYTES_PER_GROUP)
+                )
+            else:
+                values = " ".join(byte_values)
+        elif fmt == "int8":
+            unpacked = (
+                struct.unpack_from("<b", data, start + i)[0]
+                for i in range(count)
+            )
+            values = " ".join(
+                f"{value:>{_INT8_DECIMAL_WIDTH}d}" for value in unpacked
+            )
+        elif fmt == "u8":
+            values = " ".join(
+                f"{data[start + i]:0{_U8_DECIMAL_WIDTH}d}" for i in range(count)
+            )
+        elif fmt == "cell16":
+            rendered: list[str] = []
+            for i in range(count):
+                cell = struct.unpack_from("<H", data, (start + i) * item_size)[0]
+                char_code = cell & _CELL16_CHARACTER_MASK
+                fg_4bit = (
+                    cell >> _CELL16_FOREGROUND_SHIFT
+                ) & _CELL16_COLOR_MASK
+                bg_4bit = (
+                    cell >> _CELL16_BACKGROUND_SHIFT
+                ) & _CELL16_COLOR_MASK
+                rendered.append(encode_16bit_cell(char_code, fg_4bit, bg_4bit))
+            values = " ".join(
+                "".join(rendered[i : i + _CELL16_CHARACTERS_PER_GROUP])
+                for i in range(0, len(rendered), _CELL16_CHARACTERS_PER_GROUP)
+            )
+        elif fmt == "u32":
+            unpacked = (
+                struct.unpack_from("<I", data, (start + i) * item_size)[0]
+                for i in range(count)
+            )
+            values = " ".join(
+                f"{value:0{_U32_DECIMAL_WIDTH}d}" for value in unpacked
+            )
+        else:
+            unpacked = (
+                struct.unpack_from("<f", data, (start + i) * item_size)[0]
+                for i in range(count)
+            )
+            values = " ".join(
+                f"{value:>{_F32_DISPLAY_WIDTH}.{_F32_SIGNIFICANT_DIGITS}g}"
+                for value in unpacked
+            )
+        lines.append(f"  0x{address:08x}: {values}")
+        start += count
+
+    return "\n".join(lines)
+
+
+def _xmem_sidecar_path(json_path: Path) -> Path:
+    return json_path.with_suffix(".xmem.bin")
+
+
+def _save_state_with_xmem(
+    state: IpuState,
+    json_path: Path,
+    byte_address: int,
+    byte_count: int,
+    metadata: dict[str, int | str],
+) -> Path:
+    """Save registers to JSON and one raw XMEM range to a binary sidecar."""
+    sidecar_path = _xmem_sidecar_path(json_path)
+    xmem_data = bytes(state.xmem.read_address(byte_address, byte_count))
+    data = state_to_json_dict(state)
+    data["xmem"] = {
+        **metadata,
+        "file": sidecar_path.name,
+        "byte_address": byte_address,
+        "byte_count": byte_count,
+    }
+
+    sidecar_path.write_bytes(xmem_data)
+    json_path.write_text(json.dumps(data, indent=2) + "\n")
+    return sidecar_path
+
+
+# ---------------------------------------------------------------------------
 # The Debug CLI class — built on cmd.Cmd
 # ---------------------------------------------------------------------------
 
@@ -310,7 +608,9 @@ class DebugCLI(cmd.Cmd):
         self.state = state
         self.out = out
         self.inp = inp
-        self.use_rawinput = False
+        input_is_tty = bool(getattr(inp, "isatty", lambda: False)())
+        output_is_tty = bool(getattr(out, "isatty", lambda: False)())
+        self.use_rawinput = bool(input_is_tty and output_is_tty and readline is not None)
         self._result: DebugAction = DebugAction.QUIT
         self._generate_register_commands()
 
@@ -482,15 +782,151 @@ class DebugCLI(cmd.Cmd):
                 f"Cannot set byte-array register '{reg_name}' with a scalar value\n"
             )
 
+    def do_xmem(self, args: str) -> None:
+        """Read XMEM. Usage: xmem row|byte BASE OFFSET COUNT FORMAT"""
+        parts = args.split()
+        if len(parts) != 5:
+            self.out.write(
+                "Usage: xmem row|byte BASE OFFSET COUNT "
+                f"{_XMEM_FORMATS_TEXT}\n"
+            )
+            return
+
+        mode, base_token, offset_token, count_token, fmt = parts
+        fmt = fmt.lower()
+        if fmt not in _XMEM_FORMAT_ITEM_SIZE_BYTES:
+            self.out.write(
+                f"XMEM format must be one of: {_XMEM_FORMATS_TEXT}\n"
+            )
+            return
+
+        count = _parse_int(count_token)
+        if count is None or count < 1:
+            self.out.write(f"XMEM count must be a positive integer; got '{count_token}'\n")
+            return
+
+        byte_address, metadata, error = _resolve_xmem_address(
+            self.state, mode, base_token, offset_token
+        )
+        if error is not None:
+            self.out.write(error + "\n")
+            return
+        assert byte_address is not None and metadata is not None
+
+        item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
+        if item_size > 1 and byte_address % item_size:
+            self.out.write(
+                f"XMEM {fmt} address must be {item_size}-byte aligned; "
+                f"got {byte_address}\n"
+            )
+            return
+        byte_count = count * item_size
+        limit = _xmem_address_limit(self.state, str(metadata["address_mode"]))
+        error = _xmem_range_error(byte_address, byte_count, limit)
+        if error is not None:
+            self.out.write(error + "\n")
+            return
+
+        data = self.state.xmem.read_address(byte_address, byte_count)
+        if metadata["address_mode"] == "row":
+            heading = (
+                f"=== XMEM row {metadata['row']} "
+                f"(byte address 0x{byte_address:08x}, {fmt}) ==="
+            )
+        else:
+            heading = f"=== XMEM byte address 0x{byte_address:08x} ({fmt}) ==="
+        self.out.write(heading + "\n")
+        self.out.write(
+            _format_xmem(
+                data,
+                byte_address,
+                fmt,
+                xmem_row_size_bytes(self.state),
+            )
+            + "\n"
+        )
+
     def do_disasm(self, args: str) -> None:
         """Disassemble current instruction."""
         self.out.write(disassemble_current(self.state) + "\n")
 
     def do_save(self, args: str) -> None:
-        """Save registers to JSON.  Usage: save [filename]"""
-        filename = args.strip() if args.strip() else "ipu_debug_dump.json"
-        save_state_json(self.state, filename)
-        self.out.write(f"Registers saved to {filename}\n")
+        """Save state. Usage: save [FILE [xmem all|row|byte ...]]"""
+        stripped = args.strip()
+        if not stripped:
+            filename = "ipu_debug_dump.json"
+            save_state_json(self.state, filename)
+            self.out.write(f"Registers saved to {filename}\n")
+            return
+
+        try:
+            parts = shlex.split(stripped)
+        except ValueError as error:
+            self.out.write(f"Invalid save arguments: {error}\n")
+            return
+
+        if len(parts) == 1:
+            filename = parts[0]
+            save_state_json(self.state, filename)
+            self.out.write(f"Registers saved to {filename}\n")
+            return
+
+        usage = (
+            "Usage: save [FILE]\n"
+            "       save FILE xmem all\n"
+            "       save FILE xmem row BASE OFFSET ROW_COUNT\n"
+            "       save FILE xmem byte BASE OFFSET BYTE_COUNT\n"
+        )
+        if parts[1].lower() != "xmem":
+            # Keep the original register-only command compatible with unquoted
+            # filenames containing spaces. XMEM syntax reserves the second
+            # token "xmem"; quote such filenames when using an XMEM suffix.
+            filename = stripped
+            save_state_json(self.state, filename)
+            self.out.write(f"Registers saved to {filename}\n")
+            return
+
+        json_path = Path(parts[0])
+        if len(parts) == 3 and parts[2].lower() == "all":
+            byte_address = 0
+            byte_count = XMEM_SIZE_BYTES
+            metadata: dict[str, int | str] = {"address_mode": "all"}
+        elif len(parts) == 6 and parts[2].lower() in ("row", "byte"):
+            mode, base_token, offset_token, count_token = parts[2:]
+            count = _parse_int(count_token)
+            if count is None or count < 1:
+                self.out.write(
+                    f"XMEM count must be a positive integer; got '{count_token}'\n"
+                )
+                return
+
+            byte_address, metadata, error = _resolve_xmem_address(
+                self.state, mode, base_token, offset_token
+            )
+            if error is not None:
+                self.out.write(error + "\n")
+                return
+            assert byte_address is not None and metadata is not None
+            byte_count = (
+                count * int(metadata["row_size_bytes"])
+                if mode.lower() == "row"
+                else count
+            )
+        else:
+            self.out.write(usage)
+            return
+
+        limit = _xmem_address_limit(self.state, str(metadata["address_mode"]))
+        error = _xmem_range_error(byte_address, byte_count, limit)
+        if error is not None:
+            self.out.write(error + "\n")
+            return
+
+        sidecar = _save_state_with_xmem(
+            self.state, json_path, byte_address, byte_count, metadata
+        )
+        self.out.write(f"Registers saved to {json_path}\n")
+        self.out.write(f"XMEM saved to {sidecar}\n")
 
     def default(self, line: str) -> None:
         """Handle unknown commands."""

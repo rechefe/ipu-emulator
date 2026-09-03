@@ -91,7 +91,7 @@ class IpuState:
             float(elu_alpha) if elu_alpha is not None else float(_activations._ELU_ALPHA)
         )
 
-    # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
+    # -- CR dstructure convenience (CR15 is the conventional default) --
 
     def get_cr_dstructure(self) -> DStructureConfig:
         """Read CR15 as decoded dstructure configuration fields."""
@@ -110,10 +110,12 @@ class IpuState:
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
         partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
         pad_mode: PadMode | int = DEFAULT_DSTRUCTURE.pad_mode,
+        *,
+        cr_idx: int = CR_DSTRUCTURE_REG_INDEX,
     ) -> None:
-        """Write CR15 as dstructure configuration fields."""
+        """Write dstructure configuration fields to ``cr_idx`` (CR15 by default)."""
         self.regfile.set_cr(
-            CR_DSTRUCTURE_REG_INDEX,
+            cr_idx,
             encode_dstructure(valid_elements=valid_elements, partition=partition, pad_mode=pad_mode),
         )
 

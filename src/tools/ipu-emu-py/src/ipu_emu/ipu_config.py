@@ -58,7 +58,7 @@ DEFAULT_PAD_MODE = PadMode.ZERO
 
 @dataclass(frozen=True)
 class DStructureConfig:
-    """Decoded CR15 dstructure configuration."""
+    """Decoded CR dstructure configuration."""
 
     valid_elements: int = DEFAULT_VALID_ELEMENTS
     partition: Partition = DEFAULT_PARTITION
@@ -70,7 +70,7 @@ class DStructureConfig:
         yield self.partition
 
     def to_register_value(self) -> int:
-        """Pack this dstructure into the CR15 register word."""
+        """Pack this dstructure into a CR register word."""
         return encode_dstructure(
             valid_elements=self.valid_elements,
             partition=self.partition,
@@ -87,7 +87,7 @@ def encode_dstructure(
     partition: Partition | int = DEFAULT_PARTITION,
     pad_mode: PadMode | int = DEFAULT_PAD_MODE,
 ) -> int:
-    """Pack dstructure fields into the CR15 register value."""
+    """Pack dstructure fields into a CR register value."""
     partition = Partition(partition)   # validates and converts; raises ValueError if invalid
     pad_mode = PadMode(pad_mode)       # validates and converts; raises ValueError if invalid
     valid = int(valid_elements) & DSTRUCTURE_VALID_ELEMENTS_MASK
@@ -97,12 +97,11 @@ def encode_dstructure(
 
 
 def decode_dstructure(value: int) -> DStructureConfig:
-    """Decode a CR15 register value into named dstructure fields."""
+    """Decode a CR register value into named dstructure fields."""
     word = int(value) & LR_CR_SCALAR_VALUE_MASK
     return DStructureConfig(
         valid_elements=word & DSTRUCTURE_VALID_ELEMENTS_MASK,
         partition=Partition((word >> DSTRUCTURE_PARTITION_SHIFT) & DSTRUCTURE_PARTITION_MASK),
         pad_mode=PadMode((word >> DSTRUCTURE_PAD_MODE_SHIFT) & DSTRUCTURE_PAD_MODE_MASK),
     )
-
 

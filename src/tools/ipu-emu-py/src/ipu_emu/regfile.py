@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_config import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
@@ -124,7 +125,7 @@ class RegFile:
         assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
 
         if self._is_read_only_cr(desc, index) and not allow_read_only:
-            return
+            raise EmulatorError(f"CR{index} is read-only")
 
         if desc.kind in (RegKind.CR, RegKind.LR):
             value &= LR_CR_SCALAR_VALUE_MASK
@@ -384,14 +385,17 @@ def _add_indexed_vector_accessors(
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
 
-    ``RegFile`` has no concept of "mode" -- ``r_cyclic`` is allocated a fixed
-    2048 B always, but must wrap at 512 B in narrow mode and 2048 B in
-    wide-vector debug mode (both are 512 *elements*, just a different byte
-    count per element). Rather than have ``RegFile`` know about modes, the
-    wrap size is an explicit ``wrap_size`` argument the mode-aware caller
-    (``Ipu``) supplies on every call; it defaults to the full allocation
-    (``total_size``) for callers that don't need mode-dependent wrapping
-    (tests, debug tooling).
+    ``RegFile`` has no concept of "mode", and since #180 it needs none: the two
+    cyclic rings are separate registers -- ``r_cyclic`` (512 B, 1 B/element) and
+    ``r_cyclic_wide_debug`` (2048 B, 4 B/element) -- so each wraps at its own
+    allocation. Both hold 512 *elements*; only the byte count per element
+    differs.
+
+    ``wrap_size`` predates that split, when a single 2048 B ``r_cyclic`` had to
+    wrap at 512 B in narrow mode and the mode-aware caller (``Ipu``) supplied
+    the size on every call. It defaults to the register's full allocation
+    (``total_size``), which is now always the right answer -- nothing in
+    ``src/`` overrides it.
     """
     def _make_get(n: str = name, default_sz: int = total_size):
         def get_at(self, start_idx: int, length: int = 128, wrap_size: int | None = None) -> bytearray:
