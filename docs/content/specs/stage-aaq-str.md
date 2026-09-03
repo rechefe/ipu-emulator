@@ -145,7 +145,7 @@ single field:
 | 1 | `identity` | `f(x) = x` | Pass-through; no transform. |
 | 2 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
 | 3 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
-| 4 | `activation` | - | Covers all activations except `relu` and `relu6`: `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `silu`. |
+| 4 | `activation` | - | Covers all activations except `relu` and `relu6`: `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `silu`, `window`. |
 | 5 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
 | 6 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
 | 7 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |

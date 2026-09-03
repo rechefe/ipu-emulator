@@ -42,16 +42,18 @@ def _make_state(
     *,
     cr: dict[int, int] | None = None,
     elu_alpha: float | None = None,
+    window_a: float | None = None,
+    window_b: float | None = None,
 ) -> IpuState:
     """Assemble *asm_code* and return a ready-to-run IpuState.
 
     Optional *cr* presets configuration registers before the program is loaded
-    (e.g. constants read by ``SET lr* cr*``). Optional α kwargs are forwarded to
-    :class:`IpuState` (emulator-only; not CR).
+    (e.g. constants read by ``SET lr* cr*``). Optional α and window-bound kwargs
+    are forwarded to :class:`IpuState` (emulator-only; not CR).
     """
     encoded = assemble(asm_code)
     decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState(elu_alpha=elu_alpha)
+    state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
@@ -64,6 +66,8 @@ def _run(
     *,
     cr: dict[int, int] | None = None,
     elu_alpha: float | None = None,
+    window_a: float | None = None,
+    window_b: float | None = None,
     max_cycles: int = 100_000,
 ) -> IpuState:
     """Assemble, load, run, and return the final state."""
@@ -71,6 +75,8 @@ def _run(
         asm_code,
         cr=cr,
         elu_alpha=elu_alpha,
+        window_a=window_a,
+        window_b=window_b,
     )
     run_until_complete(state, max_cycles)
     return state
@@ -2708,6 +2714,68 @@ BKPT;;
         run_until_complete(state)
         expected = max(-128, min(127, int(round(apply_activation(7, float(x), elu_alpha=alpha)))))
         assert state.regfile.get_post_aaq_reg()[0] == expected & 0xFF
+
+    def test_window_default_bounds(self):
+        """window with default bounds [0.0, 0.1): only x = 0 is inside."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE window cr15;;
+BKPT;;
+"""
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(4)
+        for i, x in enumerate((0, 1, -1, 7)):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
+        run_until_complete(state)
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 1, "window(0) = 1 (lower bound is inclusive)"
+        assert result[1] == 0, "window(1) = 0 (above b = 0.1)"
+        assert result[2] == 0, "window(-1) = 0 (below a = 0.0)"
+        assert result[3] == 0, "window(7) = 0"
+
+    def test_window_respects_ipu_state_bounds(self):
+        """window with IpuState bounds is the half-open indicator on [a, b)."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE window cr15;;
+BKPT;;
+""",
+            window_a=-3.0,
+            window_b=5.0,
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(5)
+        for i, x in enumerate((-4, -3, 0, 4, 5)):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
+        run_until_complete(state)
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 0, "window(-4) = 0 (below a)"
+        assert result[1] == 1, "window(-3) = 1 (a is inclusive)"
+        assert result[2] == 1, "window(0) = 1"
+        assert result[3] == 1, "window(4) = 1"
+        assert result[4] == 0, "window(5) = 0 (b is exclusive)"
+
+    def test_window_fractional_bounds(self):
+        """Fractional bounds select the integer elements that fall inside [a, b)."""
+        state = _make_state(
+            """\
+ACTIVATE.QUANTIZE window cr15;;
+BKPT;;
+""",
+            window_a=1.5,
+            window_b=3.5,
+        )
+        state.dtype = DType.INT8
+        state.set_cr_dstructure(4)
+        for i, x in enumerate((1, 2, 3, 4)):
+            state.regfile.set_r_acc_word(i, struct.unpack("<I", struct.pack("<i", x))[0])
+        run_until_complete(state)
+        result = state.regfile.get_post_aaq_reg()
+        assert result[0] == 0, "window(1) = 0 (below a = 1.5)"
+        assert result[1] == 1, "window(2) = 1"
+        assert result[2] == 1, "window(3) = 1"
+        assert result[3] == 0, "window(4) = 0 (above b = 3.5)"
 
     def test_r_acc_not_modified(self):
         """ACTIVATE.QUANTIZE does not modify r_acc."""

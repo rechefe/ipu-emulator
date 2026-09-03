@@ -19,7 +19,7 @@ Construct [`IpuState`](https://github.com/rechefe/ipu-emulator/blob/master/src/t
 |-----------|---------|---------|
 | `wide_vector_debug` | `False` | Turn wide-vector mode on. |
 | `wide_vector_arithmetic` | `WideVectorArithmetic.FP32` | `FP32` or `INT32` element arithmetic. |
-| `wide_vector_quantize_output` | `False` | If `True`, `AAQ` quantizes the **wide elements in `POST_AAQ_REG`** (typically filled with **`ACTIVATE`** from `r_acc`, e.g. **`ACTIVATE` … `identity`** to copy) into the **leading 128 bytes** of that register. If `False`, `AAQ` does nothing in wide mode (wide elements stay in `R_ACC` until you stage them). |
+| `wide_vector_quantize_output` | `False` | If `True`, `ACTIVATE.QUANTIZE` also quantizes the **wide elements it just wrote to `POST_AAQ_REG`** into the **leading 128 bytes** of that register (use **`ACTIVATE.QUANTIZE` … `identity`** to quantize `r_acc` unchanged). If `False`, it stops after writing the wide activated elements. |
 
 ```python
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -62,7 +62,7 @@ Wide mode unpacks `r_cyclic` as 128 consecutive 32-bit elements starting at a **
 ## Semantics that differ from normal mode
 
 - **Multiply masks** (`mask_offset` immediate slot 0–7 / `mask_shift` LR): mask-and-shift on `mult_res` is **disabled** in wide mode, because the 128-bit mask layout does not map to 128 FP32/INT32 elements.
-- **`AAQ`**: unless `wide_vector_quantize_output=True`, **`AAQ` is a no-op** in wide mode; full element results remain in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
+- **`ACTIVATE.QUANTIZE`**: unless `wide_vector_quantize_output=True`, it **does not quantize** in wide mode — it writes the activated wide elements to **`POST_AAQ_REG`** and the full element results stay in **`R_ACC`**. Use the existing debug-only **`STR_ACC_REG`** instruction (or read `R_ACC` in Python) to dump 128 elements (512 bytes) of accumulator data.
 - **LR and CR** are **not** widened; scalars such as **`MULT.RC.VE`**'s CR-encoded `src` still use the **low byte** of a CR as a signed value in the wide path.
 
 ## INT32 vs FP32

@@ -37,7 +37,7 @@ class IpuApp:
         inst_path:   Path to the assembled instruction binary.
         output_path: Optional path to write output data.
         **kwargs:    Any extra fields are stored as attributes (for example
-            ``elu_alpha`` for :meth:`run`).
+            ``elu_alpha``, ``window_a`` or ``window_b`` for :meth:`run`).
     """
 
     def __init__(
@@ -65,16 +65,21 @@ class IpuApp:
         debug_callback: DebugCallback | None = None,
         state: "IpuState | None" = None,
         elu_alpha: float | None = None,
+        window_a: float | None = None,
+        window_b: float | None = None,
     ) -> tuple["IpuState", int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
-        Optional ``elu_alpha`` matches :func:`ipu_emu.emulator.run_test`: it
-        configures emulator-only activation α (not CR). An explicit argument wins;
-        otherwise an ``elu_alpha`` attribute stored on the app from
-        ``__init__(**kwargs)`` (for example ``MyApp(..., elu_alpha=0.5)``) is used
-        when present.
+        Optional ``elu_alpha``, ``window_a`` and ``window_b`` match
+        :func:`ipu_emu.emulator.run_test`: they configure emulator-only activation
+        parameters (not CR) — α for ``elu`` and the ``[a, b)`` bounds of ``window``.
+        An explicit argument wins; otherwise an attribute of the same name stored on
+        the app from ``__init__(**kwargs)`` (for example ``MyApp(..., elu_alpha=0.5)``)
+        is used when present.
         """
         ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
+        wa = window_a if window_a is not None else getattr(self, "window_a", None)
+        wb = window_b if window_b is not None else getattr(self, "window_b", None)
         return run_test(
             inst_path=self.inst_path,
             setup=self.setup,
@@ -83,4 +88,6 @@ class IpuApp:
             debug_callback=debug_callback,
             state=state,
             elu_alpha=ea,
+            window_a=wa,
+            window_b=wb,
         )
