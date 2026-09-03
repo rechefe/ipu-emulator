@@ -1199,6 +1199,52 @@ py_pytest_test(
     ],
 )
 
+# -- fold_16x16x192 app ------------------------------------------------------
+#
+# Exact inverse of unfold_16x16x192. Assembles both .asm files in-process
+# (assemble_to_bin_file in the test fixtures), so both apps' .asm are provided
+# as data; no pre-assembled .bin target is needed. The strongest test is a
+# round trip through the REAL unfold_16x16x192 kernel, so that .asm is a
+# dependency here too.
+
+py_pytest_test(
+    name = "test_fold_16x16x192_wide",
+    size = "large",
+    srcs = ["test/test_fold_16x16x192_wide.py"],
+    data = [
+        "src/ipu_apps/unfold/fold_16x16x192/fold_16x16x192.asm",
+        "src/ipu_apps/unfold/unfold_16x16x192/unfold_16x16x192.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- fold_32x32x144 app ------------------------------------------------------
+#
+# Exact inverse of unfold_32x32x144. Assembles both .asm files in-process
+# (assemble_to_bin_file in the test fixtures), so both apps' .asm are provided
+# as data; no pre-assembled .bin target is needed. The strongest test is a
+# round trip through the REAL unfold_32x32x144 kernel, so that .asm is a
+# dependency here too.
+
+py_pytest_test(
+    name = "test_fold_32x32x144_wide",
+    size = "large",
+    srcs = ["test/test_fold_32x32x144_wide.py"],
+    data = [
+        "src/ipu_apps/unfold/fold_32x32x144/fold_32x32x144.asm",
+        "src/ipu_apps/unfold/unfold_32x32x144/unfold_32x32x144.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # -- unfold_8x8x240 app -------------------------------------
 #
 # Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
@@ -1209,6 +1255,29 @@ py_pytest_test(
     size = "large",
     srcs = ["test/test_unfold_8x8x240_wide.py"],
     data = [
+        "src/ipu_apps/unfold/unfold_8x8x240/unfold_8x8x240.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- fold_8x8x240 app ---------------------------------------------------------
+#
+# Exact inverse of unfold_8x8x240. Assembles both .asm files in-process
+# (assemble_to_bin_file in the test fixtures), so both apps' .asm are provided
+# as data; no pre-assembled .bin target is needed. The strongest test is a
+# round trip through the REAL unfold_8x8x240 kernel, so that .asm is a
+# dependency here too.
+
+py_pytest_test(
+    name = "test_fold_8x8x240_wide",
+    size = "large",
+    srcs = ["test/test_fold_8x8x240_wide.py"],
+    data = [
+        "src/ipu_apps/unfold/fold_8x8x240/fold_8x8x240.asm",
         "src/ipu_apps/unfold/unfold_8x8x240/unfold_8x8x240.asm",
     ],
     imports = ["src"],
