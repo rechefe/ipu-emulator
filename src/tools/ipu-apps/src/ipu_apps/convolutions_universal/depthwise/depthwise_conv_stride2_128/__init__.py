@@ -60,9 +60,12 @@ from ipu_apps.convolutions_universal import CHUNK_ELEMENTS
 from ipu_apps.convolutions_universal.depthwise.depthwise_conv_universal import (
     DepthwiseConvUniversalApp,
 )
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
+
 
 STAGE1_ASM_PATH = (
     Path(__file__).resolve().parents[1]
@@ -71,6 +74,7 @@ STAGE1_ASM_PATH = (
 STAGE2_ASM_PATH = Path(__file__).resolve().parent / "decimate_stage2.asm"
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
+
 
 class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
     """depthwise_conv_universal with the cols=128 (no-packing) case allowed.
@@ -99,6 +103,7 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         # base class's cols_to_partition already maps 128 -> Partition.P0,
         # so this override is now redundant but kept explicit for clarity.
         state.set_cr_dstructure(valid_elements=128, partition=Partition.P0)
+
 
 class DepthwiseConvStride2_128App(IpuApp):
     """Depthwise 3x3 stride-2 conv, cols=128, FP32 (two-stage, see module doc).
@@ -238,3 +243,69 @@ class DepthwiseConvStride2_128App(IpuApp):
 
         return state2, cycles1 + cycles2
 
+
+# -- registry declaration ---------------------------------------------------
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 2:
+        return no(f"handles only stride=2; got {q.stride}")
+    if not q.is_depthwise:
+        return no(f"handles only depthwise (groups==in_channels); got groups={q.groups}, in_channels={q.in_channels}")
+    if q.out_channels != q.in_channels:
+        return no(f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}")
+    if q.apply_relu or q.has_bias:
+        return no("bias/ReLU are not supported by this kernel")
+    if q.width != 128:
+        return no(f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in 16/32/64); got {q.width}")
+    if q.height < 4 or q.height % 4 != 0:
+        return no(f"height must be a multiple of 4 (>= 4) so out_rows/2 pairs evenly; got {q.height}")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {"rows": q.height, "channels": q.in_channels}
+
+
+def _explain(**params):
+    return (
+        "kernel_size=3, groups=in_channels (depthwise), stride=2, padding=1, "
+        "width=128: two-stage depthwise stride-2 conv (FP32), full-res conv "
+        "then column+row decimation."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        "Not cycle-optimized: unfused two-stage composition (full-res conv "
+        "then a separate decimation pass).",
+    )
+
+
+SPEC = KernelSpec(
+    name="depthwise_conv_stride2_128",
+    op="conv2d",
+    variant="depthwise_stride2_128",
+    app_class=DepthwiseConvStride2_128App,
+    asm="depthwise_conv_universal/depthwise_conv_universal.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

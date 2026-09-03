@@ -64,6 +64,8 @@ import numpy as np
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -123,6 +125,7 @@ MASK_SLOT_KEEP = 0    # all ones: interior taps, kc=0
 MASK_SLOT_LEFT = 1    # zero lane 0:   kc=-1 on slot 0 (col 0 has no left nbr)
 MASK_SLOT_RIGHT = 2   # zero lane 127: kc=+1 on slot 1 (col 255 has no right nbr)
 
+
 def _build_mask_data() -> bytes:
     """Build the 128-byte mask blob (8 slots x 16 bytes, 128 bits each).
 
@@ -142,6 +145,7 @@ def _build_mask_data() -> bytes:
     mask[MASK_SLOT_LEFT * 16 + 0] &= ~(1 << 0)              # slot 1: zero lane 0
     mask[MASK_SLOT_RIGHT * 16 + 127 // 8] &= ~(1 << (127 % 8))  # slot 2: zero lane 127
     return bytes(mask)
+
 
 class ConvFirstLayerApp(IpuApp):
     """First-layer 3x3 stride-2 conv + folded-bias + ReLU (256x256x3 -> 128x128x16, FP32).
@@ -292,3 +296,73 @@ class ConvFirstLayerApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Fixed shape: 256x256x3 -> 128x128x16, stride 2, padding 1, kernel_size 3.
+# bias is always folded and ReLU always applied.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 2:
+        return no(f"handles only stride=2; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups}")
+    if not q.apply_relu:
+        return no("this kernel always applies ReLU")
+    if not q.has_bias:
+        return no("this kernel requires bias (folded)")
+    if (q.in_channels, q.out_channels, q.height, q.width) != (IN_CHANNELS, OUT_CHANNELS, IN_ROWS, IN_COLS):
+        return no(
+            f"fixed-shape kernel: only in_channels={IN_CHANNELS}, "
+            f"out_channels={OUT_CHANNELS}, height={IN_ROWS}, width={IN_COLS} "
+            f"are supported; got in_channels={q.in_channels}, "
+            f"out_channels={q.out_channels}, height={q.height}, width={q.width}"
+        )
+    return yes()
+
+
+def _build(**params):
+    return {}
+
+
+def _explain(**params):
+    return (
+        f"kernel_size=3, stride=2, padding=1, bias+ReLU, fixed shape "
+        f"{IN_CHANNELS}x{IN_ROWS}x{IN_COLS} -> {OUT_CHANNELS}x{OUT_ROWS}x{OUT_COLS}: "
+        f"the network's first-layer conv (FP32), hand-optimized for this exact shape."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        f"Fixed shape only: {IN_CHANNELS}x{IN_ROWS}x{IN_COLS} -> "
+        f"{OUT_CHANNELS}x{OUT_ROWS}x{OUT_COLS}. No parameterization.",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_first_layer",
+    op="conv2d",
+    variant="first_layer",
+    app_class=ConvFirstLayerApp,
+    asm="conv_first_layer.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 0.0,
+)

@@ -39,8 +39,13 @@ from ipu_apps.convolutions_universal import (
     CHUNK_ELEMENTS,
 )
 from ipu_apps.convolutions_universal._spec_support import (
+    REQUIRES,
+    bias_requires_relu,
+    conv_query,
     pointwise_pad_shape,
+    positive_dims,
 )
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -56,6 +61,7 @@ if TYPE_CHECKING:
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 MASK_SLOT_BYTES = 16  # 128-bit mask, mode-blind (not widened)
+
 
 class PointwiseConvUnifiedApp(IpuApp):
     """Unified pointwise (1x1) convolution application harness (FP32).
@@ -295,3 +301,97 @@ class PointwiseConvUnifiedApp(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(**kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+# Declared beside the kernel so the registry needs no central list. `supports`
+# is the single source of truth for this kernel's domain: kernel_size==1
+# (pointwise has no 3x3 neighbourhood), groups==1 (a 1x1 depthwise conv has no
+# matching app), stride==1, padding==0 (nothing to pad for -- no neighbourhood).
+# See _spec_support.ConvQuery for the full query shape shared across this
+# package's kernels.
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 1:
+        return no(f"handles only kernel_size=1 (pointwise); got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 0:
+        return no(f"handles only padding=0 (no neighbourhood to pad for); got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (a 1x1 depthwise conv has no matching app); got {q.groups}")
+    if q.in_channels % 8 != 0:
+        return no(f"in_channels ({q.in_channels}) must be a multiple of 8")
+    if q.out_channels % 4 != 0:
+        return no(f"out_channels ({q.out_channels}) must be a multiple of 4")
+    if q.width > 128:
+        return no(f"width ({q.width}) exceeds 128, the largest width this app supports")
+    if q.apply_relu:
+        return no("apply_relu=True has no matching app here; see pointwise_conv_unified_bn_activation")
+    if bad := bias_requires_relu(q):
+        return no(bad)
+    if q.has_bias:
+        return no("bias is not supported by this kernel; see pointwise_conv_unified_bn_activation")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "height": q.height, "width": q.width,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    return (
+        f"kernel_size=1, groups=1, stride=1, padding=0: the unified pointwise "
+        f"kernel (FP32 wide-vector). {q.height}x{q.width} pads internally to "
+        f"{padded_rows}x{padded_cols} (no mask care needed -- a 1x1 conv has "
+        "no spatial neighbourhood for a padded lane to leak into)."
+    )
+
+
+def _caveats(**params):
+    q = conv_query(**params)
+    padded_rows, padded_cols = pointwise_pad_shape(q.height, q.width)
+    caveats = (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    )
+    if (padded_rows, padded_cols) == (q.height, q.width):
+        return caveats
+    real = q.height * q.width
+    padded = padded_rows * padded_cols
+    return caveats + (
+        f"{q.height}x{q.width} pads to {padded_rows}x{padded_cols}, so "
+        f"{padded - real} of every {padded} spatial positions idle "
+        f"({real / padded:.0%} utilisation).",
+    )
+
+
+SPEC = KernelSpec(
+    name="pointwise_conv_unified",
+    op="conv2d",
+    variant="pointwise",
+    app_class=PointwiseConvUnifiedApp,
+    asm="pointwise_conv_unified.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    # No bias/activation support: strictly cheaper than the BN twin whenever
+    # both would otherwise tie (they never overlap today since has_bias/
+    # apply_relu split them, but cost still expresses the specialisation).
+    cost=lambda **params: 0.0,
+)

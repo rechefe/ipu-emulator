@@ -68,6 +68,8 @@ from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
 from ipu_apps.convolutions_universal import CHUNK_ELEMENTS, allocate_regions
+from ipu_apps.convolutions_universal._spec_support import REQUIRES, conv_query, positive_dims
+from ipu_apps.kernel_registry import KernelSpec, no, yes
 
 if TYPE_CHECKING:
     pass
@@ -95,6 +97,7 @@ MASK_SLOT_ZERO = 1
 MASK_SLOT_ZERO_LANE0 = 2
 MASK_SLOT_ZERO_LANE127 = 3
 
+
 def build_wide384_mask_blob() -> bytes:
     """Build the 128-byte R_MASK blob (see the 4-slot layout above)."""
     mask = bytearray(128)
@@ -108,6 +111,7 @@ def build_wide384_mask_blob() -> bytes:
     # slot 3: clear bit 127 (lane 127) -> byte 15, bit 7
     mask[MASK_SLOT_ZERO_LANE127 * 16 + 15] &= ~(1 << 7)
     return bytes(mask)
+
 
 def _pack_conv_weights_dense_fp32(weights: np.ndarray) -> bytes:
     """Pack ``[out_ch, in_ch, 3, 3]`` float32 weights into dense 128-element blocks.
@@ -136,6 +140,7 @@ def _pack_conv_weights_dense_fp32(weights: np.ndarray) -> bytes:
                 dst = block_base + s * 9
                 packed[dst:dst + 9] = taps[f, ic]
     return packed.tobytes()
+
 
 class ConvUniversalWide384App(IpuApp):
     """Wide (W>=384) standard 3x3 convolution, stride 1, FP32.
@@ -338,3 +343,75 @@ class ConvUniversalWide384App(IpuApp):
         kwargs.setdefault("state", self.make_state())
         return super().run(max_cycles=max_cycles, **kwargs)
 
+
+# -- registry declaration ---------------------------------------------------
+
+
+def _supports(**params):
+    q = conv_query(**params)
+    if bad := positive_dims(q):
+        return no(bad)
+    if q.kernel_size != 3:
+        return no(f"handles only kernel_size=3; got {q.kernel_size}")
+    if q.dilation != 1:
+        return no(f"handles only dilation=1; got {q.dilation}")
+    if q.padding != 1:
+        return no(f"handles only padding=1; got {q.padding}")
+    if q.stride != 1:
+        return no(f"handles only stride=1; got {q.stride}")
+    if q.groups != 1:
+        return no(f"handles only groups=1 (plain conv); got {q.groups}")
+    if q.apply_relu:
+        return no("apply_relu=True is not supported by this kernel")
+    if q.has_bias:
+        return no("bias is not supported by this kernel")
+    if q.width % 128 != 0 or q.width < 384:
+        return no(
+            f"handles only width a multiple of 128 and >= 384 (see "
+            f"conv_universal for narrower widths); got {q.width}"
+        )
+    if q.out_channels % 2 != 0:
+        return no(f"out_channels must be even; got {q.out_channels}")
+    return yes()
+
+
+def _build(**params):
+    q = conv_query(**params)
+    return {
+        "width": q.width, "rows": q.height,
+        "in_channels": q.in_channels, "out_channels": q.out_channels,
+    }
+
+
+def _explain(**params):
+    return (
+        "kernel_size=3, groups=1, stride=1, padding=1, width%128==0 and "
+        ">=384: the wide-image 3x3 conv kernel (FP32), unoptimized "
+        "(no rotating-slot pipelining) but handles arbitrarily wide images."
+    )
+
+
+def _caveats(**params):
+    return (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+        "Deliberately unoptimized: no rotating-slot pipelining, reloads a "
+        "fresh 3-slot strip per tap.",
+    )
+
+
+SPEC = KernelSpec(
+    name="conv_universal_wide384",
+    op="conv2d",
+    variant="wide384",
+    app_class=ConvUniversalWide384App,
+    asm="conv_universal_wide384.asm",
+    requires=REQUIRES,
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=_build,
+    explain=_explain,
+    caveats=_caveats,
+    bundle=lambda **params: conv_query(**params).bundle,
+    cost=lambda **params: 1.0,  # unoptimized fallback: prefer conv_universal when it applies
+)
