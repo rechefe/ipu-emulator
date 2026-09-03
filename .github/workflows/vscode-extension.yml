@@ -99,6 +99,11 @@ jobs:
             parser-tokens.json \
             vscode-ipu-asm/syntaxes/ipu-asm.tmLanguage.json
 
+      # Which checker the extension runs, and when it decides the prebuilt one
+      # has gone stale. Needs no editor and no dependencies.
+      - name: Check the checker selection rule
+        run: node vscode-ipu-asm/test/checker.js
+
       # The Marketplace refuses a version it has already seen, so every publish
       # needs a new one. The patch number comes from the run counter rather than
       # from a commit: writing a bumped package.json back to master would land

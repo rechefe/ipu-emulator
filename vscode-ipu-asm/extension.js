@@ -17,6 +17,8 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+const checker = require('./checker');
+
 const LANGUAGE_ID = 'ipu-asm';
 
 // Mnemonics contain dots (ACC.ADD.FIRST, MULT.RC.VV). The editor's default word
@@ -168,32 +170,117 @@ const hoverProvider = {
   },
 };
 
+/** Resolved checker binary per workspace folder: a path once the build has
+ *  finished, null when this workspace has no Bazel or the build failed. Absent
+ *  means resolution has not finished, which is not the same as failed -- both
+ *  take the Bazel path, but only the second stops trying. */
+const checkerBinaries = new Map();
+const resolvingFolders = new Set();
+/** Source stamp each folder's checker was last built against. See isFresh:
+ *  Bazel rebuilds on content, so a re-dated but unchanged source leaves the
+ *  binary's mtime behind forever, and this is what keeps that from pinning
+ *  every check to the slow path. */
+const checkerStamps = new Map();
+
+/** Run a command to completion, resolving to its stdout or an error. */
+function runToCompletion(command, args, cwd) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = cp.spawn(command, args, { cwd });
+    } catch (err) {
+      resolve({ error: err.message });
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', (err) => resolve({ error: err.message }));
+    child.on('close', (code) =>
+      resolve(code === 0 ? { stdout } : { error: stderr.trim() || `exit ${code}` })
+    );
+  });
+}
+
+/** Build the checker once and remember where Bazel put it.
+ *
+ *  Never awaited by a check: a cold Bazel server takes ten seconds or more to
+ *  answer, and a check that waited for it would be slower than the path it is
+ *  replacing. Checks keep using `bazel run` until this lands. */
+async function resolveChecker(root) {
+  // Sampled before the build, so an edit made while it runs invalidates the
+  // result rather than being swallowed by it.
+  const stamp = checker.newestSourceMtime(root);
+  const build = await runToCompletion(
+    'bazel',
+    ['build', '--ui_event_filters=-info,-stdout,-stderr', '--noshow_progress', checker.CHECKER_TARGET],
+    root
+  );
+  if (build.error) return null;
+
+  // bazel-bin is a convenience symlink: absent after a clean, renamed by
+  // --symlink_prefix, elsewhere under a different --config. Ask instead.
+  const info = await runToCompletion('bazel', ['info', 'bazel-bin'], root);
+  if (info.error) return null;
+
+  const binary = checker.checkerBinary(info.stdout.trim(), process.platform);
+  if (!fs.existsSync(binary)) return null;
+  checkerStamps.set(root, Math.max(checkerStamps.get(root) || 0, stamp));
+  return binary;
+}
+
+function ensureChecker(root) {
+  if (!root || checkerBinaries.has(root) || resolvingFolders.has(root)) return;
+  resolvingFolders.add(root);
+  resolveChecker(root).then(
+    (binary) => {
+      resolvingFolders.delete(root);
+      checkerBinaries.set(root, binary);
+      if (!binary) console.warn('[ipu-asm] no prebuilt checker; using `bazel run` per check');
+    },
+    (err) => {
+      resolvingFolders.delete(root);
+      checkerBinaries.set(root, null);
+      console.warn(`[ipu-asm] could not resolve the checker (${err.message})`);
+    }
+  );
+}
+
+/** Drop a resolution whose binary no longer runs. */
+function forgetChecker(command) {
+  for (const [root, binary] of checkerBinaries) {
+    if (binary === command) checkerBinaries.delete(root);
+  }
+}
+
 function checkCommand(folder) {
   const configured = vscode.workspace
     .getConfiguration(CONFIG_SECTION, folder && folder.uri)
     .get('checkCommand');
   if (Array.isArray(configured) && configured.length) return configured;
 
-  // Default to Bazel: it is how everything else in this repo is run, and it
-  // resolves the assembler's dependencies without the user setting anything up.
-  return [
-    'bazel',
-    'run',
-    '--ui_event_filters=-info,-stdout,-stderr',
-    '--noshow_progress',
-    '//src/tools/ipu-as-py:ipu-as',
-    '--',
-    'check',
-    '--json',
-    '--input',
-  ];
+  const root = folder && folder.uri.fsPath;
+  if (!root) return checker.bazelCommand();
+  ensureChecker(root);
+  return checker.checkCommandFor(
+    checkerBinaries.get(root) || null,
+    root,
+    checkerStamps.get(root) || 0
+  );
 }
 
 /** Run the checker over a document's current buffer; resolves to diagnostics. */
 function runCheck(document) {
   const folder = vscode.workspace.getWorkspaceFolder(document.uri);
   const cwd = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
-  const [command, ...args] = checkCommand(folder);
+  const argv = checkCommand(folder);
+  const [command, ...args] = argv;
+  // The fallback rebuilds on its way to checking, so a run that comes back with
+  // diagnostics has also brought the binary up to date with these sources.
+  // Sampled before the run, so an edit made during it is not credited to it.
+  const rebuilding = Boolean(folder) && checker.isBazelCommand(argv);
+  const stamp = rebuilding ? checker.newestSourceMtime(cwd) : 0;
   const key = document.uri.toString();
   // Check what is on screen, not what is on disk: this runs while typing, and
   // a path would make every squiggle describe the last save instead.
@@ -227,6 +314,10 @@ function runCheck(document) {
 
     child.on('error', (err) => {
       if (child.superseded) return resolve({ superseded: true });
+      // A prebuilt checker that will not start is a stale resolution, not a
+      // broken toolchain: `bazel clean` deletes the binary out from under us.
+      // Forgetting it sends the next check down the Bazel path, which rebuilds.
+      forgetChecker(command);
       resolve({ error: `${command}: ${err.message}`, command });
     });
     child.on('close', () => {
@@ -236,7 +327,12 @@ function runCheck(document) {
       if (child.superseded) return resolve({ superseded: true });
       // Exit code 1 just means "found problems", so it is not an error here.
       try {
-        resolve({ found: JSON.parse(stdout) });
+        const found = JSON.parse(stdout);
+        if (rebuilding) {
+          checkerStamps.set(cwd, Math.max(checkerStamps.get(cwd) || 0, stamp));
+          ensureChecker(cwd);
+        }
+        resolve({ found });
       } catch {
         resolve({ error: explain(stderr || stdout, command), command });
       }
@@ -307,6 +403,12 @@ function scheduleRefresh(document) {
 
 function activate(context) {
   loadHoverData();
+
+  // Start building the checker now rather than on the first keystroke: the
+  // build is slow exactly once, and nothing waits on it.
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    ensureChecker(folder.uri.fsPath);
+  }
 
   diagnostics = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

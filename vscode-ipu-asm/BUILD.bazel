@@ -19,7 +19,10 @@ exports_files([
 
 filegroup(
     name = "agreement_test_srcs",
-    srcs = ["test/agreement.js"],
+    srcs = [
+        "test/agreement.js",
+        "test/checker.js",
+    ],
 )
 
 # Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json.

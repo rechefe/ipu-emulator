@@ -102,8 +102,17 @@ It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.
 
-By default it runs the checker through Bazel. To avoid paying Bazel's startup
-cost on every check, point `ipuAsm.checkCommand` at a virtualenv instead:
+By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
+when the workspace opens, then runs the resulting binary directly. This avoids
+Bazel's client startup and workspace lock while typing. Before every check it
+compares the binary with the assembler sources; if the binary is missing or the
+sources are newer, that check falls back to `bazel run`, which rebuilds it, and
+later checks use the binary directly again.
+
+`test/checker.js` covers this selection and freshness rule and runs in
+`.github/workflows/vscode-extension.yml`.
+
+To bypass Bazel entirely, point `ipuAsm.checkCommand` at a virtualenv instead:
 
 ```json
 "ipuAsm.checkCommand": [".venv/bin/ipu-as", "check", "--json", "--input"]

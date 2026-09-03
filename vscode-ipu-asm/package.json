@@ -56,7 +56,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty uses `bazel run //src/tools/ipu-as-py:ipu-as -- check --json --input`. Set this to point at a virtualenv if you would rather not pay Bazel's startup cost on every check."
+          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/tools/ipu-as-py:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
         }
       }
     }
