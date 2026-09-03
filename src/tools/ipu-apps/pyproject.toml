@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
+    "torch>=2.0.0",
     "ipu-emu-py",
     "ipu-as-py",
     "ipu-common",
@@ -19,6 +20,12 @@ dependencies = [
 ipu-emu-py = { path = "../ipu-emu-py", editable = true }
 ipu-as-py = { path = "../ipu-as-py", editable = true }
 ipu-common = { path = "../ipu-common", editable = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.optional-dependencies]
 dev = [
