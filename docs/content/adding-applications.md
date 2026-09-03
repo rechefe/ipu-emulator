@@ -7,6 +7,11 @@ system is shaped this way.
 Adding an application is **purely additive**: you create files inside your own
 app package and touch no central routing logic.
 
+The smallest complete reference is
+`src/tools/ipu-apps/src/ipu_apps/kernel_registry/identity/`: its assembly
+kernel copies an FP32 matrix, while its Python harness only loads the input
+memory, configures the run, and reads the output memory.
+
 ## What you deliver
 
 | # | Item | Where |
@@ -26,11 +31,30 @@ Nesting depth is free — discovery recurses, so
 Subclass `IpuApp`, implement `setup` (load XMEM, set CRs) and `teardown`
 (read results back).
 
+The harness is orchestration, not an implementation of the operation. It must
+not calculate expected results or reproduce the kernel in Python. Inputs must
+already be in the XMEM layout consumed by the assembly; `setup` loads those
+bytes unchanged, and `teardown` reads the result bytes unchanged. The identity
+example is the boilerplate to copy.
+
 **The output file must have the same layout as the input file.** Internal
-layouts are yours to choose — pack, pad, chunk, unpack mid-computation — but
-what lands on disk must match what the caller supplied. This is enforced by
-`test_softmax_layout_roundtrip.py`, which reshapes the raw output with no
-app-specific knowledge.
+layouts are yours to choose in the producer of the input memory image, but the
+Python harness must not pack, pad, reshape, or otherwise compute that layout.
+
+The complete load/run/read flow is:
+
+```python
+from ipu_apps.kernel_registry import resolve
+
+verdict = resolve("identity", shape=(4, 128))
+app = verdict.kernel.app_class(
+    inst_path="identity.bin",
+    input_path="input.bin",    # four preformatted 512-byte XMEM rows
+    output_path="output.bin",
+    **verdict.kwargs,
+)
+state, cycles = app.run()
+```
 
 ## 2. The spec
 

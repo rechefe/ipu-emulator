@@ -111,10 +111,12 @@ class IpuState:
         valid_elements: int = DEFAULT_DSTRUCTURE.valid_elements,
         partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
         pad_mode: PadMode | int = DEFAULT_DSTRUCTURE.pad_mode,
+        *,
+        cr_idx: int = CR_DSTRUCTURE_REG_INDEX,
     ) -> None:
-        """Write CR15 as dstructure configuration fields."""
+        """Write dstructure configuration fields to ``cr_idx`` (CR15 by default)."""
         self.regfile.set_cr(
-            CR_DSTRUCTURE_REG_INDEX,
+            cr_idx,
             encode_dstructure(valid_elements=valid_elements, partition=partition, pad_mode=pad_mode),
         )
 

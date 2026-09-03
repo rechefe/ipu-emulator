@@ -295,7 +295,6 @@ BKPT;;
             struct.pack_into("<f", buf, k * 4, 5.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
-        st.regfile.set_cr(0, 0)
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.xmem.write_address(0x1000, struct.pack("<128f", *([2.0] * 128)))
         st.regfile.set_cr(10, 0x1000 // 512)  # row number (debug row = 512 B)
@@ -341,7 +340,6 @@ class TestWideVectorRcIdxElementAddressing:
             struct.pack_into("<f", buf, i * 4, 9.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
-        st.regfile.set_cr(1, 1)  # scalar 1.0
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.regfile.set_cr(6, RING_ELEMENTS - k)  # rc_idx in ELEMENTS
         asm = """\
@@ -369,7 +367,6 @@ BKPT;;
             struct.pack_into("<f", buf, i * 4, 4.0)
         st = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         st.dtype = DType.INT8
-        st.regfile.set_cr(1, 1)  # scalar 1.0
         st.regfile.set_r_cyclic_wide_debug_at(0, buf)
         st.regfile.set_cr(6, 0)
         asm = """\
