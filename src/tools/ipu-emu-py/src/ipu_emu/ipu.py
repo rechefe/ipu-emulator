@@ -27,6 +27,7 @@ import numpy as np
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_common.instruction_spec import (
@@ -45,14 +46,6 @@ from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_
 from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_common.registers import get_register_sizes, get_mult_stage_map
 from ipu_common.activations import apply_activation
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-class EmulatorError(RuntimeError):
-    """Raised when the emulator detects an invalid operation."""
-
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-common
@@ -82,6 +75,27 @@ R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 # acc-slot addressing), so it — not R_REG_SIZE — is the true source for LANES.
 LANES = R_ACC_SIZE // 4
 
+# XMEM row geometry is shared by instruction execution and debugging. Derive
+# it from the register schema and the active element representation so there
+# is one source of truth for mode-dependent row addressing.
+_NARROW_ELEMENT_WIDTH_BYTES = R_REG_SIZE // LANES
+_WIDE_ELEMENT_WIDTH_BYTES = struct.calcsize("<I")
+
+
+def xmem_element_width_bytes(state: IpuState) -> int:
+    """Return the byte width of one XMEM element in the active mode."""
+    if state.wide_vector_debug:
+        return _WIDE_ELEMENT_WIDTH_BYTES
+    return _NARROW_ELEMENT_WIDTH_BYTES
+
+
+def xmem_row_size_bytes(state: IpuState) -> int:
+    """Return the byte size of one assembly-addressable XMEM row."""
+    return LANES * xmem_element_width_bytes(state)
+
+
+XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * _WIDE_ELEMENT_WIDTH_BYTES)
+
 # R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
 # must land exactly on a slot boundary — no implicit wraparound.
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
@@ -89,7 +103,7 @@ R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 # XMEM is allocated 8 MB always (mode-independent); narrow mode may address
 # only the first 2 MB of it (16384 rows of 128 B). Debug mode reaches the
 # full 8 MB (16384 rows of 512 B).
-NARROW_MAX_ROW = (1 << 21) // LANES
+NARROW_MAX_ROW = XMEM_ADDRESSABLE_ROWS
 
 # 0..LANES-1, for the rotated Ra window MULT.VE reads.
 _LANE_INDEX = np.arange(LANES)
@@ -455,11 +469,11 @@ class Ipu:
         The single primitive the two modes differ by. Every other
         mode-dependent size (row size, buffer lengths) is derived from this.
         """
-        return 4 if self._wide_vector_active() else 1
+        return xmem_element_width_bytes(self.state)
 
     def _row_size_bytes(self) -> int:
         """Bytes per row (LANES elements) in the active mode: 128 narrow, 512 debug."""
-        return LANES * self._element_width_bytes()
+        return xmem_row_size_bytes(self.state)
 
     def _xmem_row_addr(self, row: int) -> int:
         """Translate an XMEM row number to a byte address in the active mode.
