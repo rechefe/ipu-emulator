@@ -18,12 +18,11 @@ from pathlib import Path
 
 from ipu_emu.emulator import dump_xmem_to_binary, load_binary_to_xmem
 from ipu_emu.ipu import LANES, R_ACC_SIZE
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 from ipu_apps.base import IpuApp
-from ipu_apps.kernel_registry import OUTPUT, KernelSpec, ShapeBundle, no, yes
+from ipu_apps.kernel_registry import OUTPUT, ExecutionConfig, KernelSpec, ShapeBundle, no, yes
 
 INPUT_BASE_ADDR = 0
 OUTPUT_BASE_ADDR = XMEM_SIZE_BYTES // 2
@@ -53,15 +52,6 @@ class IdentityApp(IpuApp):
                 f"bytes; got {size} bytes"
             )
 
-    @staticmethod
-    def make_state() -> IpuState:
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.FP32,
-            wide_vector_quantize_output=False,
-        )
-        state.dtype = DType.INT8
-        return state
 
     def setup(self, state: IpuState) -> None:
         load_binary_to_xmem(
@@ -86,9 +76,6 @@ class IdentityApp(IpuApp):
                 num_chunks=self.rows,
             )
 
-    def run(self, **kwargs):
-        kwargs.setdefault("state", self.make_state())
-        return super().run(**kwargs)
 
 
 def _shape(params) -> tuple[int, ...]:
@@ -118,6 +105,7 @@ def _bundle(**params):
 
 
 SPEC = KernelSpec(
+    execution=ExecutionConfig(mode="fp32"),
     name="identity",
     op="identity",
     variant="fp32_matrix",

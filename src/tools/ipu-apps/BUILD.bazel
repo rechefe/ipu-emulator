@@ -2,6 +2,7 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//:ipu_app.bzl", "ipu_app")
 load("//:asm_rules.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
@@ -21,124 +22,40 @@ py_library(
     ] + get_requirements(requirement),
 )
 
-# -- Fully-connected app ---------------------------------------------------
-
-exports_files([
-    "src/ipu_apps/fully_connected/fully_connected.asm",
-])
-
-filegroup(
-    name = "fc_test_data",
-    srcs = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
-)
-
-assemble_asm(
-    name = "assemble_fully_connected",
-    src = "src/ipu_apps/fully_connected/fully_connected.asm",
-)
-
-py_binary(
+# Each declaration uses the same registry frontend and the adjacent test.py.
+ipu_app(
     name = "fully_connected",
-    srcs = ["src/ipu_apps/fully_connected/__main__.py"],
-    main = "src/ipu_apps/fully_connected/__main__.py",
-    data = [
-        ":assemble_fully_connected.bin",
-        ":fc_test_data",
-    ],
-    env = {
-        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
-        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
-    },
-    imports = ["src"],
+    kernel_package = "src/ipu_apps/fully_connected",
+    data = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
     deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
+)
+
+[
+    ipu_app(
+        name = name,
+        kernel_package = "src/ipu_apps/softmax/" + name,
+        deps = [":ipu_apps_lib"],
+        test_deps = [requirement("pytest")],
+    )
+    for name in [
+        "softmax_rows", "softmax_rows_partial", "softmax_rows_long",
+        "softmax_columns", "softmax_columns_packed",
+    ]
+]
+
+ipu_app(
+    name = "identity",
+    kernel_package = "src/ipu_apps/kernel_registry/identity",
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
 )
 
 py_pytest_test(
-    name = "test_fully_connected",
-    srcs = ["test/test_fully_connected.py"],
-    data = [
-        ":assemble_fully_connected.bin",
-        ":fc_test_data",
-    ],
-    env = {
-        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
-        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
-    },
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# -- softmax apps (FP32 wide-vector) ---------------------------------------
-#
-# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
-# the app .asm is provided as data; no pre-assembled .bin target is needed.
-
-py_pytest_test(
-    name = "test_softmax_rows",
-    srcs = ["test/test_softmax_rows.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_rows_partial",
-    srcs = ["test/test_softmax_rows_partial.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_rows_long",
-    srcs = ["test/test_softmax_rows_long.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_columns",
-    srcs = ["test/test_softmax_columns.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_columns_packed",
-    srcs = ["test/test_softmax_columns_packed.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
+    name = "test_harness_factory",
+    srcs = ["test/test_harness_factory.py"],
+    data = ["pyproject.toml"] + glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
 # Runs every softmax app, so it needs all five .asm files.
@@ -196,4 +113,10 @@ py_pytest_test(
         ":ipu_apps_lib",
         requirement("pytest"),
     ],
+)
+
+# Retained for consumers that need the assembled artifact directly.
+assemble_asm(
+    name = "assemble_fully_connected",
+    src = "src/ipu_apps/fully_connected/fully_connected.asm",
 )
