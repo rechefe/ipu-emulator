@@ -34,3 +34,6 @@ ipu_apps = ["**/*.asm", "**/*.bin"]
 
 [tool.uv]
 package = true
+
+[tool.pytest.ini_options]
+python_files = ["test.py", "test_*.py"]

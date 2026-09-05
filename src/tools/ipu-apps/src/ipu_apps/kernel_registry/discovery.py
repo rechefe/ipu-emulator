@@ -53,7 +53,7 @@ class Discovered:
 
 
 def _is_skippable(module_name: str) -> bool:
-    return any(part in _SKIP_PARTS for part in module_name.split("."))
+    return any(part in _SKIP_PARTS or part.startswith("test_") for part in module_name.split("."))
 
 
 def _specs_in(module: ModuleType) -> list[KernelSpec]:

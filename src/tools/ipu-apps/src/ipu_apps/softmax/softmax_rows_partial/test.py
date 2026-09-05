@@ -18,14 +18,12 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_apps.softmax.test_support import random_case, reference, run_array
+from ipu_apps.kernel_registry.cases import run_case
 
 from ipu_apps.softmax.softmax_rows_partial import SoftmaxRowsPartialApp
 
-ASM_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm"
-)
-
+ASM_PATH = Path(__file__).with_name("softmax_rows_partial.asm")
 
 def _reference(x: np.ndarray) -> np.ndarray:
     z = np.exp(x - x.max(axis=1, keepdims=True))
@@ -33,22 +31,8 @@ def _reference(x: np.ndarray) -> np.ndarray:
 
 
 def _run(inst_file: Path, x: np.ndarray, n: int) -> np.ndarray:
-    """Run the app and read back its OUTPUT FILE, the way a caller would.
-
-    Deliberately not a direct XMEM read: the file is the app's contract, and it
-    is written in the same row-major layout as the input (teardown drops the
-    on-device partition/row padding), so this also pins that round-trip.
-    """
-    rows = x.shape[0]
-    with tempfile.TemporaryDirectory() as tmp:
-        inp = Path(tmp) / "input.bin"
-        outp = Path(tmp) / "output.bin"
-        inp.write_bytes(x.astype(np.float32).tobytes())
-        app = SoftmaxRowsPartialApp(
-            inst_path=inst_file, input_path=inp, output_path=outp, n=n, rows=rows
-        )
-        app.run(max_cycles=2_000_000)
-        return np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, n)
+    _, out = run_array("softmax_rows_partial", inst_file, x, 1)
+    return out
 
 
 @pytest.fixture(scope="module")
@@ -149,3 +133,12 @@ def test_more_than_128_rows(inst_file, n, rows):
     out = _run(inst_file, x, n)
     ref = _reference(x)
     assert np.abs(out - ref).max() < 1e-4
+
+
+CASES = {
+    "default": random_case(axis=1, defaults={'n': 32, 'rows': 8, 'seed': 0, 'scale': 5.0}, max_cycles=4000000),
+}
+
+
+def test_default_case():
+    run_case("softmax_rows_partial", CASES["default"])

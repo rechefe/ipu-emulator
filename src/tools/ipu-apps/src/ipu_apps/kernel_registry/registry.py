@@ -13,15 +13,100 @@ non-deterministic: the answer changes because a file was renamed.
 
 from __future__ import annotations
 
+import sys
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:
+    from ipu_apps.base import IpuApp
+    from ipu_emu.ipu_state import IpuState
 
 from ipu_apps.kernel_registry.discovery import Discovered, discover
 from ipu_apps.kernel_registry.shapes import MalformedQuery
-from ipu_apps.kernel_registry.spec import KernelSpec, Verdict
+from ipu_apps.kernel_registry.spec import ExecutionConfig, KernelSpec, Verdict
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, Discovered] = {}
+
+
+def kernel_spec(name: str, *, package: str = "ipu_apps") -> KernelSpec:
+    """Find an exact kernel id without operation routing or fallback."""
+    for spec in kernels(package=package):
+        if spec.name == name:
+            return spec
+    raise ValueError(f"unknown kernel {name!r}")
+
+
+def create_harness(
+    kernel_name: str,
+    *,
+    params: Mapping[str, Any],
+    bindings: Mapping[str, Any],
+    package: str = "ipu_apps",
+) -> "IpuApp":
+    """Validate a kernel query and bind its instruction/input/output files.
+
+    Parameters follow the same contract as ``resolve``. Bindings are file
+    arguments (``inst_path``, ``input_path``, etc.), never configuration
+    overrides: they cannot bypass validation or overwrite built parameters.
+    """
+    spec = kernel_spec(kernel_name, package=package)
+    spec.guard(**params)
+    kwargs = spec.build(**params)
+    collisions = kwargs.keys() & bindings.keys()
+    invalid = [key for key in bindings if not key.endswith("_path")]
+    if collisions or invalid:
+        raise ValueError(f"invalid bindings: {sorted(collisions | set(invalid))}")
+    if "inst_path" not in bindings:
+        raise ValueError("bindings require inst_path")
+    app = spec.app_class(**kwargs, **bindings)
+    app._kernel_spec = spec
+    return app
+
+
+def _harness_spec(app: IpuApp) -> KernelSpec | None:
+    """Find a bound spec, or the local declaration for a direct constructor.
+
+    Inspect only the class modules, never discover/import the whole registry.
+    Following the MRO preserves execution requirements for user subclasses.
+    """
+    bound = getattr(app, "_kernel_spec", None)
+    if bound is not None:
+        return bound
+    for cls in type(app).__mro__:
+        module = sys.modules.get(cls.__module__)
+        candidates = [getattr(module, "SPEC", None)]
+        candidates.extend(getattr(module, "SPECS", ()) or ())
+        matches = {
+            id(spec): spec for spec in candidates
+            if isinstance(spec, KernelSpec) and spec.app_class is cls
+        }
+        if len(matches) > 1:
+            raise ValueError("multiple specs for this harness; use create_harness with an exact kernel name")
+        if matches:
+            return next(iter(matches.values()))
+    return None
+
+
+def create_state(app: IpuApp) -> IpuState:
+    """Create fresh state from a harness's declared execution requirements."""
+    from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+
+    spec = _harness_spec(app)
+    execution = spec.execution if spec is not None else ExecutionConfig()
+    config = execution(app) if callable(execution) else execution
+    if not isinstance(config, ExecutionConfig):
+        raise TypeError("SPEC.execution must produce an ExecutionConfig")
+    arithmetic = (
+        WideVectorArithmetic.INT32 if config.mode == "int32"
+        else WideVectorArithmetic.FP32
+    )
+    return IpuState(
+        wide_vector_debug=config.mode != "native",
+        wide_vector_arithmetic=arithmetic,
+        wide_vector_quantize_output=config.quantize_output,
+        dtype=config.dtype,
+    )
 
 
 def load(package: str = "ipu_apps", *, refresh: bool = False) -> Discovered:

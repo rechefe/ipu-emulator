@@ -19,8 +19,8 @@ memory, configures the run, and reads the output memory.
 | 1 | The `.asm` kernel | `src/ipu_apps/<family>/<app>/<app>.asm` |
 | 2 | An `IpuApp` harness | `src/ipu_apps/<family>/<app>/__init__.py` |
 | 3 | A `KernelSpec` named `SPEC` | same `__init__.py`, at the bottom |
-| 4 | A test | `test/test_<app>.py` |
-| 5 | Bazel targets | `src/tools/ipu-apps/BUILD.bazel` |
+| 4 | Named cases and tests | `src/ipu_apps/<family>/<app>/test.py` |
+| 5 | One `ipu_app` declaration | `src/tools/ipu-apps/BUILD.bazel` |
 
 Nesting depth is free — discovery recurses, so
 `convolutions_universal/conv/conv_universal/` works exactly like
@@ -29,29 +29,33 @@ Nesting depth is free — discovery recurses, so
 ## 1. The harness
 
 Subclass `IpuApp`, implement `setup` (load XMEM, set CRs) and `teardown`
-(read results back).
+(read results back). Declare arithmetic requirements in `SPEC.execution`, for
+example `ExecutionConfig(mode="fp32")`; no arithmetic-specific subclass or
+state-construction override is needed. The registry creates fresh state for
+each run unless the caller supplies one explicitly.
 
 The harness is orchestration, not an implementation of the operation. It must
-not calculate expected results or reproduce the kernel in Python. Inputs must
-already be in the XMEM layout consumed by the assembly; `setup` loads those
-bytes unchanged, and `teardown` reads the result bytes unchanged. The identity
-example is the boilerplate to copy.
+not calculate expected results or reproduce the kernel in Python. The identity example loads preformatted memory directly. Other kernels may
+need layout-specific packing in setup and unpacking in teardown; these hooks
+must preserve the declared input/output contract.
 
 **The output file must have the same layout as the input file.** Internal
-layouts are yours to choose in the producer of the input memory image, but the
-Python harness must not pack, pad, reshape, or otherwise compute that layout.
+packing and padding must be reversed by output extraction so that callers do
+not need kernel-specific unpacking.
 
 The complete load/run/read flow is:
 
 ```python
-from ipu_apps.kernel_registry import resolve
+from ipu_apps.kernel_registry import create_harness
 
-verdict = resolve("identity", shape=(4, 128))
-app = verdict.kernel.app_class(
-    inst_path="identity.bin",
-    input_path="input.bin",    # four preformatted 512-byte XMEM rows
-    output_path="output.bin",
-    **verdict.kwargs,
+app = create_harness(
+    "identity",
+    params={"shape": (4, 128)},
+    bindings={
+        "inst_path": "identity.bin",
+        "input_path": "input.bin",  # four preformatted 512-byte XMEM rows
+        "output_path": "output.bin",
+    },
 )
 state, cycles = app.run()
 ```
@@ -205,9 +209,11 @@ bazel test //src/tools/ipu-apps:all
 
 ## 6. Bazel
 
-Add a `py_pytest_test` target with your `.asm` in `data`. The `ipu_apps_lib`
-glob picks up new `.py` files automatically, but **tests are not discovered** —
-a test without a target silently never runs in CI.
+Add one `ipu_app` declaration with the kernel's name, source package, and
+optional fixture data. It creates both the run target and `test_<name>` using
+the shared registry frontend and the adjacent `test.py`. The library glob
+picks up Python files automatically; the Bazel declaration makes the kernel's
+case suite part of CI. See the standard contract below.
 
 ## Checklist
 
@@ -238,3 +244,18 @@ print(report())
 
 A kernel that fails to import does not raise; it is recorded as skipped and
 reported. If your kernel is missing from coverage, check there first.
+
+
+## Standard runnable kernel contract
+
+Keep the harness and `SPEC` in the kernel's `__init__.py`, with assembly and
+one adjacent `test.py`. Declare reusable `CASES` there and use registry
+`create_harness(name, params=..., bindings=...)` / `run_case(name, case)` for
+construction and execution. The shared runner is used by every `ipu_app`
+Bazel declaration; individual kernels need no executable Python entry point.
+
+Run `bazel run //src/tools/ipu-apps:identity -- --list-cases` for an executable
+example. `--case` selects an input case, and case options such as `--rows`
+override its defaults. `bazel test //src/tools/ipu-apps:test_identity` exercises
+the same harness factory and cases. See the ipu-apps README for the declaration
+and case interfaces. Shape-based `resolve()` remains available independently.
