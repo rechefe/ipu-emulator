@@ -19,7 +19,7 @@ memory, configures the run, and reads the output memory.
 | 1 | The `.asm` kernel | `src/ipu_apps/<family>/<app>/<app>.asm` |
 | 2 | An `IpuApp` harness | `src/ipu_apps/<family>/<app>/__init__.py` |
 | 3 | A `KernelSpec` named `SPEC` | same `__init__.py`, at the bottom |
-| 4 | Named cases and tests | `src/ipu_apps/<family>/<app>/test.py` |
+| 4 | Runtime cases and pytest tests | Adjacent `cases.py` and `test.py` |
 | 5 | One `ipu_app` declaration | `src/tools/ipu-apps/BUILD.bazel` |
 
 Nesting depth is free — discovery recurses, so
@@ -249,7 +249,8 @@ reported. If your kernel is missing from coverage, check there first.
 ## Standard runnable kernel contract
 
 Keep the harness and `SPEC` in the kernel's `__init__.py`, with assembly and
-one adjacent `test.py`. Declare reusable `CASES` there and use registry
+adjacent `cases.py` and `test.py` modules. Declare reusable `CASES` in `cases.py`
+without pytest imports; tests import those cases and use registry
 `create_harness(name, params=..., bindings=...)` / `run_case(name, case)` for
 construction and execution. The shared runner is used by every `ipu_app`
 Bazel declaration; individual kernels need no executable Python entry point.
@@ -259,3 +260,15 @@ example. `--case` selects an input case, and case options such as `--rows`
 override its defaults. `bazel test //src/tools/ipu-apps:test_identity` exercises
 the same harness factory and cases. See the ipu-apps README for the declaration
 and case interfaces. Shape-based `resolve()` remains available independently.
+
+Runtime checks must raise descriptive exceptions, including numerical error and
+tolerance where applicable. Assertions are reserved for pytest tests. Case option
+defaults must be str, int, float, or bool, with names that do not conflict with
+shared CLI options. `--output` preserves completed output even when checks fail.
+
+Pass runtime dependencies in `ipu_app(deps=...)` and pytest dependencies in
+`test_deps`. If assembly is not named `<name>.asm`, set the macro's `asm` and
+`SPEC.asm` to the same relative path. Cases and assembly use the harness's
+containing package, including for a class in `app.py`; `SPEC.package` can
+explicitly select a different resource package. Use the registry factory for
+harness construction when the class and its spec live in different modules.

@@ -27,14 +27,16 @@ ipu_app(
     name = "fully_connected",
     kernel_package = "src/ipu_apps/fully_connected",
     data = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
-    deps = [":ipu_apps_lib", requirement("pytest")],
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
 )
 
 [
     ipu_app(
         name = name,
         kernel_package = "src/ipu_apps/softmax/" + name,
-        deps = [":ipu_apps_lib", requirement("pytest")],
+        deps = [":ipu_apps_lib"],
+        test_deps = [requirement("pytest")],
     )
     for name in [
         "softmax_rows", "softmax_rows_partial", "softmax_rows_long",
@@ -45,13 +47,14 @@ ipu_app(
 ipu_app(
     name = "identity",
     kernel_package = "src/ipu_apps/kernel_registry/identity",
-    deps = [":ipu_apps_lib", requirement("pytest")],
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
 )
 
 py_pytest_test(
     name = "test_harness_factory",
     srcs = ["test/test_harness_factory.py"],
-    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+    data = ["pyproject.toml"] + glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 

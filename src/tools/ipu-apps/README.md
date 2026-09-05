@@ -54,8 +54,8 @@ bazel test //src/tools/ipu-apps:test_fully_connected
 ## Registered harnesses and reusable cases
 
 Each kernel has an `__init__.py` (harness hooks and `SPEC`), its assembly,
-and one `test.py` (named cases and correctness tests). Kernel-specific layout
-and register setup stay in the harness; assembly, construction, execution, and
+a `cases.py` (runtime inputs and output checks), and a `test.py` (pytest tests).
+Kernel-specific layout and register setup stay in the harness; assembly, construction, execution, and
 case checking use the shared registry utilities.
 
 ```bash
@@ -71,7 +71,9 @@ The seven runnable kernels are `fully_connected`, `identity`, `softmax_rows`,
 `softmax_columns_packed`. Each has a `test_<name>` target. Existing softmax
 shape, seed, scale, and cycle-limit defaults are preserved. Fully connected's
 default INT8 case retains wide arithmetic; its named `int8` and FP8 cases
-exercise native arithmetic. `--output PATH` exports checked output.
+exercise native arithmetic. `--output PATH` exports completed output before
+validation, including failed results for inspection. Validation failures still
+exit nonzero.
 
 The registry is the harness factory:
 
@@ -92,13 +94,16 @@ implementation. For automatic selection, call `resolve(op, **params)` and pass
 the selected kernel name and the same parameters to `create_harness`.
 Bindings contain file paths and cannot override validated configuration.
 
-`test.py` declares `CASES`, mapping names to `KernelCase` objects, including
+`cases.py` declares `CASES`, mapping names to `KernelCase` objects, including
 `default`. A case preparation function receives a workspace and its declared
-options and returns `PreparedCase(params, bindings, check)`. The checker reads
-completed output and raises on a mismatch. `run_case(name, case)` assembles,
+options (str, int, float, or bool defaults) and returns
+`PreparedCase(params, bindings, check)`. The checker reads completed output and
+raises on a mismatch. `run_case(name, case)` assembles,
 constructs through the registry, runs, checks, and cleans temporary files.
 Pytest functions use that same path. Importing a case must not execute it.
-Cases may import pytest; install the app's dev dependencies outside Bazel.
+Cases must not import pytest. Keep pytest imports in `test.py` and use Bazel
+for dependency management and testing. Runtime checks must raise descriptive
+exceptions rather than rely on assertions.
 
 Add one declaration in the apps BUILD file:
 
@@ -106,12 +111,16 @@ Add one declaration in the apps BUILD file:
 ipu_app(
     name = "my_kernel",
     kernel_package = "src/ipu_apps/my_kernel",
-    deps = [":ipu_apps_lib", requirement("pytest")],
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
     # data = [...],  # Optional input fixtures.
 )
 ```
 
-Use `<name>.asm` in that package and declare the matching `SPEC.name`.
+Use `<name>.asm` in that package and declare the matching `SPEC.name`. For a
+different assembly filename, pass `asm="filename.asm"` to the macro and set
+`SPEC.asm` to the same path. Cases and assembly default to the harness module's
+containing package; `SPEC.package` can name a different resource package.
 The macro supplies the shared frontend and creates `test_my_kernel` from the
 adjacent `test.py`. No per-kernel `__main__.py` or registration list is needed.
 

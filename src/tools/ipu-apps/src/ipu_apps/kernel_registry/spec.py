@@ -16,6 +16,7 @@ width >= 128" long after the real boundary had moved to 65.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
 
 from ipu_emu.ipu_math import DType
@@ -86,6 +87,9 @@ class KernelSpec:
                     (``"rows"``, ``"columns_packed"``).
         app_class:  The :class:`~ipu_apps.base.IpuApp` subclass to instantiate.
         asm:        Path to the kernel's ``.asm``, relative to the app package.
+        package:    Package containing cases.py and assembly. Defaults to the
+                    harness module's containing package, including when the
+                    harness is defined in a separate app.py module.
         supports:   ``params -> Support``. The single source of truth for this
                     kernel's domain.
         build:      ``params -> ctor kwargs`` (beyond inst/input/output paths).
@@ -130,6 +134,14 @@ class KernelSpec:
     execution: ExecutionConfig | Callable[[IpuApp], ExecutionConfig] = field(
         default_factory=ExecutionConfig
     )
+    package: str | None = None
+
+    @property
+    def resource_package(self) -> str:
+        package = self.package or import_module(self.app_class.__module__).__package__
+        if not package:
+            raise ValueError(f"{self.name}: declare SPEC.package for cases and assembly")
+        return package
 
     def missing_params(self, params: Params) -> tuple[str, ...]:
         """Names from :attr:`requires` that ``params`` does not carry."""

@@ -18,19 +18,15 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.softmax.test_support import random_case, reference, run_array
+from ipu_apps.softmax.test_support import reference, run_array
 from ipu_apps.kernel_registry.cases import run_case
+from ipu_apps.softmax.softmax_rows_partial.cases import CASES
 
-from ipu_apps.softmax.softmax_rows_partial import SoftmaxRowsPartialApp
 
 ASM_PATH = Path(__file__).with_name("softmax_rows_partial.asm")
 
-def _reference(x: np.ndarray) -> np.ndarray:
-    z = np.exp(x - x.max(axis=1, keepdims=True))
-    return z / z.sum(axis=1, keepdims=True)
 
-
-def _run(inst_file: Path, x: np.ndarray, n: int) -> np.ndarray:
+def _run(inst_file: Path, x: np.ndarray) -> np.ndarray:
     _, out = run_array("softmax_rows_partial", inst_file, x, 1)
     return out
 
@@ -59,8 +55,8 @@ def inst_file():
 def test_partial_softmax_matches_numpy(inst_file, n, rows, seed):
     rng = np.random.RandomState(seed)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
     assert np.allclose(out.sum(axis=1), 1.0, atol=1e-5)
 
@@ -70,8 +66,8 @@ def test_padding_rows_ignored(inst_file):
     n, rows = 32, 6  # P=4, padded to 8
     rng = np.random.RandomState(20)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
 
 
@@ -100,8 +96,8 @@ def test_many_chunks_correct(inst_file, n, rows):
     """
     rng = np.random.RandomState(0)
     x = (rng.randn(rows, n) * 5.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
 
 
@@ -130,15 +126,12 @@ def test_more_than_128_rows(inst_file, n, rows):
     """
     rng = np.random.RandomState(rows)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
 
 
-CASES = {
-    "default": random_case(axis=1, defaults={'n': 32, 'rows': 8, 'seed': 0, 'scale': 5.0}, max_cycles=4000000),
-}
 
 
-def test_default_case():
-    run_case("softmax_rows_partial", CASES["default"])
+def test_default_case(inst_file):
+    run_case("softmax_rows_partial", CASES["default"], inst_path=inst_file)

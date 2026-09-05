@@ -196,3 +196,172 @@ def test_execution_config_is_immutable_and_rejects_bad_modes():
         config.mode = "fp32"
     with pytest.raises(ValueError, match="execution mode"):
         ExecutionConfig(mode="typo")
+
+
+def test_frontend_help_and_case_listing(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "--output" in capsys.readouterr().out
+    assert main(["--kernel", "identity", "--list-cases", "--case", "missing"]) == 0
+    assert "single_row" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as exc:
+        main(["--kernel", "identity", "--help"])
+    assert exc.value.code == 0
+    assert "--rows" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("defaults", [
+    {"output": "x.bin"}, {"max_cycles": 4}, {"bad-name": 1},
+    {"value": None}, {"shape": (3, 128)}, {1: "bad"},
+])
+def test_invalid_case_option_declarations(defaults):
+    with pytest.raises(ValueError, match="case option"):
+        KernelCase(lambda _: None, defaults)
+
+
+def test_frontend_boolean_options_and_collisions(monkeypatch, capsys):
+    import ipu_apps.kernel_registry.runner as runner
+    from types import SimpleNamespace
+
+    options = []
+    state = SimpleNamespace(stats=SimpleNamespace(format_summary=lambda: ""))
+    monkeypatch.setattr(runner, "run_case", lambda *_, **kw: (options.append(kw["options"]) or state, 1))
+    monkeypatch.setattr(runner, "load_cases", lambda _: {"default": KernelCase(lambda _: None, {"enabled": True})})
+    assert main(["--kernel", "identity", "--no-enabled"]) == 0
+    assert options == [{"enabled": False}]
+    monkeypatch.setattr(runner, "load_cases", lambda _: {"default": KernelCase(lambda _: None, {"enabled": True, "no_enabled": False})})
+    with pytest.raises(SystemExit) as exc:
+        main(["--kernel", "identity"])
+    assert exc.value.code == 1
+    assert "conflicting option" in capsys.readouterr().err
+
+
+def test_missing_case_declaration_is_actionable(monkeypatch, capsys):
+    from types import SimpleNamespace
+    import ipu_apps.kernel_registry.cases as cases
+
+    monkeypatch.setattr(cases, "import_module", lambda _: SimpleNamespace())
+    with pytest.raises(SystemExit) as exc:
+        main(["--kernel", "identity"])
+    assert exc.value.code == 1
+    assert "cannot load CASES from ipu_apps.kernel_registry.identity.cases" in capsys.readouterr().err
+
+
+def test_failed_output_is_exported_with_diagnostics(tmp_path, monkeypatch, capsys):
+    from ipu_apps.kernel_registry.identity import IdentityApp
+
+    monkeypatch.setattr(IdentityApp, "teardown", lambda app, state: app.output_path.write_bytes(b"bad"))
+    out = tmp_path / "failed.bin"
+    with pytest.raises(SystemExit) as exc:
+        main(["--kernel", "identity", "--output", str(out)])
+    assert exc.value.code == 1
+    assert out.read_bytes() == b"bad"
+    assert "output size mismatch" in capsys.readouterr().err
+
+
+def test_runtime_checks_survive_optimization():
+    code = """
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from ipu_apps.kernel_registry.cases import load_cases, run_case
+for name in ('identity', 'softmax_rows', 'fully_connected'):
+    with TemporaryDirectory() as tmp:
+        case = load_cases(name)['default']
+        prepared = case.prepare(Path(tmp), **case.defaults)
+        run_case(name, case, workspace=Path(tmp))
+        out = Path(prepared.bindings['output_path'])
+        raw = bytearray(out.read_bytes())
+        if name == 'softmax_rows':
+            raw[:] = bytes(len(raw))
+        else:
+            raw[0] ^= 255
+        out.write_bytes(raw)
+        try:
+            prepared.check()
+        except ValueError as exc:
+            if not str(exc):
+                raise SystemExit('missing diagnostic')
+        else:
+            raise SystemExit(name + ' accepted corrupted output')
+"""
+    subprocess.run([sys.executable, "-O", "-c", code], check=True)
+
+
+def test_cases_do_not_import_pytest():
+    code = """
+import sys
+from ipu_apps.kernel_registry import kernels
+from ipu_apps.kernel_registry.cases import load_cases
+for spec in kernels():
+    if spec.name in ('identity', 'fully_connected') or spec.op == 'softmax':
+        load_cases(spec.name)
+if 'pytest' in sys.modules:
+    raise SystemExit('runtime cases imported pytest')
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_fc_dtype_default_and_normalization():
+    from ipu_apps.fully_connected import FullyConnectedApp
+    from ipu_emu.ipu_math import DType
+
+    verdict = resolve("fully_connected", shape=(10, 128))
+    assert verdict.supported
+    bindings = {"inst_path": "unused", "inputs_path": "unused", "weights_path": "unused"}
+    assert create_harness("fully_connected", params={}, bindings=bindings).dtype is DType.INT8
+    app = FullyConnectedApp(dtype=4, **bindings)
+    assert app.dtype is DType.E4
+    assert app.make_state().dtype is DType.E4
+
+
+def test_cases_and_assembly_follow_package_not_class_module(tmp_path, monkeypatch):
+    from importlib import import_module
+    from importlib.resources import files
+    import ipu_apps.kernel_registry.registry as registry
+    import ipu_apps.kernel_registry.cases as cases
+
+    package = tmp_path / "split_kernel"
+    package.mkdir()
+    (package / "app.py").write_text(
+        "from ipu_apps.kernel_registry.identity import IdentityApp\n"
+        "class SplitApp(IdentityApp): pass\n"
+    )
+    (package / "__init__.py").write_text(
+        "from dataclasses import replace\n"
+        "from ipu_apps.kernel_registry.identity import SPEC as BASE\n"
+        "from .app import SplitApp\n"
+        "SPEC = replace(BASE, name='split_identity', app_class=SplitApp, asm='copy.asm')\n"
+    )
+    (package / "cases.py").write_text("from ipu_apps.kernel_registry.identity.cases import CASES\n")
+    (package / "copy.asm").write_text(files("ipu_apps.kernel_registry.identity").joinpath("identity.asm").read_text())
+    monkeypatch.syspath_prepend(str(tmp_path))
+    spec = import_module("split_kernel").SPEC
+    monkeypatch.setattr(registry, "kernel_spec", lambda *_, **__: spec)
+    monkeypatch.setattr(cases, "kernel_spec", lambda *_, **__: spec)
+    assert spec.resource_package == "split_kernel"
+    state, cycles = run_case("split_identity", load_cases("split_identity")["default"])
+    assert state.is_halted and cycles > 0
+
+
+def test_pytest_config_collects_adjacent_suites(tmp_path):
+    from pathlib import Path
+    import shutil
+
+    config = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    shutil.copyfile(config, tmp_path / "pyproject.toml")
+    for package in ("test", "src/first", "src/second"):
+        directory = tmp_path / package
+        directory.mkdir(parents=True)
+        name = "test_old.py" if package == "test" else "test.py"
+        (directory / name).write_text("def test_example(): pass\n")
+    result = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q"],
+                            cwd=tmp_path, text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "3 tests collected" in result.stdout
+
+
+def test_softmax_case_width_must_be_declared():
+    from ipu_apps.softmax.test_support import random_case
+    with pytest.raises(ValueError, match="width"):
+        random_case(axis=0, defaults={"widht": 10}, max_cycles=100)
