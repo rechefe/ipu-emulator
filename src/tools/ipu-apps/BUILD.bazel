@@ -120,3 +120,10 @@ assemble_asm(
     name = "assemble_fully_connected",
     src = "src/ipu_apps/fully_connected/fully_connected.asm",
 )
+
+py_pytest_test(
+    name = "test_debug_launch",
+    srcs = ["test/test_debug_launch.py"],
+    data = ["src/ipu_apps/kernel_registry/identity/identity.asm"],
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
