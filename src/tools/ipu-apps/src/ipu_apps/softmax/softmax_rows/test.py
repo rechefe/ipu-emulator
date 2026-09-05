@@ -14,20 +14,15 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_apps.softmax.test_support import random_case, reference, run_array
+from ipu_apps.softmax.test_support import reference, run_array
 from ipu_apps.kernel_registry.cases import run_case
+from ipu_apps.softmax.softmax_rows.cases import CASES
 
 from ipu_apps.softmax.softmax_rows import (
-    SoftmaxRowsApp,
     LANES,
-    ROW_BYTES,
 )
 
 ASM_PATH = Path(__file__).with_name("softmax_rows.asm")
-
-def _reference(x: np.ndarray) -> np.ndarray:
-    z = np.exp(x - x.max(axis=1, keepdims=True))
-    return z / z.sum(axis=1, keepdims=True)
 
 
 def _run(inst_file: Path, x: np.ndarray) -> np.ndarray:
@@ -64,7 +59,7 @@ def test_softmax_matches_numpy(inst_file, rows, scale, seed):
     rng = np.random.RandomState(seed)
     x = (rng.randn(rows, LANES) * scale).astype(np.float32)
     out = _run(inst_file, x)
-    ref = _reference(x)
+    ref = reference(x, 1)
 
     assert np.abs(out - ref).max() < 1e-4
     assert np.allclose(out.sum(axis=1), 1.0, atol=1e-5)
@@ -85,10 +80,7 @@ def test_argmax_preserved(inst_file):
     assert np.array_equal(out.argmax(axis=1), x.argmax(axis=1))
 
 
-CASES = {
-    "default": random_case(axis=1, defaults={'rows': 128, 'scale': 5.0, 'seed': 0}, max_cycles=2000000),
-}
 
 
-def test_default_case():
-    run_case("softmax_rows", CASES["default"])
+def test_default_case(inst_file):
+    run_case("softmax_rows", CASES["default"], inst_path=inst_file)

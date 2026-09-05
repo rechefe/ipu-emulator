@@ -36,4 +36,6 @@ ipu_apps = ["**/*.asm", "**/*.bin"]
 package = true
 
 [tool.pytest.ini_options]
+testpaths = ["test", "src"]
 python_files = ["test.py", "test_*.py"]
+addopts = "--import-mode=importlib"

@@ -53,8 +53,6 @@ OUTPUT_NEURONS = 64
 # registers below feed the .asm's XMEM instructions instead, so they carry
 # the same addresses converted to rows (divide by the 128-byte row size).
 ROW_SIZE_BYTES = 128
-WEIGHTS_BASE_ROW = WEIGHTS_BASE_ADDR // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // ROW_SIZE_BYTES
 # STR_ACC_REG always writes all 512 B of r_acc regardless of mode (issue
 # #179's fixed-payload outlier), which spans 4 rows in narrow mode -- the
 # stride between successive output vectors must match that, not the
@@ -164,7 +162,7 @@ class FullyConnectedApp(IpuApp):
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
+        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else DType(dtype)
         self.wide_mode = wide_mode
         SPEC.guard(dtype=self.dtype, wide_mode=wide_mode)
 
@@ -245,7 +243,6 @@ SPEC = KernelSpec(
     execution=lambda app: ExecutionConfig(
         mode="int32" if app.wide_mode else "native", dtype=app.dtype,
     ),
-    requires=("dtype",),
     supports=_supports,
     build=lambda **p: {"dtype": p.get("dtype", "INT8"), "wide_mode": p.get("wide_mode", False)},
     explain=lambda **_: "Fixed 10 x 128 inputs and 64 x 128 weights",
