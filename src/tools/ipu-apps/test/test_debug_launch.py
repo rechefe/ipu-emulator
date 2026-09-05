@@ -68,6 +68,7 @@ def test_entry_is_after_setup_and_before_side_effects(app, debug_terminal, monke
         assert not get_debug_control(state).breakpoints
         stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
         assert get_debug_control(state).stop_reason == "entry"
+        assert get_debug_control(state).kernel_name == type(app).__name__
         return DebugAction.CONTINUE
 
     monkeypatch.setattr(tui, "run_debug_tui", view)

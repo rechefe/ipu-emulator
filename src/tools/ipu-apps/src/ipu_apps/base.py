@@ -86,7 +86,12 @@ class IpuApp:
         if debug_launch:
             from ipu_emu.debug_launch import make_tui_debug_callback
 
-            debug_callback = make_tui_debug_callback()
+            from ipu_apps.kernel_registry.registry import _harness_spec
+
+            spec = _harness_spec(self)
+            debug_callback = make_tui_debug_callback(
+                spec.name if spec is not None else type(self).__name__
+            )
         try:
             return run_test(
                 inst_path=self.inst_path,

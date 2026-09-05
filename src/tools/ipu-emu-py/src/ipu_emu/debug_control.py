@@ -21,6 +21,9 @@ class DebugControl:
     breakpoints: set[int] = field(default_factory=set)
     run_target: int | None = None
     stop_reason: str = "paused"
+    kernel_name: str | None = None
+    last_completed_pc: int | None = None
+    last_completed_instruction: dict[str, int] | None = None
 
     def add_breakpoint(self, pc: int) -> None:
         self.breakpoints.add(validate_pc(pc))
