@@ -113,6 +113,8 @@ def run_with_debug(
     ipu = Ipu(state)
 
     control = get_debug_control(state)
+    control.last_completed_pc = None
+    control.last_completed_instruction = None
     entry_pending = break_on_entry
     try:
         while not state.is_halted:
@@ -122,6 +124,8 @@ def run_with_debug(
                     f"(PC={state.program_counter})"
                 )
 
+            issued_pc = state.program_counter
+            issued_instruction = state.inst_mem[issued_pc]
             reasons = []
             if entry_pending:
                 reasons.append("entry")
@@ -146,7 +150,13 @@ def run_with_debug(
                 stepping = action == DebugAction.STEP
                 # Resume the paused instruction exactly once, including when
                 # the callback edits PC. A later loop visit can stop again.
+                issued_pc = state.program_counter
+                issued_instruction = state.inst_mem[issued_pc]
                 ipu.execute_vliw_cycle_skip_break()
+            control.last_completed_pc = issued_pc
+            control.last_completed_instruction = (
+                dict(issued_instruction) if issued_instruction is not None else None
+            )
             cycles += 1
     finally:
         control.run_target = None

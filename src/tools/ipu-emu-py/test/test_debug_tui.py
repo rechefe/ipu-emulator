@@ -100,7 +100,15 @@ def make_view(
 ) -> tuple[CursesDebugView, FakeScreen, DebugViewSession]:
     state = state or IpuState()
     screen = screen or FakeScreen()
-    session = session or DebugViewSession()
+    # Most interaction tests use one explicit tab per pane. Default-tab
+    # integration tests pass a fresh session explicitly.
+    session = session or DebugViewSession(
+        initialized=True,
+        tabs=[XmemTab(XmemRequest("row", "0", "0", debug_tui.xmem_row_size_bytes(state), "hex"))],
+        disassembly_tabs=[DisassemblyTab()],
+        register_tabs=[RegisterTab()],
+        pipeline_tabs=[PipelineTab()],
+    )
     session.ensure_default_tab(state)
     return CursesDebugView(screen, state, session, cycle=17), screen, session
 
@@ -121,23 +129,23 @@ class TestLayout:
             "status",
             "keys",
         }
-        assert layout["disassembly"].x + layout["disassembly"].width - 1 == (
-            layout["registers"].x
+        assert layout["pipeline"].x + layout["pipeline"].width - 1 == (
+            layout["disassembly"].x
         )
         assert layout["disassembly"].y + layout["disassembly"].height - 1 == (
             layout["xmem"].y
         )
         assert layout["xmem"].x + layout["xmem"].width - 1 == (
-            layout["pipeline"].x
+            layout["registers"].x
         )
 
     def test_small_terminal_shows_resize_message(self):
-        screen = FakeScreen(rows=20, columns=70)
+        screen = FakeScreen(rows=10, columns=70)
         view, _, _ = make_view(screen=screen)
 
         view.render()
 
-        assert "Terminal must be at least 80x24" in screen.text()
+        assert "Terminal must be at least 48x12" in screen.text()
 
     def test_render_shows_status_registers_disassembly_and_xmem(self):
         state = IpuState()
@@ -148,14 +156,14 @@ class TestLayout:
 
         output = screen.text()
         assert "cycle=17" in output
-        assert "Disassembly" in output
+        assert "Instructions" in output
         assert "LR 00-07" in output
         assert "Pipeline Registers" in output
         assert "12" in output
         assert "row:0+0 hex" in output
         assert "0x00000000" in output
         assert "128 bytes" in output
-        assert "Current PC" in output
+        assert "PC=0000" in output
         assert "q Quit" in output
         header = "".join(text for y, _, text, _ in screen.writes if y == 0)
         assert "[F5" not in header
@@ -246,14 +254,14 @@ class TestLayout:
         view.render()
 
         top = view.disassembly_rect.y + 3
-        assert row_text(screen, top).startswith(
+        assert row_text(screen, top)[view.disassembly_rect.x:].startswith(
             f"\u2502{view.glyphs.current_row} 0000  first"
         )
-        assert row_text(screen, top + 1).startswith(
+        assert row_text(screen, top + 1)[view.disassembly_rect.x:].startswith(
             f"\u2502     {debug_tui.DISASSEMBLY_PARALLEL_MARKER} second"
         )
         # The next instruction starts a new group, not a new column.
-        assert row_text(screen, top + 2).startswith("\u2502  0001  first")
+        assert row_text(screen, top + 2)[view.disassembly_rect.x:].startswith("\u2502  0001  first")
 
     def test_no_instruction_spans_the_pane_sideways(self, monkeypatch):
         monkeypatch.setattr(
@@ -413,14 +421,14 @@ class TestLayout:
         assert "F6" not in screen.text()
         assert "TabTabs" not in screen.text()
         assert "q Quit" in screen.text()
-        assert "?:Help" in screen.text()
+        assert "[? Help]" in screen.text()
 
     def test_wide_footer_includes_global_controls(self):
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
 
         view.render()
 
-        assert "S-Tab:Pane" in screen.text()
+        assert "F5:Run" in screen.text()
         assert "F5:Run" in screen.text()
         assert "F8:Step" in screen.text()
 
@@ -434,14 +442,14 @@ class TestPaneFrames:
         layout = view.layout()
         assert layout is not None
         box = view.glyphs.box
-        split_x = layout["registers"].x
+        split_x = layout["disassembly"].x
         shared_y = layout["xmem"].y
         assert cell(screen, layout["disassembly"].y, split_x) == box[
             debug_tui.BORDER_LEFT
             | debug_tui.BORDER_RIGHT
             | debug_tui.BORDER_DOWN
         ]
-        assert cell(screen, shared_y, layout["disassembly"].x) == box[
+        assert cell(screen, shared_y, layout["pipeline"].x) == box[
             debug_tui.BORDER_UP
             | debug_tui.BORDER_RIGHT
             | debug_tui.BORDER_DOWN
@@ -451,7 +459,7 @@ class TestPaneFrames:
             | debug_tui.BORDER_LEFT
             | debug_tui.BORDER_RIGHT
         ]
-        assert cell(screen, shared_y, layout["pipeline"].x) == box[
+        assert cell(screen, shared_y, layout["registers"].x) == box[
             debug_tui.BORDER_LEFT
             | debug_tui.BORDER_RIGHT
             | debug_tui.BORDER_DOWN
@@ -463,7 +471,7 @@ class TestPaneFrames:
 
         view.render()
 
-        split_x = view.registers_rect.x
+        split_x = view.disassembly_rect.x
         row = view.disassembly_rect.y + 3
         assert any(
             (y, x) == (row, split_x) and attr == view.colors.focus
@@ -510,17 +518,17 @@ class TestTitleFitting:
 
     def test_squeezed_pane_keeps_its_name_and_drops_the_readout(self):
         view, screen, session = make_view()
-        session.focus = "registers"
+        session.focus = "pipeline"
         for _ in range(50):
-            view.handle_key(debug_tui.curses.KEY_SLEFT)
+            view.handle_key(debug_tui.curses.KEY_SRIGHT)
 
         view.render()
 
         text = screen.text()
-        assert view.disassembly_rect.width - 1 == (
+        assert view.disassembly_rect.width == (
             debug_tui.MIN_DISASSEMBLY_COLUMNS
         )
-        assert "Disassembly" in text
+        assert "Instructions" in text
         assert f"/{debug_tui.INST_MEM_SIZE} " not in text
 
     def test_pane_shows_both_the_title_and_the_readout_when_they_fit(self):
@@ -529,7 +537,7 @@ class TestTitleFitting:
         view.render()
 
         text = screen.text()
-        assert "Disassembly" in text
+        assert "Instructions" in text
         assert f"/{debug_tui.INST_MEM_SIZE} " in text
 
 
@@ -737,29 +745,29 @@ class TestXmemTabs:
         view.handle_key(key)
 
         assert session.focus == pane
-        assert session.message == f"{debug_tui.PANE_TITLES[pane]} viewer focused"
+        assert session.message == "Ready"
 
     def test_number_keys_inside_an_editor_are_typed_text(self):
         view, _, session = make_view()
         session.focus = "xmem"
         view.handle_key(debug_tui.curses.KEY_F2)
 
-        view.handle_key("2")
+        view.handle_key("4")
 
         assert session.focus == "xmem"
-        assert view.command.endswith("2")
+        assert view.command.endswith("4")
 
     def test_shift_tab_cycles_pane_focus_and_tab_does_not(self):
         view, _, session = make_view()
 
         assert session.focus == "xmem"
         view.handle_key(debug_tui.curses.KEY_BTAB)
-        assert session.focus == "pipeline"
+        assert session.focus == "registers"
         view.handle_key(debug_tui.curses.KEY_BTAB)
-        assert session.focus == "disassembly"
+        assert session.focus == "pipeline"
         view.handle_key("\t")
-        assert session.focus == "disassembly"
-        assert session.message == "Selected current compact"
+        assert session.focus == "pipeline"
+        assert session.message.startswith("Selected")
 
     def test_tab_cycles_xmem_tabs(self):
         _, _, session = make_view()
@@ -1598,7 +1606,7 @@ class TestMouseResizesSplits:
         ("split", "rect_name"),
         [
             ("register_pane_columns", "registers_rect"),
-            ("pipeline_pane_columns", "pipeline_rect"),
+            ("pipeline_pane_columns", "disassembly_rect"),
         ],
     )
     def test_dragging_a_vertical_border_moves_that_split(
@@ -1623,7 +1631,7 @@ class TestMouseResizesSplits:
         view.render()
 
         assert getattr(view, rect_name).width == rect.width + 6
-        assert getattr(session, split) == rect.width + 6
+        assert getattr(session, split) == (rect.x - 5 if split == "pipeline_pane_columns" else rect.width + 6)
 
         mouse(
             view,
@@ -1649,8 +1657,8 @@ class TestMouseResizesSplits:
         mouse(view, monkeypatch, border_y - 3, 20, 0)
         view.render()
 
-        assert view.disassembly_rect.height == border_y - 3
-        assert session.top_pane_rows == border_y - 3
+        assert view.xmem_rect.y == border_y - 3
+        assert session.top_pane_rows == view.disassembly_rect.height
 
     def test_a_press_and_release_without_motion_is_a_click(self, monkeypatch):
         view, _, session = make_view(screen=FakeScreen(columns=140))
@@ -1675,7 +1683,7 @@ class TestMouseResizesSplits:
 
         assert view.drag is None
         assert session.top_pane_rows is None
-        assert session.focus == "xmem"
+        assert session.focus == "pipeline"
 
     def test_a_keystroke_abandons_an_unfinished_drag(self, monkeypatch):
         view, _, session = make_view(screen=FakeScreen(columns=140))
@@ -1837,7 +1845,7 @@ class TestFooterFitting:
         footer = footer_row(screen)
         assert len(footer) <= MIN_TERMINAL_COLUMNS
         assert footer.rstrip().endswith("q Quit")
-        assert "?:Help" in footer
+        assert "?:Help" not in footer
         assert "F5:Run F8:Step" in footer
         assert "F6" not in footer
 
@@ -1951,7 +1959,7 @@ class TestHelpOverlay:
         assert view.help_visible
         view.render()
         assert "Debugger controls" in screen.text()
-        assert "Halt execution and exit the debugger" in screen.text()
+        assert "Halt execution and exit the debugger" not in screen.text()
 
         view.handle_key(debug_tui.curses.KEY_NPAGE)
         assert view.help_scroll > 0
@@ -1968,7 +1976,8 @@ class TestHelpOverlay:
 
         text = screen.text()
         for binding in debug_tui.KEY_BINDINGS:
-            assert binding.description in text
+            if binding.keys != ("q",):
+                assert binding.description in text
 
     def test_overlay_lines_fit_the_minimum_terminal(self):
         content_width = min(MIN_TERMINAL_COLUMNS - 4, 78) - 4
@@ -2012,7 +2021,7 @@ class TestHelpOverlay:
 
 class TestScrollPosition:
     def test_pipeline_reports_the_visible_item_range(self):
-        view, screen, session = make_view()
+        view, screen, session = make_view(screen=FakeScreen(columns=180))
         session.focus = "pipeline"
 
         view.render()
@@ -2063,6 +2072,7 @@ class TestScrollPosition:
         view, screen, session = make_view(screen=FakeScreen(rows=60, columns=140))
         session.focus = "pipeline"
         session.pipeline_tabs[0].fmt = "bits"
+        session.top_pane_rows = 45
 
         view.render()
 
@@ -2118,9 +2128,9 @@ class TestResizableSplits:
     @pytest.mark.parametrize(
         ("pane", "resized", "untouched"),
         [
-            ("disassembly", "registers_rect", "pipeline_rect"),
+            ("disassembly", "pipeline_rect", "registers_rect"),
             ("registers", "registers_rect", "pipeline_rect"),
-            ("xmem", "pipeline_rect", "registers_rect"),
+            ("xmem", "registers_rect", "pipeline_rect"),
             ("pipeline", "pipeline_rect", "registers_rect"),
         ],
     )
@@ -2137,7 +2147,7 @@ class TestResizableSplits:
         view.render()
 
         assert getattr(view, resized).width == (
-            before + debug_tui.PANE_RESIZE_STEP
+            before + (1 if resized == "registers_rect" else -1) * debug_tui.PANE_RESIZE_STEP
         )
         assert getattr(view, untouched).width == other
 
@@ -2150,14 +2160,14 @@ class TestResizableSplits:
         layout = view.layout()
 
         assert layout is not None
-        assert layout["disassembly"].x + layout["disassembly"].width - 1 == (
-            layout["registers"].x
+        assert layout["pipeline"].x + layout["pipeline"].width - 1 == (
+            layout["disassembly"].x
         )
         assert layout["disassembly"].y + layout["disassembly"].height - 1 == (
             layout["xmem"].y
         )
         assert layout["xmem"].x + layout["xmem"].width - 1 == (
-            layout["pipeline"].x
+            layout["registers"].x
         )
 
     def test_splits_are_clamped_to_their_minimums(self):
@@ -2199,6 +2209,7 @@ class TestResizableSplits:
 
     def test_top_pane_shrinks_and_the_register_grid_reflows(self):
         view, _, session = make_view(screen=FakeScreen(rows=40, columns=140))
+        session.top_pane_rows = 30
         view.render()
         tall_rows, tall_columns = view._register_grid(
             session.register_tabs[0]
@@ -2212,13 +2223,13 @@ class TestResizableSplits:
         )
 
         assert view.disassembly_rect.height == debug_tui.MIN_TOP_PANE_ROWS
-        assert short_rows < tall_rows
-        assert short_columns > tall_columns
+        assert short_rows > tall_rows
+        assert short_columns < tall_columns
         assert short_rows * short_columns == (
             len(debug_tui.REGISTER_GROUPS) * debug_tui._REGISTERS_PER_GROUP
         )
 
-    def test_a_tall_top_pane_returns_width_to_the_disassembly(self):
+    def test_top_height_keeps_instruction_width_independent_of_register_grid(self):
         view, screen, session = make_view(
             screen=FakeScreen(rows=40, columns=140)
         )
@@ -2230,7 +2241,7 @@ class TestResizableSplits:
         session.top_pane_rows = None
         view.render()
 
-        assert view.disassembly_rect.width > narrow
+        assert view.disassembly_rect.width == narrow
         assert "LR 00-15" in screen.text()
         assert "CR 00-15" in screen.text()
 
@@ -2279,8 +2290,8 @@ class TestDebuggerImprovements:
     def test_queued_maximize_focus_and_navigation_use_current_geometry(self):
         view, _, session = make_view()
         view.render()
-        view.handle_key(debug_tui.curses.KEY_F11)
-        view.handle_key("4")
+        session.maximized = not session.maximized
+        view.handle_key("1")
         view.handle_key(debug_tui.curses.KEY_DOWN)
         expected = view._pipeline_items_per_line("hex", view.pipeline_rect)
         assert view.pipeline_rect.width == 80
@@ -2329,12 +2340,12 @@ class TestDebuggerImprovements:
     def test_stationary_motion_keeps_drag_until_release(self, monkeypatch):
         view, _, session = make_view(screen=FakeScreen(columns=140))
         view.render()
-        y, x = view.pipeline_rect.y + 3, view.pipeline_rect.x
+        y, x = view.disassembly_rect.y + 3, view.disassembly_rect.x
         mouse(view, monkeypatch, y, x, debug_tui.curses.BUTTON1_PRESSED)
         mouse(view, monkeypatch, y, x, 0)
         assert view.drag is not None
         mouse(view, monkeypatch, y, x - 4, 0)
-        assert session.pipeline_pane_columns == 140 - x + 4
+        assert session.pipeline_pane_columns == x - 3
         mouse(view, monkeypatch, y, x - 4, debug_tui.curses.BUTTON1_RELEASED)
         assert view.drag is None
 
@@ -2372,7 +2383,7 @@ class TestDebuggerImprovements:
         for write_y, x, text, _ in screen.writes:
             if write_y == y and hits[0][0].x <= x < limit:
                 assert x + len(text) <= limit
-        view.handle_key(debug_tui.curses.KEY_F11)
+        session.maximized = not session.maximized
         view.render()
         assert "10000000000000000000000000000001" in screen.text()
 
@@ -2381,14 +2392,14 @@ class TestDebuggerImprovements:
         session.pipeline_pane_columns = 60
         session.top_pane_rows = 12
         original = view.layout()
-        view.handle_key(debug_tui.curses.KEY_F11)
+        session.maximized = not session.maximized
         view.render()
         assert set(view.value_hits) == {"xmem"}
-        view.handle_key("2")
+        view.handle_key("4")
         view.render()
         assert set(view.value_hits) == {"registers"}
         assert view.registers_rect.width == 140
-        view.handle_key(debug_tui.curses.KEY_F11)
+        session.maximized = not session.maximized
         assert view.layout() == original
 
     def test_breakpoint_marker_and_run_to_cursor(self):
@@ -2493,3 +2504,636 @@ class TestDebuggerImprovements:
         assert view.run() == DebugAction.QUIT
         assert not session.active
         assert screen.blocking
+
+
+class TestResponsiveMouseUI:
+    @pytest.mark.parametrize("rows,columns", [(12, 48), (18, 60), (20, 100), (40, 70)])
+    def test_compact_navigation_keeps_every_pane_accessible(self, monkeypatch, rows, columns):
+        view, screen, session = make_view(screen=FakeScreen(rows=rows, columns=columns))
+        for number, pane in debug_tui.PANE_FOCUS_KEYS.items():
+            view.render()
+            view.handle_key(number)
+            view.render()
+            assert session.focus == pane
+            assert set(view.layout()) == {"header", pane, "status", "keys"}
+            assert debug_tui.HEADER_ROWS == debug_tui.FOOTER_ROWS == 1
+            assert all(0 <= y < rows and 0 <= x < columns and x + len(text) <= columns
+                       for y, x, text, _ in screen.writes)
+
+    def test_shrink_and_grow_restores_user_split_sizes(self):
+        view, screen, session = make_view(screen=FakeScreen(rows=50, columns=180))
+        session.top_pane_rows = 27
+        session.register_pane_columns = 70
+        session.pipeline_pane_columns = 65
+        original = view.layout()
+        for screen.rows, screen.columns in [(24, 80), (12, 48), (50, 180)]:
+            view.render()
+        assert view.layout() == original
+        assert (session.top_pane_rows, session.register_pane_columns,
+                session.pipeline_pane_columns) == (27, 70, 65)
+
+    def test_idle_poll_detects_pty_resize_without_key_resize(self, monkeypatch):
+        view, screen, _ = make_view(screen=FakeScreen(rows=42, columns=140))
+        class Stdin:
+            def fileno(self):
+                return 42
+        monkeypatch.setattr(debug_tui.sys, "stdin", Stdin())
+        monkeypatch.setattr(debug_tui.os, "get_terminal_size",
+                            lambda fd: debug_tui.os.terminal_size((60, 18)))
+        resized = []
+        def resize(rows, columns):
+            resized.append((rows, columns))
+            screen.rows, screen.columns = rows, columns
+        monkeypatch.setattr(debug_tui.curses, "resizeterm", resize)
+        def read():
+            assert resized == [(18, 60)]
+            assert debug_tui.HEADER_ROWS == debug_tui.FOOTER_ROWS == 1
+            return debug_tui.curses.KEY_F8
+        screen.get_wch = read
+        assert view.run() == DebugAction.STEP
+
+    def test_unchanged_terminal_does_not_repaint_on_timeout(self, monkeypatch):
+        view, _, _ = make_view()
+        monkeypatch.setattr(debug_tui.os, "get_terminal_size",
+                            lambda fd: (_ for _ in ()).throw(OSError()))
+        view.render()
+        view._apply_terminal_resize()
+        assert not view.redraw
+
+    def test_footer_click_steps_and_tab_buttons_have_their_own_direction(self, monkeypatch):
+        view, _, session = make_view(screen=FakeScreen(columns=240))
+        session.focus = "disassembly"
+        session.disassembly_tabs.extend([DisassemblyTab(target=10), DisassemblyTab(target=20)])
+        for key, expected in [("d", 1), ("a", 0)]:
+            view.render()
+            hit = next(rect for rect, action in view.action_hits if action == key)
+            mouse(view, monkeypatch, hit.y, hit.x)
+            assert session.selected_disassembly_tab() is session.disassembly_tabs[expected]
+        view.render()
+        hit = next(rect for rect, action in view.action_hits if action == debug_tui.curses.KEY_F8)
+        assert mouse(view, monkeypatch, hit.y, hit.x) == DebugAction.STEP
+
+    def test_help_scrolls_and_closes_without_clicking_background(self, monkeypatch):
+        view, _, session = make_view(screen=FakeScreen(rows=18, columns=60))
+        view.handle_key("?")
+        view.render()
+        old_focus = session.focus
+        mouse(view, monkeypatch, 1, 2)
+        assert session.focus == old_focus and view.help_visible
+        mouse(view, monkeypatch, 8, 10, debug_tui.curses.BUTTON5_PRESSED)
+        assert view.help_scroll == debug_tui.MOUSE_WHEEL_LINES
+        view.render()
+        hit, _ = view.overlay_hits[0]
+        mouse(view, monkeypatch, hit.y, hit.x)
+        assert not view.help_visible
+        assert all(len(line) <= 40 for line, _ in view._help_lines(40))
+
+    @pytest.mark.parametrize("apply", [False, True])
+    def test_editor_mouse_places_cursor_and_applies_or_cancels(self, monkeypatch, apply):
+        view, _, session = make_view(screen=FakeScreen(rows=18, columns=60))
+        session.focus = "disassembly"
+        view.handle_key(debug_tui.curses.KEY_F2)
+        view.command, view.cursor = "123", 3
+        view.render()
+        field, _ = view.editor_field
+        mouse(view, monkeypatch, field.y, field.x + 1)
+        assert view.cursor == 1
+        view.handle_key("0")
+        view.render()
+        hit = next(rect for rect, key in view.overlay_hits if key == ("\n" if apply else "\x1b"))
+        mouse(view, monkeypatch, hit.y, hit.x)
+        assert view.editor_mode is None
+        assert len(session.disassembly_tabs) == (2 if apply else 1)
+        if apply:
+            assert session.selected_disassembly_tab().target == 1023
+
+    def test_scrollbar_drag_reaches_end_and_releases(self, monkeypatch):
+        view, _, session = make_view()
+        view.render()
+        track = view.scrollbar_hits["disassembly"]
+        mouse(view, monkeypatch, track.y, track.x, debug_tui.curses.BUTTON1_PRESSED)
+        assert view.scroll_drag == "disassembly"
+        mouse(view, monkeypatch, track.y + track.height - 1, track.x, 0)
+        assert session.selected_disassembly_tab().cursor_offset == debug_tui.INST_MEM_SIZE - 1
+        mouse(view, monkeypatch, track.y + track.height - 1, track.x,
+              debug_tui.curses.BUTTON1_RELEASED)
+        assert view.scroll_drag is None
+
+    def test_wheel_over_tabs_selects_tabs_and_shift_wheel_moves_columns(self, monkeypatch):
+        view, _, session = make_view(screen=FakeScreen(columns=140))
+        session.register_tabs.append(RegisterTab(group="lr"))
+        view.render()
+        rect = view.registers_rect
+        mouse(view, monkeypatch, rect.y + 1, rect.x + 4, debug_tui.curses.BUTTON5_PRESSED)
+        assert session.selected_register_tab() is session.register_tabs[1]
+        view.render()
+        before = session.selected_register_tab().cursor
+        rect = view.registers_rect
+        mouse(view, monkeypatch, rect.y + 4, rect.x + 4,
+              debug_tui.curses.BUTTON5_PRESSED | debug_tui.curses.BUTTON_SHIFT)
+        assert session.selected_register_tab().cursor > before
+
+    def test_code_gutter_toggles_breakpoint_but_instruction_click_does_not(self, monkeypatch):
+        view, _, _ = make_view()
+        view.render()
+        rect, pc = view.value_hits["disassembly"][0]
+        mouse(view, monkeypatch, rect.y, rect.x)
+        assert pc in view.control.breakpoints
+        mouse(view, monkeypatch, rect.y, rect.x + 5)
+        assert pc in view.control.breakpoints
+        mouse(view, monkeypatch, rect.y, rect.x)
+        assert pc not in view.control.breakpoints
+
+
+class TestMouseUsability:
+    def test_f11_removed_and_footer_help_clickable(self, monkeypatch):
+        view, screen, session = make_view(screen=FakeScreen(columns=140))
+        view.handle_key(debug_tui.curses.KEY_F11)
+        view.render()
+        assert not session.maximized
+        assert "F11" not in screen.text()
+        assert all(key != debug_tui.curses.KEY_F11 for _, key in view.action_hits)
+        hit = next(rect for rect, key in view.action_hits if key == "?")
+        mouse(view, monkeypatch, hit.y, hit.x)
+        assert view.help_visible
+
+    def test_long_tab_fits_smallest_pane_and_can_be_closed(self, monkeypatch):
+        view, _, session = make_view()
+        session.register_pane_columns = 20
+        session.register_tabs[0].fmt = "int32"
+        original_tab = session.register_tabs[0]
+        view.render()
+        assert view.registers_rect.width == 20
+        assert len(view.tab_hits["registers"]) == 1
+        close, _ = view.tab_close_hits["registers"][0]
+        assert close.x < view.registers_rect.x + view.registers_rect.width - 1
+        mouse(view, monkeypatch, close.y, close.x)
+        assert all(tab is not original_tab for tab in session.register_tabs)
+        assert session.register_tabs[0].fmt == "hex"
+
+    @pytest.mark.parametrize("pane", ["pipeline", "xmem", "disassembly"])
+    def test_grabbing_thumb_does_not_move_selection(self, monkeypatch, pane):
+        view, _, session = make_view(screen=FakeScreen(rows=40, columns=140))
+        session.tabs[0] = XmemTab(XmemRequest("byte", "0", "0", 512, "hex"))
+        session.focus = pane
+        view.render()
+        view.handle_key(debug_tui.curses.KEY_DOWN)
+        view.render()
+        if pane == "pipeline":
+            session.pipeline_tabs[0].fmt = "bits"
+            view.render()
+        before = cursor_payload(view, session, pane)
+        thumb = view.scroll_thumb_hits[pane]
+        y = thumb.y + thumb.height - 1
+        mouse(view, monkeypatch, y, thumb.x, debug_tui.curses.BUTTON1_PRESSED)
+        assert cursor_payload(view, session, pane) == before
+        mouse(view, monkeypatch, y, thumb.x, debug_tui.curses.BUTTON1_RELEASED)
+        assert cursor_payload(view, session, pane) == before
+        assert view.scroll_drag is None
+
+    def test_scroll_drag_can_return_to_its_origin(self, monkeypatch):
+        view, _, session = make_view()
+        session.focus = "disassembly"
+        view.render()
+        thumb = view.scroll_thumb_hits["disassembly"]
+        mouse(view, monkeypatch, thumb.y, thumb.x, debug_tui.curses.BUTTON1_PRESSED)
+        mouse(view, monkeypatch, thumb.y + 2, thumb.x, 0)
+        assert session.selected_disassembly_tab().cursor_offset > 0
+        mouse(view, monkeypatch, thumb.y, thumb.x, debug_tui.curses.BUTTON1_RELEASED)
+        assert session.selected_disassembly_tab().cursor_offset == 0
+
+    @pytest.mark.parametrize("interval,opens", [(0.15, True), (0.7, False)])
+    def test_double_click_register_opens_editor_but_slow_clicks_select(self, monkeypatch, interval, opens):
+        view, _, _ = make_view()
+        view.render()
+        value, _ = view.value_hits["registers"][0]
+        times = iter([100.0, 100.0 + interval])
+        monkeypatch.setattr(debug_tui.time, "monotonic", lambda: next(times))
+        mouse(view, monkeypatch, value.y, value.x)
+        assert view.editor_mode is None
+        mouse(view, monkeypatch, value.y, value.x, debug_tui.curses.BUTTON1_RELEASED)
+        mouse(view, monkeypatch, value.y, value.x)
+        assert (view.editor_mode == "scalar") is opens
+
+    def test_terminal_reported_double_click_edits_selected_register(self, monkeypatch):
+        view, _, _ = make_view()
+        view.render()
+        value, _ = view.value_hits["registers"][0]
+        mouse(view, monkeypatch, value.y, value.x, debug_tui.curses.BUTTON1_DOUBLE_CLICKED)
+        assert view.editor_mode == "scalar"
+
+    def test_compact_help_keeps_scroll_range_visible(self):
+        view, screen, _ = make_view(screen=FakeScreen(rows=18, columns=48))
+        view.handle_key("?")
+        view.render()
+        assert "Wheel Scroll" in screen.text()
+        assert any("/" in row_text(screen, y) and "Esc Close" in row_text(screen, y)
+                   for y in range(screen.rows))
+
+    def test_click_only_terminal_preserves_selection_on_thumb(self, monkeypatch):
+        view, _, session = make_view(screen=FakeScreen(rows=40, columns=140))
+        session.tabs[0] = XmemTab(XmemRequest("byte", "0", "0", 512, "hex"))
+        session.focus = "xmem"
+        view.render()
+        before = cursor_payload(view, session, "xmem")
+        thumb = view.scroll_thumb_hits["xmem"]
+        mouse(view, monkeypatch, thumb.y + thumb.height - 1, thumb.x)
+        assert cursor_payload(view, session, "xmem") == before
+
+    def test_compact_help_does_not_waste_space_on_column_padding(self):
+        lines = [text for text, _ in CursesDebugView._help_lines(40)]
+        assert "F8  Execute one instruction" in lines
+
+
+class TestPipelineStageView:
+    @staticmethod
+    def program(source):
+        from ipu_as.lark_tree import assemble
+        from ipu_emu.execute import decode_instruction_word
+        from ipu_emu.emulator import load_program
+        state = IpuState()
+        load_program(state, [decode_instruction_word(word) for word in assemble(source)])
+        return state
+
+    def test_stage_decoding_includes_each_metadata_slot(self):
+        from ipu_emu.debug_pipeline import stage_operations, SLOT_LABELS
+        state = self.program("SET lr2 cr1;;")
+        slots = dict(stage_operations(state.inst_mem[0]))
+        assert tuple(slots) == SLOT_LABELS
+        assert slots["LR0"].startswith("SET ")
+        assert slots["MULT"].startswith("NOP")
+        assert any(label.endswith("*") for label in slots)
+        assert all(op == "NOP" for _, op in stage_operations(None))
+
+    def test_trace_tracks_actual_branch_pc_and_does_not_record_stops(self):
+        from ipu_emu.emulator import run_with_debug
+        state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        control = debug_tui.get_debug_control(state)
+        stops = []
+        def paused(state, cycle):
+            stops.append((state.program_counter, cycle, control.last_completed_pc))
+            return DebugAction.STEP if len(stops) < 3 else DebugAction.QUIT
+        assert run_with_debug(state, paused, break_on_entry=True) == 2
+        assert stops == [(0, 0, None), (3, 1, 0), (4, 2, 3)]
+        assert control.last_completed_instruction == state.inst_mem[3]
+        assert control.last_completed_instruction is not state.inst_mem[3]
+
+    def test_trace_follows_pc_edits_and_resets_for_a_new_run(self):
+        from ipu_emu.emulator import run_with_debug
+        state = self.program("NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        control = debug_tui.get_debug_control(state)
+        def paused(state, cycle):
+            if cycle == 0:
+                state.program_counter = 2
+                return DebugAction.STEP
+            assert control.last_completed_pc == 2
+            return DebugAction.QUIT
+        run_with_debug(state, paused, break_on_entry=True)
+        run_with_debug(state, lambda state, cycle: DebugAction.QUIT, break_on_entry=True)
+        assert control.last_completed_pc is None
+
+    @pytest.mark.parametrize("rows,columns", [(12, 48), (24, 80), (42, 140)])
+    def test_stages_is_disassembly_format_and_other_panes_remain_usable(self, rows, columns):
+        view, screen, session = make_view(self.program("SET lr2 cr1;;"),
+                                         screen=FakeScreen(rows=rows, columns=columns))
+        view.handle_key("2")
+        view.handle_key("f")
+        view.handle_key("f")
+        assert session.selected_disassembly_tab().fmt == "stages"
+        view.render()
+        assert "Pipeline stages" in screen.text()
+        view.handle_key("4")
+        view.handle_key("e")
+        assert view.editor_mode is not None
+        assert session.selected_disassembly_tab().fmt == "stages"
+        view.handle_key("\x1b")
+        view.render()
+        assert all(0 <= y < rows and 0 <= x < columns and x + len(text) <= columns
+                   for y, x, text, _ in screen.writes)
+
+    def test_stage_view_mouse_scroll_and_execution(self, monkeypatch):
+        view, screen, session = make_view(screen=FakeScreen(rows=24, columns=120))
+        view.handle_key("2")
+        view.handle_key("f")
+        view.handle_key("f")
+        view.render()
+        rect = view.disassembly_rect
+        mouse(view, monkeypatch, rect.y + 4, rect.x + 2, debug_tui.curses.BUTTON5_PRESSED)
+        assert session.stages_scroll > 0
+        assert view.handle_key(debug_tui.curses.KEY_F8) == DebugAction.STEP
+        assert session.stages_visible
+        view.render()
+        assert "CR / LR" in screen.text() and "XMEM" in screen.text()
+        mouse(view, monkeypatch, view.registers_rect.y + 3, view.registers_rect.x + 2)
+        assert session.focus == "registers"
+        assert session.stages_visible
+
+    def test_stage_view_shows_current_commands_grouped_by_physical_stage(self):
+        state = self.program("SET lr2 cr1;; ADD lr3 lr2 cr1;;")
+        view, screen, session = make_view(state, screen=FakeScreen(rows=42, columns=140))
+        state.program_counter = 1
+        view.handle_key("2")
+        view.handle_key("f")
+        view.handle_key("f")
+        view.render()
+        assert "PC 0001 / cycle" in screen.text()
+        assert "ADD LR3, LR2, CR1" in screen.text()
+        assert "MULT       IDLE" in screen.text()
+        assert "NEXT ISSUE" not in screen.text()
+        # A new tab retains its own format, instead of toggling a global overlay.
+        session.disassembly_tabs.append(DisassemblyTab(fmt="full"))
+        session.active_disassembly_tab = 1
+        assert not session.stages_visible
+
+    def test_disassembly_shows_slot_names_and_explicit_truncation(self):
+        state = self.program("SET lr2 cr1;;")
+        view, screen, session = make_view(state, screen=FakeScreen(columns=160))
+        view.render()
+        assert "LR0" in screen.text()
+        assert "SLOT" in screen.text()
+        session.pipeline_pane_columns = 130
+        view.render()
+        assert view.disassembly_rect.width == 31
+
+    def test_display_uses_semantic_operand_order_and_omits_unused_fields(self):
+        from ipu_emu.debug_pipeline import stage_operations
+        state = self.program("SET lr2 cr1; ADD lr3 lr2 cr1;;")
+        slots = dict(stage_operations(state.inst_mem[0]))
+        assert slots["LR0"] == "SET lr2 cr1"
+        assert slots["LR1"] == "ADD lr3 lr2 cr1"
+        assert slots["MULT"] == "NOP"
+        view, _, _ = make_view(state)
+        assert view._active_operations(view._disassembly(0)) == ["SET lr2 cr1", "ADD lr3 lr2 cr1"]
+
+    def test_concurrent_commands_occupy_separate_stages_and_nops_clear_them(self):
+        from ipu_emu.debug_pipeline import pipeline_occupancy
+        state = self.program(
+            "SET lr2 cr1; ADD lr3 lr2 cr1; "
+            "MULT.RC.VV lr0 r1 0 lr0 cr15; AGG.MAX.FIRST lr0 cr15;; NOP;;"
+        )
+        occupied = dict(pipeline_occupancy(state.inst_mem[0]))
+        assert [slot for slot, _ in occupied["CTRL"]] == ["LR0", "LR1"]
+        assert occupied["MULT"][0][1].startswith("MULT.RC.VV ")
+        assert occupied["ACC"][0][1].startswith("AGG.MAX.FIRST ")
+        assert occupied["AAQ"] == []
+        assert occupied["STORE"] == []
+        assert all(not commands for _, commands in pipeline_occupancy(state.inst_mem[1]))
+
+    def test_stage_occupancy_follows_branch_destination(self):
+        from ipu_emu.debug_pipeline import pipeline_occupancy
+        from ipu_emu.emulator import run_with_debug
+        state = self.program("B +2;; SET lr2 cr1;; ADD lr3 lr2 cr1;;")
+        observed = []
+        def paused(state, cycle):
+            observed.append(dict(pipeline_occupancy(state.inst_mem[state.program_counter]))["CTRL"])
+            return DebugAction.STEP if cycle == 0 else DebugAction.QUIT
+        run_with_debug(state, paused, break_on_entry=True)
+        assert observed[0] == [("COND", "BEQ cr0 cr0 2")]
+        assert observed[1] == [("LR0", "ADD lr3 lr2 cr1")]
+
+class TestConsoleBars:
+    def test_removed_hints_help_button_and_group_order(self, monkeypatch):
+        view, screen, session = make_view(screen=FakeScreen(columns=200))
+        session.focus = "disassembly"
+        view.control.kernel_name = "softmax_rows_partial"
+        view.handle_key("p")
+        assert session.selected_disassembly_tab().fmt == "compact"
+        view.render()
+        assert "softmax_rows_partial" in row_text(screen, 0)
+        assert not any(key in ("1", "2", "3", "4", "p") for _, key in view.action_hits)
+        hit = next(rect for rect, key in view.action_hits if key == "?")
+        assert hit.y == 0 and hit.x + hit.width == 199
+        footer = view._footer_text(200)
+        assert "1-4" not in footer and "Help" not in footer and "p:Stages" not in footer
+        assert footer.index("F5:Run") < footer.index("Arrows:Move") < footer.index("f:Format") < footer.index("q Quit")
+        assert " | " in footer
+        mouse(view, monkeypatch, hit.y, hit.x)
+        assert view.help_visible
+
+
+class TestPaneOrder:
+    def test_positions_shortcuts_and_footer_have_no_focus_label(self):
+        view, screen, session = make_view(screen=FakeScreen(columns=140))
+        layout = view.layout()
+        assert layout["pipeline"].x == 0
+        assert layout["pipeline"].y == layout["disassembly"].y
+        assert layout["disassembly"].x > 0
+        assert layout["xmem"].x == 0
+        assert layout["xmem"].y == layout["registers"].y > layout["pipeline"].y
+        for key, pane in zip("1234", ("pipeline", "disassembly", "xmem", "registers")):
+            view.handle_key(key)
+            view.render()
+            assert session.focus == pane
+            footer = footer_row(screen)
+            assert "focused" not in footer
+            assert footer.lstrip().startswith("F5:Run")
+
+class TestMemoryValueEditing:
+    @pytest.mark.parametrize("wide", [False, True])
+    def test_pipeline_edit_uses_correct_register_backing_and_preserves_neighbors(self, wide):
+        state = IpuState(wide_vector_debug=wide)
+        view, _, session = make_view(state)
+        session.focus = "pipeline"
+        tab = session.selected_pipeline_tab()
+        tab.register_key, tab.fmt, tab.cursor = "r1", "int32", 1
+        backing = "r_wide_debug" if wide else "r"
+        buf = state.regfile.raw(backing)
+        buf[:] = b"\x55" * len(buf)
+        before = bytes(buf)
+        offset = state.regfile._desc(backing).size_bytes + 4
+        view.handle_key("e")
+        view.command = "-123"
+        view.handle_key("\n")
+        assert view.editor_mode is None
+        assert bytes(buf) == before[:offset] + struct.pack("<i", -123) + before[offset + 4:]
+
+    def test_xmem_edit_resolves_symbolic_address_and_invalidates_cached_views(self):
+        state = IpuState()
+        state.regfile.set_lr(2, 16)
+        state.xmem.write_address(16, b"\x55" * 16)
+        view, _, session = make_view(state)
+        session.focus = "xmem"
+        session.tabs[0] = XmemTab(XmemRequest("byte", "lr2", "0", 16, "f32"))
+        view.render()
+        tab = session.selected_tab()
+        tab.cursor_column = 1
+        view.handle_key("e")
+        assert view.editor_mode == "value"
+        view.command = "1.25"
+        view.handle_key("\n")
+        assert state.xmem.read_address(16, 16) == b"\x55" * 4 + struct.pack("<f", 1.25) + b"\x55" * 8
+        assert not view._xmem_cache and not view._xmem_requests
+
+    @pytest.mark.parametrize("pane", ["pipeline", "xmem"])
+    def test_double_click_invalid_input_and_cancel_leave_bytes_unchanged(self, monkeypatch, pane):
+        state = IpuState()
+        view, _, session = make_view(state)
+        session.focus = pane
+        view.render()
+        rect, _ = view.value_hits[pane][0]
+        mouse(view, monkeypatch, rect.y, rect.x, debug_tui.curses.BUTTON1_DOUBLE_CLICKED)
+        assert view.editor_mode == "value"
+        view.render()
+        view.command = "256"
+        view.handle_key("\n")
+        assert view.editor_mode == "value" and session.message_is_error
+        view.handle_key("\x1b")
+        assert view.editor_mode is None
+        assert state.regfile.raw("r") == bytearray(256)
+        assert state.xmem.read_address(0, 16) == bytes(16)
+
+class TestPopupEscape:
+    def test_terminal_sets_short_escape_sequence_timeout(self, monkeypatch):
+        delays = []
+        monkeypatch.setattr(debug_tui.curses, "set_escdelay", delays.append)
+        view, _, _ = make_view()
+        view._configure_terminal()
+        assert delays == [25]
+
+    @pytest.mark.parametrize("key", ["q", "Q"])
+    def test_q_does_not_close_help_or_quit(self, key):
+        view, _, _ = make_view()
+        view.handle_key("?")
+        assert view.handle_key(key) is debug_tui._NO_OUTCOME
+        assert view.help_visible
+        bindings = [binding for binding in debug_tui.KEY_BINDINGS if binding.scope == "help"]
+        assert all("q" not in binding.keys for binding in bindings)
+        view.handle_key("\x1b")
+        assert not view.help_visible
+
+    @pytest.mark.parametrize("pane", ["pipeline", "registers", "xmem"])
+    def test_escape_cancels_each_value_popup(self, pane):
+        view, _, session = make_view()
+        session.focus = pane
+        view.render()
+        view.handle_key("e")
+        assert view.editor_mode is not None
+        view.command = "123"
+        view.handle_key("\x1b")
+        assert view.editor_mode is None
+
+
+class TestStatusAndDividerDirection:
+    @pytest.mark.parametrize("pane", debug_tui.PANE_FOCUS_ORDER)
+    @pytest.mark.parametrize("key,delta", [(debug_tui.curses.KEY_SLEFT, -2), (debug_tui.curses.KEY_SRIGHT, 2)])
+    def test_arrow_moves_divider_in_screen_direction(self, pane, key, delta):
+        view, _, session = make_view(screen=FakeScreen(columns=140))
+        session.focus = pane
+        divider = "disassembly" if pane in ("pipeline", "disassembly") else "registers"
+        before = view.layout()[divider].x
+        view.handle_key(key)
+        assert view.layout()[divider].x == before + delta
+
+    @pytest.mark.parametrize("error", [False, True])
+    @pytest.mark.parametrize("columns", [48, 80, 140])
+    def test_status_is_left_of_help_and_footer_stays_shortcuts(self, error, columns):
+        view, screen, session = make_view(screen=FakeScreen(columns=columns))
+        message = "Selected all hex"
+        session.set_message(message, error=error)
+        view.render()
+        header = row_text(screen, 0)
+        assert message in header
+        assert header.index(message) < header.index("[? Help]")
+        footer = footer_row(screen)
+        assert message not in footer and "F5:Run" in footer
+        help_hit = next(rect for rect, key in view.action_hits if key == "?")
+        assert help_hit.y == 0
+
+class TestHelpScrollbar:
+    @pytest.mark.parametrize("event", [debug_tui.curses.BUTTON1_PRESSED,
+                                        debug_tui.curses.BUTTON1_CLICKED,
+                                        debug_tui.curses.BUTTON1_RELEASED])
+    def test_close_button_accepts_terminal_mouse_events(self, monkeypatch, event):
+        view, _, session = make_view()
+        view.handle_key("?")
+        view.render()
+        hit, _ = view.overlay_hits[0]
+        focus = session.focus
+        mouse(view, monkeypatch, hit.y, hit.x + 2, event)
+        assert not view.help_visible
+        mouse(view, monkeypatch, hit.y, hit.x + 2, debug_tui.curses.BUTTON1_RELEASED)
+        assert session.focus == focus and view.editor_mode is None
+
+    def test_help_scrollbar_pages_drags_and_releases_without_touching_panes(self, monkeypatch):
+        view, _, session = make_view(screen=FakeScreen(rows=24, columns=100))
+        view.handle_key("?")
+        view.render()
+        track, thumb = view.help_track, view.help_thumb
+        assert track and thumb and view.help_max_scroll > 0
+        focus = session.focus
+        mouse(view, monkeypatch, thumb.y, thumb.x, debug_tui.curses.BUTTON1_PRESSED)
+        assert view.help_scroll == 0 and view.help_drag is not None
+        mouse(view, monkeypatch, track.y + track.height - 1, track.x, 0)
+        assert view.help_scroll == view.help_max_scroll
+        mouse(view, monkeypatch, track.y + track.height - 1, track.x, debug_tui.curses.BUTTON1_RELEASED)
+        assert view.help_drag is None
+        view.render()
+        mouse(view, monkeypatch, track.y, track.x, debug_tui.curses.BUTTON1_CLICKED)
+        assert view.help_scroll < view.help_max_scroll
+        assert session.focus == focus and view.scroll_drag is None
+
+
+class TestDefaultWorkspace:
+    @pytest.mark.parametrize("wide,arithmetic,quantize", [(False, "fp32", False), (True, "fp32", False), (True, "int32", False), (True, "fp32", True)])
+    def test_fresh_tabs_cover_all_registers_and_use_storage_formats(self, wide, arithmetic, quantize):
+        from ipu_emu.ipu_state import WideVectorArithmetic
+        state = IpuState(wide_vector_debug=wide, wide_vector_arithmetic=WideVectorArithmetic(arithmetic),
+                         wide_vector_quantize_output=quantize)
+        session = DebugViewSession()
+        view, _, _ = make_view(state, session=session)
+        assert [tab.register_key for tab in session.pipeline_tabs] == [spec.key for spec in PIPELINE_REGISTERS]
+        formats = {tab.register_key: tab.fmt for tab in session.pipeline_tabs}
+        assert formats["r_mask"] == "bits"
+        assert formats["r0"] == ("f32" if arithmetic == "fp32" else "int32") if wide else formats["r0"] == "int8"
+        assert formats["post_aaq_reg"] == (("f32" if arithmetic == "fp32" else "int32") if wide and not quantize else "int8")
+        assert formats["mem_bypass"] == "hex"
+        assert [tab.fmt for tab in session.disassembly_tabs] == ["compact", "full", "stages"]
+        assert [tab.group for tab in session.register_tabs] == ["all", "lr", "cr"]
+        assert len(session.tabs) == 2 and session.tabs[0].request.fmt == "hex"
+        session.pipeline_tabs.pop()
+        session.pipeline_tabs[0].fmt = "u32"
+        session.ensure_default_tab(state)
+        assert len(session.pipeline_tabs) == len(PIPELINE_REGISTERS) - 1
+        assert session.pipeline_tabs[0].fmt == "u32"
+
+    @pytest.mark.parametrize("rows,columns", [(24, 80), (42, 140), (60, 200)])
+    def test_default_sizes_balance_rows_and_manual_sizes_survive_resize(self, rows, columns):
+        view, screen, session = make_view(screen=FakeScreen(rows=rows, columns=columns), session=DebugViewSession())
+        layout = view.layout()
+        assert abs(layout["pipeline"].height - layout["xmem"].height) <= 1
+        assert abs(layout["pipeline"].width - columns // 2) <= 2
+        view.render()
+        assert all(0 <= y < rows and 0 <= x < columns and x + len(text) <= columns
+                   for y, x, text, _ in screen.writes)
+        session.pipeline_pane_columns = columns // 2 + 3
+        expected = view.layout()
+        screen.rows, screen.columns = 12, 48
+        view.render()
+        screen.rows, screen.columns = rows, columns
+        assert view.layout() == expected
+
+class TestMaskSlotSeparators:
+    @pytest.mark.parametrize("fmt", ["bits", "hex", "u32", "cell16"])
+    @pytest.mark.parametrize("columns", [80, 140])
+    def test_slots_have_separators_and_preserve_cursor_byte_mapping(self, fmt, columns):
+        view, screen, session = make_view(screen=FakeScreen(rows=100, columns=columns))
+        session.focus = "pipeline"
+        tab = session.selected_pipeline_tab()
+        tab.register_key, tab.fmt = "r_mask", fmt
+        view.render()
+        size, _ = view._pipeline_value_geometry(fmt)
+        per_line = view._pipeline_items_per_line(fmt, view.pipeline_rect)
+        rows = view._pipeline_display_rows(fmt, view.pipeline_rect, 128 // size)
+        assert rows.count(None) == 7
+        for index, first in enumerate(rows):
+            if first is None:
+                assert rows[index + 1] * size % 16 == 0
+            else:
+                assert first * size // 16 == ((first + per_line) * size - 1) // 16
+        assert "------------" in screen.text()
+        separators = {y for y, _, text, _ in screen.writes if text == "------------"}
+        assert all(hit.y not in separators for hit, _ in view.value_hits["pipeline"])
+        view._scroll_to_fraction("pipeline", 1.0)
+        view.render()
+        assert tab.cursor >= (7 * 16) // size
+        assert any(payload == tab.cursor for _, payload in view.value_hits["pipeline"])

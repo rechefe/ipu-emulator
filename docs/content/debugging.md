@@ -22,7 +22,8 @@ code, or debugger import is required. Case selection and arguments are the
 same as an ordinary run.
 
 Press `F8` to step, `F5` to continue, or `F9` in disassembly to toggle a
-breakpoint. `F10` runs to the selected instruction and `F11` maximizes a pane.
+breakpoint. `F10` runs to the selected instruction.
+In Disassembly, press `f` to cycle compact, full, and stages views.
 Debug sessions stay in the TUI. `q` or `Ctrl-C` cancels the application,
 restores the terminal, cleans temporary files, and exits successfully without
 writing or checking incomplete output. Completion runs the normal teardown
@@ -125,10 +126,25 @@ XMEM, and pipeline registers visible together without embedding the normal
 debugger command line. Each pane has its own tabs, cursor, scroll position, and
 display format. Duplicate tabs are allowed.
 
-The initial tabs are current-PC compact disassembly, all LR/CR registers in
-`hex`, one `hex` view of the complete XMEM row 0, and `R0` using its automatic
-format. Closing the final disassembly, LR/CR, or pipeline tab restores that
-default. XMEM is the only pane that may have no tabs.
+Fresh sessions start with these tabs:
+
+- Instructions: current-PC compact, full, and stages views.
+- CR/LR: all, LR, and CR, each in hex.
+- XMEM: row 0 in hex and a numeric view (f32 for wide floating-point, u32 for
+  wide integer mode, int8 otherwise).
+- Pipeline Registers: R0, R1, R_C, R_MASK, R_ACC, POST_AAQ, MULT_RES, and MEM_BYPASS.
+
+Pipeline defaults match storage: mask bits; signed bytes for native INT8 data;
+f32/int32 for wide arithmetic; int32 for native accumulator/multiplier results;
+hex for bypass and FP8 raw bytes. POST_AAQ uses bytes when quantized and f32/int32
+when wide output is unquantized. Tabs have explicit formats that remain editable.
+Closing or changing tabs is preserved across steps; defaults are not re-added.
+Closing the final Instructions, CR/LR, or Pipeline tab creates one fallback tab.
+XMEM may have no tabs.
+
+Default rows split usable terminal height evenly. Pipeline Registers takes
+roughly half the width; CR/LR starts at 40–50% depending on its grid. Minimum
+sizes still apply, and manual split sizes survive terminal resizing.
 
 Disassembly tabs follow either the executing PC or a fixed numeric PC. Their
 formats are `compact`, which removes unused NOP operations, and `full`, which
@@ -179,7 +195,7 @@ format and size. It does not repeat the active tab's label.
 The header highlights `PAUSED` and shows the PC, completed cycle count, and stop
 reason. A green arrow marks the current PC, a red `B` marks a runtime breakpoint,
 and the selection has its own background. The symbols remain distinct in
-monochrome terminals. The footer keeps Run, Step, Help, and Quit visible
+monochrome terminals. The footer keeps Run, Step, and Quit visible
 at 80 columns, with additional controls appearing as space allows.
 
 The view remains active after stepping and at later breakpoints. `q` quits
@@ -192,9 +208,8 @@ Outside an editor and the help overlay, `Esc` does nothing.
 | `F8` | Execute one instruction and refresh |
 | `F9` | Toggle a runtime breakpoint at the disassembly cursor |
 | `F10` | Run to the disassembly cursor or the next stop |
-| `F11` | Maximize or restore the focused pane |
-| `e` | Edit the selected LR/CR scalar value |
-| `q` | Halt execution and exit the debugger, or close the help overlay |
+| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value |
+| `q` | Halt execution and exit the debugger (ignored while Help is open) |
 | `Esc` | Close the help overlay or cancel an open editor; otherwise do nothing |
 | `F2` | Add a tab to the focused pane |
 | `F3` | Edit the active tab |
@@ -203,7 +218,7 @@ Outside an editor and the help overlay, `Esc` does nothing.
 | `f` | Cycle the active tab's display format |
 | `Tab` | Select the next tab in the focused pane |
 | `Shift-Tab` | Focus the next pane |
-| `1` - `4` | Focus the disassembly, LR/CR, XMEM, or pipeline pane directly |
+| `1` - `4` | Focus Pipeline Registers, Instructions, XMEM, or CR/LR respectively |
 | Arrow keys | Move the cursor inside the focused pane |
 | `Page Up` / `Page Down` | Move the focused pane's cursor by one page |
 | `Home` / `End` | Jump to the first/last value in the focused pane |
@@ -221,11 +236,11 @@ Disassembly marks runtime breakpoints with `B` beside the current-PC arrow;
 cursor highlighting remains independent of both markers. `F9` and `F10` apply
 only when disassembly has focus.
 
-`F11` expands the focused pane while retaining its tabs and the saved split
-sizes. Pane-selection keys switch which pane is maximized. Press `F11` again
-to restore all four panes. Narrow pipeline values show a truncation marker;
-maximize the pane to read the full value. Split resizing is inactive while
-a pane is maximized.
+The console uses one header row and one footer row. The header shows the kernel name
+and a clickable **[? Help]** button at the top right. Status and error messages appear immediately left of Help in the header.
+The footer contains shortcuts only, grouped with `|` separators: execution, navigation, view/edit,
+layout, and exit. Keys 1–4 still switch panes but have no bar hints. Resize pane
+dividers to reveal more of truncated values.
 
 In the LR/CR pane, `e` opens a scalar-value editor. Enter a decimal or prefixed
 integer (for example, `42`, `0x2a`, or `0b101010`); the emulator's normal register
@@ -239,14 +254,14 @@ and pane sizes are retained in memory for the current IPU state.
 
 `?` opens a scrollable overlay listing every control, grouped by scope. While it
 is open it consumes all input, so `F5` and `F8` cannot start execution by
-accident; `Esc`, `?`, `q`, or `Enter` closes it. The overlay and the shortcut
+accident; `Esc`, `?`, or `Enter` closes it. The overlay and the shortcut
 bar are generated from one table in `debug_tui.py`, so they cannot disagree.
 
 The bottom shortcut bar changes with the focused pane, so it only shows actions
 that apply to the current context. It drops the least important shortcuts on a
-narrow terminal rather than truncating a label, so `q Quit` and `?:Help` are
-always readable; `?` lists whatever the bar had to leave out. The header
-contains execution state only and does not duplicate the shortcut bar.
+narrow terminal rather than truncating a label, so `q Quit` remains
+readable; the top-right **[? Help]** button lists whatever the bar had to leave
+out. The header also identifies the kernel and execution state.
 
 `F2` and `F3` open the same bottom editor with syntax determined by the focused
 pane:
@@ -263,15 +278,25 @@ Errors remain visible without closing it. Apart from the documented single-key
 bindings `q`, `f`, `a`, `d`, `e`, `1`–`4`, `?`, and `=`, printable input outside an editor is
 ignored, so accidental typing cannot execute debugger commands.
 
-The mouse can focus panes, select and close tabs, and open each pane's add-tab
-editor. Clicking a value - an instruction, a register, an XMEM token, or a
-pipeline item - focuses its pane and moves the cursor onto it. Clicking a
-pane's scrollbar jumps through its contents, and the wheel scrolls the pane
-under the pointer three lines at a time. Dragging a border between two panes
-moves that split, so both splits can be sized without the keyboard; a press and
-release without motion stays an ordinary click. Keyboard controls remain
-available when the terminal does not report mouse events, and a keystroke
-abandons a drag whose release never arrived.
+The clickable pane selectors at the top stay visible in every layout.
+Zoom/Restore and Help buttons appear beside them when space permits. Footer
+shortcuts are clickable too, including Run, Step, Zoom, Help, and Quit. Clicking
+a value focuses its pane and places the cursor on it; clicking the first two
+columns of an instruction row toggles its breakpoint. Double-click an LR or CR
+value to open its editor; slow clicks only select it. Tab labels, close buttons,
+overflow arrows, and each pane's add-tab button also accept clicks. Long active
+tabs shorten to fit narrow panes, keeping their close button accessible.
+
+Drag a scrollbar or click its track to jump through the content. Grabbing the
+thumb preserves the selection until the pointer moves, including when releasing
+it without dragging. The wheel moves
+three lines within the pane under the pointer; Shift-wheel moves sideways.
+Scrolling over a tab bar selects the previous or next tab. Drag a shared pane
+border to resize it. A keystroke or terminal resize cancels an unfinished drag.
+Help accepts wheel scrolling and a click on its close button. In an editor,
+click within the input to position the cursor, or click Apply or Cancel.
+Overlays consume mouse events so controls behind them cannot be activated.
+Keyboard controls remain available when the terminal does not report mouse events.
 
 Pointer motion is reported for every cell the pointer crosses, which is far
 faster than a frame can be drawn, so the view keeps redrawing cheap. Instruction
@@ -283,14 +308,21 @@ redraw. Queued events are consumed individually, stopping as soon as execution
 resumes, so a
 burst of drag events costs one frame instead of one each.
 
-The TUI requires an interactive terminal of at least 80 columns by 24 rows. A
-smaller terminal displays a resize notice, and the view keeps running so that
-growing the terminal again restores it. Resizing interrupts the blocking read
-for the next key, which ncurses reports as an error rather than as a resize
-event; the view absorbs that, re-measures the terminal, and repaints from a
-cleared screen. If curses cannot initialize, the debugger restores the terminal
-and returns to the normal prompt instead of terminating execution. A persistent status bar reports actions and errors, and a
-footer always shows the main shortcuts.
+The TUI uses a four-pane layout at 80 columns by 24 rows and larger:
+1 Pipeline Registers at top left, 2 Instructions at top right, 3 XMEM at bottom
+left, and 4 CR/LR at bottom right. The footer shows shortcuts without a focused-pane label; action/error messages
+appear in the header. Below that,
+a compact layout shows the focused pane; use keys 1–4 to
+switch panes. The minimum usable size is 48 columns by 12 rows. Smaller windows
+show a resize notice, and growing the terminal restores the view. Saved split
+sizes survive temporary shrinking, including transitions through compact mode.
+
+The input loop checks the actual terminal dimensions every 100 ms as well as
+handling resize events, so resizing redraws immediately even when ncurses misses
+the notification. It clears the previous screen before repainting. If curses
+cannot initialize, the debug run is cancelled and the terminal is restored.
+The header reports actions and errors to the left of Help; the footer shows
+the main shortcuts that fit the available width.
 
 Every pane reports its visible range on a border: the XMEM and pipeline panes
 use their bottom border, and the disassembly and LR/CR panes use the right end
@@ -595,3 +627,54 @@ IPU execution finished after 12847 cycles
    ```
 
 5. **Remember**: Debug mode requires an interactive terminal. Run directly with `uv run` or `python`, not via `bazel test`.
+
+### Pipeline stage operations
+
+The Disassembly **stages** view type (`f` to cycle formats) shows individual operations ready in the current
+cycle, grouped as **CTRL → MULT → ACC → AAQ → STORE**. CTRL lists its active
+LR, branch, and break commands separately. The XMEM input sideband and
+simulation-only accumulator store have separate rows. Stages with no command
+show **IDLE**; completed commands are not shown as occupying a stage.
+
+The header identifies the cycle and PC. The debugger pauses before execution,
+so active commands are marked **READY**. The emulator completes all slots of
+one issue in one cycle, using each handler's snapshot/live operand semantics;
+it does not expose intermediate hardware stage occupancy or stalls.
+
+Step with `F8` while keeping this view open. Commands update from the actual
+paused PC, including after branches and debugger PC edits. Use the wheel,
+arrows, Page Up/Down, or Home/End to scroll. Commands wrap in narrow windows.
+Press Escape in Disassembly to return to compact view. Each disassembly
+tab retains its own view type. Other panes remain visible and interactive.
+Help and execution controls remain available.
+
+Disassembly and stage operations use semantic operand order from the
+instruction specification, omitting unused encoding fields.
+Disassembly highlights mnemonics and displays each operation's slot in a
+right-hand column when space permits. Narrow panes reserve that space for
+operands. Truncated operations end with an ellipsis; widen the pane to see more
+of the instruction. The PC, breakpoint gutter, and parallel
+operation grouping retain their keyboard and mouse behavior.
+
+### Editing pipeline and memory values
+
+Select a value in Pipeline Registers or XMEM and press `e`, click **e:Value**,
+or double-click the value. The editor uses the active tab format: floating-point
+for `f32`, signed integers for `int8`/`int32`, and unsigned integers for other
+formats. Integer input accepts decimal, `0x` hex, and `0b` binary. `cell16` edits
+the complete 16-bit cell. Enter applies; Escape cancels. Invalid or out-of-range
+input leaves the bytes unchanged and keeps the editor open.
+
+Edits affect only the selected value’s byte span. Pipeline edits use the displayed
+register’s native or wide backing; XMEM edits use the resolved selected address.
+Other memory tabs refresh immediately after applying an edit.
+
+Escape sequence decoding waits at most 25 ms, so a standalone Escape closes
+popups promptly while arrow/function-key sequences remain enabled.
+
+Shift-Left moves the focused row’s divider left; Shift-Right moves it right,
+regardless of which side of the divider has focus.
+
+Help has an inset scrollbar: drag its thumb, click the track to page, or use
+the mouse wheel. Its `[x]` button closes on mouse press or synthesized click;
+release-only terminal events are also accepted.
