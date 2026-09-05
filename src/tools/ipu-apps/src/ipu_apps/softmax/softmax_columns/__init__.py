@@ -53,11 +53,10 @@ import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 
 from ipu_apps.base import IpuApp
-from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec, no, yes
 from ipu_apps.softmax._spec_support import (
     WIDE_VECTOR_ONLY,
     positive_dims,
@@ -162,15 +161,6 @@ class SoftmaxColumnsApp(IpuApp):
 
     # -- wide-vector FP32 state ---------------------------------------------
 
-    @staticmethod
-    def make_state() -> IpuState:
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.FP32,
-            wide_vector_quantize_output=False,
-        )
-        state.dtype = DType.INT8  # mode byte; wide flag overrides element width
-        return state
 
     def setup(self, state: "IpuState") -> None:
         state.xmem.write_address(self.input_base, self._pack_input())
@@ -219,9 +209,6 @@ class SoftmaxColumnsApp(IpuApp):
                 out[dst:dst + (hi - lo) * 4] = raw[src:src + (hi - lo) * 4]
         Path(self.output_path).write_bytes(bytes(out))
 
-    def run(self, **kwargs):
-        kwargs.setdefault("state", self.make_state())
-        return super().run(**kwargs)
 
 
 # -- registry declaration ---------------------------------------------------
@@ -275,6 +262,7 @@ def _caveats(**params):
 
 
 SPEC = KernelSpec(
+    execution=ExecutionConfig(mode="fp32"),
     name="softmax_columns",
     op="softmax",
     variant="columns",

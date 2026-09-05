@@ -16,15 +16,39 @@ width >= 128" long after the real boundary had moved to 65.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
+
+from ipu_emu.ipu_math import DType
 
 from ipu_apps.kernel_registry.shapes import ShapeBundle
+
+if TYPE_CHECKING:
+    from ipu_apps.base import IpuApp
 
 # A query is an op name plus free-form parameters (config + shapes). Kernels
 # for different operations need genuinely different parameters -- softmax has
 # n/width, convolution has channels/stride -- so this is deliberately not a
 # fixed signature.
 Params = Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ExecutionConfig:
+    """Arithmetic and storage requirements, independent of the debugger UI.
+
+    Native mode uses encoded elements; fp32/int32 use four-byte vector
+    elements. Defaults match IpuState(), including unquantized wide output.
+    """
+
+    mode: Literal["native", "fp32", "int32"] = "native"
+    dtype: DType = DType.INT8
+    quantize_output: bool = False
+
+    def __post_init__(self):
+        if self.mode not in ("native", "fp32", "int32"):
+            raise ValueError(f"unknown execution mode {self.mode!r}")
+        if not isinstance(self.dtype, DType):
+            raise TypeError("execution dtype must be a DType")
 
 
 @dataclass(frozen=True)
@@ -86,6 +110,8 @@ class KernelSpec:
                     rather than silently routing something the caller did not
                     literally ask for.
         tags:       Free-form markers for reporting (e.g. ``"fp32-wide"``).
+        execution:  Fixed state configuration, or a selector receiving the
+                    constructed harness with its normalized parameters.
     """
 
     name: str
@@ -101,6 +127,9 @@ class KernelSpec:
     cost: Callable[..., float] = lambda **_: 0.0
     bundle: Callable[..., ShapeBundle] | None = None
     tags: tuple[str, ...] = ()
+    execution: ExecutionConfig | Callable[[IpuApp], ExecutionConfig] = field(
+        default_factory=ExecutionConfig
+    )
 
     def missing_params(self, params: Params) -> tuple[str, ...]:
         """Names from :attr:`requires` that ``params`` does not carry."""
