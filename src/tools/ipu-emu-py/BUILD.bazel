@@ -61,6 +61,16 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_debug_tui",
+    srcs = ["test/test_debug_tui.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_emulator_e2e",
     srcs = ["test/test_emulator_e2e.py"],
     imports = ["src"],
