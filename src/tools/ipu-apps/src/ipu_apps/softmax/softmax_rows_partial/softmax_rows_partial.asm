@@ -177,12 +177,12 @@ p3_row:
 {#- ===================================================================== -#}
 {%- macro p4_partition_block(p, is_last) %}
     {%- if p == 0 %}
-    MULT.RC.VE {{lr_cyc}} {{lr_row}} {{p}} {{lr_cyc}} cr15 ;        {#- rc_idx=0 directly; mask_offset={{p}} -#}
+    MULT.RC.VE {{lr_cyc}} {{lr_row}} {{p}} {{lr_cyc}} cr8 ;         {#- full destination span; R_MASK selects the partition -#}
     acc.add.first ;;
     {%- else %}
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
     SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                    {#- rslide = RING - {{p}}*ps -#}
-    MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} cr15 ;    {#- mask_offset={{p}} -#}
+    MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} cr8 ;     {#- full destination span; R_MASK selects the partition -#}
     acc.add ;;
     {%- endif %}
     ADD {{lr_num}} {{lr_num}} cr7 ;

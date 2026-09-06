@@ -153,7 +153,7 @@ class SoftmaxRowsLongApp(IpuApp):
         state.xmem.write_address(self.input_base, self._pack_input())
 
         cvec = struct.pack("<128f", *([LOG2E] * LANES))
-        state.xmem.write_address(self.cvec_addr, cvec)
+        state.xmem.write_profile_constant(self.cvec_addr, cvec)
 
         # CR0 == 0, CR1 == 1 are READ-ONLY. CR1 (=1.0) is the identity scalar
         # (Pass 3/4) and, with ACC.SUB, the Pass 2 subtract; CR1 also serves as

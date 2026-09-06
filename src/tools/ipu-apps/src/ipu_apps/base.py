@@ -72,6 +72,7 @@ class IpuApp:
         debug_callback: DebugCallback | None = None,
         state: "IpuState | None" = None,
         elu_alpha: float | None = None,
+        alias_profile=None,
     ) -> tuple["IpuState", int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
@@ -93,6 +94,10 @@ class IpuApp:
                 spec.name if spec is not None else type(self).__name__
             )
         try:
+            state = state if state is not None else self.make_state()
+            if alias_profile is not None:
+                state.alias_profile = alias_profile
+                state.stats.alias_profile = alias_profile
             return run_test(
                 inst_path=self.inst_path,
                 setup=self.setup,
@@ -100,7 +105,7 @@ class IpuApp:
                 max_cycles=max_cycles,
                 debug_callback=debug_callback,
                 break_on_entry=debug_launch,
-                state=state if state is not None else self.make_state(),
+                state=state,
                 elu_alpha=ea,
             )
         except KeyboardInterrupt:

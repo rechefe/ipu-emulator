@@ -32,7 +32,7 @@ class KernelCase:
     max_cycles: int = 1_000_000
 
     def __post_init__(self):
-        reserved = {"kernel", "case", "list_cases", "max_cycles", "output", "help"}
+        reserved = {"kernel", "case", "list_cases", "max_cycles", "output", "help", "profile_aliases", "alias_report"}
         for name, default in self.defaults.items():
             if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
                 raise ValueError(f"invalid case option name: {name!r}")
@@ -68,7 +68,7 @@ def check_output_bytes(actual_path, expected_path):
 
 
 def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=None,
-             output_path=None, workspace=None, inst_path=None):
+             output_path=None, workspace=None, inst_path=None, alias_profile=None):
     """Assemble, prepare, construct, execute, and check a case.
 
     An optional workspace/instruction binary lets tests reuse assembly and
@@ -88,7 +88,8 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
     if workspace is None:
         with TemporaryDirectory(prefix="ipu-case-") as tmp:
             return run_case(kernel_name, case, options=values, max_cycles=limit,
-                            output_path=output_path, workspace=Path(tmp), inst_path=inst_path)
+                            output_path=output_path, workspace=Path(tmp), inst_path=inst_path,
+                            alias_profile=alias_profile)
     workspace = Path(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
     prepared = case.prepare(workspace, **values)
@@ -106,7 +107,9 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
         raise ValueError("case bindings cannot replace the assembled instruction file")
     bindings["inst_path"] = inst_path
     app = create_harness(kernel_name, params=prepared.params, bindings=bindings)
-    state, cycles = app.run(max_cycles=limit)
+    if alias_profile is not None:
+        alias_profile.metadata.update(kernel=kernel_name, options=values)
+    state, cycles = app.run(max_cycles=limit, **({"alias_profile": alias_profile} if alias_profile is not None else {}))
     if not state.is_halted:
         raise RuntimeError(f"{kernel_name} did not complete within {limit} cycles")
     if output_path is not None:

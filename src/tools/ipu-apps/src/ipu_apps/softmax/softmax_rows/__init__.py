@@ -155,7 +155,7 @@ class SoftmaxRowsApp(IpuApp):
         # it is fractional and cannot fit a CR scalar). The 1.0 identity-multiply
         # in Pass 3 uses CR1=1 via MULT.RC.VE, so no ONE_VEC is needed.
         cvec = struct.pack("<128f", *([LOG2E] * LANES))
-        state.xmem.write_address(self.cvec_addr, cvec)
+        state.xmem.write_profile_constant(self.cvec_addr, cvec)
 
         # CR0 and CR1 are READ-ONLY: CR0 == 0 always, CR1 == 1 always.
         # We exploit both directly: CR0 is the zero source (cyclic index / init)

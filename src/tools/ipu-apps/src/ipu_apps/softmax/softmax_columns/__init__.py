@@ -166,7 +166,7 @@ class SoftmaxColumnsApp(IpuApp):
         state.xmem.write_address(self.input_base, self._pack_input())
 
         cvec = struct.pack("<128f", *([LOG2E] * LANES))
-        state.xmem.write_address(self.cvec_addr, cvec)
+        state.xmem.write_profile_constant(self.cvec_addr, cvec)
 
         # CR0 == 0, CR1 == 1 are READ-ONLY. CR1 (=1.0) is the identity scalar
         # (Pass 2 subtract via ACC.SUB, Pass 3 sum-multiply) and the +1 loop

@@ -185,8 +185,8 @@ class SoftmaxColumnsPackedApp(IpuApp):
     def setup(self, state: "IpuState") -> None:
         state.xmem.write_address(self.input_base, self._pack_input())
 
-        state.xmem.write_address(self.cvec_addr, struct.pack("<128f", *([LOG2E] * LANES)))
-        state.xmem.write_address(self.keep_addr, self._keep_mask())
+        state.xmem.write_profile_constant(self.cvec_addr, struct.pack("<128f", *([LOG2E] * LANES)))
+        state.xmem.write_profile_constant(self.keep_addr, self._keep_mask())
 
         # CR0 == 0, CR1 == 1 are READ-ONLY (CR1 = 1.0 scalar + loop increment).
         # .asm XMEM operands are ROW numbers (one row = CHUNK_BYTES), not byte

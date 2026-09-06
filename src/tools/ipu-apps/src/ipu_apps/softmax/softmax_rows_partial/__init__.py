@@ -211,7 +211,7 @@ class SoftmaxRowsPartialApp(IpuApp):
 
     def setup(self, state: "IpuState") -> None:
         state.xmem.write_address(self.input_base, self._pack_input())
-        state.xmem.write_address(CVEC_ADDR, struct.pack("<128f", *([LOG2E] * LANES)))
+        state.xmem.write_profile_constant(CVEC_ADDR, struct.pack("<128f", *([LOG2E] * LANES)))
         state.xmem.write_address(PART_MASK_ADDR, self._partition_masks())
 
         # CR15.valid_elements = N masks every AGG/ACTIVATE to the first N elements.

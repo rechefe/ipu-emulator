@@ -22,3 +22,5 @@ bazel-testlogs/
 **_pycache**
 **/.venv/
 /.claude/settings.local.json
+
+planning/isa*

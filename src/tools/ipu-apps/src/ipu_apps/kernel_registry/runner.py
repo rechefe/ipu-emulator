@@ -16,6 +16,8 @@ def main(argv=None):
     selector.add_argument("--list-cases", action="store_true", help="list cases without running")
     parser = argparse.ArgumentParser(description=__doc__, parents=[selector], allow_abbrev=False)
     parser.add_argument("--max-cycles", type=int)
+    parser.add_argument("--profile-aliases", action="store_true", help="collect full ISA alias measurements")
+    parser.add_argument("--alias-report", type=Path, help="write full ISA measurements as JSON (enables profiling)")
     parser.add_argument("--output", type=Path,
                         help="export completed output, including output that fails validation")
     selected, _ = selector.parse_known_args(argv)
@@ -39,9 +41,13 @@ def main(argv=None):
             else:
                 parser.add_argument(option, type=type(default), default=default)
         args = parser.parse_args(argv)
+        from ipu_emu.alias_profile import AliasProfile
+        profile = AliasProfile(metadata={"case": args.case}) if args.profile_aliases or args.alias_report else None
         state, cycles = run_case(args.kernel, case,
                                 options={k: getattr(args, k) for k in case.defaults},
-                                max_cycles=args.max_cycles, output_path=args.output)
+                                max_cycles=args.max_cycles, output_path=args.output, alias_profile=profile)
+        if args.alias_report:
+            args.alias_report.write_text(profile.to_json(indent=2) + "\n")
     except (ValueError, OSError, RuntimeError, AssertionError, ImportError,
             AttributeError, KeyError, TypeError, argparse.ArgumentError) as exc:
         parser.exit(1, f"error: {str(exc) or type(exc).__name__}\n")

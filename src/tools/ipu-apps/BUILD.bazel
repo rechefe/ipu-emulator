@@ -133,3 +133,10 @@ py_pytest_test(
     srcs = ["test/test_bazel_entry.py"],
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
+
+py_pytest_test(
+    name = "test_alias_profile_kernels",
+    srcs = ["test/test_alias_profile_kernels.py"],
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)

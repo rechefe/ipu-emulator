@@ -177,6 +177,9 @@ class FullyConnectedApp(IpuApp):
         row_size = WIDE_ROW_SIZE_BYTES if state.wide_vector_debug else ROW_SIZE_BYTES
         _load_inputs(state, self.inputs_path)
         _load_and_transpose_weights(state, self.weights_path)
+        # The transposed weight rows pad 64 outputs to 128 lanes. Declare the
+        # useful width for MULT accounting; STR_ACC_REG still stores all lanes.
+        state.set_cr_dstructure(valid_elements=OUTPUT_NEURONS)
         # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
         # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)

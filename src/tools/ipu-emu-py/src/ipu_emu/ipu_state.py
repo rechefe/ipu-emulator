@@ -7,6 +7,7 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 from __future__ import annotations
 
 from enum import Enum
+import struct
 from typing import Any
 
 from ipu_emu.regfile import RegFile
@@ -57,11 +58,14 @@ class IpuState:
         wide_vector_quantize_output: bool = False,
         elu_alpha: float | None = None,
         dtype: DType = DType.INT8,
+        alias_profile=None,
     ) -> None:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
         self.stats = RunStats()
+        self.alias_profile = alias_profile
+        self.stats.alias_profile = alias_profile
         self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
 
         # Arithmetic data type — not stored in a CR register (emulator-only).
@@ -131,10 +135,27 @@ class IpuState:
 
     # -- XMEM ↔ register transfers (mirrors ipu__load_r_reg / ipu__store_r_reg) --
 
+    def write_constant_ones(self, xmem_addr: int) -> None:
+        """Write a dtype-correct 128-lane ONES row with alias provenance.
+
+        Use only for intentional identity constants, never ordinary inputs or
+        weights. Any subsequent XMEM write overlapping this row revokes it.
+        """
+        if self.wide_vector_debug:
+            fmt = "<f" if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
+            data = struct.pack(fmt, 1) * 128
+        else:
+            from ipu_emu.ipu_math import dtype_one_byte
+            data = bytes([dtype_one_byte(self.dtype)]) * 128
+        self.xmem.write_address(xmem_addr, data)
+        self.xmem.mark_constant_ones(xmem_addr, data)
+
     def load_r_reg_from_xmem(self, xmem_addr: int, r_index: int) -> None:
         """Load 128 bytes from XMEM into R register *r_index*."""
         data = self.xmem.read_address(xmem_addr, 128)
         self.regfile.set_r(r_index, data)
+        if self.xmem.is_constant_ones(xmem_addr, data):
+            self.regfile.mark_constant_ones("r", r_index * 128, 128)
 
     def store_r_reg_to_xmem(self, xmem_addr: int, r_index: int) -> None:
         """Store R register *r_index* (128 bytes) to XMEM."""
@@ -145,6 +166,8 @@ class IpuState:
         """Load 128 bytes from XMEM into the cyclic register at current index."""
         data = self.xmem.read_address(xmem_addr, 128)
         self.regfile.set_r_cyclic_at(0, data)
+        if self.xmem.is_constant_ones(xmem_addr, data):
+            self.regfile.mark_constant_ones("r_cyclic", 0, 128)
 
     def store_acc_to_xmem(self, xmem_addr: int) -> None:
         """Store the accumulator (512 bytes) to XMEM."""

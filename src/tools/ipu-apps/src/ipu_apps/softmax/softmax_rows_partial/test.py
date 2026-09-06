@@ -26,6 +26,16 @@ from ipu_apps.softmax.softmax_rows_partial.cases import CASES
 ASM_PATH = Path(__file__).with_name("softmax_rows_partial.asm")
 
 
+@pytest.mark.parametrize("n,rows", [(16, 8), (32, 8), (50, 4), (100, 2)])
+def test_scatter_counts_every_partition(n, rows):
+    state, _ = run_case("softmax_rows_partial", CASES["default"],
+                        options={"n": n, "rows": rows})
+    # Five multiplies per row, including each partition's shifted final write.
+    assert state.stats.mult_lane_ops == 5 * rows * n
+    assert state.stats.mult_identity_lane_ops == 2 * rows * n
+    assert state.stats.mult_identity_cycles == 2 * rows
+
+
 def _run(inst_file: Path, x: np.ndarray) -> np.ndarray:
     _, out = run_array("softmax_rows_partial", inst_file, x, 1)
     return out

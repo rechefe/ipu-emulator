@@ -35,6 +35,40 @@ class XMem:
 
     def __init__(self) -> None:
         self._data = bytearray(XMEM_SIZE_BYTES)
+        self._constant_ones: dict[int, bytes] = {}
+        self._profile_constants: dict[int, bytes] = {}
+        self._profile_observer = None
+
+    def mark_profile_constant(self, address: int, data: bytes) -> None:
+        """Declare a constant/mask for profiling; subsequent writes revoke it."""
+        data = bytes(data)
+        if not data or self.read_address(address, len(data)) != data:
+            raise ValueError("profile constant declaration does not match memory")
+        self._profile_constants[address] = data
+
+    def write_profile_constant(self, address: int, data: bytes) -> None:
+        """Initialize a known constant/mask and declare its profiling provenance."""
+        self.write_address(address, data)
+        self.mark_profile_constant(address, data)
+
+    def is_profile_constant(self, address: int, data: bytes) -> bool:
+        return self._profile_constants.get(address) == data or self.is_constant_ones(address, data)
+
+    def mark_constant_ones(self, address: int, data: bytes) -> None:
+        """Record host-declared ONES provenance, after a validated write."""
+        if self.read_address(address, len(data)) != data:
+            raise ValueError("constant ONES declaration does not match memory")
+        self._constant_ones[address] = data
+
+    def is_constant_ones(self, address: int, data: bytes | bytearray) -> bool:
+        return self._constant_ones.get(address) == data
+
+    def _invalidate_constants(self, start: int, end: int) -> None:
+        self._profile_constants = {a: d for a, d in self._profile_constants.items()
+                                   if a + len(d) <= start or a >= end}
+        if self._constant_ones:
+            self._constant_ones = {a: d for a, d in self._constant_ones.items()
+                                   if a + len(d) <= start or a >= end}
 
     # -- low-level access ---------------------------------------------------
 
@@ -45,7 +79,10 @@ class XMem:
                 f"XMEM read out of bounds: address={address}, size={size}, "
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )
-        return bytearray(self._data[address : address + size])
+        result = bytearray(self._data[address : address + size])
+        if self._profile_observer is not None:
+            self._profile_observer("read", address, result)
+        return result
 
     def write_address(self, address: int, data: bytes | bytearray) -> None:
         """Write *data* starting at *address*."""
@@ -55,7 +92,10 @@ class XMem:
                 f"XMEM write out of bounds: address={address}, size={size}, "
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )
+        self._invalidate_constants(address, address + size)
         self._data[address : address + size] = data
+        if self._profile_observer is not None:
+            self._profile_observer("write", address, data)
 
     # -- bulk helpers (mirror C API) ----------------------------------------
 
@@ -88,12 +128,21 @@ class XMem:
 
     def clear(self) -> None:
         """Zero the entire memory."""
+        self._constant_ones.clear()
+        self._profile_constants.clear()
+        if self._profile_observer is not None:
+            self._profile_observer("write", 0, self._data)
         self._data[:] = b"\x00" * XMEM_SIZE_BYTES
 
     def __getitem__(self, idx: int | slice) -> int | bytearray:
         return self._data[idx]
 
     def __setitem__(self, idx: int | slice, val: int | bytes | bytearray) -> None:
+        # Indexing supports arbitrary strides; conservatively drop declarations.
+        self._constant_ones.clear()
+        self._profile_constants.clear()
+        if self._profile_observer is not None:
+            self._profile_observer("write", 0, self._data)
         self._data[idx] = val
 
     def __len__(self) -> int:
