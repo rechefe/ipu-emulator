@@ -127,3 +127,9 @@ py_pytest_test(
     data = ["src/ipu_apps/kernel_registry/identity/identity.asm"],
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
+
+py_pytest_test(
+    name = "test_bazel_entry",
+    srcs = ["test/test_bazel_entry.py"],
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)

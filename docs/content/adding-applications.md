@@ -210,8 +210,9 @@ bazel test //src/tools/ipu-apps:all
 ## 6. Bazel
 
 Add one `ipu_app` declaration with the kernel's name, source package, and
-optional fixture data. It creates both the run target and `test_<name>` using
-the shared registry frontend and the adjacent `test.py`. The library glob
+optional fixture data. The same label runs the registry frontend with
+`bazel run` and the adjacent `test.py` with `bazel test`. The older
+`test_<name>` label remains an alias. The library glob
 picks up Python files automatically; the Bazel declaration makes the kernel's
 case suite part of CI. See the standard contract below.
 
@@ -257,7 +258,7 @@ Bazel declaration; individual kernels need no executable Python entry point.
 
 Run `bazel run //src/tools/ipu-apps:identity -- --list-cases` for an executable
 example. `--case` selects an input case, and case options such as `--rows`
-override its defaults. `bazel test //src/tools/ipu-apps:test_identity` exercises
+override its defaults. `bazel test //src/tools/ipu-apps:identity` exercises
 the same harness factory and cases. See the ipu-apps README for the declaration
 and case interfaces. Shape-based `resolve()` remains available independently.
 
