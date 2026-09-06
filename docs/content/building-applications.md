@@ -132,14 +132,16 @@ ipu_app(
 )
 ```
 
-The macro supplies the shared runner and a `test_my_app` target. It packages
+The macro supplies one executable test target: `bazel run :my_app` runs the
+app and `bazel test :my_app` executes its adjacent `test.py`. The old
+`:test_my_app` label remains an alias. It packages
 `my_app.asm`; if `SPEC.asm` uses a different filename, pass the same relative
 path as the macro's `asm` argument. Cases assemble the source at runtime, so no
 instruction-path or fixture-directory environment variables are needed.
 
 ```bash
 bazel run //src/tools/ipu-apps:my_app -- --list-cases
-bazel test //src/tools/ipu-apps:test_my_app
+bazel test //src/tools/ipu-apps:my_app
 ```
 
 ## Step 3: Write the Application Class
@@ -275,7 +277,7 @@ its temporary workspace. Tests may pass `inst_path` from a module-scoped
 fixture to reuse assembly. Use `workspace` when a test needs to inspect files.
 
 ```bash
-bazel test //src/tools/ipu-apps:test_my_app
+bazel test //src/tools/ipu-apps:my_app
 ```
 
 The pyproject config discovers both `test/test_*.py` and adjacent `src/**/test.py`
@@ -490,7 +492,7 @@ The shared registry runner loads `fully_connected/cases.py`:
 ```bash
 bazel run //src/tools/ipu-apps:fully_connected -- --list-cases
 bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8 --output /tmp/fc-output.bin
-bazel test //src/tools/ipu-apps:test_fully_connected
+bazel test //src/tools/ipu-apps:fully_connected
 ```
 
 Fixture paths are resolved relative to the case module. `--output` exports
@@ -515,6 +517,6 @@ coverage. Kernel packages do not need a custom `__main__.py`.
 - **Auto-attribute Storage**: Pass all parameters to `IpuApp.__init__(**kwargs)` — they're automatically stored as `self.param_name`
 - **Path Handling**: Resolve fixtures relative to `cases.py`; declare assembly and fixture files as Bazel data
 - **Emulator Run**: The emulator executes instructions until the program counter exceeds instruction memory
-- **Bazel Integration**: `ipu_app` supplies run and test targets; `assemble_asm` remains available for standalone binary artifacts
+- **Bazel Integration**: `ipu_app` supplies a single label for run and test; `assemble_asm` remains available for standalone binary artifacts
 
 See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/fully_connected/` for a real-world implementation.
