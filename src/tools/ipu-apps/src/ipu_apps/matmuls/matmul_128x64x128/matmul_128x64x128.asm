@@ -1,0 +1,104 @@
+# Matrix multiplication: C = A x B
+#
+# Layer:   shared/multi-layer
+# Scope:   single-stream
+# Layout:  unpacked
+# Shape:   M=128, K=64, N=128
+# Status:  validated
+# Related: generic matmul harness — not tied to any transformer layer; see
+#          kernel_docs/kernel_layer_map.md's "Not layer-specific" table.
+#          Same row_loop/MULT.RC.VE template as matmul_128x128 (K=128),
+#          matmul_128x64x64 (N=64 instead of 128), matmul_64x64x64 (M=64).
+# Tests:   //src/tools/ipu-apps:test_matmul_128x64x128_wide
+#
+# A: 128x64  input  (M=128 rows, K=64 cols)
+# B: 64x128  weights (K=64 rows, N=128 cols)
+# C: 128x128 output (M=128 rows, N=128 cols, stored as 128 int32/fp32 accumulators per row)
+#
+# Computes a 128x64x128 matrix product: 128 input rows each contracted over
+# only 64 columns (K=64, zero-padded to the 128-lane SIMD width) against a
+# 64x128 weight matrix, producing 128 output columns per row. Same
+# accumulation strategy as matmul_128x128: the first k-iteration is peeled
+# with ACC.ADD.FIRST to seed r_acc, then the remaining K-1 steps accumulate
+# with ACC.ADD.
+#
+# K=64 < SIMD width (128): each row of A is zero-padded to 128 bytes in XMEM.
+#
+# New kernel: MULT.VE.CYCLIC replaces MULT.EV mem_bypass (mem_bypass removed in PR #69).
+#   New shape: A[m] in r0 (loaded once per row), T[k] rows in r_cyclic per inner step.
+#
+# Memory layout (set via CR registers):
+#   cr0  = input  base (A: 128 rows x 128 bytes padded = 16384 bytes)
+#   cr11 = weights base (T: 64 rows x 128 bytes = 8192 bytes; T[k] = col k of W)
+#          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
+#   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes)
+#   cr3 = 1      (ADD step for fixed_idx)
+#   cr4 = 128    (ADD step for weight/input strides)
+#   cr5 = 512    (ADD step for output stride)
+#   cr6 = 16384  (outer loop limit = M * 128)
+#   cr7 = 0      (const zero)
+#   cr8 = -128   (inner loop init: weight offset startup)
+#   cr9 = -1     (inner loop init: fixed_idx startup)
+#   cr10 = 63    (inner loop limit K-1 = 63)
+#
+# Identical to matmul_128x128.asm except cr10 = 63 (K-1 = 63).
+
+    SET                 lr12 cr3;;
+    SET                 lr13 cr4;;
+    SET                 lr14 cr5;;
+    SET                 lr0 cr7;;
+    SET                 lr1 cr6;;
+    SET                 lr7 cr7;;
+
+row_loop:
+    LDR_MULT_REG        r0 lr0 cr0;;
+
+    SET                 lr4 cr8;;
+    SET                 lr5 cr9;;
+    SET                 lr6 cr10;;       # K-1 = 63
+
+    # MULT reads r_cyclic from the start-of-cycle snapshot (issue #157), so the
+    # chunk consumed by MULT.RC.VE must be loaded a cycle earlier than it is
+    # used: prime k=0's load here, then each loop body loads the NEXT k's chunk
+    # while multiplying the chunk loaded last cycle.
+    # lr5 (R0 scalar-select index, read LIVE by MULT) must equal the CURRENT k on
+    # the cycle MULT runs; lr4 (load offset, also read LIVE, by LDR) must already
+    # hold the NEXT k's offset on that same cycle. LR sub-slots run before
+    # LOAD/MULT within a word, so lr4's increment for k+1 must land in the word
+    # BEFORE the load that consumes it -- it cannot share a word with that load.
+    # lr5 shares a word with the MULT that consumes it, so MULT sees the k that
+    # lr5 was just advanced to.
+    ADD                 lr4 lr4 lr13;;            # lr4 = k=0's offset (0)
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;;           # load T[k=0] (lr4 unchanged this word)
+    ADD                 lr4 lr4 lr13;
+    ADD                 lr5 lr5 lr12;;            # lr4 -> k=1's offset; lr5 -> 0
+
+    # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC.ADD.FIRST;
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
+    BNE                 lr5 lr6 k_loop_pre;;
+    B                   after_k_loop;;
+
+k_loop_pre:
+    ADD                 lr4 lr4 lr13;
+    ADD                 lr5 lr5 lr12;;            # lr4 -> next load offset; lr5 -> k just loaded
+
+k_loop:
+    MULT.RC.VE          lr15 lr5 0 lr15 cr15;
+    ACC.ADD;
+    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
+    BNE                 lr5 lr6 k_loop_pre;;
+
+after_k_loop:
+    ACTIVATE.QUANTIZE identity cr15;
+    STR_POST_AAQ_REG         lr7 cr2;;
+    ADD                 lr7 lr7 lr14;
+    ADD                 lr0 lr0 lr13;;
+
+    BREAK;;
+
+    BLT                 lr0 lr1 row_loop;;
+
+end:
+    BKPT;;
