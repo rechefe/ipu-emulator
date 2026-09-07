@@ -1,0 +1,92 @@
+"""End-to-end test for the layernorm_256x144 application (wide-vector FP32 mode)."""
+
+from __future__ import annotations
+
+import os
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from ipu_as.lark_tree import assemble_to_bin_file
+
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+
+from ipu_apps.layernorm.layernorm_256x144 import LayerNorm256x144App
+from ipu_apps.layernorm.layernorm_256x144.gen_test_data import reference_layernorm
+
+ASM_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "src/ipu_apps/layernorm/layernorm_256x144/layernorm_256x144.asm"
+)
+
+_DATA_DIR = Path(os.environ["LAYERNORM_256X144_DATA_DIR"])
+
+N_CH  = 144
+N_TG  = 2
+N_TPG = 128
+ROW_BYTES = 512
+
+
+@pytest.fixture(scope="module")
+def inst_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "layernorm_256x144.bin"
+        assemble_to_bin_file(ASM_PATH.read_text(encoding="utf-8"), str(path))
+        yield path
+
+
+def _load_fp32_rows(path: Path, n_rows: int) -> np.ndarray:
+    """Load n_rows × 512-byte rows as [n_rows, 128] float32."""
+    data = np.frombuffer(path.read_bytes(), dtype=np.float32)
+    return data.reshape(n_rows, 128)
+
+
+def test_layernorm_256x144_wide_fp32(inst_file: Path, tmp_path: Path) -> None:
+    data_dir = _DATA_DIR / "wide_fp32"
+    if not data_dir.exists():
+        pytest.skip(f"Test data not found: {data_dir}")
+
+    input_path = data_dir / "input_x_fp32.bin"
+    gamma_path = data_dir / "gamma_fp32.bin"
+    beta_path  = data_dir / "beta_fp32.bin"
+    for p in (input_path, gamma_path, beta_path):
+        if not p.exists():
+            pytest.skip(f"Missing: {p}")
+
+    output_path = tmp_path / "output.bin"
+
+    state = IpuState(
+        wide_vector_debug=True,
+        wide_vector_arithmetic=WideVectorArithmetic.FP32,
+    )
+    app = LayerNorm256x144App(
+        inst_path=inst_file,
+        input_path=input_path,
+        gamma_path=gamma_path,
+        beta_path=beta_path,
+        output_path=output_path,
+    )
+    state, cycles = app.run(max_cycles=5_000_000, state=state)
+    assert cycles > 0
+
+    # Load inputs for reference
+    raw_input = _load_fp32_rows(input_path, N_CH * N_TG)   # [N_CH*N_TG, 128]
+    # Reshape to [N_CH, N_TG, N_TPG] — stored in (ch*N_TG+tg) order
+    x = raw_input.reshape(N_CH, N_TG, N_TPG)
+
+    gamma = np.frombuffer(gamma_path.read_bytes(), dtype=np.float32)[:N_CH]
+    beta  = np.frombuffer(beta_path.read_bytes(),  dtype=np.float32)[:N_CH]
+
+    expected, _, _, _ = reference_layernorm(x, gamma, beta)  # [N_CH, N_TG, N_TPG]
+
+    # Load actual output: [N_CH*N_TG, 128] → [N_CH, N_TG, N_TPG]
+    actual_rows = _load_fp32_rows(output_path, N_CH * N_TG)
+    actual = actual_rows.reshape(N_CH, N_TG, N_TPG)
+
+    np.testing.assert_allclose(
+        actual, expected,
+        atol=1e-4, rtol=1e-4,
+        err_msg="LayerNorm 256x144 output does not match reference",
+    )
