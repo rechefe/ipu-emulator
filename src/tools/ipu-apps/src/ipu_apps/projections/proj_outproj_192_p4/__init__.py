@@ -153,8 +153,9 @@ class ProjOutProj192P4App(IpuApp):
             _load_stream_data(state, path, p)
         _load_weights(state, self.weights_path)
 
-        # CR1 (=1) is a read-only hardwired constant on the new architecture.
-        state.regfile.set_cr(0, 0)                              # ZERO
+        # CR0 (=0) and CR1 (=1) are read-only hardwired constants -- writing
+        # anything else now raises EmulatorError (issue #230 / PR #231). ZERO
+        # is already CR0's hardwired value, so no write is needed here.
         state.regfile.set_cr(2, DATA_BASE_ROW)                  # DATA_BASE (stream 0)
         state.regfile.set_cr(3, WEIGHTS_BASE_ROW)                # WEIGHTS_BASE (shared)
         state.regfile.set_cr(4, OUTPUT_BASE_ROW)                 # OUTPUT_BASE (stream 0)
