@@ -166,7 +166,6 @@ def _run_matmul_192x192_direct_xmem_handoff(
 
     def setup_no_load_data(state: "IpuState") -> None:
         mm4_load_weights(state, app.weights_path)
-        state.regfile.set_cr(0, 0)
         state.regfile.set_cr(9, MM4_K * 1)  # WEIGHTS_BASE_ROW = DATA_ROWS (K rows, stride 1)
         from ipu_apps.matmuls.matmul_192x192_x128 import (
             WEIGHTS_BASE_ROW, OUTPUT_BASE_ROW, DATA_STRIDE_ROWS,

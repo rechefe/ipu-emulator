@@ -181,7 +181,6 @@ def _run_matmul_576x192_direct_xmem_handoff(
 
     def setup_no_load_data(state: "IpuState") -> None:
         mm_load_weights(state, app.weights_path)
-        state.regfile.set_cr(0, 0)
         state.regfile.set_cr(9, MM_WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, MM_WEIGHTS_BASE_ROW + 1)
         state.regfile.set_cr(3, MM_OUTPUT_BASE_ROW)

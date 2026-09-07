@@ -108,10 +108,15 @@ class Unfold32x32x144App(IpuApp):
         _load_input(state, self.input_path)
         _load_ones(state)
         # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432).
-        # CR1 (≡1) is a read-only hardwired constant on the new architecture —
-        # writing anything else now raises EmulatorError (issue #230 / PR #231) — so the stripe-1 base goes to CR13 (free)
-        # instead. cr0=SRC_BASE+0 is 0x0 (harmless no-op). See Bug #2.
+        # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants — writing
+        # anything else now raises EmulatorError (issue #230 / PR #231), even
+        # a write of the value already there. Stripe 0's base is SRC_BASE+0,
+        # which cr0 already holds in hardware, so s=0 is skipped entirely
+        # (not just retargeted) rather than written; stripe 1's base goes to
+        # CR13 (free) instead of CR1. See Bug #2.
         for s in range(N_STRIPES):
+            if s == 0:
+                continue
             cr_idx = 13 if s == 1 else s
             state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_ROWS)
         # cr8: ones base (for r_cyclic loading in assembly init)
