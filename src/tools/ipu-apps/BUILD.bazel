@@ -197,3 +197,605 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# =============================================================================
+# Attention kernels (QK^T scores, attn@V, both query-major and key-major
+# mappings) ported from ZDlinear -- see kernel_docs/kernel_layer_map.md.
+# =============================================================================
+
+# -- attn_scores_km_256x36 app (Agent D: kQᵀ → key-major scores) -------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_scores_km_256x36",
+    src = "src/ipu_apps/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_256x36",
+    srcs = ["src/ipu_apps/attention/attn_scores_km_256x36/__main__.py"],
+    main = "src/ipu_apps/attention/attn_scores_km_256x36/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_256x36.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_256X36_INST_BIN": "$(rootpath :assemble_attn_scores_km_256x36.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_256x36_wide",
+    size = "large",
+    srcs = ["test/test_attn_scores_km_256x36_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_256x36 app (Agent C) ----------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/qk_scores_256x36/qk_scores_256x36.asm",
+])
+
+assemble_asm(
+    name = "assemble_qk_scores_256x36",
+    src = "src/ipu_apps/attention/qk_scores_256x36/qk_scores_256x36.asm",
+)
+
+py_binary(
+    name = "qk_scores_256x36",
+    srcs = ["src/ipu_apps/attention/qk_scores_256x36/__main__.py"],
+    main = "src/ipu_apps/attention/qk_scores_256x36/__main__.py",
+    data = [
+        ":assemble_qk_scores_256x36.bin",
+    ],
+    env = {
+        "QK_SCORES_256X36_INST_BIN": "$(rootpath :assemble_qk_scores_256x36.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_256x36_wide",
+    size = "large",
+    srcs = ["test/test_qk_scores_256x36_wide.py"],
+    data = [
+        "src/ipu_apps/attention/qk_scores_256x36/qk_scores_256x36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_256x36 app (Agent A: attn@V AGG kernel) -------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_256x36/attn_v_256x36.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_256x36",
+    src = "src/ipu_apps/attention/attn_v_256x36/attn_v_256x36.asm",
+)
+
+py_binary(
+    name = "attn_v_256x36",
+    srcs = ["src/ipu_apps/attention/attn_v_256x36/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_256x36/__main__.py",
+    data = [
+        ":assemble_attn_v_256x36.bin",
+    ],
+    env = {
+        "ATTN_V_256X36_INST_BIN": "$(rootpath :assemble_attn_v_256x36.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_256x36_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_256x36_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_256x36/attn_v_256x36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_36 app (attn@V key-major broadcast) -----------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_bcast_36/attn_v_bcast_36.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_36",
+    src = "src/ipu_apps/attention/attn_v_bcast_36/attn_v_bcast_36.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_36",
+    srcs = ["src/ipu_apps/attention/attn_v_bcast_36/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_bcast_36/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_36.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_36_INST_BIN": "$(rootpath :assemble_attn_v_bcast_36.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_36_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_bcast_36_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_bcast_36/attn_v_bcast_36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- L3 seam tests (cross-kernel chains, no XMEM sharing beyond raw files) ---
+# These run two real kernel binaries back to back and feed the producer's
+# raw XMEM store output, byte-for-byte, as the consumer's staged input file.
+
+py_pytest_test(
+    name = "test_seam_qk_attn_v_256x36",
+    size = "large",
+    srcs = ["test/test_seam_qk_attn_v_256x36.py"],
+    data = [
+        "src/ipu_apps/attention/qk_scores_256x36/qk_scores_256x36.asm",
+        "src/ipu_apps/attention/attn_v_256x36/attn_v_256x36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_seam_km_bcast_36",
+    size = "large",
+    srcs = ["test/test_seam_km_bcast_36.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_256x36/attn_scores_km_256x36.asm",
+        "src/ipu_apps/attention/attn_v_bcast_36/attn_v_bcast_36.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_64x48 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/qk_scores_64x48/qk_scores_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_qk_scores_64x48",
+    src = "src/ipu_apps/attention/qk_scores_64x48/qk_scores_64x48.asm",
+)
+
+py_binary(
+    name = "qk_scores_64x48",
+    srcs = ["src/ipu_apps/attention/qk_scores_64x48/__main__.py"],
+    main = "src/ipu_apps/attention/qk_scores_64x48/__main__.py",
+    data = [
+        ":assemble_qk_scores_64x48.bin",
+    ],
+    env = {
+        "QK_SCORES_64X48_INST_BIN": "$(rootpath :assemble_qk_scores_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_64x48_wide",
+    # Same N_TG=1 (N<=LANES) query-major structure as qk_scores_16x60 (kept
+    # automatic) -- both are L4/L5 ports of qk_scores_256x36 (L3, N_TG=2,
+    # kept automatic) with "the mapping carried over unchanged," only counts
+    # differ. manual: bazel test //src/tools/ipu-apps:test_qk_scores_64x48_wide
+    size = "large",
+    tags = ["manual"],
+    srcs = ["test/test_qk_scores_64x48_wide.py"],
+    data = [
+        "src/ipu_apps/attention/qk_scores_64x48/qk_scores_64x48.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_64x48 app ---------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_64x48/attn_v_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_64x48",
+    src = "src/ipu_apps/attention/attn_v_64x48/attn_v_64x48.asm",
+)
+
+py_binary(
+    name = "attn_v_64x48",
+    srcs = ["src/ipu_apps/attention/attn_v_64x48/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_64x48/__main__.py",
+    data = [
+        ":assemble_attn_v_64x48.bin",
+    ],
+    env = {
+        "ATTN_V_64X48_INST_BIN": "$(rootpath :assemble_attn_v_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_64x48_wide",
+    # Same query-major AGG.SUM structure as attn_v_16x60 (kept automatic) --
+    # both are L4/L5 ports of attn_v_256x36 (L3, kept automatic) with "the
+    # mapping carried over unchanged," only counts differ.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_v_64x48_wide
+    size = "large",
+    tags = ["manual"],
+    srcs = ["test/test_attn_v_64x48_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_64x48/attn_v_64x48.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- qk_scores_16x60 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/qk_scores_16x60/qk_scores_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_qk_scores_16x60",
+    src = "src/ipu_apps/attention/qk_scores_16x60/qk_scores_16x60.asm",
+)
+
+py_binary(
+    name = "qk_scores_16x60",
+    srcs = ["src/ipu_apps/attention/qk_scores_16x60/__main__.py"],
+    main = "src/ipu_apps/attention/qk_scores_16x60/__main__.py",
+    data = [
+        ":assemble_qk_scores_16x60.bin",
+    ],
+    env = {
+        "QK_SCORES_16X60_INST_BIN": "$(rootpath :assemble_qk_scores_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_qk_scores_16x60_wide",
+    size = "large",
+    srcs = ["test/test_qk_scores_16x60_wide.py"],
+    data = [
+        "src/ipu_apps/attention/qk_scores_16x60/qk_scores_16x60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_16x60 app ---------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_16x60/attn_v_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_16x60",
+    src = "src/ipu_apps/attention/attn_v_16x60/attn_v_16x60.asm",
+)
+
+py_binary(
+    name = "attn_v_16x60",
+    srcs = ["src/ipu_apps/attention/attn_v_16x60/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_16x60/__main__.py",
+    data = [
+        ":assemble_attn_v_16x60.bin",
+    ],
+    env = {
+        "ATTN_V_16X60_INST_BIN": "$(rootpath :assemble_attn_v_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_16x60_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_16x60_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_16x60/attn_v_16x60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_scores_km_16x60 app -------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_scores_km_16x60",
+    src = "src/ipu_apps/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_16x60",
+    srcs = ["src/ipu_apps/attention/attn_scores_km_16x60/__main__.py"],
+    main = "src/ipu_apps/attention/attn_scores_km_16x60/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_16x60.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_16X60_INST_BIN": "$(rootpath :assemble_attn_scores_km_16x60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_16x60_wide",
+    size = "large",
+    srcs = ["test/test_attn_scores_km_16x60_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_60 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_bcast_60/attn_v_bcast_60.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_60",
+    src = "src/ipu_apps/attention/attn_v_bcast_60/attn_v_bcast_60.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_60",
+    srcs = ["src/ipu_apps/attention/attn_v_bcast_60/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_bcast_60/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_60.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_60_INST_BIN": "$(rootpath :assemble_attn_v_bcast_60.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_60_wide",
+    size = "large",
+    srcs = ["test/test_attn_v_bcast_60_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_bcast_60/attn_v_bcast_60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+# =========================================================================
+# L4 KEY-MAJOR attention chain — BUILD.bazel stanzas
+# Append to src/tools/ipu-apps/BUILD.bazel (orchestrator merges centrally).
+# =========================================================================
+
+# -- attn_scores_km_64x48 app -------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_scores_km_64x48",
+    src = "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+)
+
+py_binary(
+    name = "attn_scores_km_64x48",
+    srcs = ["src/ipu_apps/attention/attn_scores_km_64x48/__main__.py"],
+    main = "src/ipu_apps/attention/attn_scores_km_64x48/__main__.py",
+    data = [
+        ":assemble_attn_scores_km_64x48.bin",
+    ],
+    env = {
+        "ATTN_SCORES_KM_64X48_INST_BIN": "$(rootpath :assemble_attn_scores_km_64x48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_scores_km_64x48_wide",
+    # Same N_TG=1 (N<=LANES) key-major structure as attn_scores_km_16x60
+    # (kept automatic) -- both are L4/L5 ports of attn_scores_km_256x36 (L3,
+    # N_TG=2, kept automatic), mapping carried over unchanged.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_scores_km_64x48_wide
+    size = "large",
+    tags = ["manual"],
+    srcs = ["test/test_attn_scores_km_64x48_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- attn_v_bcast_48 app ------------------------------------
+
+exports_files([
+    "src/ipu_apps/attention/attn_v_bcast_48/attn_v_bcast_48.asm",
+])
+
+assemble_asm(
+    name = "assemble_attn_v_bcast_48",
+    src = "src/ipu_apps/attention/attn_v_bcast_48/attn_v_bcast_48.asm",
+)
+
+py_binary(
+    name = "attn_v_bcast_48",
+    srcs = ["src/ipu_apps/attention/attn_v_bcast_48/__main__.py"],
+    main = "src/ipu_apps/attention/attn_v_bcast_48/__main__.py",
+    data = [
+        ":assemble_attn_v_bcast_48.bin",
+    ],
+    env = {
+        "ATTN_V_BCAST_48_INST_BIN": "$(rootpath :assemble_attn_v_bcast_48.bin)",
+    },
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
+py_pytest_test(
+    name = "test_attn_v_bcast_48_wide",
+    # Same N_TG=1 (N<=LANES) key-major-broadcast structure as attn_v_bcast_60
+    # (kept automatic) -- this app's own docstring notes the L3->L4 structural
+    # change (N_TG collapses to 1); attn_v_bcast_60 (L5) inherits that same
+    # structure, only the head_dim loop count differs. attn_v_bcast_36 (L3,
+    # N_TG=2, kept automatic) covers the other structural variant.
+    # manual: bazel test //src/tools/ipu-apps:test_attn_v_bcast_48_wide
+    size = "large",
+    tags = ["manual"],
+    srcs = ["test/test_attn_v_bcast_48_wide.py"],
+    data = [
+        "src/ipu_apps/attention/attn_v_bcast_48/attn_v_bcast_48.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: attn_scores_km_64x48 -> attn_v_bcast_48 -----------
+
+py_pytest_test(
+    name = "test_seam_km_bcast_48",
+    # Same key-major-broadcast seam structure as test_seam_km_bcast_60 (kept
+    # automatic) -- L4/L5 share the N_TG=1 mapping. test_seam_km_bcast_36
+    # (L3, N_TG=2, kept automatic) covers the other structural variant.
+    # manual: bazel test //src/tools/ipu-apps:test_seam_km_bcast_48
+    size = "large",
+    tags = ["manual"],
+    srcs = ["test/test_seam_km_bcast_48.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_64x48/attn_scores_km_64x48.asm",
+        "src/ipu_apps/attention/attn_v_bcast_48/attn_v_bcast_48.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: qk_scores_16x60 -> attn_v_16x60 (L5, query-major) --
+
+py_pytest_test(
+    name = "test_seam_qk_attn_v_16x60",
+    size = "large",
+    srcs = ["test/test_seam_qk_attn_v_16x60.py"],
+    data = [
+        "src/ipu_apps/attention/qk_scores_16x60/qk_scores_16x60.asm",
+        "src/ipu_apps/attention/attn_v_16x60/attn_v_16x60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- seam: attn_scores_km_16x60 -> attn_v_bcast_60 (L5, key-major) --
+
+py_pytest_test(
+    name = "test_seam_km_bcast_60",
+    size = "large",
+    srcs = ["test/test_seam_km_bcast_60.py"],
+    data = [
+        "src/ipu_apps/attention/attn_scores_km_16x60/attn_scores_km_16x60.asm",
+        "src/ipu_apps/attention/attn_v_bcast_60/attn_v_bcast_60.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# -- THROWAWAY: decisive test, qk_scores_16x60 raw output -> softmax_rows_partial
+# -- with no numpy repack in between. Not part of the standing suite.
+py_pytest_test(
+    name = "test_decisive_l5_uncropped",
+    size = "small",
+    srcs = ["test/test_decisive_l5_uncropped.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
