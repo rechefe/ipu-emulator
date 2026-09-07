@@ -176,8 +176,10 @@ class QkScores16x60App(IpuApp):
         # element-width factor. One key group only: first live row = 0.
         g0_start_rows = -K_STRIDE_ROWS
 
-        # CR1 (≡1) is read-only hardwired; QROW base lives on CR9.
-        state.regfile.set_cr(0, self.k_base_row)         # data base
+        # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
+        # else now raises EmulatorError (issue #230 / PR #231). self.k_base_row
+        # is always K_BASE_ROW=0 (enforced in __init__), so cr0 already holds
+        # the correct value without any write. QROW base lives on CR9.
         state.regfile.set_cr(9, self.qrow_base_row)      # staged query rows
         state.regfile.set_cr(3, self.s_base_row)         # output base (single key group)
         state.regfile.set_cr(5, g0_start_rows)           # K-data startup (rows)

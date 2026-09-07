@@ -165,8 +165,9 @@ class AttnScoresKM16x60App(IpuApp):
         # the ACTIVATE.QUANTIZE window, so a stored row holds exactly N_TOK scores.
         state.set_cr_dstructure(valid_elements=N_TOK)
 
-        # CR1 (≡1) is read-only hardwired; cr0 (=QBASE_ROW=0) matches hardwired 0.
-        state.regfile.set_cr(0, QBASE_ROW)
+        # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
+        # else now raises EmulatorError (issue #230 / PR #231). QBASE_ROW is 0,
+        # so cr0 already holds the correct value without any write.
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         # Startup skews are negative; CRs are 32-bit unsigned, and the kernel

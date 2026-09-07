@@ -115,8 +115,10 @@ class QkScores256x36App(IpuApp):
         g0_start_rows = -K_STRIDE_ROWS                       # g=0: first live = row 0
         g1_start_rows = -K_STRIDE_ROWS + N_TPG // LANES      # g=1: first live = +1 row
 
-        # CR1 (≡1) is read-only hardwired; QROW base lives on CR9.
-        state.regfile.set_cr(0, K_BASE_ROW)             # data base
+        # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
+        # else now raises EmulatorError (issue #230 / PR #231). K_BASE_ROW is 0,
+        # so cr0 already holds the correct value without any write. QROW base
+        # lives on CR9.
         state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
         state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
         state.regfile.set_cr(4, S_BASE_ROW + ACC_STORE_ROWS)   # group 1 output base

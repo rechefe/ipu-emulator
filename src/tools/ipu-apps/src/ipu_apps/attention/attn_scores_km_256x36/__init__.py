@@ -134,8 +134,9 @@ class AttnScoresKM256x36App(IpuApp):
         _load_q_channel_major(state, self.input_path, self.head)
         _load_k_keymajor(state, self.weights_path, self.head)
 
-        # CR1 (≡1) is read-only hardwired; cr0 (=QBASE=0x0) matches hardwired 0.
-        state.regfile.set_cr(0, QBASE_ROW)
+        # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
+        # else now raises EmulatorError (issue #230 / PR #231). QBASE_ROW is 0,
+        # so cr0 already holds the correct value without any write.
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         state.regfile.set_cr(5, -Q_CHAN_ROWS)   # g=0 channel-column startup (rows)
