@@ -117,9 +117,8 @@ class Unfold16x16x192App(IpuApp):
         _load_input(state, self.input_path)
         _load_ones(state)
         # cr0, cr13: per-stripe source bases. CR1 (≡1) is a read-only hardwired
-        # constant — writes are silently dropped — so stripe 1 goes to CR13.
+        # constant — writing anything else now raises EmulatorError (issue #230 / PR #231) — so stripe 1 goes to CR13.
         # cr0 = SRC_BASE + 0 is 0x0 (harmless no-op, matches hardwired 0).
-        state.regfile.set_cr(0, SRC_BASE_ROW)
         state.regfile.set_cr(13, SRC_BASE_ROW + _STRIPE_ROWS)
         # cr8: ones base (for r_cyclic loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)

@@ -130,10 +130,9 @@ class LayerNorm128x16App(IpuApp):
 
         # CR registers
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants in the new
-        # architecture; writes are silently dropped. DATA_BASE is 0x0 so CR0 is fine,
+        # architecture; writing anything else now raises EmulatorError (issue #230 / PR #231). DATA_BASE is 0x0 so CR0 is fine,
         # and GAMMA_BASE moved off CR1 to CR11 (CR11's old const-zero role is served
         # by the hardwired CR0).
-        state.regfile.set_cr(0,  DATA_BASE_ROW)
         state.regfile.set_cr(2,  BETA_BASE_ROW)
         state.regfile.set_cr(3,  ONES_BASE_ROW)
         state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)

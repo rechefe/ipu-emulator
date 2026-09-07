@@ -124,8 +124,8 @@ class Fold32x32x144App(IpuApp):
         _load_ones(state)
 
         # cr13: DST_BASE_ROW (stripe-0 output base). CR0 and CR1 are BOTH
-        # read-only hardwired constants (0 and 1 respectively; writes are
-        # silently dropped -- see CR_READ_ONLY_INITIAL_VALUES). DST_BASE_ROW
+        # read-only hardwired constants (0 and 1 respectively; writing anything
+        # else now raises EmulatorError -- see CR_READ_ONLY_INITIAL_VALUES). DST_BASE_ROW
         # is nonzero (it sits after the 4-stream source region), so it
         # cannot use cr0 -- same trap fold_16x16x192 documents. cr13 is used
         # instead (cr14 is free too; either works, cr13 chosen arbitrarily).

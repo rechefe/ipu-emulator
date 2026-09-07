@@ -117,10 +117,9 @@ class MatMul144x288x128App(IpuApp):
         _load_weights(state, self.weights_path)
 
         # CR1 (≡1) is a read-only hardwired constant on the new architecture —
-        # writes are silently dropped. WEIGHTS_BASE is moved to CR9 (free).
+        # writing anything else now raises EmulatorError (issue #230 / PR #231). WEIGHTS_BASE is moved to CR9 (free).
         # cr0=DATA_BASE is 0x0 (harmless no-op); cr2/cr3 are writable and stay.
         # See MIGRATION_CHECKLIST.md Bug #2.
-        state.regfile.set_cr(0, DATA_BASE_ROW)
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)           # W[j,128..255]: +1 row
         state.regfile.set_cr(3, WEIGHTS_BASE_ROW + 2)           # W[j,256..287]: +2 rows

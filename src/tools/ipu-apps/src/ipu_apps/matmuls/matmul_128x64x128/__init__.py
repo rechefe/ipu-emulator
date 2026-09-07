@@ -131,10 +131,9 @@ class MatMul128x64x128App(IpuApp):
         _load_input_padded(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants on the new
-        # architecture — writes are silently dropped. INPUT_BASE_ROW is 0, so
+        # architecture — writing anything else now raises EmulatorError (issue #230 / PR #231). INPUT_BASE_ROW is 0, so
         # cr0 still reads the correct input base; the weights base is moved to
         # CR11 (a free CR) instead of CR1. See MIGRATION_CHECKLIST.md Bug #2.
-        state.regfile.set_cr(0, INPUT_BASE_ROW)
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         state.regfile.set_cr(3, 1)

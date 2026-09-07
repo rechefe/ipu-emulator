@@ -89,10 +89,11 @@ class ResidualAdd16x240App(IpuApp):
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
-        # CR0 (=0) and CR1 (=1) are read-only hardwired constants; writes are
-        # silently dropped. A_BASE_ROW is 0 so CR0 is a harmless no-op, and
+        # CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing anything else now
+        # raises EmulatorError (issue #230 / PR #231); this app never writes
+        # a non-matching value, so no code change was needed here beyond the
+        # separately-fixed redundant CR0 write. A_BASE_ROW is 0 so CR0 is a harmless no-op, and
         # B_BASE lives on CR9.
-        state.regfile.set_cr(0, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)

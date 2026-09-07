@@ -125,7 +125,6 @@ class MatMul192x192x128App(IpuApp):
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
         # CR1 (≡1) is a read-only hardwired constant; WEIGHTS_BASE lives in CR9.
-        state.regfile.set_cr(0, DATA_BASE_ROW)
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)          # next weight row
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)

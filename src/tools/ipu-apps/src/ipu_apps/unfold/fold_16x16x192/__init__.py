@@ -126,8 +126,8 @@ class Fold16x16x192App(IpuApp):
         _load_ones(state)
 
         # cr14, cr13: per-stripe DESTINATION bases. CR0 and CR1 are BOTH
-        # read-only hardwired constants (0 and 1 respectively; writes are
-        # silently dropped -- see CR_READ_ONLY_INITIAL_VALUES). unfold's own
+        # read-only hardwired constants (0 and 1 respectively; writing anything
+        # else now raises EmulatorError -- see CR_READ_ONLY_INITIAL_VALUES). unfold's own
         # cr0 usage for its stripe-0 SOURCE base only works because that
         # base happens to be 0; fold's stripe-0 DESTINATION base is
         # DST_BASE_ROW (nonzero), so cr14 is used instead of cr0.

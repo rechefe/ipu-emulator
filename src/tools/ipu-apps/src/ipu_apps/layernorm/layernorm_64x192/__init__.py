@@ -152,10 +152,9 @@ class LayerNorm64x192App(IpuApp):
         state.xmem.write_address(INV_N_BASE,    bytearray(inv_n))
 
         # CR registers — must match ASM header.
-        # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writes
-        # are silently dropped. DATA_BASE_ROW is 0 so CR0 is fine, and
+        # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing
+        # anything else now raises EmulatorError (issue #230 / PR #231). DATA_BASE_ROW is 0 so CR0 is fine, and
         # GAMMA_BASE lives on CR11 (CR11's const-zero role is served by CR0).
-        state.regfile.set_cr(0,  DATA_BASE_ROW)
         state.regfile.set_cr(2,  BETA_BASE_ROW)
         state.regfile.set_cr(3,  ONES_BASE_ROW)
         state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)

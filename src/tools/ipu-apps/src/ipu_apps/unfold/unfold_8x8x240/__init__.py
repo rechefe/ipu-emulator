@@ -184,7 +184,6 @@ class Unfold8x8x240App(IpuApp):
         _load_ones(state)
         # cr0: the single stripe's source base. cr0 = SRC_BASE_ROW = 0 is a
         # harmless no-op write (CR0 is the hardwired 0).
-        state.regfile.set_cr(0, SRC_BASE_ROW)
         # cr8: ones base (for r_cyclic loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # cr9..cr12: per-stream destination bases (phases 00, 01, 10, 11)
