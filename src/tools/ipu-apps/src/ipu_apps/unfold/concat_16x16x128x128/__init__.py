@@ -88,10 +88,12 @@ class Concat16x16x128x128App(IpuApp):
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
-        # cr0 (=0) and cr1 (=1) are read-only hardwired constants; writes are
-        # silently dropped. A_BASE_ROW is 0 here, so naming it cr0 is a
-        # harmless no-op (same convention residual_add_16x240 uses).
-        state.regfile.set_cr(0, A_BASE_ROW)
+        # cr0 (=0) and cr1 (=1) are read-only hardwired constants -- writing
+        # to either now raises EmulatorError (issue #230 / PR #231), even
+        # when the value written matches the hardwired one. A_BASE_ROW is 0
+        # here, so cr0 already holds the correct value without any write;
+        # the .asm's `ZERO = cr0` alias relies on the hardwired value, not
+        # on this setup() writing it.
         state.regfile.set_cr(2, -1)                 # PTR_START: src ptr startup (-1 row)
         state.regfile.set_cr(3, 1)                  # ROW_STRIDE
         state.regfile.set_cr(4, 1)                  # DTYPE_ONE: 1.0 in wide FP32 (low byte -> float)
