@@ -75,6 +75,7 @@ nav:
       - Softmax: kernels/softmax.md
       - Application Coverage: app-coverage.md
       - Adding Applications: adding-applications.md
+      - Kernel ASM Conventions: kernel-asm-conventions.md
   - Contributing:
       - Adding Instructions: adding-instruction.md
   - Assembly:
