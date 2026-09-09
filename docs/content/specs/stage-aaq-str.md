@@ -61,7 +61,7 @@ flowchart LR
                op  ─────>│                                      │
             r_acc  ─────>│                                      │
     function_type  ─────>│             AaQ Stage                ├────> to STR stage
- invalid_elements  ─────>│                                      │      [128×8b elements | 8b scale | 7b format
+ unvalid_elements  ─────>│                                      │      [128×8b elements | 8b scale | 7b format
         partition  ─────>│                                      │       | write_addr | str_opcode]
    partition_mask  ─────>│                                      │
            format  ─────>│                                      │
@@ -82,7 +82,7 @@ flowchart LR
 | `op` | `input logic [0:0]` | Selects the AaQ operation: `AAQ_INST_OPCODE_NOP` = 0, `AAQ_INST_OPCODE_ACTIVATE_QUANTIZE` = 1. |
 | `r_acc` | `input logic [127:0][31:0]` | 128-element accumulator (128 × 32-bit FP32). |
 | `function_type` | `input logic [2:0]` | Encoded activation/special-function selector for `ACTIVATE.QUANTIZE` (see section 5.0). |
-| `invalid_elements` | `input logic [6:0]` | Element count. |
+| `unvalid_elements` | `input logic [6:0]` | Element count. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
 | `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their `aaq_out` elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
 | `format` | `input logic [6:0]` | Output element format, replacing the old fixed `dtype`: bit `[6]` = sign (`0`=unsigned, `1`=signed), bits `[5:3]` = exponent bits (3 bits), bits `[2:0]` = mantissa bits (3 bits). |
@@ -121,7 +121,7 @@ element-wise activation function to every element of `r_acc`.
 
 The function is selected via `function_type` and applied directly to the
 FP32 elements. Functions besides `relu`,
-`relu6`, and `identity` are loaded into the LUT; functions called by name `exp2`,`rsqrt`, `reciprocal`, or `activation`, require the function to be
+`relu6`, and `identity` are loaded into the LUT; functions called by name `exp2`,`rsqrt`, `reciprocal`, or `generic`, require the function to be
 present in the LUT.
 
 ```text
@@ -130,25 +130,25 @@ for i in 0..127:
         identity:    activated[i] = r_acc[i]
         relu:        activated[i] = max(0, r_acc[i])
         relu6:       activated[i] = min(max(0, r_acc[i]), 6)
-        reciprocal:  activated[i] = (r_acc[i] == 0) ? 0 : LUT[function_type](r_acc[i])
-        rsqrt:       activated[i] = (r_acc[i] <= 0) ? 0 : LUT[function_type](r_acc[i])
+        reciprocal:  activated[i] = (r_acc[i] == 0) ? inf : LUT[function_type](r_acc[i])
+        rsqrt:       activated[i] = (r_acc[i] == 0) ? inf : (r_acc[i] < 0) ? 0 : LUT[function_type](r_acc[i])
         exp2:        activated[i] = LUT[function_type](r_acc[i])
-        activation:  activated[i] = LUT[function_type](r_acc[i])
+        generic:     activated[i] = LUT[function_type](r_acc[i])
 ```
 
 Supported function types: activation and special functions grouped onto a
 single field:
 
 
-| Encoding | Name | Formula | Notes |
-|----------|------|---------|-------|
-| 1 | `identity` | `f(x) = x` | Pass-through; no transform. |
-| 2 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
-| 3 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
-| 4 | `activation` | - | Covers all activations except `relu` and `relu6`: `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `silu`. |
-| 5 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
-| 6 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
-| 7 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+| Encoding | Name | Formula | Explicit Function(s) | Notes |
+|----------|------|---------|----------------------|-------|
+| 1 | `identity` | `f(x) = x` | `identity`: `f(x) = x` | Pass-through; no transform. |
+| 2 | `relu` | `f(x) = max(0, x)` | `relu`: `f(x) = max(0, x)` | Most common non-linearity. |
+| 3 | `relu6` | `f(x) = min(max(0, x), 6)` | `relu6`: `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
+| 4 | `generic` | `f(x) = LUT[generic](x)` | `sigmoid`: `f(x) = 1 / (1 + e^-x)`<br>`tanh`: `f(x) = (e^x - e^-x) / (e^x + e^-x)`<br>`gelu`: `f(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))`<br>`softplus`: `f(x) = ln(1 + e^x)`<br>`elu`: `f(x) = x` if `x ≥ 0`, else `α · (e^x - 1)` (α = 1.0)<br>`silu`: `f(x) = x · sigmoid(x) = x / (1 + e^-x)` | Covers all activations except `relu` and `relu6`. All of them are called by the single name `generic`; which one is applied is decided by whichever function was loaded into the LUT, not by the encoding. |
+| 5 | `reciprocal` | `f(x) = 1/x` (inf if x = 0) | `reciprocal`: `f(x) = 1/x` (inf if x = 0) | Multiplicative inverse; useful for normalization. |
+| 6 | `rsqrt` | `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | `rsqrt`: `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | Reciprocal square root; used in layer normalization. |
+| 7 | `exp2` | `f(x) = 2^x` | `exp2`: `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
 ### 5.1 Quantization Algorithm
 
@@ -216,7 +216,7 @@ the stage does not read the CR/LR register files itself (see the
 Control Stage spec, section 5). The active element count is determined by each
 instruction's mandatory `cr_idx` operand together with `partition_mask`
 (section 3.1): `masked = partition_mask * (128 / partition)` elements are
-excluded from the right, so `n = min(invalid_elements, 128 - masked)`
+excluded from the right, so `n = min(unvalid_elements, 128 - masked)`
 at cycle start. There is no implicit default register; `cr_idx` must always
 be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
 but is never assumed).
@@ -232,12 +232,12 @@ but is never assumed).
 - **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and format into `aaq_out` (pseudocode name for AaQ's output data bundle; the concrete storage/register implementation is left to the designer). Activation functions are pre-configured into a LUT; naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
 - **Operands:**
-  - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `activation`, `reciprocal`, `rsqrt`, `exp2`.
+  - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `generic`, `reciprocal`, `rsqrt`, `exp2`.
   - `cr_idx`: `CR0`…`CR15`, dstructure register supplying `valid_elements` (must be given explicitly; no implicit default).
 - **Operation:**
   ```text
   masked = partition_mask * (128 / partition)          // section 3.1
-  n = min(invalid_elements, 128 - masked)
+  n = min(unvalid_elements, 128 - masked)
   for i in 0..n-1:
       activated[i] = LUT[function_type](r_acc[i])     // section 5.0
       aaq_out.elements[i] = quantize(activated[i])     // section 5.1
@@ -252,7 +252,7 @@ but is never assumed).
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AaQ | `NOP`               | -                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(invalid_elements, 128 - partition_mask * (128/partition)) |
+| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(unvalid_elements, 128 - partition_mask * (128/partition)) |
 
 ## 7. STR (Store) Stage
 
