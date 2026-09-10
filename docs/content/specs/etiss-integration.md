@@ -1,14 +1,20 @@
 # ETISS Integration (Design Spec)
 
-!!! note "Status"
-    **Proposal / design spec.** This page describes how the existing Python IPU
-    emulator is re-implemented **on top of ETISS**, the Extendable Translating
-    Instruction Set Simulator from TUM EDA
-    (<https://github.com/tum-ei-eda/etiss>). The IPU becomes a native ETISS
-    architecture plugin; the Python emulator stays as the golden reference and
-    the two are kept in lock-step by differential tests. The work is tracked as
-    an epic plus sub-issues — see [§11 Implementation Plan](#11-implementation-plan)
-    and the drafts in `planning/etiss-integration/`.
+!!! success "Status"
+    **Implemented for the narrow (INT8 / FP8) datapath.** The IPU is a native
+    ETISS architecture plugin: an ETISS `CPUCore` executes assembled IPU
+    programs directly, one VLIW word per ETISS instruction, JIT-compiled to C.
+    Every instruction in `INSTRUCTION_SPEC` is implemented and checked against
+    the Python emulator by differential tests that compare the whole machine
+    state. The Python emulator remains the reference implementation and the
+    default backend.
+
+    **Not implemented:** wide-vector debug mode (§2), which the backend rejects
+    with a clear error rather than approximating.
+
+    Code lives in [`src/tools/ipu-etiss/`](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-etiss);
+    see its `README.md` for build instructions. §11 records what each planned
+    step delivered.
 
 ## 1. Motivation
 
@@ -68,6 +74,8 @@ Verified against ETISS `master` at commit `74451e0` (2026-08-12):
 |------|-------|-------------------------|
 | `etiss::instr::BitArray` derives from `boost::dynamic_bitset<>`; `VariableInstructionSet`/`InstructionSet` take a `width` in **bits**. | `include/etiss/Instruction.h` | Instruction width is not limited to 32/64 bits. A 224-bit IPU word is representable. |
 | Fetch reads `mainba.byteCount()` bytes per instruction through `System.dbg_read` at `cpu->instructionPointer`. | `src/Translation.cpp` | `instructionPointer` is a **byte address**; the IPU word must be byte-sized (224 bits = 28 bytes, matching the assembler's 32-bit-word alignment). |
+| **Fetch truncates to 32 bits.** `Translation.cpp` copies the fetched bytes into the decoder with `mainba.set_value(buffer.data())`, and `Buffer::data()` returns only the first `etiss::instr::I` (a `uint32_t`). | `src/Translation.cpp`, `include/etiss/Instruction.h` | **Blocking.** Every ISA shipped with ETISS is 16 or 32 bits wide, so nothing had hit this; a 186-bit IPU word decoded to garbage above bit 31. Fixed by a patch that adds `BitArray::set_value_bytes` and uses it at both fetch sites — bit-identical to the old path for 16/32-bit instructions on a little-endian host. See `src/tools/ipu-etiss/patches/`. |
+| `CPUArch::compensateEndianess` **defaults to byte-swapping in 4-byte groups**; the RISC-V architectures override it with an empty body. | `src/CPUArch.cpp` | The IPU overrides it too: the assembler writes words little-endian and the fetch reads them back the same way. |
 | `OPCode` has an integral constructor (≤128-bit types) **and** a `BitArray` constructor. | `Instruction.h` | Register the single VLIW "instruction" with `BitArray` code/mask (mask = all zeros → matches every word). |
 | An `InstructionDefinition` callback receives `(BitArray&, CodeSet&, InstructionContext&)` and appends C source via `CodePart`; `ic.current_address_` is the word's address. | `Instruction.h`, `ArchImpl/RV32IMACFD/*Instr.cpp` | The callback slices slot fields with `BitArrayRange` and emits calls into a C helper library. |
 | Arch plugins ship a C helper library (`<Arch>Funcs.c/.h`) whose header is copied to `include/jit/Arch/<Arch>` and linked into JIT blocks (`ETISSPluginArch` CMake macro). | `ArchImpl/RV32IMACFD/CMakeLists.txt`, `cmake/ETISSPlugin.cmake` | All IPU semantics live in hand-written C (`IPUFuncs.c`), a port of `ipu.py` + `ipu_math.py`. Generated code stays thin. |
@@ -266,47 +274,61 @@ That keeps the register block, Rust firmware and end-to-end test from the
 existing plan intact and removes the Unicorn dependency. It is deliberately a
 **follow-up** (issue 7 in the plan): the IPU core must be at parity first.
 
-## 11. Implementation Plan
+## 11. Implementation Plan and Results
 
-Issue drafts live in `planning/etiss-integration/`. Order:
+Issue drafts live in `planning/etiss-integration/`. What each step delivered:
 
-```
-1 (spike) ──▶ 2 (Bazel build) ──▶ 3 (codegen) ──▶ 4 (semantics) ──▶ 5 (Python backend + diff tests) ──▶ 6 (debug/stats/docs)
-                                                                                                       └──▶ 7 (host VP, follow-up)
-```
+| # | Title | Status |
+|---|-------|--------|
+| 1 | Spike: minimal `IPU` ETISS arch executing a 224-bit program | **Done.** Answers recorded in §3 and §12; the one blocker (32-bit fetch truncation) is fixed by a patch. |
+| 2 | Build integration | **Partly done.** `src/tools/ipu-etiss/CMakeLists.txt` plus `build_etiss.sh` fetch, patch and build ETISS and the plugin reproducibly. Bazel gained a `gen-etiss` generator target and both parity-test targets; fetching the ETISS toolchain *through* Bazel (`rules_foreign_cc`) is still open. |
+| 3 | `gen_etiss.py`: struct, layout and decode from the spec | **Done.** `ipu_as/gen_etiss.py` emits `IPU_gen.h`, `IPUFuncs_gen.h`, `IPUDecode_gen.cpp` and `ipu_etiss_layout.py`. |
+| 4 | Port instruction semantics and numerics | **Done** for the narrow datapath: `arch/IPUFuncs.c`, `runtime/ipu_math.c`, `runtime/ipu_activations.c`. |
+| 5 | Python backend and differential tests | **Done.** `run_test(backend="etiss")`, `IpuApp.run(backend=...)`, `$IPU_EMU_BACKEND`, and two parity suites. |
+| 6 | Debug, stats, tracing, documentation | **Partly done.** `RunStats` and the register file round-trip through the runner and registers are exposed through `VirtualStruct` (so ETISS's GDB stub can see them); a GDB workflow and trace docs are still open. |
+| 7 | Host virtual platform on ETISS | Not started (follow-up). |
 
-| # | Title | Outcome |
-|---|-------|---------|
-| 1 | Spike: minimal `IPU` ETISS arch executing a 224-bit NOP program | Go/no-go on instruction width, fetch, halt, JIT symbol resolution |
-| 2 | Bazel + CI integration of ETISS and the plugin | `bazel build //src/tools/ipu-etiss/...` works locally and in CI |
-| 3 | `gen_etiss.py`: struct, layout, decode callback from the spec | Generated decode proven equal to `decode_instruction_word` |
-| 4 | Port instruction semantics and numerics to `IPUFuncs.c` | Fully-connected kernel bit-exact, then all kernels |
-| 5 | Python backend + differential test suite | `run_test(backend="etiss")`; every emulator/app test runs on both |
-| 6 | Debug, stats, tracing, documentation | GDB stepping, JSON state dumps, `RunStats`, user docs |
-| 7 | Host virtual platform on ETISS (follow-up) | RV32 host + IPU core in one VP; supersedes Unicorn |
+### Measured results
+
+Parity is checked by comparing the complete register file, the full 8 MB XMEM,
+the program counter, the cycle count and every `RunStats` counter.
+
+| Check | Result |
+|-------|--------|
+| Instruction corpus (`test_etiss_parity.py`) | 35 programs, every instruction in `INSTRUCTION_SPEC` covered, all identical |
+| FP8 codec and activations (`runtime/test`) | 413,510 cases, bit-exact |
+| `fully_connected`, INT8 / FP8 E4M3 / FP8 E5M2 | identical state and cycle count; output matches the golden files |
+| Throughput, 201k-cycle loop (load + multiply + accumulate + 2 LR ops + branch per cycle) | Python 8k cycles/s, ETISS 100k cycles/s — **12.7x** |
+
+The speed-up only shows on runs long enough to amortise process start and JIT
+compilation; below roughly ten thousand cycles the Python emulator is faster,
+which is why it stays the default backend.
 
 ## 12. Risks and Open Questions
 
-| Risk | Mitigation |
-|------|------------|
-| A 224-bit instruction width is legal but exotic in ETISS (its `DEBUG` build only warns for widths outside 16/32/64/128/256). Something in block handling could assume ≤ 128 bits. | Issue 1 is a spike that proves fetch → decode → JIT on the real width before anything else is built. Fallback: declare width 256 and pad the image to 32 bytes/word (assembler gains `--format bin --align 32`). |
-| Float parity between Python `float` (double) + `struct.pack("<f")` and C. | Explicit double-then-narrow rule (§9), exhaustive codec tests, dense activation grids, per-kernel golden diffs. |
-| JIT block compilation cost per program (TCC is fast to compile, GCC/LLVM faster to run). | Default to TCC; make `jit.type` a runner option; benchmark the FC kernel. |
-| Boost / CMake in a Bazel-first repo. | `rules_foreign_cc` `cmake()` for ETISS pinned to a commit; system Boost via apt in CI for v1; BCR Boost modules evaluated later. |
-| ETISS treats `instructionPointer` as a byte address while the ISA uses word indices. | All ×28 conversions are generated in one place (`IPU_layout_gen.h`); the `PC` `VirtualStruct` field exposes the word index. |
-| `EmulatorError` conditions (misaligned cyclic index, out-of-range rows, invalid dtype) must fail loudly. | Helpers return a distinct error return code that the runner maps to a Python exception with the same message. |
-| Two implementations can drift. | Differential tests are mandatory in CI; adding an instruction without a C handler fails to link. |
-| Wide-vector debug mode is Python-only. | Documented; runner rejects the flag. |
+How the risks identified before implementation turned out:
 
-Open questions to settle during issue 1/2:
+| Risk | Outcome |
+|------|---------|
+| A 224-bit instruction width is legal but exotic in ETISS. | **Hit, and worse than expected**: the width is accepted by the decoder but the *fetch* silently truncates to 32 bits (§3). Fixed with a 24-line patch to ETISS rather than the planned 256-bit fallback. The patch is behaviour-preserving for 16/32-bit ISAs and worth sending upstream. |
+| Float parity between Python and C. | Handled by computing in `double` and narrowing only on store, and by porting Python's `round()` — which is round-half-to-even, unlike C's `round()`. Getting that wrong produced 1450 one-ULP mismatches in the FP8 encoder, caught by the exhaustive codec test. |
+| JIT block compilation cost. | TCC is the default and compiles fast enough that block translation is not the bottleneck; `--jit gcc` is available for long runs. |
+| Boost / CMake in a Bazel-first repo. | Not resolved: ETISS is built by `build_etiss.sh` with system Boost, outside Bazel. Bazel builds the generator and runs the parity tests (which skip when the runner is absent). |
+| `instructionPointer` is a byte address, the ISA uses word indices. | All conversions are generated in one place; the `PC` field of the `VirtualStruct` reports word indices, so debuggers see the ISA's unit. |
+| `EmulatorError` conditions must fail loudly. | Handlers set a typed error code (`IPU_ERR_*`, generated) that the runner maps back to an `EmulatorError` naming the condition. |
+| Two implementations can drift. | The parity suite asserts that every instruction in `INSTRUCTION_SPEC` appears in the corpus, so adding an instruction without cross-backend coverage fails a test; a missing C handler fails the link. |
 
-1. Vendor ETISS as a git submodule or fetch it as a Bazel `http_archive` at a
-   pinned commit? (Proposal: `http_archive`, no submodules to keep `bazel`
-   the only entry point.)
-2. Plugin discovery: install `libIPU.so` next to ETISS and register it in
-   `plugins/list.txt`, or load it explicitly with `etiss::loadLibrary()` from
-   our own runner binary? (Proposal: our own runner, explicit load; simpler
-   under Bazel.)
-3. Should the runner be a thin C++ `main` (subprocess, v1) or a `pybind11`
-   module (in-process, v2)? (Proposal: subprocess first; the file-based
-   contract is also what the future SystemC/VP integration needs.)
+Known divergences, all in paths where the Python reference itself raises:
+
+- `math.exp` overflow. CPython raises `OverflowError` for a finite input whose
+  result overflows; C returns `+inf`. This reaches `exp2` at large positive
+  inputs. The C side returns infinity.
+- `ACTIVATE.QUANTIZE` on a NaN accumulator. Python's `int(round(nan))` raises
+  `ValueError`; the C handler quantizes NaN to 0 so the run continues.
+
+Open:
+
+1. Fetching and building ETISS through Bazel instead of `build_etiss.sh`.
+2. Whether to port wide-vector debug mode, which would let the softmax
+   applications run on this backend.
+3. Sending the wide-instruction fetch patch upstream.

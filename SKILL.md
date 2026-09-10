@@ -34,8 +34,13 @@ src/tools/
 │   ├── xmem.py                   # 2 MB external memory
 │   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
 │   └── debug_cli.py              # Interactive debugger
-└── ipu-apps/src/ipu_apps/        # Sample applications
-    └── fully_connected/          # FC neural network layer example
+├── ipu-apps/src/ipu_apps/        # Sample applications
+│   └── fully_connected/          # FC neural network layer example
+└── ipu-etiss/                    # ETISS backend (native C simulator)
+    ├── arch/                     # CPUArch plugin + IPUFuncs.c (port of ipu.py)
+    ├── runtime/                  # FP8 math and activations, ported to C
+    ├── runner/                   # ipu_etiss_run, driven from Python
+    └── build_etiss.sh            # fetch + patch + build ETISS and the plugin
 docs/                             # MkDocs (config + content/ page sources)
 ```
 
@@ -212,6 +217,28 @@ run_with_debug(state, debug_prompt)
 Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.json`
 
 ---
+
+## Two Backends
+
+The Python emulator is the reference. The same programs also run on a native
+**ETISS** backend (`src/tools/ipu-etiss/`), which is 10x+ faster on long runs:
+
+```python
+run_test(inst_path="prog.bin", setup=..., backend="etiss")   # or backend="python"
+IpuApp.run(backend="etiss")
+```
+
+`$IPU_EMU_BACKEND` sets the default. The ETISS path is additive — every existing
+API keeps working unchanged.
+
+Decode tables, the CPU struct and handler prototypes are **generated** from
+`instruction_spec.py` by `ipu_as.gen_etiss`, so adding an instruction means:
+spec entry, `execute_*` in `ipu.py`, **and** `ipu_<name>()` in
+`ipu-etiss/arch/IPUFuncs.c` (a missing handler fails the link). Add a case to
+`ipu-emu-py/test/etiss_corpus.py` too — a test asserts every instruction has
+cross-backend coverage.
+
+Wide-vector debug mode is Python-only; the ETISS backend rejects it.
 
 ## Key Things to Remember
 

@@ -1,0 +1,66 @@
+diff --git a/include/etiss/Instruction.h b/include/etiss/Instruction.h
+index 31300cf..c7314cb 100644
+--- a/include/etiss/Instruction.h
++++ b/include/etiss/Instruction.h
+@@ -132,6 +132,14 @@ class BitArray : public boost::dynamic_bitset<>
+     */
+     void set_value(size_type width, unsigned long value);
+     void set_value(unsigned long value);
++    /**
++        @brief fill the array from a raw little-endian byte image
++        @detail unlike the set_value(unsigned long) overloads this carries the
++       whole array, so instructions wider than one etiss::instr::I (32 bits)
++       are not truncated.  Bit i comes from bit (i%8) of byte (i/8), which is
++       what the 16/32 bit overloads already did on a little-endian host.
++    */
++    void set_value_bytes(const unsigned char *bytes, unsigned byte_count);
+     /**
+         @brief get the interval [end, start]
+     */
+diff --git a/src/Instruction.cpp b/src/Instruction.cpp
+index 2e79a0b..5d2ec5c 100644
+--- a/src/Instruction.cpp
++++ b/src/Instruction.cpp
+@@ -139,6 +139,20 @@ void BitArray::set_value(unsigned long value)
+     set_value(size(), value);
+ }
+ 
++void BitArray::set_value_bytes(const unsigned char *bytes, unsigned byte_count)
++{
++    reset();
++    const size_type bits = size();
++    for (size_type i = 0; i < bits; ++i)
++    {
++        const unsigned byte = (unsigned)(i / 8);
++        if (byte >= byte_count)
++            break;
++        if ((bytes[byte] >> (i % 8)) & 1)
++            set(i);
++    }
++}
++
+ BitArray BitArray::get_range(size_type end, size_type start) const
+ {
+     // shift the bits and resize it accordingly
+diff --git a/src/Translation.cpp b/src/Translation.cpp
+index cc50fe3..2faf4fe 100644
+--- a/src/Translation.cpp
++++ b/src/Translation.cpp
+@@ -464,7 +464,7 @@ etiss::int32 Translation::translateBlock(CodeBlock &cb)
+         // read instruction
+         etiss::int32 ret = (*system_.dbg_read)(system_.handle, cb.endaddress_, (etiss_uint8 *)buffer.internalBuffer(),
+                                                mainba.byteCount()); // read instruction
+-        mainba.set_value(buffer.data());
++        mainba.set_value_bytes((const unsigned char *)buffer.internalBuffer(), mainba.byteCount());
+         if (ret == etiss::RETURNCODE::IBUS_READ_ERROR || ret == etiss::RETURNCODE::DBUS_READ_ERROR)
+         {
+             std::cout << "Instruction bus read error while translating!" << std::endl;
+@@ -508,7 +508,7 @@ etiss::int32 Translation::translateBlock(CodeBlock &cb)
+                 buffer = etiss::instr::Buffer(secba->intCount());
+                 ret = (*system_.dbg_read)(system_.handle, cb.endaddress_, (etiss_uint8 *)buffer.internalBuffer(),
+                                           secba->byteCount()); // read instruction
+-                secba->set_value(buffer.data());
++                secba->set_value_bytes((const unsigned char *)buffer.internalBuffer(), secba->byteCount());
+ 
+                 if (ret != etiss::RETURNCODE::NOERROR)
+                 {

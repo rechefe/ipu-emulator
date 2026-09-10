@@ -51,12 +51,12 @@ Full design: [`docs/content/specs/etiss-integration.md`](../../docs/content/spec
 
 ## Sub-issues
 
-- [ ] #1 — Spike: minimal `IPU` ETISS architecture executing a 224-bit NOP program
-- [ ] #2 — Build ETISS and the `IPU` plugin under Bazel; CI wiring
-- [ ] #3 — `gen_etiss.py`: generate struct, bit layout, and decode callback from the spec
-- [ ] #4 — Port instruction semantics and numerics to `IPUFuncs.c`
-- [ ] #5 — Python `etiss` backend for `run_test` / `IpuApp` and differential test suite
-- [ ] #6 — Debug (GDB), run stats, tracing, and user documentation
+- [x] #1 — Spike: minimal `IPU` ETISS architecture executing a 224-bit NOP program
+- [~] #2 — Build ETISS and the `IPU` plugin under Bazel; CI wiring (CMake + script done; Bazel fetch of ETISS open)
+- [x] #3 — `gen_etiss.py`: generate struct, bit layout, and decode callback from the spec
+- [x] #4 — Port instruction semantics and numerics to `IPUFuncs.c`
+- [x] #5 — Python `etiss` backend for `run_test` / `IpuApp` and differential test suite
+- [~] #6 — Debug (GDB), run stats, tracing, and user documentation (stats and docs done; GDB workflow open)
 - [ ] #7 — Follow-up: RISC-V host + IPU in one ETISS virtual platform
 
 Dependency order: **1 → 2 → 3 → 4 → 5 → 6**, then 7.

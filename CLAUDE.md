@@ -24,8 +24,18 @@ Use `bazel`, not `pip install` or `python` directly.
 
 1. Add entry to `instruction_spec.py` (no opcode assignment — position determines it).
 2. Add `execute_<name>(self, *, ...)` handler in `ipu.py` with keyword-only args matching operand names.
-3. Write a test in `ipu-emu-py/test/` using `_run()`.
-4. Run `bazel test //...`.
+3. Add the matching `ipu_<name>()` handler in `ipu-etiss/arch/IPUFuncs.c` (the ETISS backend; its prototype is generated, so a missing handler fails the link).
+4. Write a test in `ipu-emu-py/test/` using `_run()`, and add a case to `ipu-emu-py/test/etiss_corpus.py` so both backends are compared.
+5. Run `bazel test //...`.
+
+## Backends
+
+`ipu_emu` is the reference implementation. The same programs also run on a
+native ETISS backend (`src/tools/ipu-etiss/`, 10x+ faster on long runs):
+`run_test(..., backend="etiss")`, `IpuApp.run(backend="etiss")`, or
+`$IPU_EMU_BACKEND`. Build it with `src/tools/ipu-etiss/build_etiss.sh` and set
+`$IPU_ETISS_RUN`; the parity tests skip without it. Wide-vector debug mode is
+Python-only and the ETISS backend rejects it.
 
 ## Project Knowledge
 

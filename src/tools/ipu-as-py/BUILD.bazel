@@ -34,6 +34,17 @@ py_binary(
     deps = [":ipu_as_lib"],
 )
 
+# Generates the ETISS IPU architecture sources (struct, bit layout, decode
+# callback, handler prototypes) from instruction_spec.py. Consumed by the
+# CMake build in src/tools/ipu-etiss.
+py_binary(
+    name = "gen-etiss",
+    srcs = ["src/ipu_as/gen_etiss.py"],
+    imports = ["src"],
+    main = "src/ipu_as/gen_etiss.py",
+    deps = [":ipu_as_lib"],
+)
+
 py_pytest_test(
     name = "test_assemble",
     srcs = ["test/test_assemble.py"],

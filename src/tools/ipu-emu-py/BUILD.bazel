@@ -89,3 +89,23 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Differential test against the ETISS backend. Skips unless $IPU_ETISS_RUN
+# points at a built ipu_etiss_run (see src/tools/ipu-etiss/README.md); the
+# ETISS toolchain is not yet fetched by Bazel.
+py_pytest_test(
+    name = "test_etiss_parity",
+    srcs = [
+        "test/etiss_corpus.py",
+        "test/test_etiss_parity.py",
+    ],
+    imports = [
+        "src",
+        "test",
+    ],
+    tags = ["etiss"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)

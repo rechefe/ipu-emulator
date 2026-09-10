@@ -9,6 +9,13 @@ lives at
 These are markdown drafts; paste each file's body into a new issue, or file
 them with `gh issue create`.
 
+!!! note "Most of this is now implemented"
+    Issues 1, 3, 4 and 5 are done and issues 2 and 6 are partly done; the
+    working backend lives in `src/tools/ipu-etiss/`. The drafts are kept as the
+    record of what was planned. See
+    [`docs/content/specs/etiss-integration.md`](../../docs/content/specs/etiss-integration.md)
+    §11 for what each step actually delivered.
+
 ## Index
 
 | # | File | Title | Labels |
