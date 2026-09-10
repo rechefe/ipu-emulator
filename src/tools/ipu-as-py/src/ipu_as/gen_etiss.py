@@ -462,6 +462,9 @@ _ERROR_CODES = (
     "ACTIVATE_REQUIRES_INT8",
     "DSTRUCTURE_FIELD",
     "STRIDE_OPERAND",
+    "REGISTER_INDEX_RANGE",
+    "ACC_STRIDE_RANGE",
+    "ACTIVATION_OVERFLOW",
     "LR_CONFLICT",
     "MAX_CYCLES",
 )
@@ -542,7 +545,7 @@ def _emit_extract(prefix: str, ops, ranges, indent: str) -> list[str]:
 
 
 def _emit_call(handler: str, prefix: str, ops, indent: str,
-               statement: bool = True) -> list[str]:
+               statement: bool = True, sink: str = "cp.code()") -> list[str]:
     """C++ lines appending the handler call (or, if not *statement*, the bare call)."""
     expr = f'std::string("{handler}((IPU*)cpu, system")'
     for op in ops:
@@ -550,22 +553,54 @@ def _emit_call(handler: str, prefix: str, ops, indent: str,
     expr += ' + ")"'
     if statement:
         expr += ' + ";\\n"'
-        return [f"{indent}cp.code() += {expr};"]
+        return [f"{indent}{sink} += {expr};"]
     return [f"{indent}const std::string call = {expr};"]
 
 
-def _emit_validation(prefix: str, ops, indent: str) -> list[str]:
-    """Operand checks ipu.py performs during dispatch, before the handler runs."""
+def _register_index_limit(op: "Operand") -> str | None:
+    """The C expression bounding a register-index operand, or None.
+
+    Union fields are as wide as the widest operand that shares them, so a
+    hand-crafted binary can carry an index far outside the register file --
+    ``SET``'s ``CrIdx`` rides an 8-bit field, for instance.  The Python
+    emulator trips an assertion there; without an explicit check the generated
+    C would index past the end of the register array.
+    """
+    lr = "IPU_LR_COUNT"
+    cr = "IPU_CR_COUNT"
+    return {
+        "LrIdx": lr,
+        "CrIdx": cr,
+        "DstructureCrIdx": cr,
+        "LcrIdx": f"({lr} + {cr})",
+        "LrdIdx": f"({lr} / 2)",
+        "MultStageReg": "2",
+    }.get(op.op_type)
+
+
+def _emit_validation(prefix: str, ops, indent: str, flag: str = "operands_ok",
+                     sink: str = "cp.code()") -> list[str]:
+    """Operand range checks ipu.py performs while resolving, before the handler.
+
+    Emits an ``ipu_raise`` into the generated block and clears *flag* so the
+    caller can suppress the instruction, which is what the Python dispatcher
+    does by raising before it calls the handler.
+    """
     out: list[str] = []
     for op in ops:
-        if op.op_type == "MultStageReg" and op.read:
-            var = f"{prefix}_{op.name}"
-            out.append(f"{indent}if ({var} > 1) {{")
-            out.append(
-                f'{indent}    cp.code() += std::string("ipu_raise((IPU*)cpu, '
-                f'IPU_ERR_MULT_STAGE_OPERAND, ") + std::to_string({var}) + "ULL);\\n";'
-            )
-            out.append(f"{indent}}}")
+        limit = _register_index_limit(op)
+        if limit is None:
+            continue
+        var = f"{prefix}_{op.name}"
+        code = ("IPU_ERR_MULT_STAGE_OPERAND" if op.op_type == "MultStageReg"
+                else "IPU_ERR_REGISTER_INDEX_RANGE")
+        out.append(f"{indent}if ({var} >= {limit}) {{")
+        out.append(
+            f'{indent}    {sink} += std::string("ipu_raise((IPU*)cpu, {code}, ")'
+            f' + std::to_string({var}) + "ULL);\\n";'
+        )
+        out.append(f"{indent}    {flag} = false;")
+        out.append(f"{indent}}}")
     return out
 
 
@@ -574,13 +609,35 @@ def _emit_instruction(slot: str, prefix: str, instruction_name: str, spec: dict,
     """Everything one non-NOP instruction contributes to the generated block."""
     ops = _operands_for(slot, instruction_name)
     out = _emit_extract(prefix, ops, ranges, indent)
-    out += _emit_validation(prefix, ops, indent)
+    checks = _emit_validation(prefix, ops, indent + "    ")
+    if checks:
+        out.append(f"{indent}bool operands_ok = true;")
+        out += checks
+        out.append(f"{indent}if (operands_ok) {{")
+        body_indent = indent + "    "
+    else:
+        body_indent = indent
+
     stat = _SLOT_STAT.get(slot)
     if stat:
-        out.append(f'{indent}cp.code() += "((IPU*)cpu)->{stat} += 1;\\n";')
-    out += _emit_call(_handler_name(spec["execute_fn"]), prefix, ops, indent)
+        # The Python dispatcher bumps the counter only once it actually reaches
+        # this slot, so an error raised by an earlier slot must suppress it.
+        out.append(f'{body_indent}cp.code() += "if (((IPU*)cpu)->error_code == 0)'
+                   f' {{ ((IPU*)cpu)->{stat} += 1; }}\\n";')
+    out += _emit_call(_handler_name(spec["execute_fn"]), prefix, ops, body_indent)
+    if checks:
+        out.append(f"{indent}}}")
     return out
 
+
+# ---------------------------------------------------------------------------
+# IPU_gen.h
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# IPUDecode_gen.cpp
+# ---------------------------------------------------------------------------
 
 def gen_decode_source() -> str:
     ranges = _field_ranges()
@@ -644,10 +701,16 @@ def gen_decode_source() -> str:
     a("        }")
     a("")
 
-    a("        /* LR sub-slots: three independent instructions per word */")
+    a("        /* LR sub-slots: three independent instructions per word.")
+    a("         * ipu.py resolves all three and checks for a write conflict before")
+    a("         * executing any of them, so a fault in the third sub-slot has to")
+    a("         * suppress the first two. */")
     a("        {")
     a("            int lr_targets[8];")
     a("            int lr_target_count = 0;")
+    a("            bool operands_ok = true;")
+    a("            std::string lr_code;")
+    a("            std::string lr_error;")
     for prefix in _slot_prefixes("lr"):
         a(f"            switch ({prefix}_op) {{")
         for instruction_name, spec in INSTRUCTION_SPEC["lr"].items():
@@ -659,6 +722,8 @@ def gen_decode_source() -> str:
             ops = _operands_for("lr", instruction_name)
             for line in _emit_extract(prefix, ops, ranges, " " * 16):
                 a(line)
+            for line in _emit_validation(prefix, ops, " " * 16, sink="lr_error"):
+                a(line)
             write_op = _lr_write_operand(spec)
             if write_op is not None:
                 var = f"{prefix}_{write_op.name}"
@@ -668,16 +733,19 @@ def gen_decode_source() -> str:
                 else:
                     a(f"                lr_targets[lr_target_count++] = (int){var};")
             for line in _emit_call(_handler_name(spec["execute_fn"]), prefix, ops,
-                                   " " * 16):
+                                   " " * 16, sink="lr_code"):
                 a(line)
             a("                break;")
             a("            }")
         a("            }")
     a("            for (int i = 0; i < lr_target_count; ++i)")
     a("                for (int j = i + 1; j < lr_target_count; ++j)")
-    a("                    if (lr_targets[i] == lr_targets[j])")
-    a('                        cp.code() += std::string("ipu_raise((IPU*)cpu, IPU_ERR_LR_CONFLICT, ")')
+    a("                    if (lr_targets[i] == lr_targets[j]) {")
+    a('                        lr_error += std::string("ipu_raise((IPU*)cpu, IPU_ERR_LR_CONFLICT, ")')
     a('                            + std::to_string(lr_targets[i]) + "ULL);\\n";')
+    a("                        operands_ok = false;")
+    a("                    }")
+    a("            cp.code() += operands_ok ? lr_code : lr_error;")
     a("        }")
     a("")
 
@@ -718,6 +786,11 @@ def gen_decode_source() -> str:
         a("        }")
     a("        }")
     a("")
+    a("        /* A fault aborts the cycle: ipu.py propagates the exception")
+    a("         * before the cond slot runs and before run_until_complete counts")
+    a("         * the cycle, so neither the PC nor the cycle counter moves. */")
+    a('        cp.code() += "if (((IPU*)cpu)->error_code != 0)"')
+    a('                     " { return ETISS_RETURNCODE_GENERALERROR; }\\n";')
     a('        cp.code() += "cpu->instructionPointer = cpu->nextPc;\\n";')
     a('        cp.code() += "((IPU*)cpu)->cycles += 1;\\n";')
     a('        cp.code() += "if (((IPU*)cpu)->max_cycles != 0 && ((IPU*)cpu)->cycles >= ((IPU*)cpu)->max_cycles)"')

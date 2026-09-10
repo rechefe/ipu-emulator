@@ -760,9 +760,22 @@ void ipu_acc_stride(IPU *c, ETISS_System *sys, etiss_uint32 elements_in_row, eti
         }
     }
 
+    /* The start slot and the number of selected elements are independent, so
+     * a wide selection at a high offset runs off the end of R_ACC.  Python
+     * writes the lanes that fit and then fails on the first one that does not
+     * (struct.pack_into raises); do the same rather than writing past the
+     * register. */
     base = (offset % 4u) * 32u;
     for (i = 0; i < n_out; ++i)
-        lane_store(c->R_ACC, base + i, lane_load(c->MULT_RES, out_indices[i], is_float), is_float);
+    {
+        unsigned dst = base + i;
+        if (dst >= IPU_R_ACC_SIZE / 4)
+        {
+            ipu_raise(c, IPU_ERR_ACC_STRIDE_RANGE, dst);
+            return;
+        }
+        lane_store(c->R_ACC, dst, lane_load(c->MULT_RES, out_indices[i], is_float), is_float);
+    }
 }
 
 void ipu_acc_reshape(IPU *c, ETISS_System *sys, etiss_uint32 source, etiss_uint32 dest, etiss_uint32 reshape_mask)
@@ -949,10 +962,17 @@ void ipu_activate_quantize(IPU *c, ETISS_System *sys, etiss_uint32 activation_fn
         double raw = lane_load(c->R_ACC, i, 0);
         double y = ipu_apply_activation((int)activation_fn, raw, c->elu_alpha);
         long q;
-        if (y != y) /* NaN: Python's int(round(nan)) raises; 0 keeps us running */
-            q = 0;
-        else
-            q = (long)ipu_py_round(y);
+        /* CPython's math.exp raises OverflowError when a finite input produces
+         * a result too large to represent, which reaches ACTIVATE through
+         * exp2; C's exp returns +inf instead.  Raise so the two backends agree.
+         * (Python's int(round(...)) would also raise on a NaN or infinite
+         * result, so this covers that too.) */
+        if (!isfinite(y))
+        {
+            ipu_raise(c, IPU_ERR_ACTIVATION_OVERFLOW, (etiss_uint64)i);
+            return;
+        }
+        q = (long)ipu_py_round(y);
         if (q < -128)
             q = -128;
         else if (q > 127)

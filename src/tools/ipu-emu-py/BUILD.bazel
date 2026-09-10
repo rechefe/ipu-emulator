@@ -109,3 +109,22 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Randomised differential test (valid and malformed encodings). Skips unless
+# $IPU_ETISS_RUN is set. Slower than the corpus, so it carries its own tag.
+py_pytest_test(
+    name = "test_etiss_fuzz",
+    srcs = ["test/test_etiss_fuzz.py"],
+    imports = [
+        "src",
+        "test",
+    ],
+    tags = [
+        "etiss",
+        "slow",
+    ],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)

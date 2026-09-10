@@ -298,6 +298,7 @@ the program counter, the cycle count and every `RunStats` counter.
 | Instruction corpus (`test_etiss_parity.py`) | 35 programs, every instruction in `INSTRUCTION_SPEC` covered, all identical |
 | FP8 codec and activations (`runtime/test`) | 413,510 cases, bit-exact |
 | `fully_connected`, INT8 / FP8 E4M3 / FP8 E5M2 | identical state and cycle count; output matches the golden files |
+| Randomised words (`test_etiss_fuzz.py`) | 480 programs per run over 3 data types, valid and malformed encodings, all agreeing |
 | Throughput, 201k-cycle loop (load + multiply + accumulate + 2 LR ops + branch per cycle) | Python 8k cycles/s, ETISS 100k cycles/s — **12.7x** |
 
 The speed-up only shows on runs long enough to amortise process start and JIT
@@ -318,13 +319,37 @@ How the risks identified before implementation turned out:
 | `EmulatorError` conditions must fail loudly. | Handlers set a typed error code (`IPU_ERR_*`, generated) that the runner maps back to an `EmulatorError` naming the condition. |
 | Two implementations can drift. | The parity suite asserts that every instruction in `INSTRUCTION_SPEC` appears in the corpus, so adding an instruction without cross-backend coverage fails a test; a missing C handler fails the link. |
 
-Known divergences, all in paths where the Python reference itself raises:
+### What the randomised test found
 
-- `math.exp` overflow. CPython raises `OverflowError` for a finite input whose
-  result overflows; C returns `+inf`. This reaches `exp2` at large positive
-  inputs. The C side returns infinity.
-- `ACTIVATE.QUANTIZE` on a NaN accumulator. Python's `int(round(nan))` raises
-  `ValueError`; the C handler quantizes NaN to 0 so the run continues.
+A second suite (`test_etiss_fuzz.py`) builds random instruction *words* rather
+than assembly, in two flavours: operands random but inside the range their type
+allows, and every field uniformly random. 480 programs per run, across three
+data types. It found three defects that the hand-written corpus did not, all in
+encodings the assembler cannot produce but a hand-written binary can:
+
+- **Register indices out of range.** Union fields are as wide as the widest
+  operand sharing them, so `SET`'s `CrIdx` rides an 8-bit field and can encode
+  `CR189`. Python trips an assertion; the generated C indexed past the end of
+  the register array. Every register-index operand is now range-checked at
+  translate time, which costs nothing at run time because the index is a
+  constant there.
+- **`ACC.STRIDE` writing past `R_ACC`.** The start slot and the number of
+  selected elements are independent, so a wide selection at a high offset runs
+  off the end of the register. Python raises from `struct.pack_into`; the C
+  handler now writes the lanes that fit and raises on the first one that does
+  not, which is what Python does.
+- **`exp2` overflow.** CPython's `math.exp` raises `OverflowError` for a finite
+  input whose result overflows, where C's `exp` returns `+inf`.
+  `ACTIVATE.QUANTIZE` now raises when an activation turns a finite accumulator
+  into a non-finite result, so the two agree.
+
+The first two were memory-safety bugs, not just parity bugs. They are the
+argument for fuzzing a hand-written port rather than trusting a curated corpus.
+
+Two ordering rules also came out of matching the Python dispatcher exactly: the
+three LR sub-instructions resolve and conflict-check before *any* of them
+executes, and a fault aborts the cycle before the program counter or the cycle
+counter moves.
 
 Open:
 

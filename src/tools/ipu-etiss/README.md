@@ -58,10 +58,19 @@ Parity tests:
 
 ```bash
 pytest src/tools/ipu-emu-py/test/test_etiss_parity.py    # every instruction
+pytest src/tools/ipu-emu-py/test/test_etiss_fuzz.py      # random words (slow)
 pytest src/tools/ipu-apps/test/test_etiss_app_parity.py  # whole applications
 ```
 
-Both skip when `$IPU_ETISS_RUN` is unset.
+All three skip when `$IPU_ETISS_RUN` is unset. They compare the complete
+register file, the full 8 MB XMEM, the program counter, the cycle count and
+every `RunStats` counter — not just program output.
+
+The fuzz suite builds random instruction *words* rather than assembly, so it
+reaches encodings the assembler cannot produce. That is where a hand-written
+port drifts: it caught the generated C indexing past the end of the register
+file, and `ACC.STRIDE` writing past the end of `R_ACC`, in cases the curated
+corpus never reached.
 
 ## The ETISS patch
 
