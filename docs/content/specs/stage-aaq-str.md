@@ -1,18 +1,18 @@
-# AaQ and Store Stage
+# AaQ Stage
 
 ## 1. Purpose
 
-This spec covers two consecutive VLIW pipeline stages: **AaQ**
-(Activation and Quantization) and **STR** (Store), which write AaQ's
-output to external memory. AaQ is sections 1-6 below; STR is section 7.
-
 The AaQ (Activation and Quantization) stage applies element-wise activation
-and special functions to the 128-element accumulator, and quantizes the
-128-element vector into an 8-bit vector for output. It produces:
+and special functions to the 128-element accumulator, quantizes the
+128-element vector into an 8-bit vector, and **writes the result to external
+memory (XMEM) itself** — there is no separate Store stage. It produces:
 
 - A 128-element vector of 8-bit quantized values.
 - A scale factor.
 - A format field.
+
+The stage also owns the activation **LUT**, which is filled by the `LOAD`
+instruction (section 6.3).
 
 ## 2. Block Diagram
 
@@ -20,20 +20,19 @@ and special functions to the 128-element accumulator, and quantizes the
 flowchart LR
     mult_stage:::blue
     acc_stage:::blue
-    str_stage:::blue
     ACC(["r_acc 128x32bit"]):::yellow
     WADDR(["write_addr"]):::yellow
-    STROP(["str_opcode"]):::yellow
-    OUT(["128x8bit elements | 8bit scale | 7bit format | write_addr | str_opcode"]):::red
+    XMEM(["XMEM write<br>Memory[write_addr] =<br>128x8bit elements | 8bit scale | 7bit format"]):::red
+    LUT["LUT<br>128x17bit<br>+ 75b metadata"]:::teal
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
 
     ACC -->|128x32| ACT
+    ACC -.->|LOAD: low bits| LUT
+    LUT --> ACT
     ACT -->|128x32| QUANT
-    QUANT -->|128x8 + scale + format| OUT
-    WADDR --> OUT
-    STROP --> OUT
-    OUT --> str_stage
+    QUANT -->|128x8 + scale + format| XMEM
+    WADDR --> XMEM
     mult_stage --> |128x32| acc_stage
     acc_stage --> |128x32| ACC
 
@@ -57,17 +56,17 @@ flowchart LR
 ```
                          ┌──────────────────────────────────────┐
               clk  ─────>│                                      │
-              rst  ─────>│                                      │
+            rst_n  ─────>│                                      │
                op  ─────>│                                      │
             r_acc  ─────>│                                      │
-    function_type  ─────>│             AaQ Stage                ├────> to STR stage
- unvalid_elements  ─────>│                                      │      [128×8b elements | 8b scale | 7b format
-        partition  ─────>│                                      │       | write_addr | str_opcode]
+    function_type  ─────>│                                      ├────> XMEM write
+         lut_addr  ─────>│             AaQ Stage                │      Memory[write_addr] =
+   valid_elements  ─────>│                                      │      [128×8b elements | 8b scale
+        partition  ─────>│                                      │       | 7b format]
    partition_mask  ─────>│                                      │
            format  ─────>│                                      │
         quan_mode  ─────>│                                      │
        write_addr  ─────>│                                      │
-       str_opcode  ─────>│                                      │
                          └──────────────────────────────────────┘
 ```
 
@@ -78,38 +77,71 @@ flowchart LR
 | Name | Type and Direction | Description |
 |------|--------------------|-------------|
 | `clk` | `input logic` | Clock signal. |
-| `rst` | `input logic` | Synchronous reset. |
-| `op` | `input logic [0:0]` | Selects the AaQ operation: `AAQ_INST_OPCODE_NOP` = 0, `AAQ_INST_OPCODE_ACTIVATE_QUANTIZE` = 1. |
-| `r_acc` | `input logic [127:0][31:0]` | 128-element accumulator (128 × 32-bit FP32). |
+| `rst_n` | `input logic` | Asynchronous, active-low  |
+| `op` | `input logic [1:0]` | Selects the AaQ operation: `AAQ_INST_OPCODE_NOP` = 0, `AAQ_INST_OPCODE_ACTIVATE_QUANTIZE` = 1, `AAQ_INST_OPCODE_LOAD` = 2. |
+| `r_acc` | `input logic [127:0][31:0]` | 128-element accumulator (128 × 32-bit FP32). Also the data source for `LOAD` (section 6.3). |
 | `function_type` | `input logic [2:0]` | Encoded activation/special-function selector for `ACTIVATE.QUANTIZE` (see section 5.0). |
-| `unvalid_elements` | `input logic [6:0]` | Element count. |
+| `lut_addr` | `input logic [2:0]` | LUT segment address for `LOAD` (section 6.3); selects which of the 8 segments the instruction writes. Ignored for every other `op`. |
+| `valid_elements` | `input logic [7:0]` | Number of valid elements in `r_acc`, range `0`–`128`. 8 bits are required because `128` is not representable in 7. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
-| `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their `aaq_out` elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
-| `format` | `input logic [6:0]` | Output element format, replacing the old fixed `dtype`: bit `[6]` = sign (`0`=unsigned, `1`=signed), bits `[5:3]` = exponent bits (3 bits), bits `[2:0]` = mantissa bits (3 bits). |
+| `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their output elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
+| `format` | `input logic [6:0]` | Output element format. See section 3.3. |
 | `quan_mode` | `input logic` | Scale-factor mode: `1` = dynamic, `0` = static. |
-| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). Received here and passed through to the STR stage. |
-| `str_opcode` | `input logic [0:0]` | The STORE slot's opcode (`STORE_INST_OPCODE_STR_POST_AAQ_REG` = 0, `STORE_INST_OPCODE_NOP` = 1; see section 7.1). Received here and passed through to the STR stage. |
+| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). The stage writes to this address directly. |
 
 *`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-as-py/src/ipu_as/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output <path>`).*
 
 ### 3.2 Output
 
-The Quantization block passes the following payload to the **STR stage**, which performs the actual XMEM write; AaQ itself does not write to XMEM.
+AaQ performs the XMEM write itself. On `ACTIVATE.QUANTIZE` (and only on that
+opcode — see section 4) the stage drives a single 1039-bit write to
+`Memory[write_addr]`:
 
 | Field | Width | Description |
 |-------|-------|-------------|
-| `aaq_out` | 1024 + 8 + 7 = 1039 bits | Bundled output data (see section 5.1/6.2): 128 × 8-bit quantized elements, 8-bit scale factor, and 7-bit format (matching the `format` input width, section 3.1: 1 sign + 3 exponent + 3 mantissa). |
-| `write_addr` | `[XMEM_ADDR_W-1:0]` | Passed through unchanged from the `write_addr` input (section 3.1). |
-| `str_opcode` | `1 bit` | Passed through unchanged from the `str_opcode` input (section 3.1). |
+| `elements` | 128 × 8 = 1024 bits | 128 quantized elements, 8 bits each (section 5.1). |
+| `scale` | 8 bits | Batch scale factor, `e8m0` (section 5.1). |
+| `format` | 7 bits | Passed through unchanged from the `format` input (section 3.3). |
 
-Total payload width: 1039 + 1 = 1040 bits, plus `write_addr` (`XMEM_ADDR_W` bits).
+Total write payload: 1024 + 8 + 7 = **1039 bits**, to address `write_addr`.
+
+`aaq_out` is used below as the pseudocode name for this bundle; the concrete
+storage/register implementation is left to the designer.
+
+### 3.3 `format` Field Layout
+
+`format` is 7 bits:
+
+| Bits | Name | Description |
+|------|------|-------------|
+| `[6]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[5:3]` | `exp_bits` (`fe`) | Number of exponent bits, `0`–`7`. |
+| `[2:0]` | `width` | Total element width, encoded as `width - 1`; field value `0`–`7` means a total width `W` of `1`–`8` bits. |
+
+The mantissa is **the remainder** — what is left of the element width once the
+sign and exponent bits are taken out:
+
+```text
+sign_bit = format[6]                 // 0 or 1
+fe       = format[5:3]               // exponent bits
+W        = format[2:0] + 1           // total element width, 1..8 bits
+fm       = W - fe - sign_bit         // mantissa bits (the leftover)
+```
+
+`fm` must be `>= 0`, i.e. `W >= fe + sign_bit`; encodings that violate this are
+invalid. `fm = 0` is legal (no mantissa bits). `W <= 8` always, so a quantized
+element always fits in its 8-bit output slot; when `W < 8` the unused
+high-order bits are zero-padded.
+
+Example: signed, 2 exponent bits, 8-bit width (`e2m5`) is
+`format = {1, 3'd2, 3'd7}` → `fm = 8 - 2 - 1 = 5`.
 
 ## 4. Disclaimers
 
 - The AaQ slot executes once per VLIW cycle.
-- The STR slot executes once per VLIW cycle; STR is the pipeline's last stage.
-- Slot execution order within a VLIW word: CTRL → MULT → ACC → **AaQ** → **STR**.
-- `NOP` performs no state changes, in either the AaQ or STR slot.
+- AaQ is the pipeline's last stage; slot execution order within a VLIW word: CTRL → MULT → ACC → **AaQ**.
+- The XMEM write happens **only** on `ACTIVATE.QUANTIZE`. `NOP` and `LOAD` perform no memory write, so no separate store opcode is needed.
+- `NOP` performs no state changes.
 
 ## 5. AaQ Operations
 
@@ -154,14 +186,15 @@ single field:
 
 After activation (section 5.0), each activated FP32 element `a` (IEEE-754 single
 precision: 1-bit sign `S`, 8-bit exponent `e`, 23-bit mantissa) is quantized
-to the format selected by `format` (section 3.1): sign bit present only if
-`format[6] = 1` (signed; omitted when unsigned) + `fe` exponent bits
-(`format[5:3]`) + `fm` mantissa bits (`format[2:0]`). `fe` and `fm` are
-independent fields, not derived from one another, so `sign + fe + fm` is not
-required to total 8 bits; when it is smaller, the leftover high-order bits
-of the 8-bit quantized element are zero-padded. `fe` is at minimum 1 bit;
-`fm` may be 0 bits. FP32 inputs are always treated as normalized (implicit
-leading 1); subnormal inputs are not specially handled.
+to the format selected by `format` (section 3.3): a sign bit present only if
+`format[6] = 1` (signed; omitted when unsigned), `fe` exponent bits
+(`format[5:3]`), and `fm` mantissa bits derived as the leftover
+`fm = W - fe - sign_bit`, where `W = format[2:0] + 1` is the total element
+width. Since the mantissa is the remainder of the width, `sign + fe + fm`
+always totals exactly `W`; when `W < 8` the leftover high-order bits of the
+8-bit quantized element are zero-padded. `fe` is at minimum 1 bit; `fm` may be
+0 bits. FP32 inputs are always treated as normalized (implicit leading 1);
+subnormal inputs are not specially handled.
 
 The scale factor `s` (8 bits, `e8m0`: exponent only, no mantissa) is the
 batch's shared scale, computed as the maximum raw exponent across the 128
@@ -193,16 +226,66 @@ else:                                  // E exceeds what fe bits can represent
 `RTN` = round to nearest. Sign `S` (when present, `format[6] = 1`) is passed
 through unchanged. The final 8-bit quantized element is
 `{0-pad, S?, Exp, M}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
-the low end, zero-padded at the high end to fill 8 bits. The output payload
+the low end, zero-padded at the high end to fill 8 bits. The write payload
 also carries `Format` (passed through unchanged from the `format` input) and
 the batch `Scale` (`s`), as described in section 3.2.
 
 > **Note:** the `S`/`Exp`/`M` encoding above is the same for both
 > `quan_mode` values, and `s` is computed the same way (batch max, as shown
 > above) regardless of `quan_mode`. `quan_mode = 1` (dynamic) restricts
-> `format` to exactly two supported formats, both signed: `e2m5` and
-> `e1m6`. How the hardware chooses between `e2m5` and `e1m6` in dynamic
-> mode is **TBD**.
+> `format` to exactly two supported formats, both signed and both 8 bits
+> wide (`format[2:0] = 7`): `e2m5` and `e1m6`. How the hardware chooses
+> between `e2m5` and `e1m6` in dynamic mode is **TBD**.
+
+### 5.2 Activation LUT
+
+The stage holds an activation lookup table of **128 entries × 17 bits**,
+plus a **75-bit metadata block** that configures range handling. Both are
+filled by `LOAD` (section 6.3), which writes one **segment** per instruction;
+the 3-bit `lut_addr` selects the segment.
+
+#### 5.2.1 Segment Transfer
+
+A segment is **1024 bits**, sourced from the **lower 32 words** of the
+accumulator, `r_acc[31:0]` (32 words × 32 bits = 1024 bits). The upper words
+`r_acc[127:32]` are ignored by `LOAD`. The 1024-bit payload is the little-endian
+concatenation of those words:
+
+```text
+payload[1023:0] = {r_acc[31], r_acc[30], ..., r_acc[1], r_acc[0]}
+                                          // payload[32*j +: 32] == r_acc[j]
+```
+
+How the payload is interpreted depends on `lut_addr`:
+
+| `lut_addr` | Contents | Interpretation |
+|------------|----------|----------------|
+| `0`–`3` | Table entries | **Per-word.** Each 32-bit word contributes one 17-bit entry from its low-order bits; bits `[31:17]` of every word are ignored. Segment `k` fills `LUT[k*32 .. k*32+31]`: `LUT[k*32 + j] = r_acc[j][16:0]` for `j` in `0..31`. Four segments cover all 128 entries. |
+| `4` | Metadata block | **Flat.** The metadata is a contiguous 75-bit field at `payload[74:0]`, not split per word (section 5.2.2). |
+| `5`–`7` | Reserved / unused | — |
+
+> **Assumption to confirm:** the metadata is placed in the **5th** segment,
+> counted from 1 — i.e. `lut_addr = 4`, the first segment past the four that
+> carry the table.
+
+#### 5.2.2 Metadata Block
+
+The metadata occupies bits `[74:0]` of the metadata segment's 1024-bit
+payload; the remaining bits `[1023:75]` are unused. Because the field is flat,
+it straddles word boundaries — for example `max_exp_num` is `r_acc[0][7:0]`
+and `neg_c` spans `r_acc[0][31:8]` together with `r_acc[1][7:0]`.
+
+| Bits | Name | Consumed by | Meaning |
+|------|------|-------------|---------|
+| `[7:0]` | `max_exp_num` | `Quantactivation` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` → lane flagged out-of-range. |
+| `[39:8]` | `neg_c` | `pack_lutout_activ` | FP32 constant substituted for negative out-of-range lanes. |
+| `[71:40]` | `pos_c` | `pack_lutout_activ` | FP32 constant substituted for positive out-of-range lanes. |
+| `[72]` | `asymetric` | `Quantactivation` | Table domain + address form. |
+| `[74:73]` | `range_mode` | `pack_lutout_activ` | Out-of-range policy. |
+
+> **TBD:** the encodings of `asymetric` (which table domain and address form
+> each value selects) and of `range_mode` (which out-of-range policy each of
+> the 4 values selects) are not yet specified.
 
 ## 6. ISA-AaQ: Instruction Reference
 
@@ -216,20 +299,20 @@ the stage does not read the CR/LR register files itself (see the
 Control Stage spec, section 5). The active element count is determined by each
 instruction's mandatory `cr_idx` operand together with `partition_mask`
 (section 3.1): `masked = partition_mask * (128 / partition)` elements are
-excluded from the right, so `n = min(unvalid_elements, 128 - masked)`
+excluded from the right, so `n = min(valid_elements, 128 - masked)`
 at cycle start. There is no implicit default register; `cr_idx` must always
 be named explicitly (any `CR0`-`CR15`; `CR15` remains the conventional choice
 but is never assumed).
 
 ### 6.1 `NOP`: No Operation
 
-- **Summary:** No operation for the AaQ slot; performs no state changes.
+- **Summary:** No operation for the AaQ slot; performs no state changes and no memory write.
 - **Syntax:** `NOP`
 - **Operands:** none.
 
-### 6.2 `ACTIVATE.QUANTIZE`: Activate and Quantize
+### 6.2 `ACTIVATE.QUANTIZE`: Activate, Quantize and Store
 
-- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and format into `aaq_out` (pseudocode name for AaQ's output data bundle; the concrete storage/register implementation is left to the designer). Activation functions are pre-configured into a LUT; naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
+- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and format to `Memory[write_addr]`. This is the only AaQ opcode that drives an XMEM write. Activation functions are pre-configured into the LUT by `LOAD` (section 6.3); naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
 - **Operands:**
   - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `generic`, `reciprocal`, `rsqrt`, `exp2`.
@@ -237,81 +320,40 @@ but is never assumed).
 - **Operation:**
   ```text
   masked = partition_mask * (128 / partition)          // section 3.1
-  n = min(unvalid_elements, 128 - masked)
+  n = min(valid_elements, 128 - masked)
   for i in 0..n-1:
-      activated[i] = LUT[function_type](r_acc[i])     // section 5.0
+      activated[i] = LUT[function_type](r_acc[i])      // section 5.0
       aaq_out.elements[i] = quantize(activated[i])     // section 5.1
   aaq_out.elements[n..127] = 0
   aaq_out.scale = s                                    // section 5.1
   aaq_out.format = format
+  Memory[write_addr] = aaq_out                         // 1039 bits, section 3.2
   ```
 - **Example:** `ACTIVATE.QUANTIZE relu, CR15;;`
 
-### 6.3 Summary Table
+### 6.3 `LOAD`: Load Activation LUT Segment
+
+- **Summary:** Fill one 1024-bit segment of the activation LUT (section 5.2) from the lower 32 words of `r_acc`. The 3-bit `lut_addr` selects the target segment: `0`–`3` load table entries, `4` loads the metadata block. Performs no XMEM write and does not modify `r_acc`.
+- **Syntax:** `LOAD lut_addr`
+- **Operands:**
+  - `lut_addr`: LUT segment index, `0`–`7` (`0`–`3` = table, `4` = metadata, `5`–`7` reserved).
+- **Operation:**
+  ```text
+  payload[1023:0] = {r_acc[31], ..., r_acc[0]}        // 32 words x 32 bits
+
+  if lut_addr <= 3:                                  // table segment
+      for j in 0..31:                                // low 17 bits per word;
+          LUT[lut_addr*32 + j] = r_acc[j][16:0]      // word bits [31:17] ignored
+  else if lut_addr == 4:                             // metadata segment
+      {range_mode, asymetric, pos_c, neg_c, max_exp_num} = payload[74:0]
+      // payload[1023:75] unused; field layout in section 5.2.2
+  ```
+- **Example:** `LOAD 4;;` (load the metadata block)
+
+### 6.4 Summary Table
 
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AaQ | `NOP`               | -                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, n = min(unvalid_elements, 128 - partition_mask * (128/partition)) |
-
-## 7. STR (Store) Stage
-
-### 7.0 Purpose
-
-STR is the pipeline's last stage; it store `aaq_out` (AaQ's output data,
-written by `ACTIVATE.QUANTIZE`, section 6.2) to external memory. Slot execution order within
-a VLIW word: CTRL → MULT → ACC → AaQ → **STR**.
-
-
-
-### 7.1 Interfaces
-
-```
-                         ┌──────────────────────────────────────┐
-              clk  ─────>│                                      │
-              rst  ─────>│                                      │
-               op  ─────>│                                      │
-       write_addr  ─────>│              STR Stage               ├────> XMEM write
-          aaq_out  ─────>│                                      │      Memory[write_addr] = aaq_out
-                         └──────────────────────────────────────┘
-```
-
-| Name | Type and Direction | Description |
-|------|--------------------|-------------|
-| `clk` | `input logic` | Clock signal. |
-| `rst` | `input logic` | Synchronous reset. |
-| `op` | `input logic [0:0]` | Selects the STORE operation: `STORE_INST_OPCODE_STR_POST_AAQ_REG` = 0, `STORE_INST_OPCODE_NOP` = 1. |
-| `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address, received from AaQ (section 3.2). |
-| `aaq_out` | `input logic [1038:0]` | 1039-bit AaQ output bundle (128 × 8-bit quantized elements + 8-bit scale factor + 7-bit format; section 3.2), written by `ACTIVATE.QUANTIZE` (section 6.2); the concrete storage/register implementation is left to the designer. |
-
-*`op` is sourced from the `opcode` field of the generated `store_slot_t` struct, typed `store_inst_opcode_t` (package `ipu_instr_pkg`), generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the STORE slot's `"store"` entry) the same way as AaQ's `op` (section 3.1).*
-
-### 7.2 ISA: Instruction Reference
-
-The STORE slot executes **two mnemonics**: `NOP` and `STR_POST_AAQ_REG`.
-
-#### 7.2.1 `NOP`: No Operation
-
-- **Summary:** No operation for the STORE slot.
-- **Syntax:** `NOP`
-- **Operands:** none.
-
-#### 7.2.2 `STR_POST_AAQ_REG`: Store Post-AAQ Register
-
-- **Summary:** Write the 1039-bit `aaq_out` bundle to external memory.
-- **Syntax:** `STR_POST_AAQ_REG offset, base`
-- **Operands:**
-  - `offset`: `LR0`…`LR15`, live value.
-  - `base`: `CR0`…`CR15`, live value.
-- **Operation:**
-  ```text
-  Memory[offset + base] = aaq_out  // 1039 bits
-  ```
-- **Example:** `STR_POST_AAQ_REG LR0, CR0;;`
-
-#### 7.2.3 Summary Table
-
-| Slot | Mnemonic | Operands | One-line Effect |
-|------|----------|----------|-----------------|
-| STR | `NOP`               | -              | no state change |
-| STR | `STR_POST_AAQ_REG`  | `offset, base` | `Memory[offset + base] = aaq_out` |
+| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, `Memory[write_addr] = aaq_out`, n = min(valid_elements, 128 - partition_mask * (128/partition)) |
+| AaQ | `LOAD`              | `lut_addr`              | `LUT.segment[lut_addr] = r_acc[31:0]` low 17 bits per word; `lut_addr` `0`-`3` = 32 table entries each, `4` = metadata block |
