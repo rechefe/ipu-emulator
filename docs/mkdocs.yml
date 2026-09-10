@@ -89,6 +89,7 @@ nav:
       - Accumulator Stage Specification: specs/stage-accumulator.md
       - Control Stage Specification: specs/stage-control.md
       - RISC-V Host Integration: specs/riscv-host-integration.md
+      - ETISS Integration: specs/etiss-integration.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition
