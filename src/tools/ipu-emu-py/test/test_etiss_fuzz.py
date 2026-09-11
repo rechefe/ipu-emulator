@@ -25,6 +25,9 @@ Two generators run, because they probe different things:
 from __future__ import annotations
 
 import random
+import struct
+import zlib
+from typing import NamedTuple
 
 import pytest
 
@@ -50,7 +53,7 @@ from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSE
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.etiss import EtissRunner, is_available
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 pytestmark = pytest.mark.skipif(
@@ -64,11 +67,31 @@ _MAX_CYCLES = 3000
 _WORDS_PER_PROGRAM = 3
 _PROGRAMS_PER_DTYPE = 80
 
-_DTYPES = (DType.INT8, DType.E4, DType.E5)
+#: Minimum programs that must run to completion for a mode's comparison to
+#: carry weight.
+_MIN_PROGRAMS_RUN = 10
+
+class Mode(NamedTuple):
+    """One machine configuration to fuzz."""
+
+    name: str
+    dtype: DType
+    wide: bool = False
+    arith: WideVectorArithmetic = WideVectorArithmetic.FP32
+
+
+#: Both datapaths: the narrow INT8/FP8 lanes and the wide 4-byte lanes.
+_MODES = (
+    Mode("int8", DType.INT8),
+    Mode("fp8_e4", DType.E4),
+    Mode("fp8_e5", DType.E5),
+    Mode("wide_fp32", DType.INT8, wide=True, arith=WideVectorArithmetic.FP32),
+    Mode("wide_int32", DType.INT8, wide=True, arith=WideVectorArithmetic.INT32),
+)
 
 _COMPARED_REGISTERS = (
-    "r", "r_cyclic", "r_mask", "r_acc", "post_aaq_reg", "lr", "cr",
-    "mult_res", "mem_bypass",
+    "r", "r_wide_debug", "r_cyclic", "r_cyclic_wide_debug", "r_mask", "r_acc",
+    "post_aaq_reg", "lr", "cr", "mult_res", "mem_bypass",
 )
 
 _LR_COUNT = REGISTER_DEFINITIONS["lr"]["count"]
@@ -115,12 +138,12 @@ _SLOT_INSTANCES = _slot_instances()
 
 
 def _random_valid_word(rng: random.Random, *, branch_target_limit: int,
-                       dtype: DType) -> dict[str, int]:
+                       mode: Mode) -> dict[str, int]:
     """A word whose operands are all inside the range their type allows."""
     word = {name: 0 for name, _ in CompoundInst.get_fields()}
     for slot, prefix in _SLOT_INSTANCES:
         names = list(INSTRUCTION_SPEC[slot])
-        if slot == "aaq" and dtype != DType.INT8:
+        if slot == "aaq" and not mode.wide and mode.dtype != DType.INT8:
             # ACTIVATE.QUANTIZE is INT8-only by design and raises on both
             # backends under an FP8 dtype; leaving it in would make nearly
             # every FP8 program raise before exercising anything else.
@@ -149,7 +172,7 @@ def _random_valid_word(rng: random.Random, *, branch_target_limit: int,
 
 
 def _random_raw_word(rng: random.Random, *, branch_target_limit: int,
-                     dtype: DType) -> dict[str, int]:
+                     mode: Mode) -> dict[str, int]:
     """A word with every field uniformly random, malformed encodings included."""
     word: dict[str, int] = {}
     opcode_fields = {
@@ -158,7 +181,7 @@ def _random_raw_word(rng: random.Random, *, branch_target_limit: int,
     }
     aaq_opcode = _opcode_field_name("aaq", _slot_prefixes("aaq")[0])
     for name, width in CompoundInst.get_fields():
-        if name == aaq_opcode and dtype != DType.INT8:
+        if name == aaq_opcode and not mode.wide and mode.dtype != DType.INT8:
             word[name] = list(INSTRUCTION_SPEC["aaq"]).index("NOP")
         elif name in opcode_fields:
             word[name] = rng.randrange(opcode_fields[name])
@@ -169,8 +192,13 @@ def _random_raw_word(rng: random.Random, *, branch_target_limit: int,
     return word
 
 
-def _seed_state(rng: random.Random, dtype: DType) -> IpuState:
-    state = IpuState(dtype=dtype)
+def _seed_state(rng: random.Random, mode: Mode) -> IpuState:
+    state = IpuState(
+        dtype=mode.dtype,
+        wide_vector_debug=mode.wide,
+        wide_vector_arithmetic=mode.arith,
+        wide_vector_quantize_output=mode.wide,
+    )
     # Small CR values double as valid XMEM row bases and as valid dstructure
     # words (partition 0, pad mode zero), so both uses of a CR stay legal.
     for idx in range(2, _CR_COUNT):
@@ -181,14 +209,28 @@ def _seed_state(rng: random.Random, dtype: DType) -> IpuState:
     )
     for idx in range(_LR_COUNT):
         state.regfile.set_lr(idx, rng.choice(_LR_SEEDS))
-    for name in ("r", "r_cyclic", "r_mask", "r_acc", "mult_res", "post_aaq_reg"):
+    for name in ("r", "r_wide_debug", "r_cyclic", "r_cyclic_wide_debug",
+                 "r_mask", "r_acc", "mult_res", "post_aaq_reg"):
         raw = state.regfile.raw(name)
-        raw[:] = bytes(rng.randrange(256) for _ in range(len(raw)))
+        raw[:] = _lane_bytes(rng, len(raw), mode)
+    row_bytes = 512 if mode.wide else 128
     for row in range(16):
-        state.xmem.write_address(
-            row * 128, bytes(rng.randrange(256) for _ in range(128))
-        )
+        state.xmem.write_address(row * row_bytes, _lane_bytes(rng, row_bytes, mode))
     return state
+
+
+def _lane_bytes(rng: random.Random, size: int, mode: Mode) -> bytes:
+    """Random bytes, but modest float32 lanes in wide FP32 mode.
+
+    Uniformly random bytes decode as astronomically large floats, which makes
+    almost every wide FP32 program overflow on the first multiply instead of
+    exercising the datapath.
+    """
+    if not (mode.wide and mode.arith == WideVectorArithmetic.FP32):
+        return bytes(rng.randrange(256) for _ in range(size))
+    return b"".join(
+        struct.pack("<f", rng.uniform(-8.0, 8.0)) for _ in range(size // 4)
+    ) + bytes(size % 4)
 
 
 def _run(state: IpuState, backend: str) -> tuple[bool, str | None]:
@@ -218,14 +260,14 @@ def _compare(index: int, py: IpuState, et: IpuState) -> str | None:
     return None
 
 
-def _fuzz(dtype: DType, generator, seed: int) -> tuple[list[str], int]:
+def _fuzz(mode: Mode, generator, seed: int) -> tuple[list[str], int]:
     rng = random.Random(seed)
     mismatches: list[str] = []
     ran = 0
 
     for index in range(_PROGRAMS_PER_DTYPE):
         words = [
-            generator(rng, branch_target_limit=_WORDS_PER_PROGRAM, dtype=dtype)
+            generator(rng, branch_target_limit=_WORDS_PER_PROGRAM, mode=mode)
             for _ in range(_WORDS_PER_PROGRAM)
         ]
         state_seed = rng.randrange(1 << 30)
@@ -233,7 +275,7 @@ def _fuzz(dtype: DType, generator, seed: int) -> tuple[list[str], int]:
         states: dict[str, IpuState] = {}
         outcomes: dict[str, tuple[bool, str | None]] = {}
         for backend in ("python", "etiss"):
-            state = _seed_state(random.Random(state_seed), dtype)
+            state = _seed_state(random.Random(state_seed), mode)
             load_program(state, [dict(w) for w in words])
             outcomes[backend] = _run(state, backend)
             states[backend] = state
@@ -256,18 +298,21 @@ def _fuzz(dtype: DType, generator, seed: int) -> tuple[list[str], int]:
     return mismatches, ran
 
 
-@pytest.mark.parametrize("dtype", _DTYPES, ids=lambda d: d.name)
-def test_random_valid_words_agree(dtype: DType) -> None:
-    mismatches, ran = _fuzz(dtype, _random_valid_word, 0xC0FFEE ^ int(dtype))
+@pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.name)
+def test_random_valid_words_agree(mode: Mode) -> None:
+    mismatches, ran = _fuzz(mode, _random_valid_word, 0xC0FFEE ^ zlib.crc32(mode.name.encode()))
     assert not mismatches, "\n".join(mismatches[:10])
     # The comparison above is only meaningful if programs actually execute.
-    assert ran >= _PROGRAMS_PER_DTYPE // 4, (
+    # How many do varies a lot by mode -- FP8 E5 saturates easily and wide
+    # INT32 activations overflow often, so both legitimately reject most random
+    # programs -- so this is an absolute floor, not a fraction.
+    assert ran >= _MIN_PROGRAMS_RUN, (
         f"only {ran} of {_PROGRAMS_PER_DTYPE} random programs ran to completion"
     )
 
 
-@pytest.mark.parametrize("dtype", _DTYPES, ids=lambda d: d.name)
-def test_random_raw_words_agree(dtype: DType) -> None:
+@pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.name)
+def test_random_raw_words_agree(mode: Mode) -> None:
     """Malformed encodings must be rejected by both backends, not just Python."""
-    mismatches, _ran = _fuzz(dtype, _random_raw_word, 0xBADC0DE ^ int(dtype))
+    mismatches, _ran = _fuzz(mode, _random_raw_word, 0xBADC0DE ^ zlib.crc32(mode.name.encode()))
     assert not mismatches, "\n".join(mismatches[:10])

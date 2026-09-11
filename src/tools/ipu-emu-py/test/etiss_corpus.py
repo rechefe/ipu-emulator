@@ -12,6 +12,7 @@ asserts that every instruction in the spec appears in at least one program.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, field
 
 
@@ -24,6 +25,11 @@ class Case:
     #: XMEM seed: {byte address: bytes}
     xmem: dict[int, bytes] = field(default_factory=dict)
     elu_alpha: float | None = None
+    #: Wide-vector debug mode: 4-byte lanes, 512-byte XMEM rows.
+    wide: bool = False
+    #: "fp32" or "int32" -- how wide-vector lanes are interpreted.
+    wide_arith: str = "fp32"
+    wide_quantize: bool = False
 
 
 def _ramp(n: int, start: int = 0, step: int = 1) -> bytes:
@@ -520,6 +526,176 @@ CASES: list[Case] = [
         """,
         cr={2: 4, 3: 0, 4: 60},
         xmem=_COMMON_XMEM,
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Wide-vector debug mode: 4-byte lanes, 512-byte rows, arithmetic governed by
+# wide_vector_arithmetic rather than dtype.
+# ---------------------------------------------------------------------------
+
+_WIDE_ROW = 512
+
+
+def _f32_row(values) -> bytes:
+    return b"".join(struct.pack("<f", float(v)) for v in values)
+
+
+def _i32_row(values) -> bytes:
+    return b"".join(struct.pack("<i", int(v)) for v in values)
+
+
+_WIDE_XMEM = {
+    0 * _WIDE_ROW: _f32_row(i * 0.25 - 16.0 for i in range(128)),
+    1 * _WIDE_ROW: _f32_row((i % 7) - 3 for i in range(128)),
+    2 * _WIDE_ROW: _f32_row(1.0 for _ in range(128)),
+    3 * _WIDE_ROW: _f32_row(0.5 * ((-1) ** i) for i in range(128)),
+    8 * _WIDE_ROW: bytes([0xFF]) * 512,
+}
+
+_WIDE_INT_XMEM = {
+    0 * _WIDE_ROW: _i32_row(i - 64 for i in range(128)),
+    1 * _WIDE_ROW: _i32_row((i % 11) - 5 for i in range(128)),
+    2 * _WIDE_ROW: _i32_row(3 for _ in range(128)),
+    8 * _WIDE_ROW: bytes([0xFF]) * 512,
+}
+
+CASES += [
+    Case(
+        name="wide_load_and_mult_vv",
+        asm="""
+            SET lr0 cr0 ;;
+            LDR_MULT_REG r0 lr0 cr2 ;;
+            LDR_MULT_REG r1 lr0 cr3 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr3 lr0 ;;
+            MULT.RC.VV lr0 r0 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            STR_ACC_REG lr0 cr4 ;;
+        """,
+        cr={2: 0, 3: 1, 4: 32},
+        wide=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_mult_ve_ee_vs",
+        asm="""
+            SET lr0 cr0 ; SET lr1 cr6 ;;
+            LDR_MULT_REG r0 lr0 cr2 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr3 lr0 ;;
+            MULT.RC.VS lr0 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            MULT.VE lr1 cr7 0 lr0 cr15 ;;
+            ACC.ADD ;;
+            MULT.EE lr1 cr7 0 lr0 cr15 ;;
+            ACC.MAX ;;
+            STR_ACC_REG lr0 cr4 ;;
+        """,
+        cr={2: 0, 3: 3, 4: 32, 6: 5, 7: 2},
+        wide=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_mult_rc_ve_scalars",
+        asm="""
+            SET lr0 cr0 ; SET lr1 cr6 ;;
+            LDR_MULT_REG r0 lr0 cr2 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr3 lr0 ;;
+            MULT.RC.VE lr0 lr1 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            MULT.RC.VE lr0 cr7 0 lr0 cr15 ;;
+            ACC.SUB ;;
+            STR_ACC_REG lr0 cr4 ;;
+        """,
+        cr={2: 0, 3: 1, 4: 32, 6: 9, 7: 3},
+        wide=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_agg_and_stride",
+        asm="""
+            SET lr0 cr0 ; SET lr1 cr6 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr2 lr0 ;;
+            MULT.RC.VS lr0 0 lr0 cr15 ;;
+            AGG.SUM.FIRST lr0 cr15 ;;
+            AGG.SUM lr0 cr15 ;;
+            AGG.MAX.FIRST lr1 cr15 ;;
+            AGG.MAX lr1 cr15 ;;
+            STR_ACC_REG lr0 cr4 ;;
+            ACC.STRIDE 32 on off lr0 ;;
+            STR_ACC_REG lr0 cr5 ;;
+            ACC.RESHAPE lrd2 lrd4 0 ;;
+            STR_ACC_REG lr0 cr7 ;;
+        """,
+        cr={2: 1, 4: 32, 5: 36, 6: 3, 7: 40},
+        wide=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_activate_no_quantize",
+        asm="""
+            SET lr0 cr0 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr2 lr0 ;;
+            MULT.RC.VE lr0 cr1 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            ACTIVATE.QUANTIZE sigmoid cr15 ;;
+            STR_POST_AAQ_REG lr0 cr4 ;;
+            ACTIVATE.QUANTIZE tanh cr15 ;;
+            STR_POST_AAQ_REG lr0 cr5 ;;
+            ACTIVATE.QUANTIZE gelu cr15 ;;
+            STR_POST_AAQ_REG lr0 cr6 ;;
+        """,
+        cr={2: 3, 4: 32, 5: 36, 6: 40},
+        wide=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_activate_quantized",
+        asm="""
+            SET lr0 cr0 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr2 lr0 ;;
+            MULT.RC.VE lr0 cr1 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            ACTIVATE.QUANTIZE relu6 cr15 ;;
+            STR_POST_AAQ_REG lr0 cr4 ;;
+        """,
+        cr={2: 1, 4: 32},
+        wide=True,
+        wide_quantize=True,
+        xmem=_WIDE_XMEM,
+    ),
+    Case(
+        name="wide_int32_arithmetic",
+        asm="""
+            SET lr0 cr0 ; SET lr1 cr6 ;;
+            LDR_MULT_REG r0 lr0 cr2 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr3 lr0 ;;
+            MULT.RC.VV lr0 r0 0 lr0 cr15 ;;
+            ACC.ADD.FIRST ;;
+            MULT.EE lr1 cr7 0 lr0 cr15 ;;
+            ACC.ADD ;;
+            AGG.SUM lr0 cr15 ;;
+            STR_ACC_REG lr0 cr4 ;;
+        """,
+        cr={2: 0, 3: 1, 4: 32, 6: 7, 7: 5},
+        wide=True,
+        wide_arith="int32",
+        xmem=_WIDE_INT_XMEM,
+    ),
+    Case(
+        name="wide_mask_partitions",
+        asm="""
+            SET lr0 cr0 ; SET lr1 cr6 ;;
+            LDR_MULT_MASK_REG lr0 cr8 ;;
+            LDR_CYCLIC_MULT_REG lr0 cr2 lr0 ;;
+            MULT.RC.VS lr0 0 lr1 cr9 ;;
+            ACC.ADD.FIRST ;;
+            STR_ACC_REG lr0 cr4 ;;
+        """,
+        # partition P8, pad mode +inf (representable because lanes are float)
+        cr={2: 0, 4: 32, 6: 1, 8: 8, 9: (1 << 13) | (8 << 8) | 128},
+        wide=True,
+        xmem=_WIDE_XMEM,
     ),
 ]
 

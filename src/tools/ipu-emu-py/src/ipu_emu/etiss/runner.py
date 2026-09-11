@@ -10,8 +10,8 @@ The address map, word geometry and blob layout all come from
 :mod:`ipu_as.gen_etiss`, which is also what generated the C side — there is no
 second copy of any of it here.
 
-Not supported by this backend: wide-vector debug mode, which is an
-emulator-only analysis feature the ETISS port deliberately leaves out.
+Wide-vector debug mode is supported: the flags travel in the state blob and the
+backend switches to 4-byte lanes exactly as the Python emulator does.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from ipu_as.compound_inst import CompoundInst
 from ipu_as import gen_etiss
 
 from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.ipu_math import DType
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
@@ -39,6 +39,10 @@ WORD_BYTES = gen_etiss.instruction_aligned_bytes()
 _STATE_FIELDS = gen_etiss.state_field_list()
 
 _SCALAR_FMT = {"U32": "<I", "U64": "<Q", "F64": "<d"}
+
+#: wide_vector_arithmetic <-> the integer the state blob carries.
+_WIDE_ARITH_TO_INT = {WideVectorArithmetic.FP32: 0, WideVectorArithmetic.INT32: 1}
+_INT_TO_WIDE_ARITH = {v: k for k, v in _WIDE_ARITH_TO_INT.items()}
 
 #: Blob field name -> the register file blob it maps to. Scalars and stats are
 #: handled separately; everything else is a raw register image.
@@ -137,6 +141,11 @@ def serialize_state(state: IpuState, *, max_cycles: int, break_mode: int) -> byt
         "elu_alpha": float(state.elu_alpha),
         "break_mode": int(break_mode),
         "max_cycles": int(max_cycles),
+        "wide_vector_debug": int(bool(state.wide_vector_debug)),
+        "wide_vector_arithmetic": _WIDE_ARITH_TO_INT[
+            WideVectorArithmetic(state.wide_vector_arithmetic)
+        ],
+        "wide_vector_quantize_output": int(bool(state.wide_vector_quantize_output)),
         "cycles": 0,
         "mult_active_cycles": 0,
         "acc_active_cycles": 0,
@@ -193,6 +202,9 @@ def deserialize_state(state: IpuState, blob: bytes) -> dict[str, int]:
 
     state.dtype = DType(result["dtype"])
     state.elu_alpha = result["elu_alpha"]
+    state.wide_vector_debug = bool(result["wide_vector_debug"])
+    state.wide_vector_arithmetic = _INT_TO_WIDE_ARITH[result["wide_vector_arithmetic"]]
+    state.wide_vector_quantize_output = bool(result["wide_vector_quantize_output"])
     state.stats.total_cycles = result["cycles"]
     state.stats.mult_active_cycles = result["mult_active_cycles"]
     state.stats.acc_active_cycles = result["acc_active_cycles"]
@@ -214,12 +226,6 @@ class EtissRunner:
 
     def run(self, state: IpuState, *, max_cycles: int = 100_000, break_mode: int = 0) -> int:
         """Execute ``state``'s loaded program; update it in place, return cycles."""
-        if state.wide_vector_debug:
-            raise EmulatorError(
-                "the ETISS backend does not implement wide-vector debug mode; "
-                "run it on the Python backend"
-            )
-
         binary = runner_path()
         workdir = Path(tempfile.mkdtemp(prefix="ipu-etiss-"))
         try:

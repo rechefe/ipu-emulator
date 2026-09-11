@@ -75,7 +75,11 @@ LANES = 128
 # the snapshot, or when a handler reads it from the snapshot internally.
 # ``lr``/``cr`` are always shadowed (INC/DEC/ADDB/INCR_MOD_POW2/RESHAPE read
 # them from the snapshot inside the handler, not through an operand).
-_SHADOW_REGS = ("lr", "cr", "r", "r_cyclic", "r_acc", "mult_res")
+_SHADOW_REGS = (
+    "lr", "cr", "r", "r_cyclic", "r_acc", "mult_res",
+    # Wide-vector debug mode keeps its own, wider, mult-stage registers.
+    "r_wide_debug", "r_cyclic_wide_debug",
+)
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
 # Mirrors ``ipu_emu.ipu._SLOT_STAT``.
@@ -171,8 +175,6 @@ class Operand:
 
     @property
     def c_type(self) -> str:
-        if self.op_type == "MultStageReg" and self.read:
-            return "const etiss_uint8 *"
         return "etiss_uint32"
 
     def c_arg_template(self) -> str:
@@ -197,8 +199,9 @@ class Operand:
             lr_count = REGISTER_DEFINITIONS["lr"]["count"]
             return _LcrTemplate(pfx, lr_count)
         if self.op_type == "MultStageReg":
-            # Ra data comes from the cycle-start shadow copy (issue #157).
-            return f"(&((IPU*)cpu)->{pfx}R[({{V}}) * IPU_R_SIZE])"
+            # The index is passed through; the handler reads the shadow copy of
+            # whichever mult-stage register the active mode uses.
+            return "{V}ULL"
         # LrdIdx and every immediate/label type: the raw index is passed
         # through and the handler resolves it (ipu.py _resolve_operand's
         # fallback branch does exactly this).
@@ -285,10 +288,11 @@ def _state_field_list() -> list[tuple[str, str, int]]:
         ("elu_alpha", "F64", 0),
         ("break_mode", "U32", 0),
         ("max_cycles", "U64", 0),
+        ("wide_vector_debug", "U32", 0),
+        ("wide_vector_arithmetic", "U32", 0),
+        ("wide_vector_quantize_output", "U32", 0),
     ]
     for name, meta in REGISTER_DEFINITIONS.items():
-        if name.endswith("_wide_debug"):
-            continue
         if meta["vector"]:
             fields.append((name.upper(), "BLOB", meta["size_bytes"] * meta["count"]))
         else:
@@ -313,8 +317,6 @@ def _register_fields() -> list[tuple[str, str, int]]:
     """
     out: list[tuple[str, str, int]] = []
     for name, meta in REGISTER_DEFINITIONS.items():
-        if name.endswith("_wide_debug"):
-            continue
         ctype = _REG_C_TYPE[meta["dtype"].value]
         if meta["vector"]:
             out.append((name.upper(), ctype, meta["size_bytes"] * meta["count"]))
@@ -353,11 +355,13 @@ def gen_ipu_header() -> str:
     a(f"#define IPU_XMEM_SIZE   0x{XMEM_SIZE:08x}ULL")
     a(f"#define IPU_XMEM_WIDTH  {XMEM_WIDTH}")
     a(f"#define IPU_LANES       {LANES}")
+    a("#define IPU_NARROW_ELEMENT_BYTES 1")
+    a("#define IPU_WIDE_ELEMENT_BYTES   4")
+    a("#define IPU_WIDE_ARITH_FP32  0")
+    a("#define IPU_WIDE_ARITH_INT32 1")
     a("")
     a("/* ---- register geometry ----------------------------------------------- */")
     for name, meta in REGISTER_DEFINITIONS.items():
-        if name.endswith("_wide_debug"):
-            continue
         a(f"#define IPU_{name.upper()}_SIZE  {meta['size_bytes']}")
         a(f"#define IPU_{name.upper()}_COUNT {meta['count']}")
     a("")
@@ -397,6 +401,14 @@ def gen_ipu_header() -> str:
             a(f"#define IPU_{slot.upper()}_OP_{_c_ident(instruction_name)} {opcode}")
         a(f"#define IPU_NUM_{slot.upper()}_OP {len(INSTRUCTION_SPEC[slot])}")
     a("")
+    a("/* ---- shadow copy ------------------------------------------------------ */")
+    a("/* X(live, shadow): the registers ipu_snapshot copies at the start of every")
+    a(" * VLIW word, so operands flagged \"read\": \"snapshot\" see pre-cycle values. */")
+    a("#define IPU_SHADOW_FIELDS(X) \\")
+    for _reg in _SHADOW_REGS:
+        a(f"    X({_reg.upper()}, s_{_reg.upper()}) \\")
+    a("    /* end of list */")
+    a("")
     a("/* ---- runner state blob (mirrored by ipu_etiss_layout.STATE_FIELDS) ---- */")
     a('#define IPU_STATE_MAGIC "IPUSTATE"')
     a("#define IPU_STATE_VERSION 1")
@@ -420,11 +432,17 @@ def gen_ipu_header() -> str:
         cname, ctype, count = next(r for r in regs if r[0] == reg.upper())
         a(f"    {ctype} s_{cname}[{count}];")
     a("")
+    a("    /* end of the shadowed registers (see IPU_SHADOW_FIELDS) */")
+    a("")
     a("    /* configuration (emulator-only knobs, not part of the ISA) */")
     a("    etiss_uint32 dtype;       /* DType: 0 = INT8, 1..7 = FP8 exponent bits */")
     a("    double       elu_alpha;")
     a("    etiss_uint32 break_mode;")
     a("    etiss_uint64 max_cycles;  /* 0 = unlimited */")
+    a("    /* Wide-vector debug mode: 4-byte lanes instead of 1 (emulator only). */")
+    a("    etiss_uint32 wide_vector_debug;")
+    a("    etiss_uint32 wide_vector_arithmetic; /* 0 = FP32, 1 = INT32 */")
+    a("    etiss_uint32 wide_vector_quantize_output;")
     a("")
     a("    /* run statistics (mirror ipu_emu.stats.RunStats) */")
     a("    etiss_uint64 cycles;")
@@ -465,6 +483,8 @@ _ERROR_CODES = (
     "REGISTER_INDEX_RANGE",
     "ACC_STRIDE_RANGE",
     "ACTIVATION_OVERFLOW",
+    "FLOAT_LANE_OVERFLOW",
+    "CYCLIC_ALIGNMENT",
     "LR_CONFLICT",
     "MAX_CYCLES",
 )
@@ -511,8 +531,7 @@ def gen_funcs_header() -> str:
                 continue
             ops = _operands_for(slot, instruction_name)
             args = ["IPU *cpu", "ETISS_System *system"]
-            args += [f"{op.c_type}{op.name}" if op.c_type.endswith("*")
-                     else f"{op.c_type} {op.name}" for op in ops]
+            args += [f"{op.c_type} {op.name}" for op in ops]
             ret = "int" if slot == "break" else "void"
             a(f"{ret} {_handler_name(spec['execute_fn'])}({', '.join(args)});")
         a("")

@@ -20,7 +20,7 @@ from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.etiss import EtissRunner, is_available
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
 from etiss_corpus import CASES, Case, UNCOVERED_OK
@@ -40,13 +40,19 @@ _MAX_CYCLES = 200_000
 
 #: Registers compared after a run, by their name in the register file.
 _COMPARED_REGISTERS = (
-    "r", "r_cyclic", "r_mask", "r_acc", "post_aaq_reg", "lr", "cr",
-    "mult_res", "mem_bypass",
+    "r", "r_wide_debug", "r_cyclic", "r_cyclic_wide_debug", "r_mask", "r_acc",
+    "post_aaq_reg", "lr", "cr", "mult_res", "mem_bypass",
 )
 
 
 def _build_state(case: Case) -> IpuState:
-    state = IpuState(dtype=_DTYPES[case.dtype], elu_alpha=case.elu_alpha)
+    state = IpuState(
+        dtype=_DTYPES[case.dtype],
+        elu_alpha=case.elu_alpha,
+        wide_vector_debug=case.wide,
+        wide_vector_arithmetic=WideVectorArithmetic(case.wide_arith),
+        wide_vector_quantize_output=case.wide_quantize,
+    )
     for idx, value in case.cr.items():
         state.regfile.set_cr(idx, value)
     for addr, data in case.xmem.items():

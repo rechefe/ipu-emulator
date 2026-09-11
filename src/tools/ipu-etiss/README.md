@@ -88,13 +88,12 @@ is a candidate to send upstream.
 
 ## Scope
 
-Implemented: the complete ISA in the narrow (INT8 / FP8) datapath — every
-instruction in `INSTRUCTION_SPEC`, the multiply masking and partition vectors,
-`ACC.STRIDE` / `ACC.RESHAPE` / the `AGG` reductions, all 12 activations, and
-`RunStats`.
+Implemented: the complete ISA — every instruction in `INSTRUCTION_SPEC`, the
+multiply masking and partition vectors, `ACC.STRIDE` / `ACC.RESHAPE` / the
+`AGG` reductions, all 12 activations, and `RunStats`.
 
-Not implemented: **wide-vector debug mode** (`IpuState(wide_vector_debug=True)`,
-4-byte lanes). It is an emulator-only analysis feature with no hardware
-counterpart, so the ETISS backend rejects it with a clear error rather than
-approximating it. The softmax applications use that mode and therefore run on
-the Python backend only.
+**Wide-vector debug mode** (`IpuState(wide_vector_debug=True)`) is implemented
+too: 4-byte lanes, the `*_wide_debug` mult-stage registers, 512-byte XMEM rows,
+and lane arithmetic taken from `wide_vector_arithmetic` (FP32 or INT32) rather
+than `dtype`. The softmax applications run on this backend and produce
+bit-identical results.

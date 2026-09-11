@@ -238,7 +238,7 @@ spec entry, `execute_*` in `ipu.py`, **and** `ipu_<name>()` in
 `ipu-emu-py/test/etiss_corpus.py` too — a test asserts every instruction has
 cross-backend coverage.
 
-Wide-vector debug mode is Python-only; the ETISS backend rejects it.
+Both datapaths are supported: narrow (INT8/FP8) and wide-vector debug mode.
 
 ## Key Things to Remember
 

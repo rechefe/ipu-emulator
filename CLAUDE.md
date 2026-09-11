@@ -34,8 +34,8 @@ Use `bazel`, not `pip install` or `python` directly.
 native ETISS backend (`src/tools/ipu-etiss/`, 10x+ faster on long runs):
 `run_test(..., backend="etiss")`, `IpuApp.run(backend="etiss")`, or
 `$IPU_EMU_BACKEND`. Build it with `src/tools/ipu-etiss/build_etiss.sh` and set
-`$IPU_ETISS_RUN`; the parity tests skip without it. Wide-vector debug mode is
-Python-only and the ETISS backend rejects it.
+`$IPU_ETISS_RUN`; the parity tests skip without it. Both datapaths are
+supported, narrow (INT8/FP8) and wide-vector debug mode.
 
 ## Project Knowledge
 

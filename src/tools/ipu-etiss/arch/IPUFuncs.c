@@ -6,8 +6,11 @@
  * generated from ``INSTRUCTION_SPEC`` into ``IPUFuncs_gen.h``, so a handler
  * that is missing or misnamed fails to link.
  *
- * Not ported: wide-vector debug mode (``wide_vector_debug``), which is an
- * emulator-only analysis feature -- see the ETISS integration spec.
+ * Wide-vector debug mode (``wide_vector_debug``) is supported too: lanes become
+ * 4 bytes wide (float32 or int32 depending on ``wide_vector_arithmetic``), the
+ * mult-stage registers move to their ``*_wide_debug`` counterparts, and an XMEM
+ * row grows from 128 to 512 bytes.  It is an emulator-only analysis mode with
+ * no hardware counterpart, so it lives behind the same flag as in Python.
  *
  * Numeric parity with Python rests on ``ipu_math.c`` / ``ipu_activations.c``
  * (both verified bit-exact against the Python modules) plus two rules kept
@@ -84,12 +87,11 @@ void ipu_raise(IPU *c, etiss_uint32 code, etiss_uint64 detail)
 
 void ipu_snapshot(IPU *c)
 {
-    memcpy(c->s_LR, c->LR, sizeof(c->LR));
-    memcpy(c->s_CR, c->CR, sizeof(c->CR));
-    memcpy(c->s_R, c->R, sizeof(c->R));
-    memcpy(c->s_R_CYCLIC, c->R_CYCLIC, sizeof(c->R_CYCLIC));
-    memcpy(c->s_R_ACC, c->R_ACC, sizeof(c->R_ACC));
-    memcpy(c->s_MULT_RES, c->MULT_RES, sizeof(c->MULT_RES));
+    /* Driven by the generated field list rather than a hand-written one: a
+     * register that gains a snapshot reader is shadowed automatically. */
+#define IPU_COPY_SHADOW(live, shadow) memcpy(c->shadow, c->live, sizeof(c->live));
+    IPU_SHADOW_FIELDS(IPU_COPY_SHADOW)
+#undef IPU_COPY_SHADOW
 }
 
 /* Every handler is a no-op once an error has been raised, so the first
@@ -105,8 +107,66 @@ void ipu_snapshot(IPU *c)
 /* Lane helpers                                                              */
 /* ------------------------------------------------------------------------ */
 
-/* True when MULT_RES / R_ACC lanes hold float32 rather than int32. */
-static int lanes_are_float(const IPU *c) { return c->dtype != IPU_DTYPE_INT8; }
+/* ---- mode ---------------------------------------------------------------- */
+
+static int wide(const IPU *c) { return c->wide_vector_debug != 0; }
+
+static int wide_fp32(const IPU *c)
+{
+    return c->wide_vector_arithmetic == IPU_WIDE_ARITH_FP32;
+}
+
+/* Bytes per element: 1 narrow, 4 in wide-vector debug mode.  Every other
+ * mode-dependent size derives from this, as in Ipu._element_width_bytes. */
+static unsigned elem_bytes(const IPU *c)
+{
+    return wide(c) ? IPU_WIDE_ELEMENT_BYTES : IPU_NARROW_ELEMENT_BYTES;
+}
+
+static unsigned row_bytes(const IPU *c) { return IPU_LANES * elem_bytes(c); }
+
+/* True when MULT_RES / R_ACC lanes hold float rather than int32.
+ * Mirrors Ipu._lanes_are_float / _acc_agg_lane_fmt: in wide-vector mode the
+ * lane type comes from wide_vector_arithmetic, not from dtype. */
+static int lanes_are_float(const IPU *c)
+{
+    if (wide(c))
+        return wide_fp32(c);
+    return c->dtype != IPU_DTYPE_INT8;
+}
+
+/* Accumulator arithmetic, which follows the lane type rather than dtype once
+ * wide-vector mode is on (ipu.py takes a separate numpy path there). */
+static double acc_add_op(const IPU *c, double a, double b)
+{
+    if (wide(c))
+        return wide_fp32(c) ? a + b
+                            : (double)ipu_wrap_int32((double)((etiss_int64)a + (etiss_int64)b));
+    return ipu_add(a, b, (int)c->dtype);
+}
+
+static double acc_sub_op(const IPU *c, double a, double b)
+{
+    if (wide(c))
+        return wide_fp32(c) ? a - b
+                            : (double)ipu_wrap_int32((double)((etiss_int64)a - (etiss_int64)b));
+    return ipu_sub(a, b, (int)c->dtype);
+}
+
+/* One multiply of two lane values in wide-vector mode.
+ *
+ * The INT32 product needs up to 62 bits, which a double cannot hold exactly,
+ * so it is done in int64 -- Python multiplies int64 numpy lanes and wraps the
+ * result, and going through a double would silently round the low bits away. */
+static double wide_mult(const IPU *c, double a, double b)
+{
+    if (wide_fp32(c))
+        return a * b;
+    {
+        etiss_int64 product = (etiss_int64)a * (etiss_int64)b;
+        return (double)(etiss_int32)((etiss_uint32)((etiss_uint64)product & 0xFFFFFFFFu));
+    }
+}
 
 static double lane_load(const etiss_uint8 *buf, unsigned i, int is_float)
 {
@@ -123,11 +183,29 @@ static double lane_load(const etiss_uint8 *buf, unsigned i, int is_float)
     }
 }
 
-static void lane_store(etiss_uint8 *buf, unsigned i, double value, int is_float)
+/* Stores need the CPU to report an overflow, so they take it. */
+static void lane_store_c(IPU *c, etiss_uint8 *buf, unsigned i, double value, int is_float)
 {
     if (is_float)
     {
         float f = (float)value;
+        /* struct.pack("<f", x) raises when a finite double is too large for
+         * float32, where C quietly yields an infinity. */
+        if (isfinite(value) && !isfinite((double)f))
+        {
+            ipu_raise(c, IPU_ERR_FLOAT_LANE_OVERFLOW, (etiss_uint64)i);
+            return;
+        }
+        if (f != f)
+        {
+            /* Every NaN Python stores is quiet: it packs a double that the
+             * hardware quieted on the way in.  Match that so the bit patterns
+             * agree, not just the "is a NaN" property. */
+            etiss_uint32 bits;
+            memcpy(&bits, &f, 4);
+            bits |= 0x00400000u;
+            memcpy(&f, &bits, 4);
+        }
         memcpy(buf + (size_t)i * 4, &f, 4);
     }
     else
@@ -148,12 +226,20 @@ static void lane_store(etiss_uint8 *buf, unsigned i, double value, int is_float)
  * Mirrors Ipu._xmem_row_addr: rows are LANES elements, one byte each. */
 static int xmem_row_addr(IPU *c, etiss_uint64 row, etiss_uint64 *addr)
 {
-    if (row >= IPU_NARROW_MAX_ROW)
+    /* Narrow mode may address only the first 16384 rows (the first 2 MB of the
+     * 8 MB allocation); wide-vector rows are 4x larger and reach the whole
+     * allocation, which works out to the same row limit. */
+    if (!wide(c) && row >= IPU_NARROW_MAX_ROW)
     {
         ipu_raise(c, IPU_ERR_XMEM_ROW_RANGE, row);
         return -1;
     }
-    *addr = row * (etiss_uint64)IPU_XMEM_WIDTH;
+    *addr = row * (etiss_uint64)row_bytes(c);
+    if (*addr >= IPU_XMEM_SIZE)
+    {
+        ipu_raise(c, IPU_ERR_XMEM_ROW_RANGE, row);
+        return -1;
+    }
     return 0;
 }
 
@@ -191,9 +277,9 @@ static int xmem_write(IPU *c, ETISS_System *sys, etiss_uint64 addr, const etiss_
 /* R_CYCLIC wrapping access (RegFile's generated get_/set_r_cyclic_at)        */
 /* ------------------------------------------------------------------------ */
 
-static void cyclic_read(const etiss_uint8 *reg, etiss_uint64 start, etiss_uint8 *out, unsigned len)
+static void cyclic_read(const etiss_uint8 *reg, etiss_uint64 start, etiss_uint8 *out, unsigned len,
+                        unsigned sz)
 {
-    unsigned sz = IPU_R_CYCLIC_SIZE;
     unsigned s = (unsigned)(start % sz);
     if (s + len <= sz)
     {
@@ -207,9 +293,9 @@ static void cyclic_read(const etiss_uint8 *reg, etiss_uint64 start, etiss_uint8 
     }
 }
 
-static void cyclic_write(etiss_uint8 *reg, etiss_uint64 start, const etiss_uint8 *in, unsigned len)
+static void cyclic_write(etiss_uint8 *reg, etiss_uint64 start, const etiss_uint8 *in, unsigned len,
+                         unsigned sz)
 {
-    unsigned sz = IPU_R_CYCLIC_SIZE;
     unsigned s = (unsigned)(start % sz);
     if (s + len <= sz)
     {
@@ -221,6 +307,40 @@ static void cyclic_write(etiss_uint8 *reg, etiss_uint64 start, const etiss_uint8
         memcpy(reg + s, in, first);
         memcpy(reg, in + first, len - first);
     }
+}
+
+/* The mult-stage and cyclic registers a given mode reads and writes. */
+static etiss_uint8 *cyclic_reg(IPU *c)
+{
+    return wide(c) ? c->R_CYCLIC_WIDE_DEBUG : c->R_CYCLIC;
+}
+
+static const etiss_uint8 *cyclic_snap(const IPU *c)
+{
+    return wide(c) ? c->s_R_CYCLIC_WIDE_DEBUG : c->s_R_CYCLIC;
+}
+
+static unsigned cyclic_size(const IPU *c)
+{
+    return wide(c) ? IPU_R_CYCLIC_WIDE_DEBUG_SIZE : IPU_R_CYCLIC_SIZE;
+}
+
+static const etiss_uint8 *ra_snap(const IPU *c)
+{
+    return wide(c) ? c->s_R_WIDE_DEBUG : c->s_R;
+}
+
+/* One lane of the R0 ++ R1 pair, as Ipu._wide_ra_lane reads it. */
+static double wide_ra_lane(const IPU *c, unsigned idx)
+{
+    return lane_load(ra_snap(c), idx, wide_fp32(c));
+}
+
+/* The low byte of a CR as a signed int32 element; CR itself is never widened. */
+static double wide_cr_scalar(const IPU *c, etiss_uint32 cr_idx)
+{
+    unsigned b = c->CR[cr_idx] & 0xFF;
+    return (double)(b < 128 ? (int)b : (int)b - 256);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -375,25 +495,31 @@ void ipu_ldr_mult_reg(IPU *c, ETISS_System *sys, etiss_uint32 dest, etiss_uint32
     }
     if (xmem_row_addr(c, (etiss_uint64)offset + base, &addr) != 0)
         return;
-    xmem_read(c, sys, addr, c->R + (size_t)dest * IPU_R_SIZE, IPU_R_SIZE);
+    if (wide(c))
+        xmem_read(c, sys, addr, c->R_WIDE_DEBUG + (size_t)dest * IPU_R_WIDE_DEBUG_SIZE,
+                  IPU_R_WIDE_DEBUG_SIZE);
+    else
+        xmem_read(c, sys, addr, c->R + (size_t)dest * IPU_R_SIZE, IPU_R_SIZE);
 }
 
 void ipu_ldr_cyclic_mult_reg(IPU *c, ETISS_System *sys, etiss_uint32 offset, etiss_uint32 base, etiss_uint32 index)
 {
     etiss_uint64 addr;
-    etiss_uint8 row[IPU_R_SIZE];
+    etiss_uint8 row[IPU_LANES * IPU_WIDE_ELEMENT_BYTES];
     IPU_GUARD(c);
     if (xmem_row_addr(c, (etiss_uint64)offset + base, &addr) != 0)
         return;
-    /* Writes replace a whole slot, so the index must land on a boundary. */
+    /* Writes replace a whole slot, so the element index must land on one of
+     * the four narrow slot boundaries -- in both modes, as in Python. */
     if (index % IPU_R_SIZE != 0 || index >= IPU_R_CYCLIC_SIZE)
     {
         ipu_raise(c, IPU_ERR_CYCLIC_INDEX, index);
         return;
     }
-    if (xmem_read(c, sys, addr, row, IPU_R_SIZE) != 0)
+    if (xmem_read(c, sys, addr, row, row_bytes(c)) != 0)
         return;
-    cyclic_write(c->R_CYCLIC, index, row, IPU_R_SIZE);
+    cyclic_write(cyclic_reg(c), (etiss_uint64)index * elem_bytes(c), row, row_bytes(c),
+                 cyclic_size(c));
 }
 
 void ipu_ldr_mult_mask_reg(IPU *c, ETISS_System *sys, etiss_uint32 offset, etiss_uint32 base)
@@ -402,6 +528,8 @@ void ipu_ldr_mult_mask_reg(IPU *c, ETISS_System *sys, etiss_uint32 offset, etiss
     IPU_GUARD(c);
     if (xmem_row_addr(c, (etiss_uint64)offset + base, &addr) != 0)
         return;
+    /* The mask is one bit per element and does not scale with element width,
+     * so only the leading R_MASK_SIZE bytes of the row are read in both modes. */
     xmem_read(c, sys, addr, c->R_MASK, IPU_R_MASK_SIZE);
 }
 
@@ -516,95 +644,146 @@ void ipu_addbi(IPU *c, ETISS_System *sys, etiss_uint32 dest, etiss_uint32 imm)
 /* ======================================================================== */
 
 /* MULT.RC.VE's `src`: an LR holds an index into Ra (R0 ++ R1), a CR holds the
- * scalar in its low byte.  Mirrors Ipu._mult_resolve_lcr_scalar. */
-static etiss_uint8 mult_resolve_lcr_scalar(IPU *c, etiss_uint32 src)
+ * scalar in its low byte.  Mirrors Ipu._mult_resolve_lcr_scalar and its
+ * wide-vector counterpart. */
+static double mult_resolve_lcr_scalar(IPU *c, etiss_uint32 src)
 {
     if (src < IPU_LR_COUNT)
     {
         /* The LR index is read LIVE; only the Ra *data* comes from the
          * snapshot, so a same-cycle LDR_MULT_REG is not yet visible. */
-        etiss_uint32 idx = c->LR[src] % (2u * IPU_R_SIZE);
-        return c->s_R[idx];
+        if (wide(c))
+            return wide_ra_lane(c, c->LR[src] % (2u * IPU_LANES));
+        return (double)c->s_R[c->LR[src] % (2u * IPU_R_SIZE)];
     }
-    return (etiss_uint8)(c->CR[src - IPU_LR_COUNT] & 0xFF);
+    if (wide(c))
+        return wide_cr_scalar(c, src - IPU_LR_COUNT);
+    return (double)(etiss_uint8)(c->CR[src - IPU_LR_COUNT] & 0xFF);
 }
 
-void ipu_mult_rc_vv(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, const etiss_uint8 *ra, etiss_uint32 mask_offset,
-                    etiss_uint32 mask_shift, etiss_uint32 cr_idx)
+/* Read one element of Ra (the R0 ++ R1 pair) for the multiply. */
+static double ra_element(const IPU *c, unsigned index)
 {
-    etiss_uint8 rc[IPU_R_SIZE];
+    if (wide(c))
+        return wide_ra_lane(c, index % (2u * IPU_LANES));
+    return (double)c->s_R[index % (2u * IPU_R_SIZE)];
+}
+
+/* Multiply two Ra/Rc elements under the active mode's arithmetic. */
+static double mult_elements(const IPU *c, double a, double b)
+{
+    if (wide(c))
+        return wide_mult(c, a, b);
+    return ipu_mult((etiss_uint8)a, (etiss_uint8)b, (int)c->dtype);
+}
+
+/* Load one cyclic row (Rc) from the cycle-start snapshot into lane values. */
+static void read_rc_lanes(const IPU *c, etiss_uint32 rc_idx, double *out)
+{
+    etiss_uint8 buf[IPU_LANES * IPU_WIDE_ELEMENT_BYTES];
+    unsigned i;
+    /* The operand indexes r_cyclic in ELEMENTS, so it scales with the mode's
+     * element width -- reads and writes of that register share one unit. */
+    cyclic_read(cyclic_snap(c), (etiss_uint64)rc_idx * elem_bytes(c), buf, row_bytes(c),
+                cyclic_size(c));
+    if (wide(c))
+    {
+        for (i = 0; i < IPU_LANES; ++i)
+            out[i] = lane_load(buf, i, wide_fp32(c));
+    }
+    else
+    {
+        for (i = 0; i < IPU_LANES; ++i)
+            out[i] = (double)buf[i];
+    }
+}
+
+void ipu_mult_rc_vv(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, etiss_uint32 ra,
+                    etiss_uint32 mask_offset, etiss_uint32 mask_shift, etiss_uint32 cr_idx)
+{
+    double rc[IPU_LANES];
     int is_float;
     unsigned i;
     IPU_GUARD(c);
+    if (ra > 1)
+    {
+        ipu_raise(c, IPU_ERR_MULT_STAGE_OPERAND, ra);
+        return;
+    }
     is_float = lanes_are_float(c);
-    cyclic_read(c->s_R_CYCLIC, rc_idx, rc, IPU_R_SIZE);
+    read_rc_lanes(c, rc_idx, rc);
     for (i = 0; i < IPU_LANES; ++i)
-        lane_store(c->MULT_RES, i, ipu_mult(rc[i], ra[i], (int)c->dtype), is_float);
+        lane_store_c(c, c->MULT_RES, i,
+                     mult_elements(c, rc[i], ra_element(c, ra * IPU_LANES + i)), is_float);
     mult_mask_and_shift(c, sys, mask_offset, mask_shift, c->CR[cr_idx]);
 }
 
-void ipu_mult_rc_ve(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, etiss_uint32 src, etiss_uint32 mask_offset,
-                    etiss_uint32 mask_shift, etiss_uint32 cr_idx)
+void ipu_mult_rc_ve(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, etiss_uint32 src,
+                    etiss_uint32 mask_offset, etiss_uint32 mask_shift, etiss_uint32 cr_idx)
 {
-    etiss_uint8 rc[IPU_R_SIZE];
-    etiss_uint8 scalar;
+    double rc[IPU_LANES];
+    double scalar;
     int is_float;
     unsigned i;
     IPU_GUARD(c);
     is_float = lanes_are_float(c);
     scalar = mult_resolve_lcr_scalar(c, src);
-    cyclic_read(c->s_R_CYCLIC, rc_idx, rc, IPU_R_SIZE);
+    read_rc_lanes(c, rc_idx, rc);
     for (i = 0; i < IPU_LANES; ++i)
-        lane_store(c->MULT_RES, i, ipu_mult(rc[i], scalar, (int)c->dtype), is_float);
+        lane_store_c(c, c->MULT_RES, i, mult_elements(c, rc[i], scalar), is_float);
     mult_mask_and_shift(c, sys, mask_offset, mask_shift, c->CR[cr_idx]);
 }
 
-void ipu_mult_rc_vs(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, etiss_uint32 mask_offset, etiss_uint32 mask_shift,
-                    etiss_uint32 cr_idx)
+void ipu_mult_rc_vs(IPU *c, ETISS_System *sys, etiss_uint32 rc_idx, etiss_uint32 mask_offset,
+                    etiss_uint32 mask_shift, etiss_uint32 cr_idx)
 {
-    etiss_uint8 rc[IPU_R_SIZE];
+    double rc[IPU_LANES];
     int is_float;
     unsigned i;
     IPU_GUARD(c);
     is_float = lanes_are_float(c);
-    cyclic_read(c->s_R_CYCLIC, rc_idx, rc, IPU_R_SIZE);
+    read_rc_lanes(c, rc_idx, rc);
     for (i = 0; i < IPU_LANES; ++i)
-        lane_store(c->MULT_RES, i, ipu_mult(rc[i], rc[i], (int)c->dtype), is_float);
+        lane_store_c(c, c->MULT_RES, i, mult_elements(c, rc[i], rc[i]), is_float);
     mult_mask_and_shift(c, sys, mask_offset, mask_shift, c->CR[cr_idx]);
 }
 
-void ipu_mult_ve(IPU *c, ETISS_System *sys, etiss_uint32 ra_idx, etiss_uint32 cr_idx, etiss_uint32 mask_offset,
-                 etiss_uint32 mask_shift, etiss_uint32 dstructure_cr_idx)
+/* The CR scalar the vector multiplies against. */
+static double mult_cr_scalar(const IPU *c, etiss_uint32 cr_idx)
 {
-    etiss_uint8 scalar;
+    if (wide(c))
+        return wide_cr_scalar(c, cr_idx);
+    return (double)(etiss_uint8)(c->CR[cr_idx] & 0xFF);
+}
+
+void ipu_mult_ve(IPU *c, ETISS_System *sys, etiss_uint32 ra_idx, etiss_uint32 cr_idx,
+                 etiss_uint32 mask_offset, etiss_uint32 mask_shift, etiss_uint32 dstructure_cr_idx)
+{
+    double scalar;
     int is_float;
     unsigned i;
     IPU_GUARD(c);
     is_float = lanes_are_float(c);
-    scalar = (etiss_uint8)(c->CR[cr_idx] & 0xFF);
+    scalar = mult_cr_scalar(c, cr_idx);
+    /* Ra is the R0 ++ R1 pair read as one rotating window. */
     for (i = 0; i < IPU_LANES; ++i)
-    {
-        /* Ra is the R0 ++ R1 pair read as one 256-byte cyclic window. */
-        etiss_uint32 pos = (ra_idx + i) % (2u * IPU_R_SIZE);
-        lane_store(c->MULT_RES, i, ipu_mult(c->s_R[pos], scalar, (int)c->dtype), is_float);
-    }
+        lane_store_c(c, c->MULT_RES, i, mult_elements(c, ra_element(c, ra_idx + i), scalar),
+                     is_float);
     mult_mask_and_shift(c, sys, mask_offset, mask_shift, c->CR[dstructure_cr_idx]);
 }
 
-void ipu_mult_ee(IPU *c, ETISS_System *sys, etiss_uint32 ra_idx, etiss_uint32 cr_idx, etiss_uint32 mask_offset,
-                 etiss_uint32 mask_shift, etiss_uint32 dstructure_cr_idx)
+void ipu_mult_ee(IPU *c, ETISS_System *sys, etiss_uint32 ra_idx, etiss_uint32 cr_idx,
+                 etiss_uint32 mask_offset, etiss_uint32 mask_shift, etiss_uint32 dstructure_cr_idx)
 {
-    etiss_uint8 scalar, ra_byte;
     double result;
     int is_float;
     unsigned i;
     IPU_GUARD(c);
     is_float = lanes_are_float(c);
-    scalar = (etiss_uint8)(c->CR[cr_idx] & 0xFF);
-    ra_byte = c->s_R[ra_idx % (2u * IPU_R_SIZE)];
-    result = ipu_mult(ra_byte, scalar, (int)c->dtype); /* one product, broadcast */
+    /* One product, broadcast to every lane. */
+    result = mult_elements(c, ra_element(c, ra_idx), mult_cr_scalar(c, cr_idx));
     for (i = 0; i < IPU_LANES; ++i)
-        lane_store(c->MULT_RES, i, result, is_float);
+        lane_store_c(c, c->MULT_RES, i, result, is_float);
     mult_mask_and_shift(c, sys, mask_offset, mask_shift, c->CR[dstructure_cr_idx]);
 }
 
@@ -614,7 +793,12 @@ void ipu_mult_ee(IPU *c, ETISS_System *sys, etiss_uint32 ra_idx, etiss_uint32 cr
 
 static void store_mult_res_row_in_acc(IPU *c)
 {
-    memcpy(c->R_ACC, c->MULT_RES, IPU_R_ACC_SIZE);
+    /* ipu.py round-trips this through struct unpack/pack rather than copying
+     * bytes, which matters for NaN payloads and for the overflow check. */
+    const int is_float = lanes_are_float(c);
+    unsigned i;
+    for (i = 0; i < IPU_LANES; ++i)
+        lane_store_c(c, c->R_ACC, i, lane_load(c->MULT_RES, i, is_float), is_float);
 }
 
 void ipu_acc_add(IPU *c, ETISS_System *sys)
@@ -628,7 +812,7 @@ void ipu_acc_add(IPU *c, ETISS_System *sys)
     {
         double a = lane_load(c->s_R_ACC, i, is_float);
         double m = lane_load(c->MULT_RES, i, is_float);
-        lane_store(c->R_ACC, i, ipu_add(a, m, (int)c->dtype), is_float);
+        lane_store_c(c, c->R_ACC, i, acc_add_op(c, a, m), is_float);
     }
 }
 
@@ -652,7 +836,7 @@ void ipu_acc_max(IPU *c, ETISS_System *sys)
         double m = lane_load(c->MULT_RES, i, is_float);
         /* Python's max(a, m) returns m only when m > a, which is what makes
          * the NaN-carrying case differ from a naive fmax. */
-        lane_store(c->R_ACC, i, (m > a) ? m : a, is_float);
+        lane_store_c(c, c->R_ACC, i, (m > a) ? m : a, is_float);
     }
 }
 
@@ -674,7 +858,7 @@ void ipu_acc_sub(IPU *c, ETISS_System *sys)
     {
         double a = lane_load(c->s_R_ACC, i, is_float);
         double m = lane_load(c->MULT_RES, i, is_float);
-        lane_store(c->R_ACC, i, ipu_sub(a, m, (int)c->dtype), is_float);
+        lane_store_c(c, c->R_ACC, i, acc_sub_op(c, a, m), is_float);
     }
 }
 
@@ -689,7 +873,7 @@ void ipu_acc_sub_first(IPU *c, ETISS_System *sys)
     {
         /* 0 - x, not -x: for x = +0.0 that keeps the sign as Python does. */
         double m = lane_load(c->MULT_RES, i, is_float);
-        lane_store(c->R_ACC, i, ipu_sub(0.0, m, (int)c->dtype), is_float);
+        lane_store_c(c, c->R_ACC, i, acc_sub_op(c, 0.0, m), is_float);
     }
 }
 
@@ -774,7 +958,7 @@ void ipu_acc_stride(IPU *c, ETISS_System *sys, etiss_uint32 elements_in_row, eti
             ipu_raise(c, IPU_ERR_ACC_STRIDE_RANGE, dst);
             return;
         }
-        lane_store(c->R_ACC, dst, lane_load(c->MULT_RES, out_indices[i], is_float), is_float);
+        lane_store_c(c, c->R_ACC, dst, lane_load(c->MULT_RES, out_indices[i], is_float), is_float);
     }
 }
 
@@ -871,7 +1055,7 @@ void ipu_agg_sum_first(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_
     active = agg_active_lane_count(ds.valid_elements);
     result = agg_sum_lanes(c->MULT_RES, active, is_float);
     dest = dest_slot % (IPU_R_ACC_SIZE / 4);
-    lane_store(c->R_ACC, dest, result, is_float);
+    lane_store_c(c, c->R_ACC, dest, result, is_float);
 }
 
 void ipu_agg_sum(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_uint32 cr_idx)
@@ -895,7 +1079,7 @@ void ipu_agg_sum(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_uint32
         /* The partial is wrapped to int32 first, then added with wrap -- the
          * two-step rounding Python's _to_int32 + ipu_add(INT8) performs. */
         result = ipu_add((double)ipu_wrap_int32(partial), snap_dest, IPU_DTYPE_INT8);
-    lane_store(c->R_ACC, dest, result, is_float);
+    lane_store_c(c, c->R_ACC, dest, result, is_float);
 }
 
 void ipu_agg_max_first(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_uint32 cr_idx)
@@ -915,7 +1099,7 @@ void ipu_agg_max_first(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_
     seed = is_float ? -INFINITY : -2147483648.0;
     result = agg_max_lanes(c->MULT_RES, active, seed, is_float);
     dest = dest_slot % (IPU_R_ACC_SIZE / 4);
-    lane_store(c->R_ACC, dest, result, is_float);
+    lane_store_c(c, c->R_ACC, dest, result, is_float);
 }
 
 void ipu_agg_max(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_uint32 cr_idx)
@@ -932,20 +1116,48 @@ void ipu_agg_max(IPU *c, ETISS_System *sys, etiss_uint32 dest_slot, etiss_uint32
     active = agg_active_lane_count(ds.valid_elements);
     dest = dest_slot % (IPU_R_ACC_SIZE / 4);
     result = agg_max_lanes(c->MULT_RES, active, lane_load(c->s_R_ACC, dest, is_float), is_float);
-    lane_store(c->R_ACC, dest, result, is_float);
+    lane_store_c(c, c->R_ACC, dest, result, is_float);
 }
 
 /* ======================================================================== */
 /* AAQ slot                                                                 */
 /* ======================================================================== */
 
+/* Clamp an activation result to a byte, the way Python's
+ * max(-128, min(127, int(round(y)))) & 0xFF does. */
+static int quantize_byte(IPU *c, double y, unsigned lane)
+{
+    long q;
+    double r;
+    /* CPython's math.exp raises OverflowError when a finite input produces a
+     * result too large to represent, which reaches ACTIVATE through exp2; C's
+     * exp returns +inf instead.  int(round(...)) would also raise on a NaN or
+     * infinite result.  Raise so the two backends agree. */
+    if (!isfinite(y))
+    {
+        ipu_raise(c, IPU_ERR_ACTIVATION_OVERFLOW, (etiss_uint64)lane);
+        return 0;
+    }
+    /* Clamp in double first: Python clamps an arbitrary-precision int, while
+     * converting an out-of-range double to a C integer is undefined behaviour
+     * (in practice LONG_MIN, which clamps to -128 instead of +127). */
+    r = ipu_py_round(y);
+    if (r < -128.0)
+        return (int)((-128) & 0xFF);
+    if (r > 127.0)
+        return 127;
+    q = (long)r;
+    return (int)(q & 0xFF);
+}
+
 void ipu_activate_quantize(IPU *c, ETISS_System *sys, etiss_uint32 activation_fn, etiss_uint32 cr_idx)
 {
     DStructure ds;
     unsigned active, i;
+    int is_float;
     (void)sys;
     IPU_GUARD(c);
-    if (c->dtype != IPU_DTYPE_INT8)
+    if (!wide(c) && c->dtype != IPU_DTYPE_INT8)
     {
         ipu_raise(c, IPU_ERR_ACTIVATE_REQUIRES_INT8, c->dtype);
         return;
@@ -953,31 +1165,81 @@ void ipu_activate_quantize(IPU *c, ETISS_System *sys, etiss_uint32 activation_fn
     if (ipu_decode_dstructure(c, c->CR[cr_idx], &ds) != 0)
         return;
     active = agg_active_lane_count(ds.valid_elements);
+    is_float = lanes_are_float(c);
 
-    /* R_ACC is read live and left unmodified; POST_AAQ_REG is fully rewritten
-     * with the quantized bytes in front and zeros behind. */
+    if (wide(c))
+    {
+        /* Activation always applies; the activated 32-bit elements land in
+         * POST_AAQ_REG and the rest of the register is left alone. */
+        for (i = 0; i < active; ++i)
+        {
+            double raw = lane_load(c->R_ACC, i, is_float);
+            double y = ipu_apply_activation((int)activation_fn, raw, c->elu_alpha);
+            if (is_float)
+            {
+                lane_store_c(c, c->POST_AAQ_REG, i, y, 1);
+            }
+            else
+            {
+                double q;
+                if (!isfinite(y))
+                {
+                    ipu_raise(c, IPU_ERR_ACTIVATION_OVERFLOW, (etiss_uint64)i);
+                    return;
+                }
+                q = ipu_py_round(y);
+                if (q < -2147483648.0)
+                    q = -2147483648.0;
+                else if (q > 2147483647.0)
+                    q = 2147483647.0;
+                lane_store_c(c, c->POST_AAQ_REG, i, q, 0);
+            }
+            if (c->error_code)
+                return;
+        }
+
+        /* Quantization only happens on request, so the FP32 path can be
+         * compared against the real INT8 one. */
+        if (!c->wide_vector_quantize_output)
+            return;
+        {
+            etiss_uint8 result[IPU_R_MASK_SIZE];
+            memset(result, 0, sizeof(result));
+            for (i = 0; i < active; ++i)
+            {
+                double val = lane_load(c->POST_AAQ_REG, i, is_float);
+                if (is_float)
+                {
+                    result[i] = (etiss_uint8)quantize_byte(c, val, i);
+                    if (c->error_code)
+                        return;
+                }
+                else
+                {
+                    long q = (long)val;
+                    if (q < -128)
+                        q = -128;
+                    else if (q > 127)
+                        q = 127;
+                    result[i] = (etiss_uint8)(q & 0xFF);
+                }
+            }
+            memset(c->POST_AAQ_REG, 0, IPU_POST_AAQ_REG_SIZE);
+            memcpy(c->POST_AAQ_REG, result, sizeof(result));
+        }
+        return;
+    }
+
+    /* Narrow mode: R_ACC is read live and left unmodified; POST_AAQ_REG is
+     * fully rewritten with the quantized bytes in front and zeros behind. */
     memset(c->POST_AAQ_REG, 0, IPU_POST_AAQ_REG_SIZE);
     for (i = 0; i < active; ++i)
     {
         double raw = lane_load(c->R_ACC, i, 0);
         double y = ipu_apply_activation((int)activation_fn, raw, c->elu_alpha);
-        long q;
-        /* CPython's math.exp raises OverflowError when a finite input produces
-         * a result too large to represent, which reaches ACTIVATE through
-         * exp2; C's exp returns +inf instead.  Raise so the two backends agree.
-         * (Python's int(round(...)) would also raise on a NaN or infinite
-         * result, so this covers that too.) */
-        if (!isfinite(y))
-        {
-            ipu_raise(c, IPU_ERR_ACTIVATION_OVERFLOW, (etiss_uint64)i);
+        c->POST_AAQ_REG[i] = (etiss_uint8)quantize_byte(c, y, i);
+        if (c->error_code)
             return;
-        }
-        q = (long)ipu_py_round(y);
-        if (q < -128)
-            q = -128;
-        else if (q > 127)
-            q = 127;
-        c->POST_AAQ_REG[i] = (etiss_uint8)(q & 0xFF);
     }
 }
 

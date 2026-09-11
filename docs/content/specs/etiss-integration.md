@@ -1,16 +1,14 @@
 # ETISS Integration (Design Spec)
 
 !!! success "Status"
-    **Implemented for the narrow (INT8 / FP8) datapath.** The IPU is a native
-    ETISS architecture plugin: an ETISS `CPUCore` executes assembled IPU
-    programs directly, one VLIW word per ETISS instruction, JIT-compiled to C.
-    Every instruction in `INSTRUCTION_SPEC` is implemented and checked against
-    the Python emulator by differential tests that compare the whole machine
-    state. The Python emulator remains the reference implementation and the
-    default backend.
-
-    **Not implemented:** wide-vector debug mode (§2), which the backend rejects
-    with a clear error rather than approximating.
+    **Implemented.** The IPU is a native ETISS architecture plugin: an ETISS
+    `CPUCore` executes assembled IPU programs directly, one VLIW word per ETISS
+    instruction, JIT-compiled to C. Every instruction in `INSTRUCTION_SPEC` is
+    implemented, in **both** datapaths — the narrow INT8 / FP8 lanes and the
+    wide-vector debug mode's 4-byte lanes — and checked against the Python
+    emulator by differential tests that compare the whole machine state. The
+    Python emulator remains the reference implementation and the default
+    backend.
 
     Code lives in [`src/tools/ipu-etiss/`](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-etiss);
     see its `README.md` for build instructions. §11 records what each planned
@@ -58,8 +56,6 @@ of truth for decode tables and register layout.
 
 - Cycle-accurate timing of the IPU pipeline. ETISS is instruction-accurate;
   one VLIW word = one ETISS instruction = one IPU cycle, exactly like today.
-- Porting the **wide-vector debug mode** (`wide_vector_debug`, 4-byte lanes).
-  It is an emulator-only analysis feature and stays Python-only.
 - Replacing the Python emulator. It remains the reference and the fast path
   for ISA experiments; the ETISS backend is additive.
 - In-process Python bindings for ETISS (ETISS has none; `ETISS_USE_PYTHON`
@@ -154,7 +150,7 @@ flowchart LR
 | `dtype`, `elu_alpha`, `CR15` dstructure, `CR2`–`CR14` | ETISS config keys read by `resetCPU`/the runner: `ipu.dtype`, `ipu.elu_alpha`, `ipu.cr.N` (written into `struct IPU` and visible in `VirtualStruct`). |
 | `RunStats` (`mult_active_cycles`, `acc_active_cycles`, `xmem_reads`, `xmem_writes`, `total_cycles`) | Counters in `struct IPU` incremented by the helpers; `total_cycles` = ETISS instruction count. Dumped by the runner. |
 | `debug_cli` (`step`, `get lr0`, `save state.json`) | ETISS GDB server plugin for interactive stepping/inspection; runner `--dump-state` emits the same JSON schema as `state_to_json_dict`. |
-| Wide-vector debug mode | Not ported (Python-only). The runner rejects `wide_vector_debug=True`. |
+| Wide-vector debug mode | Ported. The three flags travel in the state blob; the C handlers switch to 4-byte lanes, the `*_wide_debug` registers and 512-byte XMEM rows, and take the lane type from `wide_vector_arithmetic` rather than `dtype`. |
 
 ## 6. Address Map
 
@@ -283,7 +279,7 @@ Issue drafts live in `planning/etiss-integration/`. What each step delivered:
 | 1 | Spike: minimal `IPU` ETISS arch executing a 224-bit program | **Done.** Answers recorded in §3 and §12; the one blocker (32-bit fetch truncation) is fixed by a patch. |
 | 2 | Build integration | **Partly done.** `src/tools/ipu-etiss/CMakeLists.txt` plus `build_etiss.sh` fetch, patch and build ETISS and the plugin reproducibly. Bazel gained a `gen-etiss` generator target and both parity-test targets; fetching the ETISS toolchain *through* Bazel (`rules_foreign_cc`) is still open. |
 | 3 | `gen_etiss.py`: struct, layout and decode from the spec | **Done.** `ipu_as/gen_etiss.py` emits `IPU_gen.h`, `IPUFuncs_gen.h`, `IPUDecode_gen.cpp` and `ipu_etiss_layout.py`. |
-| 4 | Port instruction semantics and numerics | **Done** for the narrow datapath: `arch/IPUFuncs.c`, `runtime/ipu_math.c`, `runtime/ipu_activations.c`. |
+| 4 | Port instruction semantics and numerics | **Done** for both datapaths: `arch/IPUFuncs.c`, `runtime/ipu_math.c`, `runtime/ipu_activations.c`. |
 | 5 | Python backend and differential tests | **Done.** `run_test(backend="etiss")`, `IpuApp.run(backend=...)`, `$IPU_EMU_BACKEND`, and two parity suites. |
 | 6 | Debug, stats, tracing, documentation | **Partly done.** `RunStats` and the register file round-trip through the runner and registers are exposed through `VirtualStruct` (so ETISS's GDB stub can see them); a GDB workflow and trace docs are still open. |
 | 7 | Host virtual platform on ETISS | Not started (follow-up). |
@@ -298,6 +294,7 @@ the program counter, the cycle count and every `RunStats` counter.
 | Instruction corpus (`test_etiss_parity.py`) | 35 programs, every instruction in `INSTRUCTION_SPEC` covered, all identical |
 | FP8 codec and activations (`runtime/test`) | 413,510 cases, bit-exact |
 | `fully_connected`, INT8 / FP8 E4M3 / FP8 E5M2 | identical state and cycle count; output matches the golden files |
+| `softmax_rows` (wide-vector FP32) | identical state and cycle count; output matches a numpy softmax |
 | Randomised words (`test_etiss_fuzz.py`) | 480 programs per run over 3 data types, valid and malformed encodings, all agreeing |
 | Throughput, 201k-cycle loop (load + multiply + accumulate + 2 LR ops + branch per cycle) | Python 8k cycles/s, ETISS 100k cycles/s — **12.7x** |
 
@@ -346,6 +343,29 @@ encodings the assembler cannot produce but a hand-written binary can:
 The first two were memory-safety bugs, not just parity bugs. They are the
 argument for fuzzing a hand-written port rather than trusting a curated corpus.
 
+Adding wide-vector mode surfaced more, all found the same way:
+
+- **The shadow copy was hand-written.** `ipu_snapshot` was a list of `memcpy`
+  calls, so the two new `*_wide_debug` registers were never shadowed and every
+  wide multiply read zeros. The shadow list is now generated into `IPU_gen.h`
+  as an X-macro that `ipu_snapshot` expands, so a register that gains a
+  snapshot reader is copied automatically.
+- **A 62-bit product through a `double`.** Wide INT32 lanes multiply two
+  int32 values, which needs up to 62 bits — more than a `double`'s 53-bit
+  mantissa. Python multiplies int64 numpy lanes and wraps; the C port went
+  through `double` and silently rounded the low bits away. It now multiplies
+  in `int64`.
+- **An out-of-range `double` to `long` conversion.** `ACTIVATE.QUANTIZE`
+  converted the activation result before clamping it. Converting a `double`
+  larger than `LONG_MAX` is undefined in C and in practice yields `LONG_MIN`,
+  so a large positive activation clamped to −128 where Python gives +127. The
+  clamp now happens in `double`.
+- **Signalling NaNs.** Every NaN Python stores in a float lane is quiet,
+  because it packs a `double` the hardware already quieted. Two C paths could
+  leave a signalling NaN in place — a raw row copy in `ACC.*.FIRST`, which
+  Python performs as an unpack/pack round trip, and the lane store itself.
+  Both now match.
+
 Two ordering rules also came out of matching the Python dispatcher exactly: the
 three LR sub-instructions resolve and conflict-check before *any* of them
 executes, and a fault aborts the cycle before the program counter or the cycle
@@ -354,6 +374,4 @@ counter moves.
 Open:
 
 1. Fetching and building ETISS through Bazel instead of `build_etiss.sh`.
-2. Whether to port wide-vector debug mode, which would let the softmax
-   applications run on this backend.
-3. Sending the wide-instruction fetch patch upstream.
+2. Sending the wide-instruction fetch patch upstream.
