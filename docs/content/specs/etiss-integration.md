@@ -296,11 +296,13 @@ the program counter, the cycle count and every `RunStats` counter.
 | `fully_connected`, INT8 / FP8 E4M3 / FP8 E5M2 | identical state and cycle count; output matches the golden files |
 | `softmax_rows` (wide-vector FP32) | identical state and cycle count; output matches a numpy softmax |
 | Randomised words (`test_etiss_fuzz.py`) | 480 programs per run over 3 data types, valid and malformed encodings, all agreeing |
-| Throughput, 201k-cycle loop (load + multiply + accumulate + 2 LR ops + branch per cycle) | Python 8k cycles/s, ETISS 100k cycles/s — **12.7x** |
+| Throughput, 201k-cycle loop (load + multiply + accumulate + 2 LR ops + branch per cycle) | Python 8k cycles/s, ETISS 86k cycles/s — **10.8x** |
 
-The speed-up only shows on runs long enough to amortise process start and JIT
-compilation; below roughly ten thousand cycles the Python emulator is faster,
-which is why it stays the default backend.
+The speed-up only shows on runs long enough to amortise process start, JIT
+compilation and the 8 MB XMEM round trip; below roughly ten thousand cycles the
+Python emulator is faster, which is why it stays the default backend. A
+512-row `softmax_rows` run, for instance, is only 9,283 cycles and finishes
+faster in Python even though both produce byte-identical memory.
 
 ## 12. Risks and Open Questions
 
