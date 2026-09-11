@@ -89,3 +89,42 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Differential test against the ETISS backend. Skips unless $IPU_ETISS_RUN
+# points at a built ipu_etiss_run (see src/tools/ipu-etiss/README.md); the
+# ETISS toolchain is not yet fetched by Bazel.
+py_pytest_test(
+    name = "test_etiss_parity",
+    srcs = [
+        "test/etiss_corpus.py",
+        "test/test_etiss_parity.py",
+    ],
+    imports = [
+        "src",
+        "test",
+    ],
+    tags = ["etiss"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Randomised differential test (valid and malformed encodings). Skips unless
+# $IPU_ETISS_RUN is set. Slower than the corpus, so it carries its own tag.
+py_pytest_test(
+    name = "test_etiss_fuzz",
+    srcs = ["test/test_etiss_fuzz.py"],
+    imports = [
+        "src",
+        "test",
+    ],
+    tags = [
+        "etiss",
+        "slow",
+    ],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
