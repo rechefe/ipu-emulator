@@ -5,25 +5,24 @@
 The AaQ (Activation and Quantization) stage applies element-wise activation
 and special functions to the 128-element accumulator, quantizes the
 128-element vector into an 8-bit vector, and **writes the result to external
-memory (XMEM) itself** — there is no separate Store stage. It produces:
+memory (XMEM) It produces:
 
 - A 128-element vector of 8-bit quantized values.
 - A scale factor.
 - A format field.
 
-The stage also owns the activation **LUT**, which is filled by the `LOAD`
+The stage also owns the function estimation **LUT**, which is filled by the `LOAD`
 instruction (section 6.3).
 
 ## 2. Block Diagram
 
 ```mermaid
 flowchart LR
-    mult_stage:::blue
     acc_stage:::blue
     ACC(["r_acc 128x32bit"]):::yellow
     WADDR(["write_addr"]):::yellow
-    XMEM(["XMEM write<br>Memory[write_addr] =<br>128x8bit elements | 8bit scale | 7bit format"]):::red
-    LUT["LUT<br>128x17bit<br>+ 75b metadata"]:::teal
+    XMEM(["XMEM write<br>Memory[write_addr] =<br>128x8bit elements | 8bit scale | 8bit format"]):::red
+    LUT["LUT<br>256x17bit<br>+ 75b metadata"]:::teal
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
 
@@ -33,8 +32,8 @@ flowchart LR
     ACT -->|128x32| QUANT
     QUANT -->|128x8 + scale + format| XMEM
     WADDR --> XMEM
-    mult_stage --> |128x32| acc_stage
     acc_stage --> |128x32| ACC
+    acc_stage --> WADDR
 
     subgraph LEGEND["Legend"]
         L_blue["Stages"]:::blue
@@ -62,7 +61,7 @@ flowchart LR
     function_type  ─────>│                                      ├────> XMEM write
          lut_addr  ─────>│             AaQ Stage                │      Memory[write_addr] =
    valid_elements  ─────>│                                      │      [128×8b elements | 8b scale
-        partition  ─────>│                                      │       | 7b format]
+        partition  ─────>│                                      │       | 8b format]
    partition_mask  ─────>│                                      │
            format  ─────>│                                      │
         quan_mode  ─────>│                                      │
@@ -85,7 +84,7 @@ flowchart LR
 | `valid_elements` | `input logic [7:0]` | Number of valid elements in `r_acc`, range `0`–`128`. 8 bits are required because `128` is not representable in 7. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
 | `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their output elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
-| `format` | `input logic [6:0]` | Output element format. See section 3.3. |
+| `format` | `input logic [7:0]` | Output element format. See section 3.3. |
 | `quan_mode` | `input logic` | Scale-factor mode: `1` = dynamic, `0` = static. |
 | `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). The stage writes to this address directly. |
 
@@ -94,47 +93,47 @@ flowchart LR
 ### 3.2 Output
 
 AaQ performs the XMEM write itself. On `ACTIVATE.QUANTIZE` (and only on that
-opcode — see section 4) the stage drives a single 1039-bit write to
+opcode — see section 4) the stage drives a single 1040-bit write to
 `Memory[write_addr]`:
 
 | Field | Width | Description |
 |-------|-------|-------------|
 | `elements` | 128 × 8 = 1024 bits | 128 quantized elements, 8 bits each (section 5.1). |
 | `scale` | 8 bits | Batch scale factor, `e8m0` (section 5.1). |
-| `format` | 7 bits | Passed through unchanged from the `format` input (section 3.3). |
+| `format` | 8 bits | Passed through unchanged from the `format` input (section 3.3). |
 
-Total write payload: 1024 + 8 + 7 = **1039 bits**, to address `write_addr`.
+Total write payload: 1024 + 8 + 8 = **1040 bits**, to address `write_addr`.
 
 `aaq_out` is used below as the pseudocode name for this bundle; the concrete
 storage/register implementation is left to the designer.
 
 ### 3.3 `format` Field Layout
 
-`format` is 7 bits:
+`format` is 8 bits:
 
 | Bits | Name | Description |
 |------|------|-------------|
-| `[6]` | `sign` | `0` = unsigned, `1` = signed. |
-| `[5:3]` | `exp_bits` (`fe`) | Number of exponent bits, `0`–`7`. |
-| `[2:0]` | `width` | Total element width, encoded as `width - 1`; field value `0`–`7` means a total width `W` of `1`–`8` bits. |
+| `[7]` | `sign` | `0` = unsigned, `1` = signed. |
+| `[6:4]` | `exp_bits` (`fe`) | Number of exponent bits, `0`–`7`. |
+| `[3:0]` | `width` | Total element width `W`, stored directly (no offset): value `1`–`8`. `0` is reserved/invalid. |
 
 The mantissa is **the remainder** — what is left of the element width once the
 sign and exponent bits are taken out:
 
 ```text
-sign_bit = format[6]                 // 0 or 1
-fe       = format[5:3]               // exponent bits
-W        = format[2:0] + 1           // total element width, 1..8 bits
+sign_bit = format[7]                 // 0 or 1
+fe       = format[6:4]               // exponent bits
+W        = format[3:0]               // total element width, 1..8 bits (stored directly)
 fm       = W - fe - sign_bit         // mantissa bits (the leftover)
 ```
 
 `fm` must be `>= 0`, i.e. `W >= fe + sign_bit`; encodings that violate this are
 invalid. `fm = 0` is legal (no mantissa bits). `W <= 8` always, so a quantized
 element always fits in its 8-bit output slot; when `W < 8` the unused
-high-order bits are zero-padded.
+low-order bits are zero-padded.
 
 Example: signed, 2 exponent bits, 8-bit width (`e2m5`) is
-`format = {1, 3'd2, 3'd7}` → `fm = 8 - 2 - 1 = 5`.
+`format = {1, 3'd2, 4'd8}` → `fm = 8 - 2 - 1 = 5`.
 
 ## 4. Disclaimers
 
@@ -151,47 +150,67 @@ Activation and quantization happen in a single instruction; there is no
 separate activate-only or quantize-only instruction. It applies an
 element-wise activation function to every element of `r_acc`.
 
-The function is selected via `function_type` and applied directly to the
-FP32 elements. Functions besides `relu`,
-`relu6`, and `identity` are loaded into the LUT; functions called by name `exp2`,`rsqrt`, `reciprocal`, or `generic`, require the function to be
-present in the LUT.
+The function is selected via `function_type` and applied to each FP32
+element. `identity`, `relu`, and `relu6` are computed directly; `exp2`,
+`reciprocal`, `rsqrt`, and `generic` are evaluated through the LUT, so the
+selected function must already be loaded there (section 5.2).
 
 ```text
 for i in 0..127:
+    x = r_acc[i]
     case function_type:
-        identity:    activated[i] = r_acc[i]
-        relu:        activated[i] = max(0, r_acc[i])
-        relu6:       activated[i] = min(max(0, r_acc[i]), 6)
-        reciprocal:  activated[i] = (r_acc[i] == 0) ? inf : LUT[function_type](r_acc[i])
-        rsqrt:       activated[i] = (r_acc[i] == 0) ? inf : (r_acc[i] < 0) ? 0 : LUT[function_type](r_acc[i])
-        exp2:        activated[i] = LUT[function_type](r_acc[i])
-        generic:     activated[i] = LUT[function_type](r_acc[i])
+        // computed directly
+        identity:    activated[i] = x
+        relu:        activated[i] = max(0, x)
+        relu6:       activated[i] = min(max(0, x), 6)
+
+        // evaluated through the LUT, no special-casing
+        exp2:        activated[i] = LUT[function_type](x)
+        generic:     activated[i] = LUT[function_type](x)
+
+        // evaluated through the LUT, with a guard for x's sign/zero
+        reciprocal:  if x == 0:      activated[i] = inf
+                     else:           activated[i] = LUT[function_type](x)
+        rsqrt:       if x == 0:      activated[i] = inf
+                     elif x < 0:     activated[i] = 0
+                     else:           activated[i] = LUT[function_type](x)
 ```
 
 Supported function types: activation and special functions grouped onto a
 single field:
 
 
-| Encoding | Name | Formula | Explicit Function(s) | Notes |
-|----------|------|---------|----------------------|-------|
-| 1 | `identity` | `f(x) = x` | `identity`: `f(x) = x` | Pass-through; no transform. |
-| 2 | `relu` | `f(x) = max(0, x)` | `relu`: `f(x) = max(0, x)` | Most common non-linearity. |
-| 3 | `relu6` | `f(x) = min(max(0, x), 6)` | `relu6`: `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
-| 4 | `generic` | `f(x) = LUT[generic](x)` | `sigmoid`: `f(x) = 1 / (1 + e^-x)`<br>`tanh`: `f(x) = (e^x - e^-x) / (e^x + e^-x)`<br>`gelu`: `f(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))`<br>`softplus`: `f(x) = ln(1 + e^x)`<br>`elu`: `f(x) = x` if `x ≥ 0`, else `α · (e^x - 1)` (α = 1.0)<br>`silu`: `f(x) = x · sigmoid(x) = x / (1 + e^-x)` | Covers all activations except `relu` and `relu6`. All of them are called by the single name `generic`; which one is applied is decided by whichever function was loaded into the LUT, not by the encoding. |
-| 5 | `reciprocal` | `f(x) = 1/x` (inf if x = 0) | `reciprocal`: `f(x) = 1/x` (inf if x = 0) | Multiplicative inverse; useful for normalization. |
-| 6 | `rsqrt` | `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | `rsqrt`: `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | Reciprocal square root; used in layer normalization. |
-| 7 | `exp2` | `f(x) = 2^x` | `exp2`: `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+| Encoding | Name | Formula | Notes |
+|----------|------|---------|-------|
+| 1 | `identity` | `f(x) = x` | Pass-through; no transform. |
+| 2 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
+| 3 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
+| 4 | `generic` | `f(x) = LUT[generic](x)` | Covers all activations except `relu` and `relu6` — see the table below for the explicit function each one computes. All of them are called by the single name `generic`; which one is applied is decided by whichever function was loaded into the LUT, not by the encoding. |
+| 5 | `reciprocal` | `f(x) = 1/x` (inf if x = 0) | Multiplicative inverse; useful for normalization. |
+| 6 | `rsqrt` | `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | Reciprocal square root; used in layer normalization. |
+| 7 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
+
+`generic` (encoding 4) covers six functions, all loaded into and called through the same LUT entry:
+
+| Name | Formula |
+|------|---------|
+| `sigmoid` | `f(x) = 1 / (1 + e^-x)` |
+| `tanh` | `f(x) = (e^x - e^-x) / (e^x + e^-x)` |
+| `gelu` | `f(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))` |
+| `softplus` | `f(x) = ln(1 + e^x)` |
+| `elu` | `f(x) = x` if `x ≥ 0`, else `α · (e^x - 1)` (`α = 1.0`) |
+| `silu` | `f(x) = x · sigmoid(x) = x / (1 + e^-x)` |
 
 ### 5.1 Quantization Algorithm
 
 After activation (section 5.0), each activated FP32 element `a` (IEEE-754 single
 precision: 1-bit sign `S`, 8-bit exponent `e`, 23-bit mantissa) is quantized
 to the format selected by `format` (section 3.3): a sign bit present only if
-`format[6] = 1` (signed; omitted when unsigned), `fe` exponent bits
-(`format[5:3]`), and `fm` mantissa bits derived as the leftover
-`fm = W - fe - sign_bit`, where `W = format[2:0] + 1` is the total element
-width. Since the mantissa is the remainder of the width, `sign + fe + fm`
-always totals exactly `W`; when `W < 8` the leftover high-order bits of the
+`format[7] = 1` (signed; omitted when unsigned), `fe` exponent bits
+(`format[6:4]`), and `fm` mantissa bits derived as the leftover
+`fm = W - fe - sign_bit`, where `W = format[3:0]` (stored directly, no
+offset) is the total element width. Since the mantissa is the remainder of the width, `sign + fe + fm`
+always totals exactly `W`; when `W < 8` the leftover low-order bits of the
 8-bit quantized element are zero-padded. `fe` is at minimum 1 bit; `fm` may be
 0 bits. FP32 inputs are always treated as normalized (implicit leading 1);
 subnormal inputs are not specially handled.
@@ -223,10 +242,10 @@ else:                                  // E exceeds what fe bits can represent
     M   = RTN(1.M >> [E - (2^fe - 1) + 1])  // extra right-shift preserves magnitude instead of flushing to zero
 ```
 
-`RTN` = round to nearest. Sign `S` (when present, `format[6] = 1`) is passed
+`RTN` = round to nearest. Sign `S` (when present, `format[7] = 1`) is passed
 through unchanged. The final 8-bit quantized element is
-`{0-pad, S?, Exp, M}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
-the low end, zero-padded at the high end to fill 8 bits. The write payload
+`{S?, Exp, M, 0-pad}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
+the high end, zero-padded at the low end to fill 8 bits. The write payload
 also carries `Format` (passed through unchanged from the `format` input) and
 the batch `Scale` (`s`), as described in section 3.2.
 
@@ -234,12 +253,12 @@ the batch `Scale` (`s`), as described in section 3.2.
 > `quan_mode` values, and `s` is computed the same way (batch max, as shown
 > above) regardless of `quan_mode`. `quan_mode = 1` (dynamic) restricts
 > `format` to exactly two supported formats, both signed and both 8 bits
-> wide (`format[2:0] = 7`): `e2m5` and `e1m6`. How the hardware chooses
+> wide (`format[3:0] = 8`): `e2m5` and `e1m6`. How the hardware chooses
 > between `e2m5` and `e1m6` in dynamic mode is **TBD**.
 
-### 5.2 Activation LUT
+### 5.2 Function Estimation LUT
 
-The stage holds an activation lookup table of **128 entries × 17 bits**,
+The stage holds a function estimation LUT of **256 entries × 17 bits**,
 plus a **75-bit metadata block** that configures range handling. Both are
 filled by `LOAD` (section 6.3), which writes one **segment** per instruction;
 the 3-bit `lut_addr` selects the segment.
@@ -256,26 +275,39 @@ payload[1023:0] = {r_acc[31], r_acc[30], ..., r_acc[1], r_acc[0]}
                                           // payload[32*j +: 32] == r_acc[j]
 ```
 
-How the payload is interpreted depends on `lut_addr`:
+The table itself is a **4,352-bit flat bitstream** — not split per word, and
+not reset per segment: `LOAD` transfers one 1024-bit slice of that stream
+per instruction, and a table entry may straddle the boundary between two
+segments (the same way the metadata field straddles word boundaries,
+section 5.2.2). `lut_addr` selects which slice:
 
 | `lut_addr` | Contents | Interpretation |
 |------------|----------|----------------|
-| `0`–`3` | Table entries | **Per-word.** Each 32-bit word contributes one 17-bit entry from its low-order bits; bits `[31:17]` of every word are ignored. Segment `k` fills `LUT[k*32 .. k*32+31]`: `LUT[k*32 + j] = r_acc[j][16:0]` for `j` in `0..31`. Four segments cover all 128 entries. |
-| `4` | Metadata block | **Flat.** The metadata is a contiguous 75-bit field at `payload[74:0]`, not split per word (section 5.2.2). |
+| `0` | Table bits `[1023:0]` | 1st 1024-bit slice of the flat table bitstream. |
+| `1` | Table bits `[2047:1024]` | 2nd slice. |
+| `2` | Table bits `[3071:2048]` | 3rd slice. |
+| `3` | Table bits `[4095:3072]` | 4th slice — the table's first 4,096 bits are now fully loaded. |
+| `4` | Table bits `[4351:4096]` (the last 256 bits) + metadata | **Mixed.** `payload[255:0]` = the table's last 256 bits; `payload[330:256]` = the 75-bit metadata block (section 5.2.2); `payload[1023:331]` is unused/reserved. |
 | `5`–`7` | Reserved / unused | — |
 
-> **Assumption to confirm:** the metadata is placed in the **5th** segment,
-> counted from 1 — i.e. `lut_addr = 4`, the first segment past the four that
-> carry the table.
+Five `LOAD`s (`lut_addr` `0`–`4`) are required to fully program the LUT and
+its metadata. Only the last of them (`lut_addr = 4`) is partially reserved —
+the first four are fully packed with table bits (256 entries × 17 bits =
+4,352 bits total).
 
 #### 5.2.2 Metadata Block
 
-The metadata occupies bits `[74:0]` of the metadata segment's 1024-bit
-payload; the remaining bits `[1023:75]` are unused. Because the field is flat,
-it straddles word boundaries — for example `max_exp_num` is `r_acc[0][7:0]`
-and `neg_c` spans `r_acc[0][31:8]` together with `r_acc[1][7:0]`.
+The metadata occupies bits `[330:256]` of the `lut_addr = 4` segment's
+1024-bit payload (i.e. local bits `[74:0]` of the metadata field itself,
+offset by the 256 bits of leftover table data ahead of it); the remaining
+bits `[1023:331]` are unused. Bits-to-word mapping follows
+`payload[32*j +: 32] == r_acc[j]` (section 5.2.1), so absolute bit `256 + m`
+(for local metadata bit `m`) lands in `r_acc[(256+m) / 32][(256+m) % 32]`.
+Because the field is flat, it straddles word boundaries — for example
+`max_exp_num` is `r_acc[8][7:0]` and `neg_c` spans `r_acc[8][31:8]` together
+with `r_acc[9][7:0]`.
 
-| Bits | Name | Consumed by | Meaning |
+| Bits (local, within metadata) | Name | Consumed by | Meaning |
 |------|------|-------------|---------|
 | `[7:0]` | `max_exp_num` | `Quantactivation` | Largest **biased** FP32 exponent still inside the LUT range. `exp > max_exp_num` → lane flagged out-of-range. |
 | `[39:8]` | `neg_c` | `pack_lutout_activ` | FP32 constant substituted for negative out-of-range lanes. |
@@ -327,13 +359,13 @@ but is never assumed).
   aaq_out.elements[n..127] = 0
   aaq_out.scale = s                                    // section 5.1
   aaq_out.format = format
-  Memory[write_addr] = aaq_out                         // 1039 bits, section 3.2
+  Memory[write_addr] = aaq_out                         // 1040 bits, section 3.2
   ```
 - **Example:** `ACTIVATE.QUANTIZE relu, CR15;;`
 
-### 6.3 `LOAD`: Load Activation LUT Segment
+### 6.3 `LOAD`: Load Function Estimation LUT Segment
 
-- **Summary:** Fill one 1024-bit segment of the activation LUT (section 5.2) from the lower 32 words of `r_acc`. The 3-bit `lut_addr` selects the target segment: `0`–`3` load table entries, `4` loads the metadata block. Performs no XMEM write and does not modify `r_acc`.
+- **Summary:** Fill one 1024-bit segment of the function estimation LUT (section 5.2) from the lower 32 words of `r_acc`. The 3-bit `lut_addr` selects the target segment: `0`–`3` load table entries, `4` loads the metadata block. Performs no XMEM write and does not modify `r_acc`.
 - **Syntax:** `LOAD lut_addr`
 - **Operands:**
   - `lut_addr`: LUT segment index, `0`–`7` (`0`–`3` = table, `4` = metadata, `5`–`7` reserved).
