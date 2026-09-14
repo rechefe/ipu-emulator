@@ -4,7 +4,7 @@
 
 The AaQ (Activation and Quantization) stage applies element-wise activation
 and special functions to the 128-element accumulator, quantizes the
-128-element vector into an 8-bit vector, and **writes the result to external
+128-element vector into an 8-bit vector, and writes the result to external
 memory (XMEM) It produces:
 
 - A 128-element vector of 8-bit quantized values.
@@ -220,7 +220,7 @@ batch's shared scale, computed as the maximum raw exponent across the 128
 elements of the batch, before quantization:
 
 ```text
-s = max(e[i] for i in 0..127)
+s = max(e[i] for i in 0..254)
 ```
 
 For each element, define the exponent distance from the batch scale:
@@ -234,13 +234,35 @@ the batch-max element(s) and `E` growing as an element's magnitude shrinks
 relative to the batch max. The output exponent and mantissa fields are then:
 
 ```text
-if 0 <= E <= 2^fe - 1:               // representable directly in fe bits
+if 0 <= E < 2^fe - 1:                // representable directly in fe bits
     Exp = E
     M   = RTN(1.M)                   // round the 23-bit mantissa (implicit leading 1) to fm bits
-else:                                  // E exceeds what fe bits can represent
-    Exp = 2^fe - 1                    // exponent field saturates at its max value
+
+    if M == 2^fm:                    // edge 1: 1.11...1 rounded up to 10.00...0
+        if E > 0:
+            Exp = E - 1              // the carry moved the value one binade up
+            M   = 0
+        else:                        // E = 0: no binade above the batch scale
+            Exp = 0
+            M   = 2^fm - 1           // saturate at the largest representable value
+
+else:                                // E exceeds what fe bits can represent
+    Exp = 2^fe - 1                   // exponent field saturates at its max value
     M   = RTN(1.M >> [E - (2^fe - 1) + 1])  // extra right-shift preserves magnitude instead of flushing to zero
+
+    if M == 2^fm:                    // edge 2: 0.11...1 rounded up to 1.00...0
+        Exp = 2^fe - 2               // the smallest directly-encoded exponent
+        M   = 0
 ```
+
+Both edges are the same event — `RTN` carrying out of the `fm` mantissa bits —
+resolved differently per branch. In the direct branch the carry means the value
+moved one binade up, so the exponent decrements and the mantissa clears; at
+`E = 0` there is no binade above the batch scale, so the element saturates at
+the largest representable value instead of wrapping. In the clamp branch the
+carry turns the shifted fraction into `1.00...0`, which is no longer a
+saturated value but the smallest directly-encoded one, so it is re-encoded as
+`Exp = 2^fe - 2`, `M = 0`.
 
 `RTN` = round to nearest. Sign `S` (when present, `format[7] = 1`) is passed
 through unchanged. The final 8-bit quantized element is
@@ -253,8 +275,120 @@ the batch `Scale` (`s`), as described in section 3.2.
 > `quan_mode` values, and `s` is computed the same way (batch max, as shown
 > above) regardless of `quan_mode`. `quan_mode = 1` (dynamic) restricts
 > `format` to exactly two supported formats, both signed and both 8 bits
-> wide (`format[3:0] = 8`): `e2m5` and `e1m6`. How the hardware chooses
-> between `e2m5` and `e1m6` in dynamic mode is **TBD**.
+> wide (`format[3:0] = 8`): `e2m5` and `e1m6` — that pair is exactly
+> `fe = 2` and `fe = 1` at `W = 8`, signed, since `fm` is the leftover
+> (section 3.3). Only `fe` is chosen; the rule in section 5.1.1 makes
+> that choice per block.
+
+#### 5.1.1 Dynamic Exponent-Field Selection (`fe = 1` vs `fe = 2`)
+
+Applies only when `quan_mode = 1`. The dynamic decision selects **the exponent
+field width alone**: `fe = 1` or `fe = 2` (`format[6:4]`). The mantissa is not
+chosen independently — it is the leftover `fm = W - fe - sign_bit` (section
+3.3), so moving from `fe = 1` to `fe = 2` always buys one more exponent bit at
+the cost of exactly one mantissa bit, whatever `W` and `sign_bit` are. Each
+block shares one scale `s` and the quantizer picks one of the two splits per
+block:
+
+| Split | Exponent bits | Mantissa bits | Encodable `E` | Step at `E` |
+|---|---|---|---|---|
+| `fe1` | 1 | `fm1 = W - 1 - sign_bit` | 0, 1 | `2^(s - E - fm1)`, clamped at `E >= 1` |
+| `fe2` | 2 | `fm1 - 1` | 0, 1, 2, 3 | `2^(s - E - fm1 + 1)`, clamped at `E >= 3` |
+
+`fe1` is one bit finer near the top of the block. `fe2` reaches two binades
+further down before it clamps. The rule below decides which trade is better for
+the block actually being quantized. It depends on `fm1` only through the two
+multipliers, so it holds for any `W`/`sign_bit` pairing, not just the signed
+8-bit one.
+
+##### Definitions
+
+- `s`: shared block scale exponent, selected by the same block scale procedure
+  used for static quantization (section 5.1).
+- `e`: exponent of the individual element.
+- `E = s - e`. Always non-negative (section 5.1). `E = 0` means the scale
+  represents the element exactly.
+- `fm1 = W - 1 - sign_bit`: the last mantissa bits under `fe1`. `fe2` always has exactly
+  one fewer. For the signed, 8-bit case `fm1 = 6`.
+- `err1`: truncation error of the element under `fe1`.
+- `err2`: truncation error of the element under `fe2`.
+
+##### Element classification
+
+Each element contributes to at most one accumulator:
+
+| Condition | Accumulator | Meaning |
+|---|---|---|
+| `E = 0` | A | `fe1` is finer here. A measures the cost of choosing `fe2`. |
+| `E = 1` | none | Don't care. |
+| `1 < E <= fm1 + 2` | B | `fe2` is finer here. B measures the cost of choosing `fe1`. |
+| `E > fm1 + 2` | none | Out of range for both splits. |
+
+Elements at `E = 1` are don't cares. They enter neither sum and have no effect
+on the decision.
+
+##### Per-element terms
+
+```text
+A = RTN( |err2^2 - err1^2| * 2^(2*fm1) )
+B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
+```
+
+`RTN` is round to nearest integer, and an exact half rounds **up**: `0.5 -> 1`,
+`1.5 -> 2`, `2.5 -> 3`. 
+
+##### Decision
+
+```text
+if sum(B) - 4 * sum(A) < 0:  choose fe1        // format[6:4] = 1
+else:                        choose fe2        // format[6:4] = 2
+```
+
+The constant 4 is a unit reconciliation, not a tuning parameter. The B
+multiplier `2^(2*(fm1 + 1))` is exactly four times the A multiplier
+`2^(2*fm1)`, so scaling A by 4 returns both accumulators to a common error.
+
+##### Both estimators are unbiased
+
+Assume mantissa bits are uniformly distributed, so `r` — the finer split's
+error as a fraction of its own step — is uniform on `[0, 1)` and the dropped
+bit is 1 with probability one half.
+
+| Term | Pre-RTN value | Distribution | Outcomes | E[RTN] | E[pre-RTN] |
+|---|---|---|---|---|---|
+| A | `1 + 2r` | uniform on `[1, 3)` | 1, 2, 3 at 0.25, 0.5, 0.25 | 2 | 2 |
+| B | `(1 + 2r) / 4` | uniform on `[0.25, 0.75)` | 0, 1 at 0.5, 0.5 | 0.5 | 0.5 |
+
+In both rows the rounded mean equals the unrounded mean exactly. Including the
+zero case, `E[A] = 1` and `E[B] = 0.25`. Neither sum drifts as the block length
+grows, so rounding contributes noise but never a systematic tilt toward one
+format.
+
+##### Worked example
+
+Block of ten values, `s = 0`, `fm1 = 4` (signed, `W = 6`). The A multiplier is
+`2^8 = 256` and the B multiplier is `2^10 = 1024`. `fm1 = 4` keeps the numbers
+short; for the signed 8-bit case `fm1 = 6`, the multipliers are `2^12` and
+`2^14`, and the B region is `1 < E <= 8`.
+
+| # | v | e | E | Acc | err1 | err2 | \|err2^2 - err1^2\| | Pre-RTN | A | B |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1.83 | 0 | 0 | A | 0.0175 | 0.0800 | 6.09375e-3 | 1.560 | 2 | |
+| 2 | 1.21 | 0 | 0 | A | 0.0225 | 0.0850 | 6.71875e-3 | 1.720 | 2 | |
+| 3 | 1.57 | 0 | 0 | A | 0.0075 | 0.0700 | 4.84375e-3 | 1.240 | 1 | |
+| 4 | 0.94 | -1 | 1 | none | don't care | don't care | | | | |
+| 5 | 0.67 | -1 | 1 | none | don't care | don't care | | | | |
+| 6 | 0.41 | -2 | 2 | B | 0.00375 | 0.00375 | 0 | 0 | | 0 |
+| 7 | 0.2345 | -3 | 3 | B | 0.01575 | 0.000125 | 2.48047e-4 | 0.254 | | 0 |
+| 8 | 0.1780 | -3 | 3 | B | 0.02175 | 0.006125 | 4.35547e-4 | 0.446 | | 0 |
+| 9 | 0.0920 | -4 | 4 | B | 0.02950 | 0.013875 | 6.77734e-4 | 0.694 | | 1 |
+| 10 | 0.0555 | -5 | 5 | B | 0.02425 | 0.008625 | 5.13672e-4 | 0.526 | | 1 |
+
+`sum(A) = 5`, `sum(B) = 2`.
+
+`2 - 4 * 5 = -18`, which is negative, so the block selects **`fe1`**.
+
+
 
 ### 5.2 Function Estimation LUT
 
