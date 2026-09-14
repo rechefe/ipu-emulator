@@ -85,7 +85,7 @@ nav:
       - Programmer's Guide: programmer-guide.md
   - Specs:
       - Cache Unit Specification: specs/cache-unit.md
-      - AaQ and Store Stage Specification: specs/stage-aaq-str.md
+      - AaQ Stage Specification: specs/stage-aaq-str.md
       - Accumulator Stage Specification: specs/stage-accumulator.md
       - Control Stage Specification: specs/stage-control.md
       - RISC-V Host Integration: specs/riscv-host-integration.md
