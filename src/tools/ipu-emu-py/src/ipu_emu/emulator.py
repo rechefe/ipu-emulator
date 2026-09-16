@@ -13,6 +13,7 @@ loaded with an assembled program (via :func:`load_program`).
 
 from __future__ import annotations
 
+import os
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable
@@ -235,6 +236,27 @@ def load_fp32_as_fp8_to_xmem(
 # ---------------------------------------------------------------------------
 
 
+#: Execution backends ``run_test`` understands.
+BACKEND_PYTHON = "python"
+BACKEND_ETISS = "etiss"
+
+#: Environment override for the default backend, so a whole test run can be
+#: switched over without touching call sites.
+BACKEND_ENV = "IPU_EMU_BACKEND"
+
+
+def default_backend() -> str:
+    """The backend used when a caller does not name one."""
+    return os.environ.get(BACKEND_ENV, BACKEND_PYTHON)
+
+
+def run_on_etiss(state: IpuState, max_cycles: int) -> int:
+    """Run the program already loaded into *state* on the ETISS backend."""
+    from ipu_emu.etiss import EtissRunner
+
+    return EtissRunner().run(state, max_cycles=max_cycles)
+
+
 def run_test(
     *,
     inst_path: str | Path,
@@ -244,6 +266,7 @@ def run_test(
     debug_callback: DebugCallback | None = None,
     state: IpuState | None = None,
     elu_alpha: float | None = None,
+    backend: str | None = None,
 ) -> tuple[IpuState, int]:
     """Full test harness matching the C ``emulator__run_test`` pattern.
 
@@ -254,6 +277,10 @@ def run_test(
     5. Calls *teardown(state)* (e.g. to dump XMEM results).
 
     Returns ``(state, cycles)`` so callers can inspect final state.
+
+    ``backend`` selects the execution engine: ``"python"`` (the reference
+    implementation, the default) or ``"etiss"`` (the ETISS-based simulator).
+    ``$IPU_EMU_BACKEND`` supplies the default when the argument is omitted.
 
     Optional ``elu_alpha`` configures the emulator-only activation α value
     (same idea as dtype setup, but not via CR). It is applied when constructing
@@ -269,7 +296,21 @@ def run_test(
     if setup is not None:
         setup(state)
 
-    if debug_callback is not None:
+    chosen = backend or default_backend()
+    if chosen == BACKEND_ETISS:
+        if debug_callback is not None:
+            raise ValueError(
+                "the ETISS backend has no in-process debug callback; run the "
+                "program on the Python backend, or attach a debugger to the "
+                "ETISS runner"
+            )
+        cycles = run_on_etiss(state, max_cycles)
+    elif chosen != BACKEND_PYTHON:
+        raise ValueError(
+            f"unknown backend {chosen!r}; expected "
+            f"{BACKEND_PYTHON!r} or {BACKEND_ETISS!r}"
+        )
+    elif debug_callback is not None:
         cycles = run_with_debug(state, debug_callback, max_cycles)
     else:
         cycles = run_until_complete(state, max_cycles)

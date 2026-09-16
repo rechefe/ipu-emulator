@@ -65,6 +65,7 @@ class IpuApp:
         debug_callback: DebugCallback | None = None,
         state: "IpuState | None" = None,
         elu_alpha: float | None = None,
+        backend: str | None = None,
     ) -> tuple["IpuState", int]:
         """Run the app end-to-end. Returns ``(state, cycles)``.
 
@@ -83,4 +84,5 @@ class IpuApp:
             debug_callback=debug_callback,
             state=state,
             elu_alpha=ea,
+            backend=backend,
         )

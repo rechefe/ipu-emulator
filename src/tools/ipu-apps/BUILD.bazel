@@ -197,3 +197,23 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Application-level ETISS parity. Skips unless $IPU_ETISS_RUN is set.
+py_pytest_test(
+    name = "test_etiss_app_parity",
+    srcs = ["test/test_etiss_app_parity.py"],
+    data = [
+        ":assemble_fully_connected.bin",
+        ":fc_test_data",
+    ],
+    env = {
+        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
+        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
+    },
+    imports = ["src"],
+    tags = ["etiss"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
