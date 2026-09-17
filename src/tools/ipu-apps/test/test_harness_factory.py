@@ -365,3 +365,14 @@ def test_softmax_case_width_must_be_declared():
     from ipu_apps.softmax.test_support import random_case
     with pytest.raises(ValueError, match="width"):
         random_case(axis=0, defaults={"widht": 10}, max_cycles=100)
+
+
+def test_frontend_alias_report(tmp_path):
+    import json
+    from ipu_apps.kernel_registry.runner import main
+    report = tmp_path / 'aliases.json'
+    assert main(['--kernel', 'identity', '--alias-report', str(report)]) == 0
+    data = json.loads(report.read_text())
+    assert data['schema_version'] == 1
+    assert data['metadata']['kernel'] == 'identity'
+    assert data['aliases']['A1_MOV_RC']['measurements']

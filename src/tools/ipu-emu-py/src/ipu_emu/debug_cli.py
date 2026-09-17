@@ -283,7 +283,7 @@ def _print_byte_register(
     state: IpuState, name: str, out: TextIO, preview_bytes: int = 16
 ) -> None:
     desc = state.regfile._desc(name)
-    data = state.regfile.raw(name)
+    data = state.regfile.raw_readonly(name)
     if desc.count == 1:
         header = f"=== {name} ({desc.size_bytes} bytes) ==="
         out.write(header + "\n")
@@ -332,7 +332,7 @@ def state_to_json_dict(state: IpuState) -> dict[str, Any]:
     d: dict[str, Any] = {"pc": state.program_counter}
 
     for desc in REGFILE_SCHEMA:
-        raw = state.regfile.raw(desc.name)
+        raw = state.regfile.raw_readonly(desc.name)
         if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
             arr = [state.regfile.get_scalar(desc.name, i) for i in range(desc.count)]
             d[desc.name] = arr

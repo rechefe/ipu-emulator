@@ -8,10 +8,14 @@ from ipu_apps.kernel_registry.cases import run_case
 @pytest.mark.parametrize("name", CASES)
 def test_fc(name):
     try:
-        _, cycles = run_case("fully_connected", CASES[name])
+        state, cycles = run_case("fully_connected", CASES[name])
     except MissingInputFixture as exc:
         pytest.skip(str(exc))
     assert cycles > 0
+    # The kernel pads 64 outputs to 128 lanes and declares no narrower width,
+    # so every multiply bills all 128 and the summary flags the overstatement.
+    assert state.stats.mult_lane_ops == state.stats.mult_active_cycles * 128
+    assert state.stats.alias_hits == {"A16_STR_ACC_REG": 10}
 
 
 def test_missing_input_fixture_is_skipped(monkeypatch, tmp_path):

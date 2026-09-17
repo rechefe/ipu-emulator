@@ -116,8 +116,28 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_alias_tracking",
+    srcs = ["test/test_alias_tracking.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_stats",
     srcs = ["test/test_stats.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_alias_profile",
+    srcs = ["test/test_alias_profile.py"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
