@@ -18,37 +18,17 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
-
-from ipu_apps.softmax.softmax_rows_partial import SoftmaxRowsPartialApp
-
-ASM_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm"
-)
+from ipu_apps.softmax.test_support import reference, run_array
+from ipu_apps.kernel_registry.cases import run_case
+from ipu_apps.softmax.softmax_rows_partial.cases import CASES
 
 
-def _reference(x: np.ndarray) -> np.ndarray:
-    z = np.exp(x - x.max(axis=1, keepdims=True))
-    return z / z.sum(axis=1, keepdims=True)
+ASM_PATH = Path(__file__).with_name("softmax_rows_partial.asm")
 
 
-def _run(inst_file: Path, x: np.ndarray, n: int) -> np.ndarray:
-    """Run the app and read back its OUTPUT FILE, the way a caller would.
-
-    Deliberately not a direct XMEM read: the file is the app's contract, and it
-    is written in the same row-major layout as the input (teardown drops the
-    on-device partition/row padding), so this also pins that round-trip.
-    """
-    rows = x.shape[0]
-    with tempfile.TemporaryDirectory() as tmp:
-        inp = Path(tmp) / "input.bin"
-        outp = Path(tmp) / "output.bin"
-        inp.write_bytes(x.astype(np.float32).tobytes())
-        app = SoftmaxRowsPartialApp(
-            inst_path=inst_file, input_path=inp, output_path=outp, n=n, rows=rows
-        )
-        app.run(max_cycles=2_000_000)
-        return np.frombuffer(outp.read_bytes(), dtype=np.float32).reshape(rows, n)
+def _run(inst_file: Path, x: np.ndarray) -> np.ndarray:
+    _, out = run_array("softmax_rows_partial", inst_file, x, 1)
+    return out
 
 
 @pytest.fixture(scope="module")
@@ -75,8 +55,8 @@ def inst_file():
 def test_partial_softmax_matches_numpy(inst_file, n, rows, seed):
     rng = np.random.RandomState(seed)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
     assert np.allclose(out.sum(axis=1), 1.0, atol=1e-5)
 
@@ -86,8 +66,8 @@ def test_padding_rows_ignored(inst_file):
     n, rows = 32, 6  # P=4, padded to 8
     rng = np.random.RandomState(20)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
 
 
@@ -116,8 +96,8 @@ def test_many_chunks_correct(inst_file, n, rows):
     """
     rng = np.random.RandomState(0)
     x = (rng.randn(rows, n) * 5.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
 
 
@@ -146,6 +126,12 @@ def test_more_than_128_rows(inst_file, n, rows):
     """
     rng = np.random.RandomState(rows)
     x = (rng.randn(rows, n) * 3.0).astype(np.float32)
-    out = _run(inst_file, x, n)
-    ref = _reference(x)
+    out = _run(inst_file, x)
+    ref = reference(x, 1)
     assert np.abs(out - ref).max() < 1e-4
+
+
+
+
+def test_default_case(inst_file):
+    run_case("softmax_rows_partial", CASES["default"], inst_path=inst_file)

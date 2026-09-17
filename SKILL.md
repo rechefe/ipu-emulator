@@ -195,8 +195,16 @@ class MyApp(IpuApp):
 Each app lives under `ipu-apps/src/ipu_apps/<name>/` and has:
 - `<name>.asm` — Assembly program
 - `__init__.py` — `IpuApp` subclass
-- `__main__.py` — Debug runner
-- Tests in `ipu-apps/test/`
+- `cases.py` — Reusable input preparation and explicit output validation, without pytest
+- `test.py` — Pytest coverage importing those cases
+- `SPEC` in the package — Supported parameters, assembly, and execution requirements
+
+Use the `ipu_app` macro for standard run and test targets. Runtime dependencies
+belong in `deps`, pytest dependencies in `test_deps`. The shared runner loads
+`cases.py`; no per-kernel entry point or instruction-path environment variable
+is needed. `--output` exports completed output even when validation fails.
+Tests may pass `inst_path` to `run_case` to reuse assembled instructions.
+See `docs/content/adding-applications.md` for the full contract.
 
 ---
 

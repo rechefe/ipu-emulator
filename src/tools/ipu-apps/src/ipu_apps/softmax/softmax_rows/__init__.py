@@ -53,11 +53,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
 
 from ipu_apps.base import IpuApp
-from ipu_apps.kernel_registry import KernelSpec, no, yes
+from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec, no, yes
 from ipu_apps.softmax._spec_support import (
     WIDE_VECTOR_ONLY,
     positive_dims,
@@ -145,23 +144,6 @@ class SoftmaxRowsApp(IpuApp):
 
     # -- wide-vector FP32 state ---------------------------------------------
 
-    @staticmethod
-    def make_state() -> IpuState:
-        """Build the FP32 wide-vector state this app requires.
-
-        ``wide_vector_quantize_output=False`` keeps elements 4-byte FP32 through
-        AAQ (AAQ is a no-op); ACTIVATE writes FP32 into POST_AAQ_REG and
-        STR_POST_AAQ_REG drains the full 512 bytes.
-        """
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=WideVectorArithmetic.FP32,
-            wide_vector_quantize_output=False,
-        )
-        # dtype is otherwise unused on the FP32 wide path, but several helpers
-        # branch on it; INT8 matches the existing wide-vector tests.
-        state.dtype = DType.INT8
-        return state
 
     def setup(self, state: "IpuState") -> None:
         # Input logits (only the real rows; padding rows stay zero-initialised).
@@ -208,10 +190,6 @@ class SoftmaxRowsApp(IpuApp):
                 state, self.output_path, self.output_base, ROW_BYTES, self.rows
             )
 
-    def run(self, **kwargs):
-        # Always run on the FP32 wide-vector state unless caller supplied one.
-        kwargs.setdefault("state", self.make_state())
-        return super().run(**kwargs)
 
 
 # -- registry declaration ---------------------------------------------------
@@ -244,6 +222,7 @@ def _explain(**params):
 
 
 SPEC = KernelSpec(
+    execution=ExecutionConfig(mode="fp32"),
     name="softmax_rows",
     op="softmax",
     variant="rows",

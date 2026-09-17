@@ -24,17 +24,15 @@ Usage::
 from __future__ import annotations
 
 import re
+import struct
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.emulator import load_binary_to_xmem
+from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
 from ipu_apps.base import IpuApp
-
-if TYPE_CHECKING:
-    from ipu_emu.ipu_state import IpuState
 
 # -- Constants (mirror #defines in fully_connected.c) -----------------------
 
@@ -55,14 +53,13 @@ OUTPUT_NEURONS = 64
 # registers below feed the .asm's XMEM instructions instead, so they carry
 # the same addresses converted to rows (divide by the 128-byte row size).
 ROW_SIZE_BYTES = 128
-WEIGHTS_BASE_ROW = WEIGHTS_BASE_ADDR // ROW_SIZE_BYTES
-OUTPUT_BASE_ROW = OUTPUT_BASE_ADDR // ROW_SIZE_BYTES
 # STR_ACC_REG always writes all 512 B of r_acc regardless of mode (issue
 # #179's fixed-payload outlier), which spans 4 rows in narrow mode -- the
 # stride between successive output vectors must match that, not the
 # 256-byte/2-row footprint of one INT32 output vector alone, or narrow-mode
 # writes would overlap.
 OUTPUT_STRIDE_ROWS = 4
+WIDE_ROW_SIZE_BYTES = 512
 
 
 def parse_dtype(dtype_str: str) -> DType:
@@ -91,7 +88,33 @@ def parse_dtype(dtype_str: str) -> DType:
     )
 
 
-def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> None:
+def _expand_int8_row(row: bytes | bytearray) -> bytes:
+    """Expand 128 signed INT8 values into one 512-byte INT32 XMEM row."""
+    signed = (value if value < 128 else value - 256 for value in row)
+    return struct.pack("<128i", *signed)
+
+
+def _load_inputs(state: IpuState, inputs_path: str | Path) -> None:
+    """Load inputs with the row spacing required by the active mode."""
+    if not state.wide_vector_debug:
+        load_binary_to_xmem(
+            state, inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
+        )
+        return
+
+    raw = Path(inputs_path).read_bytes()
+    expected = SAMPLES_NUM * INPUT_NEURONS
+    if len(raw) < expected:
+        raise ValueError(f"Inputs file too small: {len(raw)} bytes, expected {expected}")
+    for sample in range(SAMPLES_NUM):
+        start = sample * INPUT_NEURONS
+        state.xmem.write_address(
+            INPUT_BASE_ADDR + sample * WIDE_ROW_SIZE_BYTES,
+            _expand_int8_row(raw[start : start + INPUT_NEURONS]),
+        )
+
+
+def _load_and_transpose_weights(state: IpuState, weights_path: str | Path) -> None:
     """Load weights from file and transpose into XMEM.
 
     Original: (OUTPUT_NEURONS × INPUT_NEURONS).
@@ -113,7 +136,13 @@ def _load_and_transpose_weights(state: "IpuState", weights_path: str | Path) -> 
         transposed_vector = bytearray(INPUT_NEURONS)
         for j in range(OUTPUT_NEURONS):
             transposed_vector[j] = original[j][i]
-        state.xmem.write_address(WEIGHTS_BASE_ADDR + i * INPUT_NEURONS, transposed_vector)
+        if state.wide_vector_debug:
+            data = _expand_int8_row(transposed_vector)
+            row_size = WIDE_ROW_SIZE_BYTES
+        else:
+            data = transposed_vector
+            row_size = ROW_SIZE_BYTES
+        state.xmem.write_address(WEIGHTS_BASE_ADDR + i * row_size, data)
 
 
 class FullyConnectedApp(IpuApp):
@@ -127,26 +156,35 @@ class FullyConnectedApp(IpuApp):
         dtype:        Data type string or :class:`DType`.
     """
 
-    def __init__(self, *, dtype: str | DType = "INT8", **kwargs) -> None:
+    def __init__(
+        self, *, dtype: str | DType = "INT8", wide_mode: bool = False, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.inputs_path = Path(self.inputs_path)
         self.weights_path = Path(self.weights_path)
-        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else dtype
+        self.dtype = parse_dtype(dtype) if isinstance(dtype, str) else DType(dtype)
+        self.wide_mode = wide_mode
+        SPEC.guard(dtype=self.dtype, wide_mode=wide_mode)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         state.dtype = self.dtype
-        load_binary_to_xmem(
-            state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
-        )
+        if state.wide_vector_debug and (
+            state.wide_vector_arithmetic != WideVectorArithmetic.INT32
+            or self.dtype != DType.INT8
+        ):
+            raise ValueError("fully-connected wide mode temporarily supports INT8 only")
+
+        row_size = WIDE_ROW_SIZE_BYTES if state.wide_vector_debug else ROW_SIZE_BYTES
+        _load_inputs(state, self.inputs_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
         # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
-        state.regfile.set_cr(2, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)
         # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
         # lr0/lr14 walk one row (one input/weight vector) per iteration.
         state.regfile.set_cr(3, 1)
         state.regfile.set_cr(4, 1)
-        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)
+        state.regfile.set_cr(5, 512 // row_size)
         # Constants for ``SET lr* cr*`` in ``fully_connected.asm`` (issue #82).
         # cr7 is the BLT lr0/lr1 loop bound: lr0 now increments by 1 row per
         # sample (was 128 bytes), so the bound is SAMPLES_NUM rows, not the
@@ -161,7 +199,7 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)    # lr5 counter: pre-decremented
         state.regfile.set_cr(11, 127)                # BNE exit condition
         state.regfile.set_cr(12, 0)
-        state.regfile.set_cr(13, WEIGHTS_BASE_ROW)   # moved from cr1 (CR1 is now locked)
+        state.regfile.set_cr(13, WEIGHTS_BASE_ADDR // row_size)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
@@ -176,3 +214,36 @@ class FullyConnectedApp(IpuApp):
                 for i in range(SAMPLES_NUM)
             ]
             Path(self.output_path).write_bytes(b"".join(parts))
+
+
+# The assembly has fixed dimensions; only storage/arithmetic mode varies.
+from ipu_apps.kernel_registry.spec import ExecutionConfig, KernelSpec, no, yes
+
+
+def _supports(**params):
+    if tuple(params.get("shape", (10, 128))) != (10, 128):
+        return no("fully_connected requires input shape (10, 128)")
+    if tuple(params.get("weight_shape", (64, 128))) != (64, 128):
+        return no("fully_connected requires weight shape (64, 128)")
+    try:
+        dtype = params.get("dtype", "INT8")
+        dtype = parse_dtype(dtype) if isinstance(dtype, str) else DType(dtype)
+    except (ValueError, TypeError) as exc:
+        return no(str(exc))
+    if params.get("wide_mode", False) and dtype != DType.INT8:
+        return no("wide_mode requires INT8")
+    return yes()
+
+
+SPEC = KernelSpec(
+    name="fully_connected",
+    op="fully_connected",
+    app_class=FullyConnectedApp,
+    asm="fully_connected.asm",
+    execution=lambda app: ExecutionConfig(
+        mode="int32" if app.wide_mode else "native", dtype=app.dtype,
+    ),
+    supports=_supports,
+    build=lambda **p: {"dtype": p.get("dtype", "INT8"), "wide_mode": p.get("wide_mode", False)},
+    explain=lambda **_: "Fixed 10 x 128 inputs and 64 x 128 weights",
+)

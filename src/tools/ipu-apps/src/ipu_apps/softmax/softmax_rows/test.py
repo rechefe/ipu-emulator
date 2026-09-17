@@ -14,40 +14,20 @@ import numpy as np
 import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_apps.softmax.test_support import reference, run_array
+from ipu_apps.kernel_registry.cases import run_case
+from ipu_apps.softmax.softmax_rows.cases import CASES
 
 from ipu_apps.softmax.softmax_rows import (
-    SoftmaxRowsApp,
     LANES,
-    ROW_BYTES,
 )
 
-ASM_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm"
-)
-
-
-def _reference(x: np.ndarray) -> np.ndarray:
-    z = np.exp(x - x.max(axis=1, keepdims=True))
-    return z / z.sum(axis=1, keepdims=True)
+ASM_PATH = Path(__file__).with_name("softmax_rows.asm")
 
 
 def _run(inst_file: Path, x: np.ndarray) -> np.ndarray:
-    rows = x.shape[0]
-    with tempfile.TemporaryDirectory() as tmp:
-        input_file = Path(tmp) / "input.bin"
-        input_file.write_bytes(x.astype(np.float32).tobytes())
-        app = SoftmaxRowsApp(
-            inst_path=inst_file,
-            input_path=input_file,
-            output_path=None,
-            rows=rows,
-        )
-        state, _ = app.run(max_cycles=8_000_000)
-        # Output region is contiguous from app.output_base; for K>128 it spans
-        # several groups but the rows stay row-major and contiguous.
-        raw = state.xmem.read_address(app.output_base, rows * ROW_BYTES)
-    return np.frombuffer(raw, dtype=np.float32).reshape(rows, LANES)
+    _, out = run_array("softmax_rows", inst_file, x, 1)
+    return out
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +59,7 @@ def test_softmax_matches_numpy(inst_file, rows, scale, seed):
     rng = np.random.RandomState(seed)
     x = (rng.randn(rows, LANES) * scale).astype(np.float32)
     out = _run(inst_file, x)
-    ref = _reference(x)
+    ref = reference(x, 1)
 
     assert np.abs(out - ref).max() < 1e-4
     assert np.allclose(out.sum(axis=1), 1.0, atol=1e-5)
@@ -98,3 +78,9 @@ def test_argmax_preserved(inst_file):
     x = (rng.randn(16, LANES) * 4.0).astype(np.float32)
     out = _run(inst_file, x)
     assert np.array_equal(out.argmax(axis=1), x.argmax(axis=1))
+
+
+
+
+def test_default_case(inst_file):
+    run_case("softmax_rows", CASES["default"], inst_path=inst_file)

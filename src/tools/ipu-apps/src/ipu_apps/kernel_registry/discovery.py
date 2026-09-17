@@ -31,7 +31,7 @@ from ipu_apps.kernel_registry.spec import KernelSpec
 # Subpackage names that never contain kernel declarations. Skipping them keeps
 # discovery from importing test/benchmark code (which is slow, and may pull in
 # optional dependencies) just to find specs.
-_SKIP_PARTS = frozenset({"benchmark", "test", "tests", "__pycache__"})
+_SKIP_PARTS = frozenset({"benchmark", "cases", "test", "tests", "__pycache__"})
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class Discovered:
 
 
 def _is_skippable(module_name: str) -> bool:
-    return any(part in _SKIP_PARTS for part in module_name.split("."))
+    return any(part in _SKIP_PARTS or part.startswith("test_") for part in module_name.split("."))
 
 
 def _specs_in(module: ModuleType) -> list[KernelSpec]:
