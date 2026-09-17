@@ -22,3 +22,13 @@ bazel-testlogs/
 **_pycache**
 **/.venv/
 /.claude/settings.local.json
+
+# VS Code extension. The grammar and language configuration are GENERATED from
+# the assembler's parser by //vscode-ipu-asm:gen_vscode and are not committed —
+# they are rebuilt on every build, so they cannot go stale.
+/vscode-ipu-asm/syntaxes/
+/vscode-ipu-asm/data/
+/vscode-ipu-asm/language-configuration.json
+/vscode-ipu-asm/node_modules/
+/vscode-ipu-asm/*.vsix
+/parser-tokens.json

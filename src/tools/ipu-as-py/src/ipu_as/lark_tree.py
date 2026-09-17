@@ -1,3 +1,4 @@
+import functools
 import os
 import lark
 import ipu_as.compound_inst as compound_inst
@@ -11,6 +12,30 @@ from ipu_common.instruction_spec import (
 )
 
 IPU_INSTR_ADDR_JUMP = 1
+
+
+@functools.lru_cache(maxsize=1)
+def get_parser() -> lark.Lark:
+    """The single parser-construction site, shared by the assembler and tooling.
+
+    Cached because building a LALR parser is not cheap and `parse()` is called
+    once per assembled file; it used to be rebuilt on every call.
+    """
+    script_dir = os.path.dirname(__file__)
+    return lark.Lark.open(
+        os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
+    )
+
+
+def parse_tree(text: str) -> lark.Tree:
+    """Render Jinja, then parse, **raising** `lark.exceptions.LarkError`.
+
+    `parse()` below prints and exits, which suits the CLI but makes failures
+    unobservable to callers. Tooling and tests use this instead.
+    """
+    if any(marker in text for marker in ["{{", "{%", "{#"]):
+        text = jinja2.Template(text).render()
+    return get_parser().parse(text)
 
 
 def _is_real_instruction_name(name: str) -> bool:
@@ -56,15 +81,23 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
         operand_by_name = dict(
             zip((op["name"] for op in pseudo_def["operands"]), operands)
         )
+        # Borrow the position of the pseudo-instruction being expanded. A bare
+        # lark.Token() carries no line or column, so any later error about the
+        # expansion reported "Line None, Column None" and could not be placed —
+        # `B loop;;` expanding to BEQ is invisible to the diagnostics.
         real_opcode = ipu_token.AnnotatedToken(
-            token=lark.Token(opcode_token.token.type, expansion["instruction"]),
+            token=lark.Token.new_borrow_pos(
+                opcode_token.token.type, expansion["instruction"], opcode_token.token
+            ),
             instr_id=opcode_token.instr_id,
         )
         real_operands = [
             operand_by_name.get(
                 arg,
                 ipu_token.AnnotatedToken(
-                    token=lark.Token(opcode_token.token.type, arg),
+                    token=lark.Token.new_borrow_pos(
+                        opcode_token.token.type, arg, opcode_token.token
+                    ),
                     instr_id=opcode_token.instr_id,
                 ),
             )
@@ -147,7 +180,7 @@ def parse(text: str) -> list[dict[str, any]]:
     )
 
     try:
-        tree = parser.parse(text)
+        tree = parse_tree(text)
         ast = ASTBuilder().transform(tree)
         return ast
     except lark.exceptions.LarkError as e:
