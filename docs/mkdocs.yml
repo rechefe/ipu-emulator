@@ -70,6 +70,7 @@ nav:
       - Building Applications: building-applications.md
       - IPU Configuration: ipu-configuration.md
       - Wide-vector debug mode: wide-vector-debug-mode.md
+      - Prototyping mode: prototyping-mode.md
   - Kernels:
       - Overview: kernels/index.md
       - Softmax: kernels/softmax.md

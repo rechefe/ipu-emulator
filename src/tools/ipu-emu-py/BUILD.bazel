@@ -10,9 +10,21 @@ exports_files([
     "pyproject.toml",
 ])
 
+# Carries the --define=ipu_proto flag into the package. `prototyping.py` imports
+# this defensively, so a plain (non-Bazel) checkout still works with the fast
+# paths off.
+genrule(
+    name = "build_flags",
+    outs = ["src/ipu_emu/_build_flags.py"],
+    cmd = select({
+        "//:prototyping_on": "echo 'PROTOTYPING = True' > $@",
+        "//conditions:default": "echo 'PROTOTYPING = False' > $@",
+    }),
+)
+
 py_library(
     name = "ipu_emu_lib",
-    srcs = glob(["src/ipu_emu/*.py"]),
+    srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],
     imports = ["src"],
     deps = [
         "//src/tools/ipu-as-py:ipu_as_lib",
@@ -73,6 +85,19 @@ py_pytest_test(
 py_pytest_test(
     name = "test_wide_vector_debug",
     srcs = ["test/test_wide_vector_debug.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+# In a flagged build, runs every program through faithful and prototyping
+# engines in lockstep and compares complete state after every cycle. In a
+# default build, verifies that runtime controls cannot bypass the build gate.
+py_pytest_test(
+    name = "test_prototyping_equivalence",
+    srcs = ["test/test_prototyping_equivalence.py"],
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
