@@ -327,7 +327,7 @@ INSTRUCTION_SPEC = {
                     "base: Base address register (CR0–CR14), in XMEM rows.",
                 ],
                 operation="Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
-                example="STR_ACC_REG CR0, CR1;;",
+                example="STR_ACC_REG LR0, CR1;;",
                 notes="This instruction lives in the simulation-only **acc_store** slot.",
             ),
             "execute_fn": "execute_str_acc_reg",
