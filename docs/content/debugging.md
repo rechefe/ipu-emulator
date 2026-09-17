@@ -8,14 +8,15 @@ Use native Bazel commands with a registered kernel target:
 
 ```bash
 bazel run //src/tools/ipu-apps:softmax_rows -- --rows 8
-bazel test //src/tools/ipu-apps:test_softmax_rows
+bazel test //src/tools/ipu-apps:softmax_rows
 bazel run --config=debug //src/tools/ipu-apps:softmax_rows -- --rows 8
 bazel run --config=debug //src/tools/ipu-apps:identity -- --case single_row
 bazel run --config=debug //src/tools/ipu-apps:fully_connected
 ```
 
-`--config=debug` sets `IPU_DEBUG_TUI=1` for the launched application through
-`.bazelrc`. The shared harness opens the TUI at cycle 0 after loading the
+`--config=debug` sets `IPU_DEBUG_TUI=1` through both the run and test
+environments in `.bazelrc`. The shared launcher restores terminal output and
+foreground ownership while debugging an executable test target. The shared harness opens the TUI at cycle 0 after loading the
 program, inputs, and registers, before any instruction executes. Every harness
 using `IpuApp.run()` supports this; no BREAK instruction, per-kernel launch
 code, or debugger import is required. Case selection and arguments are the

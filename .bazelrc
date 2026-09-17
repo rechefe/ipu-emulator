@@ -23,3 +23,5 @@ build --action_env=GITHUB_TOKEN
 
 # Launch any IpuApp harness in the TUI after setup, before instruction execution.
 run:debug --run_env=IPU_DEBUG_TUI=1
+# Executable test targets receive the test environment under bazel run.
+run:debug --test_env=IPU_DEBUG_TUI=1

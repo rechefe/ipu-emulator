@@ -47,7 +47,7 @@ state, cycles = app.run()
 ```
 
 ```bash
-bazel test //src/tools/ipu-apps:test_fully_connected
+bazel test //src/tools/ipu-apps:fully_connected
 ```
 
 
@@ -63,12 +63,25 @@ bazel run //src/tools/ipu-apps:identity
 bazel run //src/tools/ipu-apps:softmax_rows_partial -- --rows 8 --n 32
 bazel run //src/tools/ipu-apps:identity -- --list-cases
 bazel run //src/tools/ipu-apps:identity -- --case single_row
-bazel test //src/tools/ipu-apps:test_identity
+bazel test //src/tools/ipu-apps:identity
 ```
 
-The seven runnable kernels are `fully_connected`, `identity`, `softmax_rows`,
-`softmax_rows_partial`, `softmax_rows_long`, `softmax_columns`, and
-`softmax_columns_packed`. Each has a `test_<name>` target. Existing softmax
+All 19 assembly kernels have one label supporting both commands:
+
+```bash
+bazel run //src/tools/ipu-apps:maxpool2d_stride2
+bazel test //src/tools/ipu-apps:maxpool2d_stride2
+bazel run --config=debug //src/tools/ipu-apps:maxpool2d_stride2
+bazel test //src/tools/ipu-apps:all
+```
+
+`bazel test` runs the adjacent `test.py`; `bazel run` runs the selected case.
+The old `test_<name>` labels remain compatibility aliases. Tests retain Bazel
+XML reports, `--test_filter`, and pytest options supplied with `--test_arg`.
+The shared launcher uses Bazel's documented `BUILD_WORKING_DIRECTORY` run
+marker to distinguish the commands, and imports pytest only in test mode.
+See the [kernel target list](../../../docs/content/debugging.md#quick-start).
+Existing softmax
 shape, seed, scale, and cycle-limit defaults are preserved. Fully connected's
 default INT8 case retains wide arithmetic; its named `int8` and FP8 cases
 exercise native arithmetic. `--output PATH` exports completed output before
@@ -179,5 +192,5 @@ the focused pane. `q` or Ctrl-C cancels cleanly without checking partial output.
 The terminal must be interactive; the deprecated CLI is not a TUI fallback.
 
 `--config=debug` is a native repository Bazel configuration. Use full targets
-and normal `test_<kernel>` labels; no custom `bazel debug` command or wrapper
+for both `bazel run` and `bazel test`; no custom `bazel debug` command or wrapper
 is installed. See [debugger documentation](../../../docs/content/debugging.md) for all controls.
