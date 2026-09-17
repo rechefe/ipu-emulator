@@ -17,6 +17,7 @@ Subclass :class:`IpuApp`, implement :meth:`setup` (and optionally
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -81,12 +82,31 @@ class IpuApp:
         when present.
         """
         ea = elu_alpha if elu_alpha is not None else getattr(self, "elu_alpha", None)
-        return run_test(
-            inst_path=self.inst_path,
-            setup=self.setup,
-            teardown=self.teardown,
-            max_cycles=max_cycles,
-            debug_callback=debug_callback,
-            state=state if state is not None else self.make_state(),
-            elu_alpha=ea,
-        )
+        debug_launch = os.environ.get("IPU_DEBUG_TUI") == "1"
+        if debug_launch:
+            from ipu_emu.debug_launch import make_tui_debug_callback
+
+            from ipu_apps.kernel_registry.registry import _harness_spec
+
+            spec = _harness_spec(self)
+            debug_callback = make_tui_debug_callback(
+                spec.name if spec is not None else type(self).__name__
+            )
+        try:
+            return run_test(
+                inst_path=self.inst_path,
+                setup=self.setup,
+                teardown=self.teardown,
+                max_cycles=max_cycles,
+                debug_callback=debug_callback,
+                break_on_entry=debug_launch,
+                state=state if state is not None else self.make_state(),
+                elu_alpha=ea,
+            )
+        except KeyboardInterrupt:
+            if debug_launch:
+                # F5 restores the terminal before resuming the emulator, so
+                # interrupts between stops must cancel outside curses too.
+                # Unwind case workspaces without checking incomplete output.
+                raise SystemExit(0) from None
+            raise

@@ -20,3 +20,6 @@ test --test_summary=detailed
 
 # Forward GITHUB_TOKEN into genrules that need it (e.g. generate_release_log)
 build --action_env=GITHUB_TOKEN
+
+# Launch any IpuApp harness in the TUI after setup, before instruction execution.
+run:debug --run_env=IPU_DEBUG_TUI=1

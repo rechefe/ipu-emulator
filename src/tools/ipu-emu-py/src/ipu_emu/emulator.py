@@ -20,6 +20,7 @@ from typing import Any, Callable
 import numpy as np
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
+from ipu_emu.debug_control import get_debug_control
 from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.execute import (
     BreakResult,
@@ -89,44 +90,77 @@ def run_with_debug(
     state: IpuState,
     debug_callback: DebugCallback,
     max_cycles: int = 100_000,
+    *,
+    break_on_entry: bool = False,
 ) -> int:
     """Run the program honouring breakpoints.
 
     When a breakpoint fires, *debug_callback(state, cycle_count)* is called.
     The callback returns a :class:`DebugAction`:
 
-    - ``CONTINUE`` — resume execution (ignore further breaks until the next
-      explicit breakpoint).
+    - ``CONTINUE`` — resume execution until the next embedded or runtime
+      breakpoint, or a temporary run target.
     - ``STEP`` — execute the current instruction, then break again.
     - ``QUIT`` — halt immediately.
 
-    Returns the total number of cycles executed.
+    Stops occur before instruction side effects. Callback cycle counts and
+    the return value count completed instructions. Runtime controls are shared
+    with frontends through :func:`get_debug_control`.
+    ``break_on_entry`` stops at the prepared PC before the first instruction.
     """
     cycles = 0
     stepping = False
     ipu = Ipu(state)
 
-    while not state.is_halted:
-        if cycles >= max_cycles:
-            raise RuntimeError(
-                f"Exceeded {max_cycles} cycles — possible infinite loop "
-                f"(PC={state.program_counter})"
-            )
+    control = get_debug_control(state)
+    control.last_completed_pc = None
+    control.last_completed_instruction = None
+    entry_pending = break_on_entry
+    try:
+        while not state.is_halted:
+            if cycles >= max_cycles:
+                raise RuntimeError(
+                    f"Exceeded {max_cycles} cycles — possible infinite loop "
+                    f"(PC={state.program_counter})"
+                )
 
-        result = ipu.execute_vliw_cycle()
-
-        if result == BreakResult.BREAK or stepping:
-            action = debug_callback(state, cycles)
-            if action == DebugAction.QUIT:
-                break
-            stepping = action == DebugAction.STEP
-            # Execute the instruction (skipping the break re-check)
+            issued_pc = state.program_counter
+            issued_instruction = state.inst_mem[issued_pc]
+            reasons = []
+            if entry_pending:
+                reasons.append("entry")
+                entry_pending = False
+            if state.program_counter in control.breakpoints:
+                reasons.append("breakpoint")
+            if state.program_counter == control.run_target:
+                reasons.append("run target")
+            if stepping:
+                reasons.append("step")
+            # A requested stop must not execute the instruction. Still check
+            # its BREAK slot so simultaneous causes produce one callback.
+            result = ipu.check_break() if reasons else ipu.execute_vliw_cycle()
             if result == BreakResult.BREAK:
+                reasons.append("BREAK instruction")
+            if reasons:
+                control.stop_reason = ", ".join(reasons)
+                control.run_target = None
+                action = debug_callback(state, cycles)
+                if action == DebugAction.QUIT or state.is_halted:
+                    break
+                stepping = action == DebugAction.STEP
+                # Resume the paused instruction exactly once, including when
+                # the callback edits PC. A later loop visit can stop again.
+                issued_pc = state.program_counter
+                issued_instruction = state.inst_mem[issued_pc]
                 ipu.execute_vliw_cycle_skip_break()
-
-        cycles += 1
-
-    state.stats.total_cycles = cycles
+            control.last_completed_pc = issued_pc
+            control.last_completed_instruction = (
+                dict(issued_instruction) if issued_instruction is not None else None
+            )
+            cycles += 1
+    finally:
+        control.run_target = None
+        state.stats.total_cycles = cycles
     return cycles
 
 
@@ -242,6 +276,7 @@ def run_test(
     teardown: Callable[[IpuState], None] | None = None,
     max_cycles: int = 1_000_000,
     debug_callback: DebugCallback | None = None,
+    break_on_entry: bool = False,
     state: IpuState | None = None,
     elu_alpha: float | None = None,
 ) -> tuple[IpuState, int]:
@@ -259,6 +294,8 @@ def run_test(
     (same idea as dtype setup, but not via CR). It is applied when constructing
     a new ``IpuState``; if *state* is passed, a non-``None`` α argument is
     forwarded to :meth:`IpuState.set_activation_alphas`.
+    ``break_on_entry`` requests an initial stop after setup when a
+    ``debug_callback`` is supplied.
     """
     if state is None:
         state = IpuState(elu_alpha=elu_alpha)
@@ -270,7 +307,9 @@ def run_test(
         setup(state)
 
     if debug_callback is not None:
-        cycles = run_with_debug(state, debug_callback, max_cycles)
+        cycles = run_with_debug(
+            state, debug_callback, max_cycles, break_on_entry=break_on_entry
+        )
     else:
         cycles = run_until_complete(state, max_cycles)
 

@@ -1,4 +1,6 @@
-"""Interactive GDB-like debug CLI for the IPU emulator.
+"""Deprecated GDB-like debug CLI for the IPU emulator.
+
+Retained for existing Python callers. Use ``bazel run --config=debug TARGET`` for the TUI.
 
 All register display/get/set commands are **auto-generated** from
 the single source of truth in ``ipu_common.registers`` — adding a new
@@ -30,6 +32,7 @@ import shlex
 import struct
 import sys
 import types
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from typing import Any, TextIO
@@ -45,6 +48,8 @@ from ipu_common.registers import create_regfile_schema
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
+from ipu_emu.debug_control import get_debug_control, validate_pc
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import XMEM_ADDRESSABLE_ROWS, xmem_row_size_bytes
 from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
 
@@ -57,6 +62,8 @@ __all__ = [
     "VISIBLE_ALPHABET",
     "encode_16bit_cell",
     "decode_16bit_cell",
+    "XmemRequest",
+    "ResolvedXmemRequest",
 ]
 
 # Build the schema once at import time
@@ -109,9 +116,63 @@ VISIBLE_ALPHABET = _VISIBLE_ASCII + _VISIBLE_LATIN1 + _VISIBLE_EXTENDED
 assert len(VISIBLE_ALPHABET) == 256
 
 
+@dataclass(frozen=True)
+class XmemRequest:
+    """Unresolved, repeatable XMEM debugger request."""
+
+    mode: str
+    base_token: str
+    offset_token: str
+    count: int
+    fmt: str
+
+    def command(self) -> str:
+        return (
+            f"xmem {self.mode} {self.base_token} {self.offset_token} "
+            f"{self.count} {self.fmt}"
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedXmemRequest:
+    """Validated XMEM request resolved against the current IPU state."""
+
+    request: XmemRequest
+    byte_address: int
+    byte_count: int
+    row_size: int
+    metadata: dict[str, int | str]
+    data: bytes
+
+
+@dataclass(frozen=True)
+class XmemDisplayToken:
+    """One formatted XMEM value plus its source-byte span."""
+
+    text: str
+    leading: str
+    raw_start: int
+    raw_size: int
+    fg: int | None = None
+    bg: int | None = None
+
+
+@dataclass(frozen=True)
+class XmemDisplayLine:
+    """One address or row-marker line in a formatted XMEM display."""
+
+    prefix: str
+    tokens: tuple[XmemDisplayToken, ...] = ()
+
+
 def encode_16bit_cell(char_byte: int, fg_4bit: int, bg_4bit: int) -> str:
     """Render one character/color cell as an ANSI terminal string."""
     char = VISIBLE_ALPHABET[char_byte & _CELL16_CHARACTER_MASK]
+    return _ansi_colored_character(char, fg_4bit, bg_4bit)
+
+
+def _ansi_colored_character(char: str, fg_4bit: int, bg_4bit: int) -> str:
+    """Apply the debugger's 16-color ANSI mapping to a visible character."""
     fg = fg_4bit & _CELL16_COLOR_MASK
     bg = bg_4bit & _CELL16_COLOR_MASK
     ansi_fg = (
@@ -297,12 +358,11 @@ def save_state_json(state: IpuState, path: str | Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def disassemble_current(state: IpuState) -> str:
-    """Disassemble the instruction at the current PC."""
+def disassemble_at(state: IpuState, pc: int) -> str:
+    """Disassemble the instruction at *pc*."""
     from ipu_as.compound_inst import CompoundInst
 
-    pc = state.program_counter
-    if pc >= INST_MEM_SIZE:
+    if pc < 0 or pc >= INST_MEM_SIZE:
         return "PC out of bounds"
 
     inst = state.inst_mem[pc]
@@ -318,6 +378,11 @@ def disassemble_current(state: IpuState) -> str:
         shift += width
 
     return f"PC {pc}: {CompoundInst.decode(word)}"
+
+
+def disassemble_current(state: IpuState) -> str:
+    """Disassemble the instruction at the current PC."""
+    return disassemble_at(state, state.program_counter)
 
 
 # ---------------------------------------------------------------------------
@@ -476,13 +541,77 @@ def _xmem_address_limit(state: IpuState, mode: str) -> int:
     return XMEM_SIZE_BYTES
 
 
-def _format_xmem(
+def _parse_xmem_request(args: str) -> tuple[XmemRequest | None, str | None]:
+    """Parse an ``xmem`` command tail without resolving register operands."""
+    parts = args.split()
+    if len(parts) != 5:
+        return (
+            None,
+            "Usage: xmem row|byte BASE OFFSET COUNT " + _XMEM_FORMATS_TEXT,
+        )
+
+    mode, base_token, offset_token, count_token, fmt = parts
+    mode = mode.lower()
+    fmt = fmt.lower()
+    if mode not in ("row", "byte"):
+        return None, "XMEM address mode must be 'row' or 'byte'"
+    if fmt not in _XMEM_FORMAT_ITEM_SIZE_BYTES:
+        return None, f"XMEM format must be one of: {_XMEM_FORMATS_TEXT}"
+
+    count = _parse_int(count_token)
+    if count is None or count < 1:
+        return None, f"XMEM count must be a positive integer; got '{count_token}'"
+    return XmemRequest(mode, base_token, offset_token, count, fmt), None
+
+
+def _resolve_xmem_request(
+    state: IpuState, request: XmemRequest
+) -> tuple[ResolvedXmemRequest | None, str | None]:
+    """Resolve, validate, and read a reusable XMEM request."""
+    byte_address, metadata, error = _resolve_xmem_address(
+        state,
+        request.mode,
+        request.base_token,
+        request.offset_token,
+    )
+    if error is not None:
+        return None, error
+    assert byte_address is not None and metadata is not None
+
+    item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[request.fmt]
+    if item_size > 1 and byte_address % item_size:
+        return (
+            None,
+            f"XMEM {request.fmt} address must be {item_size}-byte aligned; "
+            f"got {byte_address}",
+        )
+
+    byte_count = request.count * item_size
+    limit = _xmem_address_limit(state, str(metadata["address_mode"]))
+    error = _xmem_range_error(byte_address, byte_count, limit)
+    if error is not None:
+        return None, error
+
+    return (
+        ResolvedXmemRequest(
+            request=request,
+            byte_address=byte_address,
+            byte_count=byte_count,
+            row_size=xmem_row_size_bytes(state),
+            metadata=metadata,
+            data=bytes(state.xmem.read_address(byte_address, byte_count)),
+        ),
+        None,
+    )
+
+
+def _tokenize_xmem(
     data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
-) -> str:
-    """Format an already-validated XMEM range for interactive display."""
+) -> list[XmemDisplayLine]:
+    """Tokenize validated XMEM data for ANSI or curses rendering."""
     values_per_line = _XMEM_VALUES_PER_LINE[fmt]
     item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
-    lines: list[str] = []
+    lines: list[XmemDisplayLine] = []
     total_items = len(data) // item_size
     start = 0
 
@@ -494,68 +623,77 @@ def _format_xmem(
             marker = f"--- XMEM row {row} starts at byte address 0x{row_address:08x}"
             if address != row_address:
                 marker += f"; display starts at 0x{address:08x}"
-            lines.append(marker + " ---")
+            lines.append(XmemDisplayLine(marker + " ---"))
 
         items_left_in_row = (row_address + row_size - address) // item_size
         count = min(values_per_line, total_items - start, items_left_in_row)
-        if fmt == "hex":
-            byte_values = [f"{value:02x}" for value in data[start : start + count]]
-            if row_size > XMEM_WIDTH_BYTES:
-                values = "  ".join(
-                    " ".join(byte_values[i : i + _HEX_BYTES_PER_GROUP])
-                    for i in range(0, len(byte_values), _HEX_BYTES_PER_GROUP)
-                )
-            else:
-                values = " ".join(byte_values)
-        elif fmt == "int8":
-            unpacked = (
-                struct.unpack_from("<b", data, start + i)[0]
-                for i in range(count)
-            )
-            values = " ".join(
-                f"{value:>{_INT8_DECIMAL_WIDTH}d}" for value in unpacked
-            )
-        elif fmt == "u8":
-            values = " ".join(
-                f"{data[start + i]:0{_U8_DECIMAL_WIDTH}d}" for i in range(count)
-            )
-        elif fmt == "cell16":
-            rendered: list[str] = []
-            for i in range(count):
-                cell = struct.unpack_from("<H", data, (start + i) * item_size)[0]
+        tokens: list[XmemDisplayToken] = []
+        for i in range(count):
+            raw_start = (start + i) * item_size
+            leading = " "
+            fg: int | None = None
+            bg: int | None = None
+            if fmt == "hex":
+                if (
+                    row_size > XMEM_WIDTH_BYTES
+                    and i > 0
+                    and i % _HEX_BYTES_PER_GROUP == 0
+                ):
+                    leading = "  "
+                text = f"{data[raw_start]:02x}"
+            elif fmt == "int8":
+                value = struct.unpack_from("<b", data, raw_start)[0]
+                text = f"{value:>{_INT8_DECIMAL_WIDTH}d}"
+            elif fmt == "u8":
+                text = f"{data[raw_start]:0{_U8_DECIMAL_WIDTH}d}"
+            elif fmt == "cell16":
+                cell = struct.unpack_from("<H", data, raw_start)[0]
                 char_code = cell & _CELL16_CHARACTER_MASK
-                fg_4bit = (
-                    cell >> _CELL16_FOREGROUND_SHIFT
-                ) & _CELL16_COLOR_MASK
-                bg_4bit = (
-                    cell >> _CELL16_BACKGROUND_SHIFT
-                ) & _CELL16_COLOR_MASK
-                rendered.append(encode_16bit_cell(char_code, fg_4bit, bg_4bit))
-            values = " ".join(
-                "".join(rendered[i : i + _CELL16_CHARACTERS_PER_GROUP])
-                for i in range(0, len(rendered), _CELL16_CHARACTERS_PER_GROUP)
+                fg = (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK
+                bg = (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK
+                text = VISIBLE_ALPHABET[char_code]
+                leading = (
+                    " "
+                    if i == 0 or i % _CELL16_CHARACTERS_PER_GROUP == 0
+                    else ""
+                )
+            elif fmt == "u32":
+                value = struct.unpack_from("<I", data, raw_start)[0]
+                text = f"{value:0{_U32_DECIMAL_WIDTH}d}"
+            else:
+                value = struct.unpack_from("<f", data, raw_start)[0]
+                text = f"{value:>{_F32_DISPLAY_WIDTH}.{_F32_SIGNIFICANT_DIGITS}g}"
+
+            tokens.append(
+                XmemDisplayToken(
+                    text=text,
+                    leading=leading,
+                    raw_start=raw_start,
+                    raw_size=item_size,
+                    fg=fg,
+                    bg=bg,
+                )
             )
-        elif fmt == "u32":
-            unpacked = (
-                struct.unpack_from("<I", data, (start + i) * item_size)[0]
-                for i in range(count)
-            )
-            values = " ".join(
-                f"{value:0{_U32_DECIMAL_WIDTH}d}" for value in unpacked
-            )
-        else:
-            unpacked = (
-                struct.unpack_from("<f", data, (start + i) * item_size)[0]
-                for i in range(count)
-            )
-            values = " ".join(
-                f"{value:>{_F32_DISPLAY_WIDTH}.{_F32_SIGNIFICANT_DIGITS}g}"
-                for value in unpacked
-            )
-        lines.append(f"  0x{address:08x}: {values}")
+        lines.append(XmemDisplayLine(f"  0x{address:08x}:", tuple(tokens)))
         start += count
 
-    return "\n".join(lines)
+    return lines
+
+
+def _format_xmem(
+    data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
+) -> str:
+    """Format an already-validated XMEM range for interactive display."""
+    rendered: list[str] = []
+    for line in _tokenize_xmem(data, byte_address, fmt, row_size):
+        text = line.prefix
+        for token in line.tokens:
+            value = token.text
+            if token.fg is not None and token.bg is not None:
+                value = _ansi_colored_character(value, token.fg, token.bg)
+            text += token.leading + value
+        rendered.append(text)
+    return "\n".join(rendered)
 
 
 def _xmem_sidecar_path(json_path: Path) -> Path:
@@ -591,7 +729,7 @@ def _save_state_with_xmem(
 
 
 class DebugCLI(cmd.Cmd):
-    """Interactive debug CLI — instantiated per breakpoint entry.
+    """Deprecated debug CLI — retained for existing breakpoint callbacks.
 
     Uses Python's ``cmd.Cmd`` for readline, history, and ``help_*`` support.
     Register group commands (``do_lr``, ``do_acc``, etc.) are auto-generated
@@ -602,10 +740,16 @@ class DebugCLI(cmd.Cmd):
     intro = ""  # We print our own banner in run()
 
     def __init__(
-        self, state: IpuState, out: TextIO = sys.stdout, inp: TextIO = sys.stdin
+        self,
+        state: IpuState,
+        out: TextIO = sys.stdout,
+        inp: TextIO = sys.stdin,
+        cycle: int = 0,
     ):
         super().__init__(stdin=inp, stdout=out)
         self.state = state
+        self.control = get_debug_control(state)
+        self.cycle = cycle
         self.out = out
         self.inp = inp
         input_is_tty = bool(getattr(inp, "isatty", lambda: False)())
@@ -688,6 +832,55 @@ class DebugCLI(cmd.Cmd):
         return True
 
     # -- Register commands --------------------------------------------------
+
+    def _command_pc(self, token: str) -> int | None:
+        pc = _parse_int(token)
+        try:
+            if pc is None:
+                raise ValueError("PC must be an integer")
+            return validate_pc(pc)
+        except ValueError as error:
+            self.out.write(f"{error}\n")
+            return None
+
+    def do_break(self, args: str) -> None:
+        """Add a runtime breakpoint. Usage: break [PC]"""
+        pc = self._command_pc(args.strip() or str(self.state.program_counter))
+        if pc is not None:
+            self.control.add_breakpoint(pc)
+            self.out.write(f"Breakpoint at PC {pc}\n")
+
+    def do_breaks(self, args: str) -> None:
+        """List runtime breakpoints. Usage: breaks"""
+        if args.strip():
+            self.out.write("Usage: breaks\n")
+            return
+        if not self.control.breakpoints:
+            self.out.write("No runtime breakpoints\n")
+            return
+        pcs = ", ".join(map(str, sorted(self.control.breakpoints)))
+        self.out.write(f"Breakpoints: {pcs}\n")
+
+    def do_delete(self, args: str) -> None:
+        """Remove runtime breakpoints. Usage: delete PC|all"""
+        if args.strip().lower() == "all":
+            self.control.breakpoints.clear()
+            self.out.write("All runtime breakpoints removed\n")
+            return
+        pc = self._command_pc(args.strip())
+        if pc is not None:
+            self.control.breakpoints.discard(pc)
+            self.out.write(f"Breakpoint removed at PC {pc}\n")
+
+    def do_until(self, args: str) -> bool | None:
+        """Run to a PC or the next stop, whichever comes first. Usage: until PC"""
+        pc = self._command_pc(args.strip())
+        if pc is None:
+            return None
+        if not self.control.run_until(pc, self.state.program_counter):
+            self.out.write(f"Already at PC {pc}\n")
+            return None
+        return self.do_continue("")
 
     def do_regs(self, args: str) -> None:
         """Print all registers."""
@@ -775,7 +968,11 @@ class DebugCLI(cmd.Cmd):
             return
 
         if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
-            self.state.regfile.set_scalar(desc.name, idx, value)
+            try:
+                self.state.regfile.set_scalar(desc.name, idx, value)
+            except EmulatorError as error:
+                self.out.write(f"{error}\n")
+                return
             self.out.write(f"Set {reg_name} = {value}\n")
         else:
             self.out.write(
@@ -784,64 +981,34 @@ class DebugCLI(cmd.Cmd):
 
     def do_xmem(self, args: str) -> None:
         """Read XMEM. Usage: xmem row|byte BASE OFFSET COUNT FORMAT"""
-        parts = args.split()
-        if len(parts) != 5:
-            self.out.write(
-                "Usage: xmem row|byte BASE OFFSET COUNT "
-                f"{_XMEM_FORMATS_TEXT}\n"
-            )
-            return
-
-        mode, base_token, offset_token, count_token, fmt = parts
-        fmt = fmt.lower()
-        if fmt not in _XMEM_FORMAT_ITEM_SIZE_BYTES:
-            self.out.write(
-                f"XMEM format must be one of: {_XMEM_FORMATS_TEXT}\n"
-            )
-            return
-
-        count = _parse_int(count_token)
-        if count is None or count < 1:
-            self.out.write(f"XMEM count must be a positive integer; got '{count_token}'\n")
-            return
-
-        byte_address, metadata, error = _resolve_xmem_address(
-            self.state, mode, base_token, offset_token
-        )
+        request, error = _parse_xmem_request(args)
         if error is not None:
             self.out.write(error + "\n")
             return
-        assert byte_address is not None and metadata is not None
-
-        item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
-        if item_size > 1 and byte_address % item_size:
-            self.out.write(
-                f"XMEM {fmt} address must be {item_size}-byte aligned; "
-                f"got {byte_address}\n"
-            )
-            return
-        byte_count = count * item_size
-        limit = _xmem_address_limit(self.state, str(metadata["address_mode"]))
-        error = _xmem_range_error(byte_address, byte_count, limit)
+        assert request is not None
+        resolved, error = _resolve_xmem_request(self.state, request)
         if error is not None:
             self.out.write(error + "\n")
             return
+        assert resolved is not None
 
-        data = self.state.xmem.read_address(byte_address, byte_count)
-        if metadata["address_mode"] == "row":
+        if resolved.metadata["address_mode"] == "row":
             heading = (
-                f"=== XMEM row {metadata['row']} "
-                f"(byte address 0x{byte_address:08x}, {fmt}) ==="
+                f"=== XMEM row {resolved.metadata['row']} "
+                f"(byte address 0x{resolved.byte_address:08x}, {request.fmt}) ==="
             )
         else:
-            heading = f"=== XMEM byte address 0x{byte_address:08x} ({fmt}) ==="
+            heading = (
+                f"=== XMEM byte address 0x{resolved.byte_address:08x} "
+                f"({request.fmt}) ==="
+            )
         self.out.write(heading + "\n")
         self.out.write(
             _format_xmem(
-                data,
-                byte_address,
-                fmt,
-                xmem_row_size_bytes(self.state),
+                resolved.data,
+                resolved.byte_address,
+                request.fmt,
+                resolved.row_size,
             )
             + "\n"
         )
@@ -937,7 +1104,7 @@ class DebugCLI(cmd.Cmd):
     # -- REPL entry point ---------------------------------------------------
 
     def run(self, level: int = 0) -> DebugAction:
-        """Enter the interactive debug prompt and return the chosen action."""
+        """Enter the line-oriented debug prompt and return the chosen action."""
         self.out.write("\n========================================\n")
         self.out.write(f"IPU Debug - Break at PC={self.state.program_counter}\n")
         self.out.write("========================================\n")
@@ -979,7 +1146,7 @@ def debug_prompt(
     out: TextIO = sys.stdout,
     inp: TextIO = sys.stdin,
 ) -> DebugAction:
-    """Enter the interactive debug prompt.
+    """Enter the deprecated line debugger retained for existing callers.
 
     Suitable as a callback for :func:`emulator.run_with_debug`::
 
@@ -994,5 +1161,5 @@ def debug_prompt(
     level : int
         Debug verbosity level (0–2), matching C ``ipu_debug__level_t``.
     """
-    cli = DebugCLI(state, out=out, inp=inp)
+    cli = DebugCLI(state, out=out, inp=inp, cycle=cycle)
     return cli.run(level=level)
