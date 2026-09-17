@@ -186,11 +186,11 @@ single field:
 | 2 | `relu` | `f(x) = max(0, x)` | Most common non-linearity. |
 | 3 | `relu6` | `f(x) = min(max(0, x), 6)` | Clipped ReLU; used in MobileNet. |
 | 4 | `generic` | `f(x) = LUT[generic](x)` | Covers all activations except `relu` and `relu6` — see the table below for the explicit function each one computes. All of them are called by the single name `generic`; which one is applied is decided by whichever function was loaded into the LUT, not by the encoding. |
-| 5 | `reciprocal` | `f(x) = 1/x` (inf if x = 0) | Multiplicative inverse; useful for normalization. |
-| 6 | `rsqrt` | `f(x) = 1/√x` (inf if x = 0, 0 if x < 0) | Reciprocal square root; used in layer normalization. |
+| 5 | `reciprocal` | `f(x) = 1/x` (0 if x = 0) | Multiplicative inverse; useful for normalization. |
+| 6 | `rsqrt` | `f(x) = 1/√x` (0 if x ≤ 0) | Reciprocal square root; used in layer normalization. |
 | 7 | `exp2` | `f(x) = 2^x` | Used for dequantization, softmax and attention scaling. |
 
-`generic` (encoding 4) covers six functions, all loaded into and called through the same LUT entry:
+`generic` (encoding 4) covers seven functions, all loaded into and called through the same LUT entry:
 
 | Name | Formula |
 |------|---------|
@@ -200,6 +200,7 @@ single field:
 | `softplus` | `f(x) = ln(1 + e^x)` |
 | `elu` | `f(x) = x` if `x ≥ 0`, else `α · (e^x - 1)` (`α = 1.0`) |
 | `silu` | `f(x) = x · sigmoid(x) = x / (1 + e^-x)` |
+| `window` | `f(x) = 1` if `a ≤ x < b`, else `0` (rectangular window over `[a, b)`) |
 
 ### 5.1 Quantization Algorithm
 

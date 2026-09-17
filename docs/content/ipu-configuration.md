@@ -48,7 +48,7 @@ class MyApp(IpuApp):
 
 ## Selecting element count and partition
 
-The `AGG.*` aggregation instructions, `ACTIVATE`, and `AAQ` do not take a
+The `AGG.*` aggregation instructions and `ACTIVATE.QUANTIZE` do not take a
 `valid_elements` assembly operand directly. Instead, they take a mandatory
 `cr_idx` operand naming the CR register that supplies `valid_elements` — there
 is no implicit default, every instruction must name a CR register explicitly
@@ -81,11 +81,11 @@ read from that register's `valid_elements` at runtime. The destination slot in
 ```asm
 AGG.SUM LR0, CR15;;
 AGG.MAX.FIRST LR1, CR15;;
-ACTIVATE relu, CR15;;
+ACTIVATE.QUANTIZE relu, CR15;;
 
 AGG.SUM LR0, CR3;;
 AGG.MAX.FIRST LR1, CR3;;
-ACTIVATE relu, CR3;;
+ACTIVATE.QUANTIZE relu, CR3;;
 ```
 
 The MULT-slot element-masking instructions (`MULT.RC.VV`, `MULT.RC.VE`,
