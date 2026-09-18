@@ -1687,6 +1687,14 @@ class Ipu:
     # VLIW Execution
     # -----------------------------------------------------------------------
 
+    def check_break(self) -> BreakResult:
+        """Evaluate the current instruction's BREAK slot before side effects."""
+        inst = self.state.inst_mem[self.state.program_counter]
+        if inst is None:
+            return BreakResult.CONTINUE
+        self._take_snapshot()
+        return self.dispatch_instruction("break", inst)
+
     def execute_vliw_cycle(self) -> BreakResult:
         """Execute one VLIW cycle.
 
@@ -1705,10 +1713,8 @@ class Ipu:
             self.state.program_counter += 1
             return BreakResult.CONTINUE
 
-        self._take_snapshot()
-
         # Break runs first — may halt before side effects
-        result = self.dispatch_instruction("break", inst)
+        result = self.check_break()
         if result == BreakResult.BREAK:
             return BreakResult.BREAK
 

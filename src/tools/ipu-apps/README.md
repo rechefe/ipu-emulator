@@ -162,3 +162,22 @@ to select one explicitly. Unregistered harnesses retain native defaults.
 An explicit `app.run(state=...)` bypasses state creation and configuration
 selection. Existing kernel setup and validation still run. Activation-alpha
 and debugger callback behavior remain unchanged.
+
+
+## Debug a registered kernel
+
+```bash
+bazel run --config=debug //src/tools/ipu-apps:identity
+bazel run --config=debug //src/tools/ipu-apps:softmax_rows_partial -- --n 32 --rows 8
+```
+
+This uses the same registry harness and input cases as normal execution,
+opening the TUI after setup and before the first instruction. Kernel code
+needs no debugger imports or special entry point. F8 steps, F5 continues, F9
+toggles a breakpoint, F10 runs to the selected instruction, and F11 maximizes
+the focused pane. `q` or Ctrl-C cancels cleanly without checking partial output.
+The terminal must be interactive; the deprecated CLI is not a TUI fallback.
+
+`--config=debug` is a native repository Bazel configuration. Use full targets
+and normal `test_<kernel>` labels; no custom `bazel debug` command or wrapper
+is installed. See [debugger documentation](../../../docs/content/debugging.md) for all controls.

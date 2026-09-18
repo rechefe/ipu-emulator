@@ -20,6 +20,7 @@ from ipu_emu.emulator import (
     DebugAction,
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
+from ipu_emu.debug_control import get_debug_control
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
 from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
@@ -1988,6 +1989,124 @@ BKPT;;
 # ============================================================================
 # Decode / encode round-trip
 # ============================================================================
+
+
+class TestDebuggerStops:
+    def test_step_stops_before_next_instruction_and_counts_completed_cycles(self):
+        state = _make_state("BREAK;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        stops = []
+
+        def callback(state, cycle):
+            stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
+            return DebugAction.STEP
+
+        assert run_with_debug(state, callback) == 4
+        assert stops == [(0, 0, 0), (1, 1, 0), (2, 2, 1), (3, 3, 2)]
+        assert state.stats.total_cycles == 4
+
+    def test_runtime_breakpoint_rearms_on_loop_visit(self):
+        state = _make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
+        control = get_debug_control(state)
+        control.add_breakpoint(0)
+        original = [inst.copy() if inst else None for inst in state.inst_mem]
+        stops = []
+
+        def callback(state, cycle):
+            stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
+            assert control.stop_reason == "breakpoint"
+            return DebugAction.CONTINUE
+
+        assert run_with_debug(state, callback) == 7
+        assert stops == [(0, 0, 0), (0, 2, 1), (0, 4, 2)]
+        assert state.inst_mem == original
+
+    def test_simultaneous_causes_stop_once(self):
+        state = _make_state("BREAK;;\nBREAK;;\nBKPT;;")
+        control = get_debug_control(state)
+        control.add_breakpoint(1)
+        reasons = []
+
+        def callback(state, cycle):
+            reasons.append((state.program_counter, cycle, control.stop_reason))
+            if cycle == 0:
+                control.run_until(1, state.program_counter)
+                return DebugAction.STEP
+            return DebugAction.CONTINUE
+
+        assert run_with_debug(state, callback) == 3
+        assert reasons == [
+            (0, 0, "BREAK instruction"),
+            (1, 1, "breakpoint, run target, step, BREAK instruction"),
+        ]
+        assert control.run_target is None
+
+    def test_run_target_stops_before_side_effects(self):
+        state = _make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        control = get_debug_control(state)
+        control.run_until(1, 0)
+        stops = []
+
+        def callback(state, cycle):
+            stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
+            assert control.run_target is None
+            assert control.stop_reason == "run target"
+            return DebugAction.QUIT
+
+        assert run_with_debug(state, callback) == 1
+        assert stops == [(1, 1, 1)]
+        assert state.stats.total_cycles == 1
+
+    def test_intervening_break_cancels_run_target(self):
+        state = _make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
+        control = get_debug_control(state)
+        stops = []
+
+        def callback(state, cycle):
+            stops.append(state.program_counter)
+            if cycle == 0:
+                control.run_until(2, state.program_counter)
+            else:
+                assert control.run_target is None
+            return DebugAction.CONTINUE
+
+        assert run_with_debug(state, callback) == 4
+        assert stops == [0, 1]
+        assert state.regfile.get_lr(0) == 1
+
+    @pytest.mark.parametrize("termination", ["halt", "quit", "limit", "error"])
+    def test_run_target_cleared_on_every_exit(self, termination):
+        state = _make_state("BREAK;;\nBKPT;;")
+        control = get_debug_control(state)
+
+        def callback(state, cycle):
+            control.run_until(10, state.program_counter)
+            if termination == "error":
+                raise ValueError("callback failed")
+            return DebugAction.QUIT if termination == "quit" else DebugAction.CONTINUE
+
+        if termination in ("limit", "error"):
+            with pytest.raises(RuntimeError if termination == "limit" else ValueError):
+                run_with_debug(state, callback, max_cycles=1)
+        else:
+            run_with_debug(state, callback)
+        assert control.run_target is None
+
+    def test_pc_and_register_edits_apply_to_resumed_instruction(self):
+        state = _make_state("BREAK;;\nSET lr1 cr2;;\nBKPT;;")
+
+        def callback(state, cycle):
+            state.program_counter = 1
+            state.regfile.set_cr(2, 19)
+            return DebugAction.STEP
+
+        stops = []
+
+        def edit_once(state, cycle):
+            stops.append((state.program_counter, cycle, state.regfile.get_lr(1)))
+            return callback(state, cycle) if cycle == 0 else DebugAction.QUIT
+
+        assert run_with_debug(state, edit_once) == 1
+        assert stops == [(0, 0, 0), (2, 1, 19)]
 
 
 class TestDecodeRoundtrip:
