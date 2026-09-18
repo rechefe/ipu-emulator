@@ -52,6 +52,12 @@ class IpuApp:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    def make_state(self) -> "IpuState":
+        """Create fresh state using this harness's registry execution config."""
+        from ipu_apps.kernel_registry.registry import create_state
+
+        return create_state(self)
+
     def setup(self, state: "IpuState") -> None:
         """Prepare the IPU state before execution. Override this."""
 
@@ -81,6 +87,6 @@ class IpuApp:
             teardown=self.teardown,
             max_cycles=max_cycles,
             debug_callback=debug_callback,
-            state=state,
+            state=state if state is not None else self.make_state(),
             elu_alpha=ea,
         )

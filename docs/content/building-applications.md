@@ -8,9 +8,9 @@ Each IPU application is a subpackage under `ipu_apps/` containing:
 
 1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](assembly-syntax.md))
 2. **Python app class** (`__init__.py`) — Subclass of `IpuApp` that implements `setup()` and `teardown()`
-3. **Debug runner** (`__main__.py`) — Optional CLI entry point for interactive debugging
+3. **Reusable cases** (`cases.py`) — Input preparation and output checks without pytest
 4. **Test data** — Input/output binary files for validation
-5. **Regression tests** (`test/test_*.py`) — Automated tests comparing outputs against golden references
+5. **Regression tests** (`test.py`) — Tests importing the reusable cases
 
 Everything lives together in one directory.
 
@@ -118,66 +118,28 @@ Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly pro
 
 ## Step 2: Define Bazel Build Targets
 
-Create `BUILD.bazel` entries to assemble the program and define your app targets:
+Add one declaration to `src/tools/ipu-apps/BUILD.bazel`:
 
 ```starlark
-load("//:asm_rules.bzl", "assemble_asm")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library")
-load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//:ipu_app.bzl", "ipu_app")
 
-# Assemble the .asm file to .bin
-assemble_asm(
-    name = "assemble_my_app",
-    src = "src/ipu_apps/my_app/my_app.asm",
-)
-
-# Collect test data files
-filegroup(
-    name = "my_app_test_data",
-    srcs = glob(["src/ipu_apps/my_app/test_data/**/*.bin"]),
-)
-
-# Binary for interactive debugging (optional)
-py_binary(
+ipu_app(
     name = "my_app",
-    srcs = ["src/ipu_apps/my_app/__main__.py"],
-    main = "src/ipu_apps/my_app/__main__.py",
-    data = [
-        ":assemble_my_app.bin",
-        ":my_app_test_data",
-    ],
-    env = {
-        "MY_APP_INST_BIN": "$(rootpath :assemble_my_app.bin)",
-        "MY_APP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/my_app/test_data",
-    },
-    imports = ["src"],
+    kernel_package = "src/ipu_apps/my_app",
     deps = [":ipu_apps_lib"],
-)
-
-# Regression tests
-py_pytest_test(
-    name = "test_my_app",
-    srcs = ["test/test_my_app.py"],
-    data = [
-        ":assemble_my_app.bin",
-        ":my_app_test_data",
-    ],
-    env = {
-        "MY_APP_INST_BIN": "$(rootpath :assemble_my_app.bin)",
-        "MY_APP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/my_app/test_data",
-    },
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
+    test_deps = [requirement("pytest")],
+    data = glob(["src/ipu_apps/my_app/test_data/**/*.bin"]),
 )
 ```
 
-Build the assembly:
+The macro supplies the shared runner and a `test_my_app` target. It packages
+`my_app.asm`; if `SPEC.asm` uses a different filename, pass the same relative
+path as the macro's `asm` argument. Cases assemble the source at runtime, so no
+instruction-path or fixture-directory environment variables are needed.
 
 ```bash
-bazel build //src/tools/ipu-apps:assemble_my_app
+bazel run //src/tools/ipu-apps:my_app -- --list-cases
+bazel test //src/tools/ipu-apps:test_my_app
 ```
 
 ## Step 3: Write the Application Class
@@ -245,131 +207,79 @@ class MyApp(IpuApp):
 - `teardown()` collects results after execution (dump outputs)
 - The base class `run()` method orchestrates: create state → load program → setup → execute → teardown
 
-## Step 4: Write the Interactive Runner (Optional)
+## Step 4: Declare the Spec and Reusable Cases
 
-Create `src/ipu_apps/my_app/__main__.py` for interactive debugging:
+Declare a `KernelSpec` named `SPEC` beside your harness. It defines the
+supported parameters, constructor arguments, assembly path, and execution
+configuration. Follow [Adding applications](adding-applications.md) for the
+spec and constructor-guard contract.
+
+Create `src/ipu_apps/my_app/cases.py` for input preparation and output checks:
 
 ```python
-"""Debug runner for my_app.
-
-Usage::
-    bazel run //src/tools/ipu-apps:my_app -- --input data.bin
-"""
-
-import argparse
-import os
 from pathlib import Path
+from ipu_apps.kernel_registry.cases import (
+    KernelCase, PreparedCase, check_output_bytes,
+)
 
-from ipu_emu.debug_cli import debug_prompt
-from ipu_apps.my_app import MyApp
+DATA = Path(__file__).with_name("test_data")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run my_app with debug CLI")
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--max-cycles", type=int, default=1_000_000)
-    args = parser.parse_args()
+def prepare(workspace):
+    output = workspace / "output.bin"
 
-    # Bazel sets these via env vars (see BUILD.bazel)
-    inst_path = Path(os.environ["MY_APP_INST_BIN"])
-    
-    app = MyApp(
-        inst_path=inst_path,
-        inputs_path=args.input,
-        output_path=args.output,
+    def check():
+        check_output_bytes(output, DATA / "expected.bin")
+
+    return PreparedCase(
+        params={},  # Parameters accepted by your SPEC.
+        bindings={"inputs_path": DATA / "inputs.bin", "output_path": output},
+        check=check,
     )
-    state, cycles = app.run(
-        max_cycles=args.max_cycles,
-        debug_callback=debug_prompt,  # Interactive debug CLI
-    )
-    print(state.stats.format_summary())
 
 
-if __name__ == "__main__":
-    main()
+CASES = {"default": KernelCase(prepare)}
 ```
 
-**Key points:**
-- Use `debug_prompt` as the callback to enable interactive debugging
-- Read `MY_APP_INST_BIN` from environment (set by Bazel in BUILD.bazel)
-- Accept command-line arguments for input/output paths
-- This is optional — only needed if you want a standalone debug runner
+Cases must not import pytest. A checker raises a descriptive exception on a
+mismatch; use explicit comparisons rather than `assert`, which disappears
+under Python optimization. Numeric checks should report the error and tolerance.
 
-Run interactively:
+Case defaults define CLI options and must be strings, integers, floats, or
+booleans. Option names use lower-case letters, digits, and underscores and may
+not conflict with the shared runner's options. For richer inputs, accept a
+string and parse it in preparation. A `default` case is required.
 
-```bash
-bazel run //src/tools/ipu-apps:my_app -- --input my_input.bin --output results.bin
-```
+Cases and assembly live in the harness's containing package. A class in
+`my_app/app.py` therefore uses `my_app/cases.py`. Set `SPEC.package` explicitly
+when resources live in a different package.
 
 ## Step 5: Write Regression Tests
 
-Create `test/test_my_app.py` for automated validation:
+Create `src/ipu_apps/my_app/test.py`, importing the runtime cases:
 
 ```python
-"""End-to-end regression tests for my_app."""
-
-from __future__ import annotations
-
-import os
-from pathlib import Path
-
 import pytest
-
-from ipu_apps.my_app import MyApp
-
-
-# Bazel sets these via env vars (see BUILD.bazel)
-_INST_BIN = Path(os.environ["MY_APP_INST_BIN"])
-_DATA_DIR = Path(os.environ["MY_APP_DATA_DIR"])
+from ipu_apps.my_app.cases import CASES
+from ipu_apps.kernel_registry.cases import run_case
 
 
-def _run_app(tmp_path: Path, test_case: str) -> tuple[bytes, int]:
-    """Run the app for a test case, return (output_bytes, cycles)."""
-    case_dir = _DATA_DIR / test_case
-    if not case_dir.exists():
-        pytest.skip(f"Test data not found: {case_dir}")
-    
-    inputs = case_dir / "inputs.bin"
-    if not inputs.exists():
-        pytest.skip(f"Missing input file: {inputs}")
-    
-    output = tmp_path / "output.bin"
-    app = MyApp(
-        inst_path=_INST_BIN,
-        inputs_path=inputs,
-        output_path=output,
-    )
-    _, cycles = app.run(max_cycles=1_000_000)
-    return output.read_bytes(), cycles
-
-
-@pytest.mark.parametrize("test_case,golden_name", [
-    ("case1", "golden_case1.bin"),
-    ("case2", "golden_case2.bin"),
-])
-def test_my_app(tmp_path: Path, test_case: str, golden_name: str) -> None:
-    """Compare app output against golden reference."""
-    actual, cycles = _run_app(tmp_path, test_case)
-    assert cycles > 0
-    
-    golden = _DATA_DIR / test_case / golden_name
-    if golden.exists():
-        assert actual == golden.read_bytes()
+@pytest.mark.parametrize("name", CASES)
+def test_my_app(name):
+    state, cycles = run_case("my_app", CASES[name])
+    assert state.is_halted and cycles > 0
 ```
 
-**Key points:**
-- Read `MY_APP_INST_BIN` and `MY_APP_DATA_DIR` from environment variables
-- Use `pytest.mark.parametrize` to test multiple cases with one test function
-- Compare actual output against golden reference files
-- Skip gracefully if test data is missing
-- No `debug_callback` — tests run headless and fast
-
-Run tests:
+`run_case` assembles, prepares, executes, and validates the case, then cleans
+its temporary workspace. Tests may pass `inst_path` from a module-scoped
+fixture to reuse assembly. Use `workspace` when a test needs to inspect files.
 
 ```bash
 bazel test //src/tools/ipu-apps:test_my_app
 ```
+
+The pyproject config discovers both `test/test_*.py` and adjacent `src/**/test.py`
+suites. Bazel remains the supported build and test workflow.
 
 ## Inspecting Run Statistics
 
@@ -573,87 +483,38 @@ class FullyConnectedApp(IpuApp):
             )
 ```
 
-### Interactive Debug Runner
+### Running the Fully Connected Cases
 
-The `__main__.py` provides an interactive CLI for development:
+The shared registry runner loads `fully_connected/cases.py`:
 
-```python
-"""Debug runner for the fully-connected app.
-
-Usage::
-
-    bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8
-"""
-
-import argparse
-import os
-from pathlib import Path
-
-from ipu_emu.debug_cli import debug_prompt
-
-from ipu_apps.fully_connected import FullyConnectedApp
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run fully-connected with debug CLI")
-    parser.add_argument("--dtype", default="INT8", choices=["INT8", "FP8_E4M3", "FP8_E5M2"])
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--max-cycles", type=int, default=2_000_000)
-    args = parser.parse_args()
-
-    # Bazel sets these via env vars (see BUILD.bazel)
-    inst_path = Path(os.environ["FC_INST_BIN"])
-    data_dir = Path(os.environ["FC_DATA_DIR"])
-
-    app = FullyConnectedApp(
-        inst_path=inst_path,
-        inputs_path=data_dir / args.dtype.lower() / f"inputs_{args.dtype.lower()}.bin",
-        weights_path=data_dir / args.dtype.lower() / f"weights_{args.dtype.lower()}.bin",
-        output_path=args.output,
-        dtype=args.dtype,
-    )
-    state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(state.stats.format_summary())
-
-
-if __name__ == "__main__":
-    main()
+```bash
+bazel run //src/tools/ipu-apps:fully_connected -- --list-cases
+bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8 --output /tmp/fc-output.bin
+bazel test //src/tools/ipu-apps:test_fully_connected
 ```
 
-**Key observations:**
-- The `setup()` method transcodes weights (transpose for cache efficiency) and loads both inputs and weights into XMEM
-- Control registers point the assembly code to the base addresses: `CR0=inputs`, `CR1=weights_transposed`, `CR2=outputs`
-- The dtype is configurable (for example INT8, FP8_E4M3, FP8_E5M2), parsed to `DType`, and copied to `IpuState.dtype`
-- The assembly program is written to operate on transposed weights for better performance
-- All paths are resolved by Bazel and passed via environment variables
+Fixture paths are resolved relative to the case module. `--output` exports
+completed output before validation, allowing inspection of a failing result;
+a failed check still exits with a nonzero status and a diagnostic. Programs
+that exceed their cycle limit are rejected before export.
 
-See [src/tools/ipu-apps/src/ipu_apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/fully_connected) for the complete working code including tests and Bazel build targets.
+The shared CLI runs without an interactive debugger. To debug a harness
+through the Python API, pass `debug_callback=debug_prompt` to `app.run()`;
+see [Debugging](debugging.md) for callback usage.
 
-## Summary: The Two Usage Patterns
+## Running and Testing Applications
 
-### Pattern 1: Interactive Debugging
-- **Purpose**: Develop and debug your application
-- **File**: `__main__.py` with `debug_prompt` callback
-- **Target**: `py_binary` in BUILD.bazel
-- **Run**: `bazel run //...:my_app -- --input data.bin`
-- **Features**: Breakpoints, register inspection, step-through execution
-
-### Pattern 2: Regression Tests
-- **Purpose**: Validate correctness against known-good outputs
-- **File**: `test/test_*.py` with pytest assertions
-- **Target**: `py_pytest_test` in BUILD.bazel
-- **Run**: `bazel test //...:test_my_app`
-- **Features**: Fast, headless, CI-friendly, parametrized test cases
-
-Both patterns share the same `MyApp` class — you just write `setup()` and `teardown()` once, then use it in both contexts.
+Both `bazel run` and `bazel test` use the same harness and reusable cases.
+The `ipu_app` macro supplies the CLI, and the adjacent `test.py` adds pytest
+coverage. Kernel packages do not need a custom `__main__.py`.
 
 ## Key Concepts
 
 - **Memory Layout**: Define base addresses for inputs, weights, and outputs in external memory (XMEM)
 - **Register Setup**: Initialize LR/CR registers before execution in `setup()`
 - **Auto-attribute Storage**: Pass all parameters to `IpuApp.__init__(**kwargs)` — they're automatically stored as `self.param_name`
-- **Path Handling**: Use Bazel `env` with `$(rootpath ...)` to set environment variables with resolved paths
+- **Path Handling**: Resolve fixtures relative to `cases.py`; declare assembly and fixture files as Bazel data
 - **Emulator Run**: The emulator executes instructions until the program counter exceeds instruction memory
-- **Bazel Integration**: The `assemble_asm` rule compiles `.asm` files to `.bin` executables
+- **Bazel Integration**: `ipu_app` supplies run and test targets; `assemble_asm` remains available for standalone binary artifacts
 
 See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/fully_connected/` for a real-world implementation.

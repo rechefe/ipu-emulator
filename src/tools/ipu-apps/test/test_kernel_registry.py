@@ -22,7 +22,7 @@ from ipu_as.lark_tree import assemble_to_bin_file
 
 import ipu_apps.kernel_registry.registry as registry
 from ipu_apps.kernel_registry.layers import _ADAPTERS
-from ipu_apps.kernel_registry.identity.test import assert_identity_kernel
+from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
@@ -88,7 +88,10 @@ def test_discovery_is_recursive():
 
 def test_registry_identity_example_loads_runs_and_reads_memory():
     """The built-in boilerplate is executable, not only a discoverable spec."""
-    assert_identity_kernel(_APP_SRC)
+    verdict = resolve("identity", shape=(3, 128))
+    assert verdict.supported and verdict.app_name == "identity"
+    _, cycles = run_case(verdict.app_name, load_cases(verdict.app_name)["default"])
+    assert cycles > 0
 
 
 def test_every_spec_is_well_formed():
@@ -97,8 +100,10 @@ def test_every_spec_is_well_formed():
         assert isinstance(spec, KernelSpec)
         assert isinstance(spec.app_class, type), spec.name
         if spec.asm:
-            matches = list(_APP_SRC.rglob(spec.asm))
-            assert matches, f"{spec.name} declares a missing asm: {spec.asm}"
+            from importlib.resources import files
+            assert files(spec.resource_package).joinpath(spec.asm).is_file(), (
+                f"{spec.name} declares a missing asm: {spec.asm}"
+            )
 
 
 def test_kernel_names_are_unique():
@@ -169,10 +174,21 @@ def test_a_missing_parameter_is_a_refusal_not_a_crash():
 
 
 def test_every_spec_declares_the_parameters_it_indexes():
-    """`requires` is what turns a missing parameter into a named refusal; a
-    spec that omits it silently regains the raw-KeyError behaviour."""
+    """Empty queries must either use defaults or name missing parameters."""
     for spec in kernels():
-        assert spec.requires, f"{spec.name} declares no required parameters"
+        verdict = spec.check()
+        if spec.requires:
+            assert not verdict.ok
+            assert all(name in verdict.reason for name in spec.requires)
+        elif verdict.ok:
+            # Optional callbacks must also tolerate an empty query; a missing
+            # required declaration would raise KeyError here.
+            spec.build()
+            spec.explain()
+            spec.cost()
+            spec.caveats()
+            if spec.bundle is not None:
+                spec.bundle()
 
 
 def test_a_kernels_own_keyerror_is_not_reported_as_unsupported():
