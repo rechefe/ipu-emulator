@@ -1,30 +1,33 @@
-"""Standard run/test targets for a kernel registered beside its assembly."""
-load("@rules_python//python:defs.bzl", "py_binary")
-load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+"""One executable test target per registered kernel."""
+load("@rules_python//python:defs.bzl", "py_test")
+
+_PYTEST_SHIM = "@rules_python_pytest//python_pytest:pytest_shim.py"
 
 
 def ipu_app(name, kernel_package, deps, data = [], test_deps = [], asm = None):
-    """Declare one registered kernel with its adjacent test.py and .asm.
+    """Declare a kernel label usable by both bazel run and bazel test.
 
-    kernel_package is a source path, for example src/ipu_apps/softmax/softmax_rows.
-    The shared frontend selects the exact SPEC.name supplied as name.
-    asm is relative to kernel_package and must match SPEC.asm; it defaults to
-    name + ".asm". Keep pytest dependencies in test_deps, not runtime deps.
+    bazel run selects the exact SPEC.name through the registry frontend;
+    bazel test executes the adjacent test.py through the existing pytest shim.
+    test_<name> remains a compatibility alias. asm is relative to kernel_package
+    and defaults to name + ".asm". Pass pytest dependencies in test_deps.
     """
     kernel_data = data + [kernel_package + "/" + (asm if asm != None else name + ".asm")]
-    py_binary(
+    test_file = kernel_package + "/test.py"
+    py_test(
         name = name,
-        srcs = ["src/ipu_apps/kernel_registry/runner.py"],
-        main = "src/ipu_apps/kernel_registry/runner.py",
-        args = ["--kernel", name],
-        data = kernel_data,
-        deps = deps,
-        legacy_create_init = False,
-    )
-    py_pytest_test(
-        name = "test_" + name,
-        srcs = [kernel_package + "/test.py"],
+        srcs = [
+            "src/ipu_apps/kernel_registry/bazel_entry.py",
+            test_file,
+            _PYTEST_SHIM,
+        ],
+        main = "src/ipu_apps/kernel_registry/bazel_entry.py",
+        args = [name, "$(location :" + test_file + ")", "$(location " + _PYTEST_SHIM + ")"],
         data = kernel_data,
         deps = deps + test_deps,
         legacy_create_init = False,
+    )
+    native.alias(
+        name = "test_" + name,
+        actual = ":" + name,
     )
