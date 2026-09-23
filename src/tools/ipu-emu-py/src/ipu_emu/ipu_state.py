@@ -29,6 +29,16 @@ from ipu_emu.ipu_config import (
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
 
+
+def _ipu():
+    """The ``ipu`` module, for its register sizes and row geometry.
+
+    ``ipu`` imports this module, so importing it at load time would be circular.
+    """
+    from ipu_emu import ipu
+
+    return ipu
+
 class WideVectorArithmetic(str, Enum):
     """How 128-element wide-vector debug math is performed (emulator-only; issue #33).
 
@@ -162,48 +172,74 @@ class IpuState:
     # -- XMEM ↔ register transfers (mirrors ipu__load_r_reg / ipu__store_r_reg) --
 
     def write_constant_ones(self, xmem_addr: int) -> None:
-        """Write a dtype-correct 128-lane ONES row with alias provenance.
+        """Write a dtype-correct LANES-element ONES row with alias provenance.
 
         Use only for intentional identity constants, never ordinary inputs or
         weights. Any subsequent XMEM write overlapping this row revokes it.
         """
+        lanes = _ipu().LANES
         if self.wide_vector_debug:
             fmt = "<f" if self.wide_vector_arithmetic == WideVectorArithmetic.FP32 else "<i"
-            data = struct.pack(fmt, 1) * 128
+            data = struct.pack(fmt, 1) * lanes
         else:
             from ipu_emu.ipu_math import dtype_one_byte
-            data = bytes([dtype_one_byte(self.dtype)]) * 128
+            data = bytes([dtype_one_byte(self.dtype)]) * lanes
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
 
-    def load_r_reg_from_xmem(self, xmem_addr: int, r_index: int) -> None:
-        """Load 128 bytes from XMEM into R register *r_index*."""
-        data = self.xmem.read_address(xmem_addr, 128)
-        self.regfile.set_r(r_index, data)
-        if self.xmem.is_constant_ones(xmem_addr, data):
-            self.regfile.mark_constant_ones("r", r_index * 128, 128)
+    # Debug/test conveniences, not on any instruction execution path. Each
+    # takes a ROW number and mirrors its instruction in the active mode:
+    # LDR_MULT_REG, LDR_CYCLIC_MULT_REG, STR_ACC_REG, LDR_MULT_MASK_REG.
 
-    def store_r_reg_to_xmem(self, xmem_addr: int, r_index: int) -> None:
-        """Store R register *r_index* (128 bytes) to XMEM."""
-        data = self.regfile.get_r(r_index)
-        self.xmem.write_address(xmem_addr, data)
+    def _row_address(self, xmem_row: int) -> int:
+        return xmem_row * _ipu().xmem_row_size_bytes(self)
 
-    def load_r_cyclic_from_xmem(self, xmem_addr: int) -> None:
-        """Load 128 bytes from XMEM into the cyclic register at current index."""
-        data = self.xmem.read_address(xmem_addr, 128)
-        self.regfile.set_r_cyclic_at(0, data)
-        if self.xmem.is_constant_ones(xmem_addr, data):
-            self.regfile.mark_constant_ones("r_cyclic", 0, 128)
+    def load_r_reg_from_xmem(self, xmem_row: int, r_index: int) -> None:
+        """Load one row from XMEM into R register *r_index* (0=R0, 1=R1)."""
+        addr = self._row_address(xmem_row)
+        if self.wide_vector_debug:
+            data = self.xmem.read_address(addr, _ipu().xmem_row_size_bytes(self))
+            self.regfile.set_r_wide_debug(r_index, data)
+            name = "r_wide_debug"
+        else:
+            data = self.xmem.read_address(addr, _ipu().R_REG_SIZE)
+            self.regfile.set_r(r_index, data)
+            name = "r"
+        if self.xmem.is_constant_ones(addr, data):
+            self.regfile.mark_constant_ones(name, r_index * len(data), len(data))
 
-    def store_acc_to_xmem(self, xmem_addr: int) -> None:
-        """Store the accumulator (512 bytes) to XMEM."""
-        data = self.regfile.get_r_acc_bytes()
-        self.xmem.write_address(xmem_addr, data)
+    def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
+        """Store R register *r_index* (one row) to XMEM."""
+        data = (self.regfile.get_r_wide_debug(r_index) if self.wide_vector_debug
+                else self.regfile.get_r(r_index))
+        self.xmem.write_address(self._row_address(xmem_row), data)
 
-    def load_r_mask_from_xmem(self, xmem_addr: int) -> None:
-        """Load 128 bytes from XMEM into the mask register."""
-        data = self.xmem.read_address(xmem_addr, 128)
-        self.regfile.set_r_mask(data)
+    def load_r_cyclic_from_xmem(self, xmem_row: int, slot_element_idx: int = 0) -> None:
+        """Load one row from XMEM into r_cyclic at *slot_element_idx*.
+
+        An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
+        for LDR_CYCLIC_MULT_REG. Defaults to slot 0.
+        """
+        ipu = _ipu()
+        if slot_element_idx not in ipu.R_CYCLIC_VALID_INDICES:
+            raise ValueError(f"slot_element_idx must be one of {ipu.R_CYCLIC_VALID_INDICES}; "
+                             f"got {slot_element_idx}")
+        addr = self._row_address(xmem_row)
+        data = self.xmem.read_address(addr, ipu.xmem_row_size_bytes(self))
+        byte_idx = slot_element_idx * ipu.xmem_element_width_bytes(self)
+        name = "r_cyclic_wide_debug" if self.wide_vector_debug else "r_cyclic"
+        getattr(self.regfile, f"set_{name}_at")(byte_idx, data)
+        if self.xmem.is_constant_ones(addr, data):
+            self.regfile.mark_constant_ones(name, byte_idx, len(data))
+
+    def store_acc_to_xmem(self, xmem_row: int) -> None:
+        """Store the whole accumulator (R_ACC_SIZE bytes in both modes) to XMEM."""
+        self.xmem.write_address(self._row_address(xmem_row), self.regfile.get_r_acc_bytes())
+
+    def load_r_mask_from_xmem(self, xmem_row: int) -> None:
+        """Load the mask register (R_REG_SIZE bytes in both modes: 1 bit per lane)."""
+        self.regfile.set_r_mask(
+            self.xmem.read_address(self._row_address(xmem_row), _ipu().R_REG_SIZE))
 
     # -- state queries ------------------------------------------------------
 

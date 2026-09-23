@@ -2,7 +2,7 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
-load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels")
+load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels", "ipu_multi_kernel_tests", "ipu_per_kernel_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -78,6 +78,7 @@ ipu_families_from_kernels(
 
 py_pytest_test(
     name = "test_debug_launch",
+    size = "enormous",
     srcs = ["test/test_debug_launch.py"],
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
@@ -89,9 +90,17 @@ py_pytest_test(
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
-py_pytest_test(
+ipu_per_kernel_test(
     name = "test_alias_profile_kernels",
-    srcs = ["test/test_alias_profile_kernels.py"],
+    src = "test/test_alias_profile_kernels.py",
+    kernels_root = "src/ipu_apps/kernels",
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# Tests that run several kernels together: one target per test/<suite>/test_*.py.
+ipu_multi_kernel_tests(
+    suites_root = "test",
+    kernels_root = "src/ipu_apps/kernels",
     deps = [":ipu_apps_lib", requirement("pytest")],
 )

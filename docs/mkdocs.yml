@@ -74,6 +74,11 @@ nav:
   - Kernels:
       - Overview: kernels/index.md
       - Softmax: kernels/softmax.md
+      - Convolutions: kernels/convolutions.md
+      - Linear Layers: kernels/linear-layers.md
+      - Normalization and Shaping: kernels/normalization-and-shaping.md
+      - Attention: kernels/attention.md
+      - MobileViT-S: kernels/mobilevit.md
       - Application Coverage: app-coverage.md
       - Adding Applications: adding-applications.md
       - ISA Alias Catalogue: isa-alias-catalogue.md

@@ -32,3 +32,6 @@ bazel-testlogs/
 /vscode-ipu-asm/node_modules/
 /vscode-ipu-asm/*.vsix
 /parser-tokens.json
+
+# macOS Finder metadata
+.DS_Store

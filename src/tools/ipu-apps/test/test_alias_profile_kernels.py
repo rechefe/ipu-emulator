@@ -12,7 +12,10 @@ from ipu_emu.alias_detectors import default_registry
 from ipu_common.isa_alias_spec import ISA_ALIAS_SPEC
 
 load()
-CASES = [(spec.name, name) for spec in kernels() for name in load_cases(spec.name)]
+# IPU_KERNEL selects one kernel (one Bazel target per kernel); unset, every kernel.
+KERNEL = os.environ.get('IPU_KERNEL')
+CASES = [(spec.name, name) for spec in kernels() if KERNEL in (None, spec.name)
+         for name in load_cases(spec.name)]
 
 
 @pytest.mark.parametrize('kernel,name', CASES)
@@ -47,6 +50,7 @@ def test_profile_kernel(kernel, name, options=None, label=None):
         Path(output, kernel + '--' + (label or name) + '.json').write_text(json.dumps(report, indent=2))
 
 
+@pytest.mark.skipif(KERNEL not in (None, 'softmax_columns_packed'), reason='other kernel')
 @pytest.mark.parametrize('width', [17, 50])
 def test_profile_packed_tail_mask(width):
     test_profile_kernel('softmax_columns_packed', 'default',
