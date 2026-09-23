@@ -1,0 +1,64 @@
+name: Getting Started Guide
+
+# Renders docs/guide/getting-started.tex to PDF and publishes it as the
+# rolling `guide-latest` release. Runs only on pushes to master (merges).
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/guide/**'
+      - '.github/workflows/getting-started-guide.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: getting-started-guide
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, so the last commit that touched the guide can be found.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The guide sets DejaVu Serif, Sans and Sans Mono through fontspec.
+      - name: Install fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+
+      - name: Install Tectonic
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+          sudo mv tectonic /usr/local/bin/
+
+      # SOURCE_DATE_EPOCH sets \today, so the cover's "Last updated" date is
+      # the date of the last commit that changed the guide, not the build date.
+      - name: Render PDF
+        working-directory: docs/guide
+        run: |
+          ts=$(git log -1 --format=%ct -- .)
+          export SOURCE_DATE_EPOCH=${ts:-$(date +%s)}
+          tectonic -X compile getting-started.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: getting-started-guide
+          path: docs/guide/getting-started.pdf
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view guide-latest >/dev/null 2>&1 \
+            || gh release create guide-latest --prerelease \
+                 --title "IPU Emulator Getting Started guide (latest master)" \
+                 --notes "Rendered automatically from master."
+          gh release upload guide-latest docs/guide/getting-started.pdf --clobber
+          gh release edit guide-latest \
+            --notes "Rendered automatically from master (${GITHUB_SHA})."
