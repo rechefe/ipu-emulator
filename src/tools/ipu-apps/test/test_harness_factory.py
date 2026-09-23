@@ -5,8 +5,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from ipu_apps.base import IpuApp
-from ipu_apps.kernel_registry import create_harness, kernel_spec, resolve
+from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry import create_harness, kernel_spec, kernels, resolve
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, load_cases, run_case
 from ipu_apps.kernel_registry.runner import main
 from ipu_emu.ipu_state import IpuState
@@ -18,7 +18,7 @@ def test_exact_selection_and_bindings(tmp_path):
     app = create_harness("identity", params={"shape": (3, 128)},
                          bindings={"inst_path": tmp_path / "inst.bin", "input_path": inp})
     assert type(app) is kernel_spec("identity").app_class
-    assert app.rows == 3
+    assert app.layout.input_rows == 3
     with pytest.raises(ValueError, match="unknown kernel"):
         create_harness("missing", params={}, bindings={})
     with pytest.raises(ValueError):
@@ -43,7 +43,7 @@ def test_resolved_kernel_uses_same_factory(tmp_path):
 
 
 def test_state_factory_only_when_needed(monkeypatch):
-    import ipu_apps.base as base
+    import ipu_apps.kernel_registry.base as base
     supplied = IpuState()
     app = IpuApp(inst_path="unused")
     app.make_state = Mock(return_value=IpuState())
@@ -86,7 +86,7 @@ import sys
 from ipu_apps.kernel_registry import discover
 found = discover()
 assert any(s.name == 'identity' for s in found.specs)
-assert not any(n.endswith('.test') or '.test_' in n for n in sys.modules if n.startswith('ipu_apps.'))
+assert not any(n.endswith(('.test', '.cases')) or '.test_' in n for n in sys.modules if n.startswith('ipu_apps.'))
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -132,10 +132,7 @@ def test_execution_profiles_and_fresh_state(monkeypatch, mode, dtype, quantize, 
     assert bytes(second.xmem.read_address(0, 7)) == bytes(7)
 
 
-@pytest.mark.parametrize("name", [
-    "identity", "softmax_rows", "softmax_rows_partial", "softmax_rows_long",
-    "softmax_columns", "softmax_columns_packed", "fully_connected",
-])
+@pytest.mark.parametrize("name", [spec.name for spec in kernels()])
 def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
     case = load_cases(name)["default"]
     prepared = case.prepare(tmp_path, **case.defaults)
@@ -152,7 +149,7 @@ def test_factory_and_direct_constructor_execution_agree(name, tmp_path):
 
 def test_explicit_state_bypasses_execution_selector(monkeypatch):
     from dataclasses import replace
-    import ipu_apps.base as base
+    import ipu_apps.kernel_registry.base as base
     import ipu_apps.kernel_registry.registry as registry
 
     def forbidden(app):
@@ -172,7 +169,7 @@ def test_explicit_state_bypasses_execution_selector(monkeypatch):
 
 def test_unregistered_harness_defaults_and_direct_subclass(monkeypatch, tmp_path):
     import ipu_apps.kernel_registry.registry as registry
-    from ipu_apps.kernel_registry.identity import IdentityApp
+    from ipu_apps.kernels.reshape.identity.app import IdentityApp
 
     def forbidden(*args, **kwargs):
         pytest.fail("direct construction must not scan the registry")
@@ -183,7 +180,7 @@ def test_unregistered_harness_defaults_and_direct_subclass(monkeypatch, tmp_path
         pass
     inp = tmp_path / "input.bin"
     inp.write_bytes(bytes(512))
-    app = DerivedIdentity(inst_path="unused", input_path=inp)
+    app = DerivedIdentity(inst_path="unused", input_path=inp, params={"shape": (1, 128)})
     assert app.make_state().wide_vector_debug
 
 
@@ -245,11 +242,11 @@ def test_missing_case_declaration_is_actionable(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--kernel", "identity"])
     assert exc.value.code == 1
-    assert "cannot load CASES from ipu_apps.kernel_registry.identity.cases" in capsys.readouterr().err
+    assert "cannot load CASES from ipu_apps.kernels.reshape.identity.cases" in capsys.readouterr().err
 
 
 def test_failed_output_is_exported_with_diagnostics(tmp_path, monkeypatch, capsys):
-    from ipu_apps.kernel_registry.identity import IdentityApp
+    from ipu_apps.kernels.reshape.identity.app import IdentityApp
 
     monkeypatch.setattr(IdentityApp, "teardown", lambda app, state: app.output_path.write_bytes(b"bad"))
     out = tmp_path / "failed.bin"
@@ -258,6 +255,20 @@ def test_failed_output_is_exported_with_diagnostics(tmp_path, monkeypatch, capsy
     assert exc.value.code == 1
     assert out.read_bytes() == b"bad"
     assert "output size mismatch" in capsys.readouterr().err
+
+
+def test_relative_output_paths_follow_the_bazel_run_directory(tmp_path, monkeypatch, capsys):
+    """`bazel run` executes inside runfiles; relative --output/--alias-report
+    must still land where the user ran the command."""
+    monkeypatch.setenv("BUILD_WORKING_DIRECTORY", str(tmp_path))
+    assert main(["--kernel", "identity", "--output", "out.bin",
+                 "--alias-report", "aliases.json"]) == 0
+    assert (tmp_path / "out.bin").stat().st_size > 0
+    assert (tmp_path / "aliases.json").read_text().startswith("{")
+    absolute = tmp_path / "elsewhere" / "abs.bin"
+    absolute.parent.mkdir()
+    assert main(["--kernel", "identity", "--output", str(absolute)]) == 0
+    assert absolute.exists()
 
 
 def test_runtime_checks_survive_optimization():
@@ -302,19 +313,6 @@ if 'pytest' in sys.modules:
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_fc_dtype_default_and_normalization():
-    from ipu_apps.fully_connected import FullyConnectedApp
-    from ipu_emu.ipu_math import DType
-
-    verdict = resolve("fully_connected", shape=(10, 128))
-    assert verdict.supported
-    bindings = {"inst_path": "unused", "inputs_path": "unused", "weights_path": "unused"}
-    assert create_harness("fully_connected", params={}, bindings=bindings).dtype is DType.INT8
-    app = FullyConnectedApp(dtype=4, **bindings)
-    assert app.dtype is DType.E4
-    assert app.make_state().dtype is DType.E4
-
-
 def test_cases_and_assembly_follow_package_not_class_module(tmp_path, monkeypatch):
     from importlib import import_module
     from importlib.resources import files
@@ -324,17 +322,17 @@ def test_cases_and_assembly_follow_package_not_class_module(tmp_path, monkeypatc
     package = tmp_path / "split_kernel"
     package.mkdir()
     (package / "app.py").write_text(
-        "from ipu_apps.kernel_registry.identity import IdentityApp\n"
+        "from ipu_apps.kernels.reshape.identity.app import IdentityApp\n"
         "class SplitApp(IdentityApp): pass\n"
     )
     (package / "__init__.py").write_text(
         "from dataclasses import replace\n"
-        "from ipu_apps.kernel_registry.identity import SPEC as BASE\n"
+        "from ipu_apps.kernels.reshape.identity.app import SPEC as BASE\n"
         "from .app import SplitApp\n"
         "SPEC = replace(BASE, name='split_identity', app_class=SplitApp, asm='copy.asm')\n"
     )
-    (package / "cases.py").write_text("from ipu_apps.kernel_registry.identity.cases import CASES\n")
-    (package / "copy.asm").write_text(files("ipu_apps.kernel_registry.identity").joinpath("identity.asm").read_text())
+    (package / "cases.py").write_text("from ipu_apps.kernels.reshape.identity.cases import CASES\n")
+    (package / "copy.asm").write_text(files("ipu_apps.kernels.reshape.identity").joinpath("identity.asm").read_text())
     monkeypatch.syspath_prepend(str(tmp_path))
     spec = import_module("split_kernel").SPEC
     monkeypatch.setattr(registry, "kernel_spec", lambda *_, **__: spec)
@@ -361,12 +359,6 @@ def test_pytest_config_collects_adjacent_suites(tmp_path):
     assert "3 tests collected" in result.stdout
 
 
-def test_softmax_case_width_must_be_declared():
-    from ipu_apps.softmax.test_support import random_case
-    with pytest.raises(ValueError, match="width"):
-        random_case(axis=0, defaults={"widht": 10}, max_cycles=100)
-
-
 def test_frontend_alias_report(tmp_path):
     import json
     from ipu_apps.kernel_registry.runner import main
@@ -376,3 +368,44 @@ def test_frontend_alias_report(tmp_path):
     assert data['schema_version'] == 1
     assert data['metadata']['kernel'] == 'identity'
     assert data['aliases']['A1_MOV_RC']['measurements']
+
+
+def test_every_assembly_has_a_registered_case():
+    from pathlib import Path
+    from ipu_apps.kernel_registry import kernels
+
+    root = Path(__file__).resolve().parents[1] / "src/ipu_apps"
+    assemblies = {p.stem for p in root.rglob("*.asm")}
+    registered = {spec.name for spec in kernels()}
+    assert assemblies == registered
+    for name in sorted(registered):
+        assert "default" in load_cases(name)
+
+
+@pytest.mark.parametrize("name,params", [
+    ("maxpool2d_window", dict(shape=(1, 2, 2), kernel_size=2, stride=1, padding=1)),
+    ("maxpool2d_nms7", dict(shape=(1, 2, 2), kernel_size=9, stride=1, padding=4)),
+    ("depth_to_space", dict(shape=(256, 2, 2), upscale_factor=16)),
+    ("depth_to_space", dict(shape=(3, 2, 2), upscale_factor=2)),
+    ("conv3x3_relu", dict(shape=(1, 2, 2), out_channels=1, kernel_size=3,
+                          stride=1, padding=1, activation="none")),
+    ("conv3x3_relu_cin1", dict(shape=(2, 2, 2), out_channels=1, kernel_size=3,
+                               stride=1, padding=1, activation="relu")),
+    ("l2_normalize_channels", dict(shape=(1, 10**10))),
+    ("channel_peak", dict(shape=(0, 2))),
+    ("score_threshold", dict(shape=(0,))),
+])
+def test_memory_harness_rejects_unsupported_geometry(name, params):
+    assert not kernel_spec(name).check(**params)
+    # Validation must happen before opening input/instruction files.
+    with pytest.raises(ValueError):
+        create_harness(name, params=params,
+                       bindings=dict(inst_path="missing", input_path="missing"))
+
+
+def test_memory_harness_rejects_truncated_image(tmp_path):
+    inp = tmp_path / "input.bin"
+    inp.write_bytes(b"short")
+    with pytest.raises(ValueError, match="preformatted input must contain"):
+        create_harness("l2_normalize_channels", params=dict(shape=(2, 3)),
+                       bindings=dict(inst_path="missing", input_path=inp))

@@ -8,7 +8,7 @@ Adding an application is **purely additive**: you create files inside your own
 app package and touch no central routing logic.
 
 The smallest complete reference is
-`src/tools/ipu-apps/src/ipu_apps/kernel_registry/identity/`: its assembly
+`src/tools/ipu-apps/src/ipu_apps/kernels/reshape/identity/`: its assembly
 kernel copies an FP32 matrix, while its Python harness only loads the input
 memory, configures the run, and reads the output memory.
 
@@ -16,15 +16,56 @@ memory, configures the run, and reads the output memory.
 
 | # | Item | Where |
 |---|---|---|
-| 1 | The `.asm` kernel | `src/ipu_apps/<family>/<app>/<app>.asm` |
-| 2 | An `IpuApp` harness | `src/ipu_apps/<family>/<app>/__init__.py` |
-| 3 | A `KernelSpec` named `SPEC` | same `__init__.py`, at the bottom |
-| 4 | Runtime cases and pytest tests | Adjacent `cases.py` and `test.py` |
-| 5 | One `ipu_app` declaration | `src/tools/ipu-apps/BUILD.bazel` |
+| 1 | The `.asm` kernel | `src/ipu_apps/kernels/<family>/<app>/<app>.asm` |
+| 2 | An `IpuApp` harness | `src/ipu_apps/kernels/<family>/<app>/app.py` |
+| 3 | A `KernelSpec` named `SPEC` | same `app.py`, at the bottom |
+| 4 | Runtime cases | Adjacent `cases.py` |
+| 5 | Pytest tests | Adjacent `test.py` |
 
-Nesting depth is free — discovery recurses, so
-`convolutions_universal/conv/conv_universal/` works exactly like
-`softmax/softmax_rows/`.
+`__init__.py` stays empty — it exists only to mark the directory as a package.
+`test.py` is required and starts with one shared line that runs every case in
+`cases.py`; add any kernel-specific tests below it:
+
+```python
+from ipu_apps.kernel_registry.testing import case_tests
+
+test_case = case_tests(__package__)
+```
+
+To also run the default case across sizes, list option overrides as a `sweep`,
+rather than writing a parametrized test. Each entry is checked by the case,
+and the kernel is assembled once:
+
+```python
+test_case = case_tests(__package__, sweep=[
+    dict(rows=8, n=200, scale=4.0, seed=1),
+    dict(rows=300, n=129, scale=5.0, seed=15),   # crosses a 128-row group
+])
+```
+
+Optionally, a `benchmark.py` beside them adds `:benchmark_<app>`. It is a
+declaration like `cases.py`, not a script: `CONFIGS` lists overrides of the
+default case's options, and each runs through that case, checks included.
+
+```python
+CONFIGS = [dict(rows=8, n=200), dict(rows=16, n=500)]
+PER = "rows"  # optional: adds a cycles-per-row column
+```
+
+Kernels of one family keep shared code in the family directory under the same
+names: `<family>/app.py` for a shared harness base or spec helpers,
+`<family>/cases.py` for shared case builders, and `<family>/test.py` for tests
+that span the family (see `kernels/pooling/`, `kernels/convolutions/`,
+`kernels/softmax/`). `bazel test :<family>` runs every kernel in the family plus
+the family's `test.py`.
+
+Every family has the same shape, `kernels/<family>/<app>/` — e.g.
+`kernels/convolutions/conv1x1/` and `kernels/softmax/softmax_rows/`.
+
+No `BUILD.bazel` edit is needed: `ipu_apps_from_kernels` (in `//:ipu_app.bzl`)
+globs every `.asm` file under `src/ipu_apps/kernels/` and declares one
+`ipu_app` per file automatically, so `bazel run`/`bazel test` labels for a new
+kernel appear as soon as its `.asm` is checked in.
 
 ## 1. The harness
 
@@ -62,7 +103,7 @@ state, cycles = app.run()
 
 ## 2. The spec
 
-At the bottom of your `__init__.py`:
+At the bottom of your `app.py`:
 
 ```python
 def _supports(**params):
@@ -86,12 +127,10 @@ def _explain(**params):
     return f"n ({q.n}) < {LANES}: packed row kernel, ..."
 
 
-SPEC = KernelSpec(
-    name="my_kernel",          # unique; identifies it in verdicts + coverage
+SPEC = folder_spec(
+    MyKernelApp,               # name = its folder, asm = <folder>.asm
     op="softmax",              # queries route by this first
     variant="rows_partial",    # distinguishes kernels of the same op
-    app_class=MyKernelApp,
-    asm="my_kernel.asm",
     tags=("fp32-wide",),
     requires=("shape", "dim"),  # params the callbacks below index
     supports=_supports,
@@ -178,10 +217,10 @@ def _conv2d(layer, input_shape):
     return "conv2d", {...}
 ```
 
-Put it in a module the kernel package imports (softmax uses
-`softmax/_spec_support.py`). Adapters register as an import side effect, and
-discovery imports your package, so `lookup_layer` will find it — nothing
-central needs editing.
+Put it in your kernel's `app.py` or a module that `app.py` imports (softmax
+kernels import the family's `softmax/app.py`). Adapters register as an import
+side effect, and discovery imports every kernel's `app.py` — and nothing else —
+so `lookup_layer` will find it; nothing central needs editing.
 
 Two obligations:
 
@@ -192,14 +231,20 @@ Two obligations:
 
 ## 5. Verify
 
-Your kernel is picked up automatically by the generic suites in
+Your kernel is picked up automatically by the generic checks in
 `test/test_kernel_registry.py` — you do not write these:
 
-- **conformance** — the registry is asked for a kernel, then that kernel is
-  assembled, run, and compared against NumPy. An over-claiming `supports` fails
-  here.
-- **guard agreement** — a constructor must not accept what its spec refuses.
-- **spec hygiene** — unique names, a resolvable `asm` path, well-formed fields.
+- **routing** — every case in your `cases.py` must be accepted by your own
+  spec and routed by the registry. Cases are what prove your kernel computes
+  correctly, so give them an independent reference (e.g. NumPy).
+- **spec hygiene** — unique names, the folder / `SPEC.name` / `.asm` agreement,
+  well-formed fields.
+
+Softmax kernels additionally get **conformance** (the registry is asked for a
+kernel for many shapes, which is then assembled, run and compared against
+NumPy) and **guard agreement** (a constructor must not accept what its spec
+refuses). These are softmax-only: other operations' kernels each take their own
+preformatted input, so there is no shared way to feed them a shape.
 
 Add your own numerical test for the shapes you care about, then:
 
@@ -209,12 +254,15 @@ bazel test //src/tools/ipu-apps:all
 
 ## 6. Bazel
 
-Add one `ipu_app` declaration with the kernel's name, source package, and
-optional fixture data. The same label runs the registry frontend with
-`bazel run` and the adjacent `test.py` with `bazel test`. The older
-`test_<name>` label remains an alias. The library glob
-picks up Python files automatically; the Bazel declaration makes the kernel's
-case suite part of CI. See the standard contract below.
+Nothing to add here. `ipu_apps_from_kernels` (in `//:ipu_app.bzl`) globs every
+`.asm` file under `src/ipu_apps/kernels/` and declares one `ipu_app` label per
+file, deriving the kernel's name and source package from the `.asm` path and
+its fixture data (sibling `.asm`/`.bin` files) from the same directory. The
+same label runs the registry frontend with `bazel run` and the kernel's
+`test.py` with `bazel test`. The older `test_<name>` label remains an alias.
+The library glob picks up Python files automatically, so as soon as your
+kernel's `.asm` is checked in, its case suite is part of CI. See the standard
+contract below.
 
 ## Checklist
 
@@ -225,15 +273,18 @@ case suite part of CI. See the standard contract below.
 - [ ] Refusal reasons are actionable
 - [ ] Reinterpretation (flatten/pad/derive) is disclosed via `bundle`
 - [ ] Layer adapter refuses unmodelled config and look-alike layers
-- [ ] Bazel target added
 - [ ] `bazel test //src/tools/ipu-apps:all` passes
 
 ## Checking your work
 
 ```bash
-python -m ipu_apps.softmax --catalog          # coverage table
-python -m ipu_apps.softmax --shape 32,300 --dim 1
+bazel run //src/tools/ipu-apps:query                                  # coverage report
+bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1    # which kernel, and why
+bazel run //src/tools/ipu-apps:query -- softmax shape=8,n dim=1 --sweep n=1..200   # routing table
 ```
+
+`query` is op-agnostic: parameters are `NAME=VALUE` pairs handed to `resolve`
+verbatim, so your kernel's op works there as soon as its `SPEC` is discovered.
 
 ```python
 from ipu_apps.kernel_registry import load, report, resolve
@@ -249,9 +300,22 @@ reported. If your kernel is missing from coverage, check there first.
 
 ## Standard runnable kernel contract
 
-Keep the harness and `SPEC` in the kernel's `__init__.py`, with assembly and
-adjacent `cases.py` and `test.py` modules. Declare reusable `CASES` in `cases.py`
-without pytest imports; tests import those cases and use registry
+Keep the harness and `SPEC` together in the kernel's `app.py`, with an empty
+`__init__.py` and adjacent `cases.py` and `test.py`. A kernel
+whose caller supplies a complete FP32 XMEM image should subclass
+`kernel_registry.memory.MemoryApp` and declare its SPEC with
+`memory_spec(op, App)` — the harness is then just a `memory_layout` classmethod
+(see `kernels/reshape/identity/`). The kernel's name and `.asm` come from its
+folder, and `requires` from `memory_layout`'s required keyword arguments; the
+folder, `SPEC.name`, the `.asm` stem and the Bazel target are one word, and
+`test_kernel_registry` checks it.
+`kernel_registry/case_support.py` holds the shared case builders
+(`tile_input`, `untile_output`, `prepared_image`, `tiled_case`). Cases and assembly
+use the harness's containing package (the directory `app.py` lives in), not
+`app.py` itself; `SPEC.package` can explicitly select a different resource
+package when the class and its spec live in different modules — use the
+registry factory for harness construction in that case. Declare reusable
+`CASES` in `cases.py` without pytest imports; tests import those cases and use registry
 `create_harness(name, params=..., bindings=...)` / `run_case(name, case)` for
 construction and execution. The shared runner is used by every `ipu_app`
 Bazel declaration; individual kernels need no executable Python entry point.
@@ -268,8 +332,4 @@ defaults must be str, int, float, or bool, with names that do not conflict with
 shared CLI options. `--output` preserves completed output even when checks fail.
 
 Pass runtime dependencies in `ipu_app(deps=...)` and pytest dependencies in
-`test_deps`. If assembly is not named `<name>.asm`, set the macro's `asm` and
-`SPEC.asm` to the same relative path. Cases and assembly use the harness's
-containing package, including for a class in `app.py`; `SPEC.package` can
-explicitly select a different resource package. Use the registry factory for
-harness construction when the class and its spec live in different modules.
+`test_deps`.

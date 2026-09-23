@@ -2,10 +2,23 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
 from ipu_apps.kernel_registry.cases import load_cases, run_case
+
+
+def _user_path(text: str) -> Path:
+    """A path the user typed: relative to where they ran ``bazel run``.
+
+    ``bazel run`` executes inside the runfiles tree and names the caller's
+    directory in ``BUILD_WORKING_DIRECTORY``; without this, a relative
+    ``--output`` would be written somewhere under ``bazel-bin``.
+    """
+    path = Path(text)
+    base = os.environ.get("BUILD_WORKING_DIRECTORY")
+    return Path(base) / path if base and not path.is_absolute() else path
 
 
 def main(argv=None):
@@ -17,8 +30,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, parents=[selector], allow_abbrev=False)
     parser.add_argument("--max-cycles", type=int)
     parser.add_argument("--profile-aliases", action="store_true", help="collect full ISA alias measurements")
-    parser.add_argument("--alias-report", type=Path, help="write full ISA measurements as JSON (enables profiling)")
-    parser.add_argument("--output", type=Path,
+    parser.add_argument("--alias-report", type=_user_path, help="write full ISA measurements as JSON (enables profiling)")
+    parser.add_argument("--output", type=_user_path,
                         help="export completed output, including output that fails validation")
     selected, _ = selector.parse_known_args(argv)
     if selected.kernel is None:

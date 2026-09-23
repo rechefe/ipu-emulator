@@ -7,7 +7,7 @@ IPU application test harnesses — Python ports of the C test harnesses.
 Subclass `IpuApp`, write `setup` and `teardown`, call `run`:
 
 ```python
-from ipu_apps import IpuApp
+from ipu_apps.kernel_registry.base import IpuApp
 
 class MyApp(IpuApp):
     def setup(self, state):
@@ -34,7 +34,7 @@ Port of `fully_connected.c` — loads inputs/weights, transposes weights,
 runs the FC assembly, dumps output activations.
 
 ```python
-from ipu_apps.fully_connected import FullyConnectedApp
+from ipu_apps.kernels.linear.fully_connected.app import FullyConnectedApp
 
 app = FullyConnectedApp(
     inst_path="fc.bin",
@@ -53,8 +53,12 @@ bazel test //src/tools/ipu-apps:fully_connected
 
 ## Registered harnesses and reusable cases
 
-Each kernel has an `__init__.py` (harness hooks and `SPEC`), its assembly,
-a `cases.py` (runtime inputs and output checks), and a `test.py` (pytest tests).
+Each kernel has an `app.py` (harness hooks and `SPEC`), an empty `__init__.py`,
+its assembly, a `cases.py` (runtime inputs and output checks), and a `test.py`
+(runs every case via `test_case = case_tests(__package__)`, plus kernel-specific
+tests). A family's shared code lives in the family directory under the same
+names (`<family>/app.py`, `<family>/cases.py`, `<family>/test.py`), and
+`bazel test :<family>` runs the whole family.
 Kernel-specific layout and register setup stay in the harness; assembly, construction, execution, and
 case checking use the shared registry utilities.
 
@@ -66,7 +70,7 @@ bazel run //src/tools/ipu-apps:identity -- --case single_row
 bazel test //src/tools/ipu-apps:identity
 ```
 
-All 19 assembly kernels have one label supporting both commands:
+All 21 assembly kernels have one label supporting both commands:
 
 ```bash
 bazel run //src/tools/ipu-apps:maxpool2d_stride2
@@ -104,7 +108,10 @@ state, cycles = app.run()
 
 An exact kernel name is validated using its `SPEC`; it never routes to another
 implementation. For automatic selection, call `resolve(op, **params)` and pass
-the selected kernel name and the same parameters to `create_harness`.
+the selected kernel name and the same parameters to `create_harness`. The same
+query works from the command line for any operation
+(`bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1`; no
+arguments prints the coverage report).
 Bindings contain file paths and cannot override validated configuration.
 
 `cases.py` declares `CASES`, mapping names to `KernelCase` objects, including
@@ -118,36 +125,27 @@ Cases must not import pytest. Keep pytest imports in `test.py` and use Bazel
 for dependency management and testing. Runtime checks must raise descriptive
 exceptions rather than rely on assertions.
 
-Add one declaration in the apps BUILD file:
-
-```starlark
-ipu_app(
-    name = "my_kernel",
-    kernel_package = "src/ipu_apps/my_kernel",
-    deps = [":ipu_apps_lib"],
-    test_deps = [requirement("pytest")],
-    # data = [...],  # Optional input fixtures.
-)
-```
-
-Use `<name>.asm` in that package and declare the matching `SPEC.name`. For a
-different assembly filename, pass `asm="filename.asm"` to the macro and set
-`SPEC.asm` to the same path. Cases and assembly default to the harness module's
-containing package; `SPEC.package` can name a different resource package.
-The macro supplies the shared frontend and creates `test_my_kernel` from the
-adjacent `test.py`. No per-kernel `__main__.py` or registration list is needed.
+No BUILD edit is needed: every `src/ipu_apps/kernels/**/<name>.asm` gets
+`:<name>` (run + test), `:test_<name>`, and `:assemble_<name>` automatically,
+plus `:benchmark_<name>` when a `benchmark.py` sits beside it (`benchmark.py`
+declares only `CONFIGS`, overrides of the default case's options, and the
+shared runner writes `results.md`). `SPEC.name` and `SPEC.asm` come from the
+folder (`folder_spec` / `memory_spec`), so they always match. Cases and assembly default to
+the harness module's containing package; `SPEC.package` can name a different
+resource package. No per-kernel `__main__.py` or registration list is needed.
 
 
 ### Execution configuration
 
-Every harness inherits directly from `IpuApp`. Declare its arithmetic and
+Every harness derives from `IpuApp`. Declare its arithmetic and
 storage requirements in `SPEC`, independently of interactive debugging:
 
 ```python
-from ipu_apps.kernel_registry import ExecutionConfig, KernelSpec
+from ipu_apps.kernel_registry import ExecutionConfig, folder_spec
 
-SPEC = KernelSpec(
-    # name, app_class, supports, build, asm, and the other kernel fields ...
+SPEC = folder_spec(
+    MyApp,
+    # op, supports, build, and the other kernel fields ...
     execution=ExecutionConfig(mode="fp32"),
 )
 ```
@@ -169,8 +167,7 @@ execution=lambda app: ExecutionConfig(
 The registry's `create_state(app)` builds fresh state; the base harness calls
 it for each run. `create_harness()` binds the selected spec. Directly constructed
 harnesses use their class module's matching `SPEC` without a registry scan.
-If multiple specs declare the same class, construct through `create_harness()`
-to select one explicitly. Unregistered harnesses retain native defaults.
+Unregistered harnesses retain native defaults.
 
 An explicit `app.run(state=...)` bypasses state creation and configuration
 selection. Existing kernel setup and validation still run. Activation-alpha

@@ -24,7 +24,7 @@ from ipu_emu.ipu_math import DType
 from ipu_apps.kernel_registry.shapes import ShapeBundle
 
 if TYPE_CHECKING:
-    from ipu_apps.base import IpuApp
+    from ipu_apps.kernel_registry.base import IpuApp
 
 # A query is an op name plus free-form parameters (config + shapes). Kernels
 # for different operations need genuinely different parameters -- softmax has
@@ -85,7 +85,7 @@ class KernelSpec:
                     routed by this first.
         variant:    Short label distinguishing kernels of the same op
                     (``"rows"``, ``"columns_packed"``).
-        app_class:  The :class:`~ipu_apps.base.IpuApp` subclass to instantiate.
+        app_class:  The :class:`~ipu_apps.kernel_registry.base.IpuApp` subclass to instantiate.
         asm:        Path to the kernel's ``.asm``, relative to the app package.
         package:    Package containing cases.py and assembly. Defaults to the
                     harness module's containing package, including when the
@@ -170,6 +170,30 @@ class KernelSpec:
         verdict = self.check(**params)
         if not verdict.ok:
             raise ValueError(verdict.reason)
+
+
+def kernel_folder(app_class: type) -> str:
+    """The name of the folder a harness class lives in.
+
+    Every kernel has its own folder, and the folder name is also the kernel's
+    name, the stem of its ``.asm`` and its Bazel target -- written once.
+    """
+    package = import_module(app_class.__module__).__package__
+    if not package:
+        raise ValueError(
+            f"{app_class.__qualname__} must live in a kernel folder (a package); "
+            f"{app_class.__module__} is not in one"
+        )
+    return package.rpartition(".")[2]
+
+
+def folder_spec(app_class: type, **fields: Any) -> KernelSpec:
+    """A :class:`KernelSpec` named after its folder, with ``<folder>.asm``.
+
+    ``fields`` supply everything else and may override either default.
+    """
+    name = kernel_folder(app_class)
+    return KernelSpec(**({"name": name, "asm": name + ".asm", "app_class": app_class} | fields))
 
 
 @dataclass(frozen=True)

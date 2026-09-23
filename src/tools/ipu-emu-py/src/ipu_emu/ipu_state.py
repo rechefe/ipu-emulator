@@ -45,7 +45,7 @@ class IpuState:
 
     Attributes:
         regfile:         The live register file.
-        xmem:            External memory (8 MB, mode-independent allocation).
+        xmem:            External memory (512 MiB, mode-independent allocation).
         program_counter: Current instruction address.
         inst_mem:        Instruction memory (list of decoded instruction dicts).
         dtype:           Arithmetic data type (not stored in CR; emulator-only).

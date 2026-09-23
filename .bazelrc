@@ -25,3 +25,5 @@ build --action_env=GITHUB_TOKEN
 run:debug --run_env=IPU_DEBUG_TUI=1
 # Executable test targets receive the test environment under bazel run.
 run:debug --test_env=IPU_DEBUG_TUI=1
+# Quiet Bazel's own build/run chatter so it doesn't clutter the TUI's terminal.
+run:debug --ui_event_filters=-info --noshow_progress

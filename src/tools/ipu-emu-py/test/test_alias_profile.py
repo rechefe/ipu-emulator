@@ -1,7 +1,9 @@
 """Integration and extension-contract tests for optional hardware measurements."""
+import gc
 import json
 import math
 import struct
+import weakref
 
 import pytest
 from ipu_as.lark_tree import assemble
@@ -28,6 +30,22 @@ def rows(state, alias):
 def count(state, alias, status="verified", subtype=None):
     return sum(r["count"] for r in rows(state, alias) if r["status"] == status and
                (subtype is None or r["subtype"] == subtype))
+
+
+def test_profiled_state_is_freed_without_the_cycle_collector():
+    """state -> profile -> observer must not point back at the state: a
+    reference cycle would keep every profiled state's XMEM alive until the
+    cyclic garbage collector happens to run."""
+    state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;")
+    profile = state.alias_profile
+    released = weakref.ref(state)
+    gc.disable()
+    try:
+        del state
+        assert released() is None
+    finally:
+        gc.enable()
+    assert profile.to_dict()["totals"]["cycles"] > 0
 
 
 def test_registry_extension_needs_no_emulator_changes():

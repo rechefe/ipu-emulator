@@ -50,7 +50,7 @@ from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
 from ipu_emu.debug_control import get_debug_control, validate_pc
 from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu import XMEM_ADDRESSABLE_ROWS, xmem_row_size_bytes
+from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
 
 # Re-export so callers only need this module
@@ -492,12 +492,12 @@ def _resolve_xmem_address(
     metadata: dict[str, int | str] = {"address_mode": mode}
     if mode == "row":
         row_size = xmem_row_size_bytes(state)
-        if effective >= XMEM_ADDRESSABLE_ROWS:
+        if effective >= addressable_rows(state):
             return (
                 None,
                 None,
                 f"XMEM row {effective} out of range "
-                f"[0, {XMEM_ADDRESSABLE_ROWS - 1}]",
+                f"[0, {addressable_rows(state) - 1}]",
             )
         byte_address = effective * row_size
         metadata.update(
@@ -537,7 +537,7 @@ def _xmem_range_error(
 def _xmem_address_limit(state: IpuState, mode: str) -> int:
     """Return the accessible byte count for an XMEM addressing mode."""
     if mode == "row":
-        return XMEM_ADDRESSABLE_ROWS * xmem_row_size_bytes(state)
+        return addressable_rows(state) * xmem_row_size_bytes(state)
     return XMEM_SIZE_BYTES
 
 

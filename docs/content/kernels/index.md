@@ -21,8 +21,8 @@ Rather than reading each kernel's docstring, ask the registry. It answers from
 the kernels themselves, so it cannot drift out of date:
 
 ```bash
-python -m ipu_apps.softmax --shape 32,300 --dim 1
-python -m ipu_apps.softmax --catalog
+bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1
+bazel run //src/tools/ipu-apps:query                                 # every op and kernel
 ```
 
 ```python
@@ -41,11 +41,16 @@ covers the shape, what each candidate objected to.
 
 ## Currently registered
 
+21 kernels across 10 operations; `bazel run //src/tools/ipu-apps:query` prints
+the current list.
+
 | Operation | Kernels |
 |---|---|
 | `softmax` | 5 — see [Softmax](softmax.md) |
+| `maxpool2d` | 5 (`maxpool2d_window`, `_nms7`, `_nms9`, `_stride2`, `_stride2_tail`) |
+| `conv2d` | 3 (`conv1x1`, `conv3x3_relu`, `conv3x3_relu_cin1`) |
+| `sample_descriptors` | 2 (`sample_descriptors`, `sample_descriptors_separable`) |
+| `channel_peak`, `score_threshold`, `l2_normalize`, `depth_to_space`, `identity`, `fully_connected` | 1 each |
 
-Convolution, pointwise, depthwise and fully-connected applications exist in the
-tree but are not yet registered; they are used directly rather than through the
-registry. See [Building applications](../building-applications.md) for the
-general application structure they follow.
+See [Building applications](../building-applications.md) for the structure they
+share.

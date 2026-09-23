@@ -34,7 +34,7 @@ the build boundary.
 **Guaranteed:** the state after every cycle is *bit-identical* to the faithful
 path — every register, all of XMEM, the cycle count, and the run statistics.
 `src/tools/ipu-emu-py/test/test_prototyping_equivalence.py` runs each program
-in lockstep, once per mode, and compares every register, all 8 MiB of XMEM,
+in lockstep, once per mode, and compares every register, all 512 MiB of XMEM,
 cycle outcomes, snapshots, and run statistics after every cycle. The default
 build verifies that the gate cannot be bypassed; the flagged build runs the
 two-mode equivalence cases.

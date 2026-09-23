@@ -31,11 +31,12 @@ src/tools/
 │   ├── ipu_state.py              # Top-level state (registers, memory, PC)
 │   ├── execute.py                # VLIW decode + dispatch
 │   ├── regfile.py                # Register file
-│   ├── xmem.py                   # 2 MB external memory
+│   ├── xmem.py                   # 512 MiB external memory
 │   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
 │   └── debug_cli.py              # Interactive debugger
-└── ipu-apps/src/ipu_apps/        # Sample applications
-    └── fully_connected/          # FC neural network layer example
+└── ipu-apps/src/ipu_apps/        # Kernels and their harnesses
+    ├── kernel_registry/          # Factory: discovery, specs, cases, runner, benchmarks
+    └── kernels/<family>/<kernel>/  # One kernel per folder, e.g. linear/fully_connected/
 docs/                             # MkDocs (config + content/ page sources)
 ```
 
@@ -185,22 +186,27 @@ Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, 
 ```python
 class MyApp(IpuApp):
     def setup(self, state: IpuState) -> None:
-        load_binary_to_xmem(state, self.inputs_path, base_addr=0x0000)
-        state.regfile.set_cr(0, 0x0000)
+        load_binary_to_xmem(state, self.inputs_path, base_addr=0x0000,
+                            chunk_size=128, max_chunks=10)
+        state.regfile.set_cr(2, 0x0000 // 128)   # CR0/CR1 are read-only; operands are rows
 
     def teardown(self, state: IpuState) -> None:
-        dump_xmem_to_binary(state, self.output_path, base_addr=0x40000)
+        dump_xmem_to_binary(state, self.output_path, base_addr=0x40000,
+                            chunk_size=128, num_chunks=10)
 ```
 
-Each app lives under `ipu-apps/src/ipu_apps/<name>/` and has:
+Each kernel has its own folder, `ipu-apps/src/ipu_apps/kernels/<family>/<name>/`:
 - `<name>.asm` — Assembly program
-- `__init__.py` — `IpuApp` subclass
+- `app.py` — `IpuApp` subclass (often a `MemoryApp` with just `memory_layout`)
+  and `SPEC` (`memory_spec` / `folder_spec`: name and `.asm` come from the folder)
 - `cases.py` — Reusable input preparation and explicit output validation, without pytest
-- `test.py` — Pytest coverage importing those cases
-- `SPEC` in the package — Supported parameters, assembly, and execution requirements
+- `test.py` — `test_case = case_tests(__package__)` plus kernel-specific tests
+- `__init__.py` — empty
+Shared code for a family lives in `kernels/<family>/app.py` / `cases.py` / `test.py`.
 
-Use the `ipu_app` macro for standard run and test targets. Runtime dependencies
-belong in `deps`, pytest dependencies in `test_deps`. The shared runner loads
+No BUILD edit is needed: every `kernels/**/<name>.asm` gets `:<name>` (bazel run
+and bazel test), `:assemble_<name>`, a `:<family>` suite, and `:benchmark_<name>`
+when a `benchmark.py` sits beside it. The shared runner loads
 `cases.py`; no per-kernel entry point or instruction-path environment variable
 is needed. `--output` exports completed output even when validation fails.
 Tests may pass `inst_path` to `run_case` to reuse assembled instructions.

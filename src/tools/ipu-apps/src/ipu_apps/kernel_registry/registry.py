@@ -18,7 +18,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
-    from ipu_apps.base import IpuApp
+    from ipu_apps.kernel_registry.base import IpuApp
     from ipu_emu.ipu_state import IpuState
 
 from ipu_apps.kernel_registry.discovery import Discovered, discover
@@ -74,17 +74,9 @@ def _harness_spec(app: IpuApp) -> KernelSpec | None:
     if bound is not None:
         return bound
     for cls in type(app).__mro__:
-        module = sys.modules.get(cls.__module__)
-        candidates = [getattr(module, "SPEC", None)]
-        candidates.extend(getattr(module, "SPECS", ()) or ())
-        matches = {
-            id(spec): spec for spec in candidates
-            if isinstance(spec, KernelSpec) and spec.app_class is cls
-        }
-        if len(matches) > 1:
-            raise ValueError("multiple specs for this harness; use create_harness with an exact kernel name")
-        if matches:
-            return next(iter(matches.values()))
+        spec = getattr(sys.modules.get(cls.__module__), "SPEC", None)
+        if isinstance(spec, KernelSpec) and spec.app_class is cls:
+            return spec
     return None
 
 

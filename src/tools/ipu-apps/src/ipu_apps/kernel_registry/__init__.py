@@ -49,7 +49,9 @@ from ipu_apps.kernel_registry.shapes import (
     ShapeBundle,
     flatten_to_matrix,
 )
-from ipu_apps.kernel_registry.spec import ExecutionConfig, KernelSpec, Support, Verdict, no, yes
+from ipu_apps.kernel_registry.spec import (
+    ExecutionConfig, KernelSpec, Support, Verdict, folder_spec, kernel_folder, no, yes,
+)
 
 
 def lookup_layer(layer, input_shape, *, package: str = "ipu_apps") -> Verdict:
@@ -93,7 +95,9 @@ __all__ = [
     "create_state",
     "discover",
     "flatten_to_matrix",
+    "folder_spec",
     "from_layer",
+    "kernel_folder",
     "kernels",
     "kernel_spec",
     "load",

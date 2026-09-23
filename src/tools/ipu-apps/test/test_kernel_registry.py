@@ -11,18 +11,20 @@ than in a user's hands.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from ipu_as.lark_tree import assemble_to_bin_file
-
+import ipu_apps.kernel_registry.benchmarking as benchmarking
+import ipu_apps.kernel_registry.query as query
 import ipu_apps.kernel_registry.registry as registry
+from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, package_kernel
 from ipu_apps.kernel_registry.layers import _ADAPTERS
-from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
@@ -31,6 +33,7 @@ from ipu_apps.kernel_registry import (
     discover,
     flatten_to_matrix,
     from_layer,
+    kernel_folder,
     kernels,
     load,
     lookup_layer,
@@ -40,8 +43,6 @@ from ipu_apps.kernel_registry import (
     resolve,
     yes,
 )
-
-_APP_SRC = Path(__file__).resolve().parents[1] / "src/ipu_apps"
 
 
 @contextlib.contextmanager
@@ -79,19 +80,32 @@ def test_discovery_reports_nothing_skipped():
     assert load().skipped == ()
 
 
+def test_a_broken_family_package_is_reported_not_silently_dropped():
+    """A family whose __init__ cannot import hides every kernel beneath it, so
+    it must appear as skipped -- a coverage hole nobody would otherwise see."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "broken_family_apps"
+        (root / "family" / "kernel").mkdir(parents=True)
+        (root / "__init__.py").write_text("")
+        (root / "family" / "__init__.py").write_text("import a_dependency_that_is_not_installed\n")
+        (root / "family" / "kernel" / "__init__.py").write_text("")
+        (root / "family" / "kernel" / "app.py").write_text("")
+        sys.path.insert(0, tmp)
+        try:
+            found = discover("broken_family_apps")
+        finally:
+            sys.path.remove(tmp)
+            for name in [m for m in sys.modules if m.startswith("broken_family_apps")]:
+                del sys.modules[name]
+    assert [s.module for s in found.skipped] == ["broken_family_apps.family"]
+    assert "a_dependency_that_is_not_installed" in found.skipped[0].error
+
+
 def test_discovery_is_recursive():
-    """Kernels sit one level below `softmax`, and the convolution family nests
-    three levels deep, so discovery must not stop at the first level."""
-    found = discover("ipu_apps.softmax")
+    """Kernels sit one level below their family package (`softmax`), so
+    discovery must not stop at the first level."""
+    found = discover("ipu_apps.kernels.softmax")
     assert {k.name for k in found.specs} == {k.name for k in kernels("softmax")}
-
-
-def test_registry_identity_example_loads_runs_and_reads_memory():
-    """The built-in boilerplate is executable, not only a discoverable spec."""
-    verdict = resolve("identity", shape=(3, 128))
-    assert verdict.supported and verdict.app_name == "identity"
-    _, cycles = run_case(verdict.app_name, load_cases(verdict.app_name)["default"])
-    assert cycles > 0
 
 
 def test_every_spec_is_well_formed():
@@ -104,6 +118,27 @@ def test_every_spec_is_well_formed():
             assert files(spec.resource_package).joinpath(spec.asm).is_file(), (
                 f"{spec.name} declares a missing asm: {spec.asm}"
             )
+
+
+def test_every_kernel_is_named_after_its_folder():
+    """One kernel per folder: the folder, ``SPEC.name``, the ``.asm`` stem and
+    the Bazel target are one word, which the Bazel entry point relies on."""
+    for spec in kernels():
+        assert spec.name == spec.resource_package.rpartition(".")[2], spec.name
+        assert spec.asm == spec.name + ".asm", spec.name
+
+
+def test_misplaced_harnesses_fail_with_a_reason():
+    """A family base class has no SPEC, and a class outside any package has no
+    folder: both used to die with AttributeError on None."""
+    from ipu_apps.kernels.pooling.app import Stride2PoolApp
+
+    with pytest.raises(TypeError, match="no SPEC"):
+        Stride2PoolApp(inst_path="x", input_path="y",
+                       params=dict(shape=(1, 2, 256), kernel_size=2, stride=2, padding=0))
+    loose = type("Loose", (), {"__module__": "os"})   # a top-level, non-package module
+    with pytest.raises(ValueError, match="kernel folder"):
+        kernel_folder(loose)
 
 
 def test_kernel_names_are_unique():
@@ -350,7 +385,8 @@ def test_adapter_declared_beside_its_kernel_is_found():
         pkg = Path(tmp) / "adapter_probe_apps"
         (pkg / "probe_kernel").mkdir(parents=True)
         (pkg / "__init__.py").write_text("")
-        (pkg / "probe_kernel" / "__init__.py").write_text(
+        (pkg / "probe_kernel" / "__init__.py").write_text("")
+        (pkg / "probe_kernel" / "app.py").write_text(
             "from ipu_apps.kernel_registry import KernelSpec, register_layer, yes\n"
             "\n"
             "@register_layer('ProbeLayer')\n"
@@ -406,6 +442,125 @@ def test_report_lists_every_kernel():
         assert spec.name in text
 
 
+def test_every_case_routes_to_a_kernel(tmp_path):
+    """A kernel's cases are configurations it is known to compute, so its own
+    spec must accept each one and the registry must route each one somewhere.
+    Unlike the softmax conformance suite below, this covers every kernel."""
+    for spec in kernels():
+        for name, case in load_cases(spec.name).items():
+            workspace = tmp_path / spec.name / name
+            workspace.mkdir(parents=True)
+            params = case.prepare(workspace, **case.defaults).params
+            assert spec.check(**params).ok, f"{spec.name}/{name}: {spec.check(**params).reason}"
+            verdict = resolve(spec.op, **params)
+            assert verdict.supported, f"{spec.name}/{name}: {verdict.reason}"
+
+
+# -- benchmarks (`bazel run :benchmark_<package>`) ----------------------------
+#
+# `bazel test` builds the benchmark binaries but never runs them, so a config
+# naming an option its case does not have would only fail when someone next
+# benchmarks. Check every declared config against its kernel's cases instead.
+
+
+def _benchmark_modules():
+    import pkgutil
+    import ipu_apps.kernels
+
+    return [
+        importlib.import_module(info.name)
+        for info in pkgutil.walk_packages(ipu_apps.kernels.__path__, "ipu_apps.kernels.")
+        if info.name.rpartition(".")[2] == "benchmark"
+    ]
+
+
+def test_benchmark_modules_are_found():
+    assert len(_benchmark_modules()) >= 6
+
+
+@pytest.mark.parametrize("module", _benchmark_modules(), ids=lambda m: m.__name__)
+def test_benchmark_configs_name_real_case_options(module):
+    per = getattr(module, "PER", None)
+    kernel = package_kernel(module.__name__.rpartition(".")[0])
+    defaults = load_cases(kernel)["default"].defaults
+    assert module.CONFIGS, f"{kernel}: no benchmark configs"
+    for options in module.CONFIGS:
+        assert set(options) <= set(defaults), (kernel, options, sorted(defaults))
+    assert per is None or per in defaults, (kernel, per)
+
+
+def test_benchmark_runs_configs_through_the_cases():
+    module = types.SimpleNamespace(
+        __name__="ipu_apps.kernels.softmax.softmax_rows.benchmark",
+        CONFIGS=[{"rows": 8}], PER="rows",
+    )
+    [row] = benchmarking.run_benchmark(module)
+    assert row.label == "rows=8"
+    assert row.cycles > 0 and row.per_unit == row.cycles / 8
+    # MAC accounting comes from the run: identity multiplies are not MACs.
+    assert 0 <= row.effective_mac_utilization <= row.lane_occupancy <= 1
+    table = benchmarking.render_table([row], "rows")
+    header = table.splitlines()[0]
+    assert "cyc/rows" in header and "effMAC%" in header and "rows=8" in table
+    # The full alias profile, not just the always-on subset: softmax's exp is A9,
+    # which only the profile detects.
+    assert "A9_EXP" in row.aliases
+    assert "ISA aliases:" in table
+    for alias, (verified, _) in row.aliases.items():
+        assert alias.replace("_", " ", 1) in table and str(verified) in table
+
+
+# -- query CLI (`bazel run :query`) -------------------------------------------
+
+
+def test_query_without_arguments_prints_the_report(capsys):
+    assert query.main([]) == 0
+    assert capsys.readouterr().out.strip() == report().strip()
+
+
+def test_query_resolves_name_value_parameters(capsys):
+    assert query.main(["softmax", "shape=32,300", "dim=1"]) == 0
+    assert "app:  softmax_rows_long" in capsys.readouterr().out
+
+
+def test_query_parses_a_trailing_comma_as_a_one_d_shape(capsys):
+    assert query.main(["softmax", "shape=300,", "dim=0"]) == 0
+    assert "softmax_rows_long" in capsys.readouterr().out
+
+
+def test_query_exits_nonzero_when_nothing_covers_it(capsys):
+    assert query.main(["no_such_op", "shape=8,8"]) == 1
+    assert "NOT SUPPORTED" in capsys.readouterr().out
+
+
+def test_query_sweep_prints_the_probed_boundaries(capsys):
+    assert query.main(["softmax", "shape=8,n", "dim=1", "--sweep", "n=120..135"]) == 0
+    expected = boundaries("softmax", "shape", range(120, 136), build=lambda n: (8, n), dim=1)
+    assert capsys.readouterr().out.splitlines() == [run.render("n") for run in expected]
+
+
+@pytest.mark.parametrize("argv", [
+    ["softmax", "shape"],                                    # not NAME=VALUE
+    ["softmax", "shape=8,300", "dim=5"],                     # dim out of range
+    ["softmax", "shape=8,n", "dim=1", "--sweep", "n=1-5"],   # malformed span
+    ["softmax", "shape=8,300", "dim=1", "--sweep", "n=1..5"],  # n not mentioned
+    ["softmax", "shape=8,300", "dim="],                      # empty value
+    ["softmax", "shape=8,n", "dim=1", "--sweep", "n=200..120"],  # reversed span
+])
+def test_query_rejects_malformed_queries(argv):
+    with pytest.raises(SystemExit) as exc:
+        query.main(argv)
+    assert exc.value.code == 2
+
+
+def test_query_parses_booleans(capsys):
+    """Left as the string "False", a flag would be truthy and flip the answer."""
+    assert query._value("False") is False and query._value("true") is True
+    assert query.main(["fully_connected", "shape=10,128", "dtype=fp8_e4m3",
+                       "wide_mode=false"]) == 0
+    assert "SUPPORTED" in capsys.readouterr().out
+
+
 # -- conformance: a kernel must actually do what it claims ------------------
 #
 # Sampled across each kernel's own declared domain, so a new kernel inherits
@@ -436,12 +591,10 @@ def test_resolved_kernel_computes_the_operation(shape, dim):
     assert verdict.supported, verdict.reason
 
     spec = verdict.kernel
-    asm = next(_APP_SRC.rglob(spec.asm))
     x = (np.random.RandomState(sum(shape) + dim).randn(*shape) * 3.0).astype(np.float32)
 
     with tempfile.TemporaryDirectory() as tmp:
-        inst = Path(tmp) / "prog.bin"
-        assemble_to_bin_file(asm.read_text(), str(inst))
+        inst = assemble_kernel(spec.name, tmp)
         inp = Path(tmp) / "in.bin"
         outp = Path(tmp) / "out.bin"
         inp.write_bytes(x.tobytes())
@@ -452,7 +605,8 @@ def test_resolved_kernel_computes_the_operation(shape, dim):
 
         out = np.frombuffer(outp.read_bytes(), dtype=np.float32)
 
-    # Output layout must equal input layout -- see test_softmax_layout_roundtrip.
+    # Output layout must equal input layout -- see test_output_file_matches_input_layout
+    # in kernels/softmax/test.py.
     assert out.size == x.size, f"{spec.name} wrote {out.size} elements for {x.size}"
     assert np.abs(out.reshape(shape) - _reference(x, dim)).max() < 1e-4
 

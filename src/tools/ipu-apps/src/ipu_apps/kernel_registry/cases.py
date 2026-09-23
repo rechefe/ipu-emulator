@@ -42,6 +42,32 @@ class KernelCase:
                 raise ValueError(f"case option {name!r} requires a str, int, float, or bool default")
 
 
+def assemble_kernel(kernel_name: str, directory) -> Path:
+    """Assemble a registered kernel's ``.asm`` into ``directory``; return the binary."""
+    spec = kernel_spec(kernel_name)
+    if not spec.asm:
+        raise ValueError(f"{kernel_name}: SPEC must declare asm")
+    inst_path = Path(directory) / f"{kernel_name}.bin"
+    source = files(spec.resource_package).joinpath(spec.asm)
+    assemble_to_bin_file(source.read_text(), str(inst_path))
+    return inst_path
+
+
+def package_kernel(package: str) -> str:
+    """The one kernel whose folder is ``package``."""
+    from ipu_apps.kernel_registry.registry import kernels
+
+    names = [spec.name for spec in kernels() if spec.resource_package == package]
+    if len(names) != 1:
+        raise ValueError(f"expected one kernel in {package}, found {len(names)}")
+    return names[0]
+
+
+def options_label(options: Mapping[str, Any]) -> str:
+    """``rows=8,n=200`` -- how a case's option overrides are named in ids and tables."""
+    return ",".join(f"{name}={value}" for name, value in options.items())
+
+
 def load_cases(kernel_name: str) -> Mapping[str, KernelCase]:
     spec = kernel_spec(kernel_name)
     module_name = spec.resource_package + ".cases"
@@ -97,11 +123,7 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
     # Refuse unsupported cases before spending time assembling the kernel.
     spec.guard(**prepared.params)
     if inst_path is None:
-        if not spec.asm:
-            raise ValueError(f"{kernel_name}: SPEC must declare asm")
-        source = files(spec.resource_package).joinpath(spec.asm)
-        inst_path = workspace / "instructions.bin"
-        assemble_to_bin_file(source.read_text(), str(inst_path))
+        inst_path = assemble_kernel(kernel_name, workspace)
     bindings = dict(prepared.bindings)
     if "inst_path" in bindings:
         raise ValueError("case bindings cannot replace the assembled instruction file")

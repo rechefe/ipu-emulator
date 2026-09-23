@@ -30,11 +30,11 @@ restores the terminal, cleans temporary files, and exits successfully without
 writing or checking incomplete output. Completion runs the normal teardown
 and case checks.
 
-All seven app targets support this configuration: `fully_connected`,
-`identity`, `softmax_rows`, `softmax_rows_partial`, `softmax_rows_long`,
-`softmax_columns`, and `softmax_columns_packed`. Use ordinary Bazel labels;
-inside the apps package, `:identity` is also valid. Run each suite with its
-`test_<kernel>` label. There is no custom Bazel command or repository wrapper.
+Every kernel target supports this configuration — all 21, one per `.asm` under
+`src/tools/ipu-apps/src/ipu_apps/kernels/` (`bazel run //src/tools/ipu-apps:query`
+lists them). Use ordinary Bazel labels; inside the apps package, `:identity` is
+also valid. Run each suite with `bazel test` on the same label (`test_<kernel>`
+remains an alias). There is no custom Bazel command or repository wrapper.
 
 An interactive input and output terminal is required. Terminal initialization
 failures abort the launch. Plain `bazel run` and `bazel test` remain
@@ -429,7 +429,7 @@ mode the sum is an assembly XMEM row number; in `byte` mode it is a raw byte
 address.
 
 The active execution mode determines the row size: 128 bytes normally and 512
-bytes in wide-vector mode. Raw byte addressing can inspect the complete 8 MB
+bytes in wide-vector mode. Raw byte addressing can inspect the complete 512 MiB
 physical allocation.
 
 `COUNT` is measured in bytes for `hex`, `int8`, and `u8`; in 16-bit values for
@@ -511,7 +511,7 @@ For a row range, the final argument is the number of XMEM rows. For a byte
 range, it is the number of bytes. The JSON file contains the registers plus
 the resolved XMEM byte address, size, addressing mode, and sidecar filename.
 The `.xmem.bin` sidecar contains the unmodified memory bytes. `xmem all` writes
-the complete 8 MB allocation.
+the complete 512 MiB allocation.
 Quote a filename containing spaces when it is followed by `xmem` arguments.
 
 The JSON file contains all register values:

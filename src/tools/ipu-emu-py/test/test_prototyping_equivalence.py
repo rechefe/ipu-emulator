@@ -4,7 +4,7 @@ Its shortcuts (skipping NOP slots, caching per-PC dispatch work, short-circuitin
 an all-ones multiply mask) are only defensible if the state they leave behind is
 *identical* to the faithful path's — not close, identical. In a flagged build,
 every program runs through faithful and prototype engines in lockstep; every
-register, all 8 MiB of XMEM, snapshots, cycle outcomes and run statistics are
+register, all 512 MiB of XMEM, snapshots, cycle outcomes and run statistics are
 compared after every cycle.
 
 The Bazel flag is also a capability boundary. A default build verifies that the

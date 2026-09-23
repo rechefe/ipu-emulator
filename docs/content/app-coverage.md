@@ -31,15 +31,13 @@ The registry removes the second copy.
 
 ## How a kernel declares itself
 
-Each app package exports a module-level `SPEC` beside its `.asm` and harness:
+Each app package exports a module-level `SPEC` beside its `.asm` and harness, in `app.py`:
 
 ```python
-SPEC = KernelSpec(
-    name="softmax_columns",
+SPEC = folder_spec(
+    SoftmaxColumnsApp,    # name and .asm come from the kernel's folder
     op="softmax",
     variant="columns",
-    app_class=SoftmaxColumnsApp,
-    asm="softmax_columns.asm",
     requires=("shape", "dim"),  # params the callbacks index
     supports=_supports,   # params -> Support (the domain)
     build=_build,         # params -> constructor kwargs
@@ -65,8 +63,9 @@ so the guard and the router cannot disagree.
 `discover()` walks the `ipu_apps` package tree and collects every `SPEC`. Two
 properties matter:
 
-- **Arbitrary depth.** Softmax nests kernels one level down; the convolution
-  family nests them three (`convolutions_universal/conv/conv_universal/`).
+- **Arbitrary depth.** Family kernels sit two levels down
+  (`kernels/softmax/softmax_rows/`, `kernels/convolutions/conv1x1/`), and
+  discovery recurses rather than assuming a fixed depth.
 - **Tolerance of broken packages.** A working tree routinely contains modules
   that will not import — a kernel mid-authoring, a stale directory left by a
   branch switch, an uninstalled optional dependency. Those are recorded as
@@ -131,11 +130,11 @@ Adapters are matched on the layer's **class name**, so the registry never
 imports torch and torch stays an optional dependency.
 
 Every adapter lives beside the kernels it serves — softmax's are in
-`ipu_apps/softmax/_spec_support.py`, not in the registry core — so no
+`ipu_apps/kernels/softmax/app.py`, not in the registry core — so no
 operation's vocabulary leaks into the op-agnostic layer. They register as an
-import side effect of that package, which is why `from_layer` runs discovery
-before looking one up: an adapter in a package nothing has imported yet has not
-registered.
+import side effect of a kernel's `app.py` (discovery imports only those), which
+is why `from_layer` runs discovery before looking one up: an adapter nothing has
+imported yet has not registered.
 
 Adapters follow two rules, because both failure modes are silent:
 
@@ -165,27 +164,41 @@ n (row length) 129..139      softmax_rows_long
 ```
 
 Because the table is probed rather than maintained, it cannot describe
-behaviour the kernels do not have.
+behaviour the kernels do not have. The same probes are available from the
+command line for any operation:
+
+```bash
+bazel run //src/tools/ipu-apps:query                                  # report()
+bazel run //src/tools/ipu-apps:query -- softmax shape=32,300 dim=1    # resolve()
+bazel run //src/tools/ipu-apps:query -- softmax shape=8,n dim=1 --sweep n=1..139   # boundaries()
+```
 
 The routing tables printed in these pages *are* checked-in text, though, so
-`test/test_docs_routing.py` reads them back and probes the registry at every
+the softmax family's `test.py` reads them back and probes the registry at every
 boundary they claim — including that each run really does change hands where it
 says. A kernel domain that moves without the docs following fails there.
 
 ## What keeps it honest
 
 A declarative registry can fail in a new way: `supports` says yes and the
-kernel disagrees. Two mechanisms guard that, both in
-`test/test_kernel_registry.py` and both generic — a newly registered kernel
-inherits them automatically:
+kernel disagrees. What guards that, and for which kernels:
 
-- **Conformance.** For each shape, the registry is asked for a kernel, and that
-  kernel is then assembled, run, and compared against a NumPy reference. A
-  kernel cannot claim a domain it mishandles.
-- **Guard agreement.** A constructor must not accept a shape its spec refuses.
-  (Checked one-directionally: some kernels cannot express the refused case at
-  all — `softmax_rows` takes only `rows`, its width being fixed by the `.asm` —
-  so there is no argument on which to reject.)
+- **Every kernel's cases** (its `test.py`) run it and compare its output with an
+  independent reference, and `test/test_kernel_registry.py` checks that each
+  case is accepted by the kernel's own spec and routed by the registry. A new
+  kernel inherits both by declaring cases.
+- **Spec hygiene**, also for every kernel: unique names, the folder / `SPEC.name`
+  / `.asm` agreement, and well-formed fields.
+- **Conformance** (softmax). For each shape, the registry is asked for a
+  kernel, and that kernel is then assembled, run, and compared against a NumPy
+  reference — so a softmax kernel cannot claim a domain it mishandles. It is
+  softmax-only because its kernels share one input format; the other
+  operations' kernels each take their own preformatted image.
+- **Guard agreement** (softmax). A constructor must not accept a shape its spec
+  refuses. (Checked one-directionally: some kernels cannot express the refused
+  case at all — `softmax_rows` takes only `rows`, its width being fixed by the
+  `.asm` — so there is no argument on which to reject.) Memory-layout kernels
+  guard through their spec by construction.
 
 ## Current coverage
 
@@ -193,7 +206,18 @@ Generated by `report()`; see the routing tables above for the boundaries.
 
 | operation | kernels |
 |---|---|
+| `channel_peak` | `channel_peak` |
+| `conv2d` | `conv1x1`, `conv3x3_relu`, `conv3x3_relu_cin1` |
+| `depth_to_space` | `depth_to_space` |
+| `fully_connected` | `fully_connected` |
+| `identity` | `identity` |
+| `l2_normalize` | `l2_normalize_channels` |
+| `maxpool2d` | `maxpool2d_nms7`, `maxpool2d_nms9`, `maxpool2d_stride2`, `maxpool2d_stride2_tail`, `maxpool2d_window` |
+| `sample_descriptors` | `sample_descriptors`, `sample_descriptors_separable` |
+| `score_threshold` | `score_threshold` |
 | `softmax` | `softmax_rows`, `softmax_rows_partial`, `softmax_rows_long`, `softmax_columns`, `softmax_columns_packed` |
+
+`bazel run //src/tools/ipu-apps:query` prints the current list.
 
 All softmax kernels are wide-vector FP32 only (`wide_vector_debug=True`); they
 build on `exp2`/reciprocal over an FP32 vector path and have no narrow

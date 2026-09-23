@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import struct
+import weakref
 
 from ipu_common.activations import ACTIVATION_IDENTITY
 from ipu_common.registers import get_lane_count
@@ -16,7 +17,10 @@ LANES = get_lane_count()
 class ExecutionObserver:
     def __init__(self, profile, state):
         self.profile = profile
-        self.state = state
+        # Weak: state -> alias_profile -> _bridge -> observer, so a strong
+        # reference back would make every profiled state (and its XMEM) wait
+        # for the cyclic garbage collector instead of being freed on release.
+        self._state = weakref.ref(state)
         profile.metadata.update(mode=state.wide_vector_arithmetic.value if state.wide_vector_debug else "native",
                                 dtype=state.dtype.name, quantize_output=state.wide_vector_quantize_output)
         self.next_id = 0
@@ -39,6 +43,10 @@ class ExecutionObserver:
         self.cycle_events = []
         state.xmem._profile_observer = self.memory
         state.regfile._profile_observer = self.register_write
+
+    @property
+    def state(self):
+        return self._state()
 
     def register_write(self, name, start, size):
         banks = {"r": "ra", "r_wide_debug": "ra", "r_cyclic": "ring", "r_cyclic_wide_debug": "ring"}

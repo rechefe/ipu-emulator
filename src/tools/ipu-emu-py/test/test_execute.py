@@ -2957,8 +2957,8 @@ BKPT;;
 # ============================================================================
 # XMEM row addressing: .asm XMEM operands (offset + base) are row numbers,
 # translated to byte addresses via the active mode's row size. XMEM is
-# allocated 8 MB unconditionally; narrow mode may only address the first
-# 16384 rows (the first 2 MB) of that allocation.
+# allocated at XMEM_SIZE_BYTES unconditionally; narrow mode may only address
+# its first NARROW_MAX_ROW (16384) rows -- 2 MB -- whatever the allocation size.
 # ============================================================================
 
 
@@ -3002,6 +3002,21 @@ BKPT;;
         with pytest.raises(EmulatorError, match="out of range for narrow mode"):
             run_until_complete(state)
 
+    def test_narrow_limit_is_fixed_not_derived_from_the_allocation(self):
+        """Enlarging XMEM for wide-mode kernels must not widen narrow mode's reach:
+        a byte address mistaken for a row number still has to fail."""
+        assert NARROW_MAX_ROW == 16384
+        assert XMEM_SIZE_BYTES // 128 > NARROW_MAX_ROW
+
+    def test_debug_mode_accepts_rows_past_the_narrow_limit(self):
+        """The first row narrow mode rejects is an ordinary row in debug mode,
+        which is bounded by the allocation instead."""
+        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state.regfile.set_cr(8, NARROW_MAX_ROW)
+        encoded = assemble("SET lr13 cr8;;\nLDR_MULT_REG r1 lr13 cr0;;\nBKPT;;\n")
+        load_program(state, [decode_instruction_word(w) for w in encoded])
+        run_until_complete(state)
+
     def test_huge_unsigned_row_raises_narrow_range_error(self):
         """LR/CR values are unsigned 32-bit, so a 'negative' row arrives as a huge
         positive row number -- it is rejected by the narrow-mode range check, not a
@@ -3018,7 +3033,7 @@ BKPT;;
     def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
         """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
         bytes: row (NARROW_MAX_ROW - 1) narrow tops out just under 2 MB, but the same
-        row number in debug mode addresses a byte well past 2 MB, deep into the 8 MB
+        row number in debug mode addresses a byte well past 2 MB, deep into the
         allocation narrow mode can never reach at any row number."""
         row = NARROW_MAX_ROW - 2  # leaves room for a second row (cyclic data) right after
         byte_addr = row * 512
@@ -3052,7 +3067,7 @@ BKPT;;
             assert v == pytest.approx(6.0), f"lane {i}"
 
     def test_debug_mode_row_past_8mb_raises(self):
-        """Both modes reject rows whose byte address would exceed the 8 MB allocation."""
+        """Both modes reject rows whose byte address would exceed the XMEM allocation."""
         max_debug_row = XMEM_SIZE_BYTES // 512
         state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
         state.dtype = DType.INT8
