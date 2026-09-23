@@ -6,7 +6,7 @@ space-to-depth decomposition: stream s takes every other spatial row and column
 at phase ``(s // 2, s % 2)``. They are NOT image quadrants -- ``on``/``on_inv``
 are the even/odd selector encodings of ``ACC.STRIDE``, nothing more.
 
-Geometry is derived for L5, not copied from L3/L4:
+Geometry of the three unfold kernels:
 
     L3 (32x32x144): 8 stripes of 4 spatial rows x 32 cols, elements_in_row=32
     L4 (16x16x192): 2 stripes of 8 spatial rows x 16 cols, elements_in_row=16
@@ -32,18 +32,18 @@ i.e. ``_ROW_PACK_ORDER`` below. With that packing the four (h, v) selector pairs
 yield exactly the four stride-2 phases, 16 tokens each, in row-major order.
 
 Output layout (per-stream, one channel per row):
-    Each stream writes ``N_OUT`` rows of 512 B. A stream contributes only
-    ``N_TOK = 16`` valid FP32 tokens (64 B) per channel, and a row is never
+    Each stream writes ``N_OUT`` rows of 128 FP32 elements. A stream contributes only
+    ``N_TOK = 16`` valid FP32 tokens per channel, and a row is never
     shared between channels, so each row is
     ``[16 valid FP32 tokens | 112 stale lanes]``. ``ACTIVATE.QUANTIZE identity``
-    stages all 128 lanes of r_acc and ``STR_POST_AAQ_REG`` writes the full 512 B
-    row, so lanes 16.. carry stale r_acc content. ``teardown`` crops each row to
+    stages all 128 lanes of R_ACC and ``STR_POST_AAQ_REG`` writes the full 128-element
+    row, so lanes 16.. carry stale R_ACC content. ``teardown`` crops each row to
     its valid prefix (and keeps the raw uncropped rows beside it, as
     ``<output>.rows.bin`` -- fold_8x8x240's input format); this kernel's
     ``test.py`` pins both the crop and the stale-lane contract.
 
-    This is the deliberate per-stream layout. The packed ``[k][p*n]`` variant is
-    a separate deferred experiment and is NOT what this kernel emits.
+    This is the deliberate per-stream layout. A packed ``[k][p*n]`` variant is
+    not implemented.
 
 Usage::
 
@@ -60,7 +60,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.reshape.unfold_common import unfold_spec
+from ipu_apps.kernels.reshape.app import unfold_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -115,7 +115,7 @@ def pack_input_rows(x: np.ndarray) -> np.ndarray:
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
 OUTPUT_ROW_BYTES = ROW_BYTES                 # one store = one whole row
-VALID_ROW_BYTES  = N_TOK * ELEM_BYTES        # meaningful prefix of each row (64 B)
+VALID_ROW_BYTES  = N_TOK * ELEM_BYTES        # meaningful prefix of each row (N_TOK elements)
 
 _STRIPE_ROWS = C                             # one row per channel within a stripe
 _STREAM_ROWS = N_OUT                         # rows per output stream
@@ -145,7 +145,7 @@ DST_BASE  = DST_BASE_ROW * ROW_BYTES
 def _load_input(state: "IpuState", input_path: str | Path) -> None:
     """Write the packed stripe input directly into XMEM at SRC_BASE.
 
-    File layout: C rows of LANES FP32 elements (512 B each). Row ch holds
+    File layout: C rows of LANES FP32 elements. Row ch holds
     channel ch's 8x8 grid in the first 64 lanes, spatial rows ordered by
     ``_ROW_PACK_ORDER``; lanes 64..127 are zero padding.
     """
@@ -154,7 +154,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
 
 
 def _load_ones(state: "IpuState") -> None:
-    """One XMEM row of FP32 1.0 for r_cyclic (the pass-through multiplier)."""
+    """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(
         ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes())
     )
@@ -167,7 +167,7 @@ class Unfold8x8x240App(IpuApp):
 
     Args:
         inst_path:   Path to assembled instruction binary.
-        input_path:  Path to the packed FP32 stripe input (C x 512 bytes).
+        input_path:  Path to the packed FP32 stripe input (C rows of 128 FP32 elements).
         output_path: Optional path to write the 4-stream FP32 output.
     """
 
@@ -178,17 +178,17 @@ class Unfold8x8x240App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
-        # cr0: the single stripe's source base. cr0 = SRC_BASE_ROW = 0 is a
-        # harmless no-op write (CR0 is the hardwired 0).
-        # cr8: ones base (for r_cyclic loading in assembly init)
+        # CR0: the single stripe's source base. SRC_BASE_ROW is 0, which the
+        # read-only CR0 already holds, so it is not written.
+        # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
-        # cr9..cr12: per-stream destination bases (phases 00, 01, 10, 11)
+        # CR9..CR12: per-stream destination bases (phases 00, 01, 10, 11)
         state.regfile.set_cr(9,  DST_BASE_ROW)
         state.regfile.set_cr(10, DST_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, DST_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, DST_BASE_ROW + 3 * _STREAM_ROWS)
-        # constant LRs preset here (SET requires a CR source since issue #82)
-        state.regfile.set_lr(0, 0)                 # r_cyclic slot 0 / mask / acc.stride slot 0
+        # constant LRs preset here (SET requires a CR source)
+        state.regfile.set_lr(0, 0)                 # R_CYCLIC slot 0 / mask / ACC.STRIDE slot 0
         state.regfile.set_lr(4, 0)                 # src row offset, += 1 per channel
         state.regfile.set_lr(5, SRC_STRIDE_ROWS)   # src stride per channel
         state.regfile.set_lr(6, DST_STRIDE_ROWS)   # dst stride per channel
@@ -200,7 +200,7 @@ class Unfold8x8x240App(IpuApp):
         """Dump the 4 streams, cropping each row to its N_TOK valid tokens.
 
         Each output row is a whole XMEM row (one channel per row, never shared).
-        Only the first N_TOK lanes are valid; the rest are stale r_acc lanes that
+        Only the first N_TOK lanes are valid; the rest are stale R_ACC lanes that
         the store path always writes. The crop happens here so consumers get a
         dense ``[N_STREAMS, N_OUT, N_TOK]`` FP32 array.
         """
@@ -220,7 +220,7 @@ class Unfold8x8x240App(IpuApp):
 
 # -- registry declaration ---------------------------------------------------
 # Declared beside the kernel so the registry needs no central list; see
-# :func:`~ipu_apps.kernels.reshape.unfold_common.unfold_spec` for the
+# :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
 SPEC = unfold_spec(Unfold8x8x240App, op="unfold", h=H, w=W, c=C)

@@ -1,7 +1,7 @@
 """Shared attention cases: FP32 staging, datapath-mirroring references, checks.
 
-No checked-in goldens: every case generates FP32 inputs from its original
-test's seed and computes the expected result directly. Two references mirror
+No checked-in goldens: every case generates FP32 inputs from a fixed seed and
+computes the expected result directly. Two references mirror
 the emulator's datapath exactly, because the two chains round differently and
 must never share a golden:
 

@@ -1,10 +1,10 @@
-"""Agent D — kQᵀ → key-major attention scores (one head).
+"""kQᵀ → key-major attention scores (one head).
 
 Computes, for a single attention head h (head_dim D=36, N=256 tokens)::
 
     S[i, s] = sum_c Q[i, c] * K[s, c]        i, s in [0, 256), c in [0, 36)
 
-and stores S **key-major**: S[i, s] at SBASE + (s*256 + i)*4 (int32/fp32 words),
+and stores S **key-major**: S[i, s] at FP32 element (s*256 + i) from SBASE,
 so that each key column S[:, s] is contiguous (feeds the downstream softmax chain).
 
 Activation layout (canonical, channel-major, multi-head)::
@@ -49,7 +49,7 @@ N_HEADS  = 4            # channels in the canonical input file = N_HEADS * D
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
@@ -58,7 +58,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
 Q_CHAN_ROWS   = N_TOK // LANES               # 2: rows per Q channel column
 K_STRIDE_ROWS = 1                            # one key-major K row per key
-OUT_ROWS      = 1                            # one r_acc store = one row (wide)
+OUT_ROWS      = 1                            # one R_ACC store = one row (wide)
 
 Q_ROWS = D * Q_CHAN_ROWS
 K_ROWS = N_TOK * K_STRIDE_ROWS
@@ -73,7 +73,7 @@ KBASE_KM = KBASE_KM_ROW * ROW_BYTES
 SBASE    = SBASE_ROW * ROW_BYTES
 
 K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
-OUTPUT_ROW_BYTES = 512                       # r_acc store payload
+OUTPUT_ROW_BYTES = 512                       # R_ACC store payload
 
 
 def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
@@ -135,8 +135,8 @@ class AttnScoresKM256x36App(IpuApp):
         _load_k_keymajor(state, self.weights_path, self.head)
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError (issue #230). QBASE_ROW is 0,
-        # so cr0 already holds the correct value without any write.
+        # else raises EmulatorError. QBASE_ROW is 0,
+        # so CR0 already holds the correct value without any write.
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         state.regfile.set_cr(5, -Q_CHAN_ROWS)   # g=0 channel-column startup (rows)
@@ -148,7 +148,7 @@ class AttnScoresKM256x36App(IpuApp):
         state.regfile.set_lr(2, Q_CHAN_ROWS)    # channel stride in Q (rows)
         state.regfile.set_lr(3, OUT_ROWS)       # output store stride (rows)
         state.regfile.set_lr(6, D - 2)       # c-loop bound = 34
-        state.regfile.set_lr(7, 0)           # output byte pointer
+        state.regfile.set_lr(7, 0)           # output row pointer
         state.regfile.set_lr(8, -K_STRIDE_ROWS) # key row offset startup (-1 -> first live 0)
         state.regfile.set_lr(9, 0)           # key counter
         state.regfile.set_lr(10, N_TOK)      # key-loop limit

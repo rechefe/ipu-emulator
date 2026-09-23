@@ -1,15 +1,14 @@
 """Wide (W >= 384) standard 3x3 convolution harness, stride 1, FP32.
 
 Handles spatial widths that don't fit the usual <=256-wide chunk-interleaved
-layout other conv apps assume. Per the user's explicit addressing spec: one
-spatial row of ONE channel occupies ``W // 128`` (``cpr``, "chunks per row")
-consecutive XMEM rows, channel-interleaved per spatial row --
+layout other conv apps assume. One spatial row of ONE channel occupies
+``W // 128`` (``cpr``, "chunks per row") consecutive XMEM rows,
+channel-interleaved per spatial row --
 
     [ch0 row0: cpr rows][ch1 row0: cpr rows]...[ch(C-1) row0: cpr rows]
     [ch0 row1: cpr rows][ch1 row1: cpr rows]...
 
-This is deliberately UNOPTIMIZED (correctness first, per the design brief):
-no rotating-slot pipelining. For each (row, column-chunk, filter, channel,
+This kernel is deliberately UNOPTIMIZED: no rotating-slot pipelining. For each (row, column-chunk, filter, channel,
 kr) the asm reloads a fresh 3-slot R_CYCLIC strip (the neighbouring
 column-chunk to the left, this column-chunk, the neighbouring column-chunk to
 the right) and reads the 3 kc taps as plain (non-slot-aligned) 128-element
@@ -69,7 +68,7 @@ import numpy as np
 from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     kernel_asm,
@@ -164,8 +163,8 @@ class ConvUniversalWide384App(IpuApp):
         width:        Spatial width; multiple of 128, >= 384.
         rows:         Spatial height (>= 1).
         in_channels:  Number of input channels (>= 1).
-        out_channels: Number of output channels (>= 1, even per the task
-                      brief, though the asm itself does not require it).
+        out_channels: Number of output channels (>= 1, even; the SPEC and
+                      this constructor require it, the asm itself does not).
     """
 
     SELF_ASSEMBLES = True
@@ -213,21 +212,20 @@ class ConvUniversalWide384App(IpuApp):
         self.out_channels = out_channels
         self.blocks_per_filter = math.ceil(in_channels / FPB)
         # Each dense FPB=14 kernel block is exactly 128 elements = 1 XMEM row,
-        # so the per-block reload advance (cr9, added to lr9 in the asm's
+        # so the per-block reload advance (CR9, added to LR9 in the asm's
         # `_reload` path) is always 1 row -- NOT blocks_per_filter (that would
         # skip whole filters' worth of blocks on every reload once
         # in_channels > FPB). total_kernel_rows (the filter-loop bound,
-        # compared against the persistent per-filter kernel base lr8) is the
+        # compared against the persistent per-filter kernel base LR8) is the
         # one quantity that actually needs blocks_per_filter.
         self.kernel_row_stride = 1
         self.total_kernel_rows = out_channels * self.blocks_per_filter
 
         # -- Dynamic region layout -------------------------------------------
-        # See conv_universal's identical comment for the full rationale: the
-        # fixed *_BASE_ADDR gaps silently overflow at realistic channel
-        # counts (kernel size scales with out_channels*in_channels). No
-        # guard-band shift is needed here (unlike conv_universal): this app
-        # writes input data straight to its region's own base.
+        # Regions are sized from this configuration (the kernel region scales
+        # with out_channels*in_channels). No guard-band shift is needed here
+        # (unlike conv_universal): this app writes input data straight to its
+        # region's own base.
         self._regions = allocate_regions([
             ("input", in_channels * rows * self.cpr * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_rows * CHUNK_ELEMENTS),
@@ -299,10 +297,10 @@ class ConvUniversalWide384App(IpuApp):
         state.regfile.set_cr(4, self.output_base_row)
         state.regfile.set_cr(5, self.mask_base_row)
         state.regfile.set_cr(6, self.in_channels)
-        # cr7 = interior-row runtime-loop limit: out_row_base (RELATIVE to
-        # cr4, like lr7 -- see the asm init section) of the LAST row (row
-        # `rows-1`). The interior loop (rows 1..rows-2) compares lr7
-        # (out_row_base, advanced by cr10 each row) against this and stops
+        # CR7 = interior-row runtime-loop limit: out_row_base (RELATIVE to
+        # CR4, like LR7 -- see the asm init section) of the LAST row (row
+        # `rows-1`). The interior loop (rows 1..rows-2) compares LR7
+        # (out_row_base, advanced by CR10 each row) against this and stops
         # BEFORE processing the last row, which is handled by its own
         # (bottom-border) unrolled section. Only meaningful when rows > 2;
         # harmless to always set.

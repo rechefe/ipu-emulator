@@ -46,7 +46,7 @@ N = 128   # rows of W (output neurons) / cols of C  (must equal SIMD width = 128
 # this kernel is written against; it belongs at the XMEM write boundary
 # (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# XMEM .asm operands are ROW numbers, not byte addresses, and a
 # row is LANES *elements*. Region bases are DERIVED from row counts rather
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
@@ -59,8 +59,8 @@ ROW_BYTES  = LANES * ELEM_BYTES   # 512
 INPUT_ROWS   = M
 WEIGHT_ROWS  = K
 
-# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
-# 512 B, so a store is exactly one row and one output row of C owns one row.
+# One accumulator store writes all LANES elements of R_ACC -- exactly one row
+# in wide mode, so one output row of C owns one row.
 OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # 512
 OUTPUT_STRIDE_ROWS = 1
 VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
@@ -128,8 +128,8 @@ class MatMul128x128App(IpuApp):
         _load_input(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants
-        # — writing anything else raises EmulatorError (issue #230). INPUT_BASE_ROW is 0, so
-        # cr0 still reads the correct input base; the weights base lives on
+        # — writing anything else raises EmulatorError. INPUT_BASE_ROW is 0, so
+        # CR0 still reads the correct input base; the weights base lives on
         # CR11 (a free CR) rather than CR1.
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)

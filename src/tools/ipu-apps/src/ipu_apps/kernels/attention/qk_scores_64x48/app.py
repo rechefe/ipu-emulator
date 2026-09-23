@@ -21,7 +21,7 @@ key axis fits in a single 128-lane row: there is exactly ONE key group
 (``N_TG = 1``) instead of two, and the trailing 64 lanes of every K / S row are
 unused padding.  Per the one-channel-per-row rule an XMEM row is still never
 shared -- each (block, query) score row owns a whole row and the teardown crops
-the valid ``N * ELEM_BYTES`` prefix out of it.
+the valid ``N``-element prefix out of it.
 
 It pairs with ``attn_v_64x48`` (query-major scores -> attn@V).  It must NOT be
 paired with ``attn_v_bcast_48``, which consumes key-major scores.
@@ -58,7 +58,7 @@ N_TPG   = N            # keys per group
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 # N = 64 <= LANES, so one K channel column is one whole row (tail unused).
 K_STRIDE_ROWS    = 1                         # rows per K channel column
 QROW_STRIDE_ROWS = 1                         # one staged query row per query
-ACC_STORE_ROWS   = 1                         # one r_acc store = one row (wide)
+ACC_STORE_ROWS   = 1                         # one R_ACC store = one row (wide)
 
 K_BLOCK_ROWS = D * K_STRIDE_ROWS             # 48 rows per (stream, head) block
 Q_BLOCK_ROWS = N * QROW_STRIDE_ROWS          # 64 rows per block
@@ -109,7 +109,7 @@ class QkScores64x48App(IpuApp):
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are channel-major per block: element [block b, token t,
-        channel c] at ((b*D + c)*N + t) * ELEM_BYTES.
+        channel c] at element index (b*D + c)*N + t.
         """
         q = np.frombuffer(self.query_path.read_bytes(), dtype=np.float32)
         k = np.frombuffer(self.key_path.read_bytes(), dtype=np.float32)
@@ -157,7 +157,7 @@ class QkScores64x48App(IpuApp):
         state.regfile.set_cr(10, N_BLOCK)               # block-loop limit (16)
         state.regfile.set_cr(11, K_BLOCK_ROWS)          # K rows per block (48)
 
-        state.regfile.set_lr(0, 0)                      # r_cyclic write-index / mask_shift
+        state.regfile.set_lr(0, 0)                      # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)          # K stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
         state.regfile.set_lr(6, D - 2)                  # contraction BLT bound
@@ -173,7 +173,7 @@ class QkScores64x48App(IpuApp):
         """Crop each score row's valid N keys out of its whole 512 B row.
 
         Every store wrote a full row (one query per row -- rows are never
-        shared), but only the leading ``N * ELEM_BYTES`` bytes hold scores. The
+        shared), but only the leading ``N`` elements hold scores. The
         output file is the densely packed crop, ``N_BLOCK * N`` rows of N FP32.
         """
         if self.output_path is None:

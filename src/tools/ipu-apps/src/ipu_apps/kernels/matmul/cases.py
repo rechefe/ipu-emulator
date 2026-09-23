@@ -2,8 +2,8 @@
 
 A kernel's ``cases.py`` is one call, :func:`matmul_cases`, passing its app
 module; the module's constants say which file layout it uses (see the family
-``app.py``). Inputs are uniform in ``[-1, 1)``; the tolerance is the one the
-kernels were validated at (IPU FP32 accumulation order differs from NumPy's).
+``app.py``). Inputs are uniform in ``[-1, 1)``; the tolerance allows for IPU FP32
+accumulation order differing from NumPy's.
 """
 import numpy as np
 

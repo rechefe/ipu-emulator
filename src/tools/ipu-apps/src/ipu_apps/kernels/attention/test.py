@@ -203,8 +203,7 @@ def test_seam_qk_scores_to_attn_v_256x36(inst, tmp_path):
 
 def test_seam_qk_attn_v_head_block_pitch_mutation_detected(inst, tmp_path):
     """Harness-teeth check: roll one head's block by one row -- a producer
-    that shifted its row pitch/base, analogous to the attn_scores_km_64x48 /
-    attn_v_bcast_48 sub-row-pitch bug -- run it through the REAL
+    that shifted its row pitch/base -- run it through the REAL
     attn_v_256x36, and confirm the seam assertion fails for that head."""
     Q, K, V = _qkv(0x5EA4, av256.N_HEAD, qk256.D, qk256.N)
     good = b"".join(_qk256_raw(inst, tmp_path, Q[h], K[h], f"mut{h}") for h in range(av256.N_HEAD))
@@ -281,9 +280,9 @@ def test_seam_attn_scores_km_to_attn_v_bcast_36(inst, tmp_path):
 
 
 def test_seam_km_bcast_head_block_pitch_mutation_detected(inst, tmp_path):
-    """Harness-teeth check: roll head 1's block by one row -- the exact class
-    of bug this seam exists to find (attn_scores_km_64x48 sub-row pitch vs
-    attn_v_bcast_48's whole-row read) -- and confirm the assertion fails."""
+    """Harness-teeth check: roll head 1's block by one row -- the
+    producer/consumer row-pitch mismatch this seam exists to find -- and
+    confirm the assertion fails."""
     good, expected, V = _km256_chain(inst, tmp_path, 0x6EA4, "mut")
     h_mut = 1
     block = bc36.P_HEAD_STRIDE_ROWS * ROW_BYTES
@@ -406,8 +405,8 @@ def test_seam_qk_to_attn_v_16x60_head_concat_order(inst, tmp_path):
 
 def test_seam_qk_to_attn_v_16x60_mutation_kills_test(inst, tmp_path):
     """Harness-teeth check: shift the chained P blob by one row (drop the
-    first, pad a garbage row) -- the pitch/base mismatch class documented for
-    attn_scores_km_64x48/attn_v_bcast_48 -- and confirm the comparison
+    first, pad a garbage row) -- a producer/consumer pitch/base mismatch --
+    and confirm the comparison
     against the correctly-aligned reference FAILS."""
     Q, K, V = _qkv16(0x51E1)
     p_bytes = _qk16_chain(inst, tmp_path, Q, K)
@@ -433,14 +432,14 @@ def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(inst, tmp_path):
     placement concerns, not routed parameters, so the apps are constructed
     directly rather than through the registry.
 
-    K is NOT relocatable: qk_scores_16x60.asm reads K_BASE from cr0, which the
+    K is NOT relocatable: qk_scores_16x60.asm reads K_BASE from CR0, which the
     ISA hardwires to 0, so K always occupies rows [0, K_ROWS) and every other
     region here is placed above it.
     """
     Q, K, V = _qkv16(0x51E2)
     D = av16.D
     # Layout (rows), all in the ONE shared state:
-    #   [0 .. K_ROWS)            K (fixed: cr0 is hardwired 0)
+    #   [0 .. K_ROWS)            K (fixed: CR0 is hardwired 0)
     #   [K_ROWS .. +P_ROWS)      P / S (qk_scores writes, attn_v reads, in place)
     #   [.. +V_ROWS)             V (host-staged; no producer)
     #   [.. +O_ROWS)             O (attn_v's output)
@@ -494,12 +493,10 @@ def test_seam_qk_to_attn_v_16x60_shared_state_zero_copy(inst, tmp_path):
 
 # -- seam: attn_scores_km_16x60 -> attn_v_bcast_60 (key-major, L5) ------------
 #
-# The same kernel-shape class (N <= LANES, single token group, key-major
-# restage) that produced the documented attn_scores_km_64x48/attn_v_bcast_48
-# row-pitch bug: attn_scores_km_64x48
-# used to crop its key rows to N*ELEM_BYTES before storing them, while
-# attn_v_bcast_48 addressed one key per WHOLE 512 B row. Both L5 kernels use
-# the FULL-ROW convention; this confirms it for the real store/load path.
+# N <= LANES, single token group, key-major restage: a producer that crops its
+# key rows to N elements before storing them mis-pitches a consumer that
+# addresses one key per WHOLE 512 B row. Both L5 kernels use the FULL-ROW
+# convention; this confirms it for the real store/load path.
 #
 #   attn_scores_km_16x60 -> S key-major, one head per run, one row per key s
 #                           (lane i = query i).
@@ -574,9 +571,8 @@ def test_seam_km_to_bcast_60_agrees(inst, tmp_path):
 
 def test_seam_km_to_bcast_60_row_pitch_and_head_concat(inst, tmp_path):
     """On RAW STORED BYTES: (1) each key's row is a WHOLE 512 B row, matching
-    attn_v_bcast_60's one-key-per-row addressing -- the axis the
-    attn_scores_km_64x48/attn_v_bcast_48 bug broke; (2) head-order
-    concatenation lands head h's block at PBASE + h*P_HEAD_STRIDE (cr7).
+    attn_v_bcast_60's one-key-per-row addressing; (2) head-order
+    concatenation lands head h's block at PBASE + h*P_HEAD_STRIDE (CR7).
     Head h's Q = h+1 and K = 1, so S = D*(h+1) identifies each block."""
     H, D, N = bc60.N_HEAD, bc60.D, bc60.N_TOK
     Q = np.repeat(np.arange(1, H + 1, dtype=np.float32), D)[:, None] * np.ones((1, N), np.float32)
@@ -595,7 +591,7 @@ def test_seam_km_to_bcast_60_row_pitch_and_head_concat(inst, tmp_path):
         np.testing.assert_allclose(p_arr[h, :, :N], np.float32(D * (h + 1)), rtol=1e-5, err_msg=(
             f"block at head-slot {h} does not contain head {h}'s scores -- head "
             f"concatenation order does not match attn_v_bcast_60's "
-            f"PBASE + h*P_HEAD_STRIDE indexing (cr7=P_HEAD_STRIDE_ROWS)"))
+            f"PBASE + h*P_HEAD_STRIDE indexing (CR7=P_HEAD_STRIDE_ROWS)"))
 
 
 def test_seam_km_to_bcast_60_mutation_kills_test(inst, tmp_path):
@@ -708,7 +704,7 @@ def test_seam_km_bcast_48_row_pitch_mismatch_is_caught(inst, tmp_path):
     diff = np.abs(_bcast48(inst, tmp_path, correct, V, "correct")
                   - _bcast48(inst, tmp_path, mispitched, V, "mispitched"))
     assert float(diff.max()) > 1e-2, (
-        "mutating the producer's row pitch to the old buggy 256 B stride did not "
+        "mutating the producer's row pitch to a packed 256 B stride did not "
         f"change attn_v_bcast_48's output (max diff {float(diff.max()):.3e})")
 
 

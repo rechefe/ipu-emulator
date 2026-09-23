@@ -5,7 +5,7 @@ path, on the FP32 wide-vector debug datapath (see
 docs/content/wide-vector-debug-mode.md), with two additions:
 
   * **Folded bias** — one float32 bias per output channel, seeded into the
-    accumulator (``r_acc = bias``) once per OC before the conv taps, via a
+    accumulator (``R_ACC = bias``) once per OC before the conv taps, via a
     ``MULT.EE`` broadcast of the bias element (x CR1 = 1). Batch-norm is
     assumed already folded into the conv weights + this bias.
   * **ReLU** — applied via ``ACTIVATE relu`` (instead of identity).
@@ -16,21 +16,21 @@ Kernel layout: one OC per 128-element register-load, padded with zeros to
 Bias layout: the bias region *mirrors the kernel* — ``out_ch × num_passes ×
 128`` elements, one 128-element block per (OC, pass), with the OC's float32
 bias in element 0 of its **pass-0** block (every other element is zero).
-This lets the asm reuse ``lr12`` (the kernel element offset) to index the
-bias region verbatim, via ``cr10`` instead of ``cr14`` — no extra pointer or
+This lets the asm reuse ``LR12`` (the kernel element offset) to index the
+bias region verbatim, via ``CR10`` instead of ``CR14`` — no extra pointer or
 arithmetic. Only pass-0 blocks are ever read; the pass-1+ blocks are pure
 padding (wasteful for multi-pass, but bias regions are KB-scale against 2 MB
 of XMEM).
 
-(CR15 is reserved and rejected as an ISA operand, and cr0..cr14 are all
-assigned by the base app; the base app's cr10 — a vestigial ``tail_size``
-param never read as an operand — is reused here for the bias base.)
+(CR15 holds the dstructure configuration and CR0..CR14 are all assigned by
+the base app; the base app's CR10 — a ``tail_size`` param never read as an
+operand — is used here for the bias base.)
 
 Constraints:
   - in_channels % 8 == 0  (avoids the runtime guard ever firing)
   - out_channels % 4 == 0
   - spatial: any height/width >= 1 -- padded internally (see
-    universal_common.pointwise_pad_shape)
+    convolutions.app.pointwise_pad_shape)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     pack_input_chunked,
@@ -57,12 +57,12 @@ if TYPE_CHECKING:
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_MULT_REG /
+# Row-addressed ISA: XMEM offset/base operands on LDR_MULT_REG /
 # LDR_CYCLIC_MULT_REG's offset+base / LDR_MULT_MASK_REG / STR_POST_AAQ_REG are
 # ROW numbers, not byte addresses. A "row" is CHUNK_ELEMENTS (128) elements --
-# 512 bytes at FP32's 4 B/element -- including BIAS_BASE_ROW, which feeds cr10
-# exactly like KERNEL_BASE_ROW feeds cr14 (same LDR_MULT_REG pattern, same
-# row-number treatment). r_cyclic ELEMENT addressing is untouched -- see the
+# 512 bytes at FP32's 4 B/element -- including BIAS_BASE_ROW, which feeds CR10
+# exactly like KERNEL_BASE_ROW feeds CR14 (same LDR_MULT_REG pattern, same
+# row-number treatment). R_CYCLIC ELEMENT addressing is untouched -- see the
 # .asm header for the full recipe note.
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
@@ -156,12 +156,10 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         self.pipeline_limit_tail = tail_size - 5
 
         # -- Dynamic region layout -------------------------------------------
-        # See the sibling pointwise_conv_unified for the full rationale: the
-        # fixed 64 KiB kernel gap silently overflowed into the next region
-        # once out_channels * num_passes * 128 exceeded it. The bias region
-        # mirrors the kernel's block grid exactly (see _pack_bias), so it
-        # overflows on precisely the same configurations and is sized the
-        # same way here. Region sizes are in ELEMENTS; setup() scales to
+        # Regions are sized from this configuration, as in the sibling
+        # pointwise_conv_unified. The bias region mirrors the kernel's block
+        # grid exactly (see _pack_bias), so it is sized the same way as the
+        # kernel region. Region sizes are in ELEMENTS; setup() scales to
         # bytes via ROW_BYTES (FP32, 4 B/element, always).
         input_rows = self.row_groups * in_channels
         kernel_rows = out_channels * num_passes
@@ -216,8 +214,8 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         Region shape = out_ch x num_passes x 128 elements (identical block
         grid to the packed kernel -- see _pack_kernel). The OC's bias goes
         in element 0 of its **pass-0** block; every other element is zero.
-        The asm indexes this with ``lr12`` (the kernel row offset, which
-        sits at the OC's pass-0 block at OC entry) via cr10, so no separate
+        The asm indexes this with ``LR12`` (the kernel row offset, which
+        sits at the OC's pass-0 block at OC entry) via CR10, so no separate
         pointer is needed.
         """
         P = self.num_passes
@@ -243,7 +241,7 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         # Folded-bias region (mirrors the kernel layout — see _pack_bias).
         state.xmem.write_address(self.bias_base_row * ROW_BYTES, self._pack_bias())
 
-        # Mask polarity (master, 2026-06-14): bit 1 = KEEP lane, bit 0 = ZERO.
+        # Mask polarity: bit 1 = KEEP lane, bit 0 = ZERO.
         # This app never masks, so slot 0 must be all-ones (keep every lane).
         state.xmem.write_address(self.mask_base_row * ROW_BYTES, b"\xff" * MASK_SLOT_BYTES)
 
@@ -266,15 +264,15 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         state.regfile.set_cr(8, self.row_group_stride)  # ROWS (= in_channels)
         # pipeline_limit_tail may be negative; encode as two's complement
         state.regfile.set_cr(9, self.pipeline_limit_tail & 0xFFFFFFFF)
-        # cr10: bias base ROW.  CR15 is reserved/illegal as an operand, and
-        # all of cr0..cr14 are taken — but the base app's cr10 ("tail_size") is
-        # never read as an operand, so it is reused here for the bias base.
+        # CR10: bias base ROW.  CR15 holds the dstructure and CR0..CR14 are
+        # all taken — but the base app's CR10 ("tail_size") is never read as
+        # an operand, so it is used here for the bias base.
         state.regfile.set_cr(10, self.bias_base_row)
         state.regfile.set_cr(11, self.num_passes - 1)
 
-        # cr12 = 128: the ONE remaining role is the fixed_idx/ra_idx step
-        # (lane/element space, mode-blind) for Half B -- NOT an XMEM stride;
-        # that role moved to CR1 throughout the .asm.
+        # CR12 = 128: the fixed_idx/ra_idx step (lane/element space,
+        # mode-blind) for Half B -- NOT an XMEM stride; XMEM strides use the
+        # read-only CR1 throughout the .asm.
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, self.pass_stride_rows)  # 128 ROWS
         # (pass-counter decrement constant 1 = read-only CR1; CR14 holds the kernel base.)
@@ -282,8 +280,8 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         # ACTIVATE reads its active-lane count from the named
         # dstructure CR's valid_elements field. The asm names CR15, so set
         # CR15.valid_elements = 128 to activate the full 128-lane chunk.
-        # (Mults use mask_offset 0 / no masking, so partition is irrelevant; cr10
-        # holds the bias base, cr15 is otherwise free for the dstructure config.)
+        # (Mults use mask_offset 0 / no masking, so partition is irrelevant; CR10
+        # holds the bias base, CR15 holds the dstructure config.)
         # With wide_vector_quantize_output=False, ACTIVATE (relu here, not
         # identity) writes FP32 into post_aaq_reg with no INT8 clamp.
         state.set_cr_dstructure(valid_elements=128)

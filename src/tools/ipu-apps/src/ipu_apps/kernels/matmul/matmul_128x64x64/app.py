@@ -9,10 +9,10 @@ Both K=64 and N=64 are < SIMD width (128):
   - A rows zero-padded out to a whole XMEM row.
   - T[k] (transposed weight row) zero-padded out to a whole row; acc[64..127] = 0.
 
-Output: one accumulator store writes all 512 B of r_acc, which in wide mode is
-exactly one XMEM row, so each matrix row of C owns one row and only its first
-N*4 bytes are valid. The teardown crops those out, so the output file stays
-densely packed at N*4 bytes per row.
+Output: one accumulator store writes all LANES elements of R_ACC, which in wide
+mode is exactly one XMEM row, so each matrix row of C owns one row and only its
+first N elements are valid. The teardown crops those out, so the output file
+stays densely packed at N elements per row.
 
 Usage::
 
@@ -50,7 +50,7 @@ N = 64    # rows of W (output neurons) / cols of C  (< SIMD width; T rows zero-p
 # this kernel is written against; it belongs at the XMEM write boundary
 # (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# XMEM .asm operands are ROW numbers, not byte addresses, and a
 # row is LANES *elements*. Region bases are DERIVED from row counts rather
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
@@ -62,10 +62,10 @@ ROW_BYTES  = LANES * ELEM_BYTES   # 512
 INPUT_ROWS  = M   # one padded row per matrix row of A
 WEIGHT_ROWS = K   # T[k] is one row per k
 
-# A 512 B r_acc store is exactly one 512 B row in wide mode, so the output
+# An R_ACC store (LANES elements) is exactly one row in wide mode, so the output
 # stride is one row per matrix row of C -- N < LANES only means the row's tail
 # is unused, not that the stride is sub-row.
-OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # 256 valid bytes at the start of each row
+OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # N valid elements at the start of each row
 OUTPUT_STRIDE_ROWS = 1
 VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
 
@@ -131,8 +131,8 @@ class MatMul128x64x64App(IpuApp):
         _load_input_padded(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants
-        # — writing anything else raises EmulatorError (issue #230). INPUT_BASE_ROW is 0, so
-        # cr0 still reads the correct input base; the weights base lives on
+        # — writing anything else raises EmulatorError. INPUT_BASE_ROW is 0, so
+        # CR0 still reads the correct input base; the weights base lives on
         # CR11 (a free CR) rather than CR1.
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
@@ -146,7 +146,7 @@ class MatMul128x64x64App(IpuApp):
         state.regfile.set_cr(10, K - 1)
 
     def teardown(self, state: "IpuState") -> None:
-        """Crop each output row's valid N accumulators out of its 512 B row."""
+        """Crop each output row's valid N accumulators out of its LANES-element row."""
         if self.output_path is None:
             return
         parts = [

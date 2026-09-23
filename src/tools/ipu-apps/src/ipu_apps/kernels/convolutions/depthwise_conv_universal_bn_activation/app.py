@@ -1,20 +1,22 @@
 """Universal depthwise 3x3 convolution + folded-bias + ReLU harness (FP32).
 
-Derived from ``depthwise_conv_universal``. Same chunk-interleaved I/O layout and
-walking-pointer / rotating-cyclic-slot pipeline, with three additions
-(mirroring ``conv_universal_bn_activation``):
+Bias+ReLU twin of ``depthwise_conv_universal``. Same chunk-interleaved I/O
+layout and walking-pointer / rotating-cyclic-slot pipeline (as in
+``conv_universal_bn_activation``), with two additions:
 
   * **Folded bias** — one float32 bias per channel, injected as a single extra
-    "multiply by 1" accumulate (``acc.first``) at the start of each channel.
-    Batch-norm is assumed already folded into the depthwise weights + this bias.
+    "multiply by 1" accumulate (``MULT.EE`` x CR1, then ``ACC.ADD.FIRST``) at
+    the start of each channel. Batch-norm is assumed already folded into the
+    depthwise weights + this bias.
   * **ReLU activation** — applied via ``ACTIVATE relu``.
-  * **Mask-based borders** — the top/bottom out-of-bounds rows are zeroed with
-    a single 3-slot mask blob (slots 0/3/6) instead of loading a zero chunk into
-    the cyclic register (no zero region); left/right edge columns are applied at
-    runtime by mask_shift (CR15 partition = cols), mirroring conv.
 
-Per-channel budget: **11 cyc/ch** = 1 bias-seed cycle + 9 weight taps + 1
-standalone ACTIVATE cycle (the base app runs 9 cyc/ch with no bias). Runs on
+Borders use the shared 3-slot mask blob (slots 0/3/6) for the top/bottom
+out-of-bounds rows (no zero region); left/right edge columns are applied at
+runtime by mask_shift (CR15 partition = cols).
+
+Per-channel budget: **10 cyc/ch** = 1 bias-seed cycle + 9 weight taps, with
+``ACTIVATE.QUANTIZE`` co-issued in tap 9's word (see the .asm header; the base
+app runs 9 cyc/ch with no bias). Runs on
 the emulator's wide-vector debug datapath (FP32) -- weights, bias, and
 activations are genuine floats, no INT8 quantization anywhere in this kernel.
 
@@ -24,13 +26,13 @@ Kernel super-block layout (FPB=25, stride 10):
   does not apply. Instead each channel occupies a **10-element slot**: element 0
   = its float32 bias, elements 1..9 = its 9 weight taps. 25 channels * 10 = 250
   <= 256, so one 256-element super-block (R0 = elements 0..127, R1 = 128..255)
-  holds 25 channels. The shared ``mult.ve`` fixed_idx (0..255) addresses both
+  holds 25 channels. The shared ``MULT.VE`` fixed_idx (0..255) addresses both
   halves transparently.
 
-  The asm walks one continuous kernel element index ``lr6`` at +1 per cycle:
+  The asm walks one continuous kernel element index ``LR6`` at +1 per cycle:
   for channel ``s`` the bias-seed reads ``fixed_idx = s*10`` (bias), then the 9
   taps read ``s*10 + 1 .. s*10 + 9``; the next channel's bias is the following
-  element, so the 10-cycle/channel body advances ``lr6`` by exactly one channel
+  element, so the 10-cycle/channel body advances ``LR6`` by exactly one channel
   stride.
 
 Usage (normally through the registry: ``create_harness(
@@ -65,7 +67,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 # The border mask builder is shared with conv_universal(_bn_activation): a
 # single 128-byte blob (slots 0/3/6) where left/right edge columns are applied
 # at runtime via mask_shift (CR15 partition).
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     build_border_mask_blob,
@@ -83,9 +85,9 @@ if TYPE_CHECKING:
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_*/STR_* are
+# Row-addressed ISA: XMEM offset/base operands on LDR_*/STR_* are
 # ROW numbers, not byte addresses. This app runs FP32 wide-vector only, so
-# ROW_BYTES is always 512. r_cyclic index/rc_idx operands (lr5, lr3/lr4) stay
+# ROW_BYTES is always 512. R_CYCLIC index/rc_idx operands (LR5, LR3/LR4) stay
 # ELEMENT-addressed.
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
@@ -109,7 +111,7 @@ def _pack_depthwise_kernel_bias(
     Within one super-block, channel ``s`` (0..24) occupies ELEMENTS
     ``[s*10 .. s*10 + 10)``: element ``s*10`` = bias, ``s*10+1 .. s*10+9`` =
     taps. 25*10 = 250 <= 256.  R0 holds elements 0..127, R1 holds 128..255;
-    the shared-index ``mult.ve`` (fixed_idx 0..255) spans both halves.
+    the shared-index ``MULT.VE`` (fixed_idx 0..255) spans both halves.
     """
     num_blocks = math.ceil(channels / FPB)
     total_elements = num_blocks * SUPER_BLOCK_ELEMENTS

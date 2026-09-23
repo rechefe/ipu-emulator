@@ -119,18 +119,12 @@ MUTATION_KERNELS = [name for name in KERNELS if not name.endswith("_144_p4")]
 @SLOW
 @pytest.mark.parametrize("name", MUTATION_KERNELS)
 def test_proj_p4_weight_row_is_not_stuck_at_channel_zero(name, tmp_path) -> None:
-    """Mutation-based re-check of the weight-pointer-persistence bug class.
+    """Mutation-based check of the weight-pointer-persistence bug class.
 
-    The first draft of ``proj_outproj_144_p4`` (L3) reset its per-output-
-    channel weight-row pointer (``weight_row_off``) in the wrong place, so
-    every output channel ``j`` read output channel 0's weight row instead of
-    its own -- 99.3% of output elements wrong, caught by that kernel's own
-    numeric test comparing against ``W @ D[p][tg]`` computed with the
-    REAL, per-row-varying ``W``. The L3 fix was later PORTED to L4/L5 by
-    copying the same harness pattern across the ``proj_*_p4`` kernels, so the
-    8 L4/L5 members are re-checked here BY MUTATION rather than by re-reading
-    the (correct-looking) ``.asm`` -- inspection is exactly what let the
-    original bug ship once.
+    If a kernel resets its per-output-channel weight-row pointer
+    (``weight_row_off``) in the wrong place, every output channel ``j`` reads
+    output channel 0's weight row instead of its own. The 8 L4/L5 members are
+    checked here BY MUTATION rather than by reading the ``.asm``.
 
     "Mutation" does not mean editing the kernel or ipu.py. It means an input
     on which the buggy and the correct behaviour visibly disagree: every

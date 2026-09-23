@@ -2,9 +2,9 @@
 
 Computes C[j, t] = sum_k W[j, k] * D[k, t]  for all j in [0, 432), t in [0, 256).
 
-  D: grouped channel-major [2, 144, 128] input  — K channels × 256 tokens (2 token groups × 128)
+  D: channel-major [144, 256] input  — K channels × 256 tokens (2 token groups × 128)
   W: output-major  [432, 144] weights — N_OUT rows × K cols, stored verbatim (no transpose)
-  C: channel-major [432, 256] output  — N_OUT channels × 256 tokens (FP32 accumulators)
+  C: grouped [2, 432, 128] output  — one row per (token group, output channel) (FP32 accumulators)
 
 Usage::
 
@@ -45,12 +45,10 @@ N_TOK = 128   # tokens per group
 # this kernel is written against; it belongs at the XMEM write boundary
 # (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# XMEM .asm operands are ROW numbers, not byte addresses, and a
 # row is LANES *elements*. Region bases are DERIVED from row counts rather
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
-# overflows at 4 bytes/element, which silently corrupted wide runs (D ran
-# through WEIGHTS_BASE and weight staging overwrote it, so the kernel read
-# zeros for high k and dropped most of the contraction).
+# overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
@@ -60,8 +58,8 @@ W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil)
 DATA_STRIDE_ROWS = (N_TG * N_TOK) // LANES   # rows per input channel
 W_STRIDE         = W_STRIDE_ROWS * LANES     # elements per output channel (padded)
 
-# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
-# 512 B, so a store is exactly one row and one output channel owns one row.
+# One accumulator store writes all LANES elements of R_ACC -- exactly one row
+# in wide mode, so one output channel owns one row.
 OUTPUT_ROW_BYTES   = 512
 OUTPUT_STRIDE_ROWS = 1
 
@@ -83,7 +81,7 @@ OUTPUT_BASE  = OUTPUT_BASE_ROW * ROW_BYTES
 def _load_data(state: "IpuState", data_path: str | Path) -> None:
     """Stage D. Channel-major and already contiguous, so a straight copy works.
 
-    File layout: 2 tg blocks × K channels × N_TOK elements each.
+    File layout: K channels × N_TG tg × N_TOK elements each.
     """
     raw = Path(data_path).read_bytes()
     expected = K * N_TG * N_TOK * ELEM_BYTES
@@ -133,9 +131,8 @@ class MatMul432x144x128App(IpuApp):
         _load_weights(state, self.weights_path)
 
         # CR1 (≡1) is a read-only hardwired constant —
-        # writing anything else raises EmulatorError (issue #230). WEIGHTS_BASE lives on CR9 (free).
-        # cr0=DATA_BASE is 0x0 (harmless no-op, matches hardwired 0); cr2 is a
-        # writable CR.
+        # writing anything else raises EmulatorError. WEIGHTS_BASE lives on CR9 (free).
+        # CR0 (≡0) doubles as DATA_BASE, which is row 0; CR2 is writable.
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)           # W[j,128..143]: next row
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)                                    # tg=0 output
@@ -144,12 +141,12 @@ class MatMul432x144x128App(IpuApp):
         state.regfile.set_cr(6, -(DATA_STRIDE_ROWS // N_TG))    # tg=1 data startup (rows)
         state.regfile.set_cr(7, -1)                             # k-loop1 fixed_idx startup
         state.regfile.set_cr(8, 127)                            # k-loop2 fixed_idx startup
-        state.regfile.set_lr(0, 0)                              # r_cyclic write-index 0
+        state.regfile.set_lr(0, 0)                              # R_CYCLIC write-index 0
         state.regfile.set_lr(2, DATA_STRIDE_ROWS)               # data stride (rows)
         state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)             # output stride (rows)
         state.regfile.set_lr(6, 126)                            # k-loop1 bound: first_index=0, width=128 → 126
         state.regfile.set_lr(7, 0)                              # output pointer
-        state.regfile.set_lr(8, 0)                              # weight byte offset
+        state.regfile.set_lr(8, 0)                              # weight row offset
         state.regfile.set_lr(9, 0)                              # j counter
         state.regfile.set_lr(10, N_OUT)                         # j-loop limit
         state.regfile.set_lr(11, 142)                           # k-loop2 bound: first_index=128, width=16 → 142

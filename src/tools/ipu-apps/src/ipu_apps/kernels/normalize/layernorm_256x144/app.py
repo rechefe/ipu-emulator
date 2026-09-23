@@ -3,9 +3,9 @@
 Computes output[ch, tg, i] = γ[ch] × (x[ch,tg,i] − μ[tg,i]) / σ[tg,i] + β[ch]
 for 144 channels × 2 token groups × 128 tokens/group, using wide-vector FP32.
 
-Data layout in XMEM: DATA_BASE + (ch*N_TG + tg)*512  (channel-major, tg interleaved).
-Output layout: OUTPUT_BASE + (ch*N_TG + tg)*512.
-γ/β span two 512-byte rows (144 > 128 lanes).
+Data layout in XMEM: row DATA_BASE_ROW + ch*N_TG + tg  (channel-major, tg interleaved).
+Output layout: row OUTPUT_BASE_ROW + ch*N_TG + tg.
+γ/β span two 128-element rows (144 > 128 lanes).
 
 Usage::
 
@@ -23,7 +23,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.normalize.layernorm_common import layernorm_spec
+from ipu_apps.kernels.normalize.app import layernorm_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -38,7 +38,7 @@ N_TPG       = 128    # tokens per group (SIMD width)
 # kernel is written against; it belongs at the XMEM write boundary.
 #
 # XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
-# addresses (issue #179). Region bases are DERIVED from row counts rather than
+# addresses. Region bases are DERIVED from row counts rather than
 # hardcoded as bytes: a hardcoded byte map silently goes wrong the moment a
 # dimension changes, and regions overwrite each other with no crash.
 # ---------------------------------------------------------------------------
@@ -87,8 +87,9 @@ OUTPUT_BASE    = OUTPUT_BASE_ROW    * ROW_BYTES
 
 
 def _fp32_row(values: np.ndarray) -> bytes:
-    """Pack a 1-D float32 array into 512 bytes (zero-padded to 128 lanes)."""
-    assert values.ndim == 1 and len(values) <= 128
+    """Pack a 1-D float32 array into one 128-element row (zero-padded)."""
+    if values.ndim != 1 or len(values) > 128:
+        raise ValueError(f"expected a 1-D array of at most 128 values; got shape {values.shape}")
     padded = np.zeros(128, dtype=np.float32)
     padded[: len(values)] = values
     return padded.tobytes()
@@ -112,13 +113,17 @@ class LayerNorm256x144App(IpuApp):
 
     def setup(self, state: "IpuState") -> None:
         # Data: N_CH × N_TG rows of N_TPG FP32 values
-        # File layout: (ch*N_TG + tg) row order, each row 512 bytes
+        # File layout: (ch*N_TG + tg) row order, each row 128 FP32 elements
         state.xmem.write_address(DATA_BASE, bytearray(self.input_path.read_bytes()))
 
-        # γ and β: 144 values each → two 512-byte rows
+        # γ and β: 144 values each → two 128-element rows
         gamma = np.frombuffer(self.gamma_path.read_bytes(), dtype=np.float32)
         beta  = np.frombuffer(self.beta_path.read_bytes(),  dtype=np.float32)
-        assert len(gamma) == N_CH and len(beta) == N_CH
+        if len(gamma) != N_CH or len(beta) != N_CH:
+            raise ValueError(
+                f"gamma and beta must hold {N_CH} FP32 values each; "
+                f"got {len(gamma)} and {len(beta)}"
+            )
 
         state.xmem.write_address(GAMMA_BASE,              bytearray(_fp32_row(gamma[:128])))
         state.xmem.write_address(GAMMA_BASE + ROW_BYTES,  bytearray(_fp32_row(gamma[128:])))
@@ -135,7 +140,7 @@ class LayerNorm256x144App(IpuApp):
 
         # CR registers — must match ASM header.
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants;
-        # writing anything else raises EmulatorError (issue #230). DATA_BASE is 0x0 so CR0 is fine,
+        # writing either raises EmulatorError. DATA_BASE is 0x0 so CR0 is fine,
         # and GAMMA_BASE lives on CR11 rather than CR1 (the hardwired CR0 supplies
         # the constant zero).
         state.regfile.set_cr(2,  BETA_BASE_ROW)
@@ -147,7 +152,7 @@ class LayerNorm256x144App(IpuApp):
         state.regfile.set_cr(8,  TEMP_BASE_ROW)
         state.regfile.set_cr(9,  INVSTD_BASE_ROW)
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # moved off read-only CR1
+        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
         state.regfile.set_cr(12, N_CH)      # 144
         state.regfile.set_cr(13, ROW_STRIDE_ROWS) # 1 row
         state.regfile.set_cr(14, N_TPG)     # 128

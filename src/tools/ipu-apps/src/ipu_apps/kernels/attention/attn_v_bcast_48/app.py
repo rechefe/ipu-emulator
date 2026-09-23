@@ -19,9 +19,9 @@ The structural differences from L3 are both consequences of N = 64 <= LANES:
   * A query axis fits in ONE row, so the L3 g=0/g=1 query-group split collapses
     to a single group: one ACC chain and one store per (block, channel).
   * All 64 keys of a value channel fit in R0 alone, so the L3 R0++R1 pair
-    (which spanned 256 keys) collapses to a single ``LDR_MULT_REG r0``.
+    (which spanned 256 keys) collapses to a single ``LDR_MULT_REG R0``.
 Rows are never shared: each output channel owns a whole 512 B row and the
-teardown crops the valid ``N_TOK * ELEM_BYTES`` prefix.
+teardown crops the valid ``N_TOK``-element prefix.
 
 No AGG means no cross-lane reduction: ``ACC.ADD`` accumulates each of the 128
 lanes (queries) independently, so the 64 padding lanes can only ever waste
@@ -67,7 +67,7 @@ N_CHAN  = N_BLOCK * D         # 768 value channels total
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 PV_STRIDE_ROWS = 1                           # rows per P key row / V channel
 P_BLOCK_ROWS   = N_TOK * PV_STRIDE_ROWS      # 64: P rows per block
 V_BLOCK_ROWS   = D * PV_STRIDE_ROWS          # 48: V rows per block
-O_CHAN_ROWS    = 1                           # one r_acc store = one row (wide)
+O_CHAN_ROWS    = 1                           # one R_ACC store = one row (wide)
 
 P_ROWS = N_BLOCK * P_BLOCK_ROWS              # 1024
 V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
@@ -127,14 +127,14 @@ class AttnVBcast48App(IpuApp):
         state.regfile.set_cr(11, N_BLOCK)           # 16: (stream, head) blocks
         state.regfile.set_cr(12, O_CHAN_ROWS)       # 1: V/O channel stride (rows)
 
-        state.regfile.set_lr(0, 0)                  # r_cyclic index / mask_shift
+        state.regfile.set_lr(0, 0)                  # R_CYCLIC index / mask_shift
         state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride (rows)
 
     def teardown(self, state: "IpuState") -> None:
         """Crop each channel's valid N_TOK queries out of its whole 512 B row.
 
         Every store wrote a full row (one output channel per row -- rows are
-        never shared), but only the leading ``N_TOK * ELEM_BYTES`` bytes hold
+        never shared), but only the leading ``N_TOK`` elements hold
         results. The output file is the densely packed crop: N_CHAN rows of
         N_TOK FP32, channel (b*D + t) at row index b*D + t -- byte-identical in
         shape to ``attn_v_64x48``'s output.

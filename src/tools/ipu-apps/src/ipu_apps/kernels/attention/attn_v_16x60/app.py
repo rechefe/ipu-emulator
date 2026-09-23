@@ -55,7 +55,7 @@ N_CHAN  = N_HEAD * D  # 240 value channels total
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 # sub-row stride).
 PV_STRIDE_ROWS     = max(1, N_TOK // LANES)  # 1: rows per P query / V channel
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 16: rows per head in P
-O_CHAN_ROWS        = 1                       # one r_acc store = one whole row
+O_CHAN_ROWS        = 1                       # one R_ACC store = one whole row
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -101,15 +101,14 @@ class AttnV16x60App(IpuApp):
         # p_path/v_path may independently be None to skip disk staging for
         # that input and use whatever is already in the shared IpuState's
         # XMEM (e.g. P written there by a preceding qk_scores_16x60 run in
-        # the same chain). Existing callers always pass real paths, so their
-        # behaviour is unchanged.
+        # the same chain).
         self.p_path = Path(self.p_path) if self.p_path is not None else None
         self.v_path = Path(self.v_path) if self.v_path is not None else None
 
-        # Base rows default to the module constants (PBASE_ROW=0 etc.) so
-        # every existing caller is unaffected; passing explicit values lets a
-        # caller place this kernel's regions inside a shared IpuState instead
-        # of the row-0 layout colliding with another kernel's data.
+        # Base rows default to the module constants (PBASE_ROW=0 etc.);
+        # passing explicit values lets a caller place this kernel's regions
+        # inside a shared IpuState instead of the row-0 layout colliding with
+        # another kernel's data.
         self.pbase_row = pbase_row
         self.vbase_row = vbase_row
         self.obase_row = obase_row
@@ -131,7 +130,7 @@ class AttnV16x60App(IpuApp):
         # output lanes -- one setting covers both.
         state.set_cr_dstructure(valid_elements=N_TOK)
 
-        # CR1 (==1) is read-only hardwired; cr0 (==0) is hardwired zero.
+        # CR1 (==1) is read-only hardwired; CR0 (==0) is hardwired zero.
         state.regfile.set_cr(2, self.pbase_row)
         state.regfile.set_cr(3, self.vbase_row)
         state.regfile.set_cr(4, self.obase_row)

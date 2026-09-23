@@ -17,7 +17,7 @@ def test_padding_lanes_not_stored(tmp_path):
     lanes N:128 and never reaches lanes 0:N regardless of gating).
 
     What the gate actually controls is the STORED EXTENT: with it in place,
-    ACTIVATE.QUANTIZE hard-zeros post_aaq_reg lanes N:128 before
+    ACTIVATE.QUANTIZE hard-zeros POST_AAQ_REG lanes N:128 before
     STR_POST_AAQ_REG writes the whole 512 B row, so those bytes are zero no
     matter what garbage sits in K's padding lanes. Stage non-zero garbage in
     K's lanes N:128 (a real producer in a chained pipeline would leave

@@ -1,22 +1,18 @@
 """Depthwise 3x3 stride-2 convolution, cols=128 (no packing): 128xNxC -> 64x(N/2)xC.
 
-FP32 wide-vector mode. Two-stage design (built on TOP of the already-verified
-depthwise_conv_universal rather than a fresh from-scratch pipeline -- the base
-app's fused 9-cyc/ch pipeline is too tightly timed to safely retrofit
-ACC.STRIDE decimation into):
+FP32 wide-vector mode. Two-stage design, composed from depthwise_conv_universal
+(whose fused 9-cyc/ch pipeline leaves no room for ACC.STRIDE decimation):
 
   Stage 1: run depthwise_conv_universal's OWN asm, completely UNMODIFIED,
-  against the full-resolution input at cols=128. Its harness only supports
-  cols in {16,32,64} because its mask-shift scheme needs a CR15 partition
-  that divides 128 lanes into >1 packed-row group; at cols=128 there is
+  against the full-resolution input at cols=128. At cols=128 there is
   exactly ONE packed row per chunk (no packing at all), which is precisely
-  what ``Partition.P0`` (no partitioning) represents -- so this stage is a
-  thin subclass that only relaxes the cols=128 special case, not a copy of
-  the app's logic. It produces a full-width (no stride) depthwise conv
-  result, chunk-interleaved, at its own OUTPUT_BASE_ROW.
+  what ``Partition.P0`` (no partitioning) represents; this stage is a thin
+  subclass pinned to width=128, not a copy of the app's logic. It produces a
+  full-width (no stride) depthwise conv result, chunk-interleaved, at its own
+  OUTPUT_BASE_ROW.
 
   Stage 2 (this kernel's own ``depthwise_conv_stride2_128.asm`` -- deliberately
-  simple: no taps, no masks, no r_cyclic, just XMEM loads + ACC.STRIDE + a
+  simple: no taps, no masks, no R_CYCLIC, just XMEM loads + ACC.STRIDE + a
   store): reads ROW PAIRS (2j, 2j+1) from stage 1's output and
   column-decimates each 128->64 via ACC.STRIDE (which reads MULT_RES, not
   R_ACC, hence the identity-MULT passthrough), packing the pair into one 128-element output
@@ -24,9 +20,7 @@ ACC.STRIDE decimation into):
   vertical stride-2 decimation -- stage 1 already computed every row, so
   skipping the odd ones is free (no separate vertical-stride logic needed).
 
-Not cycle-optimized: this is deliberately the lower-risk, unfused
-composition. A single-pass fused version would need substantially more
-design/debugging investment for a modest cycle-count win.
+Not cycle-optimized: this is an unfused two-stage composition.
 
 Under the registry, ``inst_path`` is stage 2 (this kernel's ``.asm``); stage 1
 is assembled from the sibling ``depthwise_conv_universal.asm`` at run time.
@@ -64,7 +58,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
     DepthwiseConvUniversalApp,
 )
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_asm,
     universal_spec,
@@ -78,13 +72,11 @@ ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
 
 class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
-    """depthwise_conv_universal with the cols=128 (no-packing) case allowed.
+    """depthwise_conv_universal pinned to the cols=128 (no-packing) case.
 
     At cols=128 there's exactly one packed spatial row per 128-element chunk --
-    the ``Partition.P0`` (no partitioning) case the base app's mask-shift
-    scheme doesn't enumerate because it was written for cols in {16,32,64}
-    (multi-row-per-chunk packing). This subclass overrides ONLY the two
-    validation/partition-selection points; the base app's asm and all its
+    the ``Partition.P0`` (no partitioning) case. This subclass only fixes the
+    width and states the partition explicitly; the base app's asm and all its
     addressing/pipelining logic are untouched.
     """
 
@@ -93,15 +85,14 @@ class _Stage1FullWidthApp(DepthwiseConvUniversalApp):
         if width != 128:
             raise ValueError(f"_Stage1FullWidthApp is for width=128 only, got {width}")
         # The base class picks cols via next_valid_cols(width); width=128
-        # already lands on cols=128, so no bypass trick is needed here
-        # (next_valid_cols supports 128 directly).
+        # lands on cols=128.
         super().__init__(width=128, **kwargs)
 
     def setup(self, state: "IpuState") -> None:
         super().setup(state)
-        # Override CR15 dstructure: 128 lanes, ONE group (no packing). The
-        # base class's cols_to_partition already maps 128 -> Partition.P0,
-        # so this override is now redundant but kept explicit for clarity.
+        # CR15 dstructure: 128 lanes, ONE group (no packing). The base
+        # class's cols_to_partition also maps 128 -> Partition.P0; this makes
+        # the stage-1 partition explicit.
         state.set_cr_dstructure(valid_elements=128, partition=Partition.P0)
 
 

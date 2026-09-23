@@ -1,12 +1,12 @@
 """Universal residual add (wide-vector FP32): FP32 + FP32 -> FP32.
 
 Adds two FP32 tensors element-wise and stores the result as FP32, running the
-emulator in **wide-vector debug mode** (GitHub issue #33). In that mode every
-lane is 4 bytes, so each channel occupies a full 512-byte chunk of 128 FP32
-lanes and ``STR_ACC_REG`` writes the full 512-byte accumulator.
+emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
+each channel occupies one full XMEM row of 128 FP32 lanes and ``STR_ACC_REG``
+writes the full 128-lane accumulator.
 
 Layout (per tensor, input and output alike): ``num_channels`` consecutive
-512-byte chunks, one channel per chunk, 128 little-endian FP32 lanes each --
+rows, one channel per row, 128 little-endian FP32 lanes each --
 a ``[num_channels, 128]`` float32 array (e.g. a CHW tensor whose H*W is 128).
 
 MobileViT S residual stages: 64x64x64, 32x32x96, 16x16x128, 8x8x160.
@@ -49,15 +49,15 @@ WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_CYCLIC_MULT_REG
+# Row-addressed ISA: XMEM offset/base operands on LDR_CYCLIC_MULT_REG
 # (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
 # runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
 # narrow-mode variant to preserve -- so its native row size is always
 # WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
 # below stay as byte constants for host-side xmem pokes (write_address/
 # read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
-# feeds the CR registers the asm actually loads/stores through. r_cyclic's
-# `index` operand on LDR_CYCLIC_MULT_REG is always lr0 (=0, the single-slot
+# feeds the CR registers the asm actually loads/stores through. R_CYCLIC's
+# `index` operand on LDR_CYCLIC_MULT_REG is always LR0 (=0, the single-slot
 # write index used in wide mode).
 
 INPUT_A_BASE = 0x00000
@@ -78,8 +78,8 @@ class ResidualAddApp(IpuApp):
 
     Args:
         inst_path:    Path to assembled binary.
-        input_a_path: Path to tensor A binary (512-byte FP32 chunks).
-        input_b_path: Path to tensor B binary (512-byte FP32 chunks).
+        input_a_path: Path to tensor A binary (rows of 128 FP32 elements).
+        input_b_path: Path to tensor B binary (rows of 128 FP32 elements).
         output_path:  Optional path to write FP32 output.
         num_channels: Number of channels (1..MAX_CHANNELS).
     """
@@ -114,8 +114,8 @@ class ResidualAddApp(IpuApp):
             state.xmem.write_address(base, data)
 
         # CR0/CR1 are reserved config registers (read as 0 and 1); the asm
-        # reuses cr0 as a zero source and cr1 as the identity scalar.
-        # cr2/cr3/cr4/cr5/cr6 are all XMEM-space (row numbers/row counts)
+        # reuses CR0 as a zero source and CR1 as the identity scalar.
+        # CR2/CR3/CR4/CR5/CR6 are all XMEM-space (row numbers/row counts)
         # -- this app is always wide-vector, so one channel == one row and
         # the chunk step is a row stride of 1.
         state.regfile.set_cr(2, INPUT_A_BASE_ROW)

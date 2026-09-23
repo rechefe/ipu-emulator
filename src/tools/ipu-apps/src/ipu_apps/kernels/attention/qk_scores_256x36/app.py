@@ -1,4 +1,4 @@
-"""QKᵀ scores harness (Agent C), one attention head.
+"""QKᵀ scores harness, one attention head.
 
 Computes the query-major score matrix for a single attention head::
 
@@ -6,12 +6,13 @@ Computes the query-major score matrix for a single attention head::
 
 Inputs Q, K are logically channel-major (head_dim D=36, N=256 tokens). K is
 loaded channel-major verbatim; Q is staged query-major (a gather of its strided
-channels) so one query's 36 head-channels load into r0 with a single
-``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from r0,
-vector = K's channel-c column in r_cyclic, ``MULT.RC.VE``).
+channels) so one query's 36 head-channels load into R0 with a single
+``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from R0,
+vector = K's channel-c column in R_CYCLIC, ``MULT.RC.VE``).
 
-The score row is stored RAW (full-precision R_ACC, 512 B per 128-key group,
-query-major) so softmax (Agent A) reads unquantized scores. No AGG.
+The score row is stored RAW (full-precision R_ACC, one 128-lane row per
+128-key group, query-major) so a downstream softmax reads unquantized scores.
+No AGG.
 
 Wide-vector FP32 only: elements are 4-byte FP32 and an XMEM row is 512 B.
 
@@ -46,7 +47,7 @@ N_TPG = 128         # keys per group
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
@@ -55,7 +56,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
 K_STRIDE_ROWS    = N // LANES                # 2: rows per K channel column
 QROW_STRIDE_ROWS = 1                         # one staged query row per query
-ACC_STORE_ROWS   = 1                         # one r_acc store = one row (wide)
+ACC_STORE_ROWS   = 1                         # one R_ACC store = one row (wide)
 
 K_ROWS    = D * K_STRIDE_ROWS
 QROW_ROWS = N * QROW_STRIDE_ROWS
@@ -87,13 +88,13 @@ class QkScores256x36App(IpuApp):
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are stored channel-major: element [token t, channel c] at
-        (c*N + t)*ELEM_BYTES.
+        element index c*N + t.
         """
         q_raw = self.query_path.read_bytes()
         k_raw = self.key_path.read_bytes()
 
         # K: channel-major verbatim. Column c (256 keys) is contiguous already;
-        #    write at K_BASE + c*(N*ELEM_BYTES). The kernel loads two 128-key chunks.
+        #    write at row K_BASE_ROW + c*K_STRIDE_ROWS. The kernel loads two 128-key chunks.
         for c in range(D):
             col = k_raw[(c * N) * ELEM_BYTES : (c * N + N) * ELEM_BYTES]
             state.xmem.write_address(K_BASE + c * K_STRIDE_ROWS * ROW_BYTES, bytearray(col))
@@ -116,8 +117,8 @@ class QkScores256x36App(IpuApp):
         g1_start_rows = -K_STRIDE_ROWS + N_TPG // LANES      # g=1: first live = +1 row
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError (issue #230). K_BASE_ROW is 0,
-        # so cr0 already holds the correct value without any write. QROW base
+        # else raises EmulatorError. K_BASE_ROW is 0,
+        # so CR0 already holds the correct value without any write. QROW base
         # lives on CR9.
         state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
         state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
@@ -127,7 +128,7 @@ class QkScores256x36App(IpuApp):
         state.regfile.set_cr(7, -1)                      # channel fixed_idx startup
         state.regfile.set_cr(8, D - 2)                   # contraction bound (34)
 
-        state.regfile.set_lr(0, 0)                       # r_cyclic write-index / mask_shift
+        state.regfile.set_lr(0, 0)                       # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
@@ -139,7 +140,7 @@ class QkScores256x36App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # N queries × N_TG groups × 512 B, in query-major group order:
+            # N queries × N_TG groups × one 128-element row, in query-major group order:
             #   row (i, g) at S_BASE_ROW + i*N_TG + g, in rows.
             dump_xmem_to_binary(
                 state, self.output_path,

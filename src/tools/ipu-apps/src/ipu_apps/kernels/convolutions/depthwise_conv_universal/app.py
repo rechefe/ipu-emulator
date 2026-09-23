@@ -3,19 +3,16 @@
 Base app for ``depthwise_conv_universal_bn_activation``. Same chunk-interleaved
 I/O layout and walking-pointer / rotating-cyclic-slot pipeline, minus:
 
-  * **no folded bias** — ``r_acc`` is seeded by tap 1's own product
-    (``acc.add.first``) instead of a bias multiply-broadcast.
+  * **no folded bias** — ``R_ACC`` is seeded by tap 1's own product
+    (``ACC.ADD.FIRST``) instead of a bias multiply-broadcast.
   * **no ReLU** — ``ACTIVATE`` runs with ``identity``.
 
-Per-channel budget: **10 cyc/ch** = 9 weight taps + 1 ACTIVATE cycle (tap 1
-doubles as the r_acc reset via ``acc.add.first``, replacing the BN twin's
-separate bias-seed cycle — the one cycle actually saved). ACTIVATE still
-needs its own cycle (reads the cycle-start snapshot of ``r_acc``, same as the
-BN twin's placeholder cycle) and now also co-issues the next channel's kr=-1
-prefetch load, since ACTIVATE occupies its own slot type and leaves the
-LR/XMEM slots free that cycle — replacing the load the BN twin's bias-seed
-cycle used to carry. The deferred-store pipeline (store the previous
-channel's result while the current channel computes) is preserved. Runs on
+Per-channel budget: **9 cyc/ch** = 9 weight taps (see the .asm header). Tap 1
+doubles as the R_ACC reset via ``ACC.ADD.FIRST`` (the BN twin spends a
+separate bias-seed cycle), and ``ACTIVATE.QUANTIZE`` co-issues with tap 9's
+accumulate in one VLIW word, together with the next channel's kr=-1 prefetch
+load. The deferred-store pipeline (store the previous channel's result while
+the current channel computes) is shared with the BN twin. Runs on
 the emulator's wide-vector debug datapath (FP32) -- weights and activations
 are genuine floats, no INT8 quantization anywhere in this kernel.
 
@@ -23,13 +20,13 @@ Kernel super-block layout (FPB=28, 9-element stride, no bias element):
   Depthwise produces one output PER channel; each channel occupies a **9-element
   slot** (its 9 weight taps only — no bias element to reserve). 28 channels * 9 =
   252 <= 256, so one 256-element super-block (R0 = elements 0..127, R1 = 128..255)
-  holds 28 channels. The shared ``mult.ve`` fixed_idx (0..255) addresses both
+  holds 28 channels. The shared ``MULT.VE`` fixed_idx (0..255) addresses both
   halves transparently.
 
-  The asm walks one continuous kernel element index ``lr6`` at +1 per cycle: for
+  The asm walks one continuous kernel element index ``LR6`` at +1 per cycle: for
   channel ``s`` taps 1..9 read ``fixed_idx = s*9 .. s*9 + 9``; the next
   channel's tap 1 is the following element, so the 9-cycle/channel body advances
-  ``lr6`` by exactly one channel stride.
+  ``LR6`` by exactly one channel stride.
 
 Usage (normally through the registry: ``create_harness(
 "depthwise_conv_universal", params=..., bindings=...)``)::
@@ -59,7 +56,7 @@ import numpy as np
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     build_border_mask_blob,
@@ -76,15 +73,15 @@ if TYPE_CHECKING:
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_*/STR_*
+# Row-addressed ISA: XMEM offset/base operands on LDR_*/STR_*
 # (including LDR_CYCLIC_MULT_REG's offset/base -- only its `index` is
-# r_cyclic-element-space) are ROW numbers, not byte addresses. This app runs
+# R_CYCLIC-element-space) are ROW numbers, not byte addresses. This app runs
 # FP32 wide-vector only, so ROW_BYTES is always 512.
 #
-# r_cyclic ELEMENT addressing is unaffected by row addressing: lr5 (the
-# LDR_CYCLIC_MULT_REG `index`) and lr3/lr4 (MULT.RC.VE `rc_idx` / read-slot
-# rotation) index a 512-ELEMENT ring in both modes, so cr12/cr13/cr9/cr14 in
-# their r_cyclic role (slot-size 128, slot-step 256/384) are unchanged.
+# R_CYCLIC ELEMENT addressing is unaffected by row addressing: LR5 (the
+# LDR_CYCLIC_MULT_REG `index`) and LR3/LR4 (MULT.RC.VE `rc_idx` / read-slot
+# rotation) index a 512-ELEMENT ring in both modes, so CR12/CR13/CR9/CR14 in
+# their R_CYCLIC role (slot-size 128, slot-step 256/384) are unchanged.
 
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 
@@ -104,7 +101,7 @@ def _pack_depthwise_kernel(kernel_raw: np.ndarray, channels: int) -> bytes:
 
     Within one super-block, channel ``s`` (0..27) occupies ELEMENTS
     ``[s*9 .. s*9 + 9)``. 28*9 = 252 <= 256.  R0 holds elements 0..127, R1
-    holds 128..255; the shared-index ``mult.ve`` (fixed_idx 0..255) spans both
+    holds 128..255; the shared-index ``MULT.VE`` (fixed_idx 0..255) spans both
     halves.
     """
     num_blocks = math.ceil(channels / FPB)
@@ -193,20 +190,14 @@ class DepthwiseConvUniversalApp(IpuApp):
         """(Re)computes the dynamic region layout from self.num_chunks/group_stride/
         total_kernel_rows/channels.
 
-        Split out from __init__ so a subclass that corrects self.num_chunks
-        AFTER calling super().__init__() (see
-        depthwise_conv_stride2_128._Stage1FullWidthApp, which temporarily
-        passes cols=64 to bypass this class's cols-in-{16,32,64} check, then
-        fixes self.cols/self.num_chunks to the true cols=128 values) can
-        re-run this to get region sizes that reflect the TRUE shape, not the
-        placeholder one __init__ saw.
+        Split out from __init__ so a subclass that changes self.num_chunks
+        after calling super().__init__() can re-run it to get region sizes
+        that reflect the changed shape.
 
-        See conv_universal's identical comment for why fixed *_BASE_ADDR
-        gaps are replaced: they silently overflow at realistic channel
-        counts. Depthwise's kernel scales with channels alone (not
-        out_ch*in_ch), so it is harder to hit than conv_universal's, but
-        the same guard-band logic applies: the g0 section's kr=-1 prefetch
-        computes `lr8 - group_stride` at chunk 0, which must not go
+        Regions are sized from this configuration; depthwise's kernel region
+        scales with channels alone (not out_ch*in_ch). The same guard-band
+        logic as conv_universal applies: the g0 section's kr=-1 prefetch
+        computes `LR8 - group_stride` at chunk 0, which must not go
         negative, so the real input data is placed one group_stride
         further into the input region than its base -- the "input"
         region's real size is the headroom PLUS the data, not just the
@@ -278,42 +269,42 @@ class DepthwiseConvUniversalApp(IpuApp):
         )
 
         # CR map (CR0 = read-only 0, CR1 = read-only 1, CR15 = dstructure).
-        # Relocate the input/kernel bases off CR0/CR1 (mirroring
+        # The input/kernel bases live outside CR0/CR1 (as in
         # conv_universal_bn_activation), keeping CR0 free as the read-only zero
-        # constant used by "SET lr<n>, cr0":
+        # constant used by "SET LR<n>, CR0":
         #   CR10 = INPUT_BASE_ROW (cyclic-load base; the asm's own running
-        #   pointer lr8/lr2 already carries the guard-band group_stride, which
-        #   is why the DATA itself is written at input_data_row -- cr10 stays
+        #   pointer LR8/LR2 already carries the guard-band group_stride, which
+        #   is why the DATA itself is written at input_data_row -- CR10 stays
         #   at the un-shifted base or the shift would be applied twice).
         #   CR5 = KERNEL_BASE (row), CR3 = mask blob row (single blob, slots 0/3/6).
         state.regfile.set_cr(10, self.input_base_row)
         state.regfile.set_cr(5, self.kernel_base_row)
-        # cr2 is pre-biased by -1 ROW for the deferred store (asm advances lr7
-        # BEFORE the XMEM store at tap 2; store writes to lr7_advanced + cr2 =
-        # lr7_old + OUTPUT_BASE_ROW).
+        # CR2 is pre-biased by -1 ROW for the deferred store (asm advances LR7
+        # BEFORE the XMEM store at tap 2; store writes to LR7 (advanced) + CR2 =
+        # LR7 (old) + OUTPUT_BASE_ROW).
         state.regfile.set_cr(2, (self.output_base_row - 1) & 0xFFFFFFFF)
         state.regfile.set_cr(3, self.mask_base_row)
-        # cr9 = 384: r_cyclic slot-pointer step (+384 mod 512 ELEMENTS) for the
-        # running write pointer lr5 -- element-space, unchanged by row addressing.
+        # CR9 = 384: R_CYCLIC slot-pointer step (+384 mod 512 ELEMENTS) for the
+        # running write pointer LR5 -- element-space, unchanged by row addressing.
         state.regfile.set_cr(9, 384)
 
         # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
-        # cr6 = group_stride in ROWS (XMEM-space: feeds LDR_CYCLIC_MULT_REG's
-        # offset/base sum via lr2/lr14, and the chunk/loop-limit comparisons).
+        # CR6 = group_stride in ROWS (XMEM-space: feeds LDR_CYCLIC_MULT_REG's
+        # offset/base sum via LR2/LR14, and the chunk/loop-limit comparisons).
         state.regfile.set_cr(6, self.group_stride)
         state.regfile.set_cr(7, FPB)               # channel group inner-loop size, in rows
         state.regfile.set_cr(8, self.total_kernel_rows)
-        # cr11: chunk-loop limit, biased by the same guard-band group_stride
-        # added to cr10/input_data_row above.
+        # CR11: chunk-loop limit, biased by the same guard-band group_stride
+        # added to CR10/input_data_row above.
         state.regfile.set_cr(
             11, (self.num_chunks - 1) * self.group_stride + self.group_stride,
         )
-        # cr12 = 128: r_cyclic slot size (ELEMENT-space; index step for lr5).
+        # CR12 = 128: R_CYCLIC slot size (ELEMENT-space; index step for LR5).
         # This is NOT the XMEM chunk stride -- that role is CR1
         # (read-only 1: one XMEM chunk == one row).
         state.regfile.set_cr(12, 128)
-        state.regfile.set_cr(13, 256)  # r_cyclic half-slot step, element-space
+        state.regfile.set_cr(13, 256)  # R_CYCLIC half-slot step, element-space
         state.regfile.set_cr(14, (256 - 2 * self.cols - 2) & 0xFFFFFFFF)
 
     def teardown(self, state: "IpuState") -> None:

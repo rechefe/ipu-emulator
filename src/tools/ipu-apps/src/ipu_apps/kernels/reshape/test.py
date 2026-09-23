@@ -6,17 +6,17 @@ through the REAL unfold kernel, feed unfold's output into the matching fold,
 and assert we get the original tensor back (within FP32 tolerance; the x1.0
 pass-through multiply is exact).
 
-The poisoned variant starts fold with r_acc full of a non-zero sentinel.
+The poisoned variant starts fold with R_ACC full of a non-zero sentinel.
 ACC.RESHAPE (unlike ACC.STRIDE) only updates the R_ACC indexes it is told to
 write and leaves the rest alone, so each fold kernel relies on its
-ACC.RESHAPE calls partitioning every valid r_acc lane exactly once with no
+ACC.RESHAPE calls partitioning every valid R_ACC lane exactly once with no
 gaps -- if that claim were wrong, stale sentinel bytes would leak into the
 output here.
 
 unfold_8x8x240's input goes through its ``pack_input_rows`` contract, and
 fold_8x8x240 consumes unfold's RAW uncropped rows (the ``.rows.bin`` sibling
 of its output), not the cropped ``[N_STREAMS, N_OUT, N_TOK]`` convenience
-array. Unlike L3/L4, fold_8x8x240's OUTPUT is naive row-major ``[H, W]``
+array. Unlike fold_32x32x144/fold_16x16x192, fold_8x8x240's OUTPUT is naive row-major ``[H, W]``
 (lane = row*8 + col), not a mirror of unfold's permuted input packing.
 """
 
@@ -27,7 +27,7 @@ import pytest
 
 from ipu_apps.kernel_registry import create_harness, kernel_spec
 from ipu_apps.kernel_registry.cases import assemble_kernel
-from ipu_apps.kernels.reshape.unfold_cases import (
+from ipu_apps.kernels.reshape.cases import (
     MAX_CYCLES, check_striped, spatial_tensor, stripe_input,
 )
 from ipu_apps.kernels.reshape.unfold_8x8x240.app import pack_input_rows
@@ -42,7 +42,7 @@ LAYERS = {
 
 
 def _poison(app):
-    """Wrap ``app.setup`` so r_acc starts as 0xAA bytes instead of zeros."""
+    """Wrap ``app.setup`` so R_ACC starts as 0xAA bytes instead of zeros."""
     setup = app.setup
 
     def poisoned(state):

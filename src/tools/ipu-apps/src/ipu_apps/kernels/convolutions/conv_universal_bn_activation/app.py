@@ -1,6 +1,6 @@
 """Universal standard 3x3 convolution + folded-bias + ReLU harness (FP32).
 
-Derived from ``conv_universal``. Same chunk-interleaved internal layout and
+Bias+ReLU twin of ``conv_universal``. Same chunk-interleaved internal layout and
 FPB=28 super-block kernel packing, on the FP32 wide-vector debug datapath
 (see docs/content/wide-vector-debug-mode.md), with two additions:
 
@@ -10,7 +10,7 @@ FPB=28 super-block kernel packing, on the FP32 wide-vector debug datapath
     this bias, so no separate BN step is needed.
   * **ReLU activation** — applied via ``ACTIVATE relu`` (instead of identity).
 
-Pipeline per filter: ``r_acc = bias`` (seed), then += 3x3 conv over all
+Pipeline per filter: ``R_ACC = bias`` (seed), then += 3x3 conv over all
 input channels, then ``ACTIVATE relu`` -> store 128 elements.
 
 Kernel super-block layout (FPB=28, +1 bias element):
@@ -22,7 +22,7 @@ Kernel super-block layout (FPB=28, +1 bias element):
   weight offset, but the asm reads it (and accumulates the bias) only once
   per filter, from super-block 0. Channels 0..13 land in the first
   128-element half (R0), 14..27 in the second (R1); the shared-index
-  ``mult.ve`` (fixed_idx 0..255) addresses all 28.
+  ``MULT.VE`` (fixed_idx 0..255) addresses all 28.
 
 Usage (normally through the registry: ``create_harness(
 "conv_universal_bn_activation", params=..., bindings=...)``)::
@@ -53,7 +53,7 @@ import numpy as np
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     build_border_mask_blob,
@@ -70,8 +70,8 @@ if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
 # -- Memory layout -----------------------------------------------------------
-# See conv_universal's identical comment for the underflow-avoidance
-# rationale (input sits one group stride above its own region base).
+# Input sits one group stride above its own region base so the g0 kr=-1
+# prefetch does not underflow (see conv_universal's region-layout comment).
 # ROW_BYTES is always 512 (FP32 wide-vector, 4 B/element) -- this app has no
 # narrow mode.
 
@@ -88,7 +88,7 @@ BIAS_ELEMENT_OFFSET = 1  # super-block element 0 is the bias; channels start at 
 
 
 # The border mask (slots 0 = none, 3 = top row, 6 = bottom row) is built by
-# universal_common.build_border_mask_blob, shared with the depthwise kernels.
+# convolutions.app.build_border_mask_blob, shared with the depthwise kernels.
 
 
 def _pack_conv_weights_fpb28(

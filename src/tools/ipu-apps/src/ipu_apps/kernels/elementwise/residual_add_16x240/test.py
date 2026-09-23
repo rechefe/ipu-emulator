@@ -12,8 +12,8 @@ test_case = case_tests(__package__)
 def test_one_channel_per_row(tmp_path):
     """Pin the row contract: each channel owns a WHOLE 512-byte row.
 
-    N_TOK=16 puts only 64 bytes of payload in a 512-byte row. Packing several
-    channels per row at a 64-byte stride would be a bug; this test reads the
+    N_TOK=16 puts only 16 elements of payload in a 128-lane row. Packing several
+    channels per row at a 16-element stride would be a bug; this test reads the
     uncropped rows the harness dumps beside its output and asserts the valid
     prefix is the result (checked by the case) while the rest of the row stays
     zero padding.

@@ -146,7 +146,7 @@ def test_projection_silu_shape_routes_only_with_activation():
 
 def test_resolved_layernorm_computes_the_operation(tmp_path):
     from ipu_apps.kernels.normalize.layernorm_128x16.app import N_CH, N_TPG
-    from ipu_apps.kernels.normalize.layernorm_cases import reference_layernorm
+    from ipu_apps.kernels.normalize.cases import reference_layernorm
 
     query = dict(shape=(N_CH, N_TPG))
     verdict = resolve("layernorm", **query)

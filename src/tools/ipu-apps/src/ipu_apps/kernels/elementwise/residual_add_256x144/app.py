@@ -2,7 +2,7 @@
 
 Computes C[r] = A[r] + B[r]  for r = 0..287,
 where A and B are [256 tokens, 144 channels] in interleaved channel-major layout
-(288 rows × 128 FP32 lanes = 512 bytes each), and C is FP32 (288 rows × 512 bytes).
+(288 rows × 128 FP32 lanes), and C is FP32 (288 rows × 128 lanes).
 
 Usage::
 
@@ -31,7 +31,7 @@ N_ROWS = 288                 # 256 tokens x 144 channels -> 288 vector rows
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# One r_acc store is 512 B = exactly one row in wide mode.
+# One R_ACC store is 512 B = exactly one row in wide mode.
 OUTPUT_ROW_BYTES   = 512
 OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
@@ -68,7 +68,7 @@ class ResidualAdd256x144App(IpuApp):
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
         # CR1 (≡1) is a read-only hardwired constant —
-        # writing anything else raises EmulatorError (issue #230). B_BASE lives on CR9 (free). cr0=A_BASE
+        # writing anything else raises EmulatorError. B_BASE lives on CR9 (free). CR0=A_BASE
         # is 0x0 (harmless no-op, matches hardwired 0).
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
@@ -77,11 +77,9 @@ class ResidualAdd256x144App(IpuApp):
         state.regfile.set_cr(6, N_ROWS)
         state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
         state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
-        # cr10 = the value 1.0 encoded in the active dtype, as a scalar byte.
-        # MULT.RC.VE multiplies r_cyclic by this CR scalar (ipu_mult interprets the
-        # low byte as a dtype value), so A[r]/B[r] pass through unchanged. CR1's
-        # integer 1 only works for INT8; FP8 needs the encoded 1.0 byte.
-        # cr10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
+        # MULT.RC.VE multiplies R_CYCLIC by this CR scalar, so A[r]/B[r] pass
+        # through unchanged.
+        # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
         # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
         # pass-through multiplier.
         state.regfile.set_cr(10, 1)

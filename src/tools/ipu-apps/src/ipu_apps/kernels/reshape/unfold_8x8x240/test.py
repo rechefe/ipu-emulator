@@ -7,7 +7,7 @@ from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.reshape.unfold_8x8x240.app import (
     C, H, W, LANES, N_OUT, N_STREAMS, N_TOK, OUTPUT_ROW_BYTES,
 )
-from ipu_apps.kernels.reshape.unfold_cases import spatial_tensor, stream_rows
+from ipu_apps.kernels.reshape.cases import spatial_tensor, stream_rows
 
 KERNEL = "unfold_8x8x240"
 
@@ -61,14 +61,14 @@ def test_output_shape_and_stale_lanes(inst_file, tmp_path):
         # Model them explicitly. ACC.STRIDE writes 32 elements into slot 0, so
         # lanes 16..31 receive the decimation of the input's zero padding
         # (lanes 64..127 of the source row, which the default case zeroes) and
-        # are therefore exactly 0.0. Lanes 32..127 of r_acc are never written
+        # are therefore exactly 0.0. Lanes 32..127 of R_ACC are never written
         # by this kernel and stay 0.0 from reset.
         stale = rows[s, :, N_TOK:]
         np.testing.assert_array_equal(
             stale, np.zeros_like(stale),
             err_msg=(
                 f"stream {s}: stale lanes are not the modelled zeros -- the "
-                "input padding or r_acc slot usage changed"
+                "input padding or R_ACC slot usage changed"
             ),
         )
 
@@ -78,7 +78,7 @@ def test_padding_is_inert(inst_file, tmp_path):
     view-rows and every stream's vertical selector (on/on_inv) draws from both
     the real-data view-rows (0..3, lanes 0..63) and the padding view-rows
     (4..7, lanes 64..127) -- see the decimation trace in execute_acc_stride.
-    The padding contribution lands in r_acc[16:32], which teardown crops away,
+    The padding contribution lands in R_ACC[16:32], which teardown crops away,
     but that is a fact about where ACC.STRIDE happens to place it, not a
     guarantee -- so prove it rather than assume it.
 

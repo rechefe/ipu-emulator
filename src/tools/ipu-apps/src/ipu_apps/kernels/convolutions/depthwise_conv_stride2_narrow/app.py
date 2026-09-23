@@ -1,15 +1,13 @@
 """Depthwise 3x3 stride-2 convolution, cols in {16, 32, 64} (packed rows):
 rows x cols x C -> (rows/2) x (cols/2) x C. FP32 wide-vector mode.
 
-Two-stage design, same philosophy as the cols=128 sibling
-(``depthwise_conv_stride2_128``): build on TOP of the already-verified
-``depthwise_conv_universal`` rather than a fresh from-scratch pipeline.
+Two-stage design, like the cols=128 sibling (``depthwise_conv_stride2_128``):
+composed from ``depthwise_conv_universal``.
 
   Stage 1: run ``depthwise_conv_universal``'s OWN asm, completely UNMODIFIED,
-  against the full-resolution input. Unlike the cols=128 sibling, NO subclass
-  is needed here -- cols in {16,32,64} is exactly the base app's native,
-  fully-supported range (its mask-shift/partition scheme was built for
-  packed multi-row-per-chunk layouts). It produces a full-width (no stride)
+  against the full-resolution input, through the base harness itself (its
+  mask-shift/partition scheme handles packed multi-row-per-chunk layouts
+  at cols in {16,32,64}). It produces a full-width (no stride)
   depthwise conv result, chunk-interleaved, at its own OUTPUT_BASE_ROW.
 
   Stage 2 (this kernel's own ``depthwise_conv_stride2_narrow.asm`` --
@@ -37,7 +35,7 @@ Two-stage design, same philosophy as the cols=128 sibling
 
   Output size per ACC.STRIDE call is (rows_per_chunk/2) * (cols/2) = 32
   elements, ALWAYS (128/4), independent of cols. Since ACC.STRIDE's `offset`
-  writes to r_acc[(offset%4)*32 : +32], exactly 4 stage-1 chunks (at the SAME
+  writes to R_ACC[(offset%4)*32 : +32], exactly 4 stage-1 chunks (at the SAME
   channel, at consecutive absolute row-groups g, g+1, g+2, g+3) combine via 4
   ACC.STRIDE calls (offsets 0,1,2,3) to fill one output chunk. This holds
   uniformly across cols in {16,32,64} -- one clean design serves all three
@@ -82,7 +80,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
     DepthwiseConvUniversalApp,
 )
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_asm,
     render_asm,

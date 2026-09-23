@@ -20,7 +20,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.normalize.layernorm_common import layernorm_spec
+from ipu_apps.kernels.normalize.app import layernorm_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -34,7 +34,7 @@ N_TPG       = 128    # tokens per group (one token group)
 # kernel is written against; it belongs at the XMEM write boundary.
 #
 # XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
-# addresses (issue #179). Region bases are DERIVED from row counts rather than
+# addresses. Region bases are DERIVED from row counts rather than
 # hardcoded as bytes: a hardcoded byte map silently goes wrong the moment a
 # dimension changes, and regions overwrite each other with no crash.
 # ---------------------------------------------------------------------------
@@ -83,8 +83,9 @@ OUTPUT_BASE    = OUTPUT_BASE_ROW    * ROW_BYTES
 
 
 def _fp32_row(values: list[float]) -> bytes:
-    """Pack a list of float32 values into 512 bytes (zero-padded to 128 lanes)."""
-    assert len(values) <= 128
+    """Pack a list of float32 values into one 128-element row (zero-padded)."""
+    if len(values) > LANES:
+        raise ValueError(f"a row holds at most {LANES} FP32 values; got {len(values)}")
     packed = struct.pack(f"<{len(values)}f", *values)
     return packed + b"\x00" * (ROW_BYTES - len(packed))
 
@@ -110,7 +111,7 @@ class LayerNorm128x16App(IpuApp):
         raw = self.input_path.read_bytes()
         state.xmem.write_address(DATA_BASE, bytearray(raw))
 
-        # Load γ and β as 512-byte rows (16 meaningful values, rest zero)
+        # Load γ and β as 128-element rows (16 meaningful values, rest zero)
         state.xmem.write_address(GAMMA_BASE, bytearray(self.gamma_path.read_bytes()))
         state.xmem.write_address(BETA_BASE,  bytearray(self.beta_path.read_bytes()))
 
@@ -124,7 +125,7 @@ class LayerNorm128x16App(IpuApp):
 
         # CR registers
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants;
-        # writing anything else raises EmulatorError (issue #230). DATA_BASE is 0x0 so CR0 is fine,
+        # writing either raises EmulatorError. DATA_BASE is 0x0 so CR0 is fine,
         # and GAMMA_BASE lives on CR11 rather than CR1 (the hardwired CR0 supplies
         # the constant zero).
         state.regfile.set_cr(2,  BETA_BASE_ROW)
@@ -136,7 +137,7 @@ class LayerNorm128x16App(IpuApp):
         state.regfile.set_cr(8,  TEMP_BASE_ROW)
         state.regfile.set_cr(9,  INVSTD_BASE_ROW)
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # moved off read-only CR1
+        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
         state.regfile.set_cr(12, N_CH)
         state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row
         state.regfile.set_cr(14, N_TPG)

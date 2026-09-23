@@ -8,7 +8,7 @@ keys — the standard matmul broadcast (no AGG, no collision). The companion
 query-major + AGG kernel is `attn_v_256x36`; this app is the key-major variant
 and shares its V and O byte layouts so the two are directly comparable.
 
-Inputs (wide FP32; .asm operands are ROW numbers, issue #179):
+Inputs (wide FP32; .asm operands are ROW numbers):
   P key-major    : P[i, s] at PBASE + h*512 + s*2 + i//128 rows, lane i%128
                    (4 heads, head-major)
   V channel-major: V[s, chan] at VBASE + chan*2 + s//128 rows,  chan = h*36 + t
@@ -46,7 +46,7 @@ N_CHAN  = N_HEAD * D  # 144 value channels total
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 PV_STRIDE_ROWS     = N_TOK // LANES          # 2: rows per P key / V channel
 R1_OFF_ROWS        = 1                       # R1 source is the next row
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 512: rows per head in P
-OUT_ROW_ROWS       = 1                       # one r_acc store = one row (wide)
+OUT_ROW_ROWS       = 1                       # one R_ACC store = one row (wide)
 GRP_QUERY_ROWS     = 1                       # group query offset
 O_CHAN_ROWS        = 2 * OUT_ROW_ROWS        # 2 groups per output channel
 
@@ -87,7 +87,7 @@ class AttnVBcast36App(IpuApp):
         self.v_path = Path(self.v_path)
 
     def setup(self, state: "IpuState") -> None:
-        # P and V are stored verbatim (already in the kernel's byte layout).
+        # P and V are stored verbatim (already in the kernel's row layout).
         state.xmem.write_address(PBASE, bytearray(self.p_path.read_bytes()))
         state.xmem.write_address(VBASE, bytearray(self.v_path.read_bytes()))
 
@@ -105,14 +105,14 @@ class AttnVBcast36App(IpuApp):
         state.regfile.set_cr(10, N_HEAD - 1)      # 3: head-loop bound (4 heads)
         state.regfile.set_cr(11, 1)               # 1: g-loop bound (2 groups)
         # LRs
-        state.regfile.set_lr(0, 0)                # r_cyclic index / mask_shift
+        state.regfile.set_lr(0, 0)                # R_CYCLIC index / mask_shift
         state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride / V channel stride (rows)
         state.regfile.set_lr(2, OUT_ROW_ROWS)       # output-row stride (rows)
         state.regfile.set_lr(3, GRP_QUERY_ROWS)     # group query offset (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # 144 channels, each 1024 B (two 512-B FP32 group rows).
+            # 144 channels, each 256 elements (two 128-lane FP32 group rows).
             dump_xmem_to_binary(
                 state, self.output_path,
                 OBASE, O_CHAN_BYTES, N_CHAN,

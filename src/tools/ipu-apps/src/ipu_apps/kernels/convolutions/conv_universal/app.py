@@ -8,7 +8,7 @@ on the emulator's wide-vector debug datapath (see
 docs/content/wide-vector-debug-mode.md) -- weights and activations are
 genuine floats, no INT8 quantization anywhere in this kernel.
 
-Pipeline per filter: r_acc seeded from the first 3x3 conv tap
+Pipeline per filter: R_ACC seeded from the first 3x3 conv tap
 (``ACC.ADD.FIRST``), then += the remaining taps over all input channels, then
 ``ACTIVATE identity`` -> store 128 elements. Masking (edge-column zeroing) is
 mode-blind and runs identically in wide-vector mode as narrow mode.
@@ -17,7 +17,7 @@ Kernel super-block layout (FPB=28):
   One 256-element super-block holds up to 28 input-channel slots of one
   output filter. Channel ``s`` occupies elements ``[s*9 .. s*9 + 9)``:
   28 * 9 = 252 elements <= 256. Channels 0..13 land in the first 128-element
-  half (R0), 14..27 in the second (R1); the shared-index ``mult.ve``
+  half (R0), 14..27 in the second (R1); the shared-index ``MULT.VE``
   (fixed_idx 0..255) addresses all 28.
 
 Usage (normally through the registry: ``create_harness("conv_universal",
@@ -46,7 +46,7 @@ import numpy as np
 from ipu_emu.ipu_config import Partition
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     build_border_mask_blob,
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 # row size (128 B narrow, 512 B wide-vector debug). This app runs FP32
 # wide-vector only, so ROW_BYTES is always 512.
 #
-# r_cyclic operands (MULT.RC.* ``rc_idx`` reads and LDR_CYCLIC_MULT_REG's
+# R_CYCLIC operands (MULT.RC.* ``rc_idx`` reads and LDR_CYCLIC_MULT_REG's
 # ``index`` writes) are ELEMENT-indexed and the ring is 512 elements
 # regardless of mode, so they are already mode-blind and must NOT be
 # rescaled by ROW_BYTES.
@@ -83,7 +83,7 @@ FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1
 
 
 # The border mask (slots 0 = none, 3 = top row, 6 = bottom row) is built by
-# universal_common.build_border_mask_blob, shared with the depthwise kernels.
+# convolutions.app.build_border_mask_blob, shared with the depthwise kernels.
 
 
 def _pack_conv_weights_fpb28(weights_reordered: np.ndarray) -> bytes:
@@ -92,7 +92,7 @@ def _pack_conv_weights_fpb28(weights_reordered: np.ndarray) -> bytes:
 
     Each super-block is 256 ELEMENTS laid out linearly: channel ``s``
     occupies elements ``[s*9 .. s*9+9)``. The first 128 elements are loaded
-    into R0 and the second 128 into R1; the asm uses mult.ve with a shared
+    into R0 and the second 128 into R1; the asm uses MULT.VE with a shared
     fixed_idx (0..255) that sweeps the entire super-block. Per-filter row
     stride: ceil(in_ch / 28) * SUPER_BLOCK_ROWS.
     """
@@ -177,7 +177,7 @@ class ConvUniversalApp(IpuApp):
         self.width = width
         # cols must be in {16,32,64,128} (one packed row per mask-partition
         # group); rows*cols must be a whole number >= 2 of 128-element
-        # chunks. Padded internally -- see universal_common.next_valid_cols /
+        # chunks. Padded internally -- see convolutions.app.next_valid_cols /
         # min_rows_for_chunk_floor.
         cols = next_valid_cols(width)
         rows = min_rows_for_chunk_floor(height, cols)
@@ -186,7 +186,7 @@ class ConvUniversalApp(IpuApp):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_chunks = (rows * cols) // CHUNK_ELEMENTS
-        # Row-granular strides (see "Row addressing" above). One chunk is one
+        # Row-granular strides (see "Memory layout" above). One chunk is one
         # XMEM row, so a group of ``in_channels`` chunks is ``in_channels`` rows.
         self.in_group_stride = in_channels
         self.blocks_per_filter = math.ceil(in_channels / FPB)
@@ -199,11 +199,11 @@ class ConvUniversalApp(IpuApp):
         )
 
         # -- Dynamic region layout -------------------------------------------
-        # Size each region from THIS configuration instead of fixed gaps (see
-        # universal_common.py's allocate_regions docstring).
+        # Size each region from THIS configuration (see the family app.py's
+        # allocate_regions docstring).
         #
         # Input sits one group stride above its own region base so the g0
-        # kr=-1 prefetch (offset lr_chunk_base - cr6) bottoms out at exactly
+        # kr=-1 prefetch (offset lr_chunk_base - CR6) bottoms out at exactly
         # that base rather than underflowing -- so the "input" region's real
         # size is the headroom PLUS the data, not just the data. Region sizes
         # are in ELEMENTS; setup() scales to bytes via ROW_BYTES (FP32,
@@ -298,33 +298,33 @@ class ConvUniversalApp(IpuApp):
 
         # Set parameter CR registers
         state.regfile.set_cr(4, self.cols)
-        # cr6/cr7/cr8 are XMEM-space and therefore row counts. cr7 bounds
+        # CR6/CR7/CR8 are XMEM-space and therefore row counts. CR7 bounds
         # lr_ch_ctr, which is added to lr_chunk_base to form the input-row
         # offset, so it must share lr_ch_ctr's unit (rows, not bytes).
         state.regfile.set_cr(6, self.in_group_stride)
         state.regfile.set_cr(7, FPB)                # channel group = 28 rows
         state.regfile.set_cr(8, self.total_kernel_rows)
-        # cr11 = chunk-loop limit = (num_chunks - 1) * in_group_stride, in ROWS
-        # (in_group_stride is row-granular). Used by asm to compare lr8 (chunk
+        # CR11 = chunk-loop limit = (num_chunks - 1) * in_group_stride, in ROWS
+        # (in_group_stride is row-granular). Used by asm to compare LR8 (chunk
         # base row) against the chunk limit.
         # Biased by one in_group_stride to match lr_chunk_base's guard offset.
         state.regfile.set_cr(
             11, (self.num_chunks - 1) * self.in_group_stride + self.in_group_stride
         )
 
-        # cr12/cr9 keep their R_CYCLIC-ELEMENT meaning (slot stride 128, ring
+        # CR12/CR9 keep their R_CYCLIC-ELEMENT meaning (slot stride 128, ring
         # advance 384). The ring is 512 ELEMENTS regardless of mode, so these
         # are already mode-blind and must NOT be divided by CHUNK_ELEMENTS.
         #
         # The *XMEM* chunk advance (one chunk = one row) is served by the
         # read-only constant CR1 (= 1 row), since in row space a chunk stride is
-        # literally 1, so cr12 carries only its r_cyclic role.
-        state.regfile.set_cr(12, CHUNK_ELEMENTS)     # 128 ELEMENTS (r_cyclic slot stride)
+        # literally 1, so CR12 carries only its R_CYCLIC role.
+        state.regfile.set_cr(12, CHUNK_ELEMENTS)     # 128 ELEMENTS (R_CYCLIC slot stride)
         state.regfile.set_cr(13, SUPER_BLOCK_ROWS)   # 2 ROWS (kernel super-block stride)
-        # cr9 = ring advance = 3 * 128 = 384 ELEMENTS.  9-cyc role-rotating scheme:
+        # CR9 = ring advance = 3 * 128 = 384 ELEMENTS.  9-cyc role-rotating scheme:
         # lr_read (kr=0 slot) advances -128 (= +384 mod 512) per channel.
         state.regfile.set_cr(9, 3 * CHUNK_ELEMENTS)  # 384 ELEMENTS
-        # cr14 = end-of-9 walking-pointer wrap step: brings lr_walk from this ch's
+        # CR14 = end-of-9 walking-pointer wrap step: brings lr_walk from this ch's
         # tap-9 offset (lr_read + cols + 1) to next ch's tap-1 offset
         # ((lr_read - CHUNK_ELEMENTS) - cols - 1).  Under -128 rotation this is
         # +(RING_ADV - 2*cols - 2) with RING_ADV = 384 (= -128 mod 512 + 512).
@@ -347,7 +347,7 @@ class ConvUniversalApp(IpuApp):
 # kernel_size==3, groups==1 (plain conv; depthwise has its own kernel),
 # stride==1, padding==1 ("same" padding for a 3x3 kernel, the only mode this
 # app's masking scheme implements), width <= 128. See
-# universal_common.ConvQuery for the full query shape.
+# convolutions.app.ConvQuery for the full query shape.
 
 
 def _supports(q):

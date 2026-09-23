@@ -1,4 +1,4 @@
-"""Shared layernorm cases: random FP32 inputs checked against a NumPy reference.
+"""Shared normalize cases: random FP32 layernorm inputs checked against a NumPy reference.
 
 A layernorm kernel's ``cases.py`` is one call, :func:`layernorm_cases`,
 passing its app module and its input recipe. The
@@ -43,7 +43,7 @@ def randn_inputs(rng, channels, x_shape):
 
 
 def uniform_inputs(rng, channels, x_shape):
-    """The inline wide-test recipe (layernorm_16x240, layernorm_64x192)."""
+    """Uniform x in [-4, 4), gamma in [0.5, 1.5), beta in [-0.5, 0.5) (layernorm_16x240, layernorm_64x192)."""
     x = rng.uniform(-4.0, 4.0, size=x_shape).astype(np.float32)
     gamma = rng.uniform(0.5, 1.5, size=channels).astype(np.float32)
     beta = rng.uniform(-0.5, 0.5, size=channels).astype(np.float32)
@@ -96,7 +96,7 @@ def layernorm_cases(app, *, inputs, seed, rtol, atol, pad_params=False,
     Args:
         inputs:         :func:`randn_inputs` or :func:`uniform_inputs`.
         seed:           Default ``RandomState`` seed.
-        rtol, atol:     Tolerance the kernel was validated at.
+        rtol, atol:     Tolerance of the reference comparison.
         pad_params:     Write gamma/beta zero-padded to whole rows.
         cropped_output: The harness crops each output row to its valid tokens.
         guards:         Also run :func:`check_not_degenerate`.

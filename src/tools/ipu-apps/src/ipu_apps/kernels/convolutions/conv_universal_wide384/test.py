@@ -1,5 +1,5 @@
 """conv_universal_wide384: every case, a sweep (more rows/channels and
-the width=512 "bonus" shape, cpr=4), and the odd-out_channels refusal."""
+the width=512 shape, cpr=4), and the odd-out_channels refusal."""
 import numpy as np
 import pytest
 

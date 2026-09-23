@@ -1,8 +1,15 @@
-"""Shared unfold/fold cases: seeded FP32 tensors checked against NumPy layouts.
+"""Shared reshape cases: seeded FP32 tensors checked against NumPy layouts.
 
-Unfold and fold are pure data movement (the multiply is by 1.0), so every
-reference here is an indexing expression, not arithmetic -- any mismatch is a
-real layout bug. The two layouts, both one XMEM row of ``LANES`` FP32 values
+Unfold, fold and concat are pure data movement (the multiply is by 1.0), so
+every reference here is an indexing expression, not arithmetic -- any
+mismatch is a real layout bug.
+
+**Concat** (:func:`concat_cases`): each input channel is one opaque row -- no
+spatial packing is encoded inside a row, since the kernel never interprets
+one. ``MULT x1.0`` and ``ACC.ADD.FIRST`` are exact, so the output must equal
+``np.concatenate((A, B))`` byte for byte.
+
+**Unfold / fold** use two layouts, both one XMEM row of ``LANES`` FP32 values
 per row:
 
 * **striped spatial** (:func:`stripe_input`): unfold's input, and fold's
@@ -23,7 +30,7 @@ import numpy as np
 
 from ipu_emu.ipu import LANES
 
-from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
+from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase, check_output_bytes
 
 N_STREAMS = 4
 MAX_CYCLES = 20_000_000
@@ -130,3 +137,24 @@ def fold_cases(app, *, seed):
                             lambda: check_striped(out, x, n_stripes))
 
     return {"default": KernelCase(prepare, {"seed": seed}, MAX_CYCLES)}
+
+
+def concat_cases(app, *, seed=0xC047):
+    """``CASES`` for the concat kernel whose harness module is ``app``."""
+
+    def prepare(workspace, *, seed):
+        rng = np.random.RandomState(seed)
+        a = rng.uniform(-1.0, 1.0, size=(app.C_A, LANES)).astype(np.float32)
+        b = rng.uniform(-1.0, 1.0, size=(app.C_B, LANES)).astype(np.float32)
+        a_path, b_path = workspace / "a.bin", workspace / "b.bin"
+        out, expected = workspace / "output.bin", workspace / "expected.bin"
+        a_path.write_bytes(a.tobytes())
+        b_path.write_bytes(b.tobytes())
+        expected.write_bytes(np.concatenate((a, b)).tobytes())
+        return PreparedCase(
+            {"shape": (app.H, app.W, app.C_A, app.C_B)},
+            {"input_a_path": a_path, "input_b_path": b_path, "output_path": out},
+            lambda: check_output_bytes(out, expected),
+        )
+
+    return {"default": KernelCase(prepare, {"seed": seed}, 5_000_000)}

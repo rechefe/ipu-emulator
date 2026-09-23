@@ -28,7 +28,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.normalize.layernorm_common import layernorm_spec
+from ipu_apps.kernels.normalize.app import layernorm_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -43,7 +43,7 @@ N_TOK  = 64    # tokens per group (valid lanes per row)
 # kernel is written against; it belongs at the XMEM write boundary.
 #
 # XMEM .asm operands are ROW numbers (one row = LANES elements), not byte
-# addresses (issue #179). Region bases are DERIVED from row counts rather than
+# addresses. Region bases are DERIVED from row counts rather than
 # hardcoded as bytes: a hardcoded byte map silently goes wrong the moment a
 # dimension changes, and regions overwrite each other with no crash.
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
 ROW_STRIDE_ROWS = 1              # one ROW_BYTES row = exactly 1 XMEM row
 # With N_TG=1 the per-channel data stride IS the row stride: consecutive
-# channels are consecutive rows. (In the N_TG=2 ancestor this was 2 rows.)
+# channels are consecutive rows.
 DATA_STRIDE_ROWS = N_TG * ROW_STRIDE_ROWS    # 1
 
 # Sub-loop split for step 6: gamma/beta span ceil(192/128) = 2 rows.
@@ -99,8 +99,9 @@ OUTPUT_BASE    = OUTPUT_BASE_ROW    * ROW_BYTES
 
 
 def _fp32_row(values: np.ndarray) -> bytes:
-    """Pack a 1-D float32 array into 512 bytes (zero-padded to 128 lanes)."""
-    assert values.ndim == 1 and len(values) <= LANES
+    """Pack a 1-D float32 array into one 128-element row (zero-padded)."""
+    if values.ndim != 1 or len(values) > LANES:
+        raise ValueError(f"expected a 1-D array of at most {LANES} values; got shape {values.shape}")
     padded = np.zeros(LANES, dtype=np.float32)
     padded[: len(values)] = values
     return padded.tobytes()
@@ -126,10 +127,14 @@ class LayerNorm64x192App(IpuApp):
         # Data: N_CH rows of LANES FP32 values (N_TOK valid, rest zero).
         state.xmem.write_address(DATA_BASE, bytearray(self.input_path.read_bytes()))
 
-        # γ and β: 192 values each → two 512-byte rows
+        # γ and β: 192 values each → two 128-element rows
         gamma = np.frombuffer(self.gamma_path.read_bytes(), dtype=np.float32)
         beta  = np.frombuffer(self.beta_path.read_bytes(),  dtype=np.float32)
-        assert len(gamma) == N_CH and len(beta) == N_CH
+        if len(gamma) != N_CH or len(beta) != N_CH:
+            raise ValueError(
+                f"gamma and beta must hold {N_CH} FP32 values each; "
+                f"got {len(gamma)} and {len(beta)}"
+            )
 
         state.xmem.write_address(GAMMA_BASE,              bytearray(_fp32_row(gamma[:LANES])))
         state.xmem.write_address(GAMMA_BASE + ROW_BYTES,  bytearray(_fp32_row(gamma[LANES:])))
@@ -148,8 +153,8 @@ class LayerNorm64x192App(IpuApp):
 
         # CR registers — must match ASM header.
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing
-        # anything else raises EmulatorError (issue #230). DATA_BASE_ROW is 0 so CR0 is fine, and
-        # GAMMA_BASE lives on CR11 (CR11's const-zero role is served by CR0).
+        # either raises EmulatorError. DATA_BASE_ROW is 0 so CR0 is fine, and
+        # GAMMA_BASE lives on CR11 rather than CR1.
         state.regfile.set_cr(2,  BETA_BASE_ROW)
         state.regfile.set_cr(3,  ONES_BASE_ROW)
         state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)
@@ -159,11 +164,11 @@ class LayerNorm64x192App(IpuApp):
         state.regfile.set_cr(8,  TEMP_BASE_ROW)
         state.regfile.set_cr(9,  INVSTD_BASE_ROW)
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # moved off read-only CR1
+        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
         state.regfile.set_cr(12, N_CH)             # 192 = full channel loop bound
         state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row (also the data stride, N_TG=1)
-        state.regfile.set_cr(14, LANES)            # 128 = sub-loop A bound; r1 base offset
-        # CR15 is the reserved dstructure register and must not be overwritten,
+        state.regfile.set_cr(14, LANES)            # 128 = sub-loop A bound; R1 base offset
+        # CR15 holds this kernel's dstructure configuration and is not free,
         # so step 6's sub-loop B bound (64) is built in the ASM by doubling CR1.
 
     def teardown(self, state: "IpuState") -> None:

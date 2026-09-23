@@ -2,15 +2,15 @@
 
 * **Two conv2d vocabularies** -- the universal kernels (``in_channels`` /
   ``height`` / ``width`` / ``groups`` / ``has_bias`` / ``apply_relu`` ...)
-  and the older ``conv1x1`` / ``conv3x3_relu*`` kernels (``shape`` /
+  and the memory-layout ``conv1x1`` / ``conv3x3_relu*`` kernels (``shape`` /
   ``activation`` ...) both answer ``resolve("conv2d", ...)``; ``requires`` keeps each vocabulary routed to its own kernels.
 * **Routing** -- framework-free dispatch checks and the width ceiling, as a
   generated boundary table.
 * **The ``Conv2d`` layer adapter** -- refusal cases, driven through
   :func:`~ipu_apps.kernel_registry.lookup_layer` with a torch-free stand-in
-  for ``torch.nn.Conv2d`` (adapters match by class name), including the
-  regression for ``pointwise_conv_unified``'s missing width bound (a width >
-  128 query used to hang in ``pointwise_pad_shape``).
+  for ``torch.nn.Conv2d`` (adapters match by class name), including
+  ``pointwise_conv_unified``'s width bound (a width > 128 pointwise query must
+  be refused, since ``pointwise_pad_shape`` has no divisor of 128 above 128).
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import pytest
 from ipu_apps.kernel_registry import (
     UnsupportedLayer, adapters, boundaries, from_layer, lookup_layer, resolve,
 )
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     Conv2dDescription, from_torch_conv2d, pointwise_pad_shape,
 )
 
@@ -145,7 +145,7 @@ def test_relu_twins_are_reached_through_an_explicit_description():
     (Conv2d(3, 4, kernel_size=3, padding=1, bias=True), (3, 8, 8), "apply_relu"),
     # width 200: over 128 and not a multiple of 128 >= 384 for wide384 either.
     (Conv2d(3, 4, kernel_size=3, padding=1, bias=False), (3, 8, 200), "width"),
-    # Regression: must be refused promptly, not hang in pointwise_pad_shape.
+    # Refused by the pointwise width bound before pointwise_pad_shape is reached.
     (Conv2d(16, 16, kernel_size=1, bias=False), (16, 8, 129), "width (129) exceeds 128"),
     (Conv2d(8, 8, kernel_size=1, stride=2, bias=False), (8, 8, 8), "stride"),
     (Conv2d(8, 8, kernel_size=1, groups=8, bias=False), (8, 8, 8), "groups"),

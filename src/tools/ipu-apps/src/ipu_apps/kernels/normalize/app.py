@@ -1,9 +1,9 @@
-"""Shared helpers for the layernorm kernels' registry declarations.
+"""Shared code for the normalize kernels: layernorm query vocabulary and SPEC helper.
 
 All four layernorm kernels answer the same query -- a channel count and a
 token count -- so the parameter unpacking and the constants they reason about
-live here rather than being repeated four times. (The ``normalize`` family
-also holds ``l2_normalize_channels``, which does not use any of this.)
+live here rather than being repeated four times. ``l2_normalize_channels``
+keeps its own memory-layout spec and does not use any of this.
 
 The query parameters a layernorm kernel receives are:
 

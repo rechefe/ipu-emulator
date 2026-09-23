@@ -62,7 +62,7 @@ N_CHAN  = N_BLOCK * D         # 768 value channels total
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 PV_STRIDE_ROWS     = 1                       # rows per P query row / V channel
 P_BLOCK_ROWS       = N_TOK * PV_STRIDE_ROWS  # 64: P rows per block
 V_BLOCK_ROWS       = D * PV_STRIDE_ROWS      # 48: V rows per block
-O_CHAN_ROWS        = 1                       # one r_acc store = one row (wide)
+O_CHAN_ROWS        = 1                       # one R_ACC store = one row (wide)
 
 P_ROWS = N_BLOCK * P_BLOCK_ROWS              # 1024
 V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
@@ -128,7 +128,7 @@ class AttnV64x48App(IpuApp):
         """Crop each channel's valid N_TOK queries out of its whole 512 B row.
 
         Every store wrote a full row (one output channel per row -- rows are
-        never shared), but only the leading ``N_TOK * ELEM_BYTES`` bytes hold
+        never shared), but only the leading ``N_TOK`` elements hold
         results. The output file is the densely packed crop: N_CHAN rows of
         N_TOK FP32, channel (b*D + t) at row index b*D + t.
         """

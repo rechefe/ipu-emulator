@@ -4,10 +4,10 @@ Computes C[ch] = A[ch] + B[ch] for ch = 0..239, where A and B are
 [240 channels, 16 tokens] in channel-major layout.
 
 ONE CHANNEL PER ROW. N_TOK=16 means a channel's tokens are 16 FP32 values
-(64 bytes) in a 512-byte XMEM row -- rows are NEVER shared between channels.
+in a 128-lane XMEM row -- rows are NEVER shared between channels.
 The remaining 112 lanes are padding on input and stale-but-zero on output;
 ``teardown`` crops each output row to its 16-token prefix. Packing several
-channels into one row at a 64-byte stride would be a bug (it was one, once).
+channels into one row at a 16-element stride would be a bug.
 
 Usage::
 
@@ -38,7 +38,7 @@ N_ROWS = N_CH                # one XMEM row per channel
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# One r_acc store is 512 B = exactly one row in wide mode.
+# One R_ACC store is 512 B = exactly one row in wide mode.
 OUTPUT_ROW_BYTES   = ROW_BYTES
 VALID_ROW_BYTES    = N_TOK * ELEM_BYTES      # 64 B of meaningful output per row
 OUTPUT_STRIDE_ROWS = 1
@@ -70,22 +70,24 @@ class ResidualAdd16x240App(IpuApp):
         self.input_b_path = Path(self.input_b_path)
 
     def setup(self, state: "IpuState") -> None:
-        # Inputs are full 512-byte rows (one channel each), so the raw bytes
+        # Inputs are full 128-lane rows (one channel each), so the raw bytes
         # land directly -- there is no element-index arithmetic to get wrong.
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
-        assert len(raw_a) == N_ROWS * ROW_BYTES, (
-            f"A is {len(raw_a)} bytes, expected {N_ROWS * ROW_BYTES} "
-            "(one full 512-byte row per channel)"
-        )
-        assert len(raw_b) == N_ROWS * ROW_BYTES, (
-            f"B is {len(raw_b)} bytes, expected {N_ROWS * ROW_BYTES}"
-        )
+        if len(raw_a) != N_ROWS * ROW_BYTES:
+            raise ValueError(
+                f"A is {len(raw_a)} bytes, expected {N_ROWS * ROW_BYTES} "
+                "(one full 512-byte row per channel)"
+            )
+        if len(raw_b) != N_ROWS * ROW_BYTES:
+            raise ValueError(
+                f"B is {len(raw_b)} bytes, expected {N_ROWS * ROW_BYTES}"
+            )
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
         # CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing anything else
-        # raises EmulatorError (issue #230); this app never writes either.
+        # raises EmulatorError; this app never writes either.
         # A_BASE_ROW is 0 so CR0 is a harmless no-op, and
         # B_BASE lives on CR9.
         state.regfile.set_cr(9, B_BASE_ROW)
@@ -95,7 +97,7 @@ class ResidualAdd16x240App(IpuApp):
         state.regfile.set_cr(6, N_ROWS)
         state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
         state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
-        # cr10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
+        # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
         # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
         # pass-through multiplier.
         state.regfile.set_cr(10, 1)

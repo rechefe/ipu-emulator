@@ -78,7 +78,7 @@ N_STREAM = 4  # pixel-streams every kernel in this family processes per call
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only -- see the matmul_*_x128 harnesses for the full
 # rationale (elements are 4 B, a row is LANES*4 = 512 B, XMEM .asm operands
-# are ROW numbers per issue #179, region bases are derived from row counts).
+# are ROW numbers, region bases are derived from row counts).
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
@@ -97,7 +97,8 @@ class ProjectionLayout:
 
     * D[p]: interleaved channel-major, row (k, tg) at
       ``DATA_BASE_ROW + p*DATA_ROWS_PER_STREAM + k*N_TG + tg`` (N_TOK valid
-      lanes + zero pad) -- the single-stream ancestor's row (k, tg) layout.
+      lanes + zero pad) -- the same row (k, tg) layout as the single-stream
+      ``matmul_*_x128`` kernels.
     * W: ``W_STRIDE_ROWS`` rows per output channel j, chunk c at
       ``WEIGHTS_BASE_ROW + j*W_STRIDE_ROWS + c``, zero-padded on the last
       (partial) chunk.
@@ -215,8 +216,8 @@ class ProjectionP4App(IpuApp):
         self._load_weights(state)
 
         # CR0 (=0) and CR1 (=1) are read-only hardwired constants -- writing
-        # anything else raises EmulatorError (issue #230). ZERO
-        # is already CR0's hardwired value, so no write is needed here.
+        # anything else raises EmulatorError. ZERO is already CR0's hardwired
+        # value, so no write is needed here.
         state.regfile.set_cr(2, lo.data_base_row)               # DATA_BASE (stream 0)
         state.regfile.set_cr(3, lo.weights_base_row)            # WEIGHTS_BASE (shared)
         state.regfile.set_cr(4, lo.output_base_row)             # OUTPUT_BASE (stream 0, tg=0 sub-block)

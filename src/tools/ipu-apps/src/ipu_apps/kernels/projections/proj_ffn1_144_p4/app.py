@@ -3,8 +3,8 @@
 Computes C[p, tg, j, t] = silu(sum_k W[j, k] * D[p, k, tg, t])
   for all p in [0, 4), j in [0, N_OUT=288), tg in [0, N_TG=2), t in [0, 128).
 
-  D[p]: interleaved channel-major [144, 2, 128] input per stream -- K
-        channels x N_TG token groups x 128 tokens, row (k, tg) at
+  D[p]: [2, 144, 128] input per stream (N_TG x K x 128 tokens), staged
+        in XMEM interleaved channel-major, row (k, tg) at
         p*DATA_STREAM_STRIDE_ROWS + k*N_TG + tg
   W:    output-major  [288, 144] weights, SHARED across all 4 streams --
         N_OUT rows x K cols, stored verbatim (no transpose)
@@ -20,8 +20,8 @@ the SPEC only claims queries with ``activation="silu"``.
 
 L3's structural difference from the L4/L5 proj_*_p4 family: N=256 tokens per
 stream means N_TG=2 (two 128-token groups), so the .asm hand-duplicates a
-tg=0/tg=1 block inside the j-loop (mirroring the single-stream ancestor's own
-hand-duplication), each running the SAME runtime chunk loop over K that the
+tg=0/tg=1 block inside the j-loop (as the single-stream matmul_*_x128
+kernel does), each running the SAME runtime chunk loop over K that the
 L4/L5 kernels use -- see the .asm header for the full design rationale. The
 harness supplies CHUNK_COUNT (= ceil(K/128)) and TAIL_BOUND (the last
 chunk's width-2 inner-loop bound; every non-last chunk is a fixed width-128

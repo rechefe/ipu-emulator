@@ -1,6 +1,6 @@
 """Runnable case for conv_first_layer: the fixed 256x256x3 -> 128x128x16
 stride-2 conv + bias -> ReLU, vs a NumPy conv2d."""
-from ipu_apps.kernels.convolutions.universal_cases import conv2d_case
+from ipu_apps.kernels.convolutions.cases import conv2d_case
 
 CASES = {
     # The shape is fixed; the channel/spatial options exist only because the

@@ -3,7 +3,7 @@
 Concatenates two same-spatial-shape, different-(or-equal)-channel-count
 tensors along the channel axis: ``output = cat((A, B), dim=channel)``,
 matching MobileViT-S's ``torch.cat((residual, features), dim=channel)`` at
-the end of its L4 transformer block (verified: both branches have 128
+the end of its L4 transformer block (both branches have 128
 channels there, so the concrete shape here is 128 + 128 -> 256).
 
 A real copy kernel, not a no-op: see the ``.asm`` header's "WHY A REAL COPY
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.reshape.concat_common import concat_spec
+from ipu_apps.kernels.reshape.app import concat_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -41,7 +41,7 @@ C_OUT = C_A + C_B
 #
 # Wide-vector FP32 only, same convention as fold/unfold/residual_add: an
 # XMEM row is LANES * 4 = 512 bytes unconditionally, and .asm XMEM operands
-# are ROW numbers (issue #179), not byte offsets. One channel = one row.
+# are ROW numbers, not byte offsets. One channel = one row.
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
@@ -60,8 +60,8 @@ class Concat16x16x128x128App(IpuApp):
 
     Args:
         inst_path:    Path to assembled instruction binary.
-        input_a_path: Path to input A (128 rows x 512 bytes).
-        input_b_path: Path to input B (128 rows x 512 bytes).
+        input_a_path: Path to input A (128 rows of 128 FP32 elements).
+        input_b_path: Path to input B (128 rows of 128 FP32 elements).
         output_path:  Optional path to write the 256-row concatenated output.
     """
 
@@ -76,19 +76,18 @@ class Concat16x16x128x128App(IpuApp):
         if len(raw_a) != C_A * ROW_BYTES:
             raise ValueError(
                 f"A is {len(raw_a)} bytes, expected {C_A * ROW_BYTES} "
-                "(one full 512-byte row per channel)"
+                "(one full 128-element FP32 row per channel)"
             )
         if len(raw_b) != C_B * ROW_BYTES:
             raise ValueError(f"B is {len(raw_b)} bytes, expected {C_B * ROW_BYTES}")
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
-        # cr0 (=0) and cr1 (=1) are read-only hardwired constants -- writing
-        # to either raises EmulatorError (issue #230), even
-        # when the value written matches the hardwired one. A_BASE_ROW is 0
-        # here, so cr0 already holds the correct value without any write;
-        # the .asm's `ZERO = cr0` alias relies on the hardwired value, not
-        # on this setup() writing it.
+        # CR0 (=0) and CR1 (=1) are read-only hardwired constants -- writing
+        # to either raises EmulatorError, even when the value written matches
+        # the hardwired one. A_BASE_ROW is 0 here, so CR0 already holds the
+        # correct value without any write; the .asm's ``ZERO`` alias for CR0
+        # relies on the hardwired value, not on this setup() writing it.
         state.regfile.set_cr(2, -1)                 # PTR_START: src ptr startup (-1 row)
         state.regfile.set_cr(3, 1)                  # ROW_STRIDE
         state.regfile.set_cr(4, 1)                  # DTYPE_ONE: 1.0 in wide FP32 (low byte -> float)
@@ -109,7 +108,7 @@ class Concat16x16x128x128App(IpuApp):
 
 # -- registry declaration ---------------------------------------------------
 # Declared beside the kernel so the registry needs no central list; see
-# :func:`~ipu_apps.kernels.reshape.concat_common.concat_spec` for the
+# :func:`~ipu_apps.kernels.reshape.app.concat_spec` for the
 # exact-shape `supports`.
 
 SPEC = concat_spec(Concat16x16x128x128App, h=H, w=W, c_a=C_A, c_b=C_B)

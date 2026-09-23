@@ -68,7 +68,7 @@ N_HEADS  = 4            # channels in the canonical input file = N_HEADS * D
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
@@ -79,7 +79,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 # sub-row stride).
 Q_CHAN_ROWS   = max(1, N_TOK // LANES)       # 1: rows per Q channel column
 K_STRIDE_ROWS = 1                            # one key-major K row per key
-OUT_ROWS      = 1                            # one r_acc store = one row (wide)
+OUT_ROWS      = 1                            # one R_ACC store = one row (wide)
 
 Q_ROWS = D * Q_CHAN_ROWS
 K_ROWS = N_TOK * K_STRIDE_ROWS
@@ -94,7 +94,7 @@ KBASE_KM = KBASE_KM_ROW * ROW_BYTES
 SBASE    = SBASE_ROW * ROW_BYTES
 
 K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
-OUTPUT_ROW_BYTES = ROW_BYTES                 # r_acc store payload
+OUTPUT_ROW_BYTES = ROW_BYTES                 # R_ACC store payload
 
 
 def _load_q_channel_major(state: "IpuState", q_path: str | Path, head: int) -> None:
@@ -166,8 +166,8 @@ class AttnScoresKM16x60App(IpuApp):
         state.set_cr_dstructure(valid_elements=N_TOK)
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError (issue #230). QBASE_ROW is 0,
-        # so cr0 already holds the correct value without any write.
+        # else raises EmulatorError. QBASE_ROW is 0,
+        # so CR0 already holds the correct value without any write.
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         # Startup skews are negative; CRs are 32-bit unsigned, and the kernel

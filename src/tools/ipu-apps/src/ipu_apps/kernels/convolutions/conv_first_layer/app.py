@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import read_bias, universal_spec
+from ipu_apps.kernels.convolutions.app import read_bias, universal_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -89,8 +89,8 @@ OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): every XMEM offset/base operand this app uses
-# (ldr_mult_reg / ldr_cyclic_mult_reg's offset+base / str_post_aaq_reg) is a
+# Row-addressed ISA: every XMEM offset/base operand this app uses
+# (LDR_MULT_REG / LDR_CYCLIC_MULT_REG's offset+base / STR_POST_AAQ_REG) is a
 # ROW number, not a byte address -- *_BASE_ADDR below stay byte constants used
 # only to derive the ROW numbers; *_BASE_ROW feeds the CR registers the asm
 # loads through. This app runs FP32 wide-vector only, so ROW_BYTES is always
@@ -98,7 +98,7 @@ OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16
 
 INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 elements * 4 B
 KERNEL_BASE_ADDR = 0x100000   # 16 filters x 128-element block * 4 B
-MASK_BASE_ADDR = 0x104000     # 128-element mask blob (8 slots x 16 elements)
+MASK_BASE_ADDR = 0x104000     # 128-byte mask blob (8 slots x 16 bytes, 1 bit per lane)
 TEMP_BASE_ADDR = 0x104400     # 256 elements: temp0[0..127] (slot0 half) + temp1[128..255]
 OUTPUT_BASE_ADDR = 0x140000   # 128 rows * 2048 elements * 4 B
 
@@ -259,8 +259,8 @@ class ConvFirstLayerApp(IpuApp):
         state.regfile.set_cr(11, OUT_ROWS)                        # 128: output-row loop bound (not XMEM-space)
         state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS)  # 16: kernel limit / output row group, rows
         state.regfile.set_cr(13, TEMP_BASE_ROW)                   # temp0 (slot0 half) at +0, temp1 at +128
-        # cr14 = 128: r_cyclic ELEMENT slot1 index, split off cr8 (which is now
-        # the XMEM filter-block ROW stride = 1 and would otherwise collide).
+        # CR14 = 128: R_CYCLIC ELEMENT slot1 index, kept separate from CR8
+        # (the XMEM filter-block ROW stride = 1).
         state.regfile.set_cr(14, 128)
 
     def teardown(self, state: "IpuState") -> None:

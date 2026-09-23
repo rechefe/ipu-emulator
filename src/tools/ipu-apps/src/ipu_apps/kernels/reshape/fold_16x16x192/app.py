@@ -5,9 +5,9 @@ channel-major streams (TL, TR, BL, BR) that kernel produces and reconstructs
 the original NHCW-striped spatial tensor, in the same 2-stripe x 192-channel
 x 128-element layout unfold's own input used.
 
-Each stream row carries only 64 valid FP32 tokens (256 bytes); lanes 64..127
-are unfold's stale r_acc padding and this kernel never reads them (see the
-``.asm`` header for the exact byte layout and the ACC.RESHAPE-based inverse
+Each stream row carries only 64 valid FP32 tokens; lanes 64..127 are
+unfold's stale R_ACC padding and this kernel never reads them (see the
+``.asm`` header for the exact lane layout and the ACC.RESHAPE-based inverse
 mapping).
 
 Usage::
@@ -25,7 +25,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.reshape.unfold_common import unfold_spec
+from ipu_apps.kernels.reshape.app import unfold_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -43,7 +43,7 @@ N_TOK     = 64    # valid tokens per stream row (8x8 sub-grid) -- HALF of a 128-
 #
 # Wide-vector FP32 only, same convention as unfold_16x16x192: an XMEM row is
 # LANES * 4 = 512 bytes unconditionally, and .asm XMEM operands are ROW
-# numbers (issue #179), not byte offsets.
+# numbers, not byte offsets.
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
@@ -73,17 +73,17 @@ ONES_BASE = ONES_BASE_ROW * ROW_BYTES
 def _load_input(state: "IpuState", input_path: str | Path) -> None:
     """Write the 4 channel-major streams directly into XMEM at SRC_BASE.
 
-    File layout: (4 streams x 192 channels) rows, each 512 bytes (matches
-    unfold_16x16x192's OUTPUT layout exactly). Row (stream, ch) at offset
-    (stream * 192 + ch) * 512. Only the first 256 bytes (64 FP32 tokens) of
-    each row are meaningful; the trailing 256 bytes are ignored.
+    File layout: (4 streams x 192 channels) rows of 128 FP32 elements
+    (matches unfold_16x16x192's OUTPUT layout exactly). Row (stream, ch) is
+    file row stream * 192 + ch. Only the first 64 elements of each row are
+    meaningful; the trailing 64 elements are ignored.
     """
     raw = Path(input_path).read_bytes()
     state.xmem.write_address(SRC_BASE, bytearray(raw))
 
 
 def _load_ones(state: "IpuState") -> None:
-    """One XMEM row of FP32 1.0 for r_cyclic (the pass-through multiplier)."""
+    """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
 
@@ -94,7 +94,8 @@ def _pack_bytes(values: list[int]) -> int:
     into an LR: the CR's 4 raw bytes become an LRDn pair's 4 index elements
     once two such CRs are SET into the two halves of the pair.
     """
-    assert len(values) == 4
+    if len(values) != 4:
+        raise ValueError(f"expected 4 byte values; got {len(values)}")
     return int.from_bytes(bytes(v & 0xFF for v in values), "little")
 
 
@@ -105,7 +106,7 @@ class Fold16x16x192App(IpuApp):
 
     Args:
         inst_path:   Path to assembled instruction binary.
-        input_path:  Path to the 4-stream input (4 x 192 x 512 bytes; matches
+        input_path:  Path to the 4-stream input (4 x 192 rows of 128 FP32 elements; matches
             unfold_16x16x192's output).
         output_path: Optional path to write the NHCW-striped spatial output
             (matches unfold_16x16x192's input).
@@ -119,36 +120,36 @@ class Fold16x16x192App(IpuApp):
         _load_input(state, self.input_path)
         _load_ones(state)
 
-        # cr14, cr13: per-stripe DESTINATION bases. CR0 and CR1 are BOTH
-        # read-only hardwired constants (0 and 1 respectively; writing anything
-        # else raises EmulatorError -- see CR_READ_ONLY_INITIAL_VALUES). unfold's own
-        # cr0 usage for its stripe-0 SOURCE base only works because that
+        # CR14, CR13: per-stripe DESTINATION bases. CR0 and CR1 are BOTH
+        # read-only hardwired constants (0 and 1 respectively; writing either
+        # raises EmulatorError -- see CR_READ_ONLY_INITIAL_VALUES). unfold's own
+        # CR0 usage for its stripe-0 SOURCE base only works because that
         # base happens to be 0; fold's stripe-0 DESTINATION base is
-        # DST_BASE_ROW (nonzero), so cr14 is used instead of cr0.
+        # DST_BASE_ROW (nonzero), so CR14 is used instead of CR0.
         state.regfile.set_cr(14, DST_BASE_ROW)
         state.regfile.set_cr(13, DST_BASE_ROW + C)
-        # cr8: ones base (for r_cyclic loading in assembly init)
+        # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
-        # cr9..cr12: per-stream SOURCE bases (TL, TR, BL, BR)
+        # CR9..CR12: per-stream SOURCE bases (TL, TR, BL, BR)
         state.regfile.set_cr(9,  SRC_BASE_ROW)
         state.regfile.set_cr(10, SRC_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, SRC_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, SRC_BASE_ROW + 3 * _STREAM_ROWS)
 
-        # cr2/cr3: source-lane-index table for ACC.RESHAPE, packed as two
+        # CR2/CR3: source-lane-index table for ACC.RESHAPE, packed as two
         # 4-byte halves of an LRDn pair -- [0,1,2,3] then [4,5,6,7]. Rebuilt
         # via SET at the start of every stream's 4-call block in the .asm
         # (never assumed preloaded in any LR).
         state.regfile.set_cr(2, _pack_bytes([0, 1, 2, 3]))
         state.regfile.set_cr(3, _pack_bytes([4, 5, 6, 7]))
-        # cr4/cr5: stream-TL destination-lane-index table for call 0, packed
+        # CR4/CR5: stream-TL destination-lane-index table for call 0, packed
         # the same way -- [0,2,4,6] then [8,10,12,14]. TR/BL/BR are derived
         # from this via ADDBI (+1/+16/+17) in the .asm.
         state.regfile.set_cr(4, _pack_bytes([0, 2, 4, 6]))
         state.regfile.set_cr(5, _pack_bytes([8, 10, 12, 14]))
 
-        # constant LRs preset here (SET requires a CR source since issue #82)
-        state.regfile.set_lr(0, 0)      # r_cyclic slot 0
+        # constant LRs preset here (SET requires a CR source)
+        state.regfile.set_lr(0, 0)      # R_CYCLIC slot 0
         state.regfile.set_lr(6, 0)      # src row offset within a stream; += 1 per channel
         state.regfile.set_lr(7, SRC_STRIDE_ROWS)   # src stride per channel (1 row)
         state.regfile.set_lr(8, 0)      # dst row offset = ch; += 1 per channel
@@ -166,7 +167,7 @@ class Fold16x16x192App(IpuApp):
 
 # -- registry declaration ---------------------------------------------------
 # Declared beside the kernel so the registry needs no central list; see
-# :func:`~ipu_apps.kernels.reshape.unfold_common.unfold_spec` for the
+# :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
 SPEC = unfold_spec(Fold16x16x192App, op="fold", h=H, w=W, c=C)

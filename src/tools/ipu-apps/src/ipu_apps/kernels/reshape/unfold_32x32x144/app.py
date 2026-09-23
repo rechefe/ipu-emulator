@@ -18,7 +18,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.reshape.unfold_common import unfold_spec
+from ipu_apps.kernels.reshape.app import unfold_spec
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -40,7 +40,7 @@ N_TG      = 2     # token groups per channel
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-OUTPUT_ROW_BYTES = 512                       # one r_acc store = one row in wide mode
+OUTPUT_ROW_BYTES = 512                       # one R_ACC store = one row in wide mode
 
 _STRIPE_ROWS = C                             # one row per channel within a stripe
 _STREAM_ROWS = N_OUT * N_TG            # rows per output stream (2 token groups)
@@ -70,8 +70,8 @@ DST_BASE  = DST_BASE_ROW * ROW_BYTES
 def _load_input(state: "IpuState", input_path: str | Path) -> None:
     """Write NHCW-striped input directly into XMEM at SRC_BASE.
 
-    File layout: (8 stripes × 144 channels) rows, each 128 bytes.
-    Row (stripe, ch) at offset (stripe × 144 + ch) × 128.
+    File layout: (8 stripes × 144 channels) rows of 128 FP32 elements.
+    Row (stripe, ch) is file row stripe × 144 + ch.
     Each row: 4 spatial rows × 32 columns of one channel.
     """
     raw = Path(input_path).read_bytes()
@@ -79,7 +79,7 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
 
 
 def _load_ones(state: "IpuState") -> None:
-    """One XMEM row of FP32 1.0 for r_cyclic (the pass-through multiplier)."""
+    """One XMEM row of FP32 1.0 for R_CYCLIC (the pass-through multiplier)."""
     state.xmem.write_address(ONES_BASE, bytearray(np.ones(LANES, dtype=np.float32).tobytes()))
 
 
@@ -90,7 +90,7 @@ class Unfold32x32x144App(IpuApp):
 
     Args:
         inst_path:  Path to assembled instruction binary.
-        input_path: Path to NHCW-striped input (147,456 bytes).
+        input_path: Path to NHCW-striped input (1,152 rows of 128 FP32 elements).
         output_path: Optional path to write the 4-stream FP32 output.
     """
 
@@ -101,35 +101,34 @@ class Unfold32x32x144App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
-        # cr0..cr7: per-stripe source bases (stripe s at SRC_BASE + s × 18,432).
+        # CR0..CR7: per-stripe source bases (stripe s at row SRC_BASE_ROW + s × 144).
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants — writing
-        # anything else raises EmulatorError (issue #230), even
-        # a write of the value already there. Stripe 0's base is SRC_BASE+0,
-        # which cr0 already holds in hardware, so s=0 is skipped entirely
-        # (not just retargeted) rather than written; stripe 1's base goes to
-        # CR13 (free) instead of CR1. See Bug #2.
+        # either raises EmulatorError, even a write of the value already
+        # there. Stripe 0's base is SRC_BASE_ROW + 0, which CR0 already holds
+        # in hardware, so s=0 is skipped entirely (not just retargeted) rather
+        # than written; stripe 1's base goes to CR13 (free) instead of CR1.
         for s in range(N_STRIPES):
             if s == 0:
                 continue
             cr_idx = 13 if s == 1 else s
             state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_ROWS)
-        # cr8: ones base (for r_cyclic loading in assembly init)
+        # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
-        # cr9..cr12: per-stream destination bases (TL, TR, BL, BR)
+        # CR9..CR12: per-stream destination bases (TL, TR, BL, BR)
         state.regfile.set_cr(9,  DST_BASE_ROW)
         state.regfile.set_cr(10, DST_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, DST_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, DST_BASE_ROW + 3 * _STREAM_ROWS)
-        # constant LRs preset here (SET requires CR source since issue #82)
+        # constant LRs preset here (SET requires CR source)
         state.regfile.set_lr(0, 0)
         state.regfile.set_lr(1, 1)
         state.regfile.set_lr(2, 2)
         state.regfile.set_lr(3, 3)
         state.regfile.set_lr(4, 0)
         state.regfile.set_lr(5, SRC_STRIDE_ROWS)   # src stride per channel (1 row)
-        state.regfile.set_lr(6, DST_STRIDE_ROWS)   # dst stride per channel (8 rows)
+        state.regfile.set_lr(6, DST_STRIDE_ROWS)   # dst stride per channel (2 rows: tg0, tg1)
         state.regfile.set_lr(8, 0)
-        state.regfile.set_lr(9, TG1_OFF_ROWS)      # tg=1 dst offset (4 rows)
+        state.regfile.set_lr(9, TG1_OFF_ROWS)      # tg=1 dst offset (1 row)
         state.regfile.set_lr(10, 0)
         state.regfile.set_lr(11, C)
 
@@ -143,7 +142,7 @@ class Unfold32x32x144App(IpuApp):
 
 # -- registry declaration ---------------------------------------------------
 # Declared beside the kernel so the registry needs no central list; see
-# :func:`~ipu_apps.kernels.reshape.unfold_common.unfold_spec` for the
+# :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
 SPEC = unfold_spec(Unfold32x32x144App, op="unfold", h=H, w=W, c=C)

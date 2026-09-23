@@ -9,22 +9,22 @@ This is the L5 variant of ``qk_scores_256x36``; the mapping is unchanged, only t
 loop counts differ:
 
   * ``D`` 36 -> 60.  head_dim is a LOOP COUNT under this mapping (the
-    contraction bound ``lr6 = D-2``), not a lane count, so 60 needs no padding.
+    contraction bound ``LR6 = D-2``), not a lane count, so 60 needs no padding.
   * ``N`` 256 -> 16.  256 tokens spanned two 128-lane key groups; 16 tokens fit
     in ONE group, so the g=1 half of the L3 kernel disappears entirely
     (``N_TG`` 2 -> 1).
 
 Inputs Q, K are logically channel-major (head_dim D=60, N=16 tokens). K is
 loaded channel-major verbatim; Q is staged query-major (a gather of its strided
-channels) so one query's 60 head-channels load into r0 with a single
-``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from r0,
-vector = K's channel-c column in r_cyclic, ``MULT.RC.VE``).
+channels) so one query's 60 head-channels load into R0 with a single
+``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from R0,
+vector = K's channel-c column in R_CYCLIC, ``MULT.RC.VE``).
 
 ONE CHANNEL PER ROW: N_TOK=16 means each K channel column and each staged Q row
-holds 16 valid FP32 elements (64 B) inside a WHOLE 512-B XMEM row. Rows are
-never shared between channels; the unused 112 lanes stay zero and the output is
-cropped in :meth:`teardown`. (Packing two channels into one row at a 64-B
-stride is a bug — see the N_TOK=16 matmul family.)
+holds 16 valid FP32 elements inside a WHOLE 128-lane XMEM row. Rows are
+never shared between channels; the unused 112 lanes stay zero and the consumer
+crops the output to the live lanes. (Packing two channels into one row at a
+16-element stride is a bug — see the N_TOK=16 matmul family.)
 
 The score row goes through the standard quantize boundary
 (``ACTIVATE.QUANTIZE identity`` + ``STR_POST_AAQ_REG``), like every other
@@ -61,18 +61,18 @@ N_TPG = N          # keys per group
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# One channel per row: 16 tokens occupy 64 B of a 512-B row, and the row is
+# One channel per row: 16 tokens occupy 16 of a row's 128 lanes, and the row is
 # still exclusively that channel's. ceil-div keeps this correct for any N <= 128.
 K_STRIDE_ROWS    = max(1, N // LANES)        # 1: rows per K channel column
 QROW_STRIDE_ROWS = 1                         # one staged query row per query
-ACC_STORE_ROWS   = 1                         # one r_acc store = one row (wide)
+ACC_STORE_ROWS   = 1                         # one R_ACC store = one row (wide)
 
 K_ROWS    = D * K_STRIDE_ROWS
 QROW_ROWS = N * QROW_STRIDE_ROWS
@@ -104,19 +104,18 @@ class QkScores16x60App(IpuApp):
         super().__init__(**kwargs)
         # query_path/key_path may be None to skip disk staging entirely and
         # use whatever is already in the shared IpuState's XMEM (e.g. written
-        # there by a preceding kernel in the same chain). Existing callers
-        # always pass real paths, so their behaviour is unchanged.
+        # there by a preceding kernel in the same chain).
         self.query_path = Path(self.query_path) if self.query_path is not None else None
         self.key_path = Path(self.key_path) if self.key_path is not None else None
 
-        # Base rows default to the module constants (K_BASE_ROW=0 etc.) so
-        # every existing caller is unaffected; passing explicit values lets a
-        # caller place this kernel's regions inside a shared IpuState instead
-        # of the row-0 layout colliding with another kernel's data.
+        # Base rows default to the module constants (K_BASE_ROW=0 etc.);
+        # passing explicit values lets a caller place this kernel's regions
+        # inside a shared IpuState instead of the row-0 layout colliding with
+        # another kernel's data.
         #
         # k_base_row is NOT actually relocatable: the .asm reads K_BASE from
-        # cr0, which the ISA hardwires to the constant 0 (any write is
-        # silently dropped by RegFile.set_scalar). K therefore always lands
+        # CR0, which the ISA hardwires to the constant 0 (a write raises
+        # EmulatorError). K therefore always lands
         # at row 0 regardless of this argument. It stays a constructor
         # parameter for interface symmetry with qrow_base_row/s_base_row,
         # but a non-default value would silently have no effect, so it is
@@ -124,7 +123,7 @@ class QkScores16x60App(IpuApp):
         if k_base_row != K_BASE_ROW:
             raise ValueError(
                 f"k_base_row={k_base_row} has no effect: qk_scores_16x60.asm "
-                f"reads K_BASE from cr0, which the ISA hardwires to 0. K "
+                f"reads K_BASE from CR0, which the ISA hardwires to 0. K "
                 f"always occupies rows [0, K_ROWS); place other regions "
                 f"around it instead."
             )
@@ -141,7 +140,7 @@ class QkScores16x60App(IpuApp):
         """Write K channel-major and Q query-major into XMEM.
 
         Input files are stored channel-major: element [token t, channel c] at
-        (c*N + t)*ELEM_BYTES. A None path skips that input's staging (the
+        element index c*N + t. A None path skips that input's staging (the
         caller has already placed it in XMEM at this app's base row).
         """
         if self.query_path is None and self.key_path is None:
@@ -177,8 +176,8 @@ class QkScores16x60App(IpuApp):
         g0_start_rows = -K_STRIDE_ROWS
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError (issue #230). self.k_base_row
-        # is always K_BASE_ROW=0 (enforced in __init__), so cr0 already holds
+        # else raises EmulatorError. self.k_base_row
+        # is always K_BASE_ROW=0 (enforced in __init__), so CR0 already holds
         # the correct value without any write. QROW base lives on CR9.
         state.regfile.set_cr(9, self.qrow_base_row)      # staged query rows
         state.regfile.set_cr(3, self.s_base_row)         # output base (single key group)
@@ -186,7 +185,7 @@ class QkScores16x60App(IpuApp):
         state.regfile.set_cr(7, -1)                     # channel fixed_idx startup
         state.regfile.set_cr(8, D - 2)                  # contraction bound (58)
 
-        state.regfile.set_lr(0, 0)                       # r_cyclic write-index / mask_shift
+        state.regfile.set_lr(0, 0)                       # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
@@ -198,7 +197,7 @@ class QkScores16x60App(IpuApp):
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
-            # N queries x N_TG groups x 512 B, query-major:
+            # N queries x N_TG groups x one 128-element row, query-major:
             #   row (i, g) at s_base_row + i*N_TG + g, in rows.
             # Each row is WHOLE even though only N of its 128 lanes are live;
             # the consumer crops to [:N].
@@ -213,7 +212,7 @@ class QkScores16x60App(IpuApp):
 # `supports` (built by attention_spec) is the single source of truth for this
 # kernel's exact-match domain (n_tok=16, d=60). `k_base_row` is deliberately
 # NOT folded into `supports`: it is not a shape the registry routes on, it is a
-# hardware invariant (K_BASE is read from cr0, which the ISA hardwires to 0)
+# hardware invariant (K_BASE is read from CR0, which the ISA hardwires to 0)
 # that the constructor must keep enforcing regardless of how the app was
 # reached. `build` therefore never passes k_base_row (or the relocatable
 # qrow_base_row/s_base_row) -- the constructor defaults already satisfy the

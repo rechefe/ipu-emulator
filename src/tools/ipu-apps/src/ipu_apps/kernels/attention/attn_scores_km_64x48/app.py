@@ -11,7 +11,7 @@ contiguous (this is what the downstream broadcast attn@V consumes).
 
 Layer 4 parameters: d = 192, N = 64 tokens per stream, P = 4 streams,
 h = 4 heads, head_dim = 48.  ``head_dim = 48`` needs NO padding -- it is the
-contraction LOOP COUNT (bound ``lr6 = D - 2 = 46``), not a lane count.  Lanes
+contraction LOOP COUNT (bound ``LR6 = D - 2 = 46``), not a lane count.  Lanes
 here are queries, and N = 64 <= LANES = 128, so a query axis fits in ONE row:
 the L3 two-group split (``N_TG = 2``) collapses to ``N_TG = 1`` and the trailing
 64 lanes of every Q / S row are unused padding.
@@ -71,7 +71,7 @@ N_TPG   = N             # queries per group
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 # whole row (trailing lanes unused).
 Q_CHAN_ROWS   = 1                            # rows per Q channel column
 K_STRIDE_ROWS = 1                            # one key-major K row per key
-OUT_ROWS      = 1                            # one r_acc store = one row (wide)
+OUT_ROWS      = 1                            # one R_ACC store = one row (wide)
 
 Q_STREAM_ROWS = D * Q_CHAN_ROWS              # 48: Q rows per stream
 K_STREAM_ROWS = N * K_STRIDE_ROWS            # 64: K rows per stream
@@ -200,7 +200,7 @@ class AttnScoresKM64x48App(IpuApp):
         docs/content/kernels/mobilevit.md). ``attn_v_bcast_48`` stages this output verbatim
         and addresses one key per whole row, so the output file is ``P * N``
         rows of ROW_BYTES, key (p, s) at row index ``p*N + s`` -- only the
-        leading ``N * ELEM_BYTES`` of each row hold real scores, the rest is
+        leading ``N`` elements of each row hold real scores, the rest is
         the padding ``attn_v_bcast_48`` also carries.
         """
         if self.output_path is not None:

@@ -35,12 +35,10 @@ N_TOK  = 64    # tokens (single group, padded to LANES in XMEM)
 # this kernel is written against; it belongs at the XMEM write boundary
 # (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# XMEM .asm operands are ROW numbers, not byte addresses, and a
 # row is LANES *elements*. Region bases are DERIVED from row counts rather
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
-# overflows at 4 bytes/element, which silently corrupted wide runs (D ran
-# through WEIGHTS_BASE and weight staging overwrote it, so the kernel read
-# zeros for high k and dropped most of the contraction).
+# overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
 ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
@@ -50,9 +48,9 @@ W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil) = 
 DATA_STRIDE_ROWS = 1                         # one row per input channel (N_TOK padded to LANES)
 W_STRIDE         = W_STRIDE_ROWS * LANES     # elements per output channel (padded)
 
-# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
-# 512 B, so a store is exactly one row and one output channel owns one row.
-# At 4 bytes/element a store fills a whole row exactly, so stores never
+# One accumulator store writes all LANES elements of R_ACC -- exactly one row
+# in wide mode, so one output channel owns one row.
+# A store fills a whole row exactly, so stores never
 # overlap -- each channel gets a full row of LANES lanes with the first N_TOK
 # valid and the rest ignored.
 OUTPUT_ROW_BYTES   = 512
@@ -128,12 +126,12 @@ class MatMul192x192x128App(IpuApp):
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
         state.regfile.set_cr(6, -DATA_STRIDE_ROWS)             # data startup: -1 row
         state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
-        state.regfile.set_lr(0, 0)                             # r_cyclic write-index 0
+        state.regfile.set_lr(0, 0)                             # R_CYCLIC write-index 0
         state.regfile.set_lr(2, DATA_STRIDE_ROWS)              # data stride (rows)
         state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)            # output stride (rows)
         state.regfile.set_lr(6, 126)                           # width-128 chunk bound
         state.regfile.set_lr(7, 0)                             # output pointer
-        state.regfile.set_lr(8, 0)                             # weight byte offset
+        state.regfile.set_lr(8, 0)                             # weight row offset
         state.regfile.set_lr(9, 0)                             # j counter
         state.regfile.set_lr(10, N_OUT)                        # j-loop limit
         state.regfile.set_lr(11, 62)                           # tail-chunk bound: width=64

@@ -35,7 +35,7 @@ N_TOK  = 16    # tokens (single group, padded to LANES in XMEM)
 # this kernel is written against; it belongs at the XMEM write boundary
 # (ACTIVATE.QUANTIZE), which is what makes it invisible to the kernel.
 #
-# XMEM .asm operands are ROW numbers, not byte addresses (issue #179), and a
+# XMEM .asm operands are ROW numbers, not byte addresses, and a
 # row is LANES *elements*. Region bases are DERIVED from row counts rather
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
@@ -47,8 +47,8 @@ ROW_BYTES  = LANES * ELEM_BYTES   # 512
 W_STRIDE_ROWS    = -(-K // LANES)   # weight chunks (rows) per output channel: 2
 DATA_STRIDE_ROWS = 1                # one row per input channel (N_TOK padded to LANES)
 
-# One accumulator store writes all 512 B of r_acc. In wide mode a row is also
-# 512 B, so a store is exactly one row and one output channel owns one row.
+# One accumulator store writes all LANES elements of R_ACC -- exactly one row
+# in wide mode, so one output channel owns one row.
 # A PRODUCER emits full, uncropped rows -- only the FINAL consumer in a chain
 # crops (docs/content/kernels/mobilevit.md). teardown() below dumps the full
 # row; a caller that wants the densely-packed N_OUT x N_TOK form crops it
@@ -130,7 +130,7 @@ class MatMul720x240x128App(IpuApp):
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
         state.regfile.set_cr(6, -DATA_STRIDE_ROWS)             # data startup (rows)
         state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
-        state.regfile.set_lr(0, 0)                             # r_cyclic write-index 0
+        state.regfile.set_lr(0, 0)                             # R_CYCLIC write-index 0
         state.regfile.set_lr(2, DATA_STRIDE_ROWS)              # data stride (rows)
         state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)            # output stride (1 row/channel)
         state.regfile.set_lr(6, 126)                           # width-128 chunk bound

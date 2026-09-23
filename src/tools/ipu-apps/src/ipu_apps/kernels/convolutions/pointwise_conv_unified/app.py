@@ -5,8 +5,6 @@ multi-pass inner loop. Runs on the emulator's wide-vector debug datapath
 (128 elements of 32-bit FP32 per vector, see
 docs/content/wide-vector-debug-mode.md) -- weights, activations, and output
 are all genuine floats, no INT8 quantization anywhere in this kernel.
-Hardware behaviour is otherwise unchanged; masking, addressing, and the
-pass structure are identical to the (retired) INT8 version.
 
 Kernel layout: one OC per 128-element register-load, padded with zeros to
 128 elements per pass. ``num_passes = ceil(in_channels / 128)``.
@@ -16,7 +14,7 @@ Constraints:
   - out_channels % 4 == 0
   - spatial: any height/width >= 1 -- padded internally to satisfy the
     hardware's ``cols`` divides 128 / whole-chunk constraints (see
-    universal_common.pointwise_pad_shape)
+    convolutions.app.pointwise_pad_shape)
 
 See the .asm header for cycle accounting and asm structure.
 """
@@ -29,7 +27,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
     bias_requires_relu,
@@ -45,10 +43,10 @@ if TYPE_CHECKING:
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_MULT_REG /
+# Row-addressed ISA: XMEM offset/base operands on LDR_MULT_REG /
 # LDR_CYCLIC_MULT_REG's offset+base / LDR_MULT_MASK_REG / STR_POST_AAQ_REG are
 # ROW numbers, not byte addresses. A "row" is CHUNK_ELEMENTS (128) elements --
-# 512 bytes at FP32's 4 B/element. r_cyclic ELEMENT addressing (the `index`
+# 512 bytes at FP32's 4 B/element. R_CYCLIC ELEMENT addressing (the `index`
 # operand of LDR_CYCLIC_MULT_REG and MULT.RC.VE's `rc_idx`) is unaffected by
 # row addressing -- see the .asm header for the full recipe note.
 
@@ -117,7 +115,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         # packed[dst + r*cols : dst + r*cols + cols]), and rows*cols must be
         # a whole number of chunks. Pointwise has no spatial neighbourhood,
         # so a padded lane can never leak into a real lane through the conv
-        # -- see universal_common.pointwise_pad_shape.
+        # -- see convolutions.app.pointwise_pad_shape.
         self.rows, self.cols = pointwise_pad_shape(height, width)
         rows, cols = self.rows, self.cols
 
@@ -147,7 +145,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         self.pipeline_limit_tail = tail_size - 5
 
         # -- Dynamic region layout -------------------------------------------
-        # Size each region from THIS configuration instead of fixed gaps.
+        # Size each region from THIS configuration.
         # Region sizes are in ELEMENTS (CHUNK_ELEMENTS/row); setup() scales
         # to bytes via ROW_BYTES (FP32, 4 B/element, always).
         input_rows = self.row_groups * in_channels
@@ -213,7 +211,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         kernel_packed = self._pack_kernel(kernel_raw)
         state.xmem.write_address(self.kernel_base_row * ROW_BYTES, kernel_packed)
 
-        # Mask polarity (master, 2026-06-14): bit 1 = KEEP lane, bit 0 = ZERO.
+        # Mask polarity: bit 1 = KEEP lane, bit 0 = ZERO.
         # This app never masks, so slot 0 must be all-ones (keep every lane).
         # The mask blob does NOT widen -- it is 1 bit per lane regardless of
         # arithmetic mode -- only its row address scales with ROW_BYTES.
@@ -229,8 +227,8 @@ class PointwiseConvUnifiedApp(IpuApp):
         state.regfile.set_cr(3, self.output_base_row)
         state.regfile.set_cr(14, self.kernel_base_row)
 
-        # Parameter CR registers (see the .asm header). cr8/cr13 are XMEM-space
-        # (rows); cr4/cr5/cr6/cr7/cr9/cr10/cr11 are plain counters/lane
+        # Parameter CR registers (see the .asm header). CR8/CR13 are XMEM-space
+        # (rows); CR4/CR5/CR6/CR7/CR9/CR10/CR11 are plain counters/lane
         # bounds, unaffected by row addressing. CR scalars stay integer-only
         # even in wide mode (see docs/content/wide-vector-debug-mode.md) --
         # none of these carry fractional values, so FP32 mode does not affect
@@ -245,10 +243,10 @@ class PointwiseConvUnifiedApp(IpuApp):
         state.regfile.set_cr(10, self.tail_size)
         state.regfile.set_cr(11, self.num_passes - 1)
 
-        # cr12 = 128: the ONE remaining role is the fixed_idx step (lane/
+        # CR12 = 128: the fixed_idx step (lane/
         # element space, mode-blind) for Half B -- NOT an XMEM stride;
-        # that role (kernel-row advance, output-row advance, output
-        # pre-offset, per-IC walking step) is the read-only CR1 (= 1
+        # XMEM strides (kernel-row advance, output-row advance, output
+        # pre-offset, per-IC walking step) use the read-only CR1 (= 1
         # row) throughout the .asm.
         state.regfile.set_cr(12, 128)
         state.regfile.set_cr(13, self.pass_stride_rows)  # 128 ROWS
@@ -278,9 +276,8 @@ class PointwiseConvUnifiedApp(IpuApp):
 # `supports` is the single source of truth for this kernel's domain:
 # kernel_size==1 (pointwise has no 3x3 neighbourhood), groups==1 (a 1x1
 # depthwise conv has no matching app), stride==1, padding==0 (nothing to pad
-# for), width <= 128 (without this bound a wider query falls
-# through to pointwise_pad_shape()'s divisor search, which never terminates
-# above 128).
+# for), width <= 128 (pointwise_pad_shape() has no divisor of 128 above
+# 128 and refuses wider widths).
 
 
 def _supports(q):

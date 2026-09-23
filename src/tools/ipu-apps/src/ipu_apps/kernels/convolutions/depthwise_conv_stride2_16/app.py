@@ -1,17 +1,16 @@
 """Depthwise 3x3 stride-2 convolution, the degenerate 16x16 shape:
 16x16xC -> 8x8xC. FP32 wide-vector mode.
 
-Closes a real coverage gap: at width=16, height=16 (MobileViT-S's deepest MV2
-downsample), the general ``depthwise_conv_stride2_narrow`` sibling cannot
+At width=16, height=16 (MobileViT-S's deepest MV2 downsample), the general
+``depthwise_conv_stride2_narrow`` sibling cannot
 represent this shape at all -- its stage 2 always reads FOUR stage-1
 row-groups per output chunk (packing (rows_per_chunk/2)*(cols/2) = 32
 elements from each of 4 ACC.STRIDE calls into one 128-element chunk), but at
 height=16 there are only TWO stage-1 row-groups total (rows_per_chunk=8 at
 width=16).
 
-Two-stage design, same philosophy as both stride2 siblings (build on TOP of
-the already-verified ``depthwise_conv_universal`` rather than a fresh
-from-scratch pipeline):
+Two-stage design, like both stride2 siblings (composed from
+``depthwise_conv_universal``):
 
   Stage 1: run ``depthwise_conv_universal``'s OWN asm, completely UNMODIFIED,
   against the full-resolution 16x16 input (width=16 is natively supported by
@@ -24,8 +23,8 @@ from-scratch pipeline):
   128-element chunk (2 ACC.STRIDE calls * 32 elements/call). Rather than pad the other half with garbage (as
   a naive reuse of the general narrow kernel's 4-row-group grouping would
   need), this kernel packs TWO adjacent channels into one output chunk:
-  channel 2p's two row-groups fill r_acc[0:64] (ACC.STRIDE offsets 0,1),
-  channel 2p+1's fill r_acc[64:128] (offsets 2,3) -- exactly one full chunk,
+  channel 2p's two row-groups fill R_ACC[0:64] (ACC.STRIDE offsets 0,1),
+  channel 2p+1's fill R_ACC[64:128] (offsets 2,3) -- exactly one full chunk,
   zero padding, zero wasted computation. ``channels`` must therefore be even.
 
 Under the registry, ``inst_path`` is stage 2 (this kernel's ``.asm``); stage 1
@@ -64,7 +63,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
     DepthwiseConvUniversalApp,
 )
-from ipu_apps.kernels.convolutions.universal_common import (
+from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     kernel_asm,
     universal_spec,
@@ -198,7 +197,7 @@ class DepthwiseConvStride2_16App(IpuApp):
                 self.output_base_row * ROW_BYTES, total_elements * 4
             )
             # raw is packed [channel_pair, 2, OUT_ROWS, OUT_COLS] -- the two
-            # channels in a pair occupy r_acc[0:64] / r_acc[64:128]
+            # channels in a pair occupy R_ACC[0:64] / R_ACC[64:128]
             # respectively, and within each channel's 64 elements the layout
             # is OUT_ROWS*OUT_COLS row-major (ACC.STRIDE's row/col decimation
             # preserves row-major order within each 32-element call, and the

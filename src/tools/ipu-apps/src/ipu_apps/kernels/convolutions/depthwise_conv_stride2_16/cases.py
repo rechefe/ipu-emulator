@@ -1,6 +1,6 @@
 """Runnable cases for depthwise_conv_stride2_16: random FP32 data vs a NumPy
 stride-2 depthwise conv2d on the fixed 16x16 shape."""
-from ipu_apps.kernels.convolutions.universal_cases import conv2d_case
+from ipu_apps.kernels.convolutions.cases import conv2d_case
 
 CASES = {
     "default": conv2d_case(stride=2, depthwise=True,

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ ELEM_BYTES = 4                               # FP32
 LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
-# One r_acc store is 512 B = exactly one row in wide mode.
+# One R_ACC store is 512 B = exactly one row in wide mode.
 OUTPUT_ROW_BYTES   = ROW_BYTES
 OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
@@ -72,8 +72,8 @@ class ResidualAdd64x192App(IpuApp):
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
         # CR1 (=1) is a read-only hardwired constant --
-        # writing anything else raises EmulatorError (issue #230). B_BASE is therefore on CR9 (free).
-        # cr0=A_BASE_ROW is 0 (harmless no-op, matches the hardwired 0).
+        # writing anything else raises EmulatorError. B_BASE is therefore on CR9 (free).
+        # CR0=A_BASE_ROW is 0 (harmless no-op, matches the hardwired 0).
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
@@ -81,7 +81,7 @@ class ResidualAdd64x192App(IpuApp):
         state.regfile.set_cr(6, N_ROWS)
         state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
         state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
-        # cr10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
+        # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
         # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
         # pass-through multiplier that turns the multiplier into an adder.
         state.regfile.set_cr(10, 1)

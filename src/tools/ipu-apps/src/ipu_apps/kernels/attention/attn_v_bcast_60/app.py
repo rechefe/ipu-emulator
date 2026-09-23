@@ -67,7 +67,7 @@ N_CHAN  = N_HEAD * D  # 240 value channels total
 # 512 B, unconditionally -- there is no narrow path. INT8 is not a mode this
 # kernel is written against; it belongs at the XMEM write boundary.
 #
-# XMEM .asm operands are ROW numbers (issue #179). Region bases are DERIVED
+# XMEM .asm operands are ROW numbers. Region bases are DERIVED
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ ROW_BYTES  = LANES * ELEM_BYTES              # 512
 # sub-row stride).  These match ``attn_v_16x60`` exactly for V and O.
 PV_STRIDE_ROWS     = max(1, N_TOK // LANES)  # 1: rows per P key / V channel
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 16: rows per head in P
-O_CHAN_ROWS        = 1                       # one r_acc store = one whole row
+O_CHAN_ROWS        = 1                       # one R_ACC store = one whole row
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -128,7 +128,7 @@ class AttnVBcast60App(IpuApp):
         state.regfile.set_cr(9, D - 1)              # 59: t-loop bound (60 channels)
         state.regfile.set_cr(10, N_HEAD - 1)        # 3: head-loop bound (4 heads)
         # LRs
-        state.regfile.set_lr(0, 0)                  # r_cyclic index / mask_shift
+        state.regfile.set_lr(0, 0)                  # R_CYCLIC index / mask_shift
         state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride / V channel stride (rows)
         state.regfile.set_lr(2, O_CHAN_ROWS)        # output-row stride (rows)
 

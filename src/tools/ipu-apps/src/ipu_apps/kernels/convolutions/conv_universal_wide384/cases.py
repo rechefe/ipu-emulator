@@ -1,5 +1,5 @@
 """Runnable cases for conv_universal_wide384: random FP32 data vs a NumPy conv2d."""
-from ipu_apps.kernels.convolutions.universal_cases import conv2d_case
+from ipu_apps.kernels.convolutions.cases import conv2d_case
 
 CASES = {
     # width=384 (cpr=3), 8 rows: also the .asm's standalone template defaults.

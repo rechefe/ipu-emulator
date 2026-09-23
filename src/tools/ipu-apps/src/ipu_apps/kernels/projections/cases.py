@@ -2,10 +2,10 @@
 
 A kernel's ``cases.py`` is one call, :func:`projection_cases`, passing its app
 module (which defines ``ACTIVATION`` and ``SPEC``). Inputs are uniform in
-``[-1, 1)``, generated per stream then W, from the seed the kernels were
-validated with; the reference is computed per (stream, token group) in FP32,
-``C[p][tg] = act(W @ D[p][tg])``, and compared at the tolerance the kernels
-were validated at (IPU FP32 accumulation order differs from NumPy's).
+``[-1, 1)``, generated per stream then W from a fixed seed; the reference is
+computed per (stream, token group) in FP32, ``C[p][tg] = act(W @ D[p][tg])``,
+and compared at a tolerance that allows for IPU FP32 accumulation order
+differing from NumPy's.
 """
 from __future__ import annotations
 
