@@ -2,7 +2,7 @@ load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@ipu_apps_pyproject//:deps.bzl", "get_requirements")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
-load("//:asm_rules.bzl", "assemble_asm")
+load("//:ipu_app.bzl", "ipu_apps_from_kernels", "ipu_benchmarks_from_kernels", "ipu_families_from_kernels", "ipu_multi_kernel_tests", "ipu_per_kernel_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,179 +21,86 @@ py_library(
     ] + get_requirements(requirement),
 )
 
-# -- Fully-connected app ---------------------------------------------------
-
-exports_files([
-    "src/ipu_apps/fully_connected/fully_connected.asm",
-])
-
-filegroup(
-    name = "fc_test_data",
-    srcs = glob(["src/ipu_apps/fully_connected/test_data_format/**/*.bin"]),
+# One target per kernel .asm file under kernels/, discovered automatically --
+# dropping a new kernel package there registers its run/test label without
+# editing this file.
+ipu_apps_from_kernels(
+    kernels_root = "src/ipu_apps/kernels",
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
 )
 
-assemble_asm(
-    name = "assemble_fully_connected",
-    src = "src/ipu_apps/fully_connected/fully_connected.asm",
+py_pytest_test(
+    name = "test_harness_factory",
+    srcs = ["test/test_harness_factory.py"],
+    data = ["pyproject.toml"] + glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
 )
 
-py_binary(
-    name = "fully_connected",
-    srcs = ["src/ipu_apps/fully_connected/__main__.py"],
-    main = "src/ipu_apps/fully_connected/__main__.py",
-    data = [
-        ":assemble_fully_connected.bin",
-        ":fc_test_data",
+# Kernel registry mechanics, the softmax conformance suite (assembles and runs
+# whichever softmax kernel the registry resolves), and checks over every
+# registered kernel (hygiene, and that each of its cases routes) -- so every
+# .asm and case fixture is data here, and a new kernel needs no edit to this rule.
+py_pytest_test(
+    name = "test_kernel_registry",
+    srcs = ["test/test_kernel_registry.py"],
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    imports = ["src"],
+    deps = [
+        ":ipu_apps_lib",
+        requirement("pytest"),
     ],
-    env = {
-        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
-        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
-    },
+)
+
+ipu_benchmarks_from_kernels(
+    kernels_root = "src/ipu_apps/kernels",
+    deps = [":ipu_apps_lib"],
+)
+
+# `bazel run :query -- softmax shape=32,300 dim=1`: which kernel handles a
+# computation, for any operation. With no arguments, the coverage report.
+py_binary(
+    name = "query",
+    srcs = ["src/ipu_apps/kernel_registry/query.py"],
+    main = "src/ipu_apps/kernel_registry/query.py",
     imports = ["src"],
     deps = [":ipu_apps_lib"],
 )
 
-py_pytest_test(
-    name = "test_fully_connected",
-    srcs = ["test/test_fully_connected.py"],
-    data = [
-        ":assemble_fully_connected.bin",
-        ":fc_test_data",
-    ],
-    env = {
-        "FC_INST_BIN": "$(rootpath :assemble_fully_connected.bin)",
-        "FC_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/fully_connected/test_data_format",
-    },
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# -- softmax apps (FP32 wide-vector) ---------------------------------------
-#
-# Assembles the .asm in-process (assemble_to_bin_file in the test fixture), so
-# the app .asm is provided as data; no pre-assembled .bin target is needed.
-
-py_pytest_test(
-    name = "test_softmax_rows",
-    srcs = ["test/test_softmax_rows.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_rows_partial",
-    srcs = ["test/test_softmax_rows_partial.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_rows_long",
-    srcs = ["test/test_softmax_rows_long.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_columns",
-    srcs = ["test/test_softmax_columns.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_softmax_columns_packed",
-    srcs = ["test/test_softmax_columns_packed.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# Runs every softmax app, so it needs all five .asm files.
-py_pytest_test(
-    name = "test_softmax_layout_roundtrip",
-    srcs = ["test/test_softmax_layout_roundtrip.py"],
-    data = [
-        "src/ipu_apps/softmax/softmax_columns/softmax_columns.asm",
-        "src/ipu_apps/softmax/softmax_columns_packed/softmax_columns_packed.asm",
-        "src/ipu_apps/softmax/softmax_rows/softmax_rows.asm",
-        "src/ipu_apps/softmax/softmax_rows_long/softmax_rows_long.asm",
-        "src/ipu_apps/softmax/softmax_rows_partial/softmax_rows_partial.asm",
-    ],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# Router only -- no .asm needed; it constructs apps but never runs them.
-py_pytest_test(
-    name = "test_softmax_registry",
-    srcs = ["test/test_softmax_registry.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# Kernel registry mechanics + the generic conformance suite, which assembles
-# and runs whichever kernel the registry resolves -- so every registered .asm
-# is data here, and a newly added kernel is covered without editing this rule.
-py_pytest_test(
-    name = "test_kernel_registry",
-    srcs = ["test/test_kernel_registry.py"],
-    data = glob(["src/ipu_apps/**/*.asm"]),
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-
-# Checks the routing tables printed in the docs against what the registry
-# actually answers. The tables are checked-in text, so without this they are a
-# second copy of the routing rules -- the copy that goes stale.
-py_pytest_test(
-    name = "test_docs_routing",
-    srcs = ["test/test_docs_routing.py"],
+# `:<family>` (e.g. :softmax, :pooling) runs every kernel in that family plus
+# the family's own test.py. Family tests may check the family's docs page.
+ipu_families_from_kernels(
+    kernels_root = "src/ipu_apps/kernels",
+    deps = [":ipu_apps_lib"],
+    test_deps = [requirement("pytest")],
     data = ["//docs:doc_sources"],
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
+)
+
+py_pytest_test(
+    name = "test_debug_launch",
+    size = "enormous",
+    srcs = ["test/test_debug_launch.py"],
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+py_pytest_test(
+    name = "test_bazel_entry",
+    srcs = ["test/test_bazel_entry.py"],
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+ipu_per_kernel_test(
+    name = "test_alias_profile_kernels",
+    src = "test/test_alias_profile_kernels.py",
+    kernels_root = "src/ipu_apps/kernels",
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# Tests that run several kernels together: one target per test/<suite>/test_*.py.
+ipu_multi_kernel_tests(
+    suites_root = "test",
+    kernels_root = "src/ipu_apps/kernels",
+    deps = [":ipu_apps_lib", requirement("pytest")],
 )

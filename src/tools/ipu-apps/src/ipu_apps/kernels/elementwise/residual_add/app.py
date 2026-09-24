@@ -1,0 +1,165 @@
+"""Universal residual add (wide-vector FP32): FP32 + FP32 -> FP32.
+
+Adds two FP32 tensors element-wise and stores the result as FP32, running the
+emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
+each channel occupies one full XMEM row of 128 FP32 lanes and ``STR_ACC_REG``
+writes the full 128-lane accumulator.
+
+Layout (per tensor, input and output alike): ``num_channels`` consecutive
+rows, one channel per row, 128 little-endian FP32 lanes each --
+a ``[num_channels, 128]`` float32 array (e.g. a CHW tensor whose H*W is 128).
+
+MobileViT S residual stages: 64x64x64, 32x32x96, 16x16x128, 8x8x160.
+
+Self-contained:
+it answers ``op="residual_add"`` with its own vocabulary (``num_channels``),
+which coexists with the fixed-shape ``residual_add_*`` kernels' ``shape``
+vocabulary because each kernel's ``requires`` refuses the other's queries.
+
+Usage (normally through the registry: ``create_harness("residual_add",
+params={"num_channels": 160}, bindings=...)``)::
+
+    from ipu_apps.kernels.elementwise.residual_add.app import ResidualAddApp
+
+    app = ResidualAddApp(
+        inst_path="residual_add.bin",
+        input_a_path="tensor_a.bin",
+        input_b_path="tensor_b.bin",
+        output_path="output.bin",
+        num_channels=160,
+    )
+    state, cycles = app.run()
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, no, yes
+from ipu_apps.kernel_registry.base import IpuApp
+
+if TYPE_CHECKING:
+    from ipu_emu.ipu_state import IpuState
+
+# -- Constants ---------------------------------------------------------------
+
+LANES_PER_CHUNK = 128
+WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
+
+# -- Memory layout -----------------------------------------------------------
+#
+# Row-addressed ISA: XMEM offset/base operands on LDR_CYCLIC_MULT_REG
+# (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
+# runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
+# narrow-mode variant to preserve -- so its native row size is always
+# WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
+# below stay as byte constants for host-side xmem pokes (write_address/
+# read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
+# feeds the CR registers the asm actually loads/stores through. R_CYCLIC's
+# `index` operand on LDR_CYCLIC_MULT_REG is always LR0 (=0, the single-slot
+# write index used in wide mode).
+
+INPUT_A_BASE = 0x00000
+INPUT_B_BASE = 0x80000
+OUTPUT_BASE = 0x100000
+
+INPUT_A_BASE_ROW = INPUT_A_BASE // WIDE_CHUNK_BYTES
+INPUT_B_BASE_ROW = INPUT_B_BASE // WIDE_CHUNK_BYTES
+OUTPUT_BASE_ROW = OUTPUT_BASE // WIDE_CHUNK_BYTES
+
+# The fixed regions are 0x80000 bytes (1024 rows) apart: more channels than
+# that would run tensor A into B (and B into the output) with no error.
+MAX_CHANNELS = (INPUT_B_BASE - INPUT_A_BASE) // WIDE_CHUNK_BYTES
+
+
+class ResidualAddApp(IpuApp):
+    """Universal residual add: FP32 + FP32 -> FP32 (wide-vector debug mode).
+
+    Args:
+        inst_path:    Path to assembled binary.
+        input_a_path: Path to tensor A binary (rows of 128 FP32 elements).
+        input_b_path: Path to tensor B binary (rows of 128 FP32 elements).
+        output_path:  Optional path to write FP32 output.
+        num_channels: Number of channels (1..MAX_CHANNELS).
+    """
+
+    def __init__(
+        self,
+        *,
+        num_channels: int,
+        input_a_path: str | Path,
+        input_b_path: str | Path,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.input_a_path = Path(input_a_path)
+        self.input_b_path = Path(input_b_path)
+
+        SPEC.guard(num_channels=num_channels)
+
+        self.num_channels = num_channels
+        self.total_input_bytes = num_channels * WIDE_CHUNK_BYTES
+        self.total_output_bytes = num_channels * WIDE_CHUNK_BYTES
+        self.output_base = OUTPUT_BASE
+
+    def setup(self, state: "IpuState") -> None:
+        for path, base in ((self.input_a_path, INPUT_A_BASE), (self.input_b_path, INPUT_B_BASE)):
+            data = path.read_bytes()
+            if len(data) != self.total_input_bytes:
+                raise ValueError(
+                    f"{path}: expected {self.total_input_bytes} bytes "
+                    f"({self.num_channels} x 128 FP32), got {len(data)}"
+                )
+            state.xmem.write_address(base, data)
+
+        # CR0/CR1 are reserved config registers (read as 0 and 1); the asm
+        # reuses CR0 as a zero source and CR1 as the identity scalar.
+        # CR2/CR3/CR4/CR5/CR6 are all XMEM-space (row numbers/row counts)
+        # -- this app is always wide-vector, so one channel == one row and
+        # the chunk step is a row stride of 1.
+        state.regfile.set_cr(2, INPUT_A_BASE_ROW)
+        state.regfile.set_cr(3, INPUT_B_BASE_ROW)
+        state.regfile.set_cr(4, OUTPUT_BASE_ROW)
+        state.regfile.set_cr(5, 1)  # chunk step: 1 row
+        state.regfile.set_cr(6, self.num_channels)  # row count
+
+    def teardown(self, state: "IpuState") -> None:
+        if self.output_path is not None:
+            result = state.xmem.read_address(OUTPUT_BASE, self.total_output_bytes)
+            Path(self.output_path).write_bytes(bytes(result))
+
+
+# -- Kernel registry -----------------------------------------------------
+
+
+def _supports(**params):
+    num_channels = params["num_channels"]
+    if num_channels < 1:
+        return no(f"num_channels must be >= 1, got {num_channels}")
+    if num_channels > MAX_CHANNELS:
+        return no(
+            f"num_channels ({num_channels}) exceeds {MAX_CHANNELS}, the channel "
+            f"count the fixed XMEM regions hold without overlapping"
+        )
+    return yes()
+
+
+SPEC = folder_spec(
+    ResidualAddApp,
+    op="residual_add",
+    requires=("num_channels",),
+    tags=("fp32-wide",),
+    supports=_supports,
+    build=lambda **params: {"num_channels": params["num_channels"]},
+    explain=lambda **params: (
+        "elementwise FP32 tensor add, running the emulator's wide-vector "
+        "debug datapath (one channel per 512-byte/128-lane chunk)."
+    ),
+    caveats=lambda **params: (
+        "FP32 wide-vector debug mode only (wide_vector_debug=True). This "
+        "kernel has no INT8/quantized variant.",
+    ),
+    cost=lambda **params: 0.0,
+    execution=ExecutionConfig(mode="fp32"),
+)

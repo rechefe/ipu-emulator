@@ -1,18 +1,18 @@
 # Building IPU Applications
 
-This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/tools/ipu-apps/src/ipu_apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/fully_connected).
+This guide shows how to build a complete IPU application using the fully connected neural network layer as an example. The complete code is in [src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected).
 
 ## Application Structure
 
-Each IPU application is a subpackage under `ipu_apps/` containing:
+Each IPU application is its own folder, `ipu_apps/kernels/<family>/<app>/`, containing:
 
 1. **Assembly code** (`.asm`) — IPU program with compute operations (see [Assembly Syntax Guide](assembly-syntax.md))
-2. **Python app class** (`__init__.py`) — Subclass of `IpuApp` that implements `setup()` and `teardown()`
-3. **Debug runner** (`__main__.py`) — Optional CLI entry point for interactive debugging
+2. **Python app class** (`app.py`) — Subclass of `IpuApp` that implements `setup()` and `teardown()`, with `SPEC` at the bottom
+3. **Reusable cases** (`cases.py`) — Input preparation and output checks without pytest
 4. **Test data** — Input/output binary files for validation
-5. **Regression tests** (`test/test_*.py`) — Automated tests comparing outputs against golden references
+5. **Regression tests** (`test.py`) — runs every case in `cases.py` via one shared line, plus any kernel-specific tests
 
-Everything lives together in one directory.
+Everything lives together in one directory. `__init__.py` stays empty.
 
 ## Configure the IPU before execution
 
@@ -29,83 +29,88 @@ def setup(self, state: IpuState) -> None:
     # dtype is emulator-only state, not a CR register.
     state.dtype = DType.INT8
 
-    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE/AAQ
+    # CR15 dstructure: configure whichever CR register your AGG.*/ACTIVATE.QUANTIZE
     # instructions name via their mandatory cr_idx operand.
     state.set_cr_dstructure(valid_elements=128, partition=0)
 
     # CR0 and CR1 are read-only constants (0 and 1). Use CR2-CR14 for app data.
-    state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
-    state.regfile.set_cr(3, 128)  # stride
-    state.regfile.set_cr(13, WEIGHTS_BASE_ADDR)
+    # XMEM operands in .asm are row numbers (128-byte rows here), not byte addresses.
+    state.regfile.set_cr(2, OUTPUT_BASE_ADDR // 128)
+    state.regfile.set_cr(3, 1)  # stride: one row
+    state.regfile.set_cr(13, WEIGHTS_BASE_ADDR // 128)
 
     # LR/CR values are 32-bit scalars; mask wrapped constants explicitly.
-    state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
+    state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)
 ```
 
-In assembly, every `AGG.*`/`ACTIVATE`/`AAQ` instruction must name its
+In assembly, every `AGG.*`/`ACTIVATE.QUANTIZE` instruction must name its
 dstructure CR register explicitly via a mandatory `cr_idx` operand — there is
 no implicit default:
 
 ```asm
 AGG.SUM LR0, CR15;;
-ACTIVATE relu, CR15;;
+ACTIVATE.QUANTIZE relu, CR15;;
 AGG.SUM LR0, CR3;;
-ACTIVATE relu, CR3;;
+ACTIVATE.QUANTIZE relu, CR3;;
 ```
 
 For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by the required `cr_idx` operand — it reads `valid_elements` from the named CR register. `CR15` remains a valid choice (it is the dstructure register's conventional home), but it must be written out like any other register.
 
 ## Wide-vector debug mode (optional)
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `AAQ` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
+The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
 
-## Activations, `ACTIVATE`, and virtual α (Python emulator) {#activations-emulator}
+## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 
 The [AaQ stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
-The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE`** so programs can apply the same nine activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
+The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
 ```asm
-ACTIVATE relu, CR15;;
+ACTIVATE.QUANTIZE relu, CR15;;
 ```
 
-- **Syntax:** `ACTIVATE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
+- **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
 - **Single source of truth:** keyword order and the pure-Python math live in `src/tools/ipu-common/src/ipu_common/activations.py` (`ACTIVATION_FN_NAMES`, `apply_activation`).
 
 ### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
 
 - **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
-- **`ACTIVATE`** (emulator) reads **`R_ACC`** and writes element-wise **32→32** activated elements into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
+- **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
-- **`AAQ`** (INT8 mode) quantizes the **wide elements currently in `POST_AAQ_REG`**, writing **128 bytes** of clamped INT8 into the **leading** bytes of **`POST_AAQ_REG`** and clearing the remainder for now. Typical flow: **`ACTIVATE`** (wide elements) then **`AAQ`** (quantize in place into the same register’s byte prefix).
+- Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In **wide-vector debug mode** the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `wide_vector_quantize_output` is set.
 - **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
-### Virtual α in the emulator (elu)
+### Virtual α and window bounds in the emulator (elu, window)
 
-The stock ISA does not expose α. The emulator reads α from each **`IpuState`** (field `elu_alpha`). If you do not set it, it is initialized from the default float in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`).
+The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
 
-Configure α the same way you think about dtype on state — **not via CR**:
+**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
+
+Configure these the same way you think about dtype on state — **not via CR**:
 
 ```python
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.emulator import run_test
 
-state = IpuState(elu_alpha=1.0)
+state = IpuState(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 # or after construction:
-state.set_activation_alphas(elu_alpha=1.0)
+state.set_activation_alphas(elu_alpha=1.0, window_a=0.0, window_b=0.1)
 
 # High-level harness (optional kwargs mirror IpuState):
 state, cycles = run_test(
     inst_path="prog.bin",
     setup=my_setup,
     elu_alpha=1.0,
+    window_a=0.0,
+    window_b=0.1,
 )
 ```
 
 Subclassing **`IpuApp`**, you can pass α through **`run(...)`** or store them on the app from **`__init__`** (same names as `run_test`); explicit **`run()`** arguments override stored attributes:
 
 ```python
-app = MyApp(inst_path="prog.bin", elu_alpha=1.0)
+app = MyApp(inst_path="prog.bin", elu_alpha=1.0, window_a=0.0, window_b=0.1)
 state, cycles = app.run()  # uses 1.0
 state, cycles = app.run(elu_alpha=0.5)  # uses 0.5 for this run
 ```
@@ -118,71 +123,32 @@ Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly pro
 
 ## Step 2: Define Bazel Build Targets
 
-Create `BUILD.bazel` entries to assemble the program and define your app targets:
+Nothing to declare. `src/tools/ipu-apps/BUILD.bazel` globs every `.asm` under
+`src/ipu_apps/kernels/`, so `kernels/<family>/my_app/my_app.asm` alone produces:
 
-```starlark
-load("//:asm_rules.bzl", "assemble_asm")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library")
-load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+- `:my_app` — `bazel run` runs the app; `bazel test` runs every case in
+  `cases.py` through the required `test.py` (`:test_my_app` remains an alias);
+- `:assemble_my_app` — the standalone assembled binary;
+- `:benchmark_my_app` — only if a `benchmark.py` sits beside the `.asm`. It
+  declares `CONFIGS`, a list of overrides of the default case's options
+  (optionally `PER = "rows"` for a cycles-per-row column, and `MAX_CYCLES`);
+  the shared runner in `kernel_registry/benchmarking.py` runs each through the
+  case and writes `results.md` beside it.
 
-# Assemble the .asm file to .bin
-assemble_asm(
-    name = "assemble_my_app",
-    src = "src/ipu_apps/my_app/my_app.asm",
-)
-
-# Collect test data files
-filegroup(
-    name = "my_app_test_data",
-    srcs = glob(["src/ipu_apps/my_app/test_data/**/*.bin"]),
-)
-
-# Binary for interactive debugging (optional)
-py_binary(
-    name = "my_app",
-    srcs = ["src/ipu_apps/my_app/__main__.py"],
-    main = "src/ipu_apps/my_app/__main__.py",
-    data = [
-        ":assemble_my_app.bin",
-        ":my_app_test_data",
-    ],
-    env = {
-        "MY_APP_INST_BIN": "$(rootpath :assemble_my_app.bin)",
-        "MY_APP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/my_app/test_data",
-    },
-    imports = ["src"],
-    deps = [":ipu_apps_lib"],
-)
-
-# Regression tests
-py_pytest_test(
-    name = "test_my_app",
-    srcs = ["test/test_my_app.py"],
-    data = [
-        ":assemble_my_app.bin",
-        ":my_app_test_data",
-    ],
-    env = {
-        "MY_APP_INST_BIN": "$(rootpath :assemble_my_app.bin)",
-        "MY_APP_DATA_DIR": "src/tools/ipu-apps/src/ipu_apps/my_app/test_data",
-    },
-    imports = ["src"],
-    deps = [
-        ":ipu_apps_lib",
-        requirement("pytest"),
-    ],
-)
-```
-
-Build the assembly:
+`.bin` fixtures in the package are included as data.
+Cases assemble the source at runtime, so no instruction-path or
+fixture-directory environment variables are needed.
+Each kernel has its own directory with one `.asm`, one `SPEC` and one `CASES`;
+kernels that share code keep it in their family's `app.py`/`cases.py`.
 
 ```bash
-bazel build //src/tools/ipu-apps:assemble_my_app
+bazel run //src/tools/ipu-apps:my_app -- --list-cases
+bazel test //src/tools/ipu-apps:my_app
 ```
 
 ## Step 3: Write the Application Class
 
-Create `src/ipu_apps/my_app/__init__.py` and subclass `IpuApp`:
+Create `src/ipu_apps/kernels/<family>/my_app/app.py` and subclass `IpuApp`:
 
 ```python
 """My IPU application — description of what it does."""
@@ -193,7 +159,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
-from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry.base import IpuApp
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -219,13 +185,15 @@ class MyApp(IpuApp):
             state, self.inputs_path,
             base_addr=0x0000,
             chunk_size=128,
-            num_chunks=10,
+            max_chunks=10,
         )
-        
-        # Set control registers
-        state.regfile.set_cr(0, 0x0000)   # input base address
-        state.regfile.set_cr(1, 0x20000)  # weight base address
-        state.regfile.set_cr(2, 0x40000)  # output base address
+
+        # Set control registers. CR0/CR1 are read-only constants (0 and 1), and
+        # .asm XMEM operands are row numbers (128-byte rows in narrow mode),
+        # not byte addresses.
+        state.regfile.set_cr(2, 0x0000 // 128)   # input base row
+        state.regfile.set_cr(3, 0x20000 // 128)  # weight base row
+        state.regfile.set_cr(4, 0x40000 // 128)  # output base row
 
     def teardown(self, state: "IpuState") -> None:
         """Dump results from XMEM after execution."""
@@ -245,131 +213,83 @@ class MyApp(IpuApp):
 - `teardown()` collects results after execution (dump outputs)
 - The base class `run()` method orchestrates: create state → load program → setup → execute → teardown
 
-## Step 4: Write the Interactive Runner (Optional)
+## Step 4: Declare the Spec and Reusable Cases
 
-Create `src/ipu_apps/my_app/__main__.py` for interactive debugging:
+Declare a `KernelSpec` named `SPEC` beside your harness. It defines the
+supported parameters, constructor arguments, assembly path, and execution
+configuration. Follow [Adding applications](adding-applications.md) for the
+spec and constructor-guard contract.
+
+Create `src/ipu_apps/kernels/<family>/my_app/cases.py` for input preparation and output checks:
 
 ```python
-"""Debug runner for my_app.
-
-Usage::
-    bazel run //src/tools/ipu-apps:my_app -- --input data.bin
-"""
-
-import argparse
-import os
 from pathlib import Path
+from ipu_apps.kernel_registry.cases import (
+    KernelCase, PreparedCase, check_output_bytes,
+)
 
-from ipu_emu.debug_cli import debug_prompt
-from ipu_apps.my_app import MyApp
+DATA = Path(__file__).with_name("test_data")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run my_app with debug CLI")
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--max-cycles", type=int, default=1_000_000)
-    args = parser.parse_args()
+def prepare(workspace):
+    output = workspace / "output.bin"
 
-    # Bazel sets these via env vars (see BUILD.bazel)
-    inst_path = Path(os.environ["MY_APP_INST_BIN"])
-    
-    app = MyApp(
-        inst_path=inst_path,
-        inputs_path=args.input,
-        output_path=args.output,
+    def check():
+        check_output_bytes(output, DATA / "expected.bin")
+
+    return PreparedCase(
+        params={},  # Parameters accepted by your SPEC.
+        bindings={"inputs_path": DATA / "inputs.bin", "output_path": output},
+        check=check,
     )
-    state, cycles = app.run(
-        max_cycles=args.max_cycles,
-        debug_callback=debug_prompt,  # Interactive debug CLI
-    )
-    print(state.stats.format_summary())
 
 
-if __name__ == "__main__":
-    main()
+CASES = {"default": KernelCase(prepare)}
 ```
 
-**Key points:**
-- Use `debug_prompt` as the callback to enable interactive debugging
-- Read `MY_APP_INST_BIN` from environment (set by Bazel in BUILD.bazel)
-- Accept command-line arguments for input/output paths
-- This is optional — only needed if you want a standalone debug runner
+Cases must not import pytest. A checker raises a descriptive exception on a
+mismatch; use explicit comparisons rather than `assert`, which disappears
+under Python optimization. Numeric checks should report the error and tolerance.
 
-Run interactively:
+Case defaults define CLI options and must be strings, integers, floats, or
+booleans. Option names use lower-case letters, digits, and underscores and may
+not conflict with the shared runner's options. For richer inputs, accept a
+string and parse it in preparation. A `default` case is required.
 
-```bash
-bazel run //src/tools/ipu-apps:my_app -- --input my_input.bin --output results.bin
-```
+Cases and assembly live in the harness's containing package. A class in
+`kernels/<family>/my_app/app.py` therefore uses `my_app/cases.py`. Set `SPEC.package` explicitly
+when resources live in a different package.
 
 ## Step 5: Write Regression Tests
 
-Create `test/test_my_app.py` for automated validation:
+Create `kernels/<family>/my_app/test.py`. Its first line of code runs every
+case in `cases.py` through `run_case`, which assembles, prepares, executes and
+validates it, then cleans its temporary workspace. Below it, add checks beyond
+the cases — edge-case geometry, refusal messages, extra numerical properties:
 
 ```python
-"""End-to-end regression tests for my_app."""
+from ipu_apps.kernel_registry import resolve
+from ipu_apps.kernel_registry.testing import case_tests
 
-from __future__ import annotations
-
-import os
-from pathlib import Path
-
-import pytest
-
-from ipu_apps.my_app import MyApp
+test_case = case_tests(__package__)
 
 
-# Bazel sets these via env vars (see BUILD.bazel)
-_INST_BIN = Path(os.environ["MY_APP_INST_BIN"])
-_DATA_DIR = Path(os.environ["MY_APP_DATA_DIR"])
-
-
-def _run_app(tmp_path: Path, test_case: str) -> tuple[bytes, int]:
-    """Run the app for a test case, return (output_bytes, cycles)."""
-    case_dir = _DATA_DIR / test_case
-    if not case_dir.exists():
-        pytest.skip(f"Test data not found: {case_dir}")
-    
-    inputs = case_dir / "inputs.bin"
-    if not inputs.exists():
-        pytest.skip(f"Missing input file: {inputs}")
-    
-    output = tmp_path / "output.bin"
-    app = MyApp(
-        inst_path=_INST_BIN,
-        inputs_path=inputs,
-        output_path=output,
-    )
-    _, cycles = app.run(max_cycles=1_000_000)
-    return output.read_bytes(), cycles
-
-
-@pytest.mark.parametrize("test_case,golden_name", [
-    ("case1", "golden_case1.bin"),
-    ("case2", "golden_case2.bin"),
-])
-def test_my_app(tmp_path: Path, test_case: str, golden_name: str) -> None:
-    """Compare app output against golden reference."""
-    actual, cycles = _run_app(tmp_path, test_case)
-    assert cycles > 0
-    
-    golden = _DATA_DIR / test_case / golden_name
-    if golden.exists():
-        assert actual == golden.read_bytes()
+def test_refuses_odd_width():
+    assert not resolve("my_op", shape=(1, 3)).supported
 ```
 
-**Key points:**
-- Read `MY_APP_INST_BIN` and `MY_APP_DATA_DIR` from environment variables
-- Use `pytest.mark.parametrize` to test multiple cases with one test function
-- Compare actual output against golden reference files
-- Skip gracefully if test data is missing
-- No `debug_callback` — tests run headless and fast
+To run the default case at more sizes, pass option overrides instead of writing
+a parametrized test: `case_tests(__package__, sweep=[dict(rows=8), dict(rows=300)])`.
 
-Run tests:
+Tests may pass `inst_path` from a module-scoped fixture to reuse assembly. Use
+`workspace` when a test needs to inspect files.
 
 ```bash
-bazel test //src/tools/ipu-apps:test_my_app
+bazel test //src/tools/ipu-apps:my_app
 ```
+
+The pyproject config discovers both `test/test_*.py` and adjacent `src/**/test.py`
+suites. Bazel remains the supported build and test workflow.
 
 ## Inspecting Run Statistics
 
@@ -473,7 +393,7 @@ from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 
-from ipu_apps.base import IpuApp
+from ipu_apps.kernel_registry.base import IpuApp
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -550,19 +470,22 @@ class FullyConnectedApp(IpuApp):
             state, self.inputs_path, INPUT_BASE_ADDR, INPUT_NEURONS, SAMPLES_NUM
         )
         _load_and_transpose_weights(state, self.weights_path)
-        # CR0 is permanently 0; CR1 is permanently 1.
-        state.regfile.set_cr(2, OUTPUT_BASE_ADDR)
-        state.regfile.set_cr(3, 128)
+        # CR0 is permanently 0; CR1 is permanently 1. XMEM operands are row
+        # numbers, so base addresses are divided by the row size.
+        row_size = 512 if state.wide_vector_debug else 128
+        state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)
+        state.regfile.set_cr(3, 1)          # one row per input vector
         state.regfile.set_cr(4, 1)
-        state.regfile.set_cr(5, 256)
+        state.regfile.set_cr(5, 512 // row_size)
         # Values for ``SET lr* cr*`` in the assembly listing above
         state.regfile.set_cr(6, 0)
-        state.regfile.set_cr(7, 1280)
+        state.regfile.set_cr(7, SAMPLES_NUM)  # loop bound, in rows
         state.regfile.set_cr(8, 0)
-        state.regfile.set_cr(9, (-128) & LR_CR_SCALAR_VALUE_MASK)
+        state.regfile.set_cr(9, (-1) & LR_CR_SCALAR_VALUE_MASK)
         state.regfile.set_cr(10, (-1) & LR_CR_SCALAR_VALUE_MASK)
         state.regfile.set_cr(11, 127)
         state.regfile.set_cr(12, 0)
+        state.regfile.set_cr(13, WEIGHTS_BASE_ADDR // row_size)
 
     def teardown(self, state: "IpuState") -> None:
         """Dump output activations from XMEM."""
@@ -573,87 +496,38 @@ class FullyConnectedApp(IpuApp):
             )
 ```
 
-### Interactive Debug Runner
+### Running the Fully Connected Cases
 
-The `__main__.py` provides an interactive CLI for development:
+The shared registry runner loads `fully_connected/cases.py`:
 
-```python
-"""Debug runner for the fully-connected app.
-
-Usage::
-
-    bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8
-"""
-
-import argparse
-import os
-from pathlib import Path
-
-from ipu_emu.debug_cli import debug_prompt
-
-from ipu_apps.fully_connected import FullyConnectedApp
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run fully-connected with debug CLI")
-    parser.add_argument("--dtype", default="INT8", choices=["INT8", "FP8_E4M3", "FP8_E5M2"])
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--max-cycles", type=int, default=2_000_000)
-    args = parser.parse_args()
-
-    # Bazel sets these via env vars (see BUILD.bazel)
-    inst_path = Path(os.environ["FC_INST_BIN"])
-    data_dir = Path(os.environ["FC_DATA_DIR"])
-
-    app = FullyConnectedApp(
-        inst_path=inst_path,
-        inputs_path=data_dir / args.dtype.lower() / f"inputs_{args.dtype.lower()}.bin",
-        weights_path=data_dir / args.dtype.lower() / f"weights_{args.dtype.lower()}.bin",
-        output_path=args.output,
-        dtype=args.dtype,
-    )
-    state, cycles = app.run(max_cycles=args.max_cycles, debug_callback=debug_prompt)
-    print(state.stats.format_summary())
-
-
-if __name__ == "__main__":
-    main()
+```bash
+bazel run //src/tools/ipu-apps:fully_connected -- --list-cases
+bazel run //src/tools/ipu-apps:fully_connected -- --dtype INT8 --output /tmp/fc-output.bin
+bazel test //src/tools/ipu-apps:fully_connected
 ```
 
-**Key observations:**
-- The `setup()` method transcodes weights (transpose for cache efficiency) and loads both inputs and weights into XMEM
-- Control registers point the assembly code to the base addresses: `CR0=inputs`, `CR1=weights_transposed`, `CR2=outputs`
-- The dtype is configurable (for example INT8, FP8_E4M3, FP8_E5M2), parsed to `DType`, and copied to `IpuState.dtype`
-- The assembly program is written to operate on transposed weights for better performance
-- All paths are resolved by Bazel and passed via environment variables
+Fixture paths are resolved relative to the case module. `--output` exports
+completed output before validation, allowing inspection of a failing result;
+a failed check still exits with a nonzero status and a diagnostic. Programs
+that exceed their cycle limit are rejected before export.
 
-See [src/tools/ipu-apps/src/ipu_apps/fully_connected](https://github.com/rechefe/ipu-emulator/tree/master/src/tools/ipu-apps/src/ipu_apps/fully_connected) for the complete working code including tests and Bazel build targets.
+The shared CLI runs without an interactive debugger. To debug a harness
+through the Python API, pass `debug_callback=debug_prompt` to `app.run()`;
+see [Debugging](debugging.md) for callback usage.
 
-## Summary: The Two Usage Patterns
+## Running and Testing Applications
 
-### Pattern 1: Interactive Debugging
-- **Purpose**: Develop and debug your application
-- **File**: `__main__.py` with `debug_prompt` callback
-- **Target**: `py_binary` in BUILD.bazel
-- **Run**: `bazel run //...:my_app -- --input data.bin`
-- **Features**: Breakpoints, register inspection, step-through execution
-
-### Pattern 2: Regression Tests
-- **Purpose**: Validate correctness against known-good outputs
-- **File**: `test/test_*.py` with pytest assertions
-- **Target**: `py_pytest_test` in BUILD.bazel
-- **Run**: `bazel test //...:test_my_app`
-- **Features**: Fast, headless, CI-friendly, parametrized test cases
-
-Both patterns share the same `MyApp` class — you just write `setup()` and `teardown()` once, then use it in both contexts.
+Both `bazel run` and `bazel test` use the same harness and reusable cases.
+The `ipu_app` macro supplies the CLI, and the adjacent `test.py` runs every
+case plus any kernel-specific pytest coverage. Kernel packages do not need a custom `__main__.py`.
 
 ## Key Concepts
 
 - **Memory Layout**: Define base addresses for inputs, weights, and outputs in external memory (XMEM)
 - **Register Setup**: Initialize LR/CR registers before execution in `setup()`
 - **Auto-attribute Storage**: Pass all parameters to `IpuApp.__init__(**kwargs)` — they're automatically stored as `self.param_name`
-- **Path Handling**: Use Bazel `env` with `$(rootpath ...)` to set environment variables with resolved paths
+- **Path Handling**: Resolve fixtures relative to `cases.py`; declare assembly and fixture files as Bazel data
 - **Emulator Run**: The emulator executes instructions until the program counter exceeds instruction memory
-- **Bazel Integration**: The `assemble_asm` rule compiles `.asm` files to `.bin` executables
+- **Bazel Integration**: `ipu_app` supplies a single label for run and test, plus `assemble_<name>` for the standalone assembled binary
 
-See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/fully_connected/` for a real-world implementation.
+See the [Assembly Syntax Guide](assembly-syntax.md) for more details on writing IPU programs and the complete fully_connected example at `src/tools/ipu-apps/src/ipu_apps/kernels/linear/fully_connected/` for a real-world implementation.

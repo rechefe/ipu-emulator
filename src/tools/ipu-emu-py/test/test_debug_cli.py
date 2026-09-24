@@ -67,6 +67,30 @@ def _make_state_with_program(asm_code: str, *, cr: dict[int, int] | None = None)
     return state
 
 
+def test_active_tui_session_does_not_change_legacy_prompt(monkeypatch):
+    import ipu_emu.debug_tui as tui
+
+    state = IpuState()
+    tui.get_debug_view_session(state).active = True
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("the legacy prompt must never open curses")
+
+    monkeypatch.setattr(tui, "run_debug_tui", forbidden)
+    output = StringIO()
+    action = debug_prompt(state, cycle=4, inp=StringIO("step\n"), out=output)
+    assert action == DebugAction.STEP
+    assert "IPU Debug - Break at PC=0" in output.getvalue()
+
+
+def test_legacy_cli_has_no_tui_command():
+    cli, output = _make_cli(IpuState(), "")
+    cli.onecmd("help")
+    assert "tui" not in output.getvalue()
+    cli.onecmd("tui")
+    assert "Unknown command: tui" in output.getvalue()
+
+
 # ============================================================================
 # Register resolution
 # ============================================================================
@@ -659,3 +683,46 @@ class TestPrintAllRegisters:
         buf = StringIO()
         print_all_registers(state, out=buf)
         assert "Program Counter" in buf.getvalue()
+
+
+class TestRuntimeControls:
+    def test_breakpoints_are_shared_between_prompt_instances(self):
+        state = IpuState()
+        cli, _ = _make_cli(state, "")
+        cli.onecmd("break")
+        cli.onecmd("break 0x10")
+        other, output = _make_cli(state, "")
+        other.onecmd("breaks")
+        assert "Breakpoints: 0, 16" in output.getvalue()
+        other.onecmd("delete 0")
+        assert cli.control.breakpoints == {16}
+        other.onecmd("delete all")
+        assert not cli.control.breakpoints
+
+    @pytest.mark.parametrize("argument", ["-1", "999999", "invalid", "1 2"])
+    @pytest.mark.parametrize("command", ["break", "delete", "until"])
+    def test_invalid_pc_does_not_change_controls(self, command, argument):
+        cli, output = _make_cli(IpuState(), "")
+        cli.control.add_breakpoint(2)
+        assert not cli.onecmd(f"{command} {argument}")
+        assert cli.control.breakpoints == {2}
+        assert cli.control.run_target is None
+        assert "PC must" in output.getvalue()
+
+    def test_until_current_pc_stays_paused(self):
+        cli, output = _make_cli(IpuState(), "")
+        assert cli.onecmd("until 0") is None
+        assert cli.control.run_target is None
+        assert "Already at PC 0" in output.getvalue()
+        assert cli.onecmd("until 2") is True
+        assert cli.control.run_target == 2
+        assert cli._result == DebugAction.CONTINUE
+
+    @pytest.mark.parametrize("register", ["cr0", "cr1"])
+    def test_read_only_set_reports_error_without_exiting(self, register):
+        state = IpuState()
+        cli, output = _make_cli(state, "")
+        assert cli.onecmd(f"set {register} 99") is None
+        assert "read-only" in output.getvalue()
+        assert state.regfile.get_cr(0) == 0
+        assert state.regfile.get_cr(1) == 1

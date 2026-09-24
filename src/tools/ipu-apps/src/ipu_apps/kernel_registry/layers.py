@@ -16,7 +16,7 @@ torch an optional dependency: the registry never imports it. Anything exposing
 the right attributes works, including a stub in a test.
 
 This module holds only the *mechanism*. Every adapter lives beside the kernels
-it serves (softmax's are in :mod:`ipu_apps.softmax._spec_support`), so no
+it serves (softmax's are in :mod:`ipu_apps.kernels.softmax.app`), so no
 operation's vocabulary leaks into the op-agnostic core, and supporting a new
 layer type never touches this file. :func:`from_layer` runs discovery before
 looking an adapter up, because a kernel package that has not been imported has
@@ -49,8 +49,8 @@ class UnsupportedLayer(ValueError):
 def register_layer(*class_names: str):
     """Register an adapter for one or more framework layer class names.
 
-    Adapters live next to the kernels they serve, so supporting a new layer
-    type does not touch this module.
+    Adapters live in the ``app.py`` of the kernels they serve (or a module it
+    imports), so supporting a new layer type does not touch this module.
     """
 
     def decorate(fn):
@@ -86,9 +86,10 @@ def from_layer(
         input_shape: Shape of the tensor the layer will be applied to.
         package:     Root package to discover adapters in. Discovery runs
             first: adapters register as a side effect of importing the kernel
-            package that declares them, so without this an adapter declared
-            beside its kernel -- the documented way to add one -- would be
-            invisible until something else happened to import it.
+            ``app`` module that declares them (discovery imports only ``app``
+            modules), so without this an adapter declared beside its kernel --
+            the documented way to add one -- would be invisible until something
+            else happened to import it.
 
     Raises:
         UnsupportedLayer: if no adapter is registered for this layer type.
@@ -104,7 +105,7 @@ def from_layer(
         known = ", ".join(adapters()) or "none"
         raise UnsupportedLayer(
             f"no adapter for layer type {name!r}. Layers with an adapter: "
-            f"{known}. Add one with @register_layer({name!r}) next to the "
-            f"kernel that implements it."
+            f"{known}. Add one with @register_layer({name!r}) in the app.py of "
+            f"the kernel that implements it (or a module that app.py imports)."
         )
     return adapter(layer, tuple(int(d) for d in input_shape))

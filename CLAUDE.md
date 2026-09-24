@@ -8,6 +8,7 @@ bazel test //src/tools/ipu-emu-py:test_execute           # emulator tests only
 bazel test //src/tools/ipu-as-py:test_assemble           # assembler tests only
 bazel test //src/tools/ipu-apps:test_fully_connected     # app tests only
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output prog.bin
+bazel test --define=ipu_proto=1 //...                    # prototyping mode (opt-in fast paths)
 ```
 
 Use `bazel`, not `pip install` or `python` directly.

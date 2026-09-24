@@ -1,15 +1,17 @@
 """Finding every kernel that has declared itself, at any nesting depth.
 
-Kernels are not listed anywhere central. Discovery walks the ``ipu_apps``
-package tree and collects every module-level ``SPEC`` (or ``SPECS`` for a
-module declaring several). Adding a kernel is then purely additive: no
+Kernels are not listed anywhere central. Every kernel has its own directory
+and keeps its harness class and ``SPEC`` together in a file named ``app.py``,
+with an empty ``__init__.py`` alongside it -- discovery
+walks the ``ipu_apps`` package tree and imports exactly the modules named
+``app``, nothing else. Adding a kernel is then purely additive: no
 registration list to edit, no import to remember.
 
 Two properties this has to hold:
 
-* **Arbitrary depth.** ``softmax`` nests kernels one level down, but the
-  convolution family nests them three (``convolutions_universal/conv/
-  conv_universal/``). Recursion is not optional.
+* **Arbitrary depth.** Family kernels sit two levels down
+  (``kernels/softmax/softmax_rows/``, ``kernels/convolutions/conv1x1/``), and
+  nothing fixes that depth. Recursion is not optional.
 * **Tolerance of broken or half-present packages.** A working tree can easily
   contain directories that are not importable -- stale ``__pycache__`` shells
   left behind by a branch switch, a kernel mid-authoring, an optional
@@ -17,21 +19,24 @@ Two properties this has to hold:
   :class:`SkippedModule` and carries on. A registry that raises on import of an
   unrelated half-finished app would be worse than useless in exactly the
   situation people need it.
+
+Targeting ``app.py`` specifically (rather than importing every submodule and
+checking each for a ``SPEC``) means a shared helper module -- a family's ``cases.py``,
+``prepare`` code, whatever a kernel family needs -- is never imported by
+discovery just to find it has no spec. There is no name-based skip-list to
+keep in sync with the codebase's naming conventions; only the one convention
+every kernel already follows matters.
 """
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
+import sys
 from dataclasses import dataclass
 from types import ModuleType
 
 from ipu_apps.kernel_registry.spec import KernelSpec
-
-# Subpackage names that never contain kernel declarations. Skipping them keeps
-# discovery from importing test/benchmark code (which is slow, and may pull in
-# optional dependencies) just to find specs.
-_SKIP_PARTS = frozenset({"benchmark", "test", "tests", "__pycache__"})
 
 
 @dataclass(frozen=True)
@@ -52,19 +57,9 @@ class Discovered:
     skipped: tuple[SkippedModule, ...]
 
 
-def _is_skippable(module_name: str) -> bool:
-    return any(part in _SKIP_PARTS for part in module_name.split("."))
-
-
 def _specs_in(module: ModuleType) -> list[KernelSpec]:
-    found: list[KernelSpec] = []
-    single = getattr(module, "SPEC", None)
-    if isinstance(single, KernelSpec):
-        found.append(single)
-    for extra in getattr(module, "SPECS", ()) or ():
-        if isinstance(extra, KernelSpec):
-            found.append(extra)
-    return found
+    spec = getattr(module, "SPEC", None)
+    return [spec] if isinstance(spec, KernelSpec) else []
 
 
 def discover(package: str = "ipu_apps") -> Discovered:
@@ -72,7 +67,7 @@ def discover(package: str = "ipu_apps") -> Discovered:
 
     Args:
         package: Root package to walk. Defaults to the whole app tree; pass a
-            subpackage (``"ipu_apps.softmax"``) to scope discovery.
+            subpackage (``"ipu_apps.kernels.softmax"``) to scope discovery.
 
     Returns:
         A :class:`Discovered` holding the specs found and the modules skipped.
@@ -92,8 +87,15 @@ def discover(package: str = "ipu_apps") -> Discovered:
     if paths is None:
         return Discovered(tuple(specs.values()), ())
 
-    for info in pkgutil.walk_packages(paths, prefix=f"{package}."):
-        if _is_skippable(info.name):
+    def unimportable_package(name: str) -> None:
+        # walk_packages imports each package to recurse into it, and calls this
+        # from inside its except block. Without it a broken family __init__
+        # would silently hide every kernel beneath it.
+        exc = sys.exc_info()[1]
+        skipped.append(SkippedModule(name, f"{type(exc).__name__}: {exc}"))
+
+    for info in pkgutil.walk_packages(paths, prefix=f"{package}.", onerror=unimportable_package):
+        if info.name.rsplit(".", 1)[-1] != "app":
             continue
         try:
             module = importlib.import_module(info.name)
