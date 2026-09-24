@@ -9,7 +9,11 @@ memory (XMEM) It produces:
 
 - A 128-element vector of 8-bit quantized values.
 - A scale factor.
-- A format field.
+- A `dynamic_exponent` bit (the exponent split chosen in dynamic mode).
+
+The element format is **not** stored per XMEM row. It is global to a table
+(which may span several XMEM banks) and is supplied to the stage through the
+`format` input (section 3.3).
 
 The stage also owns the function estimation **LUT**, which is filled by the `LOAD`
 instruction (section 6.3).
@@ -21,7 +25,7 @@ flowchart LR
     acc_stage:::blue
     ACC(["r_acc 128x32bit"]):::yellow
     WADDR(["write_addr"]):::yellow
-    XMEM(["XMEM write<br>Memory[write_addr] =<br>128x8bit elements | 8bit scale | 8bit format"]):::red
+    XMEM(["XMEM write<br>Memory[write_addr] =<br>128x8bit elements | 8bit scale | 1bit dynamic_exponent"]):::red
     LUT["LUT<br>256x17bit<br>+ 75b metadata"]:::teal
     ACT["Activation"]:::teal
     QUANT["Quantization"]:::teal
@@ -30,7 +34,7 @@ flowchart LR
     ACC -.->|LOAD: low bits| LUT
     LUT --> ACT
     ACT -->|128x32| QUANT
-    QUANT -->|128x8 + scale + format| XMEM
+    QUANT -->|128x8 + scale + dynamic_exponent| XMEM
     WADDR --> XMEM
     acc_stage --> |128x32| ACC
     acc_stage --> WADDR
@@ -61,10 +65,9 @@ flowchart LR
     function_type  ─────>│                                      ├────> XMEM write
          lut_addr  ─────>│             AaQ Stage                │      Memory[write_addr] =
    valid_elements  ─────>│                                      │      [128×8b elements | 8b scale
-        partition  ─────>│                                      │       | 8b format]
+        partition  ─────>│                                      │       | 1b dynamic_exponent]
    partition_mask  ─────>│                                      │
            format  ─────>│                                      │
-        quan_mode  ─────>│                                      │
        write_addr  ─────>│                                      │
                          └──────────────────────────────────────┘
 ```
@@ -84,8 +87,7 @@ flowchart LR
 | `valid_elements` | `input logic [7:0]` | Number of valid elements in `r_acc`, range `0`–`128`. 8 bits are required because `128` is not representable in 7. |
 | `partition` | `input logic [1:0]` | Element partition grouping: enum of `1`/`2`/`4`/`8` (encoded `00`/`01`/`10`/`11`). Exact semantics TBD. |
 | `partition_mask` | `input logic [2:0]` | Count of `partition` groups, counted from the right (highest-indexed group), that are masked out entirely. `0` = all `partition` groups valid; `k` = the rightmost `k` groups are masked — their elements do not participate in activation/quantization and their output elements are forced to 0 (section 6.2). `k` must not exceed `partition - 1` (masking every group is not a supported configuration). Example: `partition = 8` splits the 128 elements into 8 groups of 16 (`elements[0:15] \| elements[16:31] \| ... \| elements[112:127]`); `partition_mask = 2` masks the rightmost 2 groups, i.e. `elements[96:127]`. |
-| `format` | `input logic [7:0]` | Output element format. See section 3.3. |
-| `quan_mode` | `input logic` | Scale-factor mode: `1` = dynamic, `0` = static. |
+| `format` | `input logic [8:0]` | Output element format of the destination table, global to the table (not stored per XMEM row). Bits `[7:0]` describe the element encoding; bit `[8]` (`dynamic`) selects static (`0`) or dynamic (`1`) quantization. See section 3.3. |
 | `write_addr` | `input logic [XMEM_ADDR_W-1:0]` | Destination XMEM address for the quantized result (see `XMEM_ADDR_W` in the Control stage spec, section 4). The stage writes to this address directly. |
 
 *`op` is sourced from the `opcode` field of the generated `aaq_slot_t` struct, typed `aaq_inst_opcode_t` (package `ipu_instr_pkg`). Generated from [`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py) (the AAQ slot's `"aaq"` entry) by [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py) via the [`ipu_instr_pkg.sv.j2`](../../../src/tools/ipu-as-py/src/ipu_as/templates/ipu_instr_pkg.sv.j2) template (`bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output <path>`).*
@@ -93,29 +95,40 @@ flowchart LR
 ### 3.2 Output
 
 AaQ performs the XMEM write itself. On `ACTIVATE.QUANTIZE` (and only on that
-opcode — see section 4) the stage drives a single 1040-bit write to
+opcode — see section 4) the stage drives a single 1033-bit write to
 `Memory[write_addr]`:
 
 | Field | Width | Description |
 |-------|-------|-------------|
 | `elements` | 128 × 8 = 1024 bits | 128 quantized elements, 8 bits each (section 5.1). |
 | `scale` | 8 bits | Batch scale factor, `e8m0` (section 5.1). |
-| `format` | 8 bits | Passed through unchanged from the `format` input (section 3.3). |
+| `dynamic_exponent` | 1 bit | Exponent split chosen by the dynamic selection (section 5.1.1): `0` = `fe = 1` (`e1m6`), `1` = `fe = 2` (`e2m5`). Written as `0` when `format[8] = 0` (static), and ignored by readers in that mode. |
 
-Total write payload: 1024 + 8 + 8 = **1040 bits**, to address `write_addr`.
+Total write payload: 1024 + 8 + 1 = **1033 bits**, to address `write_addr`.
+
+The row does **not** contain the `format` field. The format belongs to the
+table as a whole, and whoever reads the row must get it from the same
+table-level configuration that drove the `format` input.
 
 `aaq_out` is used below as the pseudocode name for this bundle; the concrete
 storage/register implementation is left to the designer.
 
 ### 3.3 `format` Field Layout
 
-`format` is 8 bits:
+`format` is 9 bits. It is a property of the destination table (shared by
+every row of that table, across all of its XMEM banks) and is not written to
+XMEM:
 
 | Bits | Name | Description |
 |------|------|-------------|
+| `[8]` | `dynamic` | Quantization mode: `0` = static, `1` = dynamic (section 5.1.1). |
 | `[7]` | `sign` | `0` = unsigned, `1` = signed. |
 | `[6:4]` | `exp_bits` (`fe`) | Number of exponent bits, `0`–`7`. |
 | `[3:0]` | `width` | Total element width `W`, stored directly (no offset): value `1`–`8`. `0` is reserved/invalid. |
+
+Bits `[7:0]` have the same meaning in both modes. In dynamic mode
+(`format[8] = 1`) the exponent width is chosen per row (section 5.1.1) and
+recorded in that row's `dynamic_exponent` bit, so `format[6:4]` is ignored.
 
 The mantissa is **the remainder** — what is left of the element width once the
 sign and exponent bits are taken out:
@@ -268,12 +281,12 @@ saturated value but the smallest directly-encoded one, so it is re-encoded as
 through unchanged. The final 8-bit quantized element is
 `{S?, Exp, M, 0-pad}`: `S`, `Exp` (`fe` bits), and `M` (`fm` bits) packed at
 the high end, zero-padded at the low end to fill 8 bits. The write payload
-also carries `Format` (passed through unchanged from the `format` input) and
-the batch `Scale` (`s`), as described in section 3.2.
+also carries the batch `Scale` (`s`) and the `dynamic_exponent` bit, as
+described in section 3.2. `format` is not written; it is table-level.
 
-> **Note:** the `S`/`Exp`/`M` encoding above is the same for both
-> `quan_mode` values, and `s` is computed the same way (batch max, as shown
-> above) regardless of `quan_mode`. `quan_mode = 1` (dynamic) restricts
+> **Note:** the `S`/`Exp`/`M` encoding above is the same in both modes,
+> and `s` is computed the same way (batch max, as shown above) regardless
+> of `format[8]`. `format[8] = 1` (dynamic) restricts
 > `format` to exactly two supported formats, both signed and both 8 bits
 > wide (`format[3:0] = 8`): `e2m5` and `e1m6` — that pair is exactly
 > `fe = 2` and `fe = 1` at `W = 8`, signed, since `fm` is the leftover
@@ -282,8 +295,9 @@ the batch `Scale` (`s`), as described in section 3.2.
 
 #### 5.1.1 Dynamic Exponent-Field Selection (`fe = 1` vs `fe = 2`)
 
-Applies only when `quan_mode = 1`. The dynamic decision selects **the exponent
-field width alone**: `fe = 1` or `fe = 2` (`format[6:4]`). The mantissa is not
+Applies only when `format[8] = 1`. The dynamic decision selects **the exponent
+field width alone**: `fe = 1` or `fe = 2`. The input `format[6:4]` is ignored,
+and the choice is written to the row's `dynamic_exponent` bit (section 3.2). The mantissa is not
 chosen independently — it is the leftover `fm = W - fe - sign_bit` (section
 3.3), so moving from `fe = 1` to `fe = 2` always buys one more exponent bit at
 the cost of exactly one mantissa bit, whatever `W` and `sign_bit` are. Each
@@ -340,8 +354,8 @@ B = RTN( |err2^2 - err1^2| * 2^(2*(fm1 + 1)) )
 ##### Decision
 
 ```text
-if sum(B) - 4 * sum(A) < 0:  choose fe1        // format[6:4] = 1
-else:                        choose fe2        // format[6:4] = 2
+if sum(B) - 4 * sum(A) < 0:  choose fe1        // dynamic_exponent = 0
+else:                        choose fe2        // dynamic_exponent = 1
 ```
 
 The constant 4 is a unit reconciliation, not a tuning parameter. The B
@@ -478,7 +492,7 @@ but is never assumed).
 
 ### 6.2 `ACTIVATE.QUANTIZE`: Activate, Quantize and Store
 
-- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and format to `Memory[write_addr]`. This is the only AaQ opcode that drives an XMEM write. Activation functions are pre-configured into the LUT by `LOAD` (section 6.3); naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
+- **Summary:** Apply an element-wise activation function to the active elements of `r_acc`, quantize the result, and write the resulting 8-bit values, scale factor, and `dynamic_exponent` bit to `Memory[write_addr]`. This is the only AaQ opcode that drives an XMEM write. Activation functions are pre-configured into the LUT by `LOAD` (section 6.3); naming an activation in `function_type` triggers the corresponding loaded LUT entry. `r_acc` is not modified.
 - **Syntax:** `ACTIVATE.QUANTIZE function_type, cr_idx`
 - **Operands:**
   - `function_type`: activation/special-function keyword (see section 5.0): `identity`, `relu`, `relu6`, `generic`, `reciprocal`, `rsqrt`, `exp2`.
@@ -492,8 +506,8 @@ but is never assumed).
       aaq_out.elements[i] = quantize(activated[i])     // section 5.1
   aaq_out.elements[n..127] = 0
   aaq_out.scale = s                                    // section 5.1
-  aaq_out.format = format
-  Memory[write_addr] = aaq_out                         // 1040 bits, section 3.2
+  aaq_out.dynamic_exponent = format[8] ? (fe == 2) : 0 // section 5.1.1
+  Memory[write_addr] = aaq_out                         // 1033 bits, section 3.2
   ```
 - **Example:** `ACTIVATE.QUANTIZE relu, CR15;;`
 
@@ -521,5 +535,5 @@ but is never assumed).
 | Slot | Mnemonic | Operands | One-line Effect |
 |------|----------|----------|-----------------|
 | AaQ | `NOP`               | -                       | no state change |
-| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/format` set, `Memory[write_addr] = aaq_out`, n = min(valid_elements, 128 - partition_mask * (128/partition)) |
+| AaQ | `ACTIVATE.QUANTIZE` | `function_type, cr_idx` | `aaq_out.elements[0..n-1] = quantize(LUT[function_type](r_acc[i]))`, `aaq_out.scale/dynamic_exponent` set, `Memory[write_addr] = aaq_out`, n = min(valid_elements, 128 - partition_mask * (128/partition)) |
 | AaQ | `LOAD`              | `lut_addr`              | `LUT.segment[lut_addr] = r_acc[31:0]` low 17 bits per word; `lut_addr` `0`-`3` = 32 table entries each, `4` = metadata block |
