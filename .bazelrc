@@ -9,6 +9,9 @@ build --copt=-Wall
 build --copt=-Wextra
 build --copt=-Wpedantic
 
+# Stamp generated artifacts (e.g. ipu_instr_pkg.sv) with the source commit
+build --workspace_status_command=tools/workspace_status.sh
+
 # Coverage support
 coverage --combined_report=lcov
 coverage --experimental_generate_llvm_lcov

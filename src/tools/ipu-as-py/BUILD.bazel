@@ -73,3 +73,14 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_sv_package_compiles",
+    srcs = ["test/test_sv_package_compiles.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+        requirement("pyslang"),
+    ],
+)

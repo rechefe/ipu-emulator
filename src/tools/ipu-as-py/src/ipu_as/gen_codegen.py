@@ -7,34 +7,73 @@ per-instruction ``union packed`` views derived from ``SLOT_UNIONS`` in
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import jinja2
 
 from ipu_as import compound_inst, ipu_token, utils
-from ipu_common.instruction_spec import INSTRUCTION_SPEC, SLOT_COUNT, SLOT_UNIONS
+from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_common.instruction_spec import (
+    INSTRUCTION_SPEC,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+    VALID_OPERAND_TYPES,
+)
 from ipu_common.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
-# Operand type string → generated SystemVerilog enum typedef (when applicable).
+# Operand type string → generated SystemVerilog enum typedef. Every operand type
+# backed by an EnumToken must appear here (enforced by _check_sv_typedef_map).
 _OPERAND_TYPE_TO_SV_TYPEDEF: dict[str, str] = {
     "MultStageReg": "mult_stage_reg_field_t",
     "LrIdx": "lr_reg_field_t",
     "CrIdx": "cr_reg_field_t",
     "LcrIdx": "lcr_reg_field_t",
-    "AddSubSrcB": "add_sub_src_b_field_t",
-    "AaqRegIdx": "aaq_reg_field_t",
+    "LrdIdx": "lrd_reg_field_t",
     "ElementsInRow": "elements_in_row_field_t",
     "HorizontalStride": "horizontal_stride_field_t",
     "VerticalStride": "vertical_stride_field_t",
-    "AggMode": "agg_mode_field_t",
-    "PostFn": "post_fn_field_t",
     "ActivationFn": "activation_fn_field_t",
-    "FullXmemRow": "full_xmem_row_field_t",
     "DstructureCrIdx": "dstructure_cr_reg_field_t",
 }
+
+# Stamped into the package header; see tools/workspace_status.sh.
+UNKNOWN_SOURCE_COMMIT = "unknown"
+_SOURCE_COMMIT_STATUS_KEY = "STABLE_GIT_COMMIT"
+
+# IEEE 1800-2017 Annex B reserved keywords. Generated identifiers must avoid them.
+_SV_KEYWORDS = frozenset("""
+    accept_on alias always always_comb always_ff always_latch and assert assign
+    assume automatic before begin bind bins binsof bit break buf bufif0 bufif1
+    byte case casex casez cell chandle checker class clocking cmos config const
+    constraint context continue cover covergroup coverpoint cross deassign
+    default defparam design disable dist do edge else end endcase endchecker
+    endclass endclocking endconfig endfunction endgenerate endgroup endinterface
+    endmodule endpackage endprimitive endprogram endproperty endspecify
+    endsequence endtable endtask enum event eventually expect export extends
+    extern final first_match for force foreach forever fork forkjoin function
+    generate genvar global highz0 highz1 if iff ifnone ignore_bins illegal_bins
+    implements implies import incdir include initial inout input inside instance
+    int integer interconnect interface intersect join join_any join_none large
+    let liblist library local localparam logic longint macromodule matches
+    medium modport module nand negedge nettype new nexttime nmos nor
+    noshowcancelled not notif0 notif1 null or output package packed parameter
+    pmos posedge primitive priority program property protected pull0 pull1
+    pulldown pullup pulsestyle_ondetect pulsestyle_onevent pure rand randc
+    randcase randsequence rcmos real realtime ref reg reject_on release repeat
+    restrict return rnmos rpmos rtran rtranif0 rtranif1 s_always s_eventually
+    s_nexttime s_until s_until_with scalared sequence shortint shortreal
+    showcancelled signed small soft solve specify specparam static string strong
+    strong0 strong1 struct super supply0 supply1 sync_accept_on sync_reject_on
+    table tagged task this throughout time timeprecision timeunit tran tranif0
+    tranif1 tri tri0 tri1 triand trior trireg type typedef union unique unique0
+    unsigned until until_with untyped use uwire var vectored virtual void wait
+    wait_order wand weak weak0 weak1 while wildcard wire with within wor xnor xor
+""".split())
 
 
 def _sv_sized_literal(width: int, value: int) -> str:
@@ -88,27 +127,54 @@ def _canonical_field_name(canonical_type: str, field_index: int) -> str:
 
 def _instruction_struct_name(inst_name: str) -> str:
     base = _sanitize_enum_member(inst_name).lower()
-    if base in _SV_RESERVED_STRUCT_NAMES:
+    if base in _SV_RESERVED_STRUCT_NAMES or base in _SV_KEYWORDS:
         return f"{base}_inst"
     return base
 
 
-def _operand_sv_width(actual_type: str, type_bits: dict[str, int]) -> int:
-    """Bit width of an operand in a per-instruction union member struct."""
-    return type_bits[actual_type]
+def _operand_sv_type(
+    op_type: str,
+    column_bits: int,
+    type_bits: dict[str, int],
+    typedef_bits: dict[str, int],
+) -> tuple[str, int]:
+    """SV type and width of an operand declared at its own width.
 
-
-def _operand_sv_type(actual_type: str, wire_bits: int, type_bits: dict[str, int]) -> str:
-    """SV type for an operand placed in a union field of width *wire_bits*."""
-    semantic_bits = type_bits[actual_type]
-    if semantic_bits != wire_bits:
-        return f"logic [{wire_bits - 1}:0]"
-    return _sv_logic_type(actual_type, wire_bits)
+    Raises if the operand does not fit its union column, or if its SV type is
+    wider than the bits the assembler reserves for it.
+    """
+    # Derived-width immediates (width 0 in get_operand_type_bits) are defined
+    # as filling the union column they were packed into.
+    reserved_bits = type_bits[op_type] or column_bits
+    if reserved_bits > column_bits:
+        raise ValueError(
+            f"{op_type} reserves {reserved_bits} bits but its union column is "
+            f"{column_bits} bits"
+        )
+    typedef_name = _OPERAND_TYPE_TO_SV_TYPEDEF.get(op_type)
+    if typedef_name is None:
+        return f"logic [{reserved_bits - 1}:0]", reserved_bits
+    bits = typedef_bits[typedef_name]
+    if bits > reserved_bits:
+        raise ValueError(
+            f"{typedef_name} is {bits} bits but the assembler reserves only "
+            f"{reserved_bits} bits for {op_type}"
+        )
+    return typedef_name, bits
 
 
 def _padding_field_name(field_index: int) -> str:
-    """SV member name for an unused union column (unique per column index)."""
+    """SV member name for unused bits of a union column (unique per column index)."""
     return f"padding_{field_index}"
+
+
+def _padding_field(name: str, bits: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "sv_type": f"logic [{bits - 1}:0]",
+        "bits": bits,
+        "operand": "padding",
+    }
 
 
 def _instruction_layout_fields(
@@ -117,13 +183,15 @@ def _instruction_layout_fields(
     inst_name: str,
     inst_def: dict,
     type_bits: dict[str, int],
+    typedef_bits: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Operand-area struct members for a per-instruction union member (MSB → LSB).
 
     The opcode lives outside ``{slot}_slot_u`` in ``{slot}_slot_t`` — it is shared
-    across all instructions in the slot.  Unused union columns for this opcode become
-    Unused union columns use ``padding_<field_index>``; operand-less instructions
-    use a single ``padding`` field for the whole payload.
+    across all instructions in the slot.  Each operand is declared at its own
+    width and named ``<operand>_<column>``; unused bits of a column become
+    ``padding_<column>``, and operand-less instructions use a single ``padding``
+    field for the whole payload.
     """
     bindings = {
         field_idx: op_name
@@ -133,50 +201,47 @@ def _instruction_layout_fields(
 
     if not bindings:
         operand_width = sum(f["bits"] for f in slot_fields)
-        return [
-            {
-                "name": "padding",
-                "sv_type": f"logic [{operand_width - 1}:0]",
-                "bits": operand_width,
-                "operand": "padding",
-            }
-        ]
+        return [_padding_field("padding", operand_width)]
 
     layout: list[dict[str, Any]] = []
     for field in slot_fields:
         field_idx = field["index"]
-        wire_bits = field["bits"]
-        wire_name = field["name"]
-        if field_idx in bindings:
-            op_name = bindings[field_idx]
-            actual_type = operand_types[op_name]
-            canonical = field["canonical_type"]
-            if actual_type == canonical:
-                operand_comment = op_name
-            else:
-                operand_comment = f"{op_name} ({actual_type})"
-            layout.append(
-                {
-                    "name": wire_name,
-                    "sv_type": _operand_sv_type(actual_type, wire_bits, type_bits),
-                    "bits": wire_bits,
-                    "operand": operand_comment,
-                }
-            )
-        else:
-            layout.append(
-                {
-                    "name": _padding_field_name(field_idx),
-                    "sv_type": f"logic [{wire_bits - 1}:0]",
-                    "bits": wire_bits,
-                    "operand": "padding",
-                }
-            )
+        column_bits = field["bits"]
+        if field_idx not in bindings:
+            layout.append(_padding_field(_padding_field_name(field_idx), column_bits))
+            continue
+        op_name = bindings[field_idx]
+        op_type = operand_types[op_name]
+        sv_type, bits = _operand_sv_type(op_type, column_bits, type_bits, typedef_bits)
+        # The assembler LSB-aligns an operand within its column, so the bits it
+        # does not use are the column's high bits.
+        if bits < column_bits:
+            layout.append(_padding_field(_padding_field_name(field_idx), column_bits - bits))
+        layout.append(
+            {
+                "name": f"{op_name}_{field_idx}",
+                "sv_type": sv_type,
+                "bits": bits,
+                "operand": op_type,
+            }
+        )
     return layout
 
 
-def _slot_union_descriptors() -> list[dict[str, Any]]:
-    """Per-slot union layout structs and per-instruction union members."""
+def _check_member_names(where: str, layout_fields: list[dict[str, Any]]) -> None:
+    names = [f["name"] for f in layout_fields]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{where}: duplicate field names {names}")
+    keywords = sorted(set(names) & _SV_KEYWORDS)
+    if keywords:
+        raise ValueError(f"{where}: field names are SystemVerilog keywords: {keywords}")
+
+
+def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]]:
+    """Per-slot union layout structs and per-instruction union members.
+
+    *typedef_bits* maps each generated enum typedef name to its bit width.
+    """
     type_bits = get_operand_type_bits()
     slots: list[dict[str, Any]] = []
 
@@ -206,6 +271,7 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                 inst_name,
                 inst_def,
                 type_bits,
+                typedef_bits,
             )
             struct_bits = sum(f["bits"] for f in layout_fields)
             if struct_bits != operand_width:
@@ -213,6 +279,7 @@ def _slot_union_descriptors() -> list[dict[str, Any]]:
                     f"{slot_name}.{inst_name}: operand layout is {struct_bits} bits, "
                     f"expected operand width {operand_width}"
                 )
+            _check_member_names(f"{slot_name}.{inst_name}", layout_fields)
             instructions.append(
                 {
                     "name": inst_name,
@@ -291,15 +358,36 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
     return result
 
 
-def build_codegen_context() -> dict[str, Any]:
+def _check_sv_typedef_map() -> None:
+    """Every enum-backed operand type maps to its own generated typedef."""
+    stale = sorted(set(_OPERAND_TYPE_TO_SV_TYPEDEF) - VALID_OPERAND_TYPES)
+    if stale:
+        raise ValueError(f"_OPERAND_TYPE_TO_SV_TYPEDEF has unknown operand types: {stale}")
+    for op_type in sorted(VALID_OPERAND_TYPES):
+        token_cls = OPERAND_TYPE_MAP[op_type]
+        if not issubclass(token_cls, ipu_token.EnumToken):
+            continue
+        expected = f"{utils.camel_case_to_snake_case(token_cls.__name__)}_t"
+        actual = _OPERAND_TYPE_TO_SV_TYPEDEF.get(op_type)
+        if actual != expected:
+            raise ValueError(
+                f"_OPERAND_TYPE_TO_SV_TYPEDEF[{op_type!r}] must be {expected!r}, "
+                f"got {actual!r}"
+            )
+
+
+def build_codegen_context(source_commit: str = UNKNOWN_SOURCE_COMMIT) -> dict[str, Any]:
     """Build the Jinja render context from live assembler metadata."""
+    _check_sv_typedef_map()
     enum_list = _enum_descriptors_for_templates()
+    typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
     return {
         "enums": {e["name"]: [(m["value"], m["name"]) for m in e["members"]] for e in enum_list},
         "enum_types": enum_list,
-        "slots": _slot_union_descriptors(),
+        "slots": _slot_union_descriptors(typedef_bits),
         "compound_members": _compound_members(),
         "compound_width": compound_inst.CompoundInst.bits(),
+        "source_commit": source_commit,
     }
 
 
@@ -318,13 +406,54 @@ def render_template(template_name: str, context: dict[str, Any] | None = None) -
     return _template_env().get_template(template_name).render(**ctx)
 
 
-def write_generated_file(template_name: str, output_path: str | Path) -> None:
+def write_generated_file(
+    template_name: str,
+    output_path: str | Path,
+    context: dict[str, Any] | None = None,
+) -> None:
     """Render *template_name* and write to *output_path*."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_template(template_name), encoding="utf-8")
+    path.write_text(render_template(template_name, context), encoding="utf-8")
 
 
-def generate_sv_package(output_path: str | Path) -> None:
-    """Generate a SystemVerilog package with instruction-format structs and enums."""
-    write_generated_file("ipu_instr_pkg.sv.j2", output_path)
+def source_commit_from_status(status_text: str) -> str:
+    """Commit recorded by tools/workspace_status.sh, e.g. in Bazel's stable-status.txt."""
+    for line in status_text.splitlines():
+        key, _, value = line.partition(" ")
+        if key == _SOURCE_COMMIT_STATUS_KEY and value:
+            return value
+    return UNKNOWN_SOURCE_COMMIT
+
+
+def workspace_source_commit() -> str:
+    """Commit of the enclosing checkout, as tools/workspace_status.sh reports it.
+
+    ``bazel run`` changes the working directory, so the source tree it reports
+    in ``BUILD_WORKSPACE_DIRECTORY`` takes precedence.
+    """
+    start = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.getcwd())
+    try:
+        top = subprocess.run(
+            ["git", "-C", start, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            [str(Path(top) / "tools" / "workspace_status.sh")],
+            cwd=top, capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return UNKNOWN_SOURCE_COMMIT
+    return source_commit_from_status(status)
+
+
+def generate_sv_package(output_path: str | Path, source_commit: str | None = None) -> None:
+    """Generate a SystemVerilog package with instruction-format structs and enums.
+
+    *source_commit* defaults to the commit of the enclosing git checkout.
+    """
+    if source_commit is None:
+        source_commit = workspace_source_commit()
+    write_generated_file(
+        "ipu_instr_pkg.sv.j2", output_path, build_codegen_context(source_commit)
+    )

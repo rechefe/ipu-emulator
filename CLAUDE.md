@@ -27,6 +27,18 @@ Use `bazel`, not `pip install` or `python` directly.
 2. Add `execute_<name>(self, *, ...)` handler in `ipu.py` with keyword-only args matching operand names.
 3. Write a test in `ipu-emu-py/test/` using `_run()`.
 4. Run `bazel test //...`.
+5. Check the generated SystemVerilog package (below).
+
+## Generated SystemVerilog Package
+
+A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instruction_spec.py`, `union_layout.py`, `gen_codegen.py` or `ipu_instr_pkg.sv.j2`:
+
+```bash
+bazel test //src/tools/ipu-as-py:test_sv_package_compiles   # slang elaborates it with zero diagnostics
+bazel build //docs:generate_instruction_format_artifacts    # writes bazel-bin/docs/ipu_instr_pkg.sv
+```
+
+Then diff its `localparam` lines against a build of the base commit. Every `*_WIDTH` is wire format: keep each one identical, or call the change out in the PR as breaking. Operand `"name"` fields become SV field names (`<name>_<column>`), so renaming an operand renames a downstream field.
 
 ## Project Knowledge
 
