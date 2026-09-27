@@ -80,6 +80,14 @@ class TestXMem:
         out = xmem.read_address(last, 1)
         assert out[0] == 0xAA
 
+    def test_dense_descriptor_capacity(self):
+        """The 300 MiB descriptor output must fit, far beyond the old 8 MB allocation."""
+        assert XMEM_SIZE_BYTES == 512 * 1024**2
+        xmem = XMem()
+        address = 326 * 1024**2
+        xmem.write_address(address, b"descriptor")
+        assert xmem.read_address(address, 10) == b"descriptor"
+
     def test_read_out_of_bounds_raises(self):
         xmem = XMem()
         with pytest.raises(ValueError):

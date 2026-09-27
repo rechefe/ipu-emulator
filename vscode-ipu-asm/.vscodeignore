@@ -1,0 +1,7 @@
+# Build-time only; never part of the published extension.
+*.py
+test/**
+node_modules/**
+BUILD.bazel
+.vscodeignore
+*.vsix

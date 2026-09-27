@@ -23,10 +23,20 @@ operand: TOKEN -> operand
 TOKEN: /[+-]?[A-Za-z0-9_][A-Za-z0-9_\.]*/
 
 // ----------------- Whitespace & comments -----------------
+// Named rather than written inline as `%ignore /regex/`: the inline form makes
+// Lark auto-name them `__IGNORE_0`, `__IGNORE_2`, … which carry no meaning and
+// are numbered by position, so tooling could not tell a comment from
+// whitespace without hardcoding an index. The names are what the VS Code
+// grammar generator maps to TextMate scopes. Same patterns, same behaviour.
 _NL: /\r?\n/
-%ignore /[ \t]+/
+WS_INLINE: /[ \t]+/
+COMMENT_LINE: /\/\/[^\n]*/
+COMMENT_HASH: /#[^\n]*/
+
+%ignore WS_INLINE
 %ignore _NL
-%ignore /\/\/[^\n]*/  // line comments
-%ignore /#[^\n]*/     // python-style comments
+%ignore COMMENT_LINE
+%ignore COMMENT_HASH
+
 //_BLOCK_COMMENT: /\/\*([^*]|\*+[^*/])*\*+\//
 //%ignore _BLOCK_COMMENT

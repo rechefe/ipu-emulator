@@ -31,11 +31,12 @@ src/tools/
 │   ├── ipu_state.py              # Top-level state (registers, memory, PC)
 │   ├── execute.py                # VLIW decode + dispatch
 │   ├── regfile.py                # Register file
-│   ├── xmem.py                   # 2 MB external memory
+│   ├── xmem.py                   # 512 MiB external memory
 │   ├── ipu_math.py               # Typed math (INT8, FP8 E1-E7)
 │   └── debug_cli.py              # Interactive debugger
-└── ipu-apps/src/ipu_apps/        # Sample applications
-    └── fully_connected/          # FC neural network layer example
+└── ipu-apps/src/ipu_apps/        # Kernels and their harnesses
+    ├── kernel_registry/          # Factory: discovery, specs, cases, runner, benchmarks
+    └── kernels/<family>/<kernel>/  # One kernel per folder, e.g. linear/fully_connected/
 docs/                             # MkDocs (config + content/ page sources)
 ```
 
@@ -97,7 +98,7 @@ LDR_MULT_REG R0, LR0, CR0; MULT.RC.VV LR1, R0, 0, LR3, CR15; ACC.ADD; ADD LR0, L
 | ACC_STORE | `STR_ACC_REG` | **Simulation-only** — store `R_ACC` to external memory |
 | MULT | `MULT.RC.VV`, `MULT.RC.VE`, `MULT.RC.VS`, `MULT.VE`, `MULT.EE` | 8-bit vector multiply |
 | ACC | `ACC.ADD`, `ACC.ADD.FIRST`, `ACC.MAX`, `ACC.MAX.FIRST`, `ACC.SUB`, `ACC.SUB.FIRST`, `ACC.STRIDE`, `AGG.SUM`, `AGG.SUM.FIRST`, `AGG.MAX`, `AGG.MAX.FIRST`, `ACC.RESHAPE` | Accumulate into `R_ACC`; AGG instructions reduce `MULT_RES` elements (sum/max) into a single slot of `R_ACC`; `ACC.RESHAPE` scatters `MULT_RES` elements into `R_ACC` using two `LrdIdx` byte-index arrays, gated by `reshape_mask` (immediate or LR; trailing elements `reshape_mask..7` participate) |
-| AAQ | `AAQ`, `ACTIVATE` | **`ACTIVATE`** reads **`R_ACC`** and writes activated **32b** elements into **`POST_AAQ_REG`** (512 B staging). **`AAQ`** (INT8) quantizes wide elements in **`POST_AAQ_REG`** into the leading **128 B**; **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
+| AAQ | `ACTIVATE.QUANTIZE` | Reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`** (512 B staging), leaving **`R_ACC`** unchanged: INT8 mode clamps to the leading **128 B**, wide-vector mode writes **32b** elements and only quantizes when `wide_vector_quantize_output` is set. **`STR_POST_AAQ_REG`** stores the full **512 B** register to XMEM. See `docs/content/building-applications.md#activations-emulator`. |
 | LR (×3) | `SET`, `ADD`, `SUB`, `INCR_MOD_POW2`, `INC`, `DEC`, `ADDB`, `ADDBI` | Scalar loop register ops (`SET` copies from a **`CR`** register; `INC`/`DEC` read-modify-write with union-derived immediate; `ADDB`/`ADDBI` broadcast-add a signed byte to an `LRDn` pair's 8 elements, saturating to [0, 255]) |
 | COND | `BEQ`, `BNE`, `BLT`, `BGE`, `BR`, `BKPT` | Branches. `BGT`, `BLE`, `BZ`, `BNZ`, `B` are pseudo-instructions (assembler-expanded, no opcode) — see `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py` |
 | BREAK | `BREAK`, `BREAK.IFEQ` | Debug breakpoints |
@@ -185,18 +186,31 @@ Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, 
 ```python
 class MyApp(IpuApp):
     def setup(self, state: IpuState) -> None:
-        load_binary_to_xmem(state, self.inputs_path, base_addr=0x0000)
-        state.regfile.set_cr(0, 0x0000)
+        load_binary_to_xmem(state, self.inputs_path, base_addr=0x0000,
+                            chunk_size=128, max_chunks=10)
+        state.regfile.set_cr(2, 0x0000 // 128)   # CR0/CR1 are read-only; operands are rows
 
     def teardown(self, state: IpuState) -> None:
-        dump_xmem_to_binary(state, self.output_path, base_addr=0x40000)
+        dump_xmem_to_binary(state, self.output_path, base_addr=0x40000,
+                            chunk_size=128, num_chunks=10)
 ```
 
-Each app lives under `ipu-apps/src/ipu_apps/<name>/` and has:
+Each kernel has its own folder, `ipu-apps/src/ipu_apps/kernels/<family>/<name>/`:
 - `<name>.asm` — Assembly program
-- `__init__.py` — `IpuApp` subclass
-- `__main__.py` — Debug runner
-- Tests in `ipu-apps/test/`
+- `app.py` — `IpuApp` subclass (often a `MemoryApp` with just `memory_layout`)
+  and `SPEC` (`memory_spec` / `folder_spec`: name and `.asm` come from the folder)
+- `cases.py` — Reusable input preparation and explicit output validation, without pytest
+- `test.py` — `test_case = case_tests(__package__)` plus kernel-specific tests
+- `__init__.py` — empty
+Shared code for a family lives in `kernels/<family>/app.py` / `cases.py` / `test.py`.
+
+No BUILD edit is needed: every `kernels/**/<name>.asm` gets `:<name>` (bazel run
+and bazel test), `:assemble_<name>`, a `:<family>` suite, and `:benchmark_<name>`
+when a `benchmark.py` sits beside it. The shared runner loads
+`cases.py`; no per-kernel entry point or instruction-path environment variable
+is needed. `--output` exports completed output even when validation fails.
+Tests may pass `inst_path` to `run_case` to reuse assembled instructions.
+See `docs/content/adding-applications.md` for the full contract.
 
 ---
 

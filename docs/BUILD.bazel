@@ -102,6 +102,11 @@ genrule(
     outs = ["site.tar"],
     tags = ["docs", "no-sandbox"],
     cmd = """
+        # This genrule is no-sandbox, so the scratch tree survives between builds:
+        # wipe it first or deleted pages linger as dangling symlinks and read-only
+        # copies of generated artifacts refuse to be overwritten.
+        rm -rf $(@D)/docs_temp $(@D)/site_output
+
         # Temp tree mirrors the repo: mkdocs.yml + hooks/ + overrides/ + content/ (MkDocs docs_dir).
         mkdir -p $(@D)/docs_temp/content
         mkdir -p $(@D)/docs_temp/hooks
@@ -144,7 +149,10 @@ genrule(
         mkdir -p "$(@D)/docs_temp/content/assets"
         for artifact in $(locations :generate_instruction_format_artifacts); do \
           base=$$(basename "$$artifact"); \
-          cp "$$ORIGDIR/$$artifact" "$(@D)/docs_temp/content/assets/$$base"; \
+          dest="$(@D)/docs_temp/content/assets/$$base"; \
+          rm -f "$$dest"; \
+          cp "$$ORIGDIR/$$artifact" "$$dest"; \
+          chmod u+w "$$dest"; \
         done
 
         # Build with mkdocs (execroot must retain .git; use no-sandbox on this genrule).

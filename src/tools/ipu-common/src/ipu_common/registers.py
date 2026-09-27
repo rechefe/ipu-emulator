@@ -194,6 +194,17 @@ def get_register_sizes() -> dict[str, dict[str, int | bool]]:
     return result
 
 
+def get_lane_count() -> int:
+    """Number of SIMD lanes in the datapath.
+
+    Derived from ``r_acc``'s word view: r_acc is 128 uint32 lanes regardless of
+    vector mode, so it — not ``r``, whose size is a byte count that coincides
+    with the lane count only in narrow mode — is the true source. Single source
+    of truth for the lane count; do not restate it as a literal.
+    """
+    return REGISTER_DEFINITIONS["r_acc"]["size_bytes"] // 4
+
+
 def get_mult_stage_map() -> list[tuple[str, int]]:
     """Return the MultStageRegField encoding as a list of (register, element_index).
 

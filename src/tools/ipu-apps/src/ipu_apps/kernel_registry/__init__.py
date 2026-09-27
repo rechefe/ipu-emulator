@@ -39,7 +39,7 @@ from ipu_apps.kernel_registry.layers import (
     from_layer,
     register_layer,
 )
-from ipu_apps.kernel_registry.registry import kernels, load, operations, resolve
+from ipu_apps.kernel_registry.registry import create_harness, create_state, kernel_spec, kernels, load, operations, resolve
 from ipu_apps.kernel_registry.shapes import (
     BIAS,
     INPUT,
@@ -49,7 +49,9 @@ from ipu_apps.kernel_registry.shapes import (
     ShapeBundle,
     flatten_to_matrix,
 )
-from ipu_apps.kernel_registry.spec import KernelSpec, Support, Verdict, no, yes
+from ipu_apps.kernel_registry.spec import (
+    ExecutionConfig, KernelSpec, Support, Verdict, folder_spec, kernel_folder, no, yes,
+)
 
 
 def lookup_layer(layer, input_shape, *, package: str = "ipu_apps") -> Verdict:
@@ -76,6 +78,7 @@ __all__ = [
     "BIAS",
     "Boundary",
     "Discovered",
+    "ExecutionConfig",
     "INPUT",
     "KernelSpec",
     "MalformedQuery",
@@ -88,10 +91,15 @@ __all__ = [
     "WEIGHT",
     "adapters",
     "boundaries",
+    "create_harness",
+    "create_state",
     "discover",
     "flatten_to_matrix",
+    "folder_spec",
     "from_layer",
+    "kernel_folder",
     "kernels",
+    "kernel_spec",
     "load",
     "lookup_layer",
     "no",

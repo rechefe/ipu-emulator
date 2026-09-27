@@ -54,6 +54,9 @@ class RegFile:
         self._storage: dict[str, bytearray] = {}
         self._descriptors: dict[str, RegDescriptor] = {}
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
+        self._constant_one_bytes: dict[str, int] = {}
+        self._mutable_exports: set[str] = set()
+        self._profile_observer = None
 
         for desc in self._schema:
             total = desc.size_bytes * desc.count
@@ -97,7 +100,47 @@ class RegFile:
 
     def raw(self, name: str) -> bytearray:
         """Return the raw ``bytearray`` backing register *name*."""
-        return self._storage[self._resolve(name)]
+        canon = self._resolve(name)
+        # A mutable escape may be written without going through an accessor.
+        if self._profile_observer is not None:
+            self._profile_observer(canon, 0, len(self._storage[canon]))
+        self._constant_one_bytes.pop(canon, None)
+        self._mutable_exports.add(canon)
+        return self._storage[canon]
+
+    def raw_readonly(self, name: str) -> bytes:
+        """Read storage without handing out a mutable alias or losing provenance."""
+        return bytes(self._storage[self._resolve(name)])
+
+    def mark_constant_ones(self, name: str, start: int, size: int) -> None:
+        canon = self._resolve(name)
+        if start < 0 or size <= 0 or start + size > len(self._storage[canon]):
+            raise ValueError("constant ONES register range out of bounds")
+        # A previously handed-out mutable handle can still overwrite this buffer.
+        if canon in self._mutable_exports:
+            return
+        self._constant_one_bytes[canon] = self._constant_one_bytes.get(canon, 0) | (((1 << size) - 1) << start)
+
+    def has_constant_ones(self, name: str, start: int, size: int) -> bool:
+        canon = self._resolve(name)
+        bits = self._constant_one_bytes.get(canon, 0)
+        if not bits:
+            return False
+        total = len(self._storage[canon])
+        start %= total
+        first = min(size, total - start)
+        mask = ((1 << first) - 1) << start
+        if size > first:
+            mask |= (1 << (size - first)) - 1
+        return bits & mask == mask
+
+    def _forget_constant_ones(self, name: str, start: int, size: int) -> None:
+        if self._profile_observer is not None:
+            self._profile_observer(name, start, size)
+        if name in self._constant_one_bytes:
+            self._constant_one_bytes[name] &= ~(((1 << size) - 1) << start)
+            if not self._constant_one_bytes[name]:
+                del self._constant_one_bytes[name]
 
     # -- scalar (LR / CR) access --------------------------------------------
 
@@ -166,6 +209,7 @@ class RegFile:
         assert len(data) == desc.size_bytes
         start = index * desc.size_bytes
         end = start + desc.size_bytes
+        self._forget_constant_ones(canon, start, desc.size_bytes)
         self._storage[canon][start:end] = data
 
     # -- snapshot (cycle-start copy for VLIW) -------------------------------
@@ -188,6 +232,9 @@ class RegFile:
         new._schema = self._schema
         new._descriptors = self._descriptors
         new._alias_map = self._alias_map
+        new._constant_one_bytes = self._constant_one_bytes.copy()
+        new._profile_observer = None
+        new._mutable_exports = set()
         new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
         if self._schema is not REGFILE_SCHEMA:
             # A custom schema keeps its accessors on the instance, so the copy
@@ -204,7 +251,11 @@ class RegFile:
         file with this layout; the caller is responsible for that.
         """
         dst = other._storage
+        other._constant_one_bytes = {name: bits for name, bits in self._constant_one_bytes.items()
+                                    if name not in other._mutable_exports}
         for name, buf in self._storage.items():
+            if other._profile_observer is not None:
+                other._profile_observer(name, 0, len(buf))
             dst[name][:] = buf
 
     # -- iteration (for debug / serialisation) ------------------------------
@@ -339,6 +390,7 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
     def _make_set(n: str = name, sz: int = size):
         def set_blob(self, data: bytes | bytearray) -> None:
             assert len(data) == sz, f"{n}: expected {sz} bytes, got {len(data)}"
+            self._forget_constant_ones(n, 0, sz)
             self._storage[n][:] = data
         set_blob.__name__ = f"set_{n}{suffix}"
         set_blob.__doc__ = f"Set {n} ({sz} bytes)."
@@ -369,6 +421,7 @@ def _add_indexed_vector_accessors(
             assert 0 <= index < cnt, f"{n}[{index}] out of range (count={cnt})"
             assert len(data) == esz, f"{n}: expected {esz} bytes, got {len(data)}"
             start = index * esz
+            self._forget_constant_ones(n, start, esz)
             self._storage[n][start : start + esz] = data
         set_elem.__name__ = f"set_{n}"
         set_elem.__doc__ = f"Set {n}[index] ({esz} bytes, {cnt} elements)."
@@ -420,6 +473,10 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
             length = len(data)
+            first = min(length, sz - start_idx)
+            self._forget_constant_ones(n, start_idx, first)
+            if length > first:
+                self._forget_constant_ones(n, 0, length - first)
             if start_idx + length <= sz:
                 buf[start_idx : start_idx + length] = data
             else:
@@ -446,6 +503,10 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 
     def _make_get_words(n: str = name):
         def get_words(self) -> np.ndarray:
+            if self._profile_observer is not None:
+                self._profile_observer(n, 0, len(self._storage[n]))
+            self._constant_one_bytes.pop(n, None)
+            self._mutable_exports.add(n)
             return np.frombuffer(self._storage[n], dtype=np.uint32)
         get_words.__name__ = f"get_{n}_words"
         get_words.__doc__ = f"View {n} as uint32 words ({n_words} words)."
@@ -462,6 +523,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
     def _make_set_word(n: str = name, nw: int = n_words):
         def set_word(self, index: int, value: int) -> None:
             assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
+            self._forget_constant_ones(n, index * 4, 4)
             struct.pack_into(
                 "<I",
                 self._storage[n],

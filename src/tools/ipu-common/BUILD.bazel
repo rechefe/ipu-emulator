@@ -25,6 +25,16 @@ py_binary(
 )
 
 py_pytest_test(
+    name = "test_isa_alias_spec",
+    srcs = ["test/test_isa_alias_spec.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_common_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_union_layout",
     srcs = ["test/test_union_layout.py"],
     imports = ["src"],

@@ -3,3 +3,4 @@ bazel-*
 build
 .pytest_cache
 .claude
+vscode-ipu-asm/node_modules

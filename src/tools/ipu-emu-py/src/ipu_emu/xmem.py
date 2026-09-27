@@ -1,9 +1,9 @@
 """External memory (XMEM) model.
 
-A flat 8 MB byte-addressable memory that mirrors the C ``xmem__obj_t``.
+A flat 512 MiB byte-addressable memory with the C ``xmem__obj_t`` interface.
 Supports 128-byte word alignment helpers and bulk load utilities.
 
-Allocation is mode-independent: XMEM is always 8 MB, in both narrow and
+Allocation is mode-independent: XMEM is always 512 MiB, in both narrow and
 wide-vector debug mode. Which of it is *reachable* depends on the active
 mode's row size and is enforced by the caller (``Ipu._xmem_row_addr``),
 not here — this class has no notion of "mode".
@@ -11,7 +11,7 @@ not here — this class has no notion of "mode".
 
 from __future__ import annotations
 
-XMEM_SIZE_BYTES = 1 << 23        # 8 MB
+XMEM_SIZE_BYTES = 1 << 29        # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = 128           # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
@@ -28,13 +28,29 @@ def words_needed_for_bytes(n: int) -> int:
 
 
 class XMem:
-    """8 MB flat byte-addressable external memory.
+    """512 MiB flat byte-addressable external memory.
 
     Internally stored as a ``bytearray`` for efficient byte-level access.
     """
 
     def __init__(self) -> None:
         self._data = bytearray(XMEM_SIZE_BYTES)
+        self._constant_ones: dict[int, bytes] = {}
+        self._profile_observer = None
+
+    def mark_constant_ones(self, address: int, data: bytes) -> None:
+        """Record host-declared ONES provenance, after a validated write."""
+        if self.read_address(address, len(data)) != data:
+            raise ValueError("constant ONES declaration does not match memory")
+        self._constant_ones[address] = data
+
+    def is_constant_ones(self, address: int, data: bytes | bytearray) -> bool:
+        return self._constant_ones.get(address) == data
+
+    def _invalidate_constants(self, start: int, end: int) -> None:
+        if self._constant_ones:
+            self._constant_ones = {a: d for a, d in self._constant_ones.items()
+                                   if a + len(d) <= start or a >= end}
 
     # -- low-level access ---------------------------------------------------
 
@@ -45,7 +61,10 @@ class XMem:
                 f"XMEM read out of bounds: address={address}, size={size}, "
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )
-        return bytearray(self._data[address : address + size])
+        result = bytearray(self._data[address : address + size])
+        if self._profile_observer is not None:
+            self._profile_observer("read", address, result)
+        return result
 
     def write_address(self, address: int, data: bytes | bytearray) -> None:
         """Write *data* starting at *address*."""
@@ -55,7 +74,10 @@ class XMem:
                 f"XMEM write out of bounds: address={address}, size={size}, "
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )
+        self._invalidate_constants(address, address + size)
         self._data[address : address + size] = data
+        if self._profile_observer is not None:
+            self._profile_observer("write", address, data)
 
     # -- bulk helpers (mirror C API) ----------------------------------------
 
@@ -88,12 +110,19 @@ class XMem:
 
     def clear(self) -> None:
         """Zero the entire memory."""
+        self._constant_ones.clear()
+        if self._profile_observer is not None:
+            self._profile_observer("write", 0, self._data)
         self._data[:] = b"\x00" * XMEM_SIZE_BYTES
 
     def __getitem__(self, idx: int | slice) -> int | bytearray:
         return self._data[idx]
 
     def __setitem__(self, idx: int | slice, val: int | bytes | bytearray) -> None:
+        # Indexing supports arbitrary strides; conservatively drop declarations.
+        self._constant_ones.clear()
+        if self._profile_observer is not None:
+            self._profile_observer("write", 0, self._data)
         self._data[idx] = val
 
     def __len__(self) -> int:

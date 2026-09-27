@@ -1,0 +1,65 @@
+{
+  "name": "ipu-asm",
+  "displayName": "IPU Assembly",
+  "description": "Syntax highlighting and assembler diagnostics for IPU VLIW assembly, generated from the assembler's own grammar.",
+  "version": "0.1.0",
+  "publisher": "yardencarmi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rechefe/ipu-emulator.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ipu-asm",
+        "aliases": [
+          "IPU Assembly",
+          "ipu-asm"
+        ],
+        "extensions": [
+          ".asm",
+          ".s",
+          ".asm.j2"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ipu-asm",
+        "scopeName": "source.ipu-asm",
+        "path": "./syntaxes/ipu-asm.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ipuAsm.check",
+        "title": "IPU Assembly: Check current file"
+      },
+      {
+        "command": "ipuAsm.showCheckerStatus",
+        "title": "IPU Assembly: Why are diagnostics not running?"
+      }
+    ],
+    "configuration": {
+      "title": "IPU Assembly",
+      "properties": {
+        "ipuAsm.checkCommand": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/tools/ipu-as-py:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
+        }
+      }
+    }
+  },
+  "main": "./extension.js"
+}

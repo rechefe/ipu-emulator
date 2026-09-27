@@ -49,7 +49,7 @@ The Cache Unit manages data movement between external DRAM and on-chip XMEM so t
 | `OFFSET_WIDTH` | `20` | Offset width inside the array address space. |
 | `ARRAY_ID_WIDTH` | `4` | Array ID width. |
 | `XMEM_ROW_WIDTH` | `128` | Width of one XMEM row (bytes). |
-| `META_DATA_WIDTH` | `16` | Width of metadata carried alongside row data (bits): 8-bit scale, 1-bit sign/unsign, 4-bit exponent format, 3-bit mantissa format. |
+| `META_DATA_WIDTH` | `16` | Width of metadata carried alongside row data (bits). For AaQ-produced rows, metadata carries `scale[7:0]` and row-local `dynamic_exponent` (`metadata[8]`); the destination table's `format[8:0]` is table-level state (Section 5), not per-row metadata. |
 
 ### 4.1 XMEM Bank Property
 
@@ -77,6 +77,7 @@ A table is a data structure that defines the methodology of a data movement and 
 | `xmem_num_of_banks` | 4 | Amount of banks. |
 | `jump_back` | 16 | Flush all addresses that are below `table_addr - jump_back`. Actual flush is done for the entire bank, not per address. When accessing `table_addr < jump_back`, flush all table banks to prepare for another round of table traversing. |
 | `repetitions` | 16 | Number of times to read the table. Used to invalidate banks (using `jump_back`) on the last round of the read. |
+| `format` | 9 | Table-global output element format for AaQ destination tables: `format[8]` = dynamic flag, `format[7:0]` = element encoding fields. Shared by all rows in the table. |
 
 ### 5.1 Table Types
 
@@ -92,10 +93,10 @@ A table is a data structure that defines the methodology of a data movement and 
 - Each BANK/PAGE has **1024 rows**.
 - Each row is **1024 bits**.
 - Each row contains metadata (`META_DATA_WIDTH` = 16 bits) alongside its data:
-  - `scale[15:8]` = 8-bit scale
-  - `sign/unsign[7]` = 1-bit sign/unsign (`0` = unsigned, `1` = signed)
-  - `fe[6:3]` = 4-bit exponent format
-  - `fm[2:0]` = 3-bit mantissa format
+  - `scale[7:0]` = 8-bit scale
+  - `dynamic_exponent[8]` = row-local exponent split bit for dynamic AaQ rows (`0`=`e1m6`, `1`=`e2m5`)
+  - `metadata[15:9]` = reserved/implementation-defined
+- AaQ row readers obtain element format from the destination table's `format[8:0]` property (Section 5), not from per-row metadata.
 - Address split:
   - `offset[9:0]` = row index in bank (0..1023)
   - `offset[19:10]` = tag and bank-list index component
@@ -270,6 +271,5 @@ sequenceDiagram
    CRM->>IPU: Start
    IPU->>IPU: Start working L2
 ```
-
 
 
