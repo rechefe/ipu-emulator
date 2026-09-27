@@ -49,7 +49,7 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
     assert "_e;" not in text
     assert "lr_reg_field_t" in text
-    assert "logic [3:0] lr_idx_2; // dest (MultStageReg)" in text  # LDR_MULT_REG
+    assert "mult_stage_reg_field_t dest_2; // MultStageReg" in text  # LDR_MULT_REG
     assert "3'd" in text or "2'd" in text or "1'd" in text
     assert "break_inst;" in text  # reserved-word-safe union member name
     assert "} break;" not in text
@@ -68,36 +68,16 @@ def test_union_members_padded_to_operand_width():
             )
 
 
-def test_sv_union_matches_slot_field_names(tmp_path: Path):
-    out = tmp_path / "ipu_instr_pkg.sv"
-    gen_codegen.generate_sv_package(out)
-    text = out.read_text(encoding="utf-8")
-    # Union members use same wire field names as {slot}_slot_t (union diagram columns)
-    assert "cr_idx_0" in text and "lr_idx_1" in text and "lr_idx_2" in text
-    # LDR_MULT_REG: dest in field 2; fields 0–1 are base/offset
-    i = text.index("} ldr_mult_reg;")
-    ldr = text[i - 500 : i]
-    assert "cr_idx_0; // base" in ldr
-    assert "lr_idx_1; // offset" in ldr
-    assert "logic [3:0] lr_idx_2; // dest (MultStageReg)" in ldr
-    # STR_ACC_REG (acc_store slot): two union fields only
-    j = text.index("} str_acc_reg;")
-    acc = text[j - 400 : j]
-    assert "cr_idx_0; // base" in acc
-    assert "lr_idx_1; // offset" in acc
-    # MULT.RC.VV: rc_idx, mask_shift, mask_offset, cr_idx share mult union columns
-    k = text.index("} mult_rc_vv;")
-    vv = text[k - 500 : k]
-    assert "lr_idx_2; // rc_idx" in vv
-    assert "lr_idx_3; // mask_shift" in vv
-    assert "mult_mask_offset_immediate_4; // mask_offset" in vv
-    assert "dstructure_cr_idx_1; // cr_idx" in vv
-    # MULT.EE: cr_idx scalar in lcr column; dstructure_cr_idx in next column
-    m = text.index("} mult_ee;")
-    ee = text[m - 500 : m]
-    assert "lcr_idx_0; // cr_idx (CrIdx)" in ee
-    assert "dstructure_cr_idx_1; // dstructure_cr_idx" in ee
-    assert "lr_idx_2; // ra_idx" in ee
+def test_union_member_fields_named_after_their_operands():
+    ctx = gen_codegen.build_codegen_context()
+    for slot in ctx["slots"]:
+        bindings = SLOT_UNIONS[slot["slot"]].opcode_bindings
+        for inst in slot["instructions"]:
+            expected = {f"{op}_{idx}" for idx, op in bindings.get(inst["name"], [])}
+            names = {
+                f["name"] for f in inst["layout_fields"] if f["operand"] != "padding"
+            }
+            assert names == expected, f"{slot['slot']}.{inst['name']}"
 
 
 def test_unused_union_columns_named_padding(tmp_path: Path):
@@ -110,15 +90,14 @@ def test_unused_union_columns_named_padding(tmp_path: Path):
     start = text.rindex("struct packed {", 0, pos)
     br = text[start:pos]
     assert "padding_0; // padding" in br
-    assert "lcr_idx_1; // reg" in br
+    assert "lcr_reg_field_t reg_1; // LcrIdx" in br
     assert "padding_2; // padding" in br
     assert "label_0" not in br
-    assert "lcr_idx_2" not in br
-    # LDR_MULT_REG: dest in column 2; no padding columns
+    # LDR_MULT_REG: every column used; the 1-bit dest pads the rest of column 2
     j = text.index("} ldr_mult_reg;")
     ldr = text[j - 400 : j]
-    assert "lr_idx_2; // dest (MultStageReg)" in ldr
-    assert "padding_" not in ldr
+    assert "logic [2:0] padding_2; // padding\n      mult_stage_reg_field_t dest_2;" in ldr
+    assert "padding_0" not in ldr and "padding_1" not in ldr
 
 
 def test_union_members_exclude_opcode(tmp_path: Path):

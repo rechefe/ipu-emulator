@@ -10,6 +10,9 @@ bazel_dep(name = "caseyduquettesc_rules_python_pytest", version = "1.1.1", repo_
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(
     python_version = "3.10",
+    # Containers such as Claude Code on the web run as root; without this the
+    # hermetic interpreter fetch hard-fails instead of emitting a warning.
+    ignore_root_user_error = True,
 )
 use_repo(python, "python_3_10")
 
@@ -56,5 +59,13 @@ pip.parse(
     hub_name = "ipu_as_deps",
     python_version = "3.10",
     requirements_lock = "@ipu_as_requirements//:requirements.txt",
+    # Wheel downloads go through a slow egress proxy in sandboxed CI/agent
+    # containers; pip's 15s default read timeout is not enough for numpy.
+    extra_pip_args = [
+        "--timeout",
+        "120",
+        "--retries",
+        "5",
+    ],
 )
 use_repo(pip, "ipu_as_deps")

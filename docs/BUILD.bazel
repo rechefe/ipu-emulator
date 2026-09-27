@@ -39,7 +39,10 @@ py_binary(
 genrule(
     name = "generate_instruction_format_artifacts",
     outs = ["ipu_instr_pkg.sv"],
-    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv)",
+    # stamp = 1 exposes bazel-out/stable-status.txt, whose STABLE_GIT_COMMIT
+    # (tools/workspace_status.sh) is part of this action's key.
+    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv) bazel-out/stable-status.txt",
+    stamp = 1,
     tools = [":gen_codegen"],
 )
 

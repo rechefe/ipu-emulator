@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1",
+    "pyslang>=11.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
