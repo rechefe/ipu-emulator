@@ -1,7 +1,8 @@
 /build/
 coverage.info
 /coverage/
-/.vscode/
+/.vscode/*
+!/.vscode/extensions.json
 /bazel-*
 bazel-bin/
 bazel-out/

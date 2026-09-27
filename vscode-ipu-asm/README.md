@@ -117,7 +117,8 @@ release below still happens.
 
 ## Install
 
-Every push to `master` republishes the `vscode-latest` prerelease:
+Every push to `master` that changes the extension or the sources its language
+data is generated from republishes the `vscode-latest` prerelease:
 
 ```bash
 curl -LO https://github.com/rechefe/ipu-emulator/releases/download/vscode-latest/ipu-asm.vsix

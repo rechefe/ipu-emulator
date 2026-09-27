@@ -2,6 +2,10 @@
 
 This guide will help you set up your development environment for building and running IPU applications.
 
+!!! tip "Getting Started guide"
+    Installing, running, testing and debugging kernels, and adding new ones, are covered end to end in the PDF guide:
+    [getting-started.pdf](https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf).
+
 ## Prerequisites
 
 The IPU emulator and assembler require the following tools:
@@ -200,11 +204,21 @@ cd /mnt/c/Users/...
 
 ### VS Code
 
-Recommended extensions:
-- **C/C++** (Microsoft) - C/C++ IntelliSense
+VS Code offers to install the recommended extensions from `.vscode/extensions.json` when the repository is opened; the Dev Container installs them automatically:
+
+- **IPU Assembly** (`yardencarmi.ipu-asm`) - highlighting, diagnostics, completion and kernel run/debug buttons for `.asm` files
+- **Python** and **Pylance** (Microsoft) - Python language support and type checking
+- **Ruff** (Astral) - Python linting and formatting
 - **Bazel** (BazelBuild) - Bazel support
-- **Python** (Microsoft) - Python language support
-- **Pylance** (Microsoft) - Python type checking
+- **GitLess** (maattdd) - inline Git history
+- **Material Icon Theme** (PKief) - file icons
+
+If **IPU Assembly** is not found in the Marketplace, install it from the latest build:
+
+```bash
+curl -LO https://github.com/rechefe/ipu-emulator/releases/download/vscode-latest/ipu-asm.vsix
+code --install-extension ipu-asm.vsix
+```
 
 ### CLion
 

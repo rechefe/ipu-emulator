@@ -4,18 +4,23 @@ name: VS Code Extension
 # with the parser and assembler on a real corpus, tests it in a real VS Code,
 # then packages (and on master, publishes) the .vsix.
 #
-# The paths filter includes ipu_as, ipu_common and ipu_emu: the grammar,
+# The paths filters include ipu_as, ipu_common and ipu_emu: the grammar,
 # instruction set, operand types, case rules and register facts are read from
 # them at build time.
 
 on:
+  # Master publishes, so only files that can change the packaged .vsix count:
+  # test/** is excluded by .vscodeignore, and the generator reads nothing from
+  # ipu_emu beyond ipu.py (LRD pairs) and ipu_config.py (fixed CRs).
   push:
     branches: [ master ]
     paths:
       - 'vscode-ipu-asm/**'
+      - '!vscode-ipu-asm/test/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
       - 'src/tools/ipu-common/src/ipu_common/**'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/**'
+      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu.py'
+      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu_config.py'
       - '.github/workflows/vscode-extension.yml'
   pull_request:
     branches: [ "**" ]
