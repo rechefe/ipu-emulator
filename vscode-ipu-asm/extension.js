@@ -43,6 +43,9 @@ const running = new Map();
 /** What the status item shows ('' when hidden). Each assignment to it is a message to the
  *  window -- across the connection, in a remote one -- so an unchanged state sends none. */
 let status = '';
+/** A feature's switch (ipuAsm.<key>), as set for this document's folder. */
+const enabled = (document, key) => vscode.workspace.getConfiguration('ipuAsm', document.uri).get(key, true);
+
 function showStatus(text, tooltip, command) {
   if (status === text + tooltip) return;
   status = text + tooltip;
@@ -132,6 +135,7 @@ function renderRegister(name) {
 
 const hoverProvider = {
   provideHover(document, position) {
+    if (!enabled(document, 'hover')) return undefined;
     const range = document.getWordRangeAtPosition(position, wordPattern);
     if (!range) return undefined;
     const key = document.getText(range).toLowerCase();
@@ -297,6 +301,13 @@ function toVscodeDiagnostic(raw) {
 async function refresh(document, force = false) {
   if (!document || document.languageId !== LANGUAGE_ID) return;
   const key = document.uri.toString();
+  if (!enabled(document, 'diagnostics')) {
+    checked.delete(key);
+    diagnostics.delete(document.uri);
+    statusItem.hide();
+    status = '';
+    return;
+  }
   const version = document.version;
   if (!force && checked.get(key) === version) return;
 
@@ -373,6 +384,9 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(refresh),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('ipuAsm.diagnostics')) vscode.workspace.textDocuments.forEach((d) => refresh(d, true));
+    }),
     vscode.workspace.onDidSaveTextDocument(refresh),
     // No content change (the dirty flag flipped): nothing new to check.
     vscode.workspace.onDidChangeTextDocument((e) => e.contentChanges.length && scheduleRefresh(e.document)),

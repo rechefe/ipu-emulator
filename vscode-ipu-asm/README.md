@@ -173,6 +173,18 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.cases` | none | cases saved from the form, by kernel: `{ "tall": { "base": "default", "options": { "rows": 64 } } }` |
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
+| `ipuAsm.diagnostics` | `true` | on/off switches, one per feature: the assembler's errors as you type |
+| `ipuAsm.hover` | `true` | hover on instructions, registers and Jinja names |
+| `ipuAsm.completion` | `true` | completion |
+| `ipuAsm.operandHints` | `true` | operand hints (signature help) |
+| `ipuAsm.jinjaValueHints` | `true` | a `set` name's literal value after each `{{ name }}`: `{{ lr_row }}` lr1 |
+| `ipuAsm.unusedNames` | `true` | fading unused labels and `set` names |
+| `ipuAsm.navigation` | `true` | Go to Definition, Find References and Rename |
+| `ipuAsm.outline` | `true` | the Outline and breadcrumbs |
+| `ipuAsm.folding` | `true` | folding of comments and Jinja blocks |
+| `ipuAsm.formatting` | `true` | Format Document and format on type |
+| `ipuAsm.kernelButtons` | `true` | Run, Debug, Test and Benchmark buttons on a kernel's `.asm` |
+| `ipuAsm.sidebar` | `true` | the IPU sidebar |
 
 ## Diagnostics
 

@@ -189,6 +189,78 @@
             "No separation."
           ],
           "markdownDescription": "How `;;` words are set apart."
+        },
+        "ipuAsm.diagnostics": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check each file with the assembler as you type and show its errors in Problems."
+        },
+        "ipuAsm.hover": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Hover: an instruction's reference, a register's role, a Jinja name's value."
+        },
+        "ipuAsm.completion": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Completion: mnemonics at an instruction start, what an operand accepts at an operand."
+        },
+        "ipuAsm.operandHints": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Operand hints (signature help) while typing an instruction's operands."
+        },
+        "ipuAsm.jinjaValueHints": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the literal value of a `set` name after each `{{ name }}` that reads it: `{{ lr_row }}` lr1."
+        },
+        "ipuAsm.unusedNames": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Fade a label nothing branches to and a `set` name nothing reads."
+        },
+        "ipuAsm.navigation": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Go to Definition, Find References and Rename for labels and Jinja names."
+        },
+        "ipuAsm.outline": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Labels, `set` and `macro` names in the Outline and breadcrumbs."
+        },
+        "ipuAsm.folding": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Fold multi-line `{# #}` comments and `{% tag %} \u2026 {% endtag %}` blocks."
+        },
+        "ipuAsm.formatting": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Format Document and format on type (`;`, `:`, Enter). Typing alone is also `editor.formatOnType`."
+        },
+        "ipuAsm.kernelButtons": {
+          "scope": "window",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Run, Debug, Test and Benchmark buttons in the title bar of a kernel's `.asm`."
+        },
+        "ipuAsm.sidebar": {
+          "scope": "window",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "The IPU sidebar: kernels, cases and query."
         }
       }
     },
@@ -206,6 +278,7 @@
         {
           "id": "ipuKernels",
           "name": "Kernels",
+          "when": "config.ipuAsm.sidebar",
           "icon": "media/ipu.svg"
         },
         {
@@ -275,22 +348,22 @@
       "editor/title": [
         {
           "command": "ipuAsm.runKernel",
-          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "when": "config.ipuAsm.kernelButtons && resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
           "group": "navigation@1"
         },
         {
           "command": "ipuAsm.debugKernel",
-          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "when": "config.ipuAsm.kernelButtons && resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
           "group": "navigation@2"
         },
         {
           "command": "ipuAsm.testKernel",
-          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "when": "config.ipuAsm.kernelButtons && resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
           "group": "navigation@3"
         },
         {
           "command": "ipuAsm.benchmarkKernel",
-          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.benchmarkFiles",
+          "when": "config.ipuAsm.kernelButtons && resourceLangId == ipu-asm && resourcePath in ipuAsm.benchmarkFiles",
           "group": "navigation@4"
         }
       ]
