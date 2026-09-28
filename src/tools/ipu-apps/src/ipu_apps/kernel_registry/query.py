@@ -17,6 +17,7 @@ Exits 0 when the query is covered (for a sweep: every value), 1 when not.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from ipu_apps.kernel_registry.coverage import boundaries, report
@@ -79,7 +80,11 @@ def main(argv=None) -> int:
                         help="query parameters, e.g. shape=32,300 dim=1")
     parser.add_argument("--sweep", metavar="NAME=START..END",
                         help="print the routing table as NAME runs over START..END")
+    parser.add_argument("--json", action="store_true",
+                        help="print the verdict as JSON (for tools); needs an operation")
     args = parser.parse_args(argv)
+    if args.json and (args.op is None or args.sweep):
+        parser.error("--json answers one query: give an operation and no --sweep")
 
     if args.op is None:
         print(report())
@@ -99,7 +104,7 @@ def main(argv=None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    print(verdict.describe())
+    print(json.dumps(verdict.to_dict(), indent=2) if args.json else verdict.describe())
     return 0 if verdict.supported else 1
 
 

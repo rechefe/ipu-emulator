@@ -38,6 +38,10 @@ const TERMINAL_SCOPE = {
 // Whitespace carries no scope of its own.
 const UNSCOPED_TERMINALS = new Set(['WS_INLINE', '_NL']);
 
+// Jinja regions of the RAW file -> the scope each must carry. The parser only sees the rendered
+// text, so these are checked against Jinja's own reading (jinja_regions in dump_parser_tokens.py).
+const JINJA_SCOPE = { comment: 'comment.block.jinja', block: 'meta.embedded.block.jinja', variable: 'meta.embedded.line.jinja' };
+
 // An operand must NOT be coloured as an instruction. Asserting this negative is
 // what catches a keyword pattern missing its word boundary: `bne_target` is an
 // operand, and a rule matching `BNE` inside it would otherwise go unnoticed,
@@ -81,6 +85,27 @@ function tokenize(grammar, text) {
   return out;
 }
 
+/** Disagreements between the raw file's Jinja regions and the grammar, once per line at its first
+ *  wrong character. A region must carry its Jinja scope (a template in an assembly comment is still
+ *  live code), and text outside every region none (an unclosed begin rule swallows the file). */
+function jinjaFailures(grammar, entry) {
+  const raw = entry.raw;
+  const want = new Array(raw.length).fill(null); // the region kind at each character
+  for (const r of entry.jinja) want.fill(r.kind, r.start, r.end);
+  const got = new Array(raw.length).fill('');
+  for (const t of tokenize(grammar, raw)) got.fill(t.scopes.join(' '), t.start, t.end);
+  const failures = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '\n' || (want[i] ? got[i].includes(JINJA_SCOPE[want[i]]) : !got[i].includes('jinja'))) continue;
+    const line = raw.slice(0, i).split('\n').length;
+    failures.push(`${path.basename(entry.file)}:${line}  ${JSON.stringify(raw.slice(i).split('\n')[0].slice(0, 40))}  ` +
+      `Jinja says ${want[i] ? `Jinja ${want[i]}` : 'assembly'}, grammar gave [${got[i] || 'none'}]`);
+    const next = raw.indexOf('\n', i);
+    i = next < 0 ? raw.length : next;
+  }
+  return failures;
+}
+
 /** Scopes covering [start,end), flattened. */
 function scopesAt(tmTokens, start, end) {
   const scopes = new Set();
@@ -107,10 +132,14 @@ async function main() {
 
   const failures = [];
   let checked = 0;
+  let jinjaRegions = 0;
 
   for (const entry of corpus) {
     const name = path.basename(entry.file);
     const tmTokens = tokenize(grammar, entry.text);
+
+    failures.push(...jinjaFailures(grammar, entry));
+    jinjaRegions += entry.jinja.length;
 
     for (const tok of entry.tokens) {
       if (UNSCOPED_TERMINALS.has(tok.terminal)) continue;
@@ -150,12 +179,12 @@ async function main() {
   }
 
   if (failures.length) {
-    console.error(`Grammar disagrees with the parser on ${failures.length} token(s):\n`);
+    console.error(`Grammar disagrees with the parser or Jinja on ${failures.length} token(s):\n`);
     for (const f of failures.slice(0, 25)) console.error('  ' + f);
     if (failures.length > 25) console.error(`  … and ${failures.length - 25} more`);
     console.error(
       '\nThe TextMate grammar is generated from the parser, so a mismatch means ' +
-        'gen_vscode.py mapped a terminal wrongly.'
+        'gen_vscode.py mapped a terminal (or a Jinja rule) wrongly.'
     );
     process.exit(1);
   }
@@ -163,6 +192,7 @@ async function main() {
   console.log(
     `Grammar agrees with the parser: ${checked} tokens across ${corpus.length} files.`
   );
+  console.log(`Grammar agrees with Jinja: ${jinjaRegions} template regions.`);
 }
 
 main().catch((err) => {

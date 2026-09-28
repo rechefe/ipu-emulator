@@ -64,6 +64,18 @@ py_pytest_test(
     ],
 )
 
+# The editor's completion data (isa.json operandTypes, lexical rules) against the
+# assembler's own token constructors.
+py_pytest_test(
+    name = "test_isa_data",
+    srcs = ["test/test_isa_data.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_gen_codegen",
     srcs = ["test/test_gen_codegen.py"],

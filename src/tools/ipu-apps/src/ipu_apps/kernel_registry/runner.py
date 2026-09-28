@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 
-from ipu_apps.kernel_registry.cases import load_cases, run_case
+from ipu_apps.kernel_registry.cases import case_options, load_cases, run_case
 
 
 def _user_path(text: str) -> Path:
@@ -47,12 +47,10 @@ def main(argv=None):
         if selected.case not in cases:
             raise ValueError(f"unknown case {selected.case!r}; available: {', '.join(cases)}")
         case = cases[selected.case]
-        for name, default in case.defaults.items():
-            option = "--" + name.replace("_", "-")
-            if isinstance(default, bool):
-                parser.add_argument(option, default=default, action=argparse.BooleanOptionalAction)
-            else:
-                parser.add_argument(option, type=type(default), default=default)
+        for option in case_options(case).values():
+            default = option["default"]
+            how = {"action": argparse.BooleanOptionalAction} if isinstance(default, bool) else {"type": type(default)}
+            parser.add_argument(option["flag"], default=default, **how)
         args = parser.parse_args(argv)
         from ipu_emu.alias_profile import AliasProfile
         profile = AliasProfile(metadata={"case": args.case}) if args.profile_aliases or args.alias_report else None

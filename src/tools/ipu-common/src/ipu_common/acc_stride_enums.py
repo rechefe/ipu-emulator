@@ -75,3 +75,13 @@ _VERTICAL_STRIDE_DECODE: dict[int, tuple[bool, bool]] = {
 def get_vertical_stride_bits(encoded: int) -> tuple[bool, bool]:
     """Return (enabled, inverted) for encoded vertical stride 0..2."""
     return _VERTICAL_STRIDE_DECODE[encoded]
+
+
+# The names the emulator can decode, for editor completion: the tables above also
+# pad the field width with names (`reserved3`) that assemble but fail to execute.
+def decodable_horizontal_stride_names() -> tuple[str, ...]:
+    return tuple(HORIZONTAL_STRIDE_NAMES[i] for i in sorted(_HORIZONTAL_STRIDE_DECODE))
+
+
+def decodable_vertical_stride_names() -> tuple[str, ...]:
+    return tuple(VERTICAL_STRIDE_NAMES[i] for i in sorted(_VERTICAL_STRIDE_DECODE))

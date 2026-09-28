@@ -25,6 +25,7 @@
 // Split out from extension.js so it can be tested without a running editor: it
 // imports nothing from `vscode`.
 
+const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -107,13 +108,15 @@ function isFresh(binary, root, builtAgainst = 0) {
   return newest === 0 || Math.max(built, builtAgainst) >= newest;
 }
 
+/** Keep Bazel's own chatter out of stdout, which carries the answer. */
+const QUIET = ['--ui_event_filters=-info,-stdout,-stderr', '--noshow_progress'];
+
 /** The slow path: correct whatever state the tree is in, and rebuilds. */
 function bazelCommand() {
   return [
     'bazel',
     'run',
-    '--ui_event_filters=-info,-stdout,-stderr',
-    '--noshow_progress',
+    ...QUIET,
     CHECKER_TARGET,
     '--',
     'check',
@@ -142,6 +145,101 @@ function checkCommandFor(binary, root, builtAgainst = 0) {
     : bazelCommand();
 }
 
+/** The longest timer Node keeps: a longer one fires at once. */
+const MAX_TIMER_SECONDS = 2147483;
+/** How long a stopped process gets before SIGKILL, and an exited one for its pipes to drain. */
+const GRACE_MS = 2000;
+
+/** Spawn in a process group of its own (on POSIX), so `child.stop(signal)` also stops what
+ *  it started: `bazel run`'s client and the checker it launched, or a wrapper's command. */
+function spawnGroup(command, args, options = {}) {
+  const posix = process.platform !== 'win32';
+  const child = cp.spawn(command, args, { ...options, detached: posix });
+  child.stop = (signal = 'SIGTERM') => {
+    try {
+      if (posix && child.pid) process.kill(-child.pid, signal);
+      else child.kill(signal);
+    } catch {
+      /* already gone */
+    }
+  };
+  return child;
+}
+
+/** Stop `child` (from spawnGroup) past `seconds` (<= 0 or beyond a timer: no limit) and mark
+ *  it `timedOut`: a `bazel run` waiting on the workspace lock would otherwise hold a check,
+ *  a rename or the manifest forever. SIGTERM is followed by SIGKILL after GRACE_MS, and once
+ *  it exits, a descendant holding its pipes open (a daemon) is not waited for past that. */
+function limit(child, seconds) {
+  const timers = [];
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+  const closePipes = () => [child.stdin, child.stdout, child.stderr].forEach((stream) => stream && stream.destroy());
+  if (seconds > 0 && seconds <= MAX_TIMER_SECONDS) {
+    later(seconds * 1000, () => {
+      child.timedOut = true;
+      child.stop('SIGTERM');
+      later(GRACE_MS, () => {
+        child.stop('SIGKILL');
+        closePipes();
+      });
+    });
+  }
+  for (const event of ['exit', 'close', 'error']) child.once(event, () => timers.forEach(clearTimeout));
+  child.once('exit', () => later(GRACE_MS, closePipes));
+}
+
+/** What to tell the user when the checker fails: its own words, cut to what
+ *  matters. A Python traceback is reported by its last line, the error. */
+function explainFailure(stderr, command) {
+  // The most likely cause by far: `check` is added by the extension's own
+  // change, so a workspace on a branch predating it has an ipu-as without it.
+  if (/no such command/i.test(stderr)) {
+    return 'the assembler in this workspace has no "check" subcommand, so diagnostics cannot run. '
+      + 'It is added alongside this extension — a branch predating that will not have it.';
+  }
+  const lines = String(stderr).trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.some((l) => l.startsWith('Traceback (most recent call last)'))) {
+    const error = lines[lines.length - 1];
+    const module = /^ModuleNotFoundError: No module named '([^']+)'/.exec(error);
+    if (module) {
+      return `"${command}" runs a Python that cannot import ${module[1]}. Point ipuAsm.checkCommand at an `
+        + 'environment with the assembler installed, or leave it empty to use the Bazel-built checker.';
+    }
+    return `"${command}" failed: ${error.slice(0, 300)}`;
+  }
+  if (/not found|ENOENT/i.test(stderr)) {
+    return `"${command}" could not be run. Set ipuAsm.checkCommand to point at a working assembler.`;
+  }
+  const tail = lines.slice(-3).join(' ').slice(0, 300);
+  return tail || `"${command}" produced no output. See the Developer Tools console.`;
+}
+
+/** Run to completion under `limit`: { code, stdout, stderr } whatever the code (-1 with
+ *  `spawnError` or `timedOut`). `input` goes to stdin; `onSpawn(child)` allows stopping it. */
+function run(command, args, cwd, seconds, { input, onSpawn } = {}) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnGroup(command, args, { cwd });
+    } catch (err) {
+      resolve({ code: -1, stdout: '', stderr: err.message, spawnError: true });
+      return;
+    }
+    limit(child, seconds);
+    if (onSpawn) onSpawn(child);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.stdin.on('error', () => {}); // a stopped child closes stdin first
+    child.stdin.end(input);
+    child.on('error', (err) => resolve({ code: -1, stdout, stderr: stderr + err.message, spawnError: true }));
+    child.on('close', (code) => resolve(child.timedOut
+      ? { code: -1, stdout: '', stderr: `${command} timed out after ${seconds}s (is another Bazel command holding the workspace lock?)`, timedOut: true }
+      : { code, stdout, stderr }));
+  });
+}
+
 module.exports = {
   CHECKER_TARGET,
   CHECKER_BINARY_PATH,
@@ -151,7 +249,13 @@ module.exports = {
   checkCommandFor,
   checkerBinary,
   directCommand,
+  explainFailure,
   isBazelCommand,
   isFresh,
+  limit,
+  MAX_TIMER_SECONDS,
+  QUIET,
   newestSourceMtime,
+  run,
+  spawnGroup,
 };

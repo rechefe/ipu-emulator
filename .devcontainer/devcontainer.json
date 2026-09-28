@@ -1,5 +1,5 @@
 {
-  "name": "IPU C Samples Dev Container",
+  "name": "IPU Emulator Dev Container",
   "build": {
     "dockerfile": "../Dockerfile",
     "context": ".."
@@ -7,11 +7,13 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-vscode.cpptools",
-        "ms-vscode.cpptools-extension-pack",
-        "BazelBuild.vscode-bazel",
+        "yardencarmi.ipu-asm",
         "ms-python.python",
-        "charliermarsh.ruff"
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "BazelBuild.vscode-bazel",
+        "maattdd.gitless",
+        "pkief.material-icon-theme"
       ]
     }
   },

@@ -33,8 +33,8 @@ def parse_tree(text: str) -> lark.Tree:
     `parse()` below prints and exits, which suits the CLI but makes failures
     unobservable to callers. Tooling and tests use this instead.
     """
-    if any(marker in text for marker in ["{{", "{%", "{#"]):
-        text = jinja2.Template(text).render()
+    if template.has_markers(text):
+        text = template.render(text)
     return get_parser().parse(text)
 
 
@@ -173,11 +173,6 @@ def parse(text: str) -> list[dict[str, any]]:
     # thing as running whatever they put in it.
     if template.has_markers(text):
         text = template.render(text)
-    
-    script_dir = os.path.dirname(__file__)
-    parser = lark.Lark.open(
-        os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
-    )
 
     try:
         tree = parse_tree(text)

@@ -1,6 +1,30 @@
 # IPU Assembly — VS Code extension
 
-Syntax highlighting for IPU VLIW assembly (`.asm`, `.s`, `.asm.j2`).
+Editing support for IPU VLIW assembly (`.asm`, `.asm.j2`): highlighting,
+completion, hover, navigation, rename, formatting and assembler diagnostics,
+plus Run/Debug/Test buttons and an IPU sidebar for the kernel library.
+
+Anything that runs a process needs an IPU checkout: the nearest Bazel workspace
+above the file holding `src/tools/ipu-as-py`, with the open folder at, inside,
+or up to three levels above it; switching checkouts is picked up live.
+Elsewhere a `.asm` is only coloured.
+
+## Where its knowledge comes from
+
+| Knowledge | Source | When |
+|---|---|---|
+| Token shapes, comments, `;` / `;;`, labels | `asm_grammar.lark` terminals | extension build |
+| Instructions, their slots, slots per word, operands, docs | `instruction_spec.py` | extension build |
+| What each register is; `CR0`/`CR1` fixed values | `ipu_common.registers`, `ipu_emu.ipu_config` | extension build |
+| What each operand type accepts (registers, enums, ranges) | the assembler's token classes, `completion_domain()` | extension build |
+| Which names ignore case | probe programs run through the assembler | extension build |
+| Kernels, families and their Bazel targets | `ipu_app.bzl` (`:kernel_targets`) | runtime, from the workspace |
+| Cases, options, operations | the kernel registry (`:kernel_manifest`) | runtime, from the workspace |
+| Which kernel handles a computation | `query --json` | runtime, from the workspace |
+| Whether a program assembles | `ipu-as check` | runtime, from the workspace |
+
+None of it is hand-written. Build-time knowledge is bundled as `data/isa.json`;
+runtime knowledge comes from the open checkout, so branch-only kernels show up.
 
 ## Generated, not written
 
@@ -42,8 +66,8 @@ moment of the change rather than quietly leaving it unhighlighted.
 bazel run //vscode-ipu-asm:gen_vscode
 ```
 
-`syntaxes/ipu-asm.tmLanguage.json` and `language-configuration.json` are build
-outputs and are **not** committed.
+`syntaxes/ipu-asm.tmLanguage.json`, `language-configuration.json` and
+`data/isa.json` are build outputs and are **not** committed.
 
 ## The agreement test
 
@@ -52,15 +76,34 @@ with the exact engine VS Code ships (`vscode-textmate` + `vscode-oniguruma`) —
 and fails on any disagreement about a token's boundaries or role. It runs in
 `.github/workflows/vscode-extension.yml`.
 
-`test/corpus/edge_cases.asm` covers constructs the six app kernels happen not to
+The Jinja layer is checked on the raw files: every `{# … #}`, `{% … %}` and
+`{{ … }}` (even in an assembly comment) must carry its Jinja scope and nothing
+else may; the regions are cross-checked against Jinja's own lexer.
+
+Kernels aside, `test/corpus/edge_cases.asm` covers constructs they happen not to
 use (mid-line labels, labels spelled like mnemonics, every numeric base). It
 must keep assembling; a change that breaks it is a real grammar regression.
+
+## The other tests
+
+| Test | Checks |
+|---|---|
+| `test/checker.js` | which checker runs, when the prebuilt one is stale, and how a process that runs too long is stopped |
+| `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
+| `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic, and agreement with the parser on the corpus |
+| `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest |
+| `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol, and formatting, leaves the assembled binary unchanged |
+| `test/integration/run.js` | the extension in a real VS Code, then in a parent folder, another project and a pre-manifest checkout |
+
+All run in the workflow. The integration test needs `@vscode/test-electron`
+(installed without saving) and a display (`xvfb-run -a` on a server); set
+`IPU_TEST_CHECK_COMMAND` to a checker argv to include checker-backed tests.
 
 ## Publishing and versions
 
 Every push to `master` that touches the extension or its inputs republishes it.
 The patch number is the workflow run number, applied on the runner only —
-`0.1.0` in this file is just the major/minor base.
+the version in `package.json` is just the major/minor base.
 
 Nothing is written back to the repository. A bumped `package.json` committed to
 `master` would land under this workflow's own `paths` filter and retrigger it,
@@ -74,12 +117,62 @@ release below still happens.
 
 ## Install
 
-Every push to `master` republishes the `vscode-latest` prerelease:
+Every push to `master` that changes the extension or the sources its language
+data is generated from republishes the `vscode-latest` prerelease:
 
 ```bash
 curl -LO https://github.com/rechefe/ipu-emulator/releases/download/vscode-latest/ipu-asm.vsix
 code --install-extension ipu-asm.vsix
 ```
+
+## Features
+
+- **Hover**: an instruction's reference, a register's role, a Jinja name's value.
+- **Completion**: at an instruction start, the mnemonics that still fit the
+  word (slots filled as `CompoundInst._fill_instructions` does), each bringing
+  its operands as tab stops named as the instruction spec names them; at an
+  operand, what its type accepts, labels and fitting Jinja names, with an
+  operand hint.
+  A typed space opens it only at an operand, so Enter still ends a line.
+  Templates are read as one rendering (`{% if %}` branches are alternatives).
+- **Values inline**: `{{ lr_row }}` shows the literal value in force there
+  (`lr1`), as Jinja scopes it.
+- **Unused names faded**: a label nothing branches to, or a `set` nothing
+  reads. A name written anywhere else in the file counts as used.
+- **Navigation and rename** for labels and Jinja `set` / `macro` / `for` names
+  and parameters, scoped as Jinja scopes them. Rename refuses a clash or a
+  change that the assembler reports as a new problem (without the assembler it
+  proceeds on the lexical check and says so). Outline and folding too.
+- **Formatting**: a label at column 0 on its own line, instructions one indent
+  in, one `;;` word per line; nothing but that whitespace changes, and every
+  kernel is already formatted. Typing indents after a label, splits code after
+  a typed `;;` and moves a label to column 0 on `:`.
+- **Buttons** on a kernel's `.asm`: Run (`bazel run <target> -- --case default`),
+  Debug (the same with `--config=debug`), Test (`bazel test <target>`) and
+  Benchmark if it has one. They run in a terminal named after the kernel,
+  reused only when its shell is idle.
+- **Cases**, in the sidebar (a case's pencil, a kernel's +): a form with a
+  field per option, typed as the runner parses it, to run or debug a case with other values, edit a registry case, or add one that
+  starts from a registry case. Saved cases go to `ipuAsm.cases`; `cases.py` is
+  never written.
+- **IPU sidebar**: family, kernel and case with the same actions, and a query
+  that asks the registry which kernel handles an operation. Both read
+  `//src/tools/ipu-apps:kernel_manifest`, which joins Bazel's targets with the
+  registry's cases and refuses if they disagree; it reloads when kernels or
+  build files change. With several checkouts, each row acts on its own. While
+  it is open, it selects the kernel whose `.asm` is in the editor.
+
+## Settings
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `ipuAsm.checkCommand` | Bazel | the checker, as an argv (e.g. a virtualenv's `ipu-as check --json --input`) |
+| `ipuAsm.manifestCommand` | Bazel | the command that prints the kernel manifest |
+| `ipuAsm.queryCommand` | Bazel | the query command; `--json`, the operation and parameters are appended |
+| `ipuAsm.bazelFlags` | none | extra flags for Run, Debug, Test and Benchmark, e.g. `--define=ipu_proto=1` |
+| `ipuAsm.cases` | none | cases saved from the form, by kernel: `{ "tall": { "base": "default", "options": { "rows": 64 } } }` |
+| `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
+| `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
 
 ## Diagnostics
 
@@ -97,6 +190,10 @@ covering all three stages:
 | template | `{% for x in %}` | the template line |
 | parse | `BEQ lr0, cr0, +1;;` | the comma |
 | encode | `BGT lr0 lr1;;`, `mac.ee r0;;` | the mnemonic |
+
+Templates render in Jinja's sandbox, as the assembler does, because a file is
+checked as soon as it opens; the extension is also disabled in Restricted Mode.
+A template that expects harness values should give them a `| default(...)`.
 
 It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled

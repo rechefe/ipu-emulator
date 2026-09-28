@@ -25,6 +25,16 @@ class IpuToken:
     def bits(cls) -> int:
         raise NotImplementedError("bits property must be implemented by subclasses")
 
+    @classmethod
+    def completion_domain(cls) -> dict:
+        """What this operand accepts, for editor completion, from the method its
+        constructor validates with so the two cannot disagree: a number range from
+        ``value_range()`` by default; else ``enum``, ``mixed`` or ``label``."""
+        if hasattr(cls, "value_range"):
+            low, high = cls.value_range()
+            return {"kind": "number", "min": low, "max": high}
+        raise NotImplementedError(f"{cls.__name__} does not describe its values")
+
     def _raise_error(self, extra_msg: str = ""):
         error_msg = (
             f"Invalid token value - {self.token.value} in token {self.__class__.__name__}\n"
@@ -42,14 +52,18 @@ class NumberToken(IpuToken):
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        min_val = -(1 << (self.bits() - 1))
-        max_val = (1 << self.bits()) - 1
+        min_val, max_val = self.value_range()
         if not (min_val <= self.int <= max_val):
             self._raise_error(f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits")
 
     @classmethod
     def default(cls) -> "IpuToken":
         return cls(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
+
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        """Accepts the signed and the unsigned reading of the field's bits."""
+        return -(1 << (cls.bits() - 1)), (1 << cls.bits()) - 1
 
     @classmethod
     def bits(self) -> int:
@@ -88,6 +102,15 @@ class EnumToken(IpuToken):
     @classmethod
     def default(cls) -> "IpuToken":
         return cls(AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0))
+
+    @classmethod
+    def completion_values(cls) -> list[str]:
+        """The values worth offering: all, unless a table pads with unusable names."""
+        return list(cls.enum_array())
+
+    @classmethod
+    def completion_domain(cls) -> dict:
+        return {"kind": "enum", "values": cls.completion_values()}
 
     @classmethod
     def bits(cls) -> int:
@@ -155,6 +178,11 @@ class LabelToken(IpuToken):
     @classmethod
     def default(cls) -> "IpuToken":
         return cls(AnnotatedToken(lark.Token("LABEL", "+0"), 0))
+
+    @classmethod
+    def completion_domain(cls) -> dict:
+        # A label in the program, or a `+N` offset whose target is below MAX_PROGRAM_SIZE.
+        return {"kind": "label", "relative_max": MAX_PROGRAM_SIZE - 1}
 
     @classmethod
     def bits(self) -> int:

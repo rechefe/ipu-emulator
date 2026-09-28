@@ -28,6 +28,7 @@ import lark
 
 import ipu_as.compound_inst as compound_inst
 import ipu_as.label as ipu_label
+import ipu_as.template as template
 from ipu_as.lark_tree import ASTBuilder, get_parser
 
 #: Assembly-stage errors embed their position in the message text (see
@@ -207,7 +208,7 @@ def _recover_line_without_fusion(text: str) -> tuple[str, int] | None:
     if instrumented is None:
         return None
     try:
-        rendered = jinja2.Template(instrumented).render()
+        rendered = template.render(instrumented)
     except Exception:
         return None
 
@@ -468,8 +469,10 @@ def check(text: str) -> list[Diagnostic]:
     """Return diagnostics for one assembly source. Empty means it assembles."""
     rendered = text
     if any(marker in text for marker in _JINJA_MARKERS):
+        # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
+        # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.
         try:
-            rendered = jinja2.Template(text).render()
+            rendered = template.render(text)
         except jinja2.TemplateSyntaxError as error:
             return [_template_diagnostic(error)]
         except Exception as error:
@@ -494,7 +497,7 @@ def check(text: str) -> list[Diagnostic]:
         instrumented = _instrument(text)
         if instrumented is not None:
             try:
-                marked = jinja2.Template(instrumented).render()
+                marked = template.render(instrumented)
             except jinja2.TemplateError:
                 marked = None
             if marked is not None and _same_tokens(marked, rendered):

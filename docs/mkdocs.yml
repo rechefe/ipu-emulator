@@ -64,6 +64,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
+      - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
       - Setup: setup.md
       - Debugging: debugging.md
   - Programming the IPU:

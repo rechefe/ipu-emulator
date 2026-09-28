@@ -2,6 +2,7 @@
 *.py
 test/**
 node_modules/**
+.vscode-test/**
 BUILD.bazel
 .vscodeignore
 *.vsix

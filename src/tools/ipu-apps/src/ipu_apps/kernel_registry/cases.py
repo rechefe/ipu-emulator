@@ -42,6 +42,19 @@ class KernelCase:
                 raise ValueError(f"case option {name!r} requires a str, int, float, or bool default")
 
 
+def case_options(case: KernelCase) -> dict[str, dict[str, Any]]:
+    """Each option a case adds to the command line. The runner parses these and the
+    kernel manifest lists them, so the flags a tool offers are the flags that parse."""
+    options = {}
+    for name, default in case.defaults.items():
+        flag = "--" + name.replace("_", "-")
+        # The type the runner parses it as, which JSON cannot always carry (1.0 is a float).
+        options[name] = {"flag": flag, "default": default, "type": type(default).__name__}
+        if isinstance(default, bool):  # argparse.BooleanOptionalAction: a switch pair
+            options[name]["negated_flag"] = "--no-" + flag[2:]
+    return options
+
+
 def assemble_kernel(kernel_name: str, directory) -> Path:
     """Assemble a registered kernel's ``.asm`` into ``directory``; return the binary."""
     spec = kernel_spec(kernel_name)

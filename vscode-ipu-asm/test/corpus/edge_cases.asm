@@ -50,3 +50,10 @@ bne_target:
     BKPT ;;
 lr0_scratch:
     BKPT ;;
+
+// Jinja renders before the parser sees anything, comments included, so a
+// template inside an assembly comment is live code and must be coloured as
+// Jinja, not hidden in the comment colour.
+# row {{ 1 + 1 }} of {% if true %}2{% endif %}
+// note {{ "x" }} {# a Jinja comment inside an assembly one #}
+    BKPT ;;

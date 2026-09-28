@@ -24,6 +24,8 @@ from ipu_common.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
+    decodable_horizontal_stride_names,
+    decodable_vertical_stride_names,
 )
 
 
@@ -42,15 +44,20 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
             )
         )
 
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX
+
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         try:
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (LR_MOD_POW2_K_MIN <= self.int <= LR_MOD_POW2_K_MAX):
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [{LR_MOD_POW2_K_MIN}, {LR_MOD_POW2_K_MAX}] "
+                f"Value {self.int} out of range [{low}, {high}] "
                 "for INCR_MOD_POW2 k operand"
             )
 
@@ -94,15 +101,20 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
             )
         )
 
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return 0, MULT_MASK_SLOT_COUNT - 1
+
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         try:
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        if not (0 <= self.int < MULT_MASK_SLOT_COUNT):
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [0, {MULT_MASK_SLOT_COUNT - 1}] "
+                f"Value {self.int} out of range [{low}, {high}] "
                 "for mult mask slot selector"
             )
 
@@ -138,6 +150,21 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
     def default(cls) -> "ipu_token.IpuToken":
         return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        """Range of the immediate form."""
+        return 0, RESHAPE_MASK_LR_OFFSET - 1
+
+    @classmethod
+    def max_lr_index(cls) -> int:
+        """Highest LR the field can encode above the immediates."""
+        return reshape_mask_field_max() - RESHAPE_MASK_LR_OFFSET
+
+    @classmethod
+    def completion_domain(cls) -> dict:
+        values = [f"lr{i}" for i in range(cls.max_lr_index() + 1)]
+        return {**super().completion_domain(), "kind": "mixed", "values": values}
+
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         val = token.token.value.lower()
@@ -148,7 +175,7 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
                 self._raise_error(
                     f"Invalid LR register '{token.token.value}' for ACC.RESHAPE reshape_mask"
                 )
-            max_lr_index = reshape_mask_field_max() - RESHAPE_MASK_LR_OFFSET
+            max_lr_index = self.max_lr_index()
             if not (0 <= lr_idx <= max_lr_index):
                 self._raise_error(
                     f"LR{lr_idx} out of range for ACC.RESHAPE reshape_mask; "
@@ -163,9 +190,10 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
                     f"Value '{token.token.value}' is not a valid immediate or LR register "
                     "for ACC.RESHAPE reshape_mask"
                 )
-            if not (0 <= imm < RESHAPE_MASK_LR_OFFSET):
+            low, high = self.value_range()
+            if not (low <= imm <= high):
                 self._raise_error(
-                    f"Immediate {imm} out of range [0, {RESHAPE_MASK_LR_OFFSET - 1}] "
+                    f"Immediate {imm} out of range [{low}, {high}] "
                     "for ACC.RESHAPE reshape_mask"
                 )
             self.int = imm
@@ -205,16 +233,20 @@ class LrIncDecImmediate(ipu_token.IpuToken):
     def default(cls) -> "ipu_token.IpuToken":
         return cls(ipu_token.AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
+    @classmethod
+    def value_range(cls) -> tuple[int, int]:
+        return 0, lr_inc_dec_imm_max()
+
     def __init__(self, token: ipu_token.AnnotatedToken):
         super().__init__(token)
         try:
             self.int = int(token.token.value, 0)
         except ValueError:
             self._raise_error(f"Value {self.token.value} is not a valid integer")
-        imm_max = lr_inc_dec_imm_max()
-        if not (0 <= self.int <= imm_max):
+        low, high = self.value_range()
+        if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [0, {imm_max}] "
+                f"Value {self.int} out of range [{low}, {high}] "
                 "for INC/DEC immediate operand"
             )
 
@@ -245,11 +277,19 @@ class HorizontalStrideField(ipu_token.EnumToken):
     def enum_array(cls) -> list[str]:
         return list(HORIZONTAL_STRIDE_NAMES)
 
+    @classmethod
+    def completion_values(cls) -> list[str]:
+        return list(decodable_horizontal_stride_names())
+
 
 class VerticalStrideField(ipu_token.EnumToken):
     """Vertical stride: enabled(1), inverted(2). Bits 0..1."""
     @classmethod
     def enum_array(cls) -> list[str]:
         return list(VERTICAL_STRIDE_NAMES)
+
+    @classmethod
+    def completion_values(cls) -> list[str]:
+        return list(decodable_vertical_stride_names())
 
 

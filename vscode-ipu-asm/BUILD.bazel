@@ -22,6 +22,12 @@ filegroup(
     srcs = [
         "test/agreement.js",
         "test/checker.js",
+        "test/harness.js",
+        "test/language.js",
+        "test/mangle.js",
+        "test/project.js",
+        "test/rewrites.js",
+        "test/runs.js",
     ],
 )
 
@@ -33,7 +39,7 @@ py_binary(
     srcs = ["gen_vscode_wrapper.py"],
     main = "gen_vscode_wrapper.py",
     python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
 )
 
 # Ground truth for the agreement test: the parser's own tokenization of the
@@ -42,6 +48,17 @@ py_binary(
     name = "dump_parser_tokens",
     srcs = ["dump_parser_tokens_wrapper.py"],
     main = "dump_parser_tokens_wrapper.py",
+    python_version = "PY3",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+)
+
+# Judges test/rewrites.js: every rename and format the editor could apply to
+# the corpus must assemble to the same binary as the original.
+#   bazel run //vscode-ipu-asm:check_rewrites -- <rewrites.json>
+py_binary(
+    name = "check_rewrites",
+    srcs = ["check_rewrites.py"],
+    main = "check_rewrites.py",
     python_version = "PY3",
     deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
 )

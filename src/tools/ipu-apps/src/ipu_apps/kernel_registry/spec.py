@@ -232,6 +232,16 @@ class Verdict:
         cls = self.kernel.app_class
         return f"{cls.__module__}.{cls.__qualname__}"
 
+    def to_dict(self) -> dict[str, Any]:
+        """The same answer as :meth:`describe`, for tools (``query --json``)."""
+        return {
+            "supported": self.supported, "reason": self.reason, "app": self.app_name, "use": self.app_class,
+            "kwargs": {k: repr(v) for k, v in self.kwargs.items()},
+            "shapes": self.shapes.describe() if self.shapes is not None else None,
+            "notes": (list(self.shapes.notes) if self.shapes is not None else []) + list(self.caveats),
+            "alternatives": list(self.alternatives),
+        }
+
     def describe(self) -> str:
         """Human-readable multi-line summary (what the CLI prints)."""
         head = "SUPPORTED" if self.supported else "NOT SUPPORTED"

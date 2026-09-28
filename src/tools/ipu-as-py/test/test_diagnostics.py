@@ -276,3 +276,25 @@ def test_pseudo_instruction_expansion_keeps_its_position():
     assert found.line == 2
     assert not found.approximate
     assert "Line None" not in found.message
+
+
+# --- the checker renders through the same sandbox as the assembler -----------
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # The editor checks a file the moment it is opened, so an unsandboxed render
+        # here ran a received .asm's payload without it ever being assembled.
+        "{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}BKPT;;\n",
+        # Attribute traversal out of the sandbox.
+        "{% for c in ''.__class__.__mro__ %}\nBKPT;;\n{% endfor %}\n",
+        "{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\n",
+    ],
+)
+def test_template_escape_is_reported_and_does_not_run(source, tmp_path):
+    marker = tmp_path / "executed"
+    (found,) = check(source.replace("MARKER", str(marker)))
+    assert found.stage == "template"
+    assert "SecurityError" in found.message
+    assert not marker.exists()

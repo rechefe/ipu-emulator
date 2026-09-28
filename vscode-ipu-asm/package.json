@@ -1,8 +1,8 @@
 {
   "name": "ipu-asm",
   "displayName": "IPU Assembly",
-  "description": "Syntax highlighting and assembler diagnostics for IPU VLIW assembly, generated from the assembler's own grammar.",
-  "version": "0.1.0",
+  "description": "IPU VLIW assembly: syntax highlighting, completion, operand hints, navigation, formatting and assembler diagnostics, generated from the assembler's own grammar; plus Run, Debug and Test buttons and a kernel sidebar driven by the kernel registry.",
+  "version": "0.2.0",
   "publisher": "yardencarmi",
   "repository": {
     "type": "git",
@@ -24,7 +24,6 @@
         ],
         "extensions": [
           ".asm",
-          ".s",
           ".asm.j2"
         ],
         "configuration": "./language-configuration.json"
@@ -45,6 +44,60 @@
       {
         "command": "ipuAsm.showCheckerStatus",
         "title": "IPU Assembly: Why are diagnostics not running?"
+      },
+      {
+        "command": "ipuAsm.runKernel",
+        "title": "Run Kernel",
+        "category": "IPU",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ipuAsm.testKernel",
+        "title": "Test Kernel",
+        "category": "IPU",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "ipuAsm.debugKernel",
+        "title": "Debug Kernel (terminal debugger)",
+        "category": "IPU",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "ipuAsm.benchmarkKernel",
+        "title": "Benchmark Kernel",
+        "category": "IPU",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "ipuAsm.editCases",
+        "title": "Kernel Cases…",
+        "category": "IPU",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "ipuAsm.addCase",
+        "title": "Add Case…",
+        "category": "IPU",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ipuAsm.testFamily",
+        "title": "Test family",
+        "category": "IPU",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "ipuAsm.refreshKernels",
+        "title": "Refresh kernels",
+        "category": "IPU",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ipuAsm.query",
+        "title": "Query: which kernel handles…",
+        "category": "IPU",
+        "icon": "$(search)"
       }
     ],
     "configuration": {
@@ -57,9 +110,210 @@
           },
           "default": [],
           "markdownDescription": "Command used to check a file, as an argv array; the file path is appended. Empty builds `//src/tools/ipu-as-py:ipu-as` once and runs that binary directly, falling back to `bazel run` whenever the assembler's sources are newer than it. Set this to point at a virtualenv to bypass Bazel entirely."
+        },
+        "ipuAsm.bazelFlags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra Bazel flags for Run, Debug, Test and Benchmark, e.g. `[\"--define=ipu_proto=1\"]` for prototyping mode."
+        },
+        "ipuAsm.cases": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "base": {
+                  "type": "string",
+                  "description": "The registry case it starts from (its prepare and its options); a registry case's own name edits that case."
+                },
+                "options": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": [
+                      "number",
+                      "string",
+                      "boolean"
+                    ]
+                  },
+                  "description": "Option values over the base case's defaults."
+                }
+              }
+            }
+          },
+          "markdownDescription": "Cases saved from the case form (**IPU: Kernel Cases…**), by kernel: `{ \"identity\": { \"tall\": { \"base\": \"default\", \"options\": { \"rows\": 64 } } } }`. Each runs as `--case <base>` with its options. The registry's `cases.py` is never written."
+        },
+        "ipuAsm.manifestCommand": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Command that prints the kernel manifest (JSON), as an argv array. Empty runs `bazel run //src/tools/ipu-apps:kernel_manifest`. The kernel buttons and the IPU sidebar are built from it."
+        },
+        "ipuAsm.queryCommand": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Command for **IPU: Query**, as an argv array; `--json`, the operation and its `name=value` parameters are appended. Empty runs the manifest's query target through `bazel run`."
+        },
+        "ipuAsm.timeoutSeconds": {
+          "scope": "resource",
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 2147483,
+          "markdownDescription": "The longest, in seconds, that the checker, the kernel manifest or a query may run before it is stopped; `0` means no limit. A `bazel run` waits for the workspace lock, so without a limit a build running in a terminal could hold a check or a rename indefinitely."
+        },
+        "ipuAsm.wordSeparation": {
+          "scope": "language-overridable",
+          "type": "string",
+          "enum": [
+            "space",
+            "emptyLine",
+            "line",
+            "none"
+          ],
+          "default": "space",
+          "enumDescriptions": [
+            "Empty space before each `;;` word, on screen only: the file keeps its rows. (Uses the editor's CodeLens row, so `editor.codeLens` must be on.)",
+            "An empty line between `;;` words, written by Format Document and by Enter after `;;`. Adds rows to the file.",
+            "A thin line drawn under each `;;` word, on screen only. Its colour is `ipuAsm.wordSeparator`.",
+            "No separation."
+          ],
+          "markdownDescription": "How `;;` words are set apart."
         }
       }
-    }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ipu",
+          "title": "IPU",
+          "icon": "media/ipu.svg"
+        }
+      ]
+    },
+    "views": {
+      "ipu": [
+        {
+          "id": "ipuKernels",
+          "name": "Kernels",
+          "icon": "media/ipu.svg"
+        },
+        {
+          "type": "webview",
+          "id": "ipuAsm.caseForm",
+          "name": "Case",
+          "when": "ipuAsm.caseFormOpen"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ipuAsm.query",
+          "when": "view == ipuKernels",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ipuAsm.refreshKernels",
+          "when": "view == ipuKernels",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ipuAsm.runKernel",
+          "when": "view == ipuKernels && viewItem =~ /ipuKernel|ipuCase/",
+          "group": "inline@1"
+        },
+        {
+          "command": "ipuAsm.debugKernel",
+          "when": "view == ipuKernels && viewItem =~ /ipuKernel|ipuCase/",
+          "group": "inline@2"
+        },
+        {
+          "command": "ipuAsm.testKernel",
+          "when": "view == ipuKernels && viewItem =~ /ipuKernel/",
+          "group": "inline@3"
+        },
+        {
+          "command": "ipuAsm.benchmarkKernel",
+          "when": "view == ipuKernels && viewItem =~ /ipuBenchmark/",
+          "group": "inline@4"
+        },
+        {
+          "command": "ipuAsm.addCase",
+          "when": "view == ipuKernels && viewItem =~ /ipuKernel/",
+          "group": "inline@5"
+        },
+        {
+          "command": "ipuAsm.editCases",
+          "when": "view == ipuKernels && viewItem =~ /ipuCase/",
+          "group": "inline@5"
+        },
+        {
+          "command": "ipuAsm.testFamily",
+          "when": "view == ipuKernels && viewItem == ipuFamily",
+          "group": "inline@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ipuAsm.testFamily",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ipuAsm.runKernel",
+          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ipuAsm.debugKernel",
+          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ipuAsm.testKernel",
+          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.kernelFiles",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ipuAsm.benchmarkKernel",
+          "when": "resourceLangId == ipu-asm && resourcePath in ipuAsm.benchmarkFiles",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "[ipu-asm]": {
+        "editor.formatOnType": true,
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+      }
+    },
+    "colors": [
+      {
+        "id": "ipuAsm.wordSeparator",
+        "description": "The line drawn under each ;; word when ipuAsm.wordSeparation is \"line\".",
+        "defaults": {
+          "dark": "#ffffff29",
+          "light": "#0000001f",
+          "highContrast": "contrastBorder",
+          "highContrastLight": "contrastBorder"
+        }
+      }
+    ]
   },
   "main": "./extension.js"
 }

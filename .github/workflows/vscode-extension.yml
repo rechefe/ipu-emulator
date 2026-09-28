@@ -1,38 +1,42 @@
 name: VS Code Extension
 
-# Generates the TextMate grammar from the assembler's parser, proves the two
-# agree on a real corpus, then packages the .vsix.
+# Generates the extension's language data from the assembler, proves it agrees
+# with the parser and assembler on a real corpus, tests it in a real VS Code,
+# then packages (and on master, publishes) the .vsix.
 #
-# The paths filter deliberately includes the upstream sources: the grammar is
-# derived from asm_grammar.lark and instruction_spec.py, so a change to either
-# must re-run the agreement test even though it touches no file under
-# vscode-ipu-asm/.
+# The paths filters include ipu_as, ipu_common and ipu_emu: the grammar,
+# instruction set, operand types, case rules and register facts are read from
+# them at build time.
 
 on:
+  # Master publishes, so only files that can change the packaged .vsix count:
+  # test/** is excluded by .vscodeignore, and the generator reads nothing from
+  # ipu_emu beyond ipu.py (LRD pairs) and ipu_config.py (fixed CRs).
   push:
     branches: [ master ]
     paths:
       - 'vscode-ipu-asm/**'
-      - 'src/tools/ipu-as-py/src/ipu_as/asm_grammar.lark'
-      - 'src/tools/ipu-as-py/src/ipu_as/gen_vscode.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/dump_parser_tokens.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/lark_tree.py'
-      - 'src/tools/ipu-common/src/ipu_common/instruction_spec.py'
-      - 'src/tools/ipu-common/src/ipu_common/registers.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/reg.py'
+      - '!vscode-ipu-asm/test/**'
+      - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-common/src/ipu_common/**'
+      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu.py'
+      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu_config.py'
       - '.github/workflows/vscode-extension.yml'
   pull_request:
     branches: [ "**" ]
     paths:
       - 'vscode-ipu-asm/**'
-      - 'src/tools/ipu-as-py/src/ipu_as/asm_grammar.lark'
-      - 'src/tools/ipu-as-py/src/ipu_as/gen_vscode.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/dump_parser_tokens.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/lark_tree.py'
-      - 'src/tools/ipu-common/src/ipu_common/instruction_spec.py'
-      - 'src/tools/ipu-common/src/ipu_common/registers.py'
-      - 'src/tools/ipu-as-py/src/ipu_as/reg.py'
+      - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-common/src/ipu_common/**'
+      - 'src/tools/ipu-emu-py/src/ipu_emu/**'
       - '.github/workflows/vscode-extension.yml'
+      # PRs only: the test corpus and the runtime kernel manifest change no
+      # bundled file, so on master they must not republish the extension.
+      - 'src/tools/ipu-apps/**/*.asm'
+      - 'src/tools/ipu-apps/src/ipu_apps/kernel_registry/**'
+      - 'src/tools/ipu-apps/src/ipu_apps/kernels/**/*.py'
+      - 'src/tools/ipu-apps/BUILD.bazel'
+      - 'ipu_app.bzl'
   workflow_dispatch:
 
 permissions:
@@ -84,14 +88,16 @@ jobs:
           bazel run //vscode-ipu-asm:dump_parser_tokens -- \
             "$PWD/parser-tokens.json" \
             "$PWD"/src/tools/ipu-apps/src/ipu_apps/**/*.asm \
+            "$PWD"/src/tools/ipu-apps/test/**/*.asm \
             "$PWD/vscode-ipu-asm/test/corpus/edge_cases.asm"
         shell: bash --noprofile --norc -eo pipefail -O globstar {0}
 
-      # The real VS Code tokenizer; validating with Python's re would be a
-      # different regex engine and so a misleading oracle.
-      - name: Install the VS Code tokenizer
+      # The real VS Code tokenizer (Python's re is a different engine, so a
+      # misleading oracle) and the VS Code test harness; --no-save keeps them
+      # out of the vsix.
+      - name: Install the test dependencies
         working-directory: vscode-ipu-asm
-        run: npm install --no-save --no-package-lock vscode-textmate@9.3.2 vscode-oniguruma@2.0.1
+        run: npm install --no-save --no-package-lock vscode-textmate@9.3.2 vscode-oniguruma@2.0.1 @vscode/test-electron@2.5.2
 
       - name: Check the grammar agrees with the parser
         run: |
@@ -103,6 +109,39 @@ jobs:
       # has gone stale. Needs no editor and no dependencies.
       - name: Check the checker selection rule
         run: node vscode-ipu-asm/test/checker.js
+
+      - name: Check how checkouts are found
+        run: node vscode-ipu-asm/test/project.js
+
+      - name: Check completion and navigation against the parser
+        run: |
+          node vscode-ipu-asm/test/language.js \
+            vscode-ipu-asm/data/isa.json parser-tokens.json
+
+      # A correct rename or format leaves the binary byte for byte the same.
+      - name: Check renames and formatting leave the program unchanged
+        run: |
+          node vscode-ipu-asm/test/rewrites.js \
+            vscode-ipu-asm/data/isa.json parser-tokens.json rewrites.json
+          bazel run //vscode-ipu-asm:check_rewrites -- "$PWD/rewrites.json"
+
+      # Read by the extension at runtime; building it proves Bazel's targets and
+      # the registry agree.
+      - name: Build the kernel manifest
+        run: |
+          bazel run --ui_event_filters=-info,-stdout,-stderr --noshow_progress \
+            //src/tools/ipu-apps:kernel_manifest > kernel-manifest.json
+
+      - name: Check the run commands against the manifest
+        run: node vscode-ipu-asm/test/runs.js kernel-manifest.json
+
+      # The VS Code version is pinned in run.js; diagnostics use the built checker.
+      - name: Test the extension in VS Code
+        run: |
+          bazel build //src/tools/ipu-as-py:ipu-as
+          checker="$(bazel info bazel-bin)/src/tools/ipu-as-py/ipu-as"
+          export IPU_TEST_CHECK_COMMAND="[\"$checker\", \"check\", \"--json\", \"--input\"]"
+          xvfb-run -a node vscode-ipu-asm/test/integration/run.js
 
       # The Marketplace refuses a version it has already seen, so every publish
       # needs a new one. The patch number comes from the run counter rather than

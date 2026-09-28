@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import json
+import os
 import sys
 import tempfile
 import types
@@ -21,13 +23,16 @@ import numpy as np
 import pytest
 
 import ipu_apps.kernel_registry.benchmarking as benchmarking
+import ipu_apps.kernel_registry.manifest as manifest
 import ipu_apps.kernel_registry.query as query
 import ipu_apps.kernel_registry.registry as registry
-from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, package_kernel
+import ipu_apps.kernel_registry.runner as runner
+from ipu_apps.kernel_registry.cases import assemble_kernel, case_options, load_cases, package_kernel
 from ipu_apps.kernel_registry.layers import _ADAPTERS
 from ipu_apps.kernel_registry import (
     KernelSpec,
     ShapeBundle,
+    SkippedModule,
     UnsupportedLayer,
     boundaries,
     discover,
@@ -646,3 +651,81 @@ def test_constructor_guards_reject_what_supports_refuses():
                     spec.app_class(
                         inst_path="x", input_path="y", output_path=None, **kwargs
                     )
+
+
+# -- tool output: `query --json` and the kernel manifest -----------------------
+
+
+@pytest.mark.parametrize("argv", [["softmax", "shape=32,300", "dim=1"], ["no_such_op", "shape=8,8"]])
+def test_query_json_is_the_text_verdict(argv, capsys):
+    code = query.main(argv)
+    text = capsys.readouterr().out
+    assert query.main([*argv, "--json"]) == code
+    data = json.loads(capsys.readouterr().out)
+    assert text.startswith(("SUPPORTED: " if data["supported"] else "NOT SUPPORTED: ") + data["reason"])
+    if data["app"]:
+        assert f"  app:  {data['app']}" in text
+        assert f"  use:  {data['use']}(" in text
+    for note in data["notes"]:
+        assert f"  note: {note}" in text
+
+
+@pytest.mark.parametrize("argv", [["--json"], ["softmax", "shape=8,n", "dim=1", "--sweep", "n=1..5", "--json"]])
+def test_query_json_needs_exactly_one_query(argv):
+    with pytest.raises(SystemExit) as exc:
+        query.main(argv)
+    assert exc.value.code == 2
+
+
+def _kernel_targets():
+    path = os.environ.get("IPU_KERNEL_TARGETS")
+    if not path:
+        pytest.skip("IPU_KERNEL_TARGETS is set by the Bazel target (it names :kernel_targets)")
+    return json.loads(Path(path).read_text())
+
+
+def test_manifest_joins_bazel_targets_and_the_registry():
+    built = manifest.build(_kernel_targets())
+    assert set(built["kernels"]) == {spec.name for spec in kernels()}
+    for name, kernel in built["kernels"].items():
+        assert kernel["targets"]["run"].endswith(":" + name)
+        assert kernel["asm"].endswith(f"/{name}/{name}.asm")
+        assert Path(kernel["asm"]).name == registry.kernel_spec(name).asm
+        assert set(kernel["cases"]) == set(load_cases(name))
+    assert set(built["operations"]) == set(operations())
+
+
+@pytest.mark.parametrize("edit, culprit", [
+    (lambda kernels: {**kernels, "no_such_kernel": kernels["identity"]}, "no_such_kernel"),
+    (lambda kernels: {k: v for k, v in kernels.items() if k != "identity"}, "identity"),
+], ids=["unregistered", "untargeted"])
+def test_manifest_refuses_targets_the_registry_does_not_know(edit, culprit):
+    targets = _kernel_targets()
+    with pytest.raises(ValueError, match=culprit):
+        manifest.build(dict(targets, kernels=edit(targets["kernels"])))
+
+
+def test_manifest_lists_a_kernel_that_failed_to_import_as_skipped(monkeypatch):
+    # One broken app.py must not take every other kernel out of the manifest.
+    targets = _kernel_targets()
+    module = registry.kernel_spec("identity").app_class.__module__  # its package's `app`
+    discovered = registry.load()
+    broken = SkippedModule(module, "ImportError: broken")
+    monkeypatch.setattr(registry, "load", lambda *a, **k: type(discovered)(
+        tuple(s for s in discovered.specs if s.name != "identity"), (*discovered.skipped, broken)))
+    monkeypatch.setattr(registry, "kernels", lambda *a, **k: tuple(s for s in kernels() if s.name != "identity"))
+    built = manifest.build(targets)
+    assert set(built["kernels"]) == {spec.name for spec in kernels()} - {"identity"}
+    assert {"module": module, "error": "ImportError: broken"} in built["skipped"]
+
+
+@pytest.mark.parametrize("kernel", sorted(spec.name for spec in kernels()))
+def test_manifest_flags_are_the_runner_flags(kernel, capsys):
+    # Every option the manifest (and so the editor) offers must parse.
+    for case_name, case in load_cases(kernel).items():
+        with pytest.raises(SystemExit) as exc:
+            runner.main(["--kernel", kernel, "--case", case_name, "--help"])
+        assert exc.value.code == 0
+        help_text = capsys.readouterr().out
+        for flag in [o[k] for o in case_options(case).values() for k in ("flag", "negated_flag") if k in o]:
+            assert flag in help_text

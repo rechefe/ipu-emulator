@@ -1,0 +1,17 @@
+{
+  "kernels": {
+    "demo_kernel": {
+      "op": "identity", "variant": "", "tags": ["demo"], "family": "demo",
+      "asm": "kernels/demo/demo_kernel/demo_kernel.asm",
+      "targets": { "run": "//demo:demo_kernel", "test": "//demo:demo_kernel", "benchmark": "//demo:benchmark_demo_kernel" },
+      "cases": {
+        "default": { "max_cycles": 1000, "options": { "rows": { "flag": "--rows", "default": 4, "type": "int" } } },
+        "wide": { "max_cycles": 1000, "options": {} }
+      }
+    }
+  },
+  "families": { "demo": { "suite": "//demo:demo" } },
+  "operations": { "identity": { "params": ["shape"] } },
+  "query": "//demo:query",
+  "skipped": []
+}

@@ -32,14 +32,20 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from ipu_common.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
+    SLOT_COUNT,
     SLOT_METADATA,
 )
-from ipu_common.registers import create_assembler_reg_enums
+from ipu_common.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+from ipu_common.types import RegKind
 
+from ipu_as.diagnostics import check
+from ipu_as.gen_docs import OPERAND_TYPE_DETAILS
+from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.lark_tree import get_parser
-from ipu_as.reg import LRD_REG_FIELDS
+from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"
 
@@ -90,10 +96,12 @@ _JINJA_PUNCTUATION = "punctuation.definition.template-expression.jinja.ipu-asm"
 #: legitimately so: Jinja is a fixed external language the parser never sees, so
 #: there is nothing in this repo to derive them from.
 _JINJA_KEYWORDS = (
-    "set", "for", "endfor", "if", "elif", "else", "endif", "macro", "endmacro",
-    "call", "endcall", "filter", "endfilter", "include", "import", "from",
-    "extends", "block", "endblock", "with", "endwith", "raw", "endraw", "do",
-    "in", "is", "not", "and", "or", "true", "false", "none",
+    "set", "endset", "for", "endfor", "if", "elif", "else", "endif", "macro", "endmacro", "call", "endcall",
+    "filter", "endfilter", "include", "import", "from", "as", "extends", "block", "endblock", "with", "without",
+    "context", "endwith", "raw", "endraw", "do", "in", "is", "not", "and", "or", "recursive", "ignore",
+    "missing", "scoped", "required",
+    # Constants, in both spellings Jinja accepts; none can be assigned.
+    "true", "false", "none", "True", "False", "None",
 )
 
 #: Shared by `{% … %}` and `{{ … }}`; without these the whole construct carries
@@ -111,6 +119,10 @@ _JINJA_INNER_PATTERNS = [
     {"name": "keyword.operator.jinja.ipu-asm", "match": r"[=+\-*/%<>!~|]+"},
     {"name": "variable.other.jinja.ipu-asm", "match": r"\b[A-Za-z_][A-Za-z0-9_]*\b"},
 ]
+
+
+#: The Jinja rules, in the order they must be tried.
+_JINJA_INCLUDES = [{"include": f"#jinja-{k}"} for k in ("comment", "statement", "expression")]
 
 
 class UnmappedTerminalError(RuntimeError):
@@ -144,6 +156,33 @@ def _registers() -> list[str]:
     names = {v for values in create_assembler_reg_enums().values() for v in values}
     names.update(LRD_REG_FIELDS)
     return sorted(names)
+
+
+def _terminals() -> dict:
+    """The grammar's terminals, by name."""
+    return {t.name: t for t in get_parser().terminals}
+
+
+def _comment_patterns() -> list[str]:
+    """The grammar's comment terminals, as regexes."""
+    return [t.pattern.to_regexp() for n, t in sorted(_terminals().items()) if (scope_for(n) or "").startswith("comment.")]
+
+
+def _register_docs(emulator: dict | None = None) -> dict[str, dict]:
+    """What each register name is, in its definitions' own words (`RegKind`'s
+    or `LrdRegField`'s docstring). `emulator` carries the emulator's facts,
+    which this package does not depend on: `fixed` values and LRD `pairs`."""
+    emulator = emulator or {}
+    kinds = dict(re.findall(r"^\s*(\w+):\s+(.+)$", RegKind.__doc__, re.M))
+    docs = {name: {"about": kinds[meta["kind"].name]}
+            for meta in REGISTER_DEFINITIONS.values() for name in meta.get("assembler_values", [])}
+    pair = " ".join(LrdRegField.__doc__.split("\n\n")[0].split())
+    docs.update({name: {"about": pair} for name in LRD_REG_FIELDS})
+    for name, (lo, hi) in emulator.get("pairs", {}).items():
+        docs[name]["pair"] = [f"lr{hi}", f"lr{lo}"]
+    for name, value in emulator.get("fixed", {}).items():
+        docs[name]["fixed"] = value
+    return dict(sorted(docs.items()))
 
 
 def _keyword_pattern(values) -> str:
@@ -239,6 +278,10 @@ def build_tmlanguage() -> dict:
             # groups, scoped (?i:…) and lookahead are common to both engines.
             "match": terminal.pattern.to_regexp(),
         }
+        if scope.startswith("comment."):
+            # Jinja renders before the parser sees a comment, so `{{ n }}` in
+            # `# row {{ n }}` is live code: re-scan comments for Jinja.
+            repository[key]["captures"] = {"0": {"patterns": _JINJA_INCLUDES}}
         terminal_includes.append({"include": f"#{key}"})
 
     # Vocabulary. The parser cannot supply these — every one of them is a TOKEN
@@ -292,12 +335,8 @@ def build_tmlanguage() -> dict:
     # vocabulary, then the bare terminals with TOKEN last as the catch-all.
     repository["label"] = _label_pattern()
     patterns = (
-        [
-            {"include": "#jinja-comment"},
-            {"include": "#jinja-statement"},
-            {"include": "#jinja-expression"},
-            {"include": "#label"},
-        ]
+        _JINJA_INCLUDES
+        + [{"include": "#label"}]
         + [i for i in terminal_includes if i["include"].startswith("#comment")]
         + [
             {"include": "#mnemonic"},
@@ -332,7 +371,9 @@ def build_language_configuration() -> dict:
     the agreement test keeps them honest — it checks that text these markers
     introduce really is scoped as a comment by the generated grammar.
     """
-    token = {t.name: t for t in get_parser().terminals}["TOKEN"]
+    token = _terminals()["TOKEN"]
+    # Enter after a label (the grammar's own pattern) indents the word it starts.
+    label_line = rf"^\s*{_label_pattern()['match']}\s*(?:{'|'.join(_comment_patterns())})?$"
     return {
         "comments": {"lineComment": "//", "blockComment": ["{#", "#}"]},
         "brackets": [["{%", "%}"], ["{{", "}}"], ["{#", "#}"]],
@@ -342,6 +383,7 @@ def build_language_configuration() -> dict:
             {"open": "{#", "close": " #}"},
         ],
         "wordPattern": token.pattern.to_regexp(),
+        "onEnterRules": [{"beforeText": label_line, "action": {"indent": "indent"}}],
     }
 
 
@@ -375,7 +417,7 @@ def _doc_to_dict(doc) -> dict | None:
     return data
 
 
-def build_hover_data() -> dict:
+def build_hover_data(emulator: dict | None = None) -> dict:
     """Instruction and register reference, consumed by the extension at runtime.
 
     A mnemonic can occupy more than one slot — NOP exists in all nine, each with
@@ -414,6 +456,7 @@ def build_hover_data() -> dict:
             for mnemonic, forms in instructions.items()
         },
         "registers": _registers(),
+        "registerDocs": _register_docs(emulator),
         "slots": {
             slot: {
                 "description": meta.get("description", ""),
@@ -421,7 +464,40 @@ def build_hover_data() -> dict:
             }
             for slot, meta in SLOT_METADATA.items()
         },
+        # How many instructions of each slot one word holds, and the order the
+        # assembler fills them in (a bare NOP takes the first free one).
+        "slotCount": dict(SLOT_COUNT),
+        "slotOrder": list(COMPOUND_LAYOUT_SLOT_ORDER),
+        # What each operand type accepts, from the class that validates it, so
+        # completion never offers a value the assembler rejects (test_isa_data.py).
+        "operandTypes": {
+            name: {**cls.completion_domain(), "description": OPERAND_TYPE_DETAILS[name]} for name, cls in OPERAND_TYPE_MAP.items()
+        },
+        # Lexical facts: patterns from the grammar's terminals, and case rules
+        # measured by probe programs (_case_insensitive), not stated.
+        "lexical": {
+            "token": _terminals()["TOKEN"].pattern.to_regexp(),
+            "label": _label_pattern()["match"],
+            "comments": _comment_patterns(),
+            "slotSeparator": _terminals()["_SEMI"].pattern.to_regexp(),
+            "wordTerminator": _terminals()["_SEMI2"].pattern.to_regexp(),
+            # So a name lookup does not take `for` or `in` for a variable.
+            "jinjaKeywords": list(_JINJA_KEYWORDS),
+            "caseInsensitive": {
+                "mnemonics": _case_insensitive("BKPT;;", "bkpt;;"),
+                "registers": _case_insensitive("SET lr0 cr0;;\nBKPT;;", "SET LR0 CR0;;\nBKPT;;"),
+                "labels": _case_insensitive("Top:\n    B Top;;\nBKPT;;", "Top:\n    B top;;\nBKPT;;"),
+            },
+        },
     }
+
+
+def _case_insensitive(exact: str, recased: str) -> bool:
+    """True when `recased` assembles like `exact`, which differs only in case.
+    `exact` must assemble, or a broken probe would read as "case-sensitive"."""
+    if check(exact):
+        raise RuntimeError(f"case probe does not assemble: {exact!r}")
+    return not check(recased)
 
 
 def _dumps(obj) -> str:
@@ -437,8 +513,8 @@ def render_language_configuration() -> str:
     return _dumps(build_language_configuration())
 
 
-def render_hover_data() -> str:
-    return _dumps(build_hover_data())
+def render_hover_data(emulator: dict | None = None) -> str:
+    return _dumps(build_hover_data(emulator))
 
 
 #: Relative path -> renderer, shared by the wrapper and any test.
@@ -449,8 +525,8 @@ GENERATED_FILES = {
 }
 
 
-def generate_all(out_dir: Path) -> None:
+def generate_all(out_dir: Path, emulator: dict | None = None) -> None:
     for rel_path, render in GENERATED_FILES.items():
         target = out_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render(), encoding="utf-8")
+        target.write_text(render(emulator) if render is render_hover_data else render(), encoding="utf-8")

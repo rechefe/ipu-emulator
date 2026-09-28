@@ -46,6 +46,30 @@ def _kernel_name(asm_path):
 def _kernel_package(asm_path):
     return asm_path.rpartition("/")[0]
 
+# Target names, shared by the macros that declare targets and ipu_kernel_targets.
+def _benchmark_target(kernel_package):
+    return "benchmark_" + kernel_package.rpartition("/")[2]
+
+def _family_name(family_dir):
+    return family_dir.rpartition("/")[2]
+
+def _family_test_target(family):
+    return family + "_test"
+
+def _kernel_families(kernels_root):
+    """Every family directory (any directory between kernels_root and a kernel
+    package) and the kernels beneath it."""
+    families = {}
+    for asm in _kernel_asms(kernels_root):
+        parts = _kernel_package(asm)[len(kernels_root) + 1:].split("/")
+        for depth in range(1, len(parts)):
+            family_dir = kernels_root + "/" + "/".join(parts[:depth])
+            families.setdefault(family_dir, []).append(":" + _kernel_name(asm))
+    return families
+
+def _label(target):
+    return "//" + native.package_name() + ":" + target
+
 def _kernel_asms(kernels_root):
     """Every kernel's main .asm: the one named after its folder.
 
@@ -95,7 +119,7 @@ def ipu_benchmarks_from_kernels(kernels_root, deps):
     for benchmark in native.glob([kernels_root + "/**/benchmark.py"]):
         kernel_package = _kernel_package(benchmark)
         py_binary(
-            name = "benchmark_" + kernel_package.rpartition("/")[2],
+            name = _benchmark_target(kernel_package),
             srcs = [_BENCHMARK_RUNNER, benchmark],
             main = _BENCHMARK_RUNNER,
             # The module's dotted name (under the "src" import root) and the
@@ -121,18 +145,12 @@ def ipu_families_from_kernels(kernels_root, deps, test_deps = [], data = []):
     the family's kernels. That test gets every kernel's .asm (a family test may
     run another family's kernel), the family's .bin fixtures, and `data`.
     """
-    families = {}
-    for asm in _kernel_asms(kernels_root):
-        parts = _kernel_package(asm)[len(kernels_root) + 1:].split("/")
-        for depth in range(1, len(parts)):
-            family_dir = kernels_root + "/" + "/".join(parts[:depth])
-            families.setdefault(family_dir, []).append(":" + _kernel_name(asm))
-    for family_dir, tests in families.items():
-        family = family_dir.rpartition("/")[2]
+    for family_dir, tests in _kernel_families(kernels_root).items():
+        family = _family_name(family_dir)
         test_file = native.glob([family_dir + "/test.py"], allow_empty = True)
         if test_file:
             py_pytest_test(
-                name = family + "_test",
+                name = _family_test_target(family),
                 srcs = test_file,
                 data = native.glob(
                     [kernels_root + "/**/*.asm", family_dir + "/**/*.bin"],
@@ -143,7 +161,7 @@ def ipu_families_from_kernels(kernels_root, deps, test_deps = [], data = []):
                 deps = deps + test_deps,
                 size = "large",
             )
-            tests = tests + [":" + family + "_test"]
+            tests = tests + [":" + _family_test_target(family)]
         native.test_suite(name = family, tests = sorted(tests))
 
 def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
@@ -194,3 +212,27 @@ def ipu_per_kernel_test(name, src, kernels_root, deps, data = [], size = "large"
         )
         tests.append(":" + name + "_" + kernel)
     native.test_suite(name = name, tests = tests)
+
+def ipu_kernel_targets(name, kernels_root, query):
+    """Write ``<name>.json``: every kernel's and family's targets, from the same
+    globs and naming helpers that declare them, so it cannot name a missing one.
+    kernel_registry/manifest.py joins it with the registry; ``query`` names the
+    registry query binary in this package."""
+    kernels = {}
+    for asm in _kernel_asms(kernels_root):
+        # One py_test: `bazel run` runs a case, `bazel test` all (see ipu_app).
+        label = _label(_kernel_name(asm))
+        family = _family_name(_kernel_package(_kernel_package(asm)))
+        kernels[_kernel_name(asm)] = {"asm": native.package_name() + "/" + asm, "family": family, "run": label, "test": label}
+    for benchmark in native.glob([kernels_root + "/**/benchmark.py"]):
+        kernel = kernels.get(_kernel_package(benchmark).rpartition("/")[2])
+        if kernel:
+            kernel["benchmark"] = _label(_benchmark_target(_kernel_package(benchmark)))
+    families = {}
+    for family_dir in _kernel_families(kernels_root):
+        family = _family_name(family_dir)
+        families[family] = {"suite": _label(family)}
+        if native.glob([family_dir + "/test.py"], allow_empty = True):
+            families[family]["test"] = _label(_family_test_target(family))
+    content = json.encode_indent({"kernels": kernels, "families": families, "query": _label(query)}, indent = "  ")
+    native.genrule(name = name, outs = [name + ".json"], cmd = "cat > $@ <<'IPU_KERNEL_TARGETS'\n" + content + "\nIPU_KERNEL_TARGETS\n")

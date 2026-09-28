@@ -1,20 +1,27 @@
 name: Getting Started Guide
 
 # Renders docs/guide/getting-started.tex to PDF and publishes it as the
-# rolling `guide-latest` release. Runs only on pushes to master (merges).
+# rolling `guide-latest` release. Runs on pushes to master (merges) that
+# change docs/guide, or manually from the Actions tab. Pull requests render it
+# without publishing, so a broken .tex is caught before merge.
 
 on:
   push:
     branches: [ master ]
     paths:
       - 'docs/guide/**'
+  pull_request:
+    paths:
+      - 'docs/guide/**'
       - '.github/workflows/getting-started-guide.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# Per ref, so a pull request never cancels a master publish.
 concurrency:
-  group: getting-started-guide
+  group: getting-started-guide-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -51,7 +58,9 @@ jobs:
           name: getting-started-guide
           path: docs/guide/getting-started.pdf
 
+      # A manual run from another branch renders the PDF but does not publish it.
       - name: Publish rolling release
+        if: github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

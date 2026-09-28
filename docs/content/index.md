@@ -14,6 +14,7 @@ This repository contains:
 
 ## Quick Links
 
+- [Getting Started guide (PDF)](https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf) — rendered from `docs/guide` on every change to master
 - [Assembly Syntax Guide](assembly-syntax.md) — generated (register tokens from `ipu_common`)
 - [Operand types](operand-types.md) — generated reference for `instruction_spec` field types
 - [Instruction Reference](instructions.md) — generated per-opcode pages
