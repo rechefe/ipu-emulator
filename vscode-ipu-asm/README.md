@@ -158,8 +158,9 @@ code --install-extension ipu-asm.vsix
 - **IPU sidebar**: family, kernel and case with the same actions, and a query
   that asks the registry which kernel handles an operation. Both read
   `//src/tools/ipu-apps:kernel_manifest`, which joins Bazel's targets with the
-  registry's cases and refuses if they disagree; it reloads when kernels or
-  build files change. With several checkouts, each row acts on its own. While
+  registry's cases and refuses if they disagree. A checkout's manifest is first
+  built when something needs it (the sidebar showing it, a kernel's `.asm` open,
+  a command), then reloads when kernels or build files change. With several checkouts, each row acts on its own. While
   it is open, it selects the kernel whose `.asm` is in the editor.
 
 ## Settings
@@ -212,7 +213,7 @@ extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.
 
 By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
-when the workspace opens, then runs the resulting binary directly. This avoids
+on a checkout's first check, then runs the resulting binary directly. This avoids
 Bazel's client startup and workspace lock while typing. Before every check it
 compares the binary with the assembler sources; if the binary is missing or the
 sources are newer, that check falls back to `bazel run`, which rebuilds it, and

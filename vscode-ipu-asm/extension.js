@@ -314,8 +314,8 @@ async function refresh(document, force = false) {
   const result = await runCheckText(document.uri, document.getText(), key);
 
   // A run we cancelled ourselves says nothing about the toolchain or the code,
-  // and a file closed while it ran has nothing left to mark.
-  if (result.superseded || document.isClosed) return;
+  // and a file closed, or its diagnostics switched off, while it ran has nothing left to mark.
+  if (result.superseded || document.isClosed || !enabled(document, 'diagnostics')) return;
   checked.set(key, version);
 
   // Not an IPU checkout's file (another project's assembly): nothing to say.
@@ -364,12 +364,11 @@ function activate(context) {
   context.subscriptions.push(diagnostics, statusItem);
 
   kernelApi = kernels.register(context);
-  // Build the checker now, not on the first keystroke (slow exactly once, and nothing waits
-  // on it); after activation returns, since starting a process blocks briefly.
-  setImmediate(() => {
-    for (const root of kernelApi.indexes.keys()) ensureChecker(root);
-    vscode.workspace.textDocuments.forEach((d) => refresh(d));
-  });
+  // Check what is open; the first check of a checkout also builds its checker. Not for every
+  // checkout up front: the sidebar alone activates the extension, and a build would leave a
+  // Bazel server resident for a folder with no .asm open. After activation returns, since
+  // starting a process blocks briefly.
+  setImmediate(() => vscode.workspace.textDocuments.forEach((d) => refresh(d)));
 
   let editingApi = null;
   if (lang) {

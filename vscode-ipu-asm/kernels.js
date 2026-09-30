@@ -13,6 +13,8 @@ const checker = require('./checker');
 const project = require('./project');
 const runs = require('./runs');
 
+const LANGUAGE_ID = 'ipu-asm';
+
 /** Debounce file-change refreshes: a branch switch touches many files. */
 const REFRESH_DEBOUNCE_MS = 1500;
 
@@ -39,17 +41,34 @@ class KernelIndex {
     this.workspace = root;
     this.error = null;
     this.loading = false;
+    /** Whether anything has asked for the manifest yet; until then no process runs for it. */
+    this.requested = false;
+    this._loaded = Promise.resolve();
     this._again = false;
     this._changed = new vscode.EventEmitter();
     this.onDidChange = this._changed.event;
   }
 
-  /** A refresh requested while one runs is run once after it, so the latest tree wins. */
-  async refresh() {
+  /** The manifest, loaded the first time something needs it (the sidebar, a kernel's
+   *  buttons, a command): `bazel run` starts a Bazel server, which then stays resident,
+   *  so a checkout nobody looks at must not start one. Resolves once it has loaded. */
+  load() {
+    return this.requested ? this._loaded : this.refresh();
+  }
+
+  /** Reload now. A refresh requested while one runs is run once after it, so the latest
+   *  tree wins; the promise resolves after both. */
+  refresh() {
+    this.requested = true;
     if (this.loading) {
       this._again = true;
-      return;
+      return this._loaded;
     }
+    this._loaded = this._load();
+    return this._loaded;
+  }
+
+  async _load() {
     this.loading = true;
     // The first load shows as loading; a reload keeps showing the last list.
     if (!this.manifest) this._changed.fire();
@@ -76,7 +95,7 @@ class KernelIndex {
     if (!(before && before === this._stdout && this.manifest)) this._changed.fire();
     if (this._again) {
       this._again = false;
-      this.refresh();
+      await this._load();
     }
   }
 
@@ -208,7 +227,9 @@ function roots(indexes) {
 /** Ids let `reveal` find a row again: the tree is rebuilt on every change. */
 function folderNodes(index, parent) {
   const { manifest, error } = index;
-  if (index.loading && !manifest) return [message('Loading kernels…', 'loading~spin')];
+  // Asked for rows means the sidebar is showing them: the time to load.
+  if (!index.requested) setImmediate(() => index.load());
+  if ((index.loading || !index.requested) && !manifest) return [message('Loading kernels…', 'loading~spin')];
   if (error && !manifest) return [message(error, 'error', 'ipuAsm.refreshKernels')];
   if (!manifest) return [];
   const nodes = runs.familyTree(manifest).map(({ family, entry, kernels }) => {
@@ -369,9 +390,15 @@ function register(context) {
         indexes.set(root, index);
         index.onDidChange(redraw);
         // Launched after activation returns: starting a process blocks briefly.
-        setImmediate(() => index.refresh());
+        setImmediate(() => vscode.workspace.textDocuments.forEach(loadFor));
       }
     }
+  };
+  /** A kernel's title-bar buttons need its checkout's manifest while its .asm is open. */
+  const loadFor = (document) => {
+    if (document.languageId !== LANGUAGE_ID || document.uri.scheme !== 'file' || !setting(null, 'kernelButtons', true)) return;
+    const index = indexFor(indexes, document.uri.fsPath);
+    if (index) index.load();
   };
   addFolders();
 
@@ -398,7 +425,8 @@ function register(context) {
   const timers = new Map();
   const onFileChange = (buildFile) => (uri) => {
     const index = indexFor(indexes, uri.fsPath);
-    if (!index || !index.affects(uri.fsPath, buildFile)) return;
+    // Not loaded yet: it will be read as it is when it is first needed.
+    if (!index || !index.requested || !index.affects(uri.fsPath, buildFile)) return;
     clearTimeout(timers.get(index));
     timers.set(index, setTimeout(() => index.refresh(), REFRESH_DEBOUNCE_MS));
   };
@@ -455,12 +483,16 @@ function register(context) {
     if (!target) vscode.window.showWarningMessage('IPU: open a kernel .asm, or pick a kernel in the IPU sidebar.');
     return target;
   };
-  const action = (name) => (arg) => {
+  /** Commands can come before anything loaded a manifest (the palette, a key binding). */
+  const loadAll = () => Promise.all([...indexes.values()].map((index) => index.load()));
+  const action = (name) => async (arg) => {
+    await loadAll();
     const target = targetOf(arg);
     return target && runKernel(indexes, name, target.kernel, target.caseName, target.folder);
   };
   /** The case form for the kernel `arg` names, on its case (or a new one when `adding`). */
-  const cases = (adding) => (arg) => {
+  const cases = (adding) => async (arg) => {
+    await loadAll();
     const target = targetOf(arg);
     const index = target && indexOf(indexes, target.kernel, target.folder);
     return index && caseform.open(index, target.kernel, {
@@ -480,7 +512,7 @@ function register(context) {
       return index && sendToTerminal(index, n.family, runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) }));
     },
     refreshKernels: () => indexes.forEach((index) => index.refresh()),
-    query: () => query(indexes, output, context.workspaceState),
+    query: () => loadAll().then(() => query(indexes, output, context.workspaceState)),
   };
 
   updateEditorContext();
@@ -497,7 +529,11 @@ function register(context) {
     view,
     ...Object.entries(commands).map(([name, run]) => vscode.commands.registerCommand(`ipuAsm.${name}`, run)),
     vscode.workspace.onDidChangeWorkspaceFolders(rescan),
-    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm.cases') && redraw()),
+    vscode.workspace.onDidOpenTextDocument(loadFor),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('ipuAsm.cases')) redraw();
+      if (e.affectsConfiguration('ipuAsm.kernelButtons')) vscode.workspace.textDocuments.forEach(loadFor);
+    }),
     vscode.window.onDidCloseTerminal((t) => {
       busy.delete(t);
       sentAt.delete(t);

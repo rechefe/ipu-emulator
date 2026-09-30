@@ -1,8 +1,8 @@
 {
   "name": "ipu-asm",
   "displayName": "IPU Assembly",
-  "description": "IPU VLIW assembly: syntax highlighting, completion, operand hints, navigation, formatting and assembler diagnostics, generated from the assembler's own grammar; plus Run, Debug and Test buttons and a kernel sidebar driven by the kernel registry.",
-  "version": "0.2.0",
+  "description": "Language support for IPU VLIW assembly (.asm, .asm.j2 templates): highlighting, completion, operand hints, hover docs, navigation, formatting and live assembler errors. In the IPU emulator repository it also adds Run, Debug, Test and Benchmark buttons and a kernel sidebar.",
+  "version": "0.2.122",
   "publisher": "yardencarmi",
   "repository": {
     "type": "git",
