@@ -30,12 +30,30 @@ function register(context, env) {
     return docs.get(mnemonic);
   };
   const rangeOf = (document, span) => new vscode.Range(document.positionAt(span.start), document.positionAt(span.end));
-  const provide = (kind, provider, ...rest) =>
-    context.subscriptions.push(vscode.languages[`register${kind}Provider`](LANGUAGE_ID, provider, ...rest));
+  /** A feature's switch (ipuAsm.<key>), as set for this document's folder. */
+  const enabled = (document, key) => vscode.workspace.getConfiguration('ipuAsm', document.uri).get(key, true);
+  // Inlay hints and folding are only asked for again when told to: told on any ipuAsm change.
+  const settingsChanged = new vscode.EventEmitter();
+  context.subscriptions.push(settingsChanged,
+    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm') && settingsChanged.fire()));
+  /** Register a provider that answers nothing while its switch (ipuAsm.<setting>) is off. */
+  const provide = (kind, setting, provider, ...rest) => {
+    const gated = { ...provider };
+    for (const [name, fn] of Object.entries(provider)) {
+      if (!setting || !/^(provide|prepare)/.test(name)) continue;
+      gated[name] = (document, ...args) => {
+        if (enabled(document, setting)) return fn(document, ...args);
+        // An empty prepareRename falls back to renaming the word: refuse instead.
+        if (name.startsWith('prepare')) throw new Error(`Off (ipuAsm.${setting}).`);
+        return undefined;
+      };
+    }
+    context.subscriptions.push(vscode.languages[`register${kind}Provider`](LANGUAGE_ID, gated, ...rest));
+  };
   const item = (label, kind, props) => Object.assign(new vscode.CompletionItem(label, vscode.CompletionItemKind[kind]), props);
 
   // --- Completion ---
-  provide('CompletionItem', {
+  provide('CompletionItem', 'completion', {
     provideCompletionItems(document, position, _token, completionContext) {
       const text = document.getText();
       const offset = document.offsetAt(position);
@@ -105,7 +123,7 @@ function register(context, env) {
   }, ' ');
 
   // --- Operand hints (signature help) ---
-  provide('SignatureHelp', {
+  provide('SignatureHelp', 'operandHints', {
     provideSignatureHelp(document, position) {
       const ctx = lang.context(document.getText(), document.offsetAt(position));
       if (ctx.kind !== 'operand') return undefined;
@@ -136,14 +154,14 @@ function register(context, env) {
   const symbolAt = (document, position) => lang.symbolAt(document.getText(), document.offsetAt(position));
   const locations = (document, spans) => spans.map((s) => new vscode.Location(document.uri, rangeOf(document, s)));
 
-  provide('Definition', {
+  provide('Definition', 'navigation', {
     provideDefinition(document, position) {
       const sym = symbolAt(document, position);
       return sym ? locations(document, sym.defs) : undefined;
     },
   });
 
-  provide('Reference', {
+  provide('Reference', 'navigation', {
     provideReferences(document, position, { includeDeclaration }) {
       const sym = symbolAt(document, position);
       if (!sym) return undefined;
@@ -151,7 +169,7 @@ function register(context, env) {
     },
   });
 
-  provide('Rename', {
+  provide('Rename', 'navigation', {
     prepareRename(document, position) {
       const sym = symbolAt(document, position);
       if (!sym) throw new Error('Only labels and Jinja names can be renamed.');
@@ -194,7 +212,7 @@ function register(context, env) {
   // Hover on a Jinja name: its value where the cursor is, then the reference for that value if
   // it is a register or an instruction.
   const jinjaKinds = { macro: 'macro', param: 'macro parameter', for: 'loop variable' };
-  provide('Hover', {
+  provide('Hover', 'hover', {
     provideHover(document, position) {
       const sym = symbolAt(document, position);
       if (!sym || sym.kind !== 'jinja') return undefined;
@@ -210,7 +228,8 @@ function register(context, env) {
   });
 
   // A `{{ name }}` with a literal value shows it after the tag: `{{ lr_row }}` lr1.
-  provide('InlayHints', {
+  provide('InlayHints', 'jinjaValueHints', {
+    onDidChangeInlayHints: settingsChanged.event,
     provideInlayHints(document, range) {
       const [from, to] = [document.offsetAt(range.start), document.offsetAt(range.end)];
       return lang.jinjaHints(document.getText()).filter((h) => from <= h.at && h.at <= to)
@@ -222,6 +241,7 @@ function register(context, env) {
   const unused = vscode.languages.createDiagnosticCollection('ipu-asm-unused');
   const markUnused = (document) => {
     if (document.languageId !== LANGUAGE_ID) return;
+    if (!enabled(document, 'unusedNames')) return unused.delete(document.uri);
     unused.set(document.uri, lang.unused(document.getText()).map((u) => Object.assign(
       new vscode.Diagnostic(rangeOf(document, u), u.kind === 'label' ? `${u.name} is never branched to` : `${u.name} is set but never used`,
         vscode.DiagnosticSeverity.Hint),
@@ -232,6 +252,7 @@ function register(context, env) {
     unused,
     vscode.workspace.onDidOpenTextDocument(markUnused),
     vscode.workspace.onDidCloseTextDocument((d) => unused.delete(d.uri)),
+    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm.unusedNames') && vscode.workspace.textDocuments.forEach(markUnused)),
     vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
       if (document.languageId !== LANGUAGE_ID || !contentChanges.length) return;
       clearTimeout(unusedTimers.get(document));
@@ -245,14 +266,15 @@ function register(context, env) {
   vscode.workspace.textDocuments.forEach(markUnused);
 
   const symbolKinds = { label: vscode.SymbolKind.Function, set: vscode.SymbolKind.Variable, macro: vscode.SymbolKind.Method };
-  provide('DocumentSymbol', {
+  provide('DocumentSymbol', 'outline', {
     provideDocumentSymbols: (document) => lang.symbols(document.getText()).map((s) => {
       const range = rangeOf(document, s);
       return new vscode.DocumentSymbol(s.name, s.detail || s.kind, symbolKinds[s.kind], range, range);
     }),
   });
 
-  provide('FoldingRange', {
+  provide('FoldingRange', 'folding', {
+    onDidChangeFoldingRanges: settingsChanged.event,
     provideFoldingRanges: (document) => lang.folding(document.getText()).map((f) => {
       const start = document.positionAt(f.start).line;
       const end = document.positionAt(f.end).line;
@@ -284,12 +306,12 @@ function register(context, env) {
     provideDocumentRangeFormattingEdits: (document, range, options) =>
       formatLines(document, options, range.start.line, range.end.line),
   };
-  provide('DocumentFormattingEdit', formatting);
-  provide('DocumentRangeFormattingEdit', formatting);
+  provide('DocumentFormattingEdit', 'formatting', formatting);
+  provide('DocumentRangeFormattingEdit', 'formatting', formatting);
 
   // As you type: `;` and `:` tidy the current line (its indent, a label to column 0, a second
   // word after `;;` onto its own line); Enter after a `;;` leaves the empty line between words.
-  provide('OnTypeFormattingEdit', {
+  provide('OnTypeFormattingEdit', 'formatting', {
     provideOnTypeFormattingEdits(document, position, ch, options) {
       if (ch !== '\n') return formatLines(document, options, position.line, position.line);
       const line = position.line;
@@ -322,7 +344,7 @@ function register(context, env) {
   // the one way an extension can add vertical space that is not a line of the file.
   const gapsChanged = new vscode.EventEmitter();
   const gapLines = (document) => (separation(document) === 'space' ? lang.wordGapLines(document.getText()) : []);
-  provide('CodeLens', {
+  provide('CodeLens', null, {
     onDidChangeCodeLenses: gapsChanged.event,
     provideCodeLenses: (document) =>
       gapLines(document).map((n) => new vscode.CodeLens(new vscode.Range(n, 0, n, 0), { title: '​', command: '' })),

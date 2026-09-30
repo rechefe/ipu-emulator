@@ -91,6 +91,8 @@ test('a mnemonic brings its operands as tab stops; a {{ name }} shows its value;
   const d = await vscode.window.showTextDocument(await withText('{% set r = "lr0" %}\nSET {{ r }} cr0;;\nend:\n    BKPT;;\n')).then((e) => e.document);
   const hints = await exec('vscode.executeInlayHintProvider', d.uri, new vscode.Range(0, 0, 4, 0));
   assert.deepStrictEqual(hints.map((h) => [h.label, h.position.line]), [['lr0', 1]]);
+  await withSettings({ jinjaValueHints: false }, async () =>
+    assert.deepStrictEqual(await exec('vscode.executeInlayHintProvider', d.uri, new vscode.Range(0, 0, 4, 0)), []));
   const fadedNow = () => vscode.languages.getDiagnostics(d.uri).filter((x) => x.tags && x.tags.includes(vscode.DiagnosticTag.Unnecessary));
   const faded = await until(() => fadedNow().length && fadedNow(), 'the unused label');
   assert.deepStrictEqual(faded.map((x) => [x.message, x.severity]), [['end is never branched to', vscode.DiagnosticSeverity.Hint]]);
