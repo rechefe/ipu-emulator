@@ -97,6 +97,16 @@ nav:
       - Accumulator Stage Specification: specs/stage-accumulator.md
       - Control Stage Specification: specs/stage-control.md
       - RISC-V Host Integration: specs/riscv-host-integration.md
+  - HW Requirements:
+      - Overview and goals: requirements/index.md
+      - Architecture and pipeline: requirements/architecture.md
+      - External interfaces: requirements/interfaces.md
+      - Execution flow: requirements/execution-flow.md
+      - Memory access: requirements/memory-access.md
+      - Faults: requirements/faults.md
+      - Debug: requirements/debug.md
+      - Host registers: requirements/host-registers.md
+      - Open questions: requirements/open-questions.md
   - Release Log: release-log.md
 markdown_extensions:
   - admonition
