@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="628" height="400" viewBox="0 0 628 400">
+<rect width="100%" height="100%" fill="#fff"/>
+<rect x="241.4" y="10.0" width="150.0" height="380.3" fill="#fff" stroke="#000" stroke-width="1"/>
+<text font-family="Helvetica, Arial, sans-serif" x="316.4" y="28.6" font-size="11.0" text-anchor="middle">IPU</text>
+<line x1="207.4" y1="49.5" x2="241.4" y2="49.5" stroke="#000" stroke-width="1.0"/>
+<path d="M241.4 49.5 L235.4 46.5 L235.4 52.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="53.4" font-size="11.0" font-weight="bold" text-anchor="end">clk</text>
+<line x1="207.4" y1="66.5" x2="241.4" y2="66.5" stroke="#000" stroke-width="1.0"/>
+<path d="M241.4 66.5 L235.4 63.5 L235.4 69.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="70.3" font-size="11.0" font-weight="bold" text-anchor="end">rst_n</text>
+<line x1="207.4" y1="101.2" x2="241.4" y2="101.2" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 101.2 L233.4 96.7 L233.4 105.7 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="205.4" y="105.0" font-size="11.0" text-anchor="end">AXI4</text>
+<line x1="162.4" y1="101.2" x2="178.4" y2="101.2" stroke="#000" stroke-width="2.5"/>
+<path d="M162.4 101.2 L170.4 96.7 L170.4 105.7 Z" fill="#000"/>
+<rect x="241.4" y="90.2" width="22.0" height="22.0" fill="#fff" stroke="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="252.4" y="105.0" font-size="11.0" text-anchor="middle">S</text>
+<line x1="207.4" y1="135.8" x2="241.4" y2="135.8" stroke="#000" stroke-width="1.0"/>
+<path d="M207.4 135.8 L213.4 132.8 L213.4 138.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="139.7" font-size="11.0" font-weight="bold" text-anchor="end">irq</text>
+<line x1="207.4" y1="162.8" x2="241.4" y2="162.8" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 162.8 L233.4 158.3 L233.4 167.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="166.7" font-size="11.0" font-weight="bold" text-anchor="end">tbl_view[TBL_W-1:0]</text>
+<line x1="207.4" y1="189.8" x2="241.4" y2="189.8" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 189.8 L233.4 185.3 L233.4 194.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="193.7" font-size="11.0" font-weight="bold" text-anchor="end">tables_valid[1:0]</text>
+<line x1="207.4" y1="206.8" x2="241.4" y2="206.8" stroke="#000" stroke-width="1.0"/>
+<path d="M207.4 206.8 L213.4 203.8 L213.4 209.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="210.7" font-size="11.0" font-weight="bold" text-anchor="end">active_ctx</text>
+<line x1="207.4" y1="223.8" x2="241.4" y2="223.8" stroke="#000" stroke-width="2.5"/>
+<path d="M207.4 223.8 L215.4 219.3 L215.4 228.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="227.7" font-size="11.0" font-weight="bold" text-anchor="end">ctx_locked[1:0]</text>
+<line x1="207.4" y1="240.8" x2="241.4" y2="240.8" stroke="#000" stroke-width="1.0"/>
+<path d="M207.4 240.8 L213.4 237.8 L213.4 243.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="244.7" font-size="11.0" font-weight="bold" text-anchor="end">kernel_start</text>
+<line x1="207.4" y1="257.8" x2="241.4" y2="257.8" stroke="#000" stroke-width="1.0"/>
+<path d="M207.4 257.8 L213.4 254.8 L213.4 260.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="261.7" font-size="11.0" font-weight="bold" text-anchor="end">kernel_done</text>
+<line x1="207.4" y1="274.8" x2="241.4" y2="274.8" stroke="#000" stroke-width="1.0"/>
+<path d="M207.4 274.8 L213.4 271.8 L213.4 277.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="278.7" font-size="11.0" font-weight="bold" text-anchor="end">kernel_abort</text>
+<line x1="207.4" y1="301.8" x2="241.4" y2="301.8" stroke="#000" stroke-width="1.0"/>
+<path d="M241.4 301.8 L235.4 298.8 L235.4 304.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="305.7" font-size="11.0" font-weight="bold" text-anchor="end">bank_pub_valid</text>
+<line x1="207.4" y1="318.8" x2="241.4" y2="318.8" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 318.8 L233.4 314.3 L233.4 323.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="322.7" font-size="11.0" font-weight="bold" text-anchor="end">bank_pub_id[3:0]</text>
+<line x1="207.4" y1="335.8" x2="241.4" y2="335.8" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 335.8 L233.4 331.3 L233.4 340.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="339.7" font-size="11.0" font-weight="bold" text-anchor="end">bank_pub_tag[14:0]</text>
+<line x1="207.4" y1="352.8" x2="241.4" y2="352.8" stroke="#000" stroke-width="1.0"/>
+<path d="M241.4 352.8 L235.4 349.8 L235.4 355.8 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="356.7" font-size="11.0" font-weight="bold" text-anchor="end">bank_free_valid</text>
+<line x1="207.4" y1="369.8" x2="241.4" y2="369.8" stroke="#000" stroke-width="2.5"/>
+<path d="M241.4 369.8 L233.4 365.3 L233.4 374.3 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="204.4" y="373.7" font-size="11.0" font-weight="bold" text-anchor="end">bank_free_id[3:0]</text>
+<text font-family="Helvetica, Arial, sans-serif" x="165.5" y="61.9" font-size="10.0" fill="#555" text-anchor="end">Clock and reset</text>
+<text font-family="Helvetica, Arial, sans-serif" x="178.4" y="139.7" font-size="10.0" fill="#555" text-anchor="end">Interrupt</text>
+<text font-family="Helvetica, Arial, sans-serif" x="84.3" y="166.7" font-size="10.0" fill="#555" text-anchor="end">Table view</text>
+<text font-family="Helvetica, Arial, sans-serif" x="106.2" y="236.2" font-size="10.0" fill="#555" text-anchor="end">Kernel context</text>
+<text font-family="Helvetica, Arial, sans-serif" x="88.5" y="339.7" font-size="10.0" fill="#555" text-anchor="end">Bank events</text>
+<line x1="391.4" y1="49.5" x2="425.4" y2="49.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 49.5 L419.4 46.5 L419.4 52.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="53.4" font-size="11.0" font-weight="bold" text-anchor="start">ld_valid</text>
+<line x1="391.4" y1="66.5" x2="425.4" y2="66.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 66.5 L417.4 62.0 L417.4 71.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="70.3" font-size="11.0" font-weight="bold" text-anchor="start">ld_bank[3:0]</text>
+<line x1="391.4" y1="83.5" x2="425.4" y2="83.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 83.5 L417.4 79.0 L417.4 88.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="87.3" font-size="11.0" font-weight="bold" text-anchor="start">ld_row[9:0]</text>
+<line x1="391.4" y1="100.5" x2="425.4" y2="100.5" stroke="#000" stroke-width="2.5"/>
+<path d="M391.4 100.5 L399.4 96.0 L399.4 105.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="104.3" font-size="11.0" font-weight="bold" text-anchor="start">ld_data[1023:0]</text>
+<line x1="391.4" y1="117.5" x2="425.4" y2="117.5" stroke="#000" stroke-width="2.5"/>
+<path d="M391.4 117.5 L399.4 113.0 L399.4 122.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="121.3" font-size="11.0" font-weight="bold" text-anchor="start">ld_meta[15:0]</text>
+<line x1="391.4" y1="144.5" x2="425.4" y2="144.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 144.5 L419.4 141.5 L419.4 147.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="148.3" font-size="11.0" font-weight="bold" text-anchor="start">st_valid</text>
+<line x1="391.4" y1="161.5" x2="425.4" y2="161.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 161.5 L417.4 157.0 L417.4 166.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="165.3" font-size="11.0" font-weight="bold" text-anchor="start">st_bank[3:0]</text>
+<line x1="391.4" y1="178.5" x2="425.4" y2="178.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 178.5 L417.4 174.0 L417.4 183.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="182.3" font-size="11.0" font-weight="bold" text-anchor="start">st_row[9:0]</text>
+<line x1="391.4" y1="195.5" x2="425.4" y2="195.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 195.5 L417.4 191.0 L417.4 200.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="199.3" font-size="11.0" font-weight="bold" text-anchor="start">st_data[1023:0]</text>
+<line x1="391.4" y1="212.5" x2="425.4" y2="212.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 212.5 L417.4 208.0 L417.4 217.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="216.3" font-size="11.0" font-weight="bold" text-anchor="start">st_meta[15:0]</text>
+<line x1="391.4" y1="239.5" x2="425.4" y2="239.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 239.5 L419.4 236.5 L419.4 242.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="243.3" font-size="11.0" font-weight="bold" text-anchor="start">bank_req_valid</text>
+<line x1="391.4" y1="256.5" x2="425.4" y2="256.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 256.5 L417.4 252.0 L417.4 261.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="260.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_req_tag[14:0]</text>
+<line x1="391.4" y1="273.5" x2="425.4" y2="273.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 273.5 L419.4 270.5 L419.4 276.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="277.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_req_write</text>
+<line x1="391.4" y1="290.5" x2="425.4" y2="290.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 290.5 L419.4 287.5 L419.4 293.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="294.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_release_valid</text>
+<line x1="391.4" y1="307.5" x2="425.4" y2="307.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 307.5 L417.4 303.0 L417.4 312.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="311.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_release_id[3:0]</text>
+<line x1="391.4" y1="324.5" x2="425.4" y2="324.5" stroke="#000" stroke-width="1.0"/>
+<path d="M425.4 324.5 L419.4 321.5 L419.4 327.5 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="328.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_flush_valid</text>
+<line x1="391.4" y1="341.5" x2="425.4" y2="341.5" stroke="#000" stroke-width="2.5"/>
+<path d="M425.4 341.5 L417.4 337.0 L417.4 346.0 Z" fill="#000"/>
+<text font-family="Helvetica, Arial, sans-serif" x="428.4" y="345.4" font-size="11.0" font-weight="bold" text-anchor="start">bank_flush_id[3:0]</text>
+<text font-family="Helvetica, Arial, sans-serif" x="520.5" y="87.3" font-size="10.0" fill="#555" text-anchor="start">Load port</text>
+<text font-family="Helvetica, Arial, sans-serif" x="520.5" y="182.3" font-size="10.0" fill="#555" text-anchor="start">Store port</text>
+<text font-family="Helvetica, Arial, sans-serif" x="549.3" y="294.4" font-size="10.0" fill="#555" text-anchor="start">Bank requests</text>
+</svg>

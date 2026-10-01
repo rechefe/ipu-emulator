@@ -1,0 +1,38 @@
+Group,Signal,Direction,Width,Description
+Clock and reset,clk,input,1,Clock
+Clock and reset,rst_n,input,1,Active-low reset. Asserted asynchronously and released synchronously
+Host AXI4,s_axi_aw,input,1,AXI4 write address channel
+Host AXI4,s_axi_w,input,1,AXI4 write data channel
+Host AXI4,s_axi_b,output,1,AXI4 write response channel
+Host AXI4,s_axi_ar,input,1,AXI4 read address channel
+Host AXI4,s_axi_r,output,1,AXI4 read data channel
+Interrupt,irq,output,1,Level-sensitive interrupt to the host
+Table view,tbl_view,input,TBL_W,Both table sets as configured at the cache unit
+Kernel context,tables_valid,input,2,Table set of each context is committed
+Kernel context,active_ctx,output,1,Context the running kernel uses
+Kernel context,ctx_locked,output,2,Context is locked
+Kernel context,kernel_start,output,1,Pulse: a kernel starts
+Kernel context,kernel_done,output,1,Pulse: the END word of a kernel retired
+Kernel context,kernel_abort,output,1,Pulse: the host aborted the kernel
+Bank events,bank_pub_valid,input,1,Pulse: an XMEM bank became valid
+Bank events,bank_pub_id,input,4,XMEM bank that became valid
+Bank events,bank_pub_tag,input,15,Tag the bank holds
+Bank events,bank_free_valid,input,1,Pulse: a flushed XMEM bank is drained and free
+Bank events,bank_free_id,input,4,XMEM bank that is free
+Load port,ld_valid,output,1,Load request
+Load port,ld_bank,output,4,XMEM bank to read
+Load port,ld_row,output,10,Row in the bank
+Load port,ld_data,input,1024,Row data
+Load port,ld_meta,input,16,Row metadata
+Store port,st_valid,output,1,Store request
+Store port,st_bank,output,4,XMEM bank to write
+Store port,st_row,output,10,Row in the bank
+Store port,st_data,output,1024,Row data
+Store port,st_meta,output,16,Row metadata
+Bank requests,bank_req_valid,output,1,Pulse: the cache agent needs a bank that is not valid
+Bank requests,bank_req_tag,output,15,Tag the cache agent needs
+Bank requests,bank_req_write,output,1,The bank is needed for a store
+Bank requests,bank_release_valid,output,1,Pulse: the IPU releases a bank it read
+Bank requests,bank_release_id,output,4,XMEM bank released
+Bank requests,bank_flush_valid,output,1,Pulse: a written bank is ready to drain
+Bank requests,bank_flush_id,output,4,XMEM bank to drain

@@ -1,10 +1,14 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
-# All checked-in Markdown under docs/content/ (MkDocs docs_dir).
+# All checked-in Markdown and static assets under docs/content/ (MkDocs docs_dir).
 filegroup(
     name = "doc_sources",
-    srcs = glob(["content/**/*.md"]),
+    srcs = glob([
+        "content/**/*.md",
+        "content/**/*.svg",
+        "content/**/*.csv",
+    ]),
     visibility = ["//visibility:public"],
 )
 
