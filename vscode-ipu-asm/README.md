@@ -158,8 +158,9 @@ code --install-extension ipu-asm.vsix
 - **IPU sidebar**: family, kernel and case with the same actions, and a query
   that asks the registry which kernel handles an operation. Both read
   `//src/tools/ipu-apps:kernel_manifest`, which joins Bazel's targets with the
-  registry's cases and refuses if they disagree; it reloads when kernels or
-  build files change. With several checkouts, each row acts on its own. While
+  registry's cases and refuses if they disagree. A checkout's manifest is first
+  built when something needs it (the sidebar showing it, a kernel's `.asm` open,
+  a command), then reloads when kernels or build files change. With several checkouts, each row acts on its own. While
   it is open, it selects the kernel whose `.asm` is in the editor.
 
 ## Settings
@@ -173,6 +174,18 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.cases` | none | cases saved from the form, by kernel: `{ "tall": { "base": "default", "options": { "rows": 64 } } }` |
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
+| `ipuAsm.diagnostics` | `true` | on/off switches, one per feature: the assembler's errors as you type |
+| `ipuAsm.hover` | `true` | hover on instructions, registers and Jinja names |
+| `ipuAsm.completion` | `true` | completion |
+| `ipuAsm.operandHints` | `true` | operand hints (signature help) |
+| `ipuAsm.jinjaValueHints` | `true` | a `set` name's literal value after each `{{ name }}`: `{{ lr_row }}` lr1 |
+| `ipuAsm.unusedNames` | `true` | fading unused labels and `set` names |
+| `ipuAsm.navigation` | `true` | Go to Definition, Find References and Rename |
+| `ipuAsm.outline` | `true` | the Outline and breadcrumbs |
+| `ipuAsm.folding` | `true` | folding of comments and Jinja blocks |
+| `ipuAsm.formatting` | `true` | Format Document and format on type |
+| `ipuAsm.kernelButtons` | `true` | Run, Debug, Test and Benchmark buttons on a kernel's `.asm` |
+| `ipuAsm.sidebar` | `true` | the IPU sidebar |
 
 ## Diagnostics
 
@@ -200,7 +213,7 @@ extension dependency-free — no `vscode-languageclient`, no bundled
 `node_modules`, and the vsix stays a few kilobytes.
 
 By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
-when the workspace opens, then runs the resulting binary directly. This avoids
+on a checkout's first check, then runs the resulting binary directly. This avoids
 Bazel's client startup and workspace lock while typing. Before every check it
 compares the binary with the assembler sources; if the binary is missing or the
 sources are newer, that check falls back to `bazel run`, which rebuilds it, and

@@ -43,6 +43,9 @@ const running = new Map();
 /** What the status item shows ('' when hidden). Each assignment to it is a message to the
  *  window -- across the connection, in a remote one -- so an unchanged state sends none. */
 let status = '';
+/** A feature's switch (ipuAsm.<key>), as set for this document's folder. */
+const enabled = (document, key) => vscode.workspace.getConfiguration('ipuAsm', document.uri).get(key, true);
+
 function showStatus(text, tooltip, command) {
   if (status === text + tooltip) return;
   status = text + tooltip;
@@ -132,6 +135,7 @@ function renderRegister(name) {
 
 const hoverProvider = {
   provideHover(document, position) {
+    if (!enabled(document, 'hover')) return undefined;
     const range = document.getWordRangeAtPosition(position, wordPattern);
     if (!range) return undefined;
     const key = document.getText(range).toLowerCase();
@@ -297,14 +301,21 @@ function toVscodeDiagnostic(raw) {
 async function refresh(document, force = false) {
   if (!document || document.languageId !== LANGUAGE_ID) return;
   const key = document.uri.toString();
+  if (!enabled(document, 'diagnostics')) {
+    checked.delete(key);
+    diagnostics.delete(document.uri);
+    statusItem.hide();
+    status = '';
+    return;
+  }
   const version = document.version;
   if (!force && checked.get(key) === version) return;
 
   const result = await runCheckText(document.uri, document.getText(), key);
 
   // A run we cancelled ourselves says nothing about the toolchain or the code,
-  // and a file closed while it ran has nothing left to mark.
-  if (result.superseded || document.isClosed) return;
+  // and a file closed, or its diagnostics switched off, while it ran has nothing left to mark.
+  if (result.superseded || document.isClosed || !enabled(document, 'diagnostics')) return;
   checked.set(key, version);
 
   // Not an IPU checkout's file (another project's assembly): nothing to say.
@@ -353,12 +364,11 @@ function activate(context) {
   context.subscriptions.push(diagnostics, statusItem);
 
   kernelApi = kernels.register(context);
-  // Build the checker now, not on the first keystroke (slow exactly once, and nothing waits
-  // on it); after activation returns, since starting a process blocks briefly.
-  setImmediate(() => {
-    for (const root of kernelApi.indexes.keys()) ensureChecker(root);
-    vscode.workspace.textDocuments.forEach((d) => refresh(d));
-  });
+  // Check what is open; the first check of a checkout also builds its checker. Not for every
+  // checkout up front: the sidebar alone activates the extension, and a build would leave a
+  // Bazel server resident for a folder with no .asm open. After activation returns, since
+  // starting a process blocks briefly.
+  setImmediate(() => vscode.workspace.textDocuments.forEach((d) => refresh(d)));
 
   let editingApi = null;
   if (lang) {
@@ -373,6 +383,9 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(refresh),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('ipuAsm.diagnostics')) vscode.workspace.textDocuments.forEach((d) => refresh(d, true));
+    }),
     vscode.workspace.onDidSaveTextDocument(refresh),
     // No content change (the dirty flag flipped): nothing new to check.
     vscode.workspace.onDidChangeTextDocument((e) => e.contentChanges.length && scheduleRefresh(e.document)),
