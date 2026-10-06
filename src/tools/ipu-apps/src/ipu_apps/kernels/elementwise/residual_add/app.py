@@ -36,7 +36,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_apps.kernel_registry import ExecutionConfig, folder_spec, no, yes
+from ipu_apps.kernel_registry import ExecutionConfig, Table, folder_spec, no, yes
 from ipu_apps.kernel_registry.base import IpuApp
 
 if TYPE_CHECKING:
@@ -162,4 +162,10 @@ SPEC = folder_spec(
     ),
     cost=lambda **params: 0.0,
     execution=ExecutionConfig(mode="fp32"),
+    # One channel per row; A's next row is prefetched, one past its end.
+    tables=lambda **params: {
+        "input_a": Table(cr=2, rows=params["num_channels"], overhead_rows=1),
+        "input_b": Table(cr=3, rows=params["num_channels"]),
+        "output": Table(cr=4, rows=params["num_channels"]),
+    },
 )
