@@ -68,6 +68,7 @@ import numpy as np
 from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
@@ -366,6 +367,28 @@ def _supports(q):
     return None
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Spatial row ``r`` holds every input channel's ``cpr`` chunks
+    (``C * cpr`` rows). Each output row reads input rows r-1, r, r+1 for
+    every filter, reaching ``3 * C * cpr - 1`` rows back; the border rows are
+    masked, never loaded past the table. The weights (one row per 14-channel
+    block per filter) are walked once per output row, each filter re-reading
+    its own blocks for every chunk column.
+    """
+    cpr = q.width // 128
+    row = q.in_channels * cpr
+    blocks = math.ceil(q.in_channels / FPB)
+    return {
+        "input": Table(cr=2, rows=q.height * row, jump_back=3 * row - 1),
+        "weights": Table(cr=3, rows=q.out_channels * blocks, repetitions=q.height,
+                         jump_back=blocks - 1),
+        "mask": Table(cr=5, rows=1),
+        "output": Table(cr=4, rows=q.height * q.out_channels * cpr),
+    }
+
+
 SPEC = universal_spec(
     ConvUniversalWide384App,
     variant="wide384",
@@ -384,4 +407,5 @@ SPEC = universal_spec(
         "fresh 3-slot strip per tap.",
     ),
     cost=lambda q: 1.0,  # unoptimized fallback: prefer conv_universal when it applies
+    tables=_tables,
 )

@@ -58,7 +58,10 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
     DepthwiseConvUniversalApp,
 )
+from ipu_apps.kernel_registry import Table
+from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import FPB as STAGE1_FPB
 from ipu_apps.kernels.convolutions.app import (
+    depthwise3x3_tables,
     CHUNK_ELEMENTS,
     kernel_asm,
     universal_spec,
@@ -260,6 +263,26 @@ def _supports(q):
     return None
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Program 0 is depthwise_conv_universal at width 128 (one row per chunk, so
+    ``height`` chunks). Program 1 reads row pairs 4*rp and 4*rp + 2 of it per
+    channel (``2*C - 1`` rows back to the next channel) and stores one row
+    per (row pair, channel).
+    KNOWN BUG (reported, not fixed): stage 2's channel loop has ``INC`` and
+    ``blt`` in one word; BLT reads the start-of-word counter, so it runs one
+    extra iteration. That iteration stores the next row pair's channel-0 row (rewritten
+    later) and, after the last pair, one row past the output. The overhead rows below are those
+    extra accesses; drop them when the loop is fixed.
+    """
+    c = q.in_channels
+    tables = {f"stage1_{name}": t for name, t in depthwise3x3_tables(q, STAGE1_FPB).items()}
+    tables["stage2_input"] = Table(cr=3, rows=q.height * c, jump_back=2 * c - 1, program=1)
+    tables["stage2_output"] = Table(cr=5, rows=q.height // 4 * c, overhead_rows=1, program=1)
+    return tables
+
+
 SPEC = universal_spec(
     DepthwiseConvStride2_128App,
     variant="depthwise_stride2_128",
@@ -274,4 +297,5 @@ SPEC = universal_spec(
         "Not cycle-optimized: unfused two-stage composition (full-res conv "
         "then a separate decimation pass).",
     ),
+    tables=_tables,
 )
