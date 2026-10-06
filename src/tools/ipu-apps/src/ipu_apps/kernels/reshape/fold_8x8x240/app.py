@@ -35,6 +35,7 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
 
@@ -177,4 +178,22 @@ class Fold8x8x240App(IpuApp):
 # :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
-SPEC = unfold_spec(Fold8x8x240App, op="fold", h=H, w=W, c=C, geometry="packing, register layout")
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    One row per channel in each stream and in the output, all walked once.
+    BR's load prefetches the next channel's TL row, so the last channel reads
+    one TL row past the end.
+    """
+    return {
+        "stream_tl": Table(cr=9, rows=q.c, overhead_rows=1),
+        "stream_tr": Table(cr=10, rows=q.c),
+        "stream_bl": Table(cr=11, rows=q.c),
+        "stream_br": Table(cr=12, rows=q.c),
+        "output": Table(cr=13, rows=q.c),
+        "ones": Table(cr=8, rows=1),
+    }
+
+
+SPEC = unfold_spec(Fold8x8x240App, op="fold", h=H, w=W, c=C, geometry="packing, register layout",
+                   tables=_tables)

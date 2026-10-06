@@ -9,7 +9,7 @@ them. The only kernel-specific code is the CR map in ``memory_layout``:
 """
 from ipu_emu.ipu import LANES
 
-from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
+from ipu_apps.kernel_registry import OUTPUT, ShapeBundle, Table
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, memory_spec
 
 
@@ -37,4 +37,9 @@ SPEC = memory_spec(
     bundle=lambda **params: ShapeBundle.of(input=tuple(params["shape"])).with_shapes(
         derived={OUTPUT: tuple(params["shape"])}),
     tags=("example", "fp32-wide"),
+    # One matrix row per XMEM row, copied front to back.
+    tables=lambda **params: {
+        "input": Table(cr=2, rows=tuple(params["shape"])[0]),
+        "output": Table(cr=3, rows=tuple(params["shape"])[0]),
+    },
 )
