@@ -54,6 +54,7 @@ from ipu_apps.kernels.convolutions.app import (
     next_valid_cols,
     pack_input_chunked,
     padding_caveat,
+    standard3x3_tables,
     universal_spec,
     unpack_output_chunked,
 )
@@ -392,4 +393,5 @@ SPEC = universal_spec(
         f"{'x'.join(map(str, _padded(q)))}."
     ),
     caveats=lambda q: padding_caveat(q, *_padded(q)),
+    tables=standard3x3_tables,
 )

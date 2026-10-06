@@ -62,6 +62,7 @@ from ipu_apps.kernels.convolutions.app import (
     pack_input_chunked,
     padding_caveat,
     read_bias,
+    standard3x3_tables,
     universal_spec,
     unpack_output_chunked,
 )
@@ -348,4 +349,5 @@ SPEC = universal_spec(
         f"x{q.width} pads internally to {'x'.join(map(str, _padded(q)))}."
     ),
     caveats=lambda q: padding_caveat(q, *_padded(q)),
+    tables=standard3x3_tables,
 )

@@ -70,6 +70,7 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
+    depthwise3x3_tables,
     build_border_mask_blob,
     min_rows_for_chunk_floor,
     next_valid_cols,
@@ -326,4 +327,5 @@ SPEC = universal_spec(
         f"{q.height}x{q.width} pads internally to {'x'.join(map(str, _padded(q)))}."
     ),
     caveats=lambda q: padding_caveat(q, *_padded(q)),
+    tables=lambda q: depthwise3x3_tables(q, FPB),
 )
