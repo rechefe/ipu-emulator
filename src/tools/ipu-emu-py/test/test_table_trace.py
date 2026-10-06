@@ -147,6 +147,14 @@ def test_repetitions_mismatch():
     assert finding.message.startswith("3 repetitions, declared 4")
 
 
+def test_one_row_table_repetitions_are_not_checked():
+    # Every access is row 0: a second traversal cannot be seen, so a formula
+    # that says 2 (true for larger sizes) is not contradicted.
+    assert _check([0, 0, 0], Table(cr=2, repetitions=2, rows=1)) == []
+    (finding,) = _check([0, 1, 0, 1], Table(cr=2, repetitions=3, rows=2))
+    assert finding.message.startswith("2 repetitions, declared 3")
+
+
 # -- overreads ------------------------------------------------------------------
 
 

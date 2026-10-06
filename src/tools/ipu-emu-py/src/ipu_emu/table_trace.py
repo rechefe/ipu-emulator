@@ -89,7 +89,8 @@ class Table:
                       one repetition, in rows, regardless of bank boundaries.
                       A backward jump (from the previous access) larger than
                       this starts a repetition.
-        repetitions:  Traversals of the table's data.
+        repetitions:  Traversals of the table's data. (Not checked on a
+                      one-row table, where no traversal can be told apart.)
         rows:         Rows of data: the size the compiler needs, and what
                       every access is checked against. Required.
         overhead_rows: Rows past ``rows`` the kernel also accesses (a prefetch
@@ -689,7 +690,10 @@ def _check_one(name: str, table: Table, profile: TableProfile) -> list[Finding]:
     if table.whole_run:
         return out
     found, wanted = profile.repetitions, table.repetitions
-    if found != wanted:
+    # On a one-row table every access is the same row: no backward jump can
+    # show a new traversal, so a declared count is unobservable, not wrong.
+    one_row = profile.allocated_rows == 1 and found == 1
+    if found != wanted and not one_row:
         message = f"{found} repetitions, declared {wanted}"
         if found > wanted:
             # The smallest restart jumps are the least likely to be intended.

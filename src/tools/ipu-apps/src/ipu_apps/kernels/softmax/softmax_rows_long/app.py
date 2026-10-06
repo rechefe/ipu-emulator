@@ -44,6 +44,7 @@ Usage::
 
 from __future__ import annotations
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, softmax_spec
 
 
@@ -79,6 +80,34 @@ def _explain(q):
     return f"n ({q.n}) > {LANES}: {shape}, reduced with a running cross-chunk AGG."
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    A row spans ``chunks_per_row`` XMEM rows. Rows run in groups of up to 128,
+    all four passes per group, each pass stepping back to the group's first
+    row: one traversal with a group-sized jump_back (as in softmax_rows).
+    With no tail (``n % 128 == 0``) Passes 1 and 3 still load the tail chunk
+    -- one row past each logical row, reduced with valid_elements=0 -- so the
+    last row's load is one past the input and numerator tables, and each
+    re-walk steps back from that extra row.
+    """
+    full, tail = divmod(q.n, LANES)
+    chunks_per_row = full + (1 if tail else 0)
+    device_rows = q.rows * chunks_per_row
+    group = min(q.rows, LANES) * chunks_per_row
+    overread = 0 if tail else 1
+    return {
+        "input": Table(cr=10, rows=device_rows, jump_back=group - 1 + overread,
+                       overhead_rows=overread),
+        "num": Table(cr=4, rows=device_rows, jump_back=group - 1 + overread,
+                     overhead_rows=overread),
+        "output": Table(cr=2, rows=device_rows),
+        "c_vec": Table(cr=3, rows=1),
+        "maxvec": Table(cr=5, rows=1),
+        "rvec": Table(cr=6, rows=1),
+    }
+
+
 SPEC = softmax_spec(
     SoftmaxRowsLongApp, along_rows=True,
     supports=lambda q: (None if q.n > LANES else
@@ -86,4 +115,5 @@ SPEC = softmax_spec(
                         f"row longer than {LANES}; this row has {q.n}"),
     explain=_explain,
     cost=lambda q: 1.0,
+    tables=_tables,
 )

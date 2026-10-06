@@ -47,6 +47,7 @@ Usage::
 
 from __future__ import annotations
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.softmax.app import LANES, ROW_BYTES, SoftmaxApp, softmax_spec
 
 __all__ = ["LANES", "ROW_BYTES", "SoftmaxRowsApp", "SPEC"]
@@ -68,6 +69,29 @@ class SoftmaxRowsApp(SoftmaxApp):
         return {9: LANES, 13: self.rows}
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    One XMEM row per logical row. Each group of up to 128 rows runs all four
+    passes before the next group starts, so the input (Passes 1-2) and the
+    numerators (Passes 2-4) are re-walked group by group, each pass stepping
+    back to the group's first row. That is one traversal with a group-sized
+    jump_back: with several groups, a re-walk of a full group (127 rows back)
+    is no different from a later group's, so it cannot be told apart as a
+    repetition. One group is the whole table either way.
+    """
+    rows = q.rows
+    group = min(rows, LANES)
+    return {
+        "input": Table(cr=10, rows=rows, jump_back=group - 1),
+        "num": Table(cr=4, rows=rows, jump_back=group - 1),
+        "output": Table(cr=2, rows=rows),
+        "c_vec": Table(cr=3, rows=1),
+        "maxvec": Table(cr=5, rows=1),
+        "rvec": Table(cr=6, rows=1),
+    }
+
+
 SPEC = softmax_spec(
     SoftmaxRowsApp, along_rows=True,
     supports=lambda q: (None if q.n == LANES else
@@ -76,4 +100,5 @@ SPEC = softmax_spec(
                        f"in groups of at most {LANES}, so any row count works."),
     # Exact-width match: no padding, no chunking. Cheapest possible claim.
     cost=lambda q: 0.0,
+    tables=_tables,
 )
