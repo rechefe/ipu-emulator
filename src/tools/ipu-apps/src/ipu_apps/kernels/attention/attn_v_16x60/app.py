@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import ShapeBundle, Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -161,6 +161,22 @@ class AttnV16x60App(IpuApp):
 # routes on, so `build` leaves them at their constructor defaults -- a caller
 # that needs a non-default layout still constructs the app directly.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    P holds each head's (block's) query rows; every value channel re-walks its
+    head's rows, and the loop's next-row load runs one stride past them: past
+    the last head that is ``PV_STRIDE_ROWS`` rows past P. V and O are walked
+    once.
+    """
+    stride, head = PV_STRIDE_ROWS, P_HEAD_STRIDE_ROWS
+    return {
+        "p": Table(cr=2, rows=P_ROWS, jump_back=head + stride - 1, overhead_rows=stride),
+        "v": Table(cr=3, rows=V_ROWS),
+        "o": Table(cr=4, rows=O_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnV16x60App,
     op="attn_v",
@@ -173,4 +189,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         attn=(params["n_tok"], params["n_tok"]), value=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["d"])}),
+    tables=_tables,
 )

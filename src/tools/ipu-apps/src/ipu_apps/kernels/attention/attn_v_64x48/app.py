@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import ShapeBundle, Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -147,6 +147,22 @@ class AttnV64x48App(IpuApp):
 # `supports` (built by attention_spec) is the single source of truth for this
 # kernel's exact-match shape domain (n_tok=64, d=48).
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    P holds each head's (block's) query rows; every value channel re-walks its
+    head's rows, and the loop's next-row load runs one stride past them: past
+    the last head that is ``PV_STRIDE_ROWS`` rows past P. V and O are walked
+    once.
+    """
+    stride, block = PV_STRIDE_ROWS, P_BLOCK_ROWS
+    return {
+        "p": Table(cr=2, rows=P_ROWS, jump_back=block + stride - 1, overhead_rows=stride),
+        "v": Table(cr=3, rows=V_ROWS),
+        "o": Table(cr=4, rows=O_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnV64x48App,
     op="attn_v",
@@ -161,4 +177,5 @@ SPEC = attention_spec(
         attn=(N_BLOCK, params["n_tok"], params["n_tok"]),
         value=(N_BLOCK, params["n_tok"], params["d"]),
     ).with_shapes(derived={"output": (N_BLOCK, params["n_tok"], params["d"])}),
+    tables=_tables,
 )
