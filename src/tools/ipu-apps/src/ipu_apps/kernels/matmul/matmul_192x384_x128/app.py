@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.matmul.app import matmul_spec
+from ipu_apps.kernels.matmul.app import matmul_spec, streamed_data_tables
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -123,6 +123,7 @@ class MatMul192x384x128App(IpuApp):
         _load_data(state, self.input_path)
         _load_weights(state, self.weights_path)
         # CR1 (≡1) is a read-only hardwired constant; WEIGHTS_BASE lives in CR9.
+        state.regfile.set_cr(12, DATA_BASE_ROW)
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)          # +1 weight row
         state.regfile.set_cr(3, WEIGHTS_BASE_ROW + 2)          # +2 weight rows
@@ -152,4 +153,11 @@ class MatMul192x384x128App(IpuApp):
 M = N_TOK
 N = N_OUT
 
-SPEC = matmul_spec(MatMul192x384x128App, m=M, k=K, n=N, role="192x384 transformer matmul")
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``)."""
+    return streamed_data_tables(
+        n_out=N_OUT, data_rows=DATA_ROWS, data_stride=DATA_STRIDE_ROWS, walks=N_OUT,
+        chunk_crs=(9, 2, 3), outputs={'output': 5})
+
+
+SPEC = matmul_spec(MatMul192x384x128App, m=M, k=K, n=N, role="192x384 transformer matmul", tables=_tables)

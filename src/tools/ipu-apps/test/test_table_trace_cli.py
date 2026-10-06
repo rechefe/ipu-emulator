@@ -33,7 +33,7 @@ def test_declared_kernel_matches_at_the_real_bank_size(capsys):
 
 def test_mismatch_is_reported_and_fails(capsys, monkeypatch):
     monkeypatch.setattr(registry_tables, "declared_tables", lambda kernel, params: {
-        "input": Table(cr=0, rows=128),
+        "input": Table(cr=12, rows=128),
         "weights": Table(cr=11, repetitions=1, rows=128),
         "output": Table(cr=2, rows=128),
     })
@@ -67,7 +67,7 @@ def test_overlapping_tables_are_noted_not_failed(capsys):
 
 def test_runner_reports_fail_when_tables_disagree(capsys, monkeypatch):
     monkeypatch.setattr(registry_tables, "declared_tables", lambda kernel, params: {
-        "input": Table(cr=0, rows=128),
+        "input": Table(cr=12, rows=128),
         "weights": Table(cr=11, repetitions=1, rows=128, overhead_rows=1),
         "output": Table(cr=2, rows=128),
     })
@@ -112,7 +112,7 @@ def test_each_program_of_a_multi_stage_kernel_is_reported(capsys):
 def test_all_cases_checks_declarations(capsys, monkeypatch):
     assert table_trace_cli.main(["--kernel", "matmul_128x128", "--all-cases"]) == 0
     monkeypatch.setattr(registry_tables, "declared_tables", lambda kernel, params: {
-        "input": Table(cr=0), "weights": Table(cr=11), "output": Table(cr=2)})
+        "input": Table(cr=12), "weights": Table(cr=11), "output": Table(cr=2)})
     assert table_trace_cli.main(["--kernel", "matmul_128x128", "--all-cases"]) == 1
     assert "weights (CR11)!" in capsys.readouterr().out
 

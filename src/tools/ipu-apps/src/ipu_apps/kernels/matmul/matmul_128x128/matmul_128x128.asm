@@ -29,7 +29,7 @@
 #              MULT.VE.CYCLIC selects scalar A[m][k] from r0 via fixed_idx=k.
 #
 # Memory layout (set via CR registers):
-#   cr0  = input  base (A: 128 rows x 128 bytes = 16384 bytes)
+#   cr12 = input  base (A: 128 rows x 128 bytes = 16384 bytes)
 #   cr11 = weights base (T: 128 rows x 128 bytes = 16384 bytes; T[k] = col k of W)
 #          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes, 128 x int32/fp32 per row)
@@ -62,7 +62,7 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;     # r0 = A[m][0..127]
+    LDR_MULT_REG        r0 lr0 cr12;;     # r0 = A[m][0..127]
 
     SET                 lr4 cr8;;        # first live = 0 = T[k=0]
     SET                 lr5 cr9;;        # first live = 0

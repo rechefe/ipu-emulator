@@ -28,9 +28,8 @@ from typing import TYPE_CHECKING
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
-from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.matmul.app import matmul_spec
+from ipu_apps.kernels.matmul.app import matmul_spec, streamed_weights_tables
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -129,9 +128,10 @@ class MatMul128x128App(IpuApp):
         _load_input(state, self.input_path)
         _load_and_transpose_weights(state, self.weights_path)
         # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants
-        # — writing anything else raises EmulatorError. INPUT_BASE_ROW is 0, so
-        # CR0 still reads the correct input base; the weights base lives on
-        # CR11 (a free CR) rather than CR1.
+        # — writing anything else raises EmulatorError. Every table has
+        # its own base CR (the Cache Unit identifies a table by its CR): the
+        # input on CR12, the weights on CR11.
+        state.regfile.set_cr(12, INPUT_BASE_ROW)
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         state.regfile.set_cr(3, 1)
@@ -154,17 +154,7 @@ class MatMul128x128App(IpuApp):
 def _tables(**params):
     """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``)."""
     m, k = params["shape_a"]
-    return {
-        # A, one row per output row, streamed once. Addressed through CR0
-        # (hardwired 0) with absolute rows in the LR, which only works because
-        # A sits at row 0 -- it should get a base CR of its own.
-        "input": Table(cr=0, rows=m),
-        # T = W^T, one row per k, re-read in full for every row of A. The
-        # prefetch of T[k+1] on the last k reads one row past the table (its
-        # data is not used), so that row is declared and allocated as overhead.
-        "weights": Table(cr=11, repetitions=m, rows=k, overhead_rows=1),
-        "output": Table(cr=2, rows=m),
-    }
+    return streamed_weights_tables(m=m, k=k)
 
 
 SPEC = matmul_spec(MatMul128x128App, m=M, k=K, n=N, role="128x128 matmul", tables=_tables)

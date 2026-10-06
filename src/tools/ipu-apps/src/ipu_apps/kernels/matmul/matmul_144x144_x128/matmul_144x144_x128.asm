@@ -68,7 +68,7 @@
 {% set j_limit       = "lr10" %}  {# 144 = N_OUT                                #}
 {% set w_stride      = "lr12" %}  {# 256 = W_STRIDE bytes per output channel    #}
 
-{% set DATA_BASE     = "cr0" %}   {# base of D                                  #}
+{% set DATA_BASE     = "cr12" %}   {# base of D                                  #}
 {% set ONE           = "cr1" %}   {# hardwired read-only 1                      #}
 {% set W_BASE_HI     = "cr2" %}   {# WEIGHTS_BASE + 128 (W[j,128..143])         #}
 {% set OUT_BASE_TG0  = "cr3" %}

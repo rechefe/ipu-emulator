@@ -34,7 +34,7 @@
 # lr4 (data ptr) advances continuously by 128 across chunks; lr5 reset to -1 per chunk.
 # Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr3=WB+256, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
+# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr3=WB+256, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
 # LRs: lr0=0, lr2=128 (data stride), lr3=256 (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=192 (j limit),
 #      lr11=126 (tail-chunk bound, width=128), lr12=384 (W_STRIDE)
@@ -68,14 +68,14 @@ j_loop:
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -84,7 +84,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -98,7 +98,7 @@ after_chunk0:
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk1;;
@@ -110,7 +110,7 @@ k_chunk1:
 k_chunk2:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk2;;

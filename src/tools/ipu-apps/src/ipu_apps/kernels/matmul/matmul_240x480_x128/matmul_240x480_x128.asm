@@ -38,7 +38,7 @@
 # lr4 (data ptr) advances continuously by 1 row across chunks; lr5 reset to -1 per chunk.
 # Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr3=WB+2 rows, cr4=WB+3 rows, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
+# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr3=WB+2 rows, cr4=WB+3 rows, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
 # LRs: lr0=0, lr2=1 row (data stride), lr3=1 row (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=240 (j limit),
 #      lr11=94 (tail-chunk bound, width=96), lr12=4 rows (W_STRIDE)
@@ -60,13 +60,13 @@ j_loop:
     # in its OWN bundle -- it would multiply against the previous row. chunk1+
     # must NOT re-prime: their first row is already in flight from the previous
     # chunk's trailing prefetch.
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;;
 
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -75,7 +75,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -88,7 +88,7 @@ after_chunk0:
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk1;;
@@ -99,7 +99,7 @@ k_chunk1:
 k_chunk2:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk2;;
@@ -110,7 +110,7 @@ k_chunk2:
 k_chunk3:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk3;;

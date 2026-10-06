@@ -26,7 +26,7 @@
 #   New shape: A[m] in r0 (loaded once per row), T[k] rows in r_cyclic per inner step.
 #
 # Memory layout (set via CR registers):
-#   cr0  = input  base (A: 128 rows x 128 bytes padded = 16384 bytes)
+#   cr12 = input  base (A: 128 rows x 128 bytes padded = 16384 bytes)
 #   cr11 = weights base (T: 64 rows x 128 bytes = 8192 bytes; T[k] = col k of W)
 #          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
 #   cr2 = output base  (C: 128 rows x 512 bytes = 65536 bytes)
@@ -49,7 +49,7 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LDR_MULT_REG        r0 lr0 cr12;;
 
     SET                 lr4 cr8;;
     SET                 lr5 cr9;;
