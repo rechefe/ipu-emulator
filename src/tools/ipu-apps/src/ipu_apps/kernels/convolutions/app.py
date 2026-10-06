@@ -596,6 +596,30 @@ def depthwise3x3_tables(q: ConvQuery, channels_per_block: int) -> dict[str, Tabl
     }
 
 
+def pointwise_tables(q: ConvQuery, *, bias: bool = False) -> dict[str, Table]:
+    """XMEM tables of ``pointwise_conv_unified`` and its ``_bn_activation`` twin.
+
+    The image pads to ``G`` 128-element row groups; row group ``g`` holds one
+    row per input channel. Every output channel re-walks its row group's
+    ``C`` rows (``C - 1`` back), and the kernel -- one row per (output
+    channel, 128-channel pass) -- is re-walked for every row group, as is the
+    bias region that mirrors it in the twin.
+    """
+    rows, cols = pointwise_pad_shape(q.height, q.width)
+    groups = rows * cols // CHUNK_ELEMENTS
+    c = q.in_channels
+    kernel_rows = q.out_channels * math.ceil(c / 128)
+    tables = {
+        "input": Table(cr=4, rows=groups * c, jump_back=c - 1),
+        "kernel": Table(cr=14, rows=kernel_rows, repetitions=groups),
+        "mask": Table(cr=2, rows=1),
+        "output": Table(cr=3, rows=groups * q.out_channels),
+    }
+    if bias:
+        tables["bias"] = Table(cr=10, rows=kernel_rows, repetitions=groups)
+    return tables
+
+
 # -- Framework-layer adapter ---------------------------------------------------
 
 

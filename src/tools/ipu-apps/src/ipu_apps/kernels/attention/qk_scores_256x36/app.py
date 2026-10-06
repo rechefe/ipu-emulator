@@ -32,6 +32,7 @@ from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -117,9 +118,9 @@ class QkScores256x36App(IpuApp):
         g1_start_rows = -K_STRIDE_ROWS + N_TPG // LANES      # g=1: first live = +1 row
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError. K_BASE_ROW is 0,
-        # so CR0 already holds the correct value without any write. QROW base
-        # lives on CR9.
+        # else raises EmulatorError. Every table has its own base CR: K on
+        # CR14, QROW on CR9.
+        state.regfile.set_cr(14, K_BASE_ROW)            # channel-major K
         state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
         state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
         state.regfile.set_cr(4, S_BASE_ROW + ACC_STORE_ROWS)   # group 1 output base
@@ -155,6 +156,21 @@ class QkScores256x36App(IpuApp):
 # here -- K_BASE_ROW is 0 by construction but the constructor takes no
 # caller-supplied base-row kwargs to guard against.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    K (``D`` channel columns of two rows) is re-walked for every query and key
+    group, its next-row load running one column past it. The two key groups'
+    scores interleave row by row, each through its own CR (CR4 = CR3 + 1).
+    """
+    return {
+        "k": Table(cr=14, rows=K_ROWS, repetitions=N * N_TG, overhead_rows=K_STRIDE_ROWS),
+        "q_rows": Table(cr=9, rows=QROW_ROWS),
+        "scores_g0": Table(cr=3, rows=S_ROWS - 1),
+        "scores_g1": Table(cr=4, rows=S_ROWS - 1),
+    }
+
+
 SPEC = attention_spec(
     QkScores256x36App,
     op="qk_scores",
@@ -167,4 +183,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         query=(params["n_tok"], params["d"]), key=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

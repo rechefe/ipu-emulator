@@ -72,8 +72,9 @@ class ResidualAdd64x192App(IpuApp):
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
         # CR1 (=1) is a read-only hardwired constant --
-        # writing anything else raises EmulatorError. B_BASE is therefore on CR9 (free).
-        # CR0=A_BASE_ROW is 0 (harmless no-op, matches the hardwired 0).
+        # writing anything else raises EmulatorError. Every table has its own
+        # base CR: A on CR14, B on CR9.
+        state.regfile.set_cr(14, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)

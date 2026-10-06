@@ -46,6 +46,7 @@ from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -111,22 +112,8 @@ class QkScores16x60App(IpuApp):
         # Base rows default to the module constants (K_BASE_ROW=0 etc.);
         # passing explicit values lets a caller place this kernel's regions
         # inside a shared IpuState instead of the row-0 layout colliding with
-        # another kernel's data.
-        #
-        # k_base_row is NOT actually relocatable: the .asm reads K_BASE from
-        # CR0, which the ISA hardwires to the constant 0 (a write raises
-        # EmulatorError). K therefore always lands
-        # at row 0 regardless of this argument. It stays a constructor
-        # parameter for interface symmetry with qrow_base_row/s_base_row,
-        # but a non-default value would silently have no effect, so it is
-        # rejected here instead.
-        if k_base_row != K_BASE_ROW:
-            raise ValueError(
-                f"k_base_row={k_base_row} has no effect: qk_scores_16x60.asm "
-                f"reads K_BASE from CR0, which the ISA hardwires to 0. K "
-                f"always occupies rows [0, K_ROWS); place other regions "
-                f"around it instead."
-            )
+        # another kernel's data. Each region is read through its own CR
+        # (K on CR14), so all three are relocatable.
         self.k_base_row = k_base_row
         self.qrow_base_row = qrow_base_row
         self.s_base_row = s_base_row
@@ -176,9 +163,9 @@ class QkScores16x60App(IpuApp):
         g0_start_rows = -K_STRIDE_ROWS
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError. self.k_base_row
-        # is always K_BASE_ROW=0 (enforced in __init__), so CR0 already holds
-        # the correct value without any write. QROW base lives on CR9.
+        # else raises EmulatorError. Every table has its own base CR: K on
+        # CR14, QROW on CR9.
+        state.regfile.set_cr(14, self.k_base_row)        # channel-major K
         state.regfile.set_cr(9, self.qrow_base_row)      # staged query rows
         state.regfile.set_cr(3, self.s_base_row)         # output base (single key group)
         state.regfile.set_cr(5, g0_start_rows)           # K-data startup (rows)
@@ -219,6 +206,20 @@ class QkScores16x60App(IpuApp):
 # invariant, and a caller that needs a non-default layout (the family's
 # shared-state seam test) constructs the app directly.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    K (``D`` channel columns) is re-walked for every query, its next-row load
+    running one column past it; the staged query rows and the scores are
+    walked once.
+    """
+    return {
+        "k": Table(cr=14, rows=K_ROWS, repetitions=N * N_TG, overhead_rows=K_STRIDE_ROWS),
+        "q_rows": Table(cr=9, rows=QROW_ROWS),
+        "scores": Table(cr=3, rows=S_ROWS),
+    }
+
+
 SPEC = attention_spec(
     QkScores16x60App,
     op="qk_scores",
@@ -231,4 +232,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         query=(params["n_tok"], params["d"]), key=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

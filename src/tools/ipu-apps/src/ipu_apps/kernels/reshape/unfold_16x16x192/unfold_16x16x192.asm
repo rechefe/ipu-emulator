@@ -75,7 +75,7 @@
 # channel ch+1, which is why lr4's ADD must precede it.
 #
 # CRs:
-#   cr0  = SRC_BASE + 0×192×128   (stripe 0 base, ch 0..191)
+#   cr14 = SRC_BASE + 0×192×128   (stripe 0 base, ch 0..191)
 #   cr13 = SRC_BASE + 1×192×128   (stripe 1 base; CR1 is read-only, so use cr13)
 #   cr8  = ONES_BASE              (128 bytes of dtype 1.0, for r_cyclic init)
 #   cr9  = DST_TL                 (stream TL output base)
@@ -106,7 +106,7 @@
 # Main channel loop  (ch = 0..191)
 # ---------------------------------------------------------------------------
 
-    LDR_MULT_REG        r0 lr4 cr0;;        # prime: stripe 0 of ch 0 (TL slot 0)
+    LDR_MULT_REG        r0 lr4 cr14;;        # prime: stripe 0 of ch 0 (TL slot 0)
 
 ch_loop:
 
@@ -117,7 +117,7 @@ ch_loop:
     LDR_MULT_REG r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LDR_MULT_REG r0 lr4 cr14;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on lr1;;
     ACTIVATE.QUANTIZE identity cr15;
@@ -127,7 +127,7 @@ ch_loop:
     LDR_MULT_REG r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LDR_MULT_REG r0 lr4 cr14;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on lr1;;
     ACTIVATE.QUANTIZE identity cr15;
@@ -137,7 +137,7 @@ ch_loop:
     LDR_MULT_REG r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LDR_MULT_REG r0 lr4 cr14;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on_inv lr1;;
     ACTIVATE.QUANTIZE identity cr15;
@@ -150,7 +150,7 @@ ch_loop:
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
-    LDR_MULT_REG r0 lr4 cr0;
+    LDR_MULT_REG r0 lr4 cr14;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on_inv lr1;;
     ACTIVATE.QUANTIZE identity cr15;

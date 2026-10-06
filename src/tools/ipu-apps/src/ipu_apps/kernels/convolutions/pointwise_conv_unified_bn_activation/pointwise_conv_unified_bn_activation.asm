@@ -29,13 +29,13 @@
 # register as the new XMEM row-stride role, since both roles want the value 1.
 #
 # CR register parameters (CR0 = read-only 0, CR1 = read-only 1):
-#   cr0  = 0 constant AND input/cyclic-load base (INPUT_BASE_ROW == 0)
+#   cr0  = 0 constant (never a table base)
 #   cr1  = 1 (row stride: pass-counter decrement, XMEM row-space unit, AND
 #          the MULT.EE bias-broadcast multiplier -- same value, three roles)
 #   cr2  = mask base row           (128 bytes of 0xFF — keep-all, new polarity;
 #          mask data itself does NOT widen, only its row address scales)
 #   cr3  = output base row
-#   cr4  = num_passes              (= ceil(in_ch / 128))
+#   cr4  = input base row          (the input table's own CR)
 #   cr5  = row_groups              (= rows * cols / 128)
 #   cr6  = pipeline_limit_full     (= 128 - 5 = 123)
 #   cr7  = out_channels
@@ -98,16 +98,16 @@
 row_loop:
 
     # Pre-load first 4 input channels into r_cyclic S0..S3
-    ldr_cyclic_mult_reg lr0 cr0 lr7;;
+    ldr_cyclic_mult_reg lr0 cr4 lr7;;
 
     add                 lr14 lr0 cr1;    # lr14 = lr0 + 1 row (channel 1's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr6;;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;;
 
     add                 lr14 lr14 cr1;;  # lr14 = lr0 + 2 rows (channel 2's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr8;;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;;
 
     add                 lr14 lr14 cr1;;  # lr14 = lr0 + 3 rows (channel 3's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;;
 
     SET                 lr3 cr0;
     SET                 lr12 cr0;;       # lr3 = OC counter, lr12 = kernel offset
@@ -169,25 +169,25 @@ PIPELINE_BODY_A:
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr7;
+    ldr_cyclic_mult_reg lr14 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_A;;
@@ -207,20 +207,20 @@ POST_BODY_A:
 LAST_EPILOGUE_A:
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr0 cr0 lr7;
+    ldr_cyclic_mult_reg lr0 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr0 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -235,7 +235,7 @@ LAST_EPILOGUE_A:
     # further would need LR-slot reshuffling not attempted here).
     INC                 lr4 1;
     add                 lr1 lr1 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;
     ACTIVATE.QUANTIZE relu cr15;;
 
     # Store the quantized 128 INT8 bytes to XMEM.
@@ -293,25 +293,25 @@ PIPELINE_BODY_B:
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr7;
+    ldr_cyclic_mult_reg lr14 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
     blt                 lr4 lr15 PIPELINE_BODY_B;;
@@ -322,20 +322,20 @@ POST_BODY_B:
 LAST_EPILOGUE_B:
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr0 cr0 lr7;
+    ldr_cyclic_mult_reg lr0 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr0 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -347,7 +347,7 @@ LAST_EPILOGUE_B:
     # (same LR-slot constraint as Half A's identical note).
     INC                 lr4 1;
     add                 lr1 lr1 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;
     ACTIVATE.QUANTIZE relu cr15;;
 
     # Store the quantized 128 INT8 bytes to XMEM.
@@ -393,7 +393,7 @@ MID_EPILOGUE_A:
     # Simpler: derive lr13 from how many passes we have YET to do.
     # passes_done_after_this = num_passes - lr10. Next pass's base offset
     # from lr0 = (num_passes - lr10) * 16384.
-    # We don't have num_passes*16384 in a register; compute via cr4 * cr13.
+    # We don't have num_passes*16384 in a register; compute via num_passes * cr13.
     # No mult instruction for LR/CR arithmetic. So:
     #
     # Track via increment: at start of OC, set lr13 = lr0. Each MID_EPILOGUE,
@@ -420,27 +420,27 @@ MID_EPILOGUE_A:
 
     # E1-E4 with reloads from lr13 (next pass's ich0..ich3)
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr13 cr0 lr7;
+    ldr_cyclic_mult_reg lr13 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 3 rows; own word, same reason.
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;;
 
     # Transition: advance kernel pointer + decrement pass counter + load r0
     add                 lr12 lr12 cr1;
@@ -480,27 +480,27 @@ MID_EPILOGUE_B:
     add                 lr13 lr13 cr13;;
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr13 cr0 lr7;
+    ldr_cyclic_mult_reg lr13 cr4 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ldr_cyclic_mult_reg lr14 cr4 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ldr_cyclic_mult_reg lr14 cr4 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 3 rows; own word, same reason.
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ldr_cyclic_mult_reg lr14 cr4 lr9;;
 
     add                 lr12 lr12 cr1;
     sub                 lr10 lr10 cr1;;

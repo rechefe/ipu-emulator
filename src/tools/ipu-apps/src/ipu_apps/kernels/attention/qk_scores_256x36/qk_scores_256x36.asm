@@ -90,7 +90,7 @@
 {% set q_limit     = "lr10" %}  {# 256 = N queries #}
 {% set qrow_stride = "lr12" %}  {# 512 = QROW_STRIDE bytes per query #}
 
-{% set K_BASE      = "cr0"  %}  {# channel-major K base #}
+{% set K_BASE      = "cr14"  %}  {# channel-major K base #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE_G0   = "cr3"  %}  {# S base, key group 0 #}
 {% set S_BASE_G1   = "cr4"  %}  {# S base + 512, key group 1 #}

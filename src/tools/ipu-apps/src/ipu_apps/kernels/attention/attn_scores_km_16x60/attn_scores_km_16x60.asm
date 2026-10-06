@@ -68,7 +68,7 @@
 {% set key_limit   = "lr10" %}  {# 16 = N keys #}
 {% set key_stride  = "lr12" %}  {# rows per key row in the K scratch #}
 
-{% set Q_BASE      = "cr0"  %}  {# channel-major Q base #}
+{% set Q_BASE      = "cr14"  %}  {# channel-major Q base #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = "cr2"  %}  {# key-major score output base #}
 {% set Q_START     = "cr5"  %}  {# -Q_CHAN_ROWS startup skew (first live = 0) #}

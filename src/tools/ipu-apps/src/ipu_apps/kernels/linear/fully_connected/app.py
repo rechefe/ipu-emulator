@@ -177,7 +177,8 @@ class FullyConnectedApp(IpuApp):
         row_size = WIDE_ROW_SIZE_BYTES if state.wide_vector_debug else ROW_SIZE_BYTES
         _load_inputs(state, self.inputs_path)
         _load_and_transpose_weights(state, self.weights_path)
-        # CR0=0 permanently (INPUT_BASE_ADDR=0x0000, no need to set).
+        # The inputs table gets its own base CR, CR14 (never the read-only CR0).
+        state.regfile.set_cr(14, INPUT_BASE_ADDR // row_size)
         # CR1=1 permanently (can't be used for WEIGHTS_BASE_ADDR; moved to CR13).
         state.regfile.set_cr(2, OUTPUT_BASE_ADDR // row_size)
         # Stride constants for assembly `add lrX lrX crN;;` (replacing removed `incr`).
@@ -217,6 +218,7 @@ class FullyConnectedApp(IpuApp):
 
 
 # The assembly has fixed dimensions; only storage/arithmetic mode varies.
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.spec import ExecutionConfig, folder_spec, no, yes
 
 
@@ -235,6 +237,22 @@ def _supports(**params):
     return yes()
 
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    One input row per sample, walked once. W^T (``INPUT_NEURONS`` rows) is
+    re-read for every sample, its last prefetch one row past it. Outputs are
+    ``OUTPUT_STRIDE_ROWS`` apart in narrow mode, where STR_ACC_REG's 512-byte
+    payload spans four 128-byte rows, and one row apart in wide mode.
+    """
+    stride = 1 if params.get("wide_mode", False) else OUTPUT_STRIDE_ROWS
+    return {
+        "inputs": Table(cr=14, rows=SAMPLES_NUM),
+        "weights": Table(cr=13, rows=INPUT_NEURONS, repetitions=SAMPLES_NUM, overhead_rows=1),
+        "outputs": Table(cr=2, rows=SAMPLES_NUM * stride),
+    }
+
+
 SPEC = folder_spec(
     FullyConnectedApp,
     op="fully_connected",
@@ -244,4 +262,5 @@ SPEC = folder_spec(
     supports=_supports,
     build=lambda **p: {"dtype": p.get("dtype", "INT8"), "wide_mode": p.get("wide_mode", False)},
     explain=lambda **_: "Fixed 10 x 128 inputs and 64 x 128 weights",
+    tables=_tables,
 )

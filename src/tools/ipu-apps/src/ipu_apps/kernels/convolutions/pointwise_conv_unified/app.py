@@ -34,6 +34,7 @@ from ipu_apps.kernels.convolutions.app import (
     pack_input_chunked,
     padding_caveat,
     pointwise_pad_shape,
+    pointwise_tables,
     universal_spec,
     unpack_output_chunked,
 )
@@ -218,22 +219,21 @@ class PointwiseConvUnifiedApp(IpuApp):
         state.xmem.write_address(self.mask_base_row * ROW_BYTES, b"\xff" * MASK_SLOT_BYTES)
 
         # CR0 = read-only 0, CR1 = read-only 1 (cannot be overwritten).
-        # INPUT_BASE_ROW is 0, so CR0 serves as both the zero constant and the
-        # input/cyclic-load base.  The kernel base (nonzero) lives in CR14
-        # (the constant-1 pass decrement uses CR1 directly).
+        # Every table has its own base CR: the input on CR4, the kernel on
+        # CR14 (the constant-1 pass decrement uses CR1 directly).
         # All of these are XMEM *row* numbers, not byte addresses -- the
         # emulator scales them by ROW_BYTES.
         state.regfile.set_cr(2, self.mask_base_row)
         state.regfile.set_cr(3, self.output_base_row)
         state.regfile.set_cr(14, self.kernel_base_row)
+        state.regfile.set_cr(4, self.input_base_row)
 
         # Parameter CR registers (see the .asm header). CR8/CR13 are XMEM-space
-        # (rows); CR4/CR5/CR6/CR7/CR9/CR10/CR11 are plain counters/lane
+        # (rows); CR5/CR6/CR7/CR9/CR10/CR11 are plain counters/lane
         # bounds, unaffected by row addressing. CR scalars stay integer-only
         # even in wide mode (see docs/content/wide-vector-debug-mode.md) --
         # none of these carry fractional values, so FP32 mode does not affect
         # them.
-        state.regfile.set_cr(4, self.num_passes)
         state.regfile.set_cr(5, self.row_groups)
         state.regfile.set_cr(6, self.pipeline_limit_full)
         state.regfile.set_cr(7, self.out_channels)
@@ -306,6 +306,8 @@ def _supports(q):
     return None
 
 
+
+
 SPEC = universal_spec(
     PointwiseConvUnifiedApp,
     variant="pointwise",
@@ -322,4 +324,5 @@ SPEC = universal_spec(
         "lane to leak into)."
     ),
     caveats=lambda q: padding_caveat(q, *pointwise_pad_shape(q.height, q.width)),
+    tables=lambda q: pointwise_tables(q),
 )

@@ -90,7 +90,7 @@
 {% set q_limit     = "lr10" %}  {# 16 = N queries #}
 {% set qrow_stride = "lr12" %}  {# 1 = QROW stride in rows per query #}
 
-{% set K_BASE      = "cr0"  %}  {# channel-major K base #}
+{% set K_BASE      = "cr14"  %}  {# channel-major K base #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = "cr3"  %}  {# S base (single key group) #}
 {% set K_START     = "cr5"  %}  {# -1 row startup skew (first live = row 0) #}

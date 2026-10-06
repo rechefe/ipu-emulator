@@ -17,6 +17,7 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
 
@@ -101,16 +102,11 @@ class Unfold32x32x144App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
-        # CR0..CR7: per-stripe source bases (stripe s at row SRC_BASE_ROW + s × 144).
-        # CR0 (≡0) and CR1 (≡1) are read-only hardwired constants — writing
-        # either raises EmulatorError, even a write of the value already
-        # there. Stripe 0's base is SRC_BASE_ROW + 0, which CR0 already holds
-        # in hardware, so s=0 is skipped entirely (not just retargeted) rather
-        # than written; stripe 1's base goes to CR13 (free) instead of CR1.
+        # CR14, CR13, CR2..CR7: per-stripe source bases (stripe s at row
+        # SRC_BASE_ROW + s × 144). Every table has its own base CR -- never the
+        # read-only CR0/CR1 -- so stripe 0 goes to CR14 and stripe 1 to CR13.
         for s in range(N_STRIPES):
-            if s == 0:
-                continue
-            cr_idx = 13 if s == 1 else s
+            cr_idx = {0: 14, 1: 13}.get(s, s)
             state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_ROWS)
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
@@ -145,4 +141,19 @@ class Unfold32x32x144App(IpuApp):
 # :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
-SPEC = unfold_spec(Unfold32x32x144App, op="unfold", h=H, w=W, c=C)
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Eight stripes of ``C`` source rows, each read once (CR14, CR13, CR2..CR7);
+    stripe 0's next-row load runs one row past it. Four output streams of
+    ``C * N_TG`` rows, written once.
+    """
+    stripe_crs = (14, 13, 2, 3, 4, 5, 6, 7)
+    tables = {f"stripe{s}": Table(cr=cr, rows=_STRIPE_ROWS) for s, cr in enumerate(stripe_crs)}
+    tables["stripe0"] = Table(cr=14, rows=_STRIPE_ROWS, overhead_rows=1)
+    tables["ones"] = Table(cr=8, rows=1)
+    tables.update({f"stream{i}": Table(cr=9 + i, rows=_STREAM_ROWS) for i in range(N_STREAMS)})
+    return tables
+
+
+SPEC = unfold_spec(Unfold32x32x144App, op="unfold", h=H, w=W, c=C, tables=_tables)

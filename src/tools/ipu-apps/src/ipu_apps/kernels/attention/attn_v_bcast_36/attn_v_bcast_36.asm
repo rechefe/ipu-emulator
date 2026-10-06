@@ -74,7 +74,7 @@
 {% set p_group_off   = "lr13" %}  {# g*128, P group offset #}
 {% set out_ptr       = "lr14" %}  {# output byte offset, += 512 per store #}
 
-{% set ZERO          = "cr0"  %}  {# hardwired 0; const-0 and r_cyclic XMEM base #}
+{% set ZERO          = "cr0"  %}  {# hardwired 0; const-0 source (never a table base) #}
 {% set ONE           = "cr1"  %}  {# hardwired read-only 1 #}
 {% set P_BASE        = "cr2"  %}  {# key-major scores base #}
 {% set V_BASE        = "cr3"  %}  {# channel-major value base #}
@@ -125,14 +125,14 @@ g_loop:
     SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
     # Prime s=0's P row (the MULT below consumes it from the snapshot).
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
@@ -141,7 +141,7 @@ s_loop_pre:
 s_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     BLT {{ key_index }} {{ key_last }} s_loop_pre;;
 s_done:

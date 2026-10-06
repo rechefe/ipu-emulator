@@ -52,6 +52,7 @@ from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -166,8 +167,8 @@ class AttnScoresKM16x60App(IpuApp):
         state.set_cr_dstructure(valid_elements=N_TOK)
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError. QBASE_ROW is 0,
-        # so CR0 already holds the correct value without any write.
+        # else raises EmulatorError. Every table has its own base CR: Q on CR14.
+        state.regfile.set_cr(14, QBASE_ROW)
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         # Startup skews are negative; CRs are 32-bit unsigned, and the kernel
@@ -206,6 +207,26 @@ class AttnScoresKM16x60App(IpuApp):
 # still gets a correct verdict (head 0). `build` hands it to the constructor,
 # which keeps its own range check for direct construction.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Q (``D`` channel columns of ``Q_CHAN_ROWS`` rows) is re-walked for every
+    key and query group, its next-row load running one column past it; K and
+    the scores are walked once.
+    KNOWN BUG (reported, not fixed): the key loop's ``ADD key_index`` and its
+    ``BLT`` share one word; BLT reads the start-of-word index, so the loop
+    runs ``N_TOK + 1`` times. The extra key reads one row past K, re-walks Q
+    once more and writes ``N_TG`` score rows past the scores; those rows are
+    declared below and go when the loop is fixed.
+    """
+    keys = N_TOK + 1                    # see KNOWN BUG
+    return {
+        "q": Table(cr=14, rows=Q_ROWS, repetitions=keys * N_TG, overhead_rows=Q_CHAN_ROWS),
+        "k": Table(cr=9, rows=K_ROWS, overhead_rows=K_STRIDE_ROWS),
+        "scores": Table(cr=2, rows=S_ROWS, overhead_rows=N_TG * OUT_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnScoresKM16x60App,
     op="attn_scores_km",
@@ -219,4 +240,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         query=(params["n_tok"], params["d"]), key=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )
