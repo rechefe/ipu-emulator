@@ -31,6 +31,8 @@ def main(argv=None):
     parser.add_argument("--max-cycles", type=int)
     parser.add_argument("--profile-aliases", action="store_true", help="collect full ISA alias measurements")
     parser.add_argument("--alias-report", type=_user_path, help="write full ISA measurements as JSON (enables profiling)")
+    parser.add_argument("--tables", action="store_true",
+                        help="report the kernel's XMEM tables and check SPEC.tables (see table_trace)")
     parser.add_argument("--output", type=_user_path,
                         help="export completed output, including output that fails validation")
     selected, _ = selector.parse_known_args(argv)
@@ -54,17 +56,35 @@ def main(argv=None):
         args = parser.parse_args(argv)
         from ipu_emu.alias_profile import AliasProfile
         profile = AliasProfile(metadata={"case": args.case}) if args.profile_aliases or args.alias_report else None
-        state, cycles = run_case(args.kernel, case,
-                                options={k: getattr(args, k) for k in case.defaults},
-                                max_cycles=args.max_cycles, output_path=args.output, alias_profile=profile)
+        run_kwargs = dict(options={k: getattr(args, k) for k in case.defaults},
+                          max_cycles=args.max_cycles, output_path=args.output, alias_profile=profile)
+        table_status = 0
+        if args.tables:
+            from ipu_apps.kernel_registry.tables import TracedRunFailed, run_traced
+            from ipu_apps.table_trace_cli import report
+            try:
+                traced = run_traced(args.kernel, case, **run_kwargs)
+            except TracedRunFailed as failed:
+                # Show the tables of the failing run before reporting the failure.
+                if failed.run is not None:
+                    report(failed.run, bank_rows=1024)
+                raise failed.cause
+            state, cycles = traced.state, traced.cycles
+            table_status = report(traced, bank_rows=1024)
+        else:
+            state, cycles = run_case(args.kernel, case, **run_kwargs)
         if args.alias_report:
             args.alias_report.write_text(profile.to_json(indent=2) + "\n")
     except (ValueError, OSError, RuntimeError, AssertionError, ImportError,
             AttributeError, KeyError, TypeError, argparse.ArgumentError) as exc:
         parser.exit(1, f"error: {str(exc) or type(exc).__name__}\n")
-    print(f"{args.kernel}/{args.case}: PASS ({cycles} cycles)")
+    if table_status:
+        print(f"{args.kernel}/{args.case}: FAIL -- output correct ({cycles} cycles), "
+              f"but SPEC.tables disagrees with the run (see above)")
+    else:
+        print(f"{args.kernel}/{args.case}: PASS ({cycles} cycles)")
     print(state.stats.format_summary())
-    return 0
+    return table_status
 
 
 if __name__ == "__main__":

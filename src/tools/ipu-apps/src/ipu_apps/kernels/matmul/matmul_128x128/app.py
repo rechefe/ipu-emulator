@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.matmul.app import matmul_spec
 
@@ -150,4 +151,20 @@ class MatMul128x128App(IpuApp):
             )
 
 
-SPEC = matmul_spec(MatMul128x128App, m=M, k=K, n=N, role="128x128 matmul")
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``)."""
+    m, k = params["shape_a"]
+    return {
+        # A, one row per output row, streamed once. Addressed through CR0
+        # (hardwired 0) with absolute rows in the LR, which only works because
+        # A sits at row 0 -- it should get a base CR of its own.
+        "input": Table(cr=0, rows=m),
+        # T = W^T, one row per k, re-read in full for every row of A. The
+        # prefetch of T[k+1] on the last k reads one row past the table (its
+        # data is not used), so that row is declared and allocated as overhead.
+        "weights": Table(cr=11, repetitions=m, rows=k, overhead_rows=1),
+        "output": Table(cr=2, rows=m),
+    }
+
+
+SPEC = matmul_spec(MatMul128x128App, m=M, k=K, n=N, role="128x128 matmul", tables=_tables)

@@ -77,10 +77,11 @@ def positive_dims(q: LayerNormQuery) -> str | None:
     return None
 
 
-def layernorm_spec(app_class, *, channels: int, tokens: int):
+def layernorm_spec(app_class, *, channels: int, tokens: int, tables=None):
     """KernelSpec for a fixed ``(channels, tokens)`` layernorm kernel.
 
     ``tokens`` is the kernel's *total* token count (all token groups).
+    ``tables`` is the kernel's ``SPEC.tables`` declaration, when it has one.
     """
     name = kernel_folder(app_class)
 
@@ -110,4 +111,5 @@ def layernorm_spec(app_class, *, channels: int, tokens: int):
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=tables,
     )

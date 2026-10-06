@@ -30,6 +30,7 @@ from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.errors import EmulatorError
+from ipu_emu.table_trace import program_observer as _table_program_observer
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_common.instruction_spec import (
@@ -384,6 +385,15 @@ class _Plan(NamedTuple):
     scalar_operand: str | None                     # mult slot: scalar multiplicand
     scalar_kind: int                               # ...and how it is addressed
     alias_checks: tuple[_AliasCheck, ...]          # empty for almost every plan
+    xmem_access: str | None                        # "read"/"write" for XMEM ops
+    base_field: str | None                         # ...the field holding base's CR
+    offset_field: str | None                       # ...and the one holding offset's LR
+
+
+# XMEM direction of each memory slot. Every instruction in these slots addresses
+# XMEM as ``offset (LR) + base (CR)``; the table tracer (ipu_emu.table_trace)
+# needs the raw CR index, which dispatch replaces with its value.
+_SLOT_XMEM_ACCESS = {"load": "read", "store": "write", "acc_store": "write"}
 
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
@@ -483,6 +493,10 @@ def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> 
             op["type"] for op in spec["operands"] if op["name"] == scalar_operand
         )
         scalar_kind = _SCALAR_KINDS[op_type]
+    xmem_access = base_field = offset_field = None
+    if slot_type in _SLOT_XMEM_ACCESS and "base" in field_map:
+        xmem_access = _SLOT_XMEM_ACCESS[slot_type]
+        base_field, offset_field = field_map["base"], field_map["offset"]
     return _Plan(
         inst_name=inst_name,
         fn=fn,
@@ -496,6 +510,9 @@ def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> 
         scalar_operand=scalar_operand,
         scalar_kind=scalar_kind,
         alias_checks=_compile_alias_checks(slot_type, inst_name),
+        xmem_access=xmem_access,
+        base_field=base_field,
+        offset_field=offset_field,
     )
 
 
@@ -583,6 +600,11 @@ class Ipu:
                 raise ValueError("an AliasProfile belongs to a single IpuState")
             self._profile = profile._bridge
             state.stats.alias_profile = profile
+        # Cycles this engine has completed; stamps table-trace accesses.
+        self.cycles_issued = 0
+        # Table tracing (ipu_emu.table_trace): set only inside trace_tables(),
+        # which gives every program started in its scope its own recording.
+        self._access_observer = _table_program_observer(self)
         # Snapshot buffer reused across cycles. Every register is refreshed from
         # the live file at the start of each cycle, so the snapshot is exactly
         # what a fresh copy would hold; reusing the object just avoids
@@ -1948,6 +1970,13 @@ class Ipu:
 
         alias = self._record_alias(plan, kwargs, inst) if plan.alias_checks else None
 
+        if plan.base_field is not None and self._access_observer is not None:
+            self._access_observer(
+                self.cycles_issued, self.state.program_counter, plan.inst_name,
+                plan.xmem_access, inst[plan.base_field], kwargs["base"],
+                inst[plan.offset_field], kwargs["offset"],
+            )
+
         # Call handler with named arguments
         token = (self._profile.start(self, slot_type, plan, kwargs,
                  {name: inst[key] for name, key in plan.fields})
@@ -2276,15 +2305,19 @@ class Ipu:
             self.state.program_counter += 1
             if self._profile:
                 self._profile.end()
+            self.cycles_issued += 1
             return BreakResult.CONTINUE
 
         self._take_snapshot()
 
-        if self._prototyping and not self._profile:
+        if self._prototyping and not self._profile and self._access_observer is None:
             # The fast path runs plans directly, bypassing the dispatchers that
-            # carry the profiler's hooks. A profiled run takes the faithful
-            # path so the profile describes every slot the cycle issued.
-            return self._execute_cycle_fast(inst, pc, with_break=True)
+            # carry the profiler's and table tracer's hooks. An observed run
+            # takes the faithful path so it sees every slot the cycle issued.
+            result = self._execute_cycle_fast(inst, pc, with_break=True)
+            if result != BreakResult.BREAK:
+                self.cycles_issued += 1
+            return result
 
         # Break runs first — may halt before side effects
         result = self.dispatch_instruction("break", inst)
@@ -2306,6 +2339,7 @@ class Ipu:
         if self._profile:
             self._profile.end()
 
+        self.cycles_issued += 1
         return BreakResult.CONTINUE
 
     def execute_vliw_cycle_skip_break(self) -> None:
@@ -2322,12 +2356,14 @@ class Ipu:
             self.state.program_counter += 1
             if self._profile:
                 self._profile.end()
+            self.cycles_issued += 1
             return
 
         self._take_snapshot()
 
-        if self._prototyping and not self._profile:
+        if self._prototyping and not self._profile and self._access_observer is None:
             self._execute_cycle_fast(inst, pc, with_break=False)
+            self.cycles_issued += 1
             return
 
         # Execute all slots except break
@@ -2344,6 +2380,8 @@ class Ipu:
 
         if self._profile:
             self._profile.end()
+
+        self.cycles_issued += 1
 
 
 # Built here rather than beside the other precomputed tables: a plan holds the

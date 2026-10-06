@@ -20,6 +20,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping
 
 from ipu_emu.ipu_math import DType
+from ipu_emu.table_trace import Table
 
 from ipu_apps.kernel_registry.shapes import ShapeBundle
 
@@ -116,6 +117,13 @@ class KernelSpec:
         tags:       Free-form markers for reporting (e.g. ``"fp32-wide"``).
         execution:  Fixed state configuration, or a selector receiving the
                     constructed harness with its normalized parameters.
+        tables:     Optional ``params -> {name: Table}``, the XMEM tables this
+                    kernel touches as the Cache Unit sees them: each one's base
+                    CR, ``jump_back``, ``repetitions`` and size, as formulas of
+                    the parameters. It is what the compiler assigns banks from.
+                    Every case run by the kernel's tests checks it against the
+                    run (see ``ipu_emu.table_trace``); the ``table_trace`` tool
+                    measures the numbers while writing it.
     """
 
     name: str
@@ -135,6 +143,7 @@ class KernelSpec:
         default_factory=ExecutionConfig
     )
     package: str | None = None
+    tables: Callable[..., Mapping[str, Table]] | None = None
 
     @property
     def resource_package(self) -> str:

@@ -43,6 +43,16 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_table_trace",
+    srcs = ["test/test_table_trace.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_regfile",
     srcs = ["test/test_regfile.py"],
     imports = ["src"],

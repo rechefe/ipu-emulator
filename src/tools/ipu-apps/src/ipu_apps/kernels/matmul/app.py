@@ -93,10 +93,12 @@ def positive_dims(q: MatmulQuery) -> str | None:
     return None
 
 
-def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str = "none"):
+def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str = "none",
+                tables=None):
     """KernelSpec for a fixed ``(m, k, n)`` matmul kernel.
 
     ``role`` names where the kernel sits in the network, for ``explain``.
+    ``tables`` is the kernel's ``SPEC.tables`` declaration, when it has one.
     """
     name = kernel_folder(app_class)
 
@@ -124,4 +126,5 @@ def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str
         # Exact-shape match: no two matmul kernels share a (triple, activation).
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=tables,
     )
