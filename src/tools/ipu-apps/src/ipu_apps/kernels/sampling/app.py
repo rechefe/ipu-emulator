@@ -1,5 +1,6 @@
 """Dense descriptor interpolation in HWC order; no L2 normalization."""
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, positive_shape
 
 
@@ -44,3 +45,39 @@ class DescriptorApp(MemoryApp):
             7: w, 8: cell_row_count, 9: 2, 10: 8,
             11: w * 16 - 16, 12: w * 16 * 7, 13: weight_step,
         })
+
+    @classmethod
+    def tables(cls, *, shape, mode="shared", cell_row_start=0, cell_row_count=None):
+        """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+        ``S = 2*(W+2)`` rows per padded input row (two channel tiles per
+        cell); the input table starts at the band's top halo row and holds
+        ``n + 2`` padded rows for a band of ``n`` coarse rows.
+        """
+        h, w, _ = shape
+        n = h - cell_row_start if cell_row_count is None else cell_row_count
+        stride = (w + 2) * 2
+        output_rows = n * w * 64 * 2
+        if cls.separable:
+            # Vertical pass: per phase a, each tile reads rows +0, +S, +2S, so
+            # the next phase steps back from the last tile's +2S row to the
+            # first tile. Kx is re-walked for every phase; scratch T is written
+            # then read once per coarse row; the output's two channel tiles
+            # interleave over 8 phases (13 rows back).
+            return {
+                "input": Table(cr=2, rows=(n + 2) * stride, jump_back=2 * stride + 2 * w - 1),
+                "ky": Table(cr=4, rows=n),
+                "kx": Table(cr=5, rows=w, repetitions=8 * n),
+                "scratch": Table(cr=6, rows=8 * stride, repetitions=2 * n, jump_back=3),
+                "output": Table(cr=3, rows=output_rows, jump_back=13),
+            }
+        # Direct: each (phase, tile) reads a 3x3 window of descriptor rows
+        # (+0..+4, +S.., +2S..), stepping back 2S + 5 to the next one; its nine
+        # weight rows are re-read for every (phase, tile). A cell's 8x8 output
+        # block spans 8 phase rows, so the next cell steps back 7 of them.
+        weight_rows = 9 if mode == "shared" else n * w * 9
+        return {
+            "input": Table(cr=2, rows=(n + 2) * stride, jump_back=2 * stride + 5),
+            "weights": Table(cr=4, rows=weight_rows, jump_back=8),
+            "output": Table(cr=3, rows=output_rows, jump_back=7 * 16 * w - 1 if w > 1 else 0),
+        }
