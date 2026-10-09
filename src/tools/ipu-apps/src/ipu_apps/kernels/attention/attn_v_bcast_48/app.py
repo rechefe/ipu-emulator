@@ -88,7 +88,7 @@ V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
 O_ROWS = N_CHAN * O_CHAN_ROWS                # 768
 
 PBASE_ROW = 0
-VBASE_ROW = PBASE_ROW + P_ROWS
+VBASE_ROW = PBASE_ROW + P_ROWS + PV_STRIDE_ROWS  # + overhead: the last prefetch's row
 OBASE_ROW = VBASE_ROW + V_ROWS
 
 PBASE = PBASE_ROW * ROW_BYTES

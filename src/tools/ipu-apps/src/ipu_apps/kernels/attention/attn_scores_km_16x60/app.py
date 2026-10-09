@@ -87,8 +87,8 @@ K_ROWS = N_TOK * K_STRIDE_ROWS
 S_ROWS = N_TOK * N_TG * OUT_ROWS
 
 QBASE_ROW    = 0
-KBASE_KM_ROW = QBASE_ROW + Q_ROWS
-SBASE_ROW    = KBASE_KM_ROW + K_ROWS
+KBASE_KM_ROW = QBASE_ROW + Q_ROWS + Q_CHAN_ROWS  # + overhead: the last prefetch's row
+SBASE_ROW    = KBASE_KM_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
 
 QBASE    = QBASE_ROW * ROW_BYTES
 KBASE_KM = KBASE_KM_ROW * ROW_BYTES

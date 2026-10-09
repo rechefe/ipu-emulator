@@ -95,7 +95,7 @@ K_ROWS = P * K_STREAM_ROWS                   # 256
 S_ROWS = P * S_STREAM_ROWS                   # 256
 
 QBASE_ROW    = 0
-KBASE_KM_ROW = QBASE_ROW + Q_ROWS
+KBASE_KM_ROW = QBASE_ROW + Q_ROWS + Q_CHAN_ROWS  # + overhead: the last prefetch's row
 SBASE_ROW    = KBASE_KM_ROW + K_ROWS
 
 QBASE    = QBASE_ROW * ROW_BYTES

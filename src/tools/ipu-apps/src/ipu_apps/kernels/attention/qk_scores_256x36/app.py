@@ -64,7 +64,7 @@ QROW_ROWS = N * QROW_STRIDE_ROWS
 S_ROWS    = N * N_TG * ACC_STORE_ROWS
 
 K_BASE_ROW    = 0
-QROW_BASE_ROW = K_BASE_ROW + K_ROWS
+QROW_BASE_ROW = K_BASE_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
 S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
 
 K_BASE      = K_BASE_ROW * ROW_BYTES
@@ -123,7 +123,6 @@ class QkScores256x36App(IpuApp):
         state.regfile.set_cr(14, K_BASE_ROW)            # channel-major K
         state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
         state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
-        state.regfile.set_cr(4, S_BASE_ROW + ACC_STORE_ROWS)   # group 1 output base
         state.regfile.set_cr(5, g0_start_rows)           # g=0 K-data startup (rows)
         state.regfile.set_cr(6, g1_start_rows)           # g=1 K-data startup (rows)
         state.regfile.set_cr(7, -1)                      # channel fixed_idx startup
@@ -131,7 +130,7 @@ class QkScores256x36App(IpuApp):
 
         state.regfile.set_lr(0, 0)                       # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
-        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
+        state.regfile.set_lr(3, 1)                       # output step after group 1's row (rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
         state.regfile.set_lr(7, 0)                       # output query row offset
         state.regfile.set_lr(8, 0)                       # Q-row row offset
@@ -160,14 +159,13 @@ def _tables(**params):
     """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
 
     K (``D`` channel columns of two rows) is re-walked for every query and key
-    group, its next-row load running one column past it. The two key groups'
-    scores interleave row by row, each through its own CR (CR4 = CR3 + 1).
+    group, its next-row load running one column past it. The scores are one
+    table: query i's key group g at row 2i + g, written once in order.
     """
     return {
         "k": Table(cr=14, rows=K_ROWS, repetitions=N * N_TG, overhead_rows=K_STRIDE_ROWS),
         "q_rows": Table(cr=9, rows=QROW_ROWS),
-        "scores_g0": Table(cr=3, rows=S_ROWS - 1),
-        "scores_g1": Table(cr=4, rows=S_ROWS - 1),
+        "scores": Table(cr=3, rows=S_ROWS),
     }
 
 

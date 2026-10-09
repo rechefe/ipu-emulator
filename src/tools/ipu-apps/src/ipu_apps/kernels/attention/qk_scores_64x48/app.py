@@ -81,7 +81,7 @@ QROW_ROWS = N_BLOCK * Q_BLOCK_ROWS           # 1024
 S_ROWS    = N_BLOCK * S_BLOCK_ROWS           # 1024
 
 K_BASE_ROW    = 0
-QROW_BASE_ROW = K_BASE_ROW + K_ROWS
+QROW_BASE_ROW = K_BASE_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
 S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
 
 K_BASE    = K_BASE_ROW * ROW_BYTES
