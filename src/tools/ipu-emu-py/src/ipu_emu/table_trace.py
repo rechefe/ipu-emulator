@@ -613,7 +613,8 @@ def check_tables(session: TraceSession, tables: Mapping[str, Table],
                  bank_rows: int = BANK_ROWS) -> list[Finding]:
     """Compare a kernel's declared tables with what a run actually did.
 
-    Errors: an access through an undeclared CR, two tables on one CR, a base
+    Errors: an access through an undeclared CR, a table declared on CR0, two
+    tables on one CR, a base
     that changes in use, a repetition count that differs (a backward jump
     larger than jump_back starts one), or reach within a repetition beyond
     jump_back, or an access outside ``rows + overhead_rows`` (every such
@@ -626,6 +627,11 @@ def check_tables(session: TraceSession, tables: Mapping[str, Table],
     by_program: dict[int, dict[int, str]] = {}
     for name, table in tables.items():
         crs = by_program.setdefault(table.program, {})
+        if table.cr == 0:
+            findings.append(Finding("error", name, "declared on CR0, the hardwired zero: "
+                                    "a table ID points at the table's first row -- give "
+                                    "it a base CR of its own"))
+            continue
         if table.cr in crs:
             findings.append(Finding("error", name,
                                     f"shares CR{table.cr} with {crs[table.cr]!r}"))

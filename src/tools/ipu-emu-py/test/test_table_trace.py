@@ -367,6 +367,13 @@ def test_undeclared_cr_and_flat_base():
     assert "flat base" in findings[0].message
 
 
+def test_table_declared_on_cr0_is_an_error():
+    session = TraceSession(programs=[_program((0, "read", [5]))])
+    findings = check_tables(session, {"data": Table(cr=0, rows=6)})
+    assert ("error", "data") in {(f.severity, f.table) for f in findings}
+    assert any("declared on CR0" in f.message for f in findings)
+
+
 def test_unused_and_shared_cr():
     session = TraceSession(programs=[_program((2, "read", range(10)))])
     findings = check_tables(session, {

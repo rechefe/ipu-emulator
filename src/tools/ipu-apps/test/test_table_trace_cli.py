@@ -24,8 +24,8 @@ def test_declared_kernel_matches_at_the_real_bank_size(capsys):
     # What the table shows is what the check checked.
     assert _row(out, "centered (CR7)")["jump_back"] == "1"
     assert _row(out, "centered (CR7)")["reps"] == "4"
-    assert _row(out, "data (CR0)")["reps"] == "2"
-    assert _row(out, "data (CR0)")["rows"] == "192+1"      # declared overhead row
+    assert _row(out, "data (CR13)")["reps"] == "2"
+    assert _row(out, "data (CR13)")["rows"] == "192+1"      # declared overhead row
     assert "SPEC.tables: matches this run" in out
     assert "last access (release point)" in out
     assert "LDR_CYCLIC_MULT_REG LR2, CR7, LR0" in out    # as the debugger shows it
@@ -103,7 +103,9 @@ def test_wide_mode_has_no_narrow_note(capsys):
     assert "narrow mode" not in capsys.readouterr().out
 
 
-def test_undeclared_kernel_gets_suggestions(capsys):
+def test_undeclared_kernel_gets_suggestions(capsys, monkeypatch):
+    # Every kernel declares its tables now; drop one declaration.
+    monkeypatch.setattr(registry_tables, "declared_tables", lambda kernel, params: None)
     assert table_trace_cli.main(["--kernel", "softmax_rows_partial"]) == 0
     out = capsys.readouterr().out
     assert "suggest:  Table(cr=" in out
