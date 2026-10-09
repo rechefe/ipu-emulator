@@ -66,26 +66,25 @@
 {% set k_bound        = "lr6"  %}  {# 126 = per-chunk bound (width 128 -> 0+128-2) #}
 {% set k_bound_tail   = "lr11" %}  {# 30 = tail-chunk bound (width 32 -> 0+32-2), K=288=128+128+32 #}
 {% set out_ptr        = "lr7"  %}  {# byte offset into C, += out_stride per j #}
-{% set w_ptr          = "lr8"  %}  {# byte offset into W, += w_stride per j #}
+{% set w_ptr          = "lr8"  %}  {# row offset into W: chunk c of j = j*3 + c #}
 {% set j_index        = "lr9"  %}  {# output-channel counter j #}
 {% set j_limit        = "lr10" %}  {# 144 = N_OUT #}
-{% set w_stride       = "lr12" %}  {# 384 = W_STRIDE bytes per output channel #}
+{% set w_stride       = "lr12" %}  {# 1 row: per-j step past the last chunk #}
 
 {% set DATA_BASE      = "cr12"  %}  {# base of D #}
 {% set ONE            = "cr1"  %}  {# hardwired read-only 1 #}
-{% set W_BASE_CHUNK1  = "cr2"  %}  {# WEIGHTS_BASE + 128 (W[j,128..255]) #}
-{% set W_BASE_CHUNK2  = "cr3"  %}  {# WEIGHTS_BASE + 256 (W[j,256..287]) #}
+{% set LAST_CHUNK     = "cr2"  %}  {# W_STRIDE_ROWS - 1: tg=1 steps back to chunk 0 #}
 {% set OUT_BASE_TG0   = "cr4"  %}  {# OUTPUT_BASE #}
 {% set OUT_BASE_TG1   = "cr5"  %}  {# OUTPUT_BASE + N_OUT*512 #}
 {% set DATA_START_TG0 = "cr6"  %}  {# -256 startup skew #}
 {% set DATA_START_TG1 = "cr7"  %}  {# -128 startup skew #}
 {% set K_START        = "cr8"  %}  {# -1 -> first live k = 0 (per chunk) #}
-{% set W_BASE_CHUNK0  = "cr9"  %}  {# WEIGHTS_BASE (W[j,0..127]) #}
+{% set W_BASE        = "cr9"  %}  {# WEIGHTS_BASE: row j*W_STRIDE_ROWS + c = W[j, chunk c] #}
 {% set DSTRUCT        = "cr15" %}  {# reserved dstructure register #}
 
 j_loop:
     SET {{ data_ptr }} {{ DATA_START_TG0 }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=0 startup; r0 = W[j, 0..127]
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;  # tg=0 startup; r0 = W[j, 0..127]
     SET {{ k_index }} {{ K_START }};;                                                           # chunk0 fixed_idx startup: -1
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;                                                  # biased to -2 (load runs a bundle ahead)
 
@@ -117,7 +116,8 @@ k_chunk0_tg0:
 after_chunk0_tg0:
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;  # chunk1 startup; r0 = W[j, 128..255]
+    ADD {{ w_ptr }} {{ w_ptr }} {{ ONE }};
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;  # chunk1 startup; r0 = W[j, 128..255]
 
 k_chunk1_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
@@ -128,7 +128,8 @@ k_chunk1_tg0:
     BLT {{ k_index }} {{ k_bound }} k_chunk1_tg0;;
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;  # chunk2 startup; r0 = W[j, 256..287]+zeros
+    ADD {{ w_ptr }} {{ w_ptr }} {{ ONE }};
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;  # chunk2 startup; r0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
@@ -147,7 +148,8 @@ k_chunk2_tg0:
     STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
 
     SET {{ data_ptr }} {{ DATA_START_TG1 }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=1 startup; r0 = W[j, 0..127]
+    SUB {{ w_ptr }} {{ w_ptr }} {{ LAST_CHUNK }};
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;  # tg=1 startup; r0 = W[j, 0..127]
     SET {{ k_index }} {{ K_START }};;
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;                                                  # biased to -2 (load runs a bundle ahead)
 
@@ -179,7 +181,8 @@ k_chunk0_tg1:
 after_chunk0_tg1:
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
+    ADD {{ w_ptr }} {{ w_ptr }} {{ ONE }};
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;
 
 k_chunk1_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
@@ -190,7 +193,8 @@ k_chunk1_tg1:
     BLT {{ k_index }} {{ k_bound }} k_chunk1_tg1;;
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
+    ADD {{ w_ptr }} {{ w_ptr }} {{ ONE }};
+    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE }};;
 
 k_chunk2_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};

@@ -36,10 +36,10 @@
 # lr4 (data ptr) advances continuously by 1 row across chunks; lr5 reset to -1 per chunk.
 # Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
 #
-# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
+# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
 # LRs: lr0=0, lr2=1 row (data stride), lr3=1 row (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=480 (j limit),
-#      lr11=110 (tail-chunk bound, width=112), lr12=2 rows (W_STRIDE)
+#      lr11=110 (tail-chunk bound, width=112), lr12=1 row (W_STRIDE: step past the last chunk)
 #
 # Memory layout (row counts):
 #   DATA:    240 rows
@@ -80,7 +80,8 @@ k_chunk0:
 
 after_chunk0:
     SET lr5 cr8;
-    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
+    ADD lr8 lr8 cr1;
+    LDR_MULT_REG r0 lr8 cr9;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;

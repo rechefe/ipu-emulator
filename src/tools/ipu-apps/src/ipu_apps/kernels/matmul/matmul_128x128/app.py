@@ -68,7 +68,7 @@ VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
 # A / T / C packed back to back, in rows.
 INPUT_BASE_ROW   = 0
 WEIGHTS_BASE_ROW = INPUT_BASE_ROW + INPUT_ROWS
-OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS + 1  # + overhead: the last prefetch's row
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR/LR values below stay in rows.

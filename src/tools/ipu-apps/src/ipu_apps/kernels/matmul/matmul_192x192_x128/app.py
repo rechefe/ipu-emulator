@@ -61,7 +61,7 @@ WEIGHT_ROWS = N_OUT * W_STRIDE_ROWS
 
 # D/W/C packed back to back, in rows.
 DATA_BASE_ROW    = 0
-WEIGHTS_BASE_ROW = DATA_BASE_ROW + DATA_ROWS
+WEIGHTS_BASE_ROW = DATA_BASE_ROW + DATA_ROWS + DATA_STRIDE_ROWS  # + overhead: the last prefetch's row
 OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
@@ -123,7 +123,6 @@ class MatMul192x192x128App(IpuApp):
         # CR1 (≡1) is a read-only hardwired constant; WEIGHTS_BASE lives in CR9.
         state.regfile.set_cr(12, DATA_BASE_ROW)
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
-        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)          # next weight row
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
         state.regfile.set_cr(6, -DATA_STRIDE_ROWS)             # data startup: -1 row
         state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
@@ -136,7 +135,7 @@ class MatMul192x192x128App(IpuApp):
         state.regfile.set_lr(9, 0)                             # j counter
         state.regfile.set_lr(10, N_OUT)                        # j-loop limit
         state.regfile.set_lr(11, 62)                           # tail-chunk bound: width=64
-        state.regfile.set_lr(12, W_STRIDE_ROWS)                # weight stride per j (rows)
+        state.regfile.set_lr(12, 1)                            # weight stride per j: 1 row past the last chunk
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
@@ -154,7 +153,7 @@ def _tables(**params):
     """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``)."""
     return streamed_data_tables(
         n_out=N_OUT, data_rows=DATA_ROWS, data_stride=DATA_STRIDE_ROWS, walks=N_OUT,
-        chunk_crs=(9, 2), outputs={'output': 5})
+        chunks=2, outputs={'output': 5})
 
 
 SPEC = matmul_spec(MatMul192x192x128App, m=M, k=K, n=N, role="192x192 transformer matmul", tables=_tables)

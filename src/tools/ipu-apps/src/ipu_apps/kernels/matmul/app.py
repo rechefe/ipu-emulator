@@ -146,22 +146,23 @@ def streamed_weights_tables(*, m: int, k: int) -> dict[str, Table]:
 
 
 def streamed_data_tables(*, n_out: int, data_rows: int, data_stride: int, walks: int,
-                         chunk_crs: tuple[int, ...], outputs: dict[str, int],
+                         chunks: int, outputs: dict[str, int], reread_chunks: bool = False,
                          ) -> dict[str, Table]:
     """XMEM tables of the ``*_x128`` matmuls.
 
     The data D (``data_rows`` rows, ``data_stride`` per k) is re-walked
     ``walks`` times -- once per output feature (and token group) -- and the
-    loop's next-row load runs one stride past it. Each weight row ``j`` spans
-    ``len(chunk_crs)`` XMEM rows, one 128-element chunk each, and chunk ``c``
-    is addressed through its own CR: ``chunk_crs[c]`` is ``WEIGHTS_BASE + c``,
-    so each chunk table steps ``len(chunk_crs)`` rows per feature and the
-    chunk tables interleave. Every output table holds ``n_out`` rows.
+    loop's next-row load runs one stride past it. W is one table through CR9:
+    feature ``j``'s 128-element chunk ``c`` is row ``j * chunks + c``, walked
+    once in order. With ``reread_chunks`` (a second token group reloading
+    the feature's chunks) each feature steps back ``chunks - 1`` rows. Every
+    output table holds ``n_out`` rows.
     """
-    chunks = len(chunk_crs)
-    tables = {"data": Table(cr=12, rows=data_rows, repetitions=walks, overhead_rows=data_stride)}
-    for c, cr in enumerate(chunk_crs):
-        tables[f"weights_chunk{c}"] = Table(cr=cr, rows=(n_out - 1) * chunks + 1)
+    tables = {
+        "data": Table(cr=12, rows=data_rows, repetitions=walks, overhead_rows=data_stride),
+        "weights": Table(cr=9, rows=n_out * chunks,
+                         jump_back=chunks - 1 if reread_chunks else 0),
+    }
     for name, cr in outputs.items():
         tables[name] = Table(cr=cr, rows=n_out)
     return tables
