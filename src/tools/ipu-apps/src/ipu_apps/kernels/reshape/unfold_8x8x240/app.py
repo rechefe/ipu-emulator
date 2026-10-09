@@ -133,7 +133,7 @@ SRC_STRIDE_ROWS = 1                          # one src row per channel
 DST_STRIDE_ROWS = 1                          # one whole dst row per channel
 
 SRC_BASE_ROW  = 0
-ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
+ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS + 1  # + overhead: the last prefetch's row
 DST_BASE_ROW  = ONES_BASE_ROW + 1
 
 SRC_BASE  = SRC_BASE_ROW * ROW_BYTES

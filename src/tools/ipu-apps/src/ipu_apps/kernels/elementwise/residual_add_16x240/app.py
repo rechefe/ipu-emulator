@@ -53,7 +53,7 @@ OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B channel row per XMEM row
 
 A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+B_BASE_ROW      = A_BASE_ROW + N_ROWS + 1  # + overhead: the last prefetch's row
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
 A_BASE      = A_BASE_ROW * ROW_BYTES

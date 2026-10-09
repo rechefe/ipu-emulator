@@ -57,8 +57,9 @@ SRC_STRIDE_ROWS = 1                          # one src row per channel
 DST_STRIDE_ROWS = N_TG                 # rows per output channel (one per tg)
 TG1_OFF_ROWS    = 1                    # tg=1 sits one row after tg=0
 
+_STRIPE_PITCH = _STRIPE_ROWS + 1             # stripe rows + one row for a prefetch past it
 SRC_BASE_ROW  = 0
-ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
+ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_PITCH
 DST_BASE_ROW  = ONES_BASE_ROW + 1
 
 SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
@@ -76,7 +77,10 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     Each row: 4 spatial rows × 32 columns of one channel.
     """
     raw = Path(input_path).read_bytes()
-    state.xmem.write_address(SRC_BASE, bytearray(raw))
+    stripe = _STRIPE_ROWS * ROW_BYTES
+    for s in range(N_STRIPES):
+        state.xmem.write_address((SRC_BASE_ROW + s * _STRIPE_PITCH) * ROW_BYTES,
+                                 bytearray(raw[s * stripe:(s + 1) * stripe]))
 
 
 def _load_ones(state: "IpuState") -> None:
@@ -103,11 +107,11 @@ class Unfold32x32x144App(IpuApp):
         _load_input(state, self.input_path)
         _load_ones(state)
         # CR14, CR13, CR2..CR7: per-stripe source bases (stripe s at row
-        # SRC_BASE_ROW + s × 144). Every table has its own base CR -- never the
+        # SRC_BASE_ROW + s × _STRIPE_PITCH). Every table has its own base CR -- never the
         # read-only CR0/CR1 -- so stripe 0 goes to CR14 and stripe 1 to CR13.
         for s in range(N_STRIPES):
             cr_idx = {0: 14, 1: 13}.get(s, s)
-            state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_ROWS)
+            state.regfile.set_cr(cr_idx, SRC_BASE_ROW + s * _STRIPE_PITCH)
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream destination bases (TL, TR, BL, BR)
