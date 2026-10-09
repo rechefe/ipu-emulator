@@ -58,11 +58,19 @@ def test_undeclared_overhead_is_highlighted_and_fails(capsys, monkeypatch):
     assert "ERROR   centered: 3 accesses outside its declared rows=192" in out
 
 
-def test_overlapping_tables_are_noted_not_failed(capsys):
-    # layernorm's data overhead row is gamma's first row in this harness.
-    assert table_trace_cli.main(["--kernel", "layernorm_64x192"]) == 0
+def test_overlapping_tables_fail(capsys, monkeypatch):
+    # The harness leaves one row after the weights for their last prefetch;
+    # declaring two makes the weights' allocation run onto the output's first
+    # row: one table, one ID.
+    monkeypatch.setattr(registry_tables, "declared_tables", lambda kernel, params: {
+        "input": Table(cr=12, rows=128),
+        "weights": Table(cr=11, repetitions=128, rows=128, overhead_rows=2),
+        "output": Table(cr=2, rows=128),
+    })
+    assert table_trace_cli.main(["--kernel", "matmul_128x128"]) == 1
     out = capsys.readouterr().out
-    assert "note: its allocated rows overlap gamma (CR11) at XMEM rows 192..192" in out
+    assert "!! its allocated rows overlap output (CR2) at XMEM rows 257..257" in out
+    assert "ERROR   weights: program 0: allocated rows 128..257" in out
 
 
 def test_runner_reports_fail_when_tables_disagree(capsys, monkeypatch):

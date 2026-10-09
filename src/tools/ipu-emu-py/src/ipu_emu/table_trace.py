@@ -28,10 +28,12 @@ The model, per table:
   declared (``overhead_rows``) and allocated: they count for jump_back and for
   banks. An access beyond ``rows + overhead_rows`` (or below the base) fails
   the check, which reports every such access and the gap to declare. Nothing
-  here widens a declaration by itself. Today's harnesses place tables back to
-  back, so a table's overhead rows are often the next table's first rows; the
-  report notes such overlaps rather than failing them, because XMEM placement
-  is moving to banks.
+  here widens a declaration by itself.
+* **One table, one ID**: a table's base CR points at its first row, and no
+  other table's allocated rows (data plus overhead) overlap it within a
+  program -- two IDs on one table, or a prefetch running onto the next
+  table, fail the check. Different programs may reuse rows (one stage's
+  output is the next stage's input).
 * **Whole-run tables** (``whole_run=True``) are needed from start to end of the
   program: never released, all their banks held, no jump_back or repetition
   rule applied.
@@ -615,8 +617,9 @@ def check_tables(session: TraceSession, tables: Mapping[str, Table],
     that changes in use, a repetition count that differs (a backward jump
     larger than jump_back starts one), or reach within a repetition beyond
     jump_back, or an access outside ``rows + overhead_rows`` (every such
-    access is listed, with the gap to declare). Warnings: declared overhead
-    the run does not use, tables never accessed.
+    access is listed, with the gap to declare), two tables of one program
+    whose allocated rows overlap. Warnings: declared overhead the run does
+    not use, tables never accessed.
     None of this depends on bank size; ``bank_rows`` only feeds the profiles.
     """
     findings: list[Finding] = []
@@ -643,6 +646,7 @@ def check_tables(session: TraceSession, tables: Mapping[str, Table],
                     f"accesses through undeclared CR{cr}{hint}"))
                 continue
             findings.extend(_check_one(name, tables[name], profile))
+        findings.extend(_check_overlaps(program, profiles, declared))
         findings.extend(_check_banks(program, profiles, declared))
         for cr, name in declared.items():
             if cr not in profiles:
@@ -652,6 +656,26 @@ def check_tables(session: TraceSession, tables: Mapping[str, Table],
         findings.append(Finding("error", "*", f"tables declared for program "
                                 f"{program_index}, which never ran"))
     return findings
+
+
+def _check_overlaps(program: ProgramTrace, profiles: Mapping[int, TableProfile],
+                    names: Mapping[int, str]) -> list[Finding]:
+    """One table, one ID: declared tables whose allocated rows overlap."""
+    spans = sorted((p.bases[0], p.bases[0] + p.allocated_rows, cr)
+                   for cr, p in profiles.items() if cr in names and p.declared is not None
+                   and p.declared.rows is not None)
+    out = []
+    for i, (start, end, cr) in enumerate(spans):
+        for o_start, o_end, other in spans[i + 1:]:
+            if o_start >= end:
+                break
+            out.append(Finding(
+                "error", names[cr],
+                f"program {program.index}: allocated rows {start}..{end - 1} (rows + "
+                f"overhead_rows) overlap {names[other]!r} (CR{other}, rows {o_start}.."
+                f"{o_end - 1}) at XMEM rows {o_start}..{min(end, o_end) - 1} -- one table "
+                f"per ID: each table needs rows of its own, overhead rows included"))
+    return out
 
 
 def _check_banks(program: ProgramTrace, profiles: Mapping[int, TableProfile],

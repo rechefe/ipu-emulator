@@ -105,12 +105,8 @@ def _report_program(run: TracedRun, program: ProgramTrace, bank_rows: int,
 
 
 def _overlaps(profiles, names) -> dict[int, list[str]]:
-    """Declared tables whose allocated rows overlap another's in this harness.
-
-    Noted, not failed: today's harnesses pack tables back to back, so one
-    table's overhead rows are often the next table's first rows. XMEM
-    placement is moving to banks, where each table gets its own.
-    """
+    """Declared tables whose allocated rows overlap another's: where the
+    "one table, one ID" error (see ``check_tables``) is, table by table."""
     spans = {cr: (p.bases[0], p.bases[0] + p.allocated_rows)
              for cr, p in profiles.items() if p.declared is not None}
     notes: dict[int, list[str]] = {}
@@ -119,8 +115,8 @@ def _overlaps(profiles, names) -> dict[int, list[str]]:
             if other != cr and start < o_end and o_start < end:
                 lo, hi = max(start, o_start), min(end, o_end) - 1
                 notes.setdefault(cr, []).append(
-                    f"note: its allocated rows overlap {_label(names, other)} at XMEM rows "
-                    f"{lo}..{hi} in this harness's layout (placement is moving to banks)")
+                    f"!! its allocated rows overlap {_label(names, other)} at XMEM rows "
+                    f"{lo}..{hi}: one table per ID, overhead rows included")
     return notes
 
 

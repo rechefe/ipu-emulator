@@ -307,10 +307,11 @@ def test_out_of_bounds_access_is_reported_once():
 
 
 def test_more_banks_than_xmem_has_is_a_warning():
-    # Two whole-run tables of 9 banks each at 16 rows/bank: 18 banks at once.
-    program = _program((2, "read", range(144)), (3, "read", range(144)))
+    # Two whole-run tables of 9 banks each at 16 rows/bank: 18 banks at once
+    # (CR2 at row 200 and CR5 at row 500, so they do not overlap).
+    program = _program((2, "read", range(144)), (5, "read", range(144)))
     tables = {"a": Table(cr=2, rows=144, whole_run=True),
-              "b": Table(cr=3, rows=144, whole_run=True)}
+              "b": Table(cr=5, rows=144, whole_run=True)}
     findings = check_tables(TraceSession(programs=[program]), tables, bank_rows=16)
     assert [(f.severity, f.table) for f in findings] == [("warning", "*")]
     assert "needs 18 banks at once; XMEM has 16" in findings[0].message
@@ -377,6 +378,23 @@ def test_unused_and_shared_cr():
     assert "shares CR2" in messages[("error", "alias")]
     assert ("warning", "bias") in messages
     assert len(findings) == 2
+
+
+def test_overlapping_tables_are_an_error():
+    # CR2's base is row 200, CR3's row 300: 100 rows of data plus one
+    # overhead row run onto CR3's first row.
+    session = TraceSession(programs=[_program((2, "read", range(101)), (3, "read", range(4)))])
+    findings = check_tables(session, {
+        "a": Table(cr=2, rows=100, overhead_rows=1),
+        "b": Table(cr=3, rows=4),
+    })
+    assert [(f.severity, f.table) for f in findings] == [("error", "a")]
+    assert "overlap 'b' (CR3, rows 300..303) at XMEM rows 300..300" in findings[0].message
+
+
+def test_adjacent_tables_do_not_overlap():
+    session = TraceSession(programs=[_program((2, "read", range(100)), (3, "read", range(4)))])
+    assert check_tables(session, {"a": Table(cr=2, rows=100), "b": Table(cr=3, rows=4)}) == []
 
 
 def test_tables_for_a_program_that_never_ran():
