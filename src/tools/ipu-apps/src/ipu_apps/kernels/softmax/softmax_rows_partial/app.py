@@ -57,6 +57,7 @@ Usage::
 
 from __future__ import annotations
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, partition_size, softmax_spec
 
 # r_cyclic's full ring: 512 ELEMENTS (MULT.RC's rc_idx is element-addressed,
@@ -107,6 +108,7 @@ class SoftmaxRowsPartialApp(SoftmaxApp):
 
     def _crs(self):
         return {
+            7: self.mask_addr // (LANES * 4),      # PART_MASK row (overrides the shared CR7 = 1)
             8: LANES,                              # R1 byte-index base for maxvec select
             9: self.device_rows,                   # total chunks (group loop bound)
             11: RING_ELEMENTS,                     # r_cyclic ring size (elements)
@@ -124,6 +126,37 @@ def _explain(q):
             f"{LANES // p} chunks.")
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Each 128-element chunk packs ``P = 128 / ps`` logical rows; a group is
+    ``ps`` chunks (128 logical rows). The input and the output are one row
+    per chunk. Each group runs all four passes before the next starts: the
+    input is re-walked (Passes 1-2) group by group, one traversal reaching
+    back a group (as in ``softmax_rows``). The numerators are one row per
+    logical row of the current group -- a region every group reuses, so at
+    most 128 rows -- written in Pass 2 and read in Passes 3 and 4: three
+    repetitions per group, except a last group of a single row, whose
+    passes never step back (one). CVEC, maxvec, rvec and the partition mask
+    are one row each.
+    """
+    ps = partition_size(q.n)
+    parts = LANES // ps                          # P logical rows per chunk
+    chunks = -(-q.rows // parts)
+    groups = -(-chunks // ps)
+    last_rows = (chunks - (groups - 1) * ps) * parts
+    return {
+        "input": Table(cr=10, rows=chunks, jump_back=min(chunks, ps) - 1),
+        "num": Table(cr=4, rows=min(chunks * parts, LANES),
+                     repetitions=3 * (groups - 1) + (3 if last_rows > 1 else 1)),
+        "output": Table(cr=2, rows=chunks),
+        "c_vec": Table(cr=3, rows=1),
+        "maxvec": Table(cr=5, rows=1),
+        "rvec": Table(cr=6, rows=1),
+        "part_mask": Table(cr=7, rows=1),
+    }
+
+
 SPEC = softmax_spec(
     SoftmaxRowsPartialApp, along_rows=True,
     supports=lambda q: (None if q.n <= LANES else
@@ -135,4 +168,5 @@ SPEC = softmax_spec(
     # at exactly 128 while this one stays the choice below it.
     cost=lambda q: 2.0 if q.n == LANES else 1.0,
     tags=("packed",),
+    tables=_tables,
 )
