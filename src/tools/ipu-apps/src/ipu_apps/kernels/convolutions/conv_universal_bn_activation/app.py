@@ -214,7 +214,8 @@ class ConvUniversalBnActivationApp(IpuApp):
         # so there is no separate bias region -- 4 regions, same as the base
         # app. See conv_universal's identical comment for the underflow
         # rationale of the input-region headroom.
-        input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
+        # + one more group: the last chunk's kr=+1 prefetch reads past the data.
+        input_region_rows = self.in_group_stride + (self.num_chunks + 1) * self.in_group_stride
         self._regions = allocate_regions([
             ("input", input_region_rows * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_elements),

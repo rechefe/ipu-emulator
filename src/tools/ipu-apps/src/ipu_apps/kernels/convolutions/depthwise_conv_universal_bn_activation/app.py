@@ -200,7 +200,8 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
         self.total_kernel_rows = self.num_super_blocks * SUPER_BLOCK_ROWS
         self.total_kernel_elements = self.num_super_blocks * SUPER_BLOCK_ELEMENTS
 
-        input_region_rows = self.group_stride + self.num_chunks * self.group_stride
+        # + 1 row: the last chunk's pipeline loads one row past the data.
+        input_region_rows = self.group_stride + self.num_chunks * self.group_stride + 1
         self._regions = allocate_regions([
             ("input", input_region_rows * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_elements),
@@ -257,7 +258,7 @@ class DepthwiseConvUniversalBnActivationApp(IpuApp):
 
         state.regfile.set_cr(10, self.input_base_row)
         state.regfile.set_cr(5, self.kernel_base_row)
-        state.regfile.set_cr(2, (self.output_base_row - 1) & 0xFFFFFFFF)
+        state.regfile.set_cr(2, self.output_base_row)
         state.regfile.set_cr(3, self.mask_base_row)
         state.regfile.set_cr(9, 384)
 

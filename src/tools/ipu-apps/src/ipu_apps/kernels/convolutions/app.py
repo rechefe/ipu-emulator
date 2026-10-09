@@ -580,10 +580,8 @@ def depthwise3x3_tables(q: ConvQuery, channels_per_block: int) -> dict[str, Tabl
     pipeline loads one row past the table. The weights (two rows per
     super-block of ``channels_per_block`` channels) are re-walked per chunk.
 
-    The deferred-store pipeline drains one store before the first output, so
-    CR2 is the output base minus one: the output table's first row is that
-    dummy store's row -- in today's layout, the border-mask row (the mask is
-    read before it is overwritten).
+    Each channel stores at its own tap 9, so the output is written once, row
+    by row, from its first row.
     """
     cols = next_valid_cols(q.width)
     chunks = min_rows_for_chunk_floor(q.height, cols) * cols // CHUNK_ELEMENTS
@@ -592,7 +590,7 @@ def depthwise3x3_tables(q: ConvQuery, channels_per_block: int) -> dict[str, Tabl
         "input": Table(cr=10, rows=(chunks + 1) * c, jump_back=2 * c, overhead_rows=1),
         "weights": Table(cr=5, rows=math.ceil(c / channels_per_block) * 2, repetitions=chunks),
         "mask": Table(cr=3, rows=1),
-        "output": Table(cr=2, rows=1 + chunks * c),
+        "output": Table(cr=2, rows=chunks * c),
     }
 
 

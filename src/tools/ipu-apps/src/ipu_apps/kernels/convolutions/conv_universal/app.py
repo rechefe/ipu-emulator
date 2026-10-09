@@ -209,7 +209,8 @@ class ConvUniversalApp(IpuApp):
         # size is the headroom PLUS the data, not just the data. Region sizes
         # are in ELEMENTS; setup() scales to bytes via ROW_BYTES (FP32,
         # 4 B/element, always).
-        input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
+        # + one more group: the last chunk's kr=+1 prefetch reads past the data.
+        input_region_rows = self.in_group_stride + (self.num_chunks + 1) * self.in_group_stride
         self._regions = allocate_regions([
             ("input", input_region_rows * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_elements),

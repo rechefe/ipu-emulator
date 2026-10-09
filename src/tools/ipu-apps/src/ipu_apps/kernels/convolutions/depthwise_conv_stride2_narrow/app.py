@@ -199,6 +199,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         stage1_output_elements = self.in_row_groups * channels * CHUNK_ELEMENTS
         self.output_base_addr = (
             self._stage1_app.output_base_addr + stage1_output_elements * 4
+            + (4 * channels + 1) * ROW_BYTES  # stage 2 reads up to 4C+1 rows past its input (KNOWN BUG, see _tables)
         )
         self.output_base_row = self.output_base_addr // ROW_BYTES
 

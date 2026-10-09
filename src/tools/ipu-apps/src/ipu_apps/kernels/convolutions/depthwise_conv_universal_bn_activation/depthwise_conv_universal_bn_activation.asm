@@ -1,7 +1,7 @@
 # Universal Depthwise 3x3 Convolution + folded bias + ReLU.
 #
 # Derived from depthwise_conv_universal.asm. Same walking-pointer / rotating
-# cyclic-slot pipeline and deferred-store scheme, with three additions:
+# cyclic-slot pipeline and tap-9 store, with three additions:
 #   * per-channel folded bias seeded via MULT.EE ("x1" broadcast from Ra[lr6] * CR1),
 #   * ReLU via ACTIVATE relu before quantization,
 #   * mask-based top/bottom borders (no cr9 zero region).
@@ -23,7 +23,7 @@
 #   cr0  = read-only 0 (zero constant)
 #   cr1  = read-only 1 (bias multiplier for MULT.EE, sub/set immediates, AND
 #          the XMEM row stride: "one chunk" == one row)
-#   cr2  = output base row - 1 (deferred-store pre-bias, ROW-space)
+#   cr2  = output base row (ROW-space)
 #   cr3  = mask blob base row (single blob, slots 0/3/6; loaded once at init)
 #   cr4  = cols
 #   cr5  = kernel base row
@@ -77,7 +77,7 @@
     add                 lr8 lr0 cr6;
     SET                 lr7 cr0;;
 
-    # lr7 = -1 row so ch 0's tap-2 advance lands at row 0 (scratch store target).
+    # lr7 = -1 row: tap 2 advances it, so ch 0's tap-9 store lands at row 0.
     sub                 lr7 lr7 cr1;;      # lr7 = -1
 
     DEC                 lr1 2;              # lr1 = cols - 2 (permanent)
@@ -134,11 +134,10 @@ g0_tap_body:
     # 10 cyc/ch.  cyc0 = bias seed; taps 1..9 = weights, ACTIVATE.QUANTIZE
     # fused into tap 9's own cycle (see below).  G0: kr=-1 row masked.
     #
-    # Store pipeline (2-deep, no extra cycle):
-    #   ch K   tap 9: acc (final) + ACTIVATE relu -> post_aaq_reg = relu(r_acc)
-    #   ch K+1 tap 2: deferred store of ch K's post_aaq_reg
-    # ch 0's tap-2 store writes undefined data to the -128 scratch slot
-    # (harmless — never read back).
+    # Store (no extra cycle): tap 9 runs the final acc, ACTIVATE relu
+    # (post_aaq_reg = relu(r_acc)) and the store in one word -- the store
+    # slot follows AAQ, so it writes this channel's result. lr7 advances at
+    # tap 2, so every store, the first included, lands on an output row.
 
     # --- cyc 0: BIAS seed + quantize PREVIOUS channel.
     # lr6 += 1 -> s*10 (this ch's bias byte index; the +1 here plus +1 on each of
@@ -160,11 +159,10 @@ g0_tap_body:
     MULT.RC.VE          lr3 lr6 3 lr9 cr15 ;
     acc.add;;
 
-    # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  Deferred store + lr7 advance.
+    # --- tap 2: kr=-1 kc=0.  slot 3 = top row only, no shift.  lr7 advance (tap 9 stores).
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr1;
-    STR_POST_AAQ_REG    lr7 cr2;
     MULT.RC.VE          lr3 lr6 3 lr0 cr15 ;
     acc.add;;
 
@@ -225,12 +223,10 @@ g0_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;
     ACTIVATE.QUANTIZE   relu cr15;
+    STR_POST_AAQ_REG    lr7 cr2;
     blt                 lr10 lr11 g0_tap_body;;
 
-    # All channels in this kernel-group done.  The last channel's ACTIVATE has
-    # run but its store is still pending; it fires on the NEXT body's tap-2
-    # store (next group, same or next chunk), or at the program epilogue for
-    # the very last channel.
+    # All channels in this kernel-group done (each stored at its own tap 9).
     # SUPER_BLOCK_ROWS=2: advance lr12 (kernel super-block XMEM row) by 2
     # rows via cr1 (row-space); cr13 is r_cyclic ELEMENT-space (256) and
     # would double-count under row addressing if reused here. ADD's src_a
@@ -330,11 +326,10 @@ mn_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
     acc.add;;
 
-    # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
+    # --- tap 2: kc=0, no shift.  lr7 advance (tap 9 stores).
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr1;
-    STR_POST_AAQ_REG    lr7 cr2;
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
@@ -392,6 +387,7 @@ mn_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr13 cr15 ;
     acc.add;
     ACTIVATE.QUANTIZE   relu cr15;
+    STR_POST_AAQ_REG    lr7 cr2;
     blt                 lr10 lr11 mn_tap_body;;
 
     # SUPER_BLOCK_ROWS=2: advance lr12 (kernel super-block XMEM row) by 2
@@ -488,11 +484,10 @@ gN_tap_body:
     MULT.RC.VE          lr3 lr6 0 lr9 cr15 ;
     acc.add;;
 
-    # --- tap 2: kc=0, no shift.  Deferred store + lr7 advance.
+    # --- tap 2: kc=0, no shift.  lr7 advance (tap 9 stores).
     INC                 lr3 1;
     INC                 lr6 1;
     add                 lr7 lr7 cr1;
-    STR_POST_AAQ_REG    lr7 cr2;
     MULT.RC.VE          lr3 lr6 0 lr0 cr15 ;
     acc.add;;
 
@@ -553,6 +548,7 @@ gN_tap_body:
     MULT.RC.VE          lr3 lr6 6 lr13 cr15 ;
     acc.add;
     ACTIVATE.QUANTIZE   relu cr15;
+    STR_POST_AAQ_REG    lr7 cr2;
     blt                 lr10 lr11 gN_tap_body;;
 
     # SUPER_BLOCK_ROWS=2: advance lr12 (kernel super-block XMEM row) by 2
@@ -565,12 +561,6 @@ gN_tap_body:
     blt                 lr10 cr6 gN_reload;;
 
 end:
-    # Epilogue: the very last channel's ACTIVATE.QUANTIZE has run (tap 9) and
-    # already wrote the quantized bytes to post_aaq_reg; its store is still
-    # pending.  Advance lr7 and store.
-    add                 lr7 lr7 cr1;
-    STR_POST_AAQ_REG    lr7 cr2;;
-
     bkpt;;
 
 gN_reload:

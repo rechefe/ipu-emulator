@@ -11,8 +11,8 @@ Per-channel budget: **9 cyc/ch** = 9 weight taps (see the .asm header). Tap 1
 doubles as the R_ACC reset via ``ACC.ADD.FIRST`` (the BN twin spends a
 separate bias-seed cycle), and ``ACTIVATE.QUANTIZE`` co-issues with tap 9's
 accumulate in one VLIW word, together with the next channel's kr=-1 prefetch
-load. The deferred-store pipeline (store the previous channel's result while
-the current channel computes) is shared with the BN twin. Runs on
+load -- and the channel's store, since the store slot follows AAQ in the same
+word. The BN twin stores the same way. Runs on
 the emulator's wide-vector debug datapath (FP32) -- weights and activations
 are genuine floats, no INT8 quantization anywhere in this kernel.
 
@@ -204,7 +204,8 @@ class DepthwiseConvUniversalApp(IpuApp):
         region's real size is the headroom PLUS the data, not just the
         data.
         """
-        input_region_rows = self.group_stride + self.num_chunks * self.group_stride
+        # + 1 row: the last chunk's pipeline loads one row past the data.
+        input_region_rows = self.group_stride + self.num_chunks * self.group_stride + 1
         self._regions = allocate_regions([
             ("input", input_region_rows * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_elements),
@@ -280,10 +281,9 @@ class DepthwiseConvUniversalApp(IpuApp):
         #   CR5 = KERNEL_BASE (row), CR3 = mask blob row (single blob, slots 0/3/6).
         state.regfile.set_cr(10, self.input_base_row)
         state.regfile.set_cr(5, self.kernel_base_row)
-        # CR2 is pre-biased by -1 ROW for the deferred store (asm advances LR7
-        # BEFORE the XMEM store at tap 2; store writes to LR7 (advanced) + CR2 =
-        # LR7 (old) + OUTPUT_BASE_ROW).
-        state.regfile.set_cr(2, (self.output_base_row - 1) & 0xFFFFFFFF)
+        # CR2 = output start; LR7 starts at -1 and tap 2 advances it before
+        # the channel's tap-9 store, so channel k stores to output row k.
+        state.regfile.set_cr(2, self.output_base_row)
         state.regfile.set_cr(3, self.mask_base_row)
         # CR9 = 384: R_CYCLIC slot-pointer step (+384 mod 512 ELEMENTS) for the
         # running write pointer LR5 -- element-space, unchanged by row addressing.
