@@ -27,9 +27,8 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
-from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.normalize.app import layernorm_query, layernorm_spec
+from ipu_apps.kernels.normalize.app import layernorm_spec, layernorm_tables
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -154,8 +153,8 @@ class LayerNorm64x192App(IpuApp):
 
         # CR registers — must match ASM header.
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing
-        # either raises EmulatorError. DATA_BASE_ROW is 0 so CR0 is fine, and
-        # GAMMA_BASE lives on CR11 rather than CR1.
+        # either raises EmulatorError. Every table has a base CR of its own
+        # (data on CR13, gamma on CR11); CR0 is only the constant zero.
         state.regfile.set_cr(2,  BETA_BASE_ROW)
         state.regfile.set_cr(3,  ONES_BASE_ROW)
         state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)
@@ -167,7 +166,7 @@ class LayerNorm64x192App(IpuApp):
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
         state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
         state.regfile.set_cr(12, N_CH)             # 192 = full channel loop bound
-        state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row (also the data stride, N_TG=1)
+        state.regfile.set_cr(13, DATA_BASE_ROW)    # input data base row
         state.regfile.set_cr(14, LANES)            # 128 = sub-loop A bound; R1 base offset
         # CR15 holds this kernel's dstructure configuration and is not free,
         # so step 6's sub-loop B bound (64) is built in the ASM by doubling CR1.
@@ -180,33 +179,5 @@ class LayerNorm64x192App(IpuApp):
             )
 
 
-def _tables(**params):
-    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
-
-    Every region has a base CR of its own, matching setup(); the data table
-    goes through CR0 because it sits at row 0.
-    """
-    channels = layernorm_query(params["shape"]).channels
-    affine_rows = -(-channels // LANES)
-    return {
-        # x, one row per channel: read once for the mean, once to centre.
-        # The streaming load reads one row past the last channel (the row is
-        # not used), so that row is declared and allocated as overhead.
-        "data": Table(cr=0, repetitions=2, rows=channels, overhead_rows=1),
-        "gamma": Table(cr=11, rows=affine_rows),
-        "beta": Table(cr=2, rows=affine_rows),
-        "ones": Table(cr=3, rows=1),
-        "neg_inv_n": Table(cr=4, rows=1),
-        "inv_n": Table(cr=5, rows=1),
-        "neg_mean": Table(cr=6, rows=1),
-        # x - mean, written and re-read by later steps (4 passes). Each row is
-        # stored one cycle after the next one is loaded, so the cursor reaches
-        # back one row; like data, the load stream reads one row past the end.
-        "centered": Table(cr=7, jump_back=1, repetitions=4, rows=channels, overhead_rows=1),
-        "temp": Table(cr=8, rows=1),
-        "invstd": Table(cr=9, rows=1),
-        "output": Table(cr=10, rows=channels),
-    }
-
-
-SPEC = layernorm_spec(LayerNorm64x192App, channels=N_CH, tokens=N_TOK, tables=_tables)
+SPEC = layernorm_spec(LayerNorm64x192App, channels=N_CH, tokens=N_TOK,
+                      tables=lambda **params: layernorm_tables(N_CH, N_TG))

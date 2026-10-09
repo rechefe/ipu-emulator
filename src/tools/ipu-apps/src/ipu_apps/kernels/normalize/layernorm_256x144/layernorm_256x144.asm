@@ -59,7 +59,8 @@
 {% set beta_idx       = "lr14" %}  {# step-6 scalar index into r1 (beta) #}
 {% set sub_bound      = "lr15" %}  {# step-6 sub-loop bound (128, then 16) #}
 
-{% set DATA_BASE      = "cr0"  %}  {# 0x00000; also the const-zero source #}
+{% set ZERO           = "cr0"  %}  {# const 0 #}
+{% set DATA_BASE      = "cr13" %}  {# input data base row #}
 {% set ONE            = "cr1"  %}  {# hardwired read-only 1 #}
 {% set BETA_BASE      = "cr2"  %}  {# beta #}
 {% set ONES_BASE      = "cr3"  %}  {# 128 lanes of 1.0 #}
@@ -72,18 +73,17 @@
 {% set OUTPUT_BASE    = "cr10" %}  {# output #}
 {% set GAMMA_BASE     = "cr11" %}  {# gamma #}
 {% set N_CH           = "cr12" %}  {# 144 #}
-{% set ROW_STRIDE     = "cr13" %}  {# 512 #}
 {% set LANES          = "cr14" %}  {# 128 = valid_elements; r1 base offset #}
 {% set DSTRUCT        = "cr15" %}  {# reserved dstructure register #}
 
-    SET     {{ rc_slot0 }}  {{ DATA_BASE }};;
-    SET     {{ mask_shift }}  {{ DATA_BASE }};;
+    SET     {{ rc_slot0 }}  {{ ZERO }};;
+    SET     {{ mask_shift }}  {{ ZERO }};;
     SET     {{ ch_limit }}  {{ N_CH }};;
-    SET     {{ data_stride }}  {{ ROW_STRIDE }};;
+    SET     {{ data_stride }}  {{ ONE }};;
     ADD     {{ data_stride }}  {{ data_stride }}  {{ data_stride }};; # {{ data_stride }} = 1024 (data stride = N_TG × 512)
     SET     {{ tg_limit }} {{ ONE }};;
     ADD     {{ tg_limit }} {{ tg_limit }} {{ ONE }};;             # {{ tg_limit }} = 2  (N_TG); built from CR1(=1)
-    SET     {{ row_stride }} {{ ROW_STRIDE }};;                   # {{ row_stride }} = 512 (scratch/output stride)
+    SET     {{ row_stride }} {{ ONE }};;                   # {{ row_stride }} = 512 (scratch/output stride)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Outer loop: tg = 0, 1
@@ -91,9 +91,9 @@
 # tg_off = tg byte offset into data (0 or 512)
 # ─────────────────────────────────────────────────────────────────────────────
 
-    SET     {{ tg_index }}  {{ DATA_BASE }};;
+    SET     {{ tg_index }}  {{ ZERO }};;
     ADD     {{ tg_index }}  {{ tg_index }}  {{ ONE }};;           # {{ tg_index }} = 1  (tg counter, BLT reads snap)
-    SET     {{ tg_off }} {{ DATA_BASE }};;                        # {{ tg_off }} = 0  (tg byte offset)
+    SET     {{ tg_off }} {{ ZERO }};;                        # {{ tg_off }} = 0  (tg byte offset)
 
 tg_loop:
 
@@ -107,10 +107,10 @@ tg_loop:
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ NEG_INV_N_BASE }};;  # r0 ← -1/N
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ data_stride }};;   # {{ read_ptr }} = -1024
     ADD     {{ read_ptr }}  {{ read_ptr }}  {{ tg_off }};;        # {{ read_ptr }} = tg_offset - 1024
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
@@ -146,12 +146,12 @@ step1_done:
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;
     LDR_MULT_REG        r1 {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ data_stride }};;
     ADD     {{ read_ptr }}  {{ read_ptr }}  {{ tg_off }};;
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
     SUB     {{ write_ptr }}  {{ write_ptr }}  {{ row_stride }};;  # {{ write_ptr }} = -512 (centered stride)
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ data_stride }};;  # prime x[ch=0]
@@ -175,9 +175,9 @@ step2_loop:
 # read_ptr = -512 (centered read ptr). Two cycles per ch.
 # ─────────────────────────────────────────────────────────────────────────────
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
@@ -230,10 +230,10 @@ step3_done:
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime centered[ch=0]
@@ -279,14 +279,14 @@ step5_loop:
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ GAMMA_BASE }};;      # r0 ← γ row 0
     LDR_MULT_REG        r1 {{ rc_slot0 }} {{ BETA_BASE }};;       # r1 ← β row 0
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;    # normalized read ptr = -512
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
     SUB     {{ write_ptr }}  {{ write_ptr }}  {{ data_stride }};; # output write ptr = -1024
     ADD     {{ write_ptr }}  {{ write_ptr }}  {{ tg_off }};;      # = tg_offset - 1024
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx γ = 0
+    SET     {{ gamma_idx }} {{ ZERO }};;                     # fixed_idx γ = 0
     SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx β = 128
 
     # loop bound for sub-loop A: 128 channels
@@ -317,9 +317,9 @@ step6A_loop:
     LDR_MULT_REG        r1 {{ row_stride }} {{ BETA_BASE }};;     # r1 ← β row 1
 
     # read_ptr and write_ptr carry over from sub-loop A (already at ch=128 positions)
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx γ = 0 (row 1 starts at lane 0)
+    SET     {{ gamma_idx }} {{ ZERO }};;                     # fixed_idx γ = 0 (row 1 starts at lane 0)
     SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx β = 128
 
     # bound for sub-loop B: 16 channels (built by doubling CR1: 1→2→4→8→16)

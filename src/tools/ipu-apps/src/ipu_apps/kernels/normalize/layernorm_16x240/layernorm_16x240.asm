@@ -62,7 +62,8 @@
 {% set sub_bound      = "lr15" %}  {# step-6 sub-loop bound (128, then 112) #}
 {% set tmp_bound      = "lr4"  %}  {# scratch used to build the 112 bound #}
 
-{% set DATA_BASE      = "cr0"  %}  {# row 0; also the const-zero source #}
+{% set ZERO           = "cr0"  %}  {# const 0 #}
+{% set DATA_BASE      = "cr13" %}  {# input data base row #}
 {% set ONE            = "cr1"  %}  {# hardwired read-only 1 #}
 {% set BETA_BASE      = "cr2"  %}  {# beta #}
 {% set ONES_BASE      = "cr3"  %}  {# 128 lanes of 1.0 #}
@@ -75,14 +76,13 @@
 {% set OUTPUT_BASE    = "cr10" %}  {# output #}
 {% set GAMMA_BASE     = "cr11" %}  {# gamma #}
 {% set N_CH           = "cr12" %}  {# 240 #}
-{% set ROW_STRIDE     = "cr13" %}  {# 1 row #}
 {% set LANES          = "cr14" %}  {# 128 = sub-loop A bound; r1 base offset #}
 {% set DSTRUCT        = "cr15" %}  {# reserved dstructure register #}
 
-    SET     {{ rc_slot0 }}  {{ DATA_BASE }};;
-    SET     {{ mask_shift }}  {{ DATA_BASE }};;
+    SET     {{ rc_slot0 }}  {{ ZERO }};;
+    SET     {{ mask_shift }}  {{ ZERO }};;
     SET     {{ ch_limit }}  {{ N_CH }};;
-    SET     {{ row_stride }} {{ ROW_STRIDE }};;                   # {{ row_stride }} = 1 row (data/scratch/output stride; N_TG=1)
+    SET     {{ row_stride }} {{ ONE }};;                   # {{ row_stride }} = 1 row (data/scratch/output stride; N_TG=1)
 
 # -----------------------------------------------------------------------------
 # Step 1: -mu[i] = sum_ch  x[ch,i] * (-1/N_CH)
@@ -94,9 +94,9 @@
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ NEG_INV_N_BASE }};;  # r0 <- -1/N_CH
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;    # {{ read_ptr }} = -1
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
@@ -132,11 +132,11 @@ step1_done:
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ ONES_BASE }};;
     LDR_MULT_REG        r1 {{ rc_slot0 }} {{ NEG_MEAN_BASE }};;
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
     SUB     {{ write_ptr }}  {{ write_ptr }}  {{ row_stride }};;  # {{ write_ptr }} = -1 (centered stride)
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime x[ch=0]
@@ -160,9 +160,9 @@ step2_loop:
 # read_ptr = -1 (centered read ptr). Two cycles per ch.
 # -----------------------------------------------------------------------------
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
 
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
@@ -219,10 +219,10 @@ step3_done:
 
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ INVSTD_BASE }};;
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
     LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ CENTERED_BASE }} {{ rc_slot0 }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime centered[ch=0]
@@ -265,13 +265,13 @@ step5_loop:
     LDR_MULT_REG        r0 {{ rc_slot0 }} {{ GAMMA_BASE }};;      # r0 <- gamma row 0
     LDR_MULT_REG        r1 {{ rc_slot0 }} {{ BETA_BASE }};;       # r1 <- beta row 0
 
-    SET     {{ read_ptr }}  {{ DATA_BASE }};;
+    SET     {{ read_ptr }}  {{ ZERO }};;
     SUB     {{ read_ptr }}  {{ read_ptr }}  {{ row_stride }};;    # normalized read ptr = -1
-    SET     {{ write_ptr }}  {{ DATA_BASE }};;
+    SET     {{ write_ptr }}  {{ ZERO }};;
     SUB     {{ write_ptr }}  {{ write_ptr }}  {{ row_stride }};;  # output write ptr = -1
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx gamma = 0
+    SET     {{ gamma_idx }} {{ ZERO }};;                     # fixed_idx gamma = 0
     SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx beta = 128
 
     # loop bound for sub-loop A: 128 channels
@@ -302,9 +302,9 @@ step6A_loop:
     LDR_MULT_REG        r1 {{ row_stride }} {{ BETA_BASE }};;     # r1 <- beta row 1
 
     # read_ptr and write_ptr carry over from sub-loop A (already at ch=128 positions)
-    SET     {{ ch_index }}  {{ DATA_BASE }};;
+    SET     {{ ch_index }}  {{ ZERO }};;
     ADD     {{ ch_index }}  {{ ch_index }}  {{ ONE }};;
-    SET     {{ gamma_idx }} {{ DATA_BASE }};;                     # fixed_idx gamma = 0 (row 1 starts at lane 0)
+    SET     {{ gamma_idx }} {{ ZERO }};;                     # fixed_idx gamma = 0 (row 1 starts at lane 0)
     SET     {{ beta_idx }} {{ LANES }};;                          # fixed_idx beta = 128
 
     # bound for sub-loop B: 112 channels (240-128). CR15 is the reserved

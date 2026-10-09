@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_apps.kernel_registry import (
-    ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
+    ExecutionConfig, ShapeBundle, Table, folder_spec, kernel_folder, no, yes,
 )
 
 OP = "layernorm"
@@ -75,6 +75,36 @@ def positive_dims(q: LayerNormQuery) -> str | None:
     if q.tokens < 1:
         return f"tokens ({q.tokens}) must be >= 1"
     return None
+
+
+def layernorm_tables(channels: int, n_tg: int) -> dict[str, Table]:
+    """XMEM tables of the fixed-shape layernorm kernels (see ``ipu_emu.table_trace``).
+
+    The input holds one row per (channel, token group), groups interleaved.
+    Each token group runs the whole pipeline over its rows with stride
+    ``n_tg``: x is read twice (mean, then centring), gamma/beta once, and
+    the centred/normalised scratch -- one row per channel, reused by every
+    group -- is written and re-read over four passes, each row stored one
+    cycle after the next is loaded (one row back). The x and scratch load
+    streams read one step past their last row; those rows are allocated as
+    overhead. The one-row constants and per-group scalars (mean, sum of
+    squares, 1/sigma) stay in their own rows.
+    """
+    affine_rows = -(-channels // LANES)
+    return {
+        "data": Table(cr=13, repetitions=2 * n_tg, rows=channels * n_tg, overhead_rows=n_tg),
+        "gamma": Table(cr=11, repetitions=n_tg, rows=affine_rows),
+        "beta": Table(cr=2, repetitions=n_tg, rows=affine_rows),
+        "ones": Table(cr=3, rows=1),
+        "neg_inv_n": Table(cr=4, rows=1),
+        "inv_n": Table(cr=5, rows=1),
+        "neg_mean": Table(cr=6, rows=1),
+        "centered": Table(cr=7, jump_back=1, repetitions=4 * n_tg, rows=channels,
+                          overhead_rows=1),
+        "temp": Table(cr=8, rows=1),
+        "invstd": Table(cr=9, rows=1),
+        "output": Table(cr=10, repetitions=n_tg, rows=channels * n_tg),
+    }
 
 
 def layernorm_spec(app_class, *, channels: int, tokens: int, tables=None):

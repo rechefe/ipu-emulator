@@ -36,8 +36,8 @@
 #       co-issued load fetch the NEXT channel rather than the current one.
 #
 # CRs:
-#   cr0  = DATA_BASE        = 0x00000  (hardwired 0; also the const-zero source)
-#   cr1  = 1  (read-only hardwired constant; not used for a base)
+#   cr0  = 0  (read-only hardwired constant: the const-zero source)
+#   cr1  = 1  (read-only hardwired constant: the row stride)
 #   cr2  = BETA_BASE        = 0x02200
 #   cr3  = ONES_BASE        = 0x02400
 #   cr4  = NEG_INV_N_BASE   = 0x02600
@@ -49,20 +49,20 @@
 #   cr10 = OUTPUT_BASE      = 0x05200
 #   cr11 = GAMMA_BASE      = 0x02000  (moved off read-only CR1)
 #   cr12 = 16  (N_CH)
-#   cr13 = 512 (row stride)
+#   cr13 = DATA_BASE        (input data base row)
 #   cr14 = 128 (valid_elements; r1 base offset for MULT.VE.CYCLIC)
 #
 # Persistent LRs:
 #   lr0 = 0   (cyclic_offset=0, single-row xmem offset=0)
 #   lr1 = 0   (mask_shift=0)
 #   lr6 = 16  (N_CH loop bound)
-#   lr7 = 512 (row stride)
+#   lr7 = 1   (row stride, from CR1)
 # Per-step temporaries: lr2, lr3 (offsets), lr5 (counter), lr9, lr10 (fixed_idx)
 
     SET     lr0  cr0;;
     SET     lr1  cr0;;
     SET     lr6  cr12;;
-    SET     lr7  cr13;;
+    SET     lr7  cr1;;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 1: -μ[i] = Σ_ch  x[ch,i] × (-1/N)
@@ -78,13 +78,13 @@
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;             # lr5 = 1  (BLT reads snapshot; loop runs N_CH times)
 
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr2 cr13 lr0;
     ADD lr2 lr2 lr7;;  # prime x[ch=0]
 
     # Peeled first ch (ch=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VV lr0 r0 0 lr1 cr15;
     ACC.ADD.FIRST;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr2 cr13 lr0;
     ADD lr2 lr2 lr7;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 step1_loop;;
@@ -92,7 +92,7 @@
 step1_loop:
     MULT.RC.VV lr0 r0 0 lr1 cr15;
     ACC.ADD;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr2 cr13 lr0;
     ADD lr2 lr2 lr7;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 step1_loop;;
@@ -122,7 +122,7 @@ step1_done:
     SUB     lr3  lr3 lr7;;
     SET     lr5  cr0;;
     ADD     lr5  lr5 cr1;;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr2 cr13 lr0;
     ADD lr2 lr2 lr7;;  # prime x[ch=0]
 step2_loop:
     MULT.RC.VV lr0 r0 0 lr1 cr15;
@@ -133,7 +133,7 @@ step2_loop:
     ACTIVATE.QUANTIZE identity cr15;
     STR_POST_AAQ_REG lr3 cr7;
     ADD lr3 lr3 lr7;
-    LDR_CYCLIC_MULT_REG lr2 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr2 cr13 lr0;
     ADD lr2 lr2 lr7;;
     ADD     lr5  lr5 cr1;
     BLT lr5 lr6 step2_loop;;
