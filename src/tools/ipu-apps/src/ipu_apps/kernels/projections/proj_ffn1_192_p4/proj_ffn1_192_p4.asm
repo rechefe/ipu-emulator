@@ -94,8 +94,8 @@
 {% set chunk_idx        = "lr6"  %}  {# runtime chunk counter 0..chunk_count-1 #}
 {% set out_ptr          = "lr7"  %}  {# output row pointer for stream p, += 1 row per j #}
 {% set j_idx             = "lr8"  %}  {# output-channel counter j #}
-{% set stream_data_base = "lr9"  %}  {# stream p's D base row, += DATA_STREAM_STRIDE_ROWS per stream #}
-{% set stream_out_base  = "lr10" %}  {# stream p's C base row, += OUT_STREAM_STRIDE_ROWS per stream #}
+{% set stream_data_base = "lr9"  %}  {# stream p's D row offset (from DATA_BASE), += DATA_STREAM_STRIDE_ROWS per stream #}
+{% set stream_out_base  = "lr10" %}  {# stream p's C row offset (from OUTPUT_BASE), += OUT_STREAM_STRIDE_ROWS per stream #}
 {% set stream_idx       = "lr11" %}  {# stream counter p 0..3 #}
 
 {% set ZERO             = "cr0"  %}  {# const 0 #}
@@ -116,8 +116,8 @@
 {% set DSTRUCT          = "cr15" %}  {# reserved dstructure register #}
 
     SET {{ stream_idx }} {{ ZERO }};;                              # p = 0
-    SET {{ stream_data_base }} {{ DATA_BASE }};;                    # stream 0 D base
-    SET {{ stream_out_base }} {{ OUTPUT_BASE }};;                   # stream 0 C base
+    SET {{ stream_data_base }} {{ ZERO }};;                    # stream 0's D offset (D is addressed through DATA_BASE)
+    SET {{ stream_out_base }} {{ ZERO }};;                   # stream 0's C offset (C is addressed through OUTPUT_BASE)
 
 stream_loop:
     SET {{ j_idx }} {{ ZERO }};;                                    # j = 0
@@ -134,16 +134,16 @@ j_loop:
     SET {{ chunk_idx }} {{ ZERO }};;                                # chunk_idx = 0
 
     # Prime k=0's row for chunk0 (snapshot contract, see header). data_ptr
-    # already holds the ABSOLUTE row (stream_data_base includes DATA_BASE),
-    # so every data load below uses base=ZERO (cr0=0).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    # holds the row offset within D, so every data load below uses
+    # base=DATA_BASE.
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
@@ -152,7 +152,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
@@ -181,7 +181,7 @@ use_full_bound:
 chunk_body:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
     BLT {{ k_idx }} {{ bound }} chunk_body;;
@@ -191,7 +191,7 @@ chunk_body:
 
 store_out:
     ACTIVATE.QUANTIZE silu {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,j,:] = silu(R_ACC) (FFN1 nonlinearity)
+    STR_POST_AAQ_REG {{ out_ptr }} {{ OUTPUT_BASE }};;  # C[p,j,:] = silu(R_ACC) (FFN1 nonlinearity)
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                     # advance output ptr, packed (1 row/j)
 
     ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};
