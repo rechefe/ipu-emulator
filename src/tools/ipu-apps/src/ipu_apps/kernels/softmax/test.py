@@ -177,12 +177,13 @@ def test_no_verdict_warns_about_packed_output():
 
 @pytest.mark.parametrize("n", [256, 384, 512, 1024])
 def test_rows_multiple_of_128_supported(n):
-    """n > 128 and divisible by 128: softmax_rows_long with no tail chunk."""
+    """n > 128 and divisible by 128: softmax_rows_long, the last full chunk
+    serving as the (128-element) tail -- no empty tail chunk."""
     verdict = _along_rows(8, n)
     assert verdict.supported
     assert verdict.app_name == "softmax_rows_long"
     app = _construct(verdict)
-    assert app.tail == 0
+    assert (app.full_chunks, app.tail) == (n // 128 - 1, 128)
     assert app.chunks_per_row == n // 128   # no phantom tail chunk
 
 
