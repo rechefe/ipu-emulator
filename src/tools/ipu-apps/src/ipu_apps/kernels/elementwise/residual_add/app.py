@@ -2,8 +2,9 @@
 
 Adds two FP32 tensors element-wise and stores the result as FP32, running the
 emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
-each channel occupies one full XMEM row of 128 FP32 lanes and ``STR_ACC_REG``
-writes the full 128-lane accumulator.
+each channel occupies one full XMEM row of 128 FP32 lanes, and the store
+(``ACTIVATE.QUANTIZE identity`` + ``STR_POST_AAQ_REG``, the hardware path) writes
+all 128 lanes of the result.
 
 Layout (per tensor, input and output alike): ``num_channels`` consecutive
 rows, one channel per row, 128 little-endian FP32 lanes each --
@@ -50,7 +51,7 @@ WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA: XMEM offset/base operands on LDR_CYCLIC_MULT_REG
-# (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
+# (offset+base) / STR_POST_AAQ_REG are ROW numbers, not byte addresses. This app
 # runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
 # narrow-mode variant to preserve -- so its native row size is always
 # WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
