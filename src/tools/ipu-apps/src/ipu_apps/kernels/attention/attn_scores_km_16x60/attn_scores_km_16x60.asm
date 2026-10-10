@@ -120,9 +120,9 @@ c_loop:
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
     STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[0:16, s] (key-major row)
-    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output row ptr += OUT_ROWS
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};  # output row ptr += OUT_ROWS
+    ADD {{ key_index }} {{ key_index }} {{ ONE }};;    # a word ahead of its BLT (BLT reads the snapshot)
 
-    ADD {{ key_index }} {{ key_index }} {{ ONE }};
     BLT {{ key_index }} {{ key_limit }} s_loop;;  # next key
 
 end:

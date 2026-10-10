@@ -93,18 +93,18 @@ ch_loop:
     ACTIVATE.QUANTIZE   identity cr15;;
 
     ADD                 lr5 lr2 lr4;;
-    str_post_aaq_reg    lr5 cr5;;
+    str_post_aaq_reg    lr5 cr5;
+    INC                 lr4 1;;                         # a word ahead of its BLT (BLT reads the snapshot)
 
-    INC                 lr4 1;
     blt                 lr4 cr4 ch_loop;;
 
-    ADD                 lr2 lr2 cr4;;
+    ADD                 lr2 lr2 cr4;
+    INC                 lr1 1;;                         # a word ahead of its BLT
     ADD                 lr3 lr3 cr4;;
     ADD                 lr3 lr3 cr4;;
     ADD                 lr3 lr3 cr4;;
     ADD                 lr3 lr3 cr4;;
 
-    INC                 lr1 1;
     blt                 lr1 cr6 outgroup_loop;;
 
 end:

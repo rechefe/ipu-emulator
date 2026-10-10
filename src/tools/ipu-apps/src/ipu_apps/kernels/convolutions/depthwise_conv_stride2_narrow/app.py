@@ -199,7 +199,6 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         stage1_output_elements = self.in_row_groups * channels * CHUNK_ELEMENTS
         self.output_base_addr = (
             self._stage1_app.output_base_addr + stage1_output_elements * 4
-            + (4 * channels + 1) * ROW_BYTES  # stage 2 reads up to 4C+1 rows past its input (KNOWN BUG, see _tables)
         )
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
@@ -307,20 +306,13 @@ def _tables(q):
     chunks). Program 1 fills one output row per (output group, channel) from
     four of that channel's chunks, ``C`` rows apart (``3*C - 1`` rows back to
     the next channel); there are ``G = H*W/512`` output groups.
-    KNOWN BUG (reported, not fixed): stage 2's channel loop and output-group loop each have ``INC`` and
-    ``blt`` in one word; BLT reads the start-of-word counter, so each runs one
-    extra iteration. Together that is a whole extra output group plus an extra channel
-    per group: reads up to ``4*C + 1`` rows past program 0's output, stores up
-    to ``C + 1`` rows past the output. The overhead rows below are those
-    extra accesses; drop them when the loop is fixed.
     """
     c = q.in_channels
     chunks = q.height * q.width // 128
     groups = q.height * q.width // 512
     tables = {f"stage1_{name}": t for name, t in depthwise3x3_tables(q, STAGE1_FPB).items()}
-    tables["stage2_input"] = Table(cr=3, rows=chunks * c, jump_back=3 * c - 1,
-                                   overhead_rows=4 * c + 1, program=1)
-    tables["stage2_output"] = Table(cr=5, rows=groups * c, overhead_rows=c + 1, program=1)
+    tables["stage2_input"] = Table(cr=3, rows=chunks * c, jump_back=3 * c - 1, program=1)
+    tables["stage2_output"] = Table(cr=5, rows=groups * c, program=1)
     return tables
 
 

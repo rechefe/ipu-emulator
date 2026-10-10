@@ -67,7 +67,7 @@ S_ROWS = N_TOK * N_TG * OUT_ROWS
 
 QBASE_ROW    = 0
 KBASE_KM_ROW = QBASE_ROW + Q_ROWS + Q_CHAN_ROWS  # + overhead: the last prefetch's row
-SBASE_ROW    = KBASE_KM_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
+SBASE_ROW    = KBASE_KM_ROW + K_ROWS
 
 QBASE    = QBASE_ROW * ROW_BYTES
 KBASE_KM = KBASE_KM_ROW * ROW_BYTES
@@ -178,17 +178,11 @@ def _tables(**params):
     Q (``D`` channel columns of ``Q_CHAN_ROWS`` rows) is re-walked for every
     key and query group, its next-row load running one column past it; K and
     the scores are walked once.
-    KNOWN BUG (reported, not fixed): the key loop's ``ADD key_index`` and its
-    ``BLT`` share one word; BLT reads the start-of-word index, so the loop
-    runs ``N_TOK + 1`` times. The extra key reads one row past K, re-walks Q
-    once more and writes ``N_TG`` score rows past the scores; those rows are
-    declared below and go when the loop is fixed.
     """
-    keys = N_TOK + 1                    # see KNOWN BUG
     return {
-        "q": Table(cr=14, rows=Q_ROWS, repetitions=keys * N_TG, overhead_rows=Q_CHAN_ROWS),
-        "k": Table(cr=9, rows=K_ROWS, overhead_rows=K_STRIDE_ROWS),
-        "scores": Table(cr=2, rows=S_ROWS, overhead_rows=N_TG * OUT_ROWS),
+        "q": Table(cr=14, rows=Q_ROWS, repetitions=N_TOK * N_TG, overhead_rows=Q_CHAN_ROWS),
+        "k": Table(cr=9, rows=K_ROWS),
+        "scores": Table(cr=2, rows=S_ROWS),
     }
 
 

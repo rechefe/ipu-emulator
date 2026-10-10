@@ -154,7 +154,6 @@ class DepthwiseConvStride2_16App(IpuApp):
         stage1_output_elements = IN_ROW_GROUPS * channels * CHUNK_ELEMENTS
         self.output_base_addr = (
             self._stage1_app.output_base_addr + stage1_output_elements * 4
-            + (2) * ROW_BYTES  # stage 2 reads 2 rows past its input (KNOWN BUG, see _tables)
         )
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
@@ -256,16 +255,11 @@ def _tables(q):
     Program 0 is depthwise_conv_universal on the 16x16 input (two chunks).
     Program 1 packs channel pairs: per pair it reads both chunks of channels
     2p and 2p + 1 (``C - 1`` rows back between them) and stores one row.
-    KNOWN BUG (reported, not fixed): stage 2's pair loop has ``INC`` and
-    ``blt`` in one word; BLT reads the start-of-word counter, so it runs one
-    extra iteration. That iteration reads two rows past program 0's output and stores
-    one row past the output. The overhead rows below are those
-    extra accesses; drop them when the loop is fixed.
     """
     c = q.in_channels
     tables = {f"stage1_{name}": t for name, t in depthwise3x3_tables(q, STAGE1_FPB).items()}
-    tables["stage2_input"] = Table(cr=3, rows=2 * c, jump_back=c - 1, overhead_rows=2, program=1)
-    tables["stage2_output"] = Table(cr=5, rows=c // 2, overhead_rows=1, program=1)
+    tables["stage2_input"] = Table(cr=3, rows=2 * c, jump_back=c - 1, program=1)
+    tables["stage2_output"] = Table(cr=5, rows=c // 2, program=1)
     return tables
 
 
