@@ -79,7 +79,8 @@
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;                     {#- R0 = x[0] (visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;
     ADD {{lr_ioff}} {{lr_ioff}} cr7 ;;
-    ACC.MAX.FIRST ;;
+    ACC.MAX.FIRST ;
+    BGE {{lr_vec}} cr11 p1_done ;;                          {#- one vector: nothing left to loop over -#}
 
 p1_vec:
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;
@@ -88,6 +89,7 @@ p1_vec:
     ADD {{lr_vec}}  {{lr_vec}}  cr1 ;;
     ACC.MAX ;;
     BLT {{lr_vec}} cr11 p1_vec ;;
+p1_done:
 
 {#- ---- cross-group fold (max): duplicate the partial into slots 0+1, then rpv -#}
 {#- linear steps rc_idx = 0, W, 2W, ..., (rpv-1)*W -- all real, no masking. -#}
@@ -146,7 +148,8 @@ p2_vec:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;       {#- r_cyclic = num[0] -#}
     MULT.RC.VE   {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;
     ADD {{lr_ioff}} {{lr_ioff}} cr7 ;;
-    acc.add.first ;;
+    acc.add.first ;
+    BGE {{lr_vec}} cr11 p3_done ;;                          {#- one vector: nothing left to loop over -#}
 
 p3_vec:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;
@@ -155,6 +158,7 @@ p3_vec:
     ADD {{lr_vec}}  {{lr_vec}}  cr1 ;;
     acc.add ;;
     BLT {{lr_vec}} cr11 p3_vec ;;
+p3_done:
 
 {#- ---- cross-group fold (sum): same duplicate-slot linear walk as Pass 1. ---- -#}
     ACTIVATE.QUANTIZE identity cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}

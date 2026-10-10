@@ -107,14 +107,6 @@ def _tables(q):
     chunk-column by chunk-column (outer ``c``, inner ``r``): moving to the
     next chunk-column steps back from the last row's chunk ``c`` to the first
     row's chunk ``c+1``, ``(rows-1)*cpr - 1`` rows.
-
-    KNOWN BUG (reported, not fixed): Passes 1 and 3 peel row 0, then run their
-    row loop as a do-while, so with ``rows == 1`` they still load a row 1 that
-    does not exist (input in Pass 1, numerators in Pass 3) and fold it into
-    the max / sum. The output is right only because what lies past the tables
-    reads as zeros. The overhead
-    below allocates those rows, and the walk into them joins the numerators'
-    write pass and first read into one traversal; drop both when it is fixed.
     """
     cpr = -(-q.width // LANES)
     device_rows = q.rows * cpr
@@ -122,14 +114,9 @@ def _tables(q):
     def column_step(rows):
         return (rows - 1) * cpr - 1 if cpr > 1 and rows > 1 else 0
 
-    phantom_row = cpr if q.rows == 1 else 0
-    walked = q.rows + (1 if q.rows == 1 else 0)     # rows Passes 1 and 3 walk
     return {
-        "input": Table(cr=10, rows=device_rows, repetitions=2, jump_back=column_step(walked),
-                       overhead_rows=phantom_row),
-        "num": Table(cr=4, rows=device_rows, repetitions=3 if q.rows > 1 else 2,
-                     jump_back=column_step(walked),
-                     overhead_rows=phantom_row),
+        "input": Table(cr=10, rows=device_rows, repetitions=2, jump_back=column_step(q.rows)),
+        "num": Table(cr=4, rows=device_rows, repetitions=3, jump_back=column_step(q.rows)),
         "output": Table(cr=2, rows=device_rows, jump_back=column_step(q.rows)),
         "c_vec": Table(cr=3, rows=1),
         "cmax": Table(cr=5, rows=cpr, repetitions=2),     # written by Pass 1, read by Pass 2

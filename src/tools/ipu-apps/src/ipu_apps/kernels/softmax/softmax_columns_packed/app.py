@@ -109,22 +109,11 @@ def _tables(q):
     rows, read in Passes 1 and 2; the numerators (written in Pass 2, read in
     Passes 3 and 4) and the output are ``n`` rows too. The keep mask, CVEC,
     the running max and rvec, and the fold scratch are one row each.
-
-    KNOWN BUG (reported, not fixed): Passes 1 and 3 peel vector 0 and then
-    run a do-while vector loop, so with a single vector (``n == 1``) they
-    also read vector 1 -- one row past the input (Pass 1) and past the
-    numerators (Pass 3) -- and fold it into the max and the sum. Correct
-    today only because those rows are zero padding (the max shift cancels;
-    the sum gains 0). Declared as overhead below; goes when the loops are
-    fixed. With one vector the numerators' write (Pass 2) and first read
-    (Pass 3) start on the same row, so they are one traversal: two
-    repetitions, not three.
     """
     n = -(-q.rows * partition_size(q.width) // LANES)
-    overread = 1 if n == 1 else 0       # see KNOWN BUG
     return {
-        "input": Table(cr=10, rows=n, repetitions=2, overhead_rows=overread),
-        "num": Table(cr=4, rows=n, repetitions=3 if n > 1 else 2, overhead_rows=overread),
+        "input": Table(cr=10, rows=n, repetitions=2),
+        "num": Table(cr=4, rows=n, repetitions=3),
         "output": Table(cr=2, rows=n),
         "c_vec": Table(cr=3, rows=1),
         "keep": Table(cr=8, rows=1),

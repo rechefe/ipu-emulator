@@ -1,9 +1,10 @@
 """Long-row softmax harness (FP32 wide-vector mode).
 
 Mix of ``softmax_rows`` (full 128-wide rows) and ``softmax_rows_partial``
-(sub-128 rows): handles rows whose element count ``N > 128`` and is **not**
-divisible by 128. Each row is ``full_chunks = N // 128`` full 128-element
-chunks plus one tail of ``tail = N % 128`` elements (``tail > 0``).
+(sub-128 rows): handles rows whose element count is ``N > 128``. Each row is
+``full_chunks`` full 128-element chunks plus one tail chunk of ``tail``
+elements: ``divmod(N, 128)``, except that when 128 divides ``N`` the last full
+chunk is the tail (``tail = 128``), so there is never an empty tail chunk.
 
     softmax(x_i) = 2^(c*(x_i - xmax)) / SUM_j 2^(c*(x_j - xmax)),  c = log2(e)
 
@@ -12,8 +13,8 @@ so the IPU's native ``exp2`` activation applies directly (``2^(c*d) == e^d``).
 the read-only CR1.
 
 Per-row scalars (``maxvec[r]`` / ``rvec[r]``) hold one value per row in a single
-128-element vector, so this version processes up to 128 rows in one group (no group
-loop yet -- see ``softmax_rows`` for the >128-row group machinery).
+128-element vector, so rows run in groups of up to 128, all four passes per
+group (the same group loop as ``softmax_rows``).
 
 The novelty vs the two base apps is the **cross-chunk reduction**: a single
 row's max (Pass 1) and sum (Pass 3) now span ``cpr = full_chunks + 1`` chunks,
@@ -37,7 +38,7 @@ Usage::
         input_path="logits.bin",     # rows * N * 4 bytes, FP32, row-major
         output_path="probs.bin",
         rows=8,
-        n=300,                        # N>128, N%128 != 0
+        n=300,                        # N > 128
     )
     state, cycles = app.run()
 """
@@ -52,14 +53,13 @@ class SoftmaxRowsLongApp(SoftmaxApp):
     """Row-softmax over ``rows`` rows of ``n > 128`` FP32 logits.
 
     Each row spans ``chunks_per_row`` 128-element chunks, the last one holding
-    a ``tail`` of ``n % 128`` elements. When ``tail == 0`` there is no tail
-    chunk at all; Passes 1/3 then run their tail block with valid_elements=0
-    (CR8), an exact no-op for the running AGG.MAX / AGG.SUM.
+    a ``tail`` of 1..128 elements (128 when 128 divides ``n``: the last full
+    chunk is then the tail, reduced with valid_elements=128 through CR8).
     """
 
     def _geometry(self):
-        self.full_chunks, self.tail = divmod(self.n, LANES)
-        self.chunks_per_row = self.full_chunks + (1 if self.tail else 0)
+        self.full_chunks, self.tail = _split(self.n)
+        self.chunks_per_row = self.full_chunks + 1
         return self.chunks_per_row * LANES
 
     def _crs(self):
@@ -73,11 +73,16 @@ class SoftmaxRowsLongApp(SoftmaxApp):
         }
 
 
+def _split(n):
+    """``(full_chunks, tail)`` of an ``n``-element row; the tail is 1..128."""
+    full, tail = divmod(n, LANES)
+    return (full - 1, LANES) if tail == 0 else (full, tail)
+
+
 def _explain(q):
-    full, tail = divmod(q.n, LANES)
-    shape = (f"{full} full chunks + {tail}-element tail" if tail
-             else f"exactly {full} full chunks (no tail chunk)")
-    return f"n ({q.n}) > {LANES}: {shape}, reduced with a running cross-chunk AGG."
+    full, tail = _split(q.n)
+    return (f"n ({q.n}) > {LANES}: {full} full chunks + {tail}-element tail, "
+            f"reduced with a running cross-chunk AGG.")
 
 
 def _tables(q):
@@ -86,21 +91,13 @@ def _tables(q):
     A row spans ``chunks_per_row`` XMEM rows. Rows run in groups of up to 128,
     all four passes per group, each pass stepping back to the group's first
     row: one traversal with a group-sized jump_back (as in softmax_rows).
-    With no tail (``n % 128 == 0``) Passes 1 and 3 still load the tail chunk
-    -- one row past each logical row, reduced with valid_elements=0 -- so the
-    last row's load is one past the input and numerator tables, and each
-    re-walk steps back from that extra row.
     """
-    full, tail = divmod(q.n, LANES)
-    chunks_per_row = full + (1 if tail else 0)
+    chunks_per_row = _split(q.n)[0] + 1
     device_rows = q.rows * chunks_per_row
     group = min(q.rows, LANES) * chunks_per_row
-    overread = 0 if tail else 1
     return {
-        "input": Table(cr=10, rows=device_rows, jump_back=group - 1 + overread,
-                       overhead_rows=overread),
-        "num": Table(cr=4, rows=device_rows, jump_back=group - 1 + overread,
-                     overhead_rows=overread),
+        "input": Table(cr=10, rows=device_rows, jump_back=group - 1),
+        "num": Table(cr=4, rows=device_rows, jump_back=group - 1),
         "output": Table(cr=2, rows=device_rows),
         "c_vec": Table(cr=3, rows=1),
         "maxvec": Table(cr=5, rows=1),

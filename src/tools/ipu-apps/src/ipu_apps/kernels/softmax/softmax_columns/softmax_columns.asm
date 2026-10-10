@@ -61,7 +61,8 @@ p1_chunk:
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;                     {#- R0 = x[0,c] (visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;          {#- mult_res = c*x[0,c] -#}
     ADD {{lr_ioff}} {{lr_ioff}} cr9 ;;                      {#- advance to r=1 -#}
-    ACC.MAX.FIRST ;;                                        {#- r_acc = c*x[0,c] -#}
+    ACC.MAX.FIRST ;                                         {#- r_acc = c*x[0,c] -#}
+    BGE {{lr_row}} cr11 p1_done ;;                          {#- one row: nothing left to loop over -#}
 
 p1_row:
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;                     {#- R0 = x[r,c] (visible next cycle) -#}
@@ -71,6 +72,7 @@ p1_row:
     ACC.MAX ;;                                              {#- r_acc = max(r_acc, c*x[r,c]) -#}
     BLT {{lr_row}} cr11 p1_row ;;
 
+p1_done:
     ACTIVATE.QUANTIZE identity cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_svoff}} cr5 ;;                    {#- CMAX[c] <- per-column max -#}
 
@@ -131,7 +133,8 @@ p3_chunk:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;       {#- r_cyclic = num[0,c] (visible next cycle) -#}
     MULT.RC.VE   {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;         {#- mult_res = num[0,c]*1.0 -#}
     ADD {{lr_ioff}} {{lr_ioff}} cr9 ;;                      {#- advance to r=1 -#}
-    acc.add.first ;;                                        {#- r_acc = num[0,c] -#}
+    acc.add.first ;                                         {#- r_acc = num[0,c] -#}
+    BGE {{lr_row}} cr11 p3_done ;;                          {#- one row: nothing left to loop over -#}
 
 p3_row:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;       {#- r_cyclic = num[r,c] (visible next cycle) -#}
@@ -141,6 +144,7 @@ p3_row:
     acc.add ;;                                              {#- r_acc += num[r,c] -#}
     BLT {{lr_row}} cr11 p3_row ;;
 
+p3_done:
     ACTIVATE.QUANTIZE reciprocal cr15 ;                     {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_svoff}} cr6 ;;                    {#- RVEC[c] <- 1/sum -#}
 

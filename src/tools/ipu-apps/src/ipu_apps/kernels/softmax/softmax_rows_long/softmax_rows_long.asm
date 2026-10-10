@@ -1,10 +1,12 @@
 {#- ==========================================================================
-    softmax_rows_long.asm -- row-softmax for N>128, N%128 != 0, FP32 wide mode
+    softmax_rows_long.asm -- row-softmax for N>128, FP32 wide mode
 
     Mix of softmax_rows (full 128-wide rows) and softmax_rows_partial (sub-128
     tail). Each row = full_chunks (CR12) full 128-element chunks + one tail of
-    `tail` (CR8) elements. Row r, chunk c lives at byte BASE + r*CR14 + c*512
-    (CR14 = cpr*512 row stride; CR13 = cpr).
+    `tail` (CR8) elements, 1..128 (128 when 128 divides N: the harness makes
+    the last full chunk the tail, so there is no empty tail chunk). Row r,
+    chunk c lives at byte BASE + r*CR14 + c*512 (CR14 = cpr*512 row stride;
+    CR13 = cpr).
 
       softmax(x_i) = 2^(c*(x_i - xmax)) / SUM 2^(c*(x_j - xmax)),  c = log2(e)
 
