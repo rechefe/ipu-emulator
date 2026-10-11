@@ -50,7 +50,7 @@
 
     CR map (CR0/CR1 are READ-ONLY constants):
       CR0=0   CR1=1(=1.0/incr)   CR2=OUT  CR3=CVEC  CR4=NUM  CR5=CMAX  CR6=RVEC
-      CR7=1 (row stride)  CR8=free  CR9=LANES(128) (element index for the
+      CR7=1 (row stride)  CR8=KEEP row  CR9=LANES(128) (element index for the
       duplicate LDR_CYCLIC_MULT_REG's index operand)  CR10=INPUT row
       CR11=NUM_VECTORS  CR12=SCRATCH_ADDR row  CR13=W (fold rc_idx step,
       elements)  CR14=rpv (fold step count)  CR15=dstructure
@@ -65,7 +65,6 @@
 {%- set lr_woff   = "lr3" -%}  {#- working write offset (NUM / OUT), steps by 512 -#}
 {%- set lr_shift  = "lr4" -%}  {#- fold rc_idx (element offset, walks 0, W, 2W, ...) -#}
 {%- set lr_p      = "lr5" -%}  {#- fold step counter (1..rpv-1) -#}
-{%- set lr_maskrow = "lr6" -%}  {#- keep-mask row (CVEC row + 1), Pass 3 only -#}
 {%- set lr_lanes  = "lr7" -%}  {#- LANES(128): index for the fold's duplicate LDR_CYCLIC_MULT_REG -#}
 
 {#- ===================================================================== -#}
@@ -80,7 +79,8 @@
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;                     {#- R0 = x[0] (visible next cycle) -#}
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;
     ADD {{lr_ioff}} {{lr_ioff}} cr7 ;;
-    ACC.MAX.FIRST ;;
+    ACC.MAX.FIRST ;
+    BGE {{lr_vec}} cr11 p1_done ;;                          {#- one vector: nothing left to loop over -#}
 
 p1_vec:
     LDR_MULT_REG r0 {{lr_ioff}} cr10 ;;
@@ -89,6 +89,7 @@ p1_vec:
     ADD {{lr_vec}}  {{lr_vec}}  cr1 ;;
     ACC.MAX ;;
     BLT {{lr_vec}} cr11 p1_vec ;;
+p1_done:
 
 {#- ---- cross-group fold (max): duplicate the partial into slots 0+1, then rpv -#}
 {#- linear steps rc_idx = 0, W, 2W, ..., (rpv-1)*W -- all real, no masking. -#}
@@ -147,7 +148,8 @@ p2_vec:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;       {#- r_cyclic = num[0] -#}
     MULT.RC.VE   {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;
     ADD {{lr_ioff}} {{lr_ioff}} cr7 ;;
-    acc.add.first ;;
+    acc.add.first ;
+    BGE {{lr_vec}} cr11 p3_done ;;                          {#- one vector: nothing left to loop over -#}
 
 p3_vec:
     LDR_CYCLIC_MULT_REG {{lr_ioff}} cr4 {{lr_cyc}} ;;
@@ -156,6 +158,7 @@ p3_vec:
     ADD {{lr_vec}}  {{lr_vec}}  cr1 ;;
     acc.add ;;
     BLT {{lr_vec}} cr11 p3_vec ;;
+p3_done:
 
 {#- ---- cross-group fold (sum): same duplicate-slot linear walk as Pass 1. ---- -#}
     ACTIVATE.QUANTIZE identity cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
@@ -180,9 +183,7 @@ p3_fold:
     STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                      {#- RVEC <- 1/sum (folded) -#}
 
 {#- ---- fold the keep-mask into rvec once: rvec <- rvec * keep ---------- -#}
-    SET {{lr_maskrow}} cr3 ;;
-    ADD {{lr_maskrow}} {{lr_maskrow}} cr1 ;;                {#- keep-mask row = CVEC row + 1 -#}
-    LDR_CYCLIC_MULT_REG {{lr_maskrow}} cr0 {{lr_cyc}} ;;    {#- r_cyclic = keep-mask -#}
+    LDR_CYCLIC_MULT_REG {{lr_cyc}} cr8 {{lr_cyc}} ;;        {#- r_cyclic = keep-mask (CR8 = its row) -#}
     LDR_MULT_REG r1 {{lr_cyc}} cr6 ;;                       {#- R1 = rvec -#}
     MULT.RC.VV   {{lr_cyc}} r1 0 {{lr_cyc}} cr15 ;          {#- mult_res = keep * rvec -#}
     acc.add.first ;

@@ -117,7 +117,7 @@ def attn_v_bcast_query(*, d: int, n_tok: int | None = None) -> AttnVBcastQuery:
 
 
 def attention_spec(app_class, *, op: str, n_tok: int, d: int, explain: str,
-                   bundle, heads: int | None = None):
+                   bundle, heads: int | None = None, tables=None):
     """KernelSpec for a fixed ``(n_tok, d)`` attention kernel of operation ``op``.
 
     ``supports`` is the single source of truth for the kernel's exact-match
@@ -126,7 +126,8 @@ def attention_spec(app_class, *, op: str, n_tok: int, d: int, explain: str,
     selected head of an ``heads``-head input file: the optional ``head`` query
     parameter must lie in ``[0, heads)`` and reaches the constructor through
     ``build``. ``explain`` is the fixed explanation string; ``bundle`` maps the
-    query to its :class:`~ipu_apps.kernel_registry.ShapeBundle`.
+    query to its :class:`~ipu_apps.kernel_registry.ShapeBundle`. ``tables``,
+    if given, is the kernel's ``SPEC.tables`` declaration.
     """
     if op not in CHAIN_OF:
         raise ValueError(f"unknown attention op {op!r}; expected one of {sorted(CHAIN_OF)}")
@@ -169,4 +170,5 @@ def attention_spec(app_class, *, op: str, n_tok: int, d: int, explain: str,
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=tables,
     )

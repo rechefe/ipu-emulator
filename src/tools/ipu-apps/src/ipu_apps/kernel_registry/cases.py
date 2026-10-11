@@ -62,7 +62,10 @@ def assemble_kernel(kernel_name: str, directory) -> Path:
         raise ValueError(f"{kernel_name}: SPEC must declare asm")
     inst_path = Path(directory) / f"{kernel_name}.bin"
     source = files(spec.resource_package).joinpath(spec.asm)
-    assemble_to_bin_file(source.read_text(), str(inst_path))
+    # Explicit UTF-8: several kernels carry non-ASCII in comments (the "x" of
+    # "16x16", em dashes), and read_text() would otherwise decode with the
+    # platform codepage -- cp1252 on Windows, which rejects those bytes.
+    assemble_to_bin_file(source.read_text(encoding="utf-8"), str(inst_path))
     return inst_path
 
 
@@ -107,13 +110,16 @@ def check_output_bytes(actual_path, expected_path):
 
 
 def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=None,
-             output_path=None, workspace=None, inst_path=None, alias_profile=None):
+             output_path=None, workspace=None, inst_path=None, alias_profile=None,
+             on_params=None):
     """Assemble, prepare, construct, execute, and check a case.
 
     An optional workspace/instruction binary lets tests reuse assembly and
     inspect output files. Otherwise all temporary files are cleaned on every
     exit, including cancellation. Completed output is exported before checking
-    so callers can inspect failed results. Returns the state and cycle count.
+    so callers can inspect failed results. ``on_params``, if given, receives the
+    kernel parameters the case prepared (what ``SPEC`` callbacks are evaluated
+    with). Returns the state and cycle count.
     """
     values = dict(case.defaults)
     overrides = dict(options or {})
@@ -128,13 +134,15 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
         with TemporaryDirectory(prefix="ipu-case-") as tmp:
             return run_case(kernel_name, case, options=values, max_cycles=limit,
                             output_path=output_path, workspace=Path(tmp), inst_path=inst_path,
-                            alias_profile=alias_profile)
+                            alias_profile=alias_profile, on_params=on_params)
     workspace = Path(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
     prepared = case.prepare(workspace, **values)
     spec = kernel_spec(kernel_name)
     # Refuse unsupported cases before spending time assembling the kernel.
     spec.guard(**prepared.params)
+    if on_params is not None:
+        on_params(prepared.params)
     if inst_path is None:
         inst_path = assemble_kernel(kernel_name, workspace)
     bindings = dict(prepared.bindings)

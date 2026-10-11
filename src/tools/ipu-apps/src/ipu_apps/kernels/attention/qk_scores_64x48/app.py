@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import ShapeBundle, Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -81,7 +81,7 @@ QROW_ROWS = N_BLOCK * Q_BLOCK_ROWS           # 1024
 S_ROWS    = N_BLOCK * S_BLOCK_ROWS           # 1024
 
 K_BASE_ROW    = 0
-QROW_BASE_ROW = K_BASE_ROW + K_ROWS
+QROW_BASE_ROW = K_BASE_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
 S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
 
 K_BASE    = K_BASE_ROW * ROW_BYTES
@@ -193,6 +193,22 @@ class QkScores64x48App(IpuApp):
 # k_base_row-style hardware invariant to fold or exclude -- its constructor
 # takes no extra kwargs.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    K holds each block's channel rows; every query re-walks its block's rows,
+    and the loop's next-row load runs one row past them: past the last block
+    that is one row past K. The staged query rows and the scores are walked
+    once.
+    """
+    stride, block = K_STRIDE_ROWS, K_BLOCK_ROWS
+    return {
+        "k": Table(cr=2, rows=K_ROWS, jump_back=block + stride - 1, overhead_rows=stride),
+        "q_rows": Table(cr=9, rows=QROW_ROWS),
+        "scores": Table(cr=3, rows=S_ROWS),
+    }
+
+
 SPEC = attention_spec(
     QkScores64x48App,
     op="qk_scores",
@@ -206,4 +222,5 @@ SPEC = attention_spec(
         query=(N_BLOCK, params["n_tok"], params["d"]),
         key=(N_BLOCK, params["n_tok"], params["d"]),
     ).with_shapes(derived={"output": (N_BLOCK, params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

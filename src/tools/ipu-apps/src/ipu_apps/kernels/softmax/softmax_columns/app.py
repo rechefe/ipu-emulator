@@ -48,6 +48,7 @@ Usage::
 
 from __future__ import annotations
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, softmax_spec
 
 # Widths 1..64 are better served by softmax_columns_packed (several whole rows
@@ -99,6 +100,30 @@ def _caveats(q):
             f"carry real columns, so this runs at the cost of width {padded}.",)
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Row ``r``, chunk ``c`` is XMEM row ``r*cpr + c``, and every pass walks
+    chunk-column by chunk-column (outer ``c``, inner ``r``): moving to the
+    next chunk-column steps back from the last row's chunk ``c`` to the first
+    row's chunk ``c+1``, ``(rows-1)*cpr - 1`` rows.
+    """
+    cpr = -(-q.width // LANES)
+    device_rows = q.rows * cpr
+
+    def column_step(rows):
+        return (rows - 1) * cpr - 1 if cpr > 1 and rows > 1 else 0
+
+    return {
+        "input": Table(cr=10, rows=device_rows, repetitions=2, jump_back=column_step(q.rows)),
+        "num": Table(cr=4, rows=device_rows, repetitions=3, jump_back=column_step(q.rows)),
+        "output": Table(cr=2, rows=device_rows, jump_back=column_step(q.rows)),
+        "c_vec": Table(cr=3, rows=1),
+        "cmax": Table(cr=5, rows=cpr, repetitions=2),     # written by Pass 1, read by Pass 2
+        "rvec": Table(cr=6, rows=cpr, repetitions=2),     # written by Pass 3, read by Pass 4
+    }
+
+
 SPEC = softmax_spec(
     SoftmaxColumnsApp, along_rows=False,
     supports=lambda q: (None if q.width >= MIN_WIDTH else
@@ -107,4 +132,5 @@ SPEC = softmax_spec(
     explain=_explain,
     caveats=_caveats,
     cost=lambda q: 1.0,
+    tables=_tables,
 )

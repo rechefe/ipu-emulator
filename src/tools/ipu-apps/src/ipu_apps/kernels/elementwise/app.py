@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_apps.kernel_registry import (
+    Table,
     ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
 )
 
@@ -81,8 +82,11 @@ def positive_dims(q: ResidualAddQuery) -> str | None:
     return None
 
 
-def residual_add_spec(app_class, *, tokens: int, channels: int):
-    """KernelSpec for a fixed ``(tokens, channels)`` residual-add kernel."""
+def residual_add_spec(app_class, *, tokens: int, channels: int, tables=None):
+    """KernelSpec for a fixed ``(tokens, channels)`` residual-add kernel.
+
+    ``tables``, if given, is the kernel's ``SPEC.tables`` declaration.
+    """
     name = kernel_folder(app_class)
 
     def supports(**params):
@@ -111,4 +115,19 @@ def residual_add_spec(app_class, *, tokens: int, channels: int):
         # Exact-shape match: no padding, no chunking. Cheapest possible claim.
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=lambda **params: residual_add_tables(tokens, channels),
     )
+
+
+def residual_add_tables(tokens: int, channels: int) -> dict[str, Table]:
+    """XMEM tables of the fixed-shape residual-add kernels.
+
+    Each tensor is ``channels`` rows of ``ceil(tokens / 128)`` XMEM rows, walked
+    once; A's next-row load runs one row past it.
+    """
+    rows = channels * -(-tokens // 128)
+    return {
+        "input_a": Table(cr=14, rows=rows, overhead_rows=1),
+        "input_b": Table(cr=9, rows=rows),
+        "output": Table(cr=3, rows=rows),
+    }

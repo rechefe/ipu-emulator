@@ -62,6 +62,7 @@ from ipu_apps.kernels.convolutions.app import (
     pack_input_chunked,
     padding_caveat,
     read_bias,
+    standard3x3_tables,
     universal_spec,
     unpack_output_chunked,
 )
@@ -213,7 +214,8 @@ class ConvUniversalBnActivationApp(IpuApp):
         # so there is no separate bias region -- 4 regions, same as the base
         # app. See conv_universal's identical comment for the underflow
         # rationale of the input-region headroom.
-        input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
+        # + one more group: the last chunk's kr=+1 prefetch reads past the data.
+        input_region_rows = self.in_group_stride + (self.num_chunks + 1) * self.in_group_stride
         self._regions = allocate_regions([
             ("input", input_region_rows * CHUNK_ELEMENTS),
             ("kernel", self.total_kernel_elements),
@@ -348,4 +350,5 @@ SPEC = universal_spec(
         f"x{q.width} pads internally to {'x'.join(map(str, _padded(q)))}."
     ),
     caveats=lambda q: padding_caveat(q, *_padded(q)),
+    tables=standard3x3_tables,
 )

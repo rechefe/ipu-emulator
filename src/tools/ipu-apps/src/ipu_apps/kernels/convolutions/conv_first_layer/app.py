@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.convolutions.app import read_bias, universal_spec
 
 if TYPE_CHECKING:
@@ -303,6 +304,24 @@ def _supports(q):
     return None
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    An input spatial row is all three channels' 256 columns (6 XMEM rows).
+    Each output row reads input rows 2r-1, 2r, 2r+1, reaching three spatial
+    rows back, and re-walks the 16 filter rows. The two temp rows stage
+    every tap for the whole run -- reused, not walked.
+    """
+    row = IN_ROW_GROUP // CHUNK_ELEMENTS
+    return {
+        "input": Table(cr=10, rows=IN_ROWS * row, jump_back=3 * row - 1),
+        "weights": Table(cr=3, rows=OUT_CHANNELS, repetitions=OUT_ROWS),
+        "mask": Table(cr=4, rows=1),
+        "temp": Table(cr=13, rows=2, whole_run=True),
+        "output": Table(cr=5, rows=OUT_ROWS * OUT_ROW_GROUP // CHUNK_ELEMENTS),
+    }
+
+
 SPEC = universal_spec(
     ConvFirstLayerApp,
     variant="first_layer",
@@ -317,4 +336,5 @@ SPEC = universal_spec(
         f"Fixed shape only: {IN_CHANNELS}x{IN_ROWS}x{IN_COLS} -> "
         f"{OUT_CHANNELS}x{OUT_ROWS}x{OUT_COLS}. No parameterization.",
     ),
+    tables=_tables,
 )

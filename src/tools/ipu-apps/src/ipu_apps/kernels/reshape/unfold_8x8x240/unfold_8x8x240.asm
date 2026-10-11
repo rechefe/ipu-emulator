@@ -97,7 +97,7 @@
 {% set ch_index   = "lr10" %}  {# channel counter 0..239 #}
 {% set ch_limit   = "lr11" %}  {# 240 = C #}
 
-{% set SRC_BASE   = "cr0"  %}  {# stripe base (row 0) #}
+{% set SRC_BASE   = "cr14"  %}  {# stripe base (row 0) #}
 {% set ONE        = "cr1"  %}  {# hardwired read-only 1 #}
 {% set ONES_BASE  = "cr8"  %}  {# one row of 1.0, for r_cyclic init #}
 {% set DST_S0     = "cr9"  %}  {# stream 0 output base #}

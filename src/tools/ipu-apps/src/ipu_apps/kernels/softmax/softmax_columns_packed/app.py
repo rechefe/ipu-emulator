@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, partition_size, softmax_spec
 
 MAX_WIDTH = 64               # real width <= 64 (>= 65 -> softmax_columns)
@@ -74,7 +75,7 @@ class SoftmaxColumnsPackedApp(SoftmaxApp):
         return self.group_width
 
     def _layout_resident(self):
-        self.keep_addr = self._alloc()      # the .asm derives it as CVEC row + 1
+        self.keep_addr = self._alloc()      # CR8
         super()._layout_resident()
         self.scratch_addr = self._alloc()   # fold scratch
 
@@ -86,6 +87,7 @@ class SoftmaxColumnsPackedApp(SoftmaxApp):
 
     def _crs(self):
         return {
+            8: self.keep_addr // (LANES * 4),  # keep-mask row
             9: LANES,                          # fold's duplicate-load element index
             11: self.device_rows,              # vector loop bound
             12: self.scratch_addr // (LANES * 4),
@@ -100,6 +102,27 @@ def _explain(q):
             f"packed per {LANES}-element vector (padded width {w_pad}).")
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    The input packs ``LANES // group_width`` rows per vector: ``n`` vector
+    rows, read in Passes 1 and 2; the numerators (written in Pass 2, read in
+    Passes 3 and 4) and the output are ``n`` rows too. The keep mask, CVEC,
+    the running max and rvec, and the fold scratch are one row each.
+    """
+    n = -(-q.rows * partition_size(q.width) // LANES)
+    return {
+        "input": Table(cr=10, rows=n, repetitions=2),
+        "num": Table(cr=4, rows=n, repetitions=3),
+        "output": Table(cr=2, rows=n),
+        "c_vec": Table(cr=3, rows=1),
+        "keep": Table(cr=8, rows=1),
+        "cmax": Table(cr=5, rows=1),
+        "rvec": Table(cr=6, rows=1),
+        "scratch": Table(cr=12, rows=1),
+    }
+
+
 SPEC = softmax_spec(
     SoftmaxColumnsPackedApp, along_rows=False,
     supports=lambda q: (None if q.width <= MAX_WIDTH else
@@ -110,4 +133,5 @@ SPEC = softmax_spec(
     # wherever it applies.
     cost=lambda q: 0.0,
     tags=("packed",),
+    tables=_tables,
 )

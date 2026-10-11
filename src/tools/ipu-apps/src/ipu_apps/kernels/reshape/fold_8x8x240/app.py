@@ -35,6 +35,7 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
 
@@ -65,8 +66,9 @@ _STREAM_ROWS = C                             # rows per input stream (one per ch
 SRC_STRIDE_ROWS = 1                          # one src row per channel, per stream
 DST_STRIDE_ROWS = 1                          # one dst row per channel
 
+_STREAM_PITCH = _STREAM_ROWS + 1  # stream rows + room for TL's last prefetch
 SRC_BASE_ROW = 0
-DST_BASE_ROW = SRC_BASE_ROW + N_STREAMS * _STREAM_ROWS
+DST_BASE_ROW = SRC_BASE_ROW + N_STREAMS * _STREAM_PITCH
 ONES_BASE_ROW = DST_BASE_ROW + C
 
 SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
@@ -87,7 +89,10 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     R_ACC padding and this kernel never reads them.
     """
     raw = Path(input_path).read_bytes()
-    state.xmem.write_address(SRC_BASE, bytearray(raw))
+    stream = _STREAM_ROWS * ROW_BYTES
+    for s in range(N_STREAMS):
+        state.xmem.write_address((SRC_BASE_ROW + s * _STREAM_PITCH) * ROW_BYTES,
+                                 bytearray(raw[s * stream:(s + 1) * stream]))
 
 
 def _load_ones(state: "IpuState") -> None:
@@ -138,9 +143,9 @@ class Fold8x8x240App(IpuApp):
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream SOURCE bases (s0, s1, s2, s3)
         state.regfile.set_cr(9,  SRC_BASE_ROW)
-        state.regfile.set_cr(10, SRC_BASE_ROW + _STREAM_ROWS)
-        state.regfile.set_cr(11, SRC_BASE_ROW + 2 * _STREAM_ROWS)
-        state.regfile.set_cr(12, SRC_BASE_ROW + 3 * _STREAM_ROWS)
+        state.regfile.set_cr(10, SRC_BASE_ROW + _STREAM_PITCH)
+        state.regfile.set_cr(11, SRC_BASE_ROW + 2 * _STREAM_PITCH)
+        state.regfile.set_cr(12, SRC_BASE_ROW + 3 * _STREAM_PITCH)
 
         # CR2/CR3: source-lane-index table for ACC.RESHAPE, packed as two
         # 4-byte halves of an LRDn pair -- [0,1,2,3] then [4,5,6,7]. Rebuilt
@@ -177,4 +182,22 @@ class Fold8x8x240App(IpuApp):
 # :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
-SPEC = unfold_spec(Fold8x8x240App, op="fold", h=H, w=W, c=C, geometry="packing, register layout")
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    One row per channel in each stream and in the output, all walked once.
+    BR's load prefetches the next channel's TL row, so the last channel reads
+    one TL row past the end.
+    """
+    return {
+        "stream_tl": Table(cr=9, rows=q.c, overhead_rows=1),
+        "stream_tr": Table(cr=10, rows=q.c),
+        "stream_bl": Table(cr=11, rows=q.c),
+        "stream_br": Table(cr=12, rows=q.c),
+        "output": Table(cr=13, rows=q.c),
+        "ones": Table(cr=8, rows=1),
+    }
+
+
+SPEC = unfold_spec(Fold8x8x240App, op="fold", h=H, w=W, c=C, geometry="packing, register layout",
+                   tables=_tables)

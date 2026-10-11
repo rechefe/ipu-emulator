@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes
+from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, Table, folder_spec, kernel_folder, no, yes
 
 CONCAT_OP = "concat"
 
@@ -83,12 +83,14 @@ def unfold_query(shape) -> UnfoldQuery:
 
 
 def unfold_spec(app_class, *, op: str, h: int, w: int, c: int,
-                geometry: str = "stripe count, spatial row packing, register layout"):
+                geometry: str = "stripe count, spatial row packing, register layout",
+                tables=None):
     """KernelSpec for a fixed-``(H, W, C)`` unfold or fold kernel.
 
     ``supports`` is an exact-shape match, since the stripe/packing geometry is
     baked into the .asm for this one (H, W, C) triple. ``geometry`` names what
-    is fixed, for ``explain``.
+    is fixed, for ``explain``. ``tables(q)``, if given, is the kernel's
+    ``SPEC.tables`` declaration.
     """
     name = kernel_folder(app_class)
 
@@ -120,6 +122,8 @@ def unfold_spec(app_class, *, op: str, h: int, w: int, c: int,
         # Exact-shape match: no two kernels of one op share a triple.
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=None if tables is None else (
+            lambda **params: tables(unfold_query(params["shape"]))),
     )
 
 
@@ -159,6 +163,21 @@ def concat_query(shape) -> ConcatQuery:
     return ConcatQuery(h=h, w=w, c_a=c_a, c_b=c_b, bundle=bundle)
 
 
+def concat_tables(q: ConcatQuery) -> dict[str, Table]:
+    """XMEM tables of the concat kernels (see ``ipu_emu.table_trace``).
+
+    One channel is one XMEM row. Each input is copied front to back with its
+    next row's load co-issued (a prefetch), so the last channel's prefetch
+    reads one row past each input.
+    """
+    return {
+        "input_a": Table(cr=5, rows=q.c_a, overhead_rows=1),
+        "input_b": Table(cr=6, rows=q.c_b, overhead_rows=1),
+        "output_a": Table(cr=7, rows=q.c_a),
+        "output_b": Table(cr=8, rows=q.c_b),
+    }
+
+
 def concat_spec(app_class, *, h: int, w: int, c_a: int, c_b: int):
     """KernelSpec for a fixed-``(H, W, C_A, C_B)`` concat kernel.
 
@@ -196,4 +215,5 @@ def concat_spec(app_class, *, h: int, w: int, c_a: int, c_b: int):
         bundle=lambda **params: concat_query(params["shape"]).bundle,
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=lambda **params: concat_tables(concat_query(params["shape"])),
     )

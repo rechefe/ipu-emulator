@@ -47,8 +47,8 @@ LANES      = 128                             # elements per XMEM row
 ROW_BYTES  = LANES * ELEM_BYTES              # 512
 
 A_BASE_ROW   = 0
-B_BASE_ROW   = A_BASE_ROW + C_A
-OUT_BASE_ROW = B_BASE_ROW + C_B
+B_BASE_ROW   = A_BASE_ROW + C_A + 1  # + overhead: the last prefetch's row
+OUT_BASE_ROW = B_BASE_ROW + C_B + 1  # + overhead: the last prefetch's row
 
 A_BASE   = A_BASE_ROW * ROW_BYTES
 B_BASE   = B_BASE_ROW * ROW_BYTES

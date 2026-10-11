@@ -48,10 +48,10 @@
 #   ahead. chunk1's startup is NOT biased -- chunk0's trailing prefetch already
 #   supplied that step of phase.
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+128, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
+# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE, cr5=OUTPUT_BASE, cr6=-128 (data startup), cr8=-1 (chunk startup)
 # LRs: lr0=0, lr2=128 (data stride), lr3=256 (output stride), lr6=126 (width-128 bound),
 #      lr7=0 (out ptr), lr8=0 (weight offset), lr9=0 (j), lr10=192 (j limit),
-#      lr11=62 (tail-chunk bound, width=64), lr12=256 (W_STRIDE)
+#      lr11=62 (tail-chunk bound, width=64), lr12=1 row (W_STRIDE: step past the last chunk)
 #
 # Memory layout:
 #   DATA:    192 x 128 B      =   24576 B (0x00000..0x05FFF)
@@ -65,14 +65,14 @@ j_loop:
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -81,7 +81,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -90,12 +90,13 @@ after_chunk0:
     # No re-prime: chunk1's first row is already in flight from chunk0's
     # trailing prefetch, and lr5 is NOT biased here for the same reason.
     SET lr5 cr8;
-    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
+    ADD lr8 lr8 cr1;
+    LDR_MULT_REG r0 lr8 cr9;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk1;;

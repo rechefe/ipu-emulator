@@ -90,10 +90,9 @@
 {% set q_limit     = "lr10" %}  {# 256 = N queries #}
 {% set qrow_stride = "lr12" %}  {# 512 = QROW_STRIDE bytes per query #}
 
-{% set K_BASE      = "cr0"  %}  {# channel-major K base #}
+{% set K_BASE      = "cr14"  %}  {# channel-major K base #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
-{% set S_BASE_G0   = "cr3"  %}  {# S base, key group 0 #}
-{% set S_BASE_G1   = "cr4"  %}  {# S base + 512, key group 1 #}
+{% set S_BASE      = "cr3"  %}  {# S base: row 2i + g = S[i, key group g] #}
 {% set K_START_G0  = "cr5"  %}  {# -256 startup skew (first live = 0) #}
 {% set K_START_G1  = "cr6"  %}  {# -128 startup skew (first live = 128) #}
 {% set CHAN_START  = "cr7"  %}  {# -1 -> first live c = 0 #}
@@ -138,7 +137,7 @@ c_loop_g0:
 
 after_c_g0:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G0 }};;  # store 512B → S[i, keys 0..127]
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store → S row 2i (keys 0..127)
 
     # -- key group 1 ---------------------------------------------------------
     SET {{ k_ptr }} {{ K_START_G1 }};;                                                          # g=1 K-data startup: -128
@@ -167,8 +166,9 @@ c_loop_g1:
 
 after_c_g1:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE_G1 }};;  # store 512B → S[i, keys 128..255]
-    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1024)
+    ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};
+    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store → S row 2i+1 (keys 128..255; STR reads out_ptr live)
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance to the next query's row 2(i+1)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};
     ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 512, i++

@@ -53,7 +53,7 @@ OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B channel row per XMEM row
 
 A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+B_BASE_ROW      = A_BASE_ROW + N_ROWS + 1  # + overhead: the last prefetch's row
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
 A_BASE      = A_BASE_ROW * ROW_BYTES
@@ -88,8 +88,8 @@ class ResidualAdd16x240App(IpuApp):
 
         # CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing anything else
         # raises EmulatorError; this app never writes either.
-        # A_BASE_ROW is 0 so CR0 is a harmless no-op, and
-        # B_BASE lives on CR9.
+        # Every table has its own base CR: A on CR14, B on CR9.
+        state.regfile.set_cr(14, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)

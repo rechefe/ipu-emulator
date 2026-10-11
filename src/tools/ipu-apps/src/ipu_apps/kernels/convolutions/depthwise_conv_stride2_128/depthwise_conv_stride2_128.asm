@@ -65,9 +65,9 @@ ch_loop:
     acc.stride          64 on off lr6;
     ACTIVATE.QUANTIZE   identity cr15;
     ADD                 lr5 lr2 lr4;
-    str_post_aaq_reg    lr5 cr5;;
+    str_post_aaq_reg    lr5 cr5;
+    INC                 lr4 1;;                         # a word ahead of its BLT (ADD reads the old lr4)
 
-    INC                 lr4 1;
     blt                 lr4 cr4 ch_loop;;
 
     ADD                 lr2 lr2 cr4;

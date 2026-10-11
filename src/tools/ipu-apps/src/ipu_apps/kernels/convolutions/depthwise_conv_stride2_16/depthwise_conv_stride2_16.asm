@@ -95,9 +95,9 @@ pair_loop:
     # Two separate ADDs (ADD's src_a reads the cycle-start snapshot, so a
     # same-word double ADD into lr3 would not see the first result).
     ADD                 lr3 lr3 cr1;;
-    ADD                 lr3 lr3 cr1;;
+    ADD                 lr3 lr3 cr1;
+    INC                 lr1 1;;                         # a word ahead of its BLT (BLT reads the snapshot)
 
-    INC                 lr1 1;
     blt                 lr1 cr6 pair_loop;;
 
 end:

@@ -2,7 +2,7 @@
 from ipu_emu.ipu import LANES, R_ACC_SIZE
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
-from ipu_apps.kernel_registry import OUTPUT, ShapeBundle
+from ipu_apps.kernel_registry import OUTPUT, ShapeBundle, Table
 from ipu_apps.kernel_registry.memory import (
     MemoryApp, MemoryLayout, ceildiv, memory_spec, positive_shape,
 )
@@ -32,6 +32,29 @@ class WindowPoolApp(MemoryApp):
         if general:
             crs.update({9: k, 10: 384, 11: k - 1})
         return MemoryLayout(output, c * h * tiles, crs)
+
+    @classmethod
+    def tables(cls, *, shape, kernel_size, stride, padding):
+        """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+        Each channel plane is ``h + k - 1`` padded rows of ``tiles`` XMEM rows,
+        tile-interleaved. Every output row reads its ``k`` input rows for each
+        tile in turn, so the next output row's first tile reaches back from
+        the last tile of the previous window's bottom row: ``(k-1)*tiles - 1``
+        rows (nothing when there is only one row and one tile).
+        """
+        c, h, w = shape
+        k = kernel_size
+        tiles = ceildiv(w, 129 - k)
+        rows = c * (h + k - 1) * tiles
+        reach = (k - 1) * tiles - 1 if h > 1 or tiles > 1 else 0
+        tables = {
+            "input": Table(cr=2, rows=rows, jump_back=max(0, reach)),
+            "output": Table(cr=3, rows=c * h * tiles),
+        }
+        if cls.fixed_kernel is None:
+            tables["floor"] = Table(cr=4, rows=1)      # the -FLT_MAX row after the input
+        return tables
 
 
 STRIDE2_SCRATCH_ROWS = 2
@@ -77,6 +100,23 @@ class Stride2PoolApp(MemoryApp):
             crs[12] = out_tiles - 1
         return MemoryLayout(input_rows, output_rows, crs)
 
+    @classmethod
+    def tables(cls, *, shape, kernel_size, stride, padding):
+        """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+        Each output tile reads two input tiles of two spatial rows, so the
+        next output tile steps back from the lower row to the upper one:
+        ``in_tiles - 1`` rows. The two scratch rows stage every output tile
+        (write, write, read, read) for the whole run -- reused, not walked.
+        """
+        channels, height, width = shape
+        in_tiles, out_tiles = ceildiv(width, LANES), ceildiv(width // 2, LANES)
+        return {
+            "input": Table(cr=2, rows=channels * height * in_tiles, jump_back=in_tiles - 1),
+            "output": Table(cr=3, rows=channels * (height // 2) * out_tiles),
+            "scratch": Table(cr=4, rows=STRIDE2_SCRATCH_ROWS, whole_run=True),
+        }
+
 
 def _stride2_output_shape(params):
     channels, height, width = params["shape"]
@@ -94,4 +134,5 @@ def stride2_spec(app_class, variant, tag, detail=""):
             derived={OUTPUT: _stride2_output_shape(p)}),
         caveats=lambda **p: ("input and output files use the kernel's raw tiled XMEM layout",),
         tags=("fp32-wide", "strided", tag),
+        tables=app_class.tables,
     )

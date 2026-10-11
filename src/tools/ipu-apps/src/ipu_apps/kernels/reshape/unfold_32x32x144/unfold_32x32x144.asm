@@ -81,7 +81,7 @@
 {% set ch_index    = "lr10" %}  {# channel counter (0..143) #}
 {% set ch_limit    = "lr11" %}  {# 144 = channel count #}
 
-{% set STRIPE0_TG0 = "cr0"  %}  {# SRC_BASE + 0*144*128 #}
+{% set STRIPE0_TG0 = "cr14"  %}  {# SRC_BASE + 0*144*128 #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
 {% set STRIPE2_TG0 = "cr2"  %}  {# SRC_BASE + 2*144*128 #}
 {% set STRIPE3_TG0 = "cr3"  %}  {# SRC_BASE + 3*144*128 #}

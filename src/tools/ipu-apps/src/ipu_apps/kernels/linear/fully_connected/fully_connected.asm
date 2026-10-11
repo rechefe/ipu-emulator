@@ -3,7 +3,7 @@
     SET                 lr2 cr8 ;;
 
 input_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LDR_MULT_REG        r0 lr0 cr14;;
 
     SET                 lr5 cr10 ;;
     SET                 lr6 cr11 ;;

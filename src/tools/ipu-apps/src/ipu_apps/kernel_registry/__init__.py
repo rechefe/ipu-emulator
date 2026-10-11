@@ -50,7 +50,7 @@ from ipu_apps.kernel_registry.shapes import (
     flatten_to_matrix,
 )
 from ipu_apps.kernel_registry.spec import (
-    ExecutionConfig, KernelSpec, Support, Verdict, folder_spec, kernel_folder, no, yes,
+    ExecutionConfig, KernelSpec, Support, Table, Verdict, folder_spec, kernel_folder, no, yes,
 )
 
 
@@ -86,6 +86,7 @@ __all__ = [
     "ShapeBundle",
     "SkippedModule",
     "Support",
+    "Table",
     "UnsupportedLayer",
     "Verdict",
     "WEIGHT",

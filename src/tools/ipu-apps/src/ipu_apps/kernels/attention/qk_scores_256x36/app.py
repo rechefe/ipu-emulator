@@ -32,6 +32,7 @@ from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -63,7 +64,7 @@ QROW_ROWS = N * QROW_STRIDE_ROWS
 S_ROWS    = N * N_TG * ACC_STORE_ROWS
 
 K_BASE_ROW    = 0
-QROW_BASE_ROW = K_BASE_ROW + K_ROWS
+QROW_BASE_ROW = K_BASE_ROW + K_ROWS + K_STRIDE_ROWS  # + overhead: the last prefetch's row
 S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
 
 K_BASE      = K_BASE_ROW * ROW_BYTES
@@ -117,12 +118,11 @@ class QkScores256x36App(IpuApp):
         g1_start_rows = -K_STRIDE_ROWS + N_TPG // LANES      # g=1: first live = +1 row
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError. K_BASE_ROW is 0,
-        # so CR0 already holds the correct value without any write. QROW base
-        # lives on CR9.
+        # else raises EmulatorError. Every table has its own base CR: K on
+        # CR14, QROW on CR9.
+        state.regfile.set_cr(14, K_BASE_ROW)            # channel-major K
         state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
         state.regfile.set_cr(3, S_BASE_ROW)             # group 0 output base
-        state.regfile.set_cr(4, S_BASE_ROW + ACC_STORE_ROWS)   # group 1 output base
         state.regfile.set_cr(5, g0_start_rows)           # g=0 K-data startup (rows)
         state.regfile.set_cr(6, g1_start_rows)           # g=1 K-data startup (rows)
         state.regfile.set_cr(7, -1)                      # channel fixed_idx startup
@@ -130,7 +130,7 @@ class QkScores256x36App(IpuApp):
 
         state.regfile.set_lr(0, 0)                       # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)           # K data stride per channel (rows)
-        state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)   # output stride per query (rows)
+        state.regfile.set_lr(3, 1)                       # output step after group 1's row (rows)
         state.regfile.set_lr(6, D - 2)                   # contraction BLT bound
         state.regfile.set_lr(7, 0)                       # output query row offset
         state.regfile.set_lr(8, 0)                       # Q-row row offset
@@ -155,6 +155,20 @@ class QkScores256x36App(IpuApp):
 # here -- K_BASE_ROW is 0 by construction but the constructor takes no
 # caller-supplied base-row kwargs to guard against.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    K (``D`` channel columns of two rows) is re-walked for every query and key
+    group, its next-row load running one column past it. The scores are one
+    table: query i's key group g at row 2i + g, written once in order.
+    """
+    return {
+        "k": Table(cr=14, rows=K_ROWS, repetitions=N * N_TG, overhead_rows=K_STRIDE_ROWS),
+        "q_rows": Table(cr=9, rows=QROW_ROWS),
+        "scores": Table(cr=3, rows=S_ROWS),
+    }
+
+
 SPEC = attention_spec(
     QkScores256x36App,
     op="qk_scores",
@@ -167,4 +181,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         query=(params["n_tok"], params["d"]), key=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

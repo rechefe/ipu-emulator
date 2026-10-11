@@ -45,7 +45,7 @@ OUTPUT_STRIDE_ROWS = 1
 ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
 
 A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+B_BASE_ROW      = A_BASE_ROW + N_ROWS + 1  # + overhead: the last prefetch's row
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
 A_BASE      = A_BASE_ROW * ROW_BYTES
@@ -68,8 +68,9 @@ class ResidualAdd256x144App(IpuApp):
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
         # CR1 (≡1) is a read-only hardwired constant —
-        # writing anything else raises EmulatorError. B_BASE lives on CR9 (free). CR0=A_BASE
-        # is 0x0 (harmless no-op, matches hardwired 0).
+        # writing anything else raises EmulatorError. Every table has its own
+        # base CR: A on CR14, B on CR9.
+        state.regfile.set_cr(14, A_BASE_ROW)
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)

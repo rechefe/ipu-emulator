@@ -2,8 +2,9 @@
 #
 # Adds two FP32 tensors element-wise, one channel per 512-byte chunk
 # (128 FP32 lanes each). Wide-vector debug mode widens every lane to 4
-# bytes, so a load brings in a full 512-byte channel and STR_ACC_REG
-# writes the full 512-byte r_acc.
+# bytes, so a load brings in a full 512-byte channel and the store writes
+# the full 512-byte result (ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG,
+# the hardware store path).
 #
 # Algorithm: use MULT.RC.VE with scalar = 1.0 (cr1 low byte = 1) to copy
 # each FP32 chunk into mult_res, then accumulate both into r_acc:
@@ -17,7 +18,7 @@
 # mult that uses it.
 #
 # Row-addressed ISA (issue #179): XMEM offset/base operands on
-# LDR_CYCLIC_MULT_REG's offset+base and STR_ACC_REG are ROW numbers, not byte
+# LDR_CYCLIC_MULT_REG's offset+base and STR_POST_AAQ_REG are ROW numbers, not byte
 # addresses. This app runs ONLY in wide-vector debug mode (harness always
 # builds an FP32 wide state -- see make_state()), so its native row size is
 # always 512 bytes and one channel is always exactly one row: the old
@@ -73,10 +74,11 @@ loop:
     mult.rc.ve          lr0 cr1 0 lr0 cr15;
     acc.add;;
 
-# Store FP32 accumulator (512 bytes per chunk). The output-pointer bump must
+# Store the FP32 result (512 bytes per chunk). The output-pointer bump must
 # NOT share this word: LR runs before XMEM, so it would store to the wrong
 # address. Advance lr3 in the branch word instead (after the store).
-    str_acc_reg         lr3 cr4;;
+    ACTIVATE.QUANTIZE   identity cr15;              # lane-for-lane FP32 copy of r_acc (wide mode)
+    STR_POST_AAQ_REG    lr3 cr4;;                   # AAQ then STR in one word: stores this result
 
     add     lr3 lr3 cr5;
     blt     lr2 lr11 loop;;

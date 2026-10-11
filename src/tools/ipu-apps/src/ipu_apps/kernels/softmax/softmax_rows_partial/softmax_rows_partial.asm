@@ -20,11 +20,11 @@
 
     CR map (CR0=0, CR1=1 read-only):
       CR2=OUT_BASE  CR3=CVEC  CR4=NUM_BASE  CR5=MAXVEC  CR6=RVEC
-      CR7=1 chunk/row stride (.asm XMEM operands are rows -- issue #179)
+      CR7=PART_MASK row (the chunk/row stride 1 comes from CR1)
       CR8=128 (R1 byte-idx base; also full-row dstructure CR: valid_elements=128)
       CR9=total_chunks (group loop bound)  CR10=INPUT_BASE  CR11=512 (RING in
       ELEMENTS, for the Pass-4 repack's reverse-slide SUB src_a -- NOT an XMEM
-      stride, so it stays element-valued even though CR7 switched to rows;
+      stride, so it stays element-valued even though strides are rows;
       MULT.RC's rc_idx wraps at the ring boundary, not the row boundary)
       CR12=ps partition element stride  CR13=chunks_per_group (=128/P)  CR14=P
 
@@ -46,8 +46,7 @@
 {%- set lr_p      = "lr4" -%}  {#- partition counter (0..P-1) -#}
 {%- set lr_coff   = "lr5" -%}  {#- chunk byte offset (chunk * 512) -#}
 {%- set lr_num    = "lr6" -%}  {#- numerator chunk byte offset (per row) -#}
-{%- set lr_maxid  = "lr7" -%}  {#- R1 byte index for maxvec[row] select (128 + row); Pass 4 reuses as lr_two -#}
-{%- set lr_two    = "lr7" -%}  {#- Pass 4 only: literal 2, for the P==2 dispatch check (dead in Pass 4 otherwise) -#}
+{%- set lr_maxid  = "lr7" -%}  {#- R1 byte index for maxvec[row] select (128 + row) -#}
 {%- set lr_rslide = "lr8" -%}  {#- Pass-4 repack slide = RING - p*ps (element offset) -#}
 {%- set lr_c512   = "lr9" -%}  {#- holds RING=512 (for SUB src_a; SUB needs LR src_a) -#}
 {%- set lr_cdone  = "lr10" -%} {#- chunks completed by previous groups -#}
@@ -88,7 +87,7 @@ p1_part:
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_p}} {{lr_p}} cr1 ;;
     BLT {{lr_p}} cr14 p1_part ;;
-    ADD {{lr_coff}} {{lr_coff}} cr7 ;
+    ADD {{lr_coff}} {{lr_coff}} cr1 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
     BLT {{lr_chunk}} {{lr_cbound}} p1_chunk ;;
 
@@ -124,12 +123,12 @@ p2_part:
     ACTIVATE.QUANTIZE exp2 cr15;                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] elements 0..N-1 -#}
     STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
-    ADD {{lr_num}} {{lr_num}} cr7 ;
+    ADD {{lr_num}} {{lr_num}} cr1 ;
     ADD {{lr_maxid}} {{lr_maxid}} cr1 ;;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_p}} {{lr_p}} cr1 ;;
     BLT {{lr_p}} cr14 p2_part ;;
-    ADD {{lr_coff}} {{lr_coff}} cr7 ;
+    ADD {{lr_coff}} {{lr_coff}} cr1 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
     BLT {{lr_chunk}} {{lr_cbound}} p2_chunk ;;
 
@@ -144,7 +143,7 @@ p3_row:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;;      {#- r_cyclic = num[row] (snapshot: visible NEXT cycle) -#}
     MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;           {#- *1.0 -#}
     AGG.SUM.FIRST {{lr_row}} cr15 ;;                          {#- masked -> sumvec[row] -#}
-    ADD {{lr_num}} {{lr_num}} cr7 ;
+    ADD {{lr_num}} {{lr_num}} cr1 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     BLT {{lr_row}} {{lr_bound}} p3_row ;;      {#- this group's row count (from Pass 1) -#}
 
@@ -185,7 +184,7 @@ p3_row:
     MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} cr15 ;    {#- mask_offset={{p}} -#}
     acc.add ;;
     {%- endif %}
-    ADD {{lr_num}} {{lr_num}} cr7 ;
+    ADD {{lr_num}} {{lr_num}} cr1 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     {%- if not is_last %}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;;                          {#- slide = ({{p + 1}})*ps -#}
@@ -197,10 +196,8 @@ p3_row:
     SET {{lr_chunk}} cr0 ;
     ADD {{lr_coff}} {{lr_gbase}} cr0 ;;         {#- output chunk offset (group base) -#}
     SET {{lr_num}} cr0 ;
-    SET {{lr_c512}} cr11 ;
-    SET {{lr_two}} cr6 ;;                        {#- lr_c512 = RING (512 elements); lr_two = RVEC row (for mask row below) -#}
-    ADD {{lr_two}} {{lr_two}} cr1 ;;             {#- lr_two = RVEC row + 1 = PART_MASK row -#}
-    LDR_MULT_MASK_REG {{lr_two}} cr0 ;;         {#- R_MASK <- PART_MASK image (8 per-partition slots), loaded once -#}
+    SET {{lr_c512}} cr11 ;;                      {#- lr_c512 = RING (512 elements) -#}
+    LDR_MULT_MASK_REG {{lr_row}} cr7 ;;         {#- R_MASK <- PART_MASK image (CR7 = its row; lr_row = 0), loaded once -#}
 p4_chunk:
     LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
     SET {{lr_slide}} cr0 ;
@@ -238,7 +235,7 @@ p4_run_p8:
 p4_drain:
     ACTIVATE.QUANTIZE identity cr8;                         {#- reads r_acc LIVE (upstream fix) -#}
     STR_POST_AAQ_REG {{lr_coff}} cr2 ;;                    {#- packed output chunk -#}
-    ADD {{lr_coff}} {{lr_coff}} cr7 ;
+    ADD {{lr_coff}} {{lr_coff}} cr1 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
     BLT {{lr_chunk}} {{lr_cbound}} p4_chunk ;;
 

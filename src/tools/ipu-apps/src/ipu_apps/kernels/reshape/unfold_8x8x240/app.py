@@ -59,6 +59,7 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
 
@@ -132,7 +133,7 @@ SRC_STRIDE_ROWS = 1                          # one src row per channel
 DST_STRIDE_ROWS = 1                          # one whole dst row per channel
 
 SRC_BASE_ROW  = 0
-ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
+ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS + 1  # + overhead: the last prefetch's row
 DST_BASE_ROW  = ONES_BASE_ROW + 1
 
 SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
@@ -178,8 +179,8 @@ class Unfold8x8x240App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
-        # CR0: the single stripe's source base. SRC_BASE_ROW is 0, which the
-        # read-only CR0 already holds, so it is not written.
+        # CR14: the single stripe's source base (its own table CR, never CR0).
+        state.regfile.set_cr(14, SRC_BASE_ROW)
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream destination bases (phases 00, 01, 10, 11)
@@ -223,4 +224,17 @@ class Unfold8x8x240App(IpuApp):
 # :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
-SPEC = unfold_spec(Unfold8x8x240App, op="unfold", h=H, w=W, c=C)
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    One stripe of ``C`` source rows read once, its next-row load one row past
+    it; four output streams of ``C`` rows, written once.
+    """
+    return {
+        "source": Table(cr=14, rows=_STRIPE_ROWS, overhead_rows=1),
+        "ones": Table(cr=8, rows=1),
+        **{f"stream{i}": Table(cr=9 + i, rows=_STREAM_ROWS) for i in range(N_STREAMS)},
+    }
+
+
+SPEC = unfold_spec(Unfold8x8x240App, op="unfold", h=H, w=W, c=C, tables=_tables)

@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import ShapeBundle, Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -88,7 +88,7 @@ V_ROWS = N_CHAN * PV_STRIDE_ROWS             # 768
 O_ROWS = N_CHAN * O_CHAN_ROWS                # 768
 
 PBASE_ROW = 0
-VBASE_ROW = PBASE_ROW + P_ROWS
+VBASE_ROW = PBASE_ROW + P_ROWS + PV_STRIDE_ROWS  # + overhead: the last prefetch's row
 OBASE_ROW = VBASE_ROW + V_ROWS
 
 PBASE = PBASE_ROW * ROW_BYTES
@@ -156,6 +156,22 @@ class AttnVBcast48App(IpuApp):
 # `requires`; a query that does carry `n_tok` must match it (see the family
 # app.py).
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    P holds each block's key rows; every value channel re-walks its block's
+    rows, and the loop's next-row load runs one stride past them: past the
+    last block that is ``PV_STRIDE_ROWS`` rows past P. V and O are walked
+    once.
+    """
+    stride, block = PV_STRIDE_ROWS, P_BLOCK_ROWS
+    return {
+        "p": Table(cr=2, rows=P_ROWS, jump_back=block + stride - 1, overhead_rows=stride),
+        "v": Table(cr=3, rows=V_ROWS),
+        "o": Table(cr=4, rows=O_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnVBcast48App,
     op="attn_v_bcast",
@@ -169,4 +185,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         attn=(N_BLOCK, N_TOK, N_TOK), value=(N_BLOCK, N_TOK, params["d"])
     ).with_shapes(derived={"output": (N_BLOCK, N_TOK, params["d"])}),
+    tables=_tables,
 )

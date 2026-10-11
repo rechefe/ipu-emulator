@@ -247,12 +247,13 @@ def positive_dims(q: SoftmaxQuery) -> str | None:
 
 
 def softmax_spec(app_class, *, along_rows, supports, explain, cost,
-                 caveats=lambda q: (), tags=()):
+                 caveats=lambda q: (), tags=(), tables=None):
     """KernelSpec for a softmax kernel; every callback receives the SoftmaxQuery.
 
     ``supports(q)`` returns a refusal reason, or None to accept. The shared
     preconditions -- positive extents and the reduction axis -- are checked
     first, and ``build`` hands the harness ``rows`` plus ``n`` or ``width``.
+    ``tables(q)``, if given, is the kernel's ``SPEC.tables`` declaration.
     """
     def query(params):
         return softmax_query(params["shape"], params["dim"])
@@ -288,6 +289,7 @@ def softmax_spec(app_class, *, along_rows, supports, explain, cost,
         bundle=lambda **params: query(params).bundle,
         cost=lambda **params: cost(query(params)),
         execution=ExecutionConfig(mode="fp32"),
+        tables=None if tables is None else (lambda **params: tables(query(params))),
     )
 
 

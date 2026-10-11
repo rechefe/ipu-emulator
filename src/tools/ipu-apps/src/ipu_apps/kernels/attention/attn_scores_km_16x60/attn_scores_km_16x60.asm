@@ -68,7 +68,7 @@
 {% set key_limit   = "lr10" %}  {# 16 = N keys #}
 {% set key_stride  = "lr12" %}  {# rows per key row in the K scratch #}
 
-{% set Q_BASE      = "cr0"  %}  {# channel-major Q base #}
+{% set Q_BASE      = "cr14"  %}  {# channel-major Q base #}
 {% set ONE         = "cr1"  %}  {# hardwired read-only 1 #}
 {% set S_BASE      = "cr2"  %}  {# key-major score output base #}
 {% set Q_START     = "cr5"  %}  {# -Q_CHAN_ROWS startup skew (first live = 0) #}
@@ -120,9 +120,9 @@ c_loop:
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
     STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[0:16, s] (key-major row)
-    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output row ptr += OUT_ROWS
+    ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};  # output row ptr += OUT_ROWS
+    ADD {{ key_index }} {{ key_index }} {{ ONE }};;    # a word ahead of its BLT (BLT reads the snapshot)
 
-    ADD {{ key_index }} {{ key_index }} {{ ONE }};
     BLT {{ key_index }} {{ key_limit }} s_loop;;  # next key
 
 end:

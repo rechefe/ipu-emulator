@@ -52,7 +52,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import ShapeBundle, Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ K_ROWS = P * K_STREAM_ROWS                   # 256
 S_ROWS = P * S_STREAM_ROWS                   # 256
 
 QBASE_ROW    = 0
-KBASE_KM_ROW = QBASE_ROW + Q_ROWS
+KBASE_KM_ROW = QBASE_ROW + Q_ROWS + Q_CHAN_ROWS  # + overhead: the last prefetch's row
 SBASE_ROW    = KBASE_KM_ROW + K_ROWS
 
 QBASE    = QBASE_ROW * ROW_BYTES
@@ -219,6 +219,21 @@ class AttnScoresKM64x48App(IpuApp):
 # never mentions it still routes (head 0). `build` hands it to the
 # constructor, which keeps its own range check for direct construction.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Q holds each stream's channel rows; every key re-walks its stream's rows,
+    and the loop's next-row load runs one row past them: past the last stream
+    that is one row past Q. K and the scores are walked once.
+    """
+    stride, stream = Q_CHAN_ROWS, Q_STREAM_ROWS
+    return {
+        "q": Table(cr=3, rows=Q_ROWS, jump_back=stream + stride - 1, overhead_rows=stride),
+        "k": Table(cr=9, rows=K_ROWS),
+        "scores": Table(cr=2, rows=S_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnScoresKM64x48App,
     op="attn_scores_km",
@@ -234,4 +249,5 @@ SPEC = attention_spec(
         query=(P, params["n_tok"], params["d"]),
         key=(P, params["n_tok"], params["d"]),
     ).with_shapes(derived={"output": (P, params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

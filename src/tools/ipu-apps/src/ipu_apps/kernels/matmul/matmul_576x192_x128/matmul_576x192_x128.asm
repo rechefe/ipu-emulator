@@ -40,7 +40,7 @@
 #   body runs for live index [lr5_start+1 .. bound+1]; bound = width-2.
 #   chunk0 width=128 -> bound 126 (lr6);  chunk1 width=64 -> bound 62 (lr11).
 #
-# CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE (off read-only CR1), cr2=WEIGHTS_BASE+128,
+# CRs: cr12=DATA_BASE, cr9=WEIGHTS_BASE (off read-only CR1),
 #       cr3=OUTPUT_BASE
 #       cr6=-128 (data startup), cr8=-1 (per-chunk fixed_idx startup)
 # LRs (preset by harness):
@@ -53,7 +53,7 @@
 #   lr9=0    (j counter)
 #   lr10=576 (j-loop limit)
 #   lr11=62  (chunk1 bound: width=64)
-#   lr12=256 (W_STRIDE = 256 bytes per j)
+#   lr12=1 row (step past the last chunk)
 #
 # Memory layout:
 #   DATA:    192 x 128 B       =  24 576 B (0x00000..0x05FFF)
@@ -84,14 +84,14 @@ j_loop:
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
     # Prime k=0's row for chunk0 (see the snapshot note in the header).
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -100,7 +100,7 @@ j_loop:
 k_chunk0:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr6 k_chunk0;;
@@ -109,12 +109,13 @@ after_chunk0:
     # No re-prime: chunk1's first row is already in flight from chunk0's
     # trailing prefetch, and lr5 is NOT biased here for the same reason.
     SET lr5 cr8;
-    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, 128..191]+zeros
+    ADD lr8 lr8 cr1;
+    LDR_MULT_REG r0 lr8 cr9;;  # chunk1 startup; r0 = W[j, 128..191]+zeros
 
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LDR_CYCLIC_MULT_REG lr4 cr12 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
     BLT lr5 lr11 k_chunk1;;

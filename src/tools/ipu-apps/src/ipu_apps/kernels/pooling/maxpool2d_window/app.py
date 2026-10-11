@@ -7,4 +7,4 @@ class App(WindowPoolApp):
     fixed_kernel = None
 
 
-SPEC = memory_spec("maxpool2d", App, cost=1)
+SPEC = memory_spec("maxpool2d", App, cost=1, tables=App.tables)

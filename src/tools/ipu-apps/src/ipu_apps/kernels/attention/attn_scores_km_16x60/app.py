@@ -52,6 +52,7 @@ from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry import ShapeBundle
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernels.attention.app import attention_spec
 
 if TYPE_CHECKING:
@@ -86,7 +87,7 @@ K_ROWS = N_TOK * K_STRIDE_ROWS
 S_ROWS = N_TOK * N_TG * OUT_ROWS
 
 QBASE_ROW    = 0
-KBASE_KM_ROW = QBASE_ROW + Q_ROWS
+KBASE_KM_ROW = QBASE_ROW + Q_ROWS + Q_CHAN_ROWS  # + overhead: the last prefetch's row
 SBASE_ROW    = KBASE_KM_ROW + K_ROWS
 
 QBASE    = QBASE_ROW * ROW_BYTES
@@ -166,8 +167,8 @@ class AttnScoresKM16x60App(IpuApp):
         state.set_cr_dstructure(valid_elements=N_TOK)
 
         # CR0 (=0) and CR1 (≡1) are read-only hardwired -- writing anything
-        # else raises EmulatorError. QBASE_ROW is 0,
-        # so CR0 already holds the correct value without any write.
+        # else raises EmulatorError. Every table has its own base CR: Q on CR14.
+        state.regfile.set_cr(14, QBASE_ROW)
         state.regfile.set_cr(2, SBASE_ROW)
         state.regfile.set_cr(9, KBASE_KM_ROW)
         # Startup skews are negative; CRs are 32-bit unsigned, and the kernel
@@ -206,6 +207,20 @@ class AttnScoresKM16x60App(IpuApp):
 # still gets a correct verdict (head 0). `build` hands it to the constructor,
 # which keeps its own range check for direct construction.
 
+def _tables(**params):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Q (``D`` channel columns of ``Q_CHAN_ROWS`` rows) is re-walked for every
+    key and query group, its next-row load running one column past it; K and
+    the scores are walked once.
+    """
+    return {
+        "q": Table(cr=14, rows=Q_ROWS, repetitions=N_TOK * N_TG, overhead_rows=Q_CHAN_ROWS),
+        "k": Table(cr=9, rows=K_ROWS),
+        "scores": Table(cr=2, rows=S_ROWS),
+    }
+
+
 SPEC = attention_spec(
     AttnScoresKM16x60App,
     op="attn_scores_km",
@@ -219,4 +234,5 @@ SPEC = attention_spec(
     bundle=lambda **params: ShapeBundle.of(
         query=(params["n_tok"], params["d"]), key=(params["n_tok"], params["d"])
     ).with_shapes(derived={"output": (params["n_tok"], params["n_tok"])}),
+    tables=_tables,
 )

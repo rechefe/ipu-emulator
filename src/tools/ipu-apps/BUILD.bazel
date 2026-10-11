@@ -87,6 +87,16 @@ py_binary(
     deps = [":ipu_apps_lib"],
 )
 
+# Measures a kernel's XMEM tables (per base CR) -- size, jump_back, repetitions,
+# banks live at once, liveness -- to help write and check its SPEC.tables.
+py_binary(
+    name = "table_trace",
+    srcs = ["src/ipu_apps/table_trace_cli.py"],
+    main = "src/ipu_apps/table_trace_cli.py",
+    imports = ["src"],
+    deps = [":ipu_apps_lib"],
+)
+
 # `:<family>` (e.g. :softmax, :pooling) runs every kernel in that family plus
 # the family's own test.py. Family tests may check the family's docs page.
 ipu_families_from_kernels(
@@ -101,6 +111,14 @@ py_pytest_test(
     size = "enormous",
     srcs = ["test/test_debug_launch.py"],
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+py_pytest_test(
+    name = "test_table_trace_cli",
+    srcs = ["test/test_table_trace_cli.py"],
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    imports = ["src"],
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
 

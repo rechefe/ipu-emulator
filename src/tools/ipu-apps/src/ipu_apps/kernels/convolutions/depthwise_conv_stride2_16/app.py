@@ -63,7 +63,10 @@ from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
     DepthwiseConvUniversalApp,
 )
+from ipu_apps.kernel_registry import Table
+from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import FPB as STAGE1_FPB
 from ipu_apps.kernels.convolutions.app import (
+    depthwise3x3_tables,
     CHUNK_ELEMENTS,
     kernel_asm,
     universal_spec,
@@ -246,6 +249,20 @@ def _supports(q):
     return None
 
 
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Program 0 is depthwise_conv_universal on the 16x16 input (two chunks).
+    Program 1 packs channel pairs: per pair it reads both chunks of channels
+    2p and 2p + 1 (``C - 1`` rows back between them) and stores one row.
+    """
+    c = q.in_channels
+    tables = {f"stage1_{name}": t for name, t in depthwise3x3_tables(q, STAGE1_FPB).items()}
+    tables["stage2_input"] = Table(cr=3, rows=2 * c, jump_back=c - 1, program=1)
+    tables["stage2_output"] = Table(cr=5, rows=c // 2, program=1)
+    return tables
+
+
 SPEC = universal_spec(
     DepthwiseConvStride2_16App,
     variant="depthwise_stride2_16",
@@ -263,4 +280,5 @@ SPEC = universal_spec(
         "Not cycle-optimized: unfused two-stage composition (full-res conv "
         "then a separate decimation pass).",
     ),
+    tables=_tables,
 )

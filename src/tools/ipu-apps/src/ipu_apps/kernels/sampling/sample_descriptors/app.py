@@ -7,4 +7,4 @@ class App(DescriptorApp):
     separable = False
 
 
-SPEC = memory_spec("sample_descriptors", App)
+SPEC = memory_spec("sample_descriptors", App, tables=App.tables)

@@ -20,7 +20,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_apps.kernels.normalize.app import layernorm_spec
+from ipu_apps.kernels.normalize.app import layernorm_spec, layernorm_tables
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -56,14 +56,14 @@ OUTPUT_ROWS    = N_CH
 
 # Packed back to back, in rows.
 DATA_BASE_ROW      = 0
-GAMMA_BASE_ROW     = DATA_BASE_ROW      + DATA_ROWS
+GAMMA_BASE_ROW     = DATA_BASE_ROW      + DATA_ROWS + 1  # + overhead: the last prefetch's row(s)
 BETA_BASE_ROW      = GAMMA_BASE_ROW     + GAMMA_ROWS
 ONES_BASE_ROW      = BETA_BASE_ROW      + BETA_ROWS
 NEG_INV_N_BASE_ROW = ONES_BASE_ROW      + CONST_ROWS
 INV_N_BASE_ROW     = NEG_INV_N_BASE_ROW + CONST_ROWS
 NEG_MEAN_BASE_ROW  = INV_N_BASE_ROW     + CONST_ROWS
 CENTERED_BASE_ROW  = NEG_MEAN_BASE_ROW  + CONST_ROWS
-TEMP_BASE_ROW      = CENTERED_BASE_ROW  + CENTERED_ROWS
+TEMP_BASE_ROW      = CENTERED_BASE_ROW  + CENTERED_ROWS + 1  # + overhead: the last prefetch's row(s)
 INVSTD_BASE_ROW    = TEMP_BASE_ROW      + TEMP_ROWS
 OUTPUT_BASE_ROW    = INVSTD_BASE_ROW    + INVSTD_ROWS
 
@@ -124,10 +124,9 @@ class LayerNorm128x16App(IpuApp):
         state.xmem.write_address(INV_N_BASE,      bytearray(inv_n))
 
         # CR registers
-        # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants;
-        # writing either raises EmulatorError. DATA_BASE is 0x0 so CR0 is fine,
-        # and GAMMA_BASE lives on CR11 rather than CR1 (the hardwired CR0 supplies
-        # the constant zero).
+        # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing
+        # either raises EmulatorError. Every table has a base CR of its own
+        # (data on CR13, gamma on CR11); CR0 is only the constant zero.
         state.regfile.set_cr(2,  BETA_BASE_ROW)
         state.regfile.set_cr(3,  ONES_BASE_ROW)
         state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)
@@ -139,7 +138,7 @@ class LayerNorm128x16App(IpuApp):
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
         state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
         state.regfile.set_cr(12, N_CH)
-        state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row
+        state.regfile.set_cr(13, DATA_BASE_ROW)    # input data base row
         state.regfile.set_cr(14, N_TPG)
 
     def teardown(self, state: "IpuState") -> None:
@@ -150,4 +149,5 @@ class LayerNorm128x16App(IpuApp):
             )
 
 
-SPEC = layernorm_spec(LayerNorm128x16App, channels=N_CH, tokens=N_TPG)
+SPEC = layernorm_spec(LayerNorm128x16App, channels=N_CH, tokens=N_TPG,
+                      tables=lambda **params: layernorm_tables(N_CH, 1))

@@ -70,7 +70,7 @@
 {% set row_stride = "lr7"  %}  {# 1 = row stride for A and B #}
 {% set out_stride = "lr8"  %}  {# 1 = output row stride #}
 
-{% set A_BASE     = "cr0"  %}  {# base of A #}
+{% set A_BASE     = "cr14"  %}  {# base of A #}
 {% set ONE        = "cr1"  %}  {# hardwired read-only 1 #}
 {% set OUT_BASE   = "cr3"  %}  {# output base #}
 {% set ZERO       = "cr4"  %}  {# const 0 #}

@@ -64,7 +64,7 @@ import numpy as np
 from ipu_emu.emulator import dump_xmem_to_binary
 
 from ipu_apps.kernel_registry import (
-    OUTPUT, WEIGHT, ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
+    OUTPUT, WEIGHT, ExecutionConfig, ShapeBundle, Table, folder_spec, kernel_folder, no, yes,
 )
 from ipu_apps.kernel_registry.base import IpuApp
 
@@ -144,11 +144,35 @@ class ProjectionLayout:
 
     @property
     def weights_base_row(self) -> int:
-        return self.data_base_row + N_STREAM * self.data_rows_per_stream
+        # + n_tg: the data loop's last prefetch runs one k-step past D.
+        return self.data_base_row + N_STREAM * self.data_rows_per_stream + self.n_tg
 
     @property
     def output_base_row(self) -> int:
         return self.weights_base_row + self.weight_rows
+
+    def tables(self) -> dict[str, Table]:
+        """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+        D: each stream's block (``k * n_tg`` rows) is re-walked for every
+        output channel and token group before the next stream starts, so it
+        is one traversal reaching back a whole block (plus the tg=1 start one
+        row in); the last prefetch runs one k-step (``n_tg`` rows) past D.
+        W is re-read once per stream; with two token groups each channel's
+        chunks are loaded twice (``chunks - 1`` back). C is written once; with
+        two token groups the tg=0 and tg=1 sub-blocks interleave
+        (``n_out - 1`` back).
+        """
+        two_tg = self.n_tg == 2
+        return {
+            "data": Table(cr=2, rows=N_STREAM * self.data_rows_per_stream,
+                          jump_back=self.data_rows_per_stream + self.n_tg - 1,
+                          overhead_rows=self.n_tg),
+            "weights": Table(cr=3, rows=self.weight_rows, repetitions=N_STREAM,
+                             jump_back=self.chunk_count - 1 if two_tg else 0),
+            "output": Table(cr=4, rows=N_STREAM * self.output_rows_per_stream,
+                            jump_back=self.n_out - 1 if two_tg else 0),
+        }
 
     @property
     def input_shape(self) -> tuple[int, int, int, int]:
@@ -380,4 +404,5 @@ def projection_spec(app_class: type[ProjectionP4App], *, activation: str = "none
         # no two projection kernels share a (k, n_out, activation).
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=lambda **params: lo.tables(),
     )

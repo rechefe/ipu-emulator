@@ -26,6 +26,7 @@ import numpy as np
 
 from ipu_emu.emulator import dump_xmem_to_binary
 
+from ipu_apps.kernel_registry import Table
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import unfold_spec
 
@@ -65,8 +66,9 @@ _STREAM_ROWS = N_OUT * 1               # rows per output stream
 SRC_STRIDE_ROWS = 1                          # one src row per channel
 DST_STRIDE_ROWS = 1                    # rows per output channel
 
+_STRIPE_PITCH = _STRIPE_ROWS + 1             # stripe rows + one row for a prefetch past it
 SRC_BASE_ROW  = 0
-ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_ROWS
+ONES_BASE_ROW = SRC_BASE_ROW + N_STRIPES * _STRIPE_PITCH
 DST_BASE_ROW  = ONES_BASE_ROW + 1
 
 SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
@@ -84,7 +86,10 @@ def _load_input(state: "IpuState", input_path: str | Path) -> None:
     Each row: 8 spatial rows × 16 columns of one channel.
     """
     raw = Path(input_path).read_bytes()
-    state.xmem.write_address(SRC_BASE, bytearray(raw))
+    stripe = _STRIPE_ROWS * ROW_BYTES
+    for s in range(N_STRIPES):
+        state.xmem.write_address((SRC_BASE_ROW + s * _STRIPE_PITCH) * ROW_BYTES,
+                                 bytearray(raw[s * stripe:(s + 1) * stripe]))
 
 
 def _load_ones(state: "IpuState") -> None:
@@ -110,10 +115,10 @@ class Unfold16x16x192App(IpuApp):
     def setup(self, state: "IpuState") -> None:
         _load_input(state, self.input_path)
         _load_ones(state)
-        # CR0, CR13: per-stripe source bases. CR0 (≡0) and CR1 (≡1) are read-only
-        # hardwired constants — writing either raises EmulatorError — so stripe 1
-        # goes to CR13. Stripe 0's base SRC_BASE_ROW is 0, which CR0 already holds.
-        state.regfile.set_cr(13, SRC_BASE_ROW + _STRIPE_ROWS)
+        # CR14, CR13: per-stripe source bases. Every table has its own base CR
+        # (never the read-only CR0/CR1), even stripe 0 at row 0.
+        state.regfile.set_cr(14, SRC_BASE_ROW)
+        state.regfile.set_cr(13, SRC_BASE_ROW + _STRIPE_PITCH)
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream destination bases (TL, TR, BL, BR)
@@ -144,4 +149,20 @@ class Unfold16x16x192App(IpuApp):
 # :func:`~ipu_apps.kernels.reshape.app.unfold_spec` for the
 # exact-shape `supports`.
 
-SPEC = unfold_spec(Unfold16x16x192App, op="unfold", h=H, w=W, c=C)
+def _tables(q):
+    """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+    Two stripes of ``C`` source rows, each read once (CR14 = stripe 0, CR13 =
+    stripe 1); stripe 0's next-row load runs one row past it. Four output
+    streams of ``C`` rows, written once.
+    """
+    streams = {f"stream{i}": Table(cr=9 + i, rows=_STREAM_ROWS) for i in range(N_STREAMS)}
+    return {
+        "stripe0": Table(cr=14, rows=_STRIPE_ROWS, overhead_rows=1),
+        "stripe1": Table(cr=13, rows=_STRIPE_ROWS),
+        "ones": Table(cr=8, rows=1),
+        **streams,
+    }
+
+
+SPEC = unfold_spec(Unfold16x16x192App, op="unfold", h=H, w=W, c=C, tables=_tables)

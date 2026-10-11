@@ -54,6 +54,7 @@ from ipu_apps.kernel_registry import (
     WEIGHT,
     ExecutionConfig,
     ShapeBundle,
+    Table,
     UnsupportedLayer,
     folder_spec,
     no,
@@ -96,6 +97,42 @@ class ConvApp(MemoryApp):
             if k == 3:
                 crs.update({13: 13, 14: 126})
         return MemoryLayout(output, out_channels * h * tiles, crs)
+
+    @classmethod
+    def tables(cls, *, shape, out_channels, kernel_size, stride, padding, activation):
+        """XMEM tables as the Cache Unit sees them (see ``ipu_emu.table_trace``).
+
+        Input channel ``c`` is a plane of ``P = (h + k - 1) * tiles`` rows.
+        Every output channel re-walks the whole input (one repetition each):
+        per output tile it walks down the channels, so the next tile steps back
+        from the last channel to the first. The multi-channel kernels' channel
+        loop prefetches into the guard plane past the last channel -- rows
+        that are allocated and declared as overhead.
+        """
+        c, h, w = shape
+        k = cls.kernel_size
+        tiles = ceildiv(w, 128 if k == 1 else 126)
+        groups = ceildiv(c, 128 if k == 1 else 14)
+        plane = (h + k - 1) * tiles
+        if cls.single_channel:
+            # Rows y, y+1, y+2 of one tile, then the next tile: 2*tiles - 1 back.
+            data = Table(cr=2, rows=plane, repetitions=out_channels, jump_back=2 * tiles - 1)
+        elif k == 1:
+            # Channel Cin's row at each tile position: the whole guard plane.
+            data = Table(cr=2, rows=c * plane, repetitions=out_channels,
+                         jump_back=c * plane - 1, overhead_rows=plane)
+        else:
+            # Channel Cin's rows y and y+1 at each tile: guard rows up to (h+1)*tiles.
+            data = Table(cr=2, rows=c * plane, repetitions=out_channels,
+                         jump_back=c * plane + tiles - 1, overhead_rows=(h + 1) * tiles)
+        return {
+            "input": data,
+            # An output channel's group rows are re-read for every tile.
+            "weights": Table(cr=4, rows=out_channels * groups,
+                             jump_back=groups - 1 if h * tiles > 1 else 0),
+            "bias": Table(cr=5, rows=out_channels),
+            "output": Table(cr=3, rows=out_channels * h * tiles),
+        }
 
 
 # -- Universal kernels: shared constants --------------------------------------
@@ -475,12 +512,13 @@ def padding_caveat(q: ConvQuery, rows: int, cols: int) -> tuple[str, ...]:
 
 
 def universal_spec(app_class, *, variant, supports, build, explain,
-                   caveats=lambda q: (), cost=lambda q: 0.0):
+                   caveats=lambda q: (), cost=lambda q: 0.0, tables=None):
     """KernelSpec for a universal conv2d kernel; callbacks receive the ConvQuery.
 
     ``supports(q)`` returns a refusal reason, or None to accept; positive
     extents are checked first. ``build(q)`` returns the harness kwargs.
-    ``caveats(q)`` adds to the shared FP32-only caveat.
+    ``caveats(q)`` adds to the shared FP32-only caveat. ``tables(q)``, if
+    given, is the kernel's ``SPEC.tables`` declaration.
     """
     def query(params):
         return conv_query(**params)
@@ -505,7 +543,79 @@ def universal_spec(app_class, *, variant, supports, build, explain,
         bundle=lambda **params: query(params).bundle,
         cost=lambda **params: cost(query(params)),
         execution=ExecutionConfig(mode="fp32"),
+        tables=None if tables is None else (lambda **params: tables(query(params))),
     )
+
+
+def standard3x3_tables(q: ConvQuery) -> dict[str, Table]:
+    """XMEM tables of ``conv_universal`` and its ``_bn_activation`` twin.
+
+    The image pads to ``rows x cols`` and packs into ``N`` 128-element chunks;
+    chunk ``n`` of all ``C`` input channels is one group of ``C`` rows. The
+    input table holds one group of headroom (chunk -1, the kr=-1 rows of
+    chunk 0) and then the data. Chunk by chunk, every filter re-reads the
+    kr=-1, 0, +1 groups -- ``3*C - 1`` rows back -- and the last chunk's kr=+1
+    group lies one group past the table: zeroed by the bottom border mask, so
+    relied upon, and declared as overhead. The weights (two rows per FPB=28
+    super-block) are re-walked once per chunk.
+    """
+    cols = next_valid_cols(q.width)
+    chunks = min_rows_for_chunk_floor(q.height, cols) * cols // CHUNK_ELEMENTS
+    c = q.in_channels
+    weight_rows = q.out_channels * math.ceil(c / 28) * 2
+    return {
+        "input": Table(cr=10, rows=(chunks + 1) * c, jump_back=3 * c - 1, overhead_rows=c),
+        "weights": Table(cr=5, rows=weight_rows, repetitions=chunks),
+        "mask": Table(cr=3, rows=1),
+        "output": Table(cr=2, rows=chunks * q.out_channels),
+    }
+
+
+def depthwise3x3_tables(q: ConvQuery, channels_per_block: int) -> dict[str, Table]:
+    """XMEM tables of ``depthwise_conv_universal`` and its ``_bn_activation`` twin.
+
+    Same chunk layout as :func:`standard3x3_tables` with ``C`` channels: one
+    group of headroom, then ``N`` chunk groups. Chunk by chunk, each channel
+    reads its kr=-1, 0, +1 rows, ``2*C`` rows back at most; the last chunk's
+    pipeline loads one row past the table. The weights (two rows per
+    super-block of ``channels_per_block`` channels) are re-walked per chunk.
+
+    Each channel stores at its own tap 9, so the output is written once, row
+    by row, from its first row.
+    """
+    cols = next_valid_cols(q.width)
+    chunks = min_rows_for_chunk_floor(q.height, cols) * cols // CHUNK_ELEMENTS
+    c = q.in_channels
+    return {
+        "input": Table(cr=10, rows=(chunks + 1) * c, jump_back=2 * c, overhead_rows=1),
+        "weights": Table(cr=5, rows=math.ceil(c / channels_per_block) * 2, repetitions=chunks),
+        "mask": Table(cr=3, rows=1),
+        "output": Table(cr=2, rows=chunks * c),
+    }
+
+
+def pointwise_tables(q: ConvQuery, *, bias: bool = False) -> dict[str, Table]:
+    """XMEM tables of ``pointwise_conv_unified`` and its ``_bn_activation`` twin.
+
+    The image pads to ``G`` 128-element row groups; row group ``g`` holds one
+    row per input channel. Every output channel re-walks its row group's
+    ``C`` rows (``C - 1`` back), and the kernel -- one row per (output
+    channel, 128-channel pass) -- is re-walked for every row group, as is the
+    bias region that mirrors it in the twin.
+    """
+    rows, cols = pointwise_pad_shape(q.height, q.width)
+    groups = rows * cols // CHUNK_ELEMENTS
+    c = q.in_channels
+    kernel_rows = q.out_channels * math.ceil(c / 128)
+    tables = {
+        "input": Table(cr=4, rows=groups * c, jump_back=c - 1),
+        "kernel": Table(cr=14, rows=kernel_rows, repetitions=groups),
+        "mask": Table(cr=2, rows=1),
+        "output": Table(cr=3, rows=groups * q.out_channels),
+    }
+    if bias:
+        tables["bias"] = Table(cr=10, rows=kernel_rows, repetitions=groups)
+    return tables
 
 
 # -- Framework-layer adapter ---------------------------------------------------

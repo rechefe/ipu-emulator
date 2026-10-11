@@ -48,6 +48,7 @@ from ipu_apps.kernels.convolutions.app import (
     padding_caveat,
     pointwise_pad_shape,
     read_bias,
+    pointwise_tables,
     universal_spec,
     unpack_output_chunked,
 )
@@ -246,18 +247,17 @@ class PointwiseConvUnifiedBnActivationApp(IpuApp):
         state.xmem.write_address(self.mask_base_row * ROW_BYTES, b"\xff" * MASK_SLOT_BYTES)
 
         # CR0 = read-only 0, CR1 = read-only 1 (cannot be overwritten).
-        # INPUT_BASE_ROW is 0, so CR0 serves as both the zero constant and the
-        # input/cyclic-load base.  The kernel base (nonzero) lives in CR14
-        # (the constant-1 pass decrement uses CR1 directly).
+        # Every table has its own base CR: the input on CR4, the kernel on
+        # CR14 (the constant-1 pass decrement uses CR1 directly).
         # All of these are XMEM *row* numbers, not byte addresses.
         state.regfile.set_cr(2, self.mask_base_row)
         state.regfile.set_cr(3, self.output_base_row)
         state.regfile.set_cr(14, self.kernel_base_row)
+        state.regfile.set_cr(4, self.input_base_row)
 
         # Parameter CR registers (see the .asm header). CR scalars stay
         # integer-only even in wide mode -- none of these carry fractional
         # values, so FP32 mode does not affect them.
-        state.regfile.set_cr(4, self.num_passes)
         state.regfile.set_cr(5, self.row_groups)
         state.regfile.set_cr(6, self.pipeline_limit_full)
         state.regfile.set_cr(7, self.out_channels)
@@ -329,6 +329,8 @@ def _supports(q):
     return None
 
 
+
+
 SPEC = universal_spec(
     PointwiseConvUnifiedBnActivationApp,
     variant="pointwise_bn_activation",
@@ -344,4 +346,5 @@ SPEC = universal_spec(
         f"{'x'.join(map(str, pointwise_pad_shape(q.height, q.width)))}."
     ),
     caveats=lambda q: padding_caveat(q, *pointwise_pad_shape(q.height, q.width)),
+    tables=lambda q: pointwise_tables(q, bias=True),
 )

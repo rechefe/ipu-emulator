@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes
+from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, Table, folder_spec, kernel_folder, no, yes
 
 OP = "matmul"
 ACTIVATIONS = ("none", "silu")
@@ -93,10 +93,12 @@ def positive_dims(q: MatmulQuery) -> str | None:
     return None
 
 
-def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str = "none"):
+def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str = "none",
+                tables=None):
     """KernelSpec for a fixed ``(m, k, n)`` matmul kernel.
 
     ``role`` names where the kernel sits in the network, for ``explain``.
+    ``tables`` is the kernel's ``SPEC.tables`` declaration, when it has one.
     """
     name = kernel_folder(app_class)
 
@@ -124,4 +126,43 @@ def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str
         # Exact-shape match: no two matmul kernels share a (triple, activation).
         cost=lambda **params: 0.0,
         execution=ExecutionConfig(mode="fp32"),
+        tables=tables,
     )
+
+
+def streamed_weights_tables(*, m: int, k: int) -> dict[str, Table]:
+    """XMEM tables of the one-row-per-vector matmuls (``matmul_128x128`` style).
+
+    A (one row per output row) and the output are walked once. T = W^T (one
+    row per k) is re-read in full for every row of A, and the prefetch of
+    T[k+1] on the last k reads one row past it (its data is not used): that
+    row is declared and allocated as overhead.
+    """
+    return {
+        "input": Table(cr=12, rows=m),
+        "weights": Table(cr=11, repetitions=m, rows=k, overhead_rows=1),
+        "output": Table(cr=2, rows=m),
+    }
+
+
+def streamed_data_tables(*, n_out: int, data_rows: int, data_stride: int, walks: int,
+                         chunks: int, outputs: dict[str, int], reread_chunks: bool = False,
+                         ) -> dict[str, Table]:
+    """XMEM tables of the ``*_x128`` matmuls.
+
+    The data D (``data_rows`` rows, ``data_stride`` per k) is re-walked
+    ``walks`` times -- once per output feature (and token group) -- and the
+    loop's next-row load runs one stride past it. W is one table through CR9:
+    feature ``j``'s 128-element chunk ``c`` is row ``j * chunks + c``, walked
+    once in order. With ``reread_chunks`` (a second token group reloading
+    the feature's chunks) each feature steps back ``chunks - 1`` rows. Every
+    output table holds ``n_out`` rows.
+    """
+    tables = {
+        "data": Table(cr=12, rows=data_rows, repetitions=walks, overhead_rows=data_stride),
+        "weights": Table(cr=9, rows=n_out * chunks,
+                         jump_back=chunks - 1 if reread_chunks else 0),
+    }
+    for name, cr in outputs.items():
+        tables[name] = Table(cr=cr, rows=n_out)
+    return tables

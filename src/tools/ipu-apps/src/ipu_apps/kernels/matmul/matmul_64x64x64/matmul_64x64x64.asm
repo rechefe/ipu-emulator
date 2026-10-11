@@ -27,7 +27,7 @@
 # New kernel: MULT.VE.CYCLIC replaces MULT.EV mem_bypass (mem_bypass removed in PR #69).
 #
 # Memory layout (set via CR registers):
-#   cr0  = input  base (A: 64 rows x 128 bytes padded = 8192 bytes)
+#   cr12 = input  base (A: 64 rows x 128 bytes padded = 8192 bytes)
 #   cr11 = weights base (T: 64 rows x 128 bytes padded = 8192 bytes)
 #          (moved off CR1 — CR1 is now a read-only hardwired constant ≡ 1)
 #   cr2 = output base  (C: 64 rows x 256 bytes packed = 16384 bytes)
@@ -50,7 +50,7 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LDR_MULT_REG        r0 lr0 cr12;;
 
     SET                 lr4 cr8;;
     SET                 lr5 cr9;;

@@ -61,14 +61,13 @@
 {% set k_bound_r0    = "lr6" %}   {# 126 = k-loop1 bound (k=0..127 from r0)     #}
 {% set k_bound_r1    = "lr11" %}  {# 142 = k-loop2 bound (k=128..143 from r1)   #}
 {% set out_ptr       = "lr7" %}   {# byte offset into C, += out_stride per j    #}
-{% set w_ptr         = "lr8" %}   {# byte offset into W, += w_stride per j      #}
+{% set w_ptr         = "lr8" %}   {# row offset into W (chunk c of j = j*2 + c) #}
 {% set j_index       = "lr9" %}   {# output-channel counter j                   #}
 {% set j_limit       = "lr10" %}  {# 288 = N_OUT                                #}
-{% set w_stride      = "lr12" %}  {# 256 = W_STRIDE bytes per output channel    #}
+{% set w_stride      = "lr12" %}  {# 1 row: per-j step past the last chunk       #}
 
-{% set DATA_BASE     = "cr0" %}   {# base of D                                  #}
+{% set DATA_BASE     = "cr12" %}   {# base of D                                  #}
 {% set ONE           = "cr1" %}   {# hardwired read-only 1                      #}
-{% set W_BASE_HI     = "cr2" %}   {# WEIGHTS_BASE + 128 (W[j,128..143])         #}
 {% set OUT_BASE_TG0  = "cr3" %}
 {% set OUT_BASE_TG1  = "cr4" %}
 {% set DATA_START_TG0 = "cr5" %}  {# -256 startup skew                          #}
@@ -103,7 +102,8 @@
 
 j_loop:
     LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_LO }};;       # r0[0..127] = W[j, 0..127]
-    LDR_MULT_REG r1 {{ w_ptr }} {{ W_BASE_HI }};;       # r1[0..127] = W[j, 128..143] + zeros
+    ADD {{ w_ptr }} {{ w_ptr }} {{ ONE }};
+    LDR_MULT_REG r1 {{ w_ptr }} {{ W_BASE_LO }};;       # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG0 }};;           # tg=0 startup offset: -256

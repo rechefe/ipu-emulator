@@ -8,4 +8,4 @@ class App(ConvApp):
     single_channel = False
 
 
-SPEC = memory_spec("conv2d", App, cost=1)
+SPEC = memory_spec("conv2d", App, cost=1, tables=App.tables)
