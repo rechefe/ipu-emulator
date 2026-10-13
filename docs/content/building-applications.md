@@ -62,7 +62,7 @@ The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP
 
 ## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 
-The [AaQ stage spec](specs/stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
+The [AaQ stage spec](specs/MAS-stage-aaq-str.md) describes how **real hardware** wires activation: a function id (for example from `act_cr_idx` and a `CR` read) and **α-like parameters** that are **not** VLIW immediates—they come from implementation-defined configuration (constants, fuses, side-band registers, etc.).
 
 The **Python emulator** in this repository adds a convenience AAQ-slot instruction **`ACTIVATE.QUANTIZE`** so programs can apply the same thirteen activation shapes to elements read from **`R_ACC`**, writing results into **`POST_AAQ_REG`** (without modifying **`R_ACC`**), without modeling the full `act_cr_idx` path:
 
@@ -85,7 +85,7 @@ ACTIVATE.QUANTIZE relu, CR15;;
 
 The stock ISA does not expose α, nor the **`window`** bounds. The emulator reads α from each **`IpuState`** (field `elu_alpha`) and the window bounds from `window_a` / `window_b`. If you do not set them, they are initialized from the default floats in `ipu_common/activations.py` (`DEFAULT_ELU_ALPHA`, `DEFAULT_WINDOW_A`, `DEFAULT_WINDOW_B`).
 
-**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
+**`window`** is the rectangular indicator `window(x) = 1` for `a <= x < b`, `0` otherwise (half-open, lower bound inclusive). The defaults are provisional placeholders pending calibration: `a = 0.0`, `b = 0.1`. On hardware it belongs to the LUT-backed `activation` group of [the AaQ spec](specs/MAS-stage-aaq-str.md), so `a` and `b` are baked into the loaded LUT contents; the emulator keeps them as the state fields below instead.
 
 Configure these the same way you think about dtype on state — **not via CR**:
 
