@@ -60,7 +60,7 @@ from fixture_full_layer_chain import (
     app_inst, run_layernorm, run_proj_p4, run_qk_scores_query_major_all_blocks,
     run_attn_v_query_major_all_blocks, run_attn_scores_km_one_head, run_attn_v_bcast,
     run_residual_add, relative_error_stats, format_relative_error_stats,
-    real_softmax_query_major, real_softmax_key_major,
+    real_softmax_query_major, real_softmax_key_major, _stable_seed,
 )
 
 # USE_REAL_SOFTMAX=1 routes the chain through the real softmax_rows_partial /
@@ -232,7 +232,7 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     used by the per-stage error-instrumentation test to compare against
     _numpy_layer_reference_staged's matching keys.
     """
-    rng = np.random.RandomState(hash((tag, "filler")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler"))
 
     ln1, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=x,
                                gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,
@@ -372,7 +372,7 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
 
     scale_q: see _run_layer_query_major's matching parameter.
     """
-    rng = np.random.RandomState(hash((tag, "filler_km")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler_km"))
 
     ln1, c, _ = run_layernorm(LayerNorm64x192App, inst_bin=app_inst("layernorm_64x192"), x=x,
                                gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,

@@ -1,11 +1,16 @@
 """FP32 fixture packing and checks; none of this runs inside a kernel harness."""
+from __future__ import annotations
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import PreparedCase
 
 
-def random_values(shape):
-    return np.random.default_rng(7).standard_normal(shape).astype('<f4')
+def random_values(shape, rng: np.random.Generator | None = None):
+    """Standard-normal float32 values. Pass one ``rng`` per case to draw
+    several independent tensors; without it, each call restarts seed 7."""
+    rng = np.random.default_rng(7) if rng is None else rng
+    return rng.standard_normal(shape).astype('<f4')
 
 
 def tile_input(values, *, halo=0, fill=0, guard=False):

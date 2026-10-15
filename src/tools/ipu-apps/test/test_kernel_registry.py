@@ -729,3 +729,59 @@ def test_manifest_flags_are_the_runner_flags(kernel, capsys):
         help_text = capsys.readouterr().out
         for flag in [o[k] for o in case_options(case).values() for k in ("flag", "negated_flag") if k in o]:
             assert flag in help_text
+
+
+# --- Test data: one generator per case --------------------------------------
+
+# The first six float32 values of seed 7, as little-endian bytes. Single-tensor
+# cases draw with no generator and must keep exactly these inputs.
+_SEED7_PREFIX = bytes.fromhex("193da13a2df5983ecc5b8cbed4fd63bf9ccae8be8cdc7dbf")
+
+
+def test_random_values_without_a_generator_restarts_seed_7():
+    from ipu_apps.kernel_registry.case_support import random_values
+
+    first, again = random_values((6,)), random_values((2, 3))
+    assert first.dtype == np.dtype('<f4')
+    assert first.tobytes() == _SEED7_PREFIX
+    assert again.tobytes() == _SEED7_PREFIX
+
+
+def test_random_values_with_one_generator_draws_independent_tensors():
+    from ipu_apps.kernel_registry.case_support import random_values
+
+    rng = np.random.default_rng(7)
+    draws = [random_values((6,), rng) for _ in range(3)]
+    assert draws[0].tobytes() == _SEED7_PREFIX
+    for i, a in enumerate(draws):
+        for b in draws[i + 1:]:
+            assert not np.isin(a[:4], b).any()
+
+
+@pytest.mark.parametrize("kernel", ["conv1x1", "conv3x3_relu", "conv3x3_relu_cin1"])
+@pytest.mark.parametrize("case_name", ["default", "single_pixel"])
+def test_convolution_case_tensors_share_no_values(kernel, case_name, monkeypatch, tmp_path):
+    """x, weights and bias of one case come from one generator, so a kernel that
+    reads the wrong region (bias where it should read x) cannot pass."""
+    import ipu_apps.kernels.convolutions.cases as conv_cases
+
+    real = conv_cases.random_values
+    calls = []
+
+    def recording(shape, rng=None):
+        values = real(shape, rng)
+        calls.append((rng, values))
+        return values
+
+    monkeypatch.setattr(conv_cases, "random_values", recording)
+    case = load_cases(kernel)[case_name]
+    case.prepare(tmp_path, **case.defaults)
+
+    assert len(calls) == 3
+    rngs = {id(rng) for rng, _ in calls}
+    assert len(rngs) == 1 and calls[0][0] is not None
+    x, weights, bias = (values.ravel() for _, values in calls)
+    assert x.tobytes()[:min(x.nbytes, len(_SEED7_PREFIX))] == _SEED7_PREFIX[:x.nbytes]
+    assert not np.isin(bias, x).any()
+    assert not np.isin(weights, x).any()
+    assert not np.isin(bias, weights).any()

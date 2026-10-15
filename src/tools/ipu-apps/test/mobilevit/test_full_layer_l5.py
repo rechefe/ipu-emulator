@@ -45,7 +45,7 @@ from fixture_full_layer_chain import (
     app_inst, run_layernorm, run_proj_p4, run_qk_scores_query_major_one_head,
     run_attn_v_query_major_one_stream, run_attn_scores_km_one_head, run_attn_v_bcast,
     run_residual_add, relative_error_stats, format_relative_error_stats,
-    real_softmax_query_major, real_softmax_key_major,
+    real_softmax_query_major, real_softmax_key_major, _stable_seed,
 )
 
 # See test_full_layer_l4.py's matching flag for what this does.
@@ -195,7 +195,7 @@ def _run_layer_query_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
     place with stream 0's real (float64-cast) intermediate value at every
     stage boundary.
     """
-    rng = np.random.RandomState(hash((tag, "filler")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler"))
 
     ln1, c, _ = run_layernorm(LayerNorm16x240App, inst_bin=app_inst("layernorm_16x240"), x=x,
                                gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,
@@ -336,7 +336,7 @@ def _run_layer_key_major(x: np.ndarray, w: dict, tmp_path: Path, tag: str,
 
     scale_q: see _run_layer_query_major's matching parameter.
     """
-    rng = np.random.RandomState(hash((tag, "filler_km")) & 0xFFFFFFFF)
+    rng = np.random.RandomState(_stable_seed(tag, "filler_km"))
 
     ln1, c, _ = run_layernorm(LayerNorm16x240App, inst_bin=app_inst("layernorm_16x240"), x=x,
                                gamma=w["ln1_gamma"], beta=w["ln1_beta"], n_ch=D_MODEL,

@@ -26,9 +26,11 @@ def make_cases(app):
                       kernel_size=k, stride=1, padding=k//2,
                       activation="none" if k == 1 else "relu")
         layout = app.memory_layout(**params)
-        x = random_values(params['shape'])
-        weights = random_values((out_channels, channels, k, k)) / 4
-        bias = random_values((out_channels,))
+        # One generator per case: x, weights and bias are independent draws.
+        rng = np.random.default_rng(7)
+        x = random_values(params['shape'], rng)
+        weights = random_values((out_channels, channels, k, k), rng) / 4
+        bias = random_values((out_channels,), rng)
         group_size = 128 if k == 1 else 14
         groups = (channels + group_size - 1) // group_size
 

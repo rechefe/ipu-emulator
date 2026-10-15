@@ -22,6 +22,7 @@ so this harness does it on the host, where a weight-folding generator would.
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +32,15 @@ from ipu_emu.ipu_state import IpuState
 from fixture_kernel_support import kernel_inst
 
 _POISON = np.float32(1e3)
+
+
+def _stable_seed(*parts: str) -> int:
+    """A 32-bit RNG seed derived from ``parts``, the same in every process.
+
+    ``hash()`` of a string is salted per process (``PYTHONHASHSEED``), so a
+    seed taken from it changes between runs and a failure cannot be replayed.
+    """
+    return zlib.crc32("/".join(parts).encode())
 
 
 def relative_error_stats(got: np.ndarray, expected: np.ndarray) -> dict:
