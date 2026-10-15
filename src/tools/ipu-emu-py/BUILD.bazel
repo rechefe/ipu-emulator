@@ -42,6 +42,18 @@ py_pytest_test(
     ],
 )
 
+# FP8 codec checked against an independent Fraction reference and ml_dtypes.
+py_pytest_test(
+    name = "test_ipu_math",
+    srcs = ["test/test_ipu_math.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("ml-dtypes"),
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_regfile",
     srcs = ["test/test_regfile.py"],

@@ -92,7 +92,13 @@ def _fp8_encode_subnormal(val: float, exp_bits: int, man_bits: int, sign: int) -
     max_man = (1 << man_bits) - 1
     # val = (man_int / 2^man_bits) * 2^(1-bias)  →  man_int = val * 2^(man_bits+bias-1)
     man_int = round(val * (2.0 ** (man_bits + bias - 1)))
-    man_int = max(0, min(man_int, max_man))
+    if man_int > max_man:
+        # Rounded up out of the subnormal range. (1 << man_bits) is exponent
+        # field 1, mantissa 0: the smallest normal. E1 has no normal range
+        # (exponent field 1 is NaN), so it saturates instead.
+        if exp_bits == 1:
+            return (sign << 7) | _fp8_max_finite(exp_bits, man_bits)
+        man_int = 1 << man_bits
     return (sign << 7) | man_int
 
 
@@ -100,9 +106,15 @@ def _fp8_encode_normal(frac: float, fp8_exp: int, exp_bits: int, man_bits: int, 
     """Encode a normal FP8 value given the biased exponent and frexp fraction."""
     max_exp_raw = (1 << exp_bits) - 1
     max_man = (1 << man_bits) - 1
-    # For E7 (man_bits=0): (2*frac-1) is in [0,1), so round() gives 0 and no
-    # carry ever fires.  For all other formats man_int is in [0, 2^man_bits].
-    man_int = round((2 * frac - 1) * (1 << man_bits))
+    # man_int is in [0, 2^man_bits]; round() is round half to even, and since
+    # the mantissa holds the low bits of the code, an even mantissa is an even
+    # code.  E7 (man_bits=0) has no mantissa bit to make even: a tie lies
+    # halfway between two powers of two, and it goes to the even code, i.e.
+    # it carries into the next exponent when fp8_exp is odd.
+    scaled = (2 * frac - 1) * (1 << man_bits)
+    man_int = round(scaled)
+    if man_bits == 0 and scaled == 0.5 and (fp8_exp & 1):
+        man_int = 1
     if man_int > max_man:
         # Rounding carried into exponent; man_int reset to 0, then check for overflow.
         man_int = 0
