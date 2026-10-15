@@ -1,6 +1,6 @@
 # Slot codec in `ipu_isa`: encode and decode one instruction
 
-Part of [Epic E03: ISA package](00-epic.md) · ID E03-17 · Size M · Depends on: E03-16 · Behaviour change: none · `*_WIDTH` localparams: unchanged
+Part of [Epic E03: ISA package](00-epic.md) · ID E03-17 · Size M · Depends on: E03-09, E03-16 · Behaviour change: none · `*_WIDTH` localparams: unchanged
 
 ## Goal
 

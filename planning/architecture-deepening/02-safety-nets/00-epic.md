@@ -26,7 +26,7 @@ Verified at HEAD 694a8a8.
 - Some programs are only correct with a render context: `conv_universal_wide384` and `depthwise_conv_stride2_*` render per run through `kernels/convolutions/app.py` `render_asm`, and the four `asm_packed_output_linear_*` programs need `chunk_widths` (`test/mobilevit/test_full_layer_l4_packed.py:281`).
 - Decoded-word field names come from Python class names (`ipu_as/compound_inst.py:145-178`). The emulator rebuilds the same strings with its own tables (`ipu_emu/ipu.py:213-244`). Nothing pins them.
 - The SV package has only structural tests (`ipu-as-py/test/test_gen_codegen.py`) and a slang elaboration test (`test_sv_package_compiles.py`). The localparam values are not pinned, although CLAUDE.md requires every `*_WIDTH` to stay identical unless a PR calls out the change. Its header stamps the commit hash (`docs/BUILD.bazel:44-51`), so a byte compare against the generated file fails on every commit.
-- The register-timing behaviour each handler implements is pinned only in places (`test_execute.py:1559` `test_agg_and_activate_quantize_same_cycle_sees_live_r_acc`, `:1886` `test_reshape_mult_res_reads_from_snapshot`). Plan 01 lists 13 consumer/register rows; most have no direct test. Decision Q32 changes 5 of them in E04.
+- The register-timing behaviour each handler implements is pinned only in places (`test_execute.py:1559` `test_agg_and_activate_quantize_same_cycle_sees_live_r_acc`, `:1886` `test_reshape_mult_res_reads_from_snapshot`). Plan 01's forwarding table lists 14 consumer/register rows; most have no direct test. Decision Q32 changes 4 of them in E04.
 - Kernel case checks compare against references with tolerances (`kernel_registry/case_support.py:47` `check_close`, `rtol=1e-4`). A refactor that changes an output inside the tolerance passes silently.
 - `test_prototyping_equivalence.py` runs 3 programs (plus wide variants) in lockstep in a `--define=ipu_proto=1` build. No kernel runs in that mode in CI (`.github/workflows/ci.yml` runs `bazel test //...` only).
 
@@ -37,7 +37,7 @@ Verified at HEAD 694a8a8.
 | D3 | Every harness fails on any change to its baseline. A refactor PR must not touch a baseline file. A behaviour PR regenerates only the baseline it changes and says why (E02-09). |
 | D6 | The SV golden (E02-03) pins every `*_WIDTH` localparam by name, so a wire-format change is visible in the test failure. |
 | D7 | Prototyping mode stays. E02-08 keeps the lockstep test and adds kernel-level evidence that the two modes produce identical results. |
-| Q32 | E02-05 and E02-06 pin today's timing, including the 5 rows Q32 changes. Each changed row is one named test, so the E04 behaviour PR (E04-25, E04-26, E04-27) flips exactly one test. |
+| Q32 | E02-05 and E02-06 pin today's timing, including the 4 rows Q32 changes. Each changed row is one named test, so each E04 behaviour PR (E04-25, E04-26, E04-27) flips only its own tests. |
 | Q70 | Kernel baselines (E02-07) live in each kernel's folder, next to its `test.py`. |
 | Q71 | Harnesses add no new emulator runs to the default tier: E02-07 hooks into the kernel tests that already run. Assembly-level harnesses are sharded to stay inside the 5-10 minute CI budget (E01). |
 | Q73 | Lockstep runs of real kernels (E02-08) go to the nightly heavy tier, not the default tier. |
@@ -77,12 +77,12 @@ Verified at HEAD 694a8a8.
 ## Suggested order
 
 ```
-E01 ──▶ 01 ──▶ 02
-   ├──▶ 03                      (any order, all small)
-   ├──▶ 04
-   ├──▶ 05 ──┐
-   ├──▶ 06 ──┼──▶ 08 ──▶ 09
-   └──▶ 01 ──▶ 07 ─┘
+E01 ──┬──▶ 01 ──┬──▶ 02 ─────────────────┐
+      │         └──▶ 07 ──┐              │
+      ├──▶ 03             │              │
+      ├──▶ 04             ├──▶ 08 ──▶ 09 ◀┘   (09 also needs 03, 04)
+      ├──▶ 05 ────────────┤
+      └──▶ 06 ────────────┘
 ```
 
 E02-01, E02-03, E02-04, E02-05 and E02-06 can be worked in parallel. E03 may start once E02-01 to E02-04 are merged. E04 may start once all of E02 is merged. E09 collects the update commands in one place.
