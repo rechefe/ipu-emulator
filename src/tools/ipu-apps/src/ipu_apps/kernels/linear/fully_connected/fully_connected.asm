@@ -5,8 +5,10 @@
 input_loop:
     LDR_MULT_REG        r0 lr0 cr0;;
 
-    SET                 lr5 cr10 ;;
-    SET                 lr6 cr11 ;;
+    SET                 lr5 cr10 ;
+    SET                 lr8 cr11 ;;
+    SET                 lr6 cr11 ;
+    SUB                 lr8 lr8 cr4 ;;                      {#- lr8 = last element - 1: exit bound for element_loop's snapshot BNE -#}
     SET                 lr15 cr12 ;;
 
     {#- MULT reads r_cyclic from the start-of-cycle snapshot (issue #157), so
@@ -31,18 +33,23 @@ input_loop:
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD.FIRST;
     LDR_CYCLIC_MULT_REG lr14 cr13 lr15;
-    BNE                 lr5 lr6 element_loop_pre;;
+    BNE                 lr5 lr6 element_loop;;
     B                   after_element_loop;;
 
-element_loop_pre:
-    ADD                 lr14 lr14 cr3;
-    ADD                 lr5 lr5 cr4;;                        {#- lr14 -> next load offset; lr5 -> element just loaded -#}
-
+    {#- One word per element. The LR lanes run first and LOAD/MULT read LR
+        LIVE (IPU-ARCH-3), so MULT sees lr5 already advanced to the element
+        loaded last word and LDR sees lr14 already advanced to the next
+        element's offset -- the same values the former separate ADD word
+        produced. BNE reads the SNAPSHOT, i.e. lr5 before this word's ADD, so
+        it compares against lr8 = lr6 - 1: the loop exits on the word whose
+        MULT consumes element lr6. -#}
 element_loop:
+    ADD                 lr14 lr14 cr3;
+    ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD;
     LDR_CYCLIC_MULT_REG lr14 cr13 lr15;
-    BNE                 lr5 lr6 element_loop_pre;;
+    BNE                 lr5 lr8 element_loop;;
 
 after_element_loop:
     STR_ACC_REG         lr7 cr2;;
