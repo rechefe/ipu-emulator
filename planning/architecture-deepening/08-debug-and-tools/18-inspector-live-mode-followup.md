@@ -1,6 +1,6 @@
 # Follow-up: Cycle Inspector live mode (Pyodide), out of program scope
 
-Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-18 · Size — (not estimated) · Depends on: E08-17, E04 (stable reference-model API) · Behaviour change: n/a
+Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-18 · Size — (not estimated) · Depends on: E08-17, E04-30 (stable reference-model API) · Behaviour change: n/a
 
 > **Out of program scope.** This is the follow-up issue Q55 asks for (phase 2). File it so it is tracked, but do not schedule it inside the architecture-deepening program.
 

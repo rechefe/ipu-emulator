@@ -48,6 +48,7 @@ class RunResult:
     cycles: int
     mac_utilization: float
     outputs: Mapping[str, np.ndarray]
+    raw_outputs: Mapping[str, bytes]          # output regions' XMEM bytes before unpack (E07 proofs)
     comparisons: tuple[Comparison, ...]       # empty if no golden (bazel run only)
     fault: HardwareFault | None               # E04 fault record (ID + PC), if the run faulted
     @property

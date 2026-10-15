@@ -32,7 +32,7 @@ The VS Code language-data generator joins the other generators in `ipu_gen`. Eve
 
 ## Tests
 
-- [ ] `bazel run //vscode-ipu-asm:gen_vscode` output is byte-identical to the base (the E02 `isa.json` snapshot plus a diff of the grammar files).
+- [ ] `bazel run //vscode-ipu-asm:gen_vscode` output is byte-identical to the base (the E02-04 `isa.json` snapshot plus a diff of the grammar files).
 - [ ] `ipu-as-py:test_hover_data` and `:test_isa_data` pass, moved to `ipu-gen` if they test the generator.
 - [ ] `find . -name "*_wrapper.py" -not -path "./bazel-*"` is empty.
 - [ ] `bazel test //...` green. The vscode-extension workflow passes on the PR (its path triggers include `src/tools/ipu-gen/**` per E01).

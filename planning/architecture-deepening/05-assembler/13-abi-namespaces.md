@@ -36,4 +36,4 @@ A kernel names its registers by role, `{{ cr.data_base }}` and `{{ lr.data_ptr }
 ## Acceptance Criteria
 
 - [ ] The assembler accepts an ABI mapping through the session, the CLI and `render`, with no dependency on `ipu_harness`.
-- [ ] Coordination note filed in E06: the harness passes `kernel.toml [abi]` as `abi=`.
+- [ ] E06-06 / E06-07 pass `kernel.toml [abi]` as `abi=` (coordination confirmed in those issues).

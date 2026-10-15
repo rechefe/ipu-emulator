@@ -1,6 +1,6 @@
 # `--target hardware`: reject EMULATOR instructions, emit hardware words
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-15 · Size M · Depends on: E05-02, E03 (HARDWARE / EMULATOR / ASSEMBLER tags; emulator-only slots ordered after hardware slots) · Behaviour change: yes (new option; the default target `emulator` is unchanged)
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-15 · Size M · Depends on: E05-02, E03-07 (HARDWARE / EMULATOR / ASSEMBLER tags and the derived hardware word) · Behaviour change: yes (new option; the default target `emulator` is unchanged)
 
 ## Goal
 

@@ -1,6 +1,6 @@
 # `AssemblerError` hierarchy with `SourceLocation`
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-04 · Size S · Depends on: E03 (`IpuError` root in `ipu_isa`) · Behaviour change: none
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-04 · Size S · Depends on: E03-01 (`IpuError` root in `ipu_isa.errors`) · Behaviour change: none
 
 ## Goal
 
@@ -41,7 +41,7 @@ Every user-facing assembler failure raises a typed exception that carries a stru
    class LabelError(EncodeError): ...     # duplicate or undefined label
    ```
 
-   `IpuError` is the shared root. Assumption: E03 puts it in `ipu_isa.errors`, the one package every other package depends on (Q62). If it is not there yet, add it in this PR as a three-line module and tell E03.
+   `IpuError` is the shared root, provided by E03-01 in `ipu_isa.errors`, the one package every other package depends on (Q62).
 2. Replace each `raise ValueError(...)` listed above with the matching subclass, passing `location=` and `token=`. Build the message with `str(location)`, so the text is unchanged.
 3. Do not change where errors are caught yet. Callers keep catching `ValueError`; E05-06 and E05-07 change the catch sites.
 
@@ -56,7 +56,3 @@ Every user-facing assembler failure raises a typed exception that carries a stru
 
 - [ ] No bare `raise ValueError` remains in `ipu_as` for user input errors.
 - [ ] Message strings are byte-identical, checked by the `test_diagnostics` and `check --json` snapshot (E05-08).
-
-## Open question
-
-- The `IpuError` root location (`ipu_isa.errors`) is assumed, not decided. Confirm with E03.

@@ -1,6 +1,6 @@
 # Cache per-slot encode tables and enum reverse maps
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-01 · Size S · Depends on: E02 (all-`.asm` binary digests), E01 (benchmark tracking) · Behaviour change: none
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-01 · Size S · Depends on: E02-01 (all-`.asm` binary digests), E01 (benchmark tracking) · Behaviour change: none
 
 ## Goal
 

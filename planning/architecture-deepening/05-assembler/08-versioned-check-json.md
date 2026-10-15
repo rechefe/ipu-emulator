@@ -1,6 +1,6 @@
 # Pin and version the `check --json` contract
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-08 · Size S · Depends on: E02 · Behaviour change: none (v1 output stays byte-identical)
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-08 · Size S · Depends on: E02-04 · Behaviour change: none (v1 output stays byte-identical)
 
 ## Goal
 

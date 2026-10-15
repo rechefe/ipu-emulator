@@ -28,7 +28,7 @@ All generated documentation comes from `ipu_gen`:
 
 ## Tests
 
-- [ ] E02 generated-docs snapshot is byte-identical: the four pages, `instruction-format.md` and the SVGs.
+- [ ] E02-04 generated-docs snapshot is byte-identical: the four pages, `instruction-format.md` and the SVGs.
 - [ ] `test_union_layout_svg` passes under its new label.
 - [ ] `bazel build //docs:build_docs` succeeds (tagged `docs`, so run it explicitly in the PR).
 - [ ] `bazel test //...` green.

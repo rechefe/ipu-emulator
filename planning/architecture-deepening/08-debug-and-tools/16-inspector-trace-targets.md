@@ -1,6 +1,6 @@
 # Bazel targets that record Cycle Inspector traces
 
-Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-16 · Size M · Depends on: E04 (reference-model trace writer and versioned trace JSON schema), E08-15 (`ipu-gen vscode-data` for `isa.json`) · Behaviour change: none (new targets)
+Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-16 · Size M · Depends on: E04-29 (commit record and trace JSON schema), E04-30 (reference-model API), E08-15 (`ipu-gen vscode-data` for `isa.json`) · Behaviour change: none (new targets)
 
 ## Goal
 
@@ -38,7 +38,7 @@ The traces the Cycle Inspector replays are build outputs, not hand-recorded file
    #          then `ipu-gen inspector-trace in.json out/<name>.json`
    ```
 
-   Running the case uses the E06 runner's trace option. Until E06 lands, call the E04 reference API directly from a small `py_binary`.
+   Running the case uses the E06-11 runner's trace option. Until E06-11 lands, call the E04 reference API directly from a small `py_binary`.
 3. `docs/inspector/BUILD.bazel` lists the curated set as data: one `kernel_trace` per case, with title and description in a `curated.toml` read by the page build. Start with the in-repo cases from the artifact: fully_connected (INT8, E4, E5), identity, channel_peak, softmax_rows, depth_to_space, conv_universal and residual_add. Use the E07 format names (`fp8_e4`, `e4`) once that rename lands. The vector-tour demos join only if they are added to the repo as test programs. Open question: keep them?
 4. `filegroup(name = "inspector_data")` contains every trace plus `isa.json` from `//vscode-ipu-asm:generate_grammar` (or `ipu-gen vscode-data`).
 5. Tag the targets `docs` so they build with the docs and not in the default CI tier, which has a 5-10 minute budget (E01).

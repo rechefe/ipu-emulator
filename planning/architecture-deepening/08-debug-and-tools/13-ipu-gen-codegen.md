@@ -1,6 +1,6 @@
 # Create `ipu_gen`; move the SystemVerilog generator
 
-Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-13 · Size M · Depends on: E03 (package split, `ipu_isa` typed view), E02 (SV package golden) · Behaviour change: none (SV package byte-identical)
+Part of [Epic: Debugger, generators and editor](00-epic.md) · ID E08-13 · Size M · Depends on: E03 (package split, `ipu_isa` typed view), E02-03 (SV package golden) · Behaviour change: none (SV package byte-identical)
 
 ## Goal
 

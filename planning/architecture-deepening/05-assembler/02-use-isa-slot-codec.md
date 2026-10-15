@@ -1,6 +1,6 @@
 # Encode through the `ipu_isa` slot codec; delete the nine `Inst` subclasses
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-02 · Size M · Depends on: E05-01, E03 (binary codec in `ipu_isa`) · Behaviour change: none
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-02 · Size M · Depends on: E05-01, E03 (binary codec in `ipu_isa`), E03-06 (slot registry with `doc_intro`) · Behaviour change: none
 
 ## Goal
 
@@ -40,7 +40,7 @@ This deepens the module. The interface (`assemble(text) -> words`) stays the sam
    - `operand_value(token: AnnotatedToken, operand_type, symbols) -> int` validates and converts one operand. Range checks and enum lookups use the operand-type metadata from `ipu_isa`, and errors carry the token's location.
    - `encode_word(parsed: ParsedCompound, symbols) -> int` assigns slots (the same rule as `_fill_instructions`: the first free instance per slot, and `nop` fills any slot), converts operands, calls `SLOT_CODECS[slot].encode` and `WordCodec.pack`.
 3. Re-express `CompoundInst.encode` and `CompoundInst.decode` as thin calls to `encode_word` and the codec's word decode. Keep the `CompoundInst` public methods that tests and generators call, delegating to the codec, until E08 moves the generators.
-4. Delete the nine subclasses and `_build_struct_table`. Move the per-slot doc headings and intros into a `SLOT_DOCS` table in `gen_docs` (or into the ISA slot metadata if E03 adds a slot description field).
+4. Delete the nine subclasses and `_build_struct_table`. The per-slot doc headings and intros come from the E03-06 slot registry (`doc_intro`).
 5. The `ipu_token` classes keep parsing and validating text. Their `encode()` methods and bit-width knowledge are removed where the codec now owns them. Keep `decode` text formatting only if E03's `DecodedSlot` does not cover disassembly text.
 
 ## Tests

@@ -1,6 +1,6 @@
 # Decoded-word field names from an explicit table
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-03 · Size S · Depends on: E05-02, E03 (binary codec) · Behaviour change: none
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-03 · Size S · Depends on: E05-02, E03 (binary codec), E03-05 (operand-type registry), E02-02 (field-name snapshot) · Behaviour change: none
 
 ## Goal
 
@@ -28,7 +28,7 @@ The names of the bit fields in a decoded instruction word (`lr_inst_0_token_0_lr
    def opcode_field(slot: str, instance: int = 0) -> str
    ```
 
-   The two name tables are written-out data keyed by ISA names (slot names and operand-type names), never by Python class names. Per D2, a new operand type should need one edit. The preferred home for the suffix is therefore a `field_suffix` attribute on the operand type in `instruction_spec.py`, if E03's schema allows it; otherwise use the table above. An import-time assertion checks that every operand type and slot has an entry.
+   The two name tables are written-out data keyed by ISA names (slot names and operand-type names), never by Python class names. Per D2, a new operand type should need one edit. The suffix is therefore read from the `field_suffix` attribute of the E03-05 operand-type registry; `TYPE_FIELD_SUFFIX` is a view over it, not a second table. An import-time assertion checks that every operand type and slot has an entry.
 2. `CompoundInst.get_fields()` returns `[(f.name, f.bits) for f in WORD_LAYOUT]`.
 3. Replace the string building in `ipu_emu/ipu.py` (`_TYPE_FIELD_SUFFIX`, `_SLOT_FIELD_PREFIX`, `_opcode_field`, the LR opcode field names) with `field_name` and `opcode_field`. This is a small edit in E04's area; coordinate with E04.
 4. Replace the literal strings in the two mobilevit fixtures with `field_name(...)` calls.

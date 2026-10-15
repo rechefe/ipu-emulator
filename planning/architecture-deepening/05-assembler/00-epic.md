@@ -62,21 +62,21 @@ Verified at HEAD `694a8a8`.
 
 | ID | File | Title | Size | Depends on | Behaviour change? |
 |----|------|-------|------|-----------|-------------------|
-| E05-01 | [01-cache-encode-tables.md](01-cache-encode-tables.md) | Cache per-slot encode tables and enum reverse maps | S | E02 (asm digests), E01 (benchmarks) | none |
-| E05-02 | [02-use-isa-slot-codec.md](02-use-isa-slot-codec.md) | Encode through the `ipu_isa` slot codec; delete the nine `Inst` subclasses | M | E05-01, E03 (binary codec) | none |
-| E05-03 | [03-explicit-field-names.md](03-explicit-field-names.md) | Decoded-word field names from an explicit table | S | E05-02, E03 (binary codec) | none |
-| E05-04 | [04-located-assembler-errors.md](04-located-assembler-errors.md) | `AssemblerError` hierarchy with `SourceLocation` | S | E03 (`IpuError` root) | none |
+| E05-01 | [01-cache-encode-tables.md](01-cache-encode-tables.md) | Cache per-slot encode tables and enum reverse maps | S | E02-01 (asm digests), E01 (benchmarks) | none |
+| E05-02 | [02-use-isa-slot-codec.md](02-use-isa-slot-codec.md) | Encode through the `ipu_isa` slot codec; delete the nine `Inst` subclasses | M | E05-01, E03 (binary codec), E03-06 | none |
+| E05-03 | [03-explicit-field-names.md](03-explicit-field-names.md) | Decoded-word field names from an explicit table | S | E05-02, E03 (binary codec), E03-05, E02-02 | none |
+| E05-04 | [04-located-assembler-errors.md](04-located-assembler-errors.md) | `AssemblerError` hierarchy with `SourceLocation` | S | E03-01 (`IpuError` root) | none |
 | E05-05 | [05-assembly-session.md](05-assembly-session.md) | `AssemblySession` and `SymbolTable`: no global label table, one render | M | E05-04 | none |
 | E05-06 | [06-library-never-exits.md](06-library-never-exits.md) | Library raises `AssemblerError`; only the CLI prints and exits | S | E05-05 | yes (in-process callers get an exception instead of `SystemExit`) |
 | E05-07 | [07-diagnostics-on-session.md](07-diagnostics-on-session.md) | `diagnostics.check` runs on the session and reads error locations | M | E05-05, E05-08 | none |
-| E05-08 | [08-versioned-check-json.md](08-versioned-check-json.md) | Pin and version the `check --json` contract | S | E02 | none (v1 output byte-identical) |
+| E05-08 | [08-versioned-check-json.md](08-versioned-check-json.md) | Pin and version the `check --json` contract | S | E02-04 | none (v1 output byte-identical) |
 | E05-09 | [09-template-render-api.md](09-template-render-api.md) | Template render API: declared params, defines, sandboxed macro loader | M | E05-05 | none |
 | E05-10 | [10-cli-define-no-prompt.md](10-cli-define-no-prompt.md) | CLI: drop the `--format` prompt, add `--define` and `-I` | S | E05-06, E05-09 | yes (`--format` inferred instead of prompted) |
 | E05-11 | [11-strict-undefined.md](11-strict-undefined.md) | Switch templates to `StrictUndefined` | S | E05-09, E05-12 | yes (an undefined template name is an error) |
 | E05-12 | [12-one-render-path.md](12-one-render-path.md) | One render path: Bazel `assemble_asm(defines=)`, registry and tests | M | E05-09 | none (digest-proven) |
 | E05-13 | [13-abi-namespaces.md](13-abi-namespaces.md) | `cr` / `lr` ABI namespaces in the render context | S | E05-09 | none (additive) |
 | E05-14 | [14-local-labels.md](14-local-labels.md) | GNU numeric local labels (`1:`, `1f`, `1b`) | S | E05-05 | yes (new syntax, additive) |
-| E05-15 | [15-target-hardware.md](15-target-hardware.md) | `--target hardware`: reject EMULATOR instructions, emit hardware words | M | E05-02, E03 (tags, slot order) | yes (new option; default unchanged) |
+| E05-15 | [15-target-hardware.md](15-target-hardware.md) | `--target hardware`: reject EMULATOR instructions, emit hardware words | M | E05-02, E03-07 (tags, hardware word) | yes (new option; default unchanged) |
 | E05-16 | [16-mnemonic-standard.md](16-mnemonic-standard.md) | Assembler readiness for the new mnemonic standard | S | E05-02, E03 (rename) | none (binaries unchanged) |
 
 ## Suggested order

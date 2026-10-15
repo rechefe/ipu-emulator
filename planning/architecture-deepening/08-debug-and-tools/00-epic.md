@@ -100,10 +100,10 @@ Verified at HEAD `694a8a8`.
 | E08-10 | [10-tui-registers-pane.md](10-tui-registers-pane.md) | TUI registers pane module | M | E08-08 | none |
 | E08-11 | [11-tui-disassembly-pipeline-panes.md](11-tui-disassembly-pipeline-panes.md) | TUI disassembly and pipeline pane modules | M | E08-08, E08-07 | none |
 | E08-12 | [12-tui-error-hygiene.md](12-tui-error-hygiene.md) | TUI error hygiene: no `except Exception: pass` | S | E08-09, E08-10, E08-11 | yes (unexpected errors are logged, not swallowed) |
-| E08-13 | [13-ipu-gen-codegen.md](13-ipu-gen-codegen.md) | Create `ipu_gen`; move the SystemVerilog generator | M | E03 (package split), E02 (SV golden) | none |
+| E08-13 | [13-ipu-gen-codegen.md](13-ipu-gen-codegen.md) | Create `ipu_gen`; move the SystemVerilog generator | M | E03 (package split), E02-03 (SV golden) | none |
 | E08-14 | [14-ipu-gen-docs-svg.md](14-ipu-gen-docs-svg.md) | Move the docs-page and union-layout SVG generators into `ipu_gen` | M | E08-13 | none |
 | E08-15 | [15-ipu-gen-vscode-no-wrappers.md](15-ipu-gen-vscode-no-wrappers.md) | Move `gen_vscode` into `ipu_gen`; delete every `*_wrapper.py` shim | S | E08-14 | none |
-| E08-16 | [16-inspector-trace-targets.md](16-inspector-trace-targets.md) | Bazel targets that record Cycle Inspector traces | M | E04 (trace writer), E08-15 | none |
+| E08-16 | [16-inspector-trace-targets.md](16-inspector-trace-targets.md) | Bazel targets that record Cycle Inspector traces | M | E04-29 (trace schema), E04-30, E08-15 | none |
 | E08-17 | [17-inspector-docs-page.md](17-inspector-docs-page.md) | Cycle Inspector docs page (phase 1) | M | E08-16 | none (new page) |
 | E08-18 | [18-inspector-live-mode-followup.md](18-inspector-live-mode-followup.md) | Follow-up: Cycle Inspector live mode (Pyodide), out of program scope | — | E08-17 | n/a |
 | E08-19 | [19-vscode-workspace-trust.md](19-vscode-workspace-trust.md) | VS Code: Restricted Mode support and quoted manifest fields | S | — | yes (no configured command runs in an untrusted workspace) |
@@ -123,7 +123,7 @@ Debugger:   01 ──▶ 02 ──▶ 03 ──▶ 04 ──▶ 05 ──▶ 08 
                                   ├──▶ 06        ├──▶ 10 ──┼──▶ 12
                        E03 ──▶    └──▶ 07 ───────┴──▶ 11 ──┘
 Generators: E03,E02 ──▶ 13 ──▶ 14 ──▶ 15
-Inspector:  E04 trace writer + 15 ──▶ 16 ──▶ 17 ┄┄▶ 18 (follow-up, out of scope)
+Inspector:  E04-29/30 + 15 ──▶ 16 ──▶ 17 ┄┄▶ 18 (follow-up, out of scope)
 VS Code:    19, 20 first (any time)
             15 ──▶ 21 ──▶ 27
             E05-07,E05-08 ──▶ 22 ──▶ 23 ──▶ 25
