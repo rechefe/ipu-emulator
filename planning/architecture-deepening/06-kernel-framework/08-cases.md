@@ -54,7 +54,10 @@ def inputs_for(case: Case, plan: CasePlan, *, overrides: Mapping[str, Path] = {}
   `rng(kernel, case, tensor)` = `default_rng(SeedSequence(crc32("kernel/case/tensor")))`.
   The seed is stable across processes, and every tensor gets an independent
   stream. Values are uniform in `[-1, 1)` for float formats and uniform over
-  the full INT8 range for INT8. An input can set `range = [lo, hi]`. Values are
+  the full INT8 range for INT8. An input can set `range = [lo, hi]`, or a
+  per-format table `range = { int8 = [-3, 3], e4 = [-1, 1] }`. This keeps the
+  outputs out of saturation, which would otherwise make INT8 tests pass
+  trivially. Values are
   generated as float64 and then rounded to the format, so the reference sees
   exactly what XMEM holds.
 - **Generator escape hatch.** `generator = "gen:make"` names `gen.py:make` in the

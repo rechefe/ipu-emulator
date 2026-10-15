@@ -36,9 +36,15 @@ This issue is the template for every later "add formats to family X" follow-up.
      (E06-04).
    - If any of this fails, fix the kernel in a separate behaviour PR first, and
      prove FP32 is unchanged with the E02 digests.
-3. Cases for INT8 and E4 use the E06 default generator: uniform over the format
-   range for INT8, and `uniform(-1, 1)` rounded to E4. This is not the legacy
-   FP32 generator. FP32 keeps the legacy one, so its output digests stay valid.
+3. Cases for INT8 and E4 use the E06 default generator, not the legacy FP32
+   generator. FP32 keeps the legacy one, so its output digests stay valid.
+   - The projections store through `STR_POST_AAQ_REG` (all 12 programs), so
+     the output is an element tensor. In INT8, a K = 192 dot product of
+     full-range INT8 values saturates almost every output, so the test would
+     pass trivially.
+   - Set a per-format input range in `kernel.toml`, for example
+     `range = { int8 = [-3, 3], e4 = [-1, 1] }`. Check that fewer than 1% of
+     the reference outputs saturate, and record that fraction in the PR.
 4. Measure the max abs/rel error per case and format against `ops.linear`, with
    the result rounded to the output format. Choose tiers:
    - INT8: expected `INT8_LSB` for identity, provisional for SiLU.

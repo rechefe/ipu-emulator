@@ -26,7 +26,7 @@ start.
 
   The two-group bodies use a different LR allocation (cluster plan 05). Merging
   them with the single-group body would change binaries.
-- The harness: `ProjectionLayout` (`app.py:93-161`) computes bases and derived
+- The harness: `ProjectionLayout` (`app.py:92-161`) computes bases and derived
   values. `ProjectionP4App.setup` (`app.py:213-233`) writes 13 CRs:
   `DATA_BASE`, `WEIGHTS_BASE`, `OUTPUT_BASE`, `NEG_ONE = -1`,
   `FULL_BOUND = 126`, `TAIL_BOUND`, `W_STRIDE`, `N_OUT_CR`, `CHUNK_COUNT`,
@@ -66,11 +66,11 @@ start.
      values (E06-06).
 2. **`registry.toml`**: 12 entries with today's names, `params` from today's
    `ProjectionLayout(...)` lines, and a `doc` line ("Layer 4 FFN1", from
-   `projection_spec`'s role/layer naming, `app.py:330-334`). The split is:
+   `projection_spec`'s role/layer naming, `app.py:332-348`). The split is:
    8 entries on `proj_p4`, 3 on `proj_p4_2tg`, 1 on `proj_p4_2tg_silu`.
 3. **Cases.** `default` keeps today's data so the outputs can be compared bit
    for bit: `RandomState(0xC0FFEE)`, D per stream then W, `uniform(-1, 1)`
-   (`cases.py:79-93`). Use a family `gen.py:legacy_uniform` generator. The
+   (`cases.py:77-93`). Use a family `gen.py:legacy_uniform` generator. The
    reference is the shared `ops.linear` (matmul plus optional SiLU). The FP32
    tier is chosen from measurement and recorded (today it is `rtol=1e-4, atol=1e-3`).
 4. **Design notes.** Merge the `app.py` docstrings (family and per kernel) into
