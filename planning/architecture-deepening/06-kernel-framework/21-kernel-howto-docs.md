@@ -46,7 +46,7 @@ and formats.
    E08/E09 render it. This issue only provides the data and a test that every
    kernel has a non-empty header.
 4. Mark the old `adding-applications.md` and `building-applications.md`
-   sections as legacy and link the new pages. E07-24 deletes the legacy
+   sections as legacy and link the new pages. E07-25 deletes the legacy
    sections.
 
 ## Tests

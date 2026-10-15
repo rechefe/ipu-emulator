@@ -23,7 +23,7 @@ report instead of a diff of 2,000 lines.
 ## Implementation
 
 1. **`compare_setup <old kernel> <new kernel dir> [--case C]`** (a `py_binary`
-   in `//kernels/tools`, temporary, deleted in E07-24):
+   in `//kernels/tools`, temporary, deleted in E07-25):
    - Build the old harness through `ipu_apps` `create_harness` and run only
      `setup()` on a fresh FP32 state.
    - Run the new framework up to the point just before `run` (plan, place,
@@ -50,7 +50,7 @@ report instead of a diff of 2,000 lines.
      syntax (`{{ }}`, `{% %}`, `{# #}`), labels and enum operand values (for
      example `identity` in `ACTIVATE.QUANTIZE identity CR15`) are left as they
      are. Raw register names (`lr0`, `cr15`) are upper-cased (`LR0`, `CR15`).
-   - `--check` mode exits non-zero if any file would change. E07-24 turns this
+   - `--check` mode exits non-zero if any file would change. E07-25 turns this
      on for all of `kernels/`.
 
 ## Tests

@@ -27,7 +27,7 @@ E06, can land first, and gives the E07 chain port a clean starting point.
 - Delete the 17 `sys.path.insert` lines and their `Path`/`sys` imports where
   they become unused.
 - When E07 moves the chain tests next to the promoted kernels, the library moves
-  with them (E07-23).
+  with them (E07-24).
 
 ## Tests
 

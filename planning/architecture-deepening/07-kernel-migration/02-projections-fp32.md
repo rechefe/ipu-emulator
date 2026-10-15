@@ -83,7 +83,7 @@ start.
    a `tier = "nightly"` case set.
 6. Delete `src/tools/ipu-apps/src/ipu_apps/kernels/projections/`. Repoint the
    MobileViT chain users (`test/mobilevit/fixture_kernel_support.py`, the L4/L5
-   tests) to the new kernels through a temporary adapter. E07-23 removes it.
+   tests) to the new kernels through a temporary adapter. E07-24 removes it.
 
 ## Tests
 

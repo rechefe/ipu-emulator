@@ -52,8 +52,9 @@ acceptance kernel, `scale`.
 4. **The `scale` kernel.** Add `kernels/elementwise/scale/` exactly as in the
    [epic](00-epic.md#worked-example-and-acceptance-target-the-scale-kernel):
    `scale.asm`, `kernel.toml`, `reference.py`, `data/x.npy`, `data/y.npy`, and
-   a one-line `BUILD.bazel`. `data/*.npy` is produced once by a short committed
-   script (`kernels/elementwise/scale/make_data.py`, not a test).
+   a one-line `BUILD.bazel`. `data/*.npy` is produced once, and the snippet that
+   produced it goes in the PR description. The kernel folder keeps exactly the
+   files the epic lists.
 
 ## Tests
 

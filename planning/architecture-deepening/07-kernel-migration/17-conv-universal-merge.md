@@ -13,7 +13,9 @@ Replace `conv_universal` and `conv_universal_bn_activation` with one template,
 Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/`.
 
 - The two `.asm` files are 0.97 similar once comments are stripped. A diff shows
-  exactly 3 kinds of change, each repeated in the 3 unrolled sections:
+  exactly 3 kinds of change, each repeated in the 3 unrolled sections. The
+  lines are quoted as written today, in lower case; the migration upper-cases
+  them.
   1. The bias seed: `MULT.EE {{ lr_kern_idx }} {{ cr_zero }} 0 ...` versus
      `MULT.EE {{ lr_kern_idx }} cr1 0 ...`. The `_bn_activation` variant
      multiplies a bias row by CR1 (1.0), and the plain variant by CR0 (0).

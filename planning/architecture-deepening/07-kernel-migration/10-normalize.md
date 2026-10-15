@@ -38,7 +38,7 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/normalize/`.
   for the channel layout, and a local `reference.py` (`x / ||x||_2` over
   channels; state its zero-norm behaviour as the kernel computes it).
 - Delete the local `reference_layernorm`. The MobileViT tests switch to
-  `ops.layernorm` in E07-23. Until then they keep their own copy, and the PR
+  `ops.layernorm` in E07-24. Until then they keep their own copy, and the PR
   notes it.
 - Apply the per-family checklist.
 

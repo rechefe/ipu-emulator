@@ -139,10 +139,11 @@ the tools.
 | E07-18 | [18-conv-pointwise-depthwise-merge.md](18-conv-pointwise-depthwise-merge.md) | Convolutions (3/4): merge the pointwise and depthwise twins | M | E07-17 | none |
 | E07-19 | [19-conv-multistage-and-render-per-run.md](19-conv-multistage-and-render-per-run.md) | Convolutions (4/4): `conv_universal_wide384` and `depthwise_conv_stride2_*` on params and stages | M | E07-18, E06-14 | none |
 | E07-20 | [20-conv-bias-no-relu.md](20-conv-bias-no-relu.md) | Add the missing conv variant: bias without ReLU | S | E07-17, E07-18 | yes (new kernel entries) |
-| E07-21 | [21-fully-connected.md](21-fully-connected.md) | `fully_connected`: goldens from the reference per format; delete the 9 `.bin` | M | E07-02, E03 (codecs) | yes (golden source changes) |
-| E07-22 | [22-mobilevit-packed-kernels.md](22-mobilevit-packed-kernels.md) | Promote the 12 MobileViT packed programs to registered kernels | M | E07-06, E07-10 | none |
-| E07-23 | [23-mobilevit-chain-tests.md](23-mobilevit-chain-tests.md) | Port the MobileViT chain tests to the harness chaining API | M | E07-22, E07-02, E07-13, E06-15, E06-19 | none |
-| E07-24 | [24-retire-ipu-apps.md](24-retire-ipu-apps.md) | Retire `src/tools/ipu-apps` and its Bazel macros | S | all of E07, E06-20 | none |
+| E07-21 | [21-fully-connected.md](21-fully-connected.md) | `fully_connected` onto `ipu_harness` with its legacy data | M | E07-02 | none |
+| E07-22 | [22-fully-connected-reference-goldens.md](22-fully-connected-reference-goldens.md) | `fully_connected`: goldens from the reference per format; delete the 9 `.bin` | S | E07-21, E03 (codecs) | yes (regenerated inputs; goldens from the reference) |
+| E07-23 | [23-mobilevit-packed-kernels.md](23-mobilevit-packed-kernels.md) | Promote the 12 MobileViT packed programs to registered kernels | M | E07-06, E07-10, E06-17 | none |
+| E07-24 | [24-mobilevit-chain-tests.md](24-mobilevit-chain-tests.md) | Port the MobileViT chain tests to the harness chaining API | M | E07-23, E07-02, E07-05, E07-08, E07-10, E07-13, E06-15, E06-19 | none |
+| E07-25 | [25-retire-ipu-apps.md](25-retire-ipu-apps.md) | Retire `src/tools/ipu-apps` and its Bazel macros | S | all of E07, E06-20 | none |
 
 ## Suggested order
 
@@ -157,15 +158,15 @@ E07-01 ──▶ E07-02 (pilot) ──▶ E07-03 (pilot formats)
               ├──▶ E07-14, E07-15                       (pooling, sampling, detect)
               └──▶ E07-16 ──▶ E07-17 ──▶ E07-18 ──▶ E07-19
                                   └────────┴──▶ E07-20   (convolutions last)
-E07-02 ──▶ E07-21                                       (linear)
-E07-06 + E07-10 ──▶ E07-22 ──▶ E07-23
+E07-02 ──▶ E07-21 ──▶ E07-22                            (linear)
+E07-06 + E07-10 ──▶ E07-23 ──▶ E07-24 (also after E07-05, -08, -13)
 MemoryApp users (E07-04, -10, -14, -15, -16) ──▶ E06-20
-everything ──▶ E07-24
+everything ──▶ E07-25
 ```
 
 The order follows the decided sequence: pilot, then reshape, elementwise,
 matmul, normalize, softmax, attention, pooling/sampling/detect, convolutions
-last, then linear. `fully_connected` (E07-21) needs nothing from the other
+last, then linear. `fully_connected` (E07-21/22) needs nothing from the other
 families, so it is drawn off the pilot, but it is scheduled last. Families with no arrow between them can be worked in
 parallel by different people once the pilot has landed. Convolutions go last
 because they have the most code, the most lower-case mnemonics, and both

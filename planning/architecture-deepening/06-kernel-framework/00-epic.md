@@ -159,8 +159,8 @@ formats = ["fp32", "e4"]                  # per-case format limit
 [cases.mine]                              # user data instead of the generator / reference
 rows = 2
 s = 2.0
-inputs = { x = "data/x.npy" }
-expected = { y = "data/y.npy" }
+inputs = { x = "data/x.npy" }             # small integers in [-8, 8]: exact in fp32, int8 and e4
+expected = { y = "data/y.npy" }           # so y = 2x is exact in every format too
 ```
 
 `kernels/elementwise/scale/reference.py`:
@@ -244,7 +244,7 @@ error instead of silently rounding `s`.
 | E06-17 | [17-family-registry-toml.md](17-family-registry-toml.md) | Family `registry.toml`: shape variants over a template | M | E06-13, E06-16 | none |
 | E06-18 | [18-per-family-bazel-libraries.md](18-per-family-bazel-libraries.md) | Per-family Bazel libraries, `FAMILY_DEPS` and the family import-graph test | M | E06-13 | none |
 | E06-19 | [19-mobilevit-fixtures-library.md](19-mobilevit-fixtures-library.md) | MobileViT fixtures as a `py_library` (no `sys.path` hacks) | S | none | none |
-| E06-20 | [20-delete-memoryapp.md](20-delete-memoryapp.md) | Delete MemoryApp and the whole-image path | S | E07 (the 15 MemoryApp kernels migrated) | none |
+| E06-20 | [20-delete-memoryapp.md](20-delete-memoryapp.md) | Delete MemoryApp and the whole-image path | S | E07-04, E07-10, E07-14, E07-15, E07-16 (the 15 MemoryApp kernels migrated) | none |
 | E06-21 | [21-kernel-howto-docs.md](21-kernel-howto-docs.md) | How-to "Write a kernel", `kernel.toml` reference, kernel-page data | S | E06-13, E06-17, E09 (docs skeleton) | none |
 
 ## Suggested order

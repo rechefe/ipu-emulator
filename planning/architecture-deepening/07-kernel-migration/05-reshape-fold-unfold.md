@@ -36,7 +36,7 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/reshape/`.
   `torch.nn.functional.fold`/`unfold`, or a reshape plus permute if the patch
   ordering differs; document which). Tier `EXACT`.
 - The seam tests keep working through the temporary adapter from E07-02 until
-  E07-23.
+  E07-24.
 - Apply the per-family checklist.
 
 ## Tests

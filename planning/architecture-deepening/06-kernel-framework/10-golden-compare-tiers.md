@@ -70,6 +70,10 @@ Rules:
   is rounded once, to the output format, with the E03 codec (saturation
   included). The "rounding to format after" rule (Q80) means quantization error
   never counts against the kernel.
+- User input files are rounded to the format when packed, like generated
+  inputs. If rounding changed any element, the report says how many. A user
+  `expected` file computed from the unrounded inputs then fails in a way that
+  can be diagnosed, not mysteriously.
 - The tier comes from `[golden] tolerance[format]`. An unknown tier name is a
   load-time error (E06-02). A kernel-local override is
   `tolerance = { fp32 = { tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" } }`.
