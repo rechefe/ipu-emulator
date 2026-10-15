@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from ipu_emu.emulator import load_program
+from ipu_emu.errors import RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
@@ -303,7 +304,7 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
     for prototyping in (False, True):
         state = IpuState(prototyping=prototyping)
         load_program(state, [dict(inst)])
-        with pytest.raises(AssertionError) as caught:
+        with pytest.raises(RegisterIndexError) as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
         exceptions.append(caught.value)

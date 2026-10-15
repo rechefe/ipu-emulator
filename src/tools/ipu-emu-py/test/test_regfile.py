@@ -1,13 +1,21 @@
 """Tests for ipu_emu.regfile and ipu_emu.ipu_state."""
 
 import copy
+import os
 import struct
+import subprocess
+import sys
 
 import numpy as np
 import pytest
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
-from ipu_emu.errors import EmulatorError
+from ipu_emu.errors import (
+    EmulatorError,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+)
 from ipu_emu.regfile import RegFile
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
@@ -62,8 +70,73 @@ class TestRegFileScalars:
 
     def test_lr_index_out_of_range(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterIndexError):
             rf.set_lr(16, 0)
+
+    def test_lr_negative_index_rejected(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError, match=r"\[-1\] out of range"):
+            rf.set_lr(-1, 0)
+        with pytest.raises(RegisterIndexError):
+            rf.get_lr(-1)
+        assert rf.get_lr(15) == 0  # nothing written to the last LR
+
+    def test_scalar_accessor_on_vector_register(self):
+        rf = RegFile()
+        with pytest.raises(RegisterKindError, match="not a scalar register"):
+            rf.get_scalar("r", 0)
+        with pytest.raises(RegisterKindError):
+            rf.set_scalar("r", 0, 1)
+
+    def test_register_errors_keep_builtin_bases(self):
+        assert issubclass(RegisterIndexError, IndexError)
+        assert issubclass(RegisterSizeError, ValueError)
+        assert issubclass(RegisterKindError, TypeError)
+        for cls in (RegisterIndexError, RegisterSizeError, RegisterKindError):
+            assert issubclass(cls, EmulatorError)
+
+
+class TestRegFileOptimizedMode:
+    """Validation must survive ``python -O`` (which strips ``assert``)."""
+
+    def test_checks_hold_under_python_O(self):
+        script = (
+            "import sys\n"
+            "assert False, 'asserts are enabled'\n"
+        )
+        # Sanity: the child really runs with asserts stripped.
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+        probe = subprocess.run(
+            [sys.executable, "-O", "-c", script], env=env, capture_output=True, text=True
+        )
+        assert probe.returncode == 0, probe.stderr
+
+        script = """
+from ipu_emu.errors import RegisterIndexError, RegisterSizeError
+from ipu_emu.regfile import RegFile
+
+rf = RegFile()
+checks = [
+    (RegisterIndexError, lambda: rf.set_lr(-1, 0)),
+    (RegisterIndexError, lambda: rf.get_cr(999)),
+    (RegisterIndexError, lambda: rf.get_r(-1)),
+    (RegisterIndexError, lambda: rf.set_r_acc_word(-1, 0)),
+    (RegisterSizeError, lambda: rf.set_r(0, bytearray(64))),
+    (RegisterSizeError, lambda: rf.set_r_mask(bytearray(64))),
+]
+for expected, call in checks:
+    try:
+        call()
+    except expected:
+        continue
+    raise SystemExit(f"no {expected.__name__} raised")
+print("ok")
+"""
+        result = subprocess.run(
+            [sys.executable, "-O", "-c", script], env=env, capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.strip() == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -93,15 +166,27 @@ class TestRegFileRRegs:
         got[0] = 0x00
         assert rf.get_r(0)[0] == 0xAB  # original unchanged
 
-    def test_r_wrong_size_asserts(self):
+    def test_r_wrong_size_rejected(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterSizeError, match="expected 128 bytes, got 64"):
             rf.set_r(0, bytearray(64))  # too small
+        with pytest.raises(RegisterSizeError):
+            rf.set_r(0, bytearray(129))  # too large
+        assert len(rf.get_r(0)) == 128
+        assert len(rf.raw("r")) == 256  # storage not resized
 
     def test_r_index_out_of_range(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterIndexError):
             rf.get_r(2)
+
+    def test_r_negative_index_rejected(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError):
+            rf.get_r(-1)
+        with pytest.raises(RegisterIndexError):
+            rf.set_r(-1, bytearray([0xFF] * 128))
+        assert rf.get_r(1) == bytearray(128)
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +253,11 @@ class TestRegFileMask:
 
     def test_mask_wrong_size(self):
         rf = RegFile()
-        with pytest.raises(AssertionError):
+        with pytest.raises(RegisterSizeError, match="expected 128 bytes, got 64"):
             rf.set_r_mask(bytearray(64))
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_mask(bytearray(256))
+        assert len(rf.get_r_mask()) == 128  # storage not resized
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +275,23 @@ class TestRegFileAcc:
         rf = RegFile()
         rf.set_r_acc_word(0, 0xDEADBEEF)
         assert rf.get_r_acc_word(0) == 0xDEADBEEF
+
+    def test_acc_word_index_rejected(self):
+        rf = RegFile()
+        n_words = len(rf.get_r_acc_bytes()) // 4
+        for index in (-1, n_words):
+            with pytest.raises(RegisterIndexError, match="word"):
+                rf.set_r_acc_word(index, 0)
+            with pytest.raises(RegisterIndexError):
+                rf.get_r_acc_word(index)
+        assert rf.get_r_acc_word(n_words - 1) == 0
+
+    def test_acc_bytes_wrong_size_rejected(self):
+        rf = RegFile()
+        size = len(rf.get_r_acc_bytes())
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_acc_bytes(bytearray(size - 4))
+        assert len(rf.get_r_acc_bytes()) == size
 
     def test_acc_word_view_numpy(self):
         rf = RegFile()

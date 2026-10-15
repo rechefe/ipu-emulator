@@ -30,13 +30,39 @@ from typing import Any
 import numpy as np
 
 from ipu_emu.descriptors import REGFILE_SCHEMA, RegDescriptor, RegDtype, RegKind
-from ipu_emu.errors import EmulatorError
+from ipu_emu.errors import (
+    EmulatorError,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+)
 from ipu_emu.ipu_config import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
     LR_CR_SCALAR_VALUE_MASK,
     REGISTER_WORD_VALUE_MASK,
 )
+
+
+# -- input validation ------------------------------------------------------
+# Real exceptions, not ``assert``: these checks must hold under ``python -O``.
+# Without them a negative index addresses the end of the backing bytearray and
+# a wrong-length slice assignment resizes a register's storage.
+
+def _check_index(name: str, index: int, count: int, *, unit: str | None = None) -> None:
+    if not 0 <= index < count:
+        bound = f"{count} {unit}" if unit else f"count={count}"
+        raise RegisterIndexError(f"{name}[{index}] out of range ({bound})")
+
+
+def _check_size(name: str, data: bytes | bytearray, size: int) -> None:
+    if len(data) != size:
+        raise RegisterSizeError(f"{name}: expected {size} bytes, got {len(data)}")
+
+
+def _check_scalar(name: str, desc: RegDescriptor) -> None:
+    if desc.is_vector:
+        raise RegisterKindError(f"{name} is not a scalar register")
 
 
 class RegFile:
@@ -148,8 +174,8 @@ class RegFile:
         """Read a 32-bit scalar register (LR / CR) at *index*."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert not desc.is_vector, f"{name} is not a scalar register"
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+        _check_scalar(name, desc)
+        _check_index(name, index, desc.count)
         offset = index * desc.size_bytes
         return struct.unpack_from("<I", self._storage[canon], offset)[0]
 
@@ -164,8 +190,8 @@ class RegFile:
         """Write a scalar register (LR / CR) at *index*."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert not desc.is_vector, f"{name} is not a scalar register"
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range (count={desc.count})"
+        _check_scalar(name, desc)
+        _check_index(name, index, desc.count)
 
         if self._is_read_only_cr(desc, index) and not allow_read_only:
             raise EmulatorError(f"CR{index} is read-only")
@@ -196,7 +222,7 @@ class RegFile:
         """Read a register element by canonical or alias name."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range"
+        _check_index(name, index, desc.count)
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         return bytearray(self._storage[canon][start:end])
@@ -205,8 +231,8 @@ class RegFile:
         """Write a register element by canonical or alias name."""
         canon = self._resolve(name)
         desc = self._descriptors[canon]
-        assert 0 <= index < desc.count, f"{name}[{index}] out of range"
-        assert len(data) == desc.size_bytes
+        _check_index(name, index, desc.count)
+        _check_size(name, data, desc.size_bytes)
         start = index * desc.size_bytes
         end = start + desc.size_bytes
         self._forget_constant_ones(canon, start, desc.size_bytes)
@@ -389,7 +415,7 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
 
     def _make_set(n: str = name, sz: int = size):
         def set_blob(self, data: bytes | bytearray) -> None:
-            assert len(data) == sz, f"{n}: expected {sz} bytes, got {len(data)}"
+            _check_size(n, data, sz)
             self._forget_constant_ones(n, 0, sz)
             self._storage[n][:] = data
         set_blob.__name__ = f"set_{n}{suffix}"
@@ -409,7 +435,7 @@ def _add_indexed_vector_accessors(
 ) -> None:
     def _make_get(n: str = name, cnt: int = count, esz: int = elem_size):
         def get_elem(self, index: int) -> bytearray:
-            assert 0 <= index < cnt, f"{n}[{index}] out of range (count={cnt})"
+            _check_index(n, index, cnt)
             start = index * esz
             return bytearray(self._storage[n][start : start + esz])
         get_elem.__name__ = f"get_{n}"
@@ -418,8 +444,8 @@ def _add_indexed_vector_accessors(
 
     def _make_set(n: str = name, cnt: int = count, esz: int = elem_size):
         def set_elem(self, index: int, data: bytes | bytearray) -> None:
-            assert 0 <= index < cnt, f"{n}[{index}] out of range (count={cnt})"
-            assert len(data) == esz, f"{n}: expected {esz} bytes, got {len(data)}"
+            _check_index(n, index, cnt)
+            _check_size(n, data, esz)
             start = index * esz
             self._forget_constant_ones(n, start, esz)
             self._storage[n][start : start + esz] = data
@@ -514,7 +540,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 
     def _make_get_word(n: str = name, nw: int = n_words):
         def get_word(self, index: int) -> int:
-            assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
+            _check_index(f"{n} word", index, nw, unit="words")
             return struct.unpack_from("<I", self._storage[n], index * 4)[0]
         get_word.__name__ = f"get_{n}_word"
         get_word.__doc__ = f"Get one uint32 word from {n}."
@@ -522,7 +548,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 
     def _make_set_word(n: str = name, nw: int = n_words):
         def set_word(self, index: int, value: int) -> None:
-            assert 0 <= index < nw, f"{n} word[{index}] out of range ({nw} words)"
+            _check_index(f"{n} word", index, nw, unit="words")
             self._forget_constant_ones(n, index * 4, 4)
             struct.pack_into(
                 "<I",

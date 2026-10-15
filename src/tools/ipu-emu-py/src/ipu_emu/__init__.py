@@ -1,5 +1,11 @@
 """IPU cycle-functional emulator."""
 
+from ipu_emu.errors import (
+    EmulatorError,
+    RegisterIndexError,
+    RegisterKindError,
+    RegisterSizeError,
+)
 from ipu_emu.xmem import XMem
 from ipu_emu.descriptors import RegDescriptor, REGFILE_SCHEMA
 from ipu_emu.regfile import RegFile
@@ -32,6 +38,10 @@ from ipu_emu.debug_cli import (
 )
 
 __all__ = [
+    "EmulatorError",
+    "RegisterIndexError",
+    "RegisterKindError",
+    "RegisterSizeError",
     "XMem",
     "RegDescriptor",
     "REGFILE_SCHEMA",
