@@ -40,7 +40,7 @@ Verified at 694a8a8:
 4. Add `//tools:deps_consistency_test` (`py_pytest_test`). It reads, with `tomllib` (`tomli` on Python 3.10, already in the lock):
    - every `pyproject.toml` and `tools/requirements-tools.in`;
    - `requirements_lock.txt`;
-   - a small generated manifest of each library's third-party deps. Produce it with a `genrule` over `bazel query`-free data: each package `BUILD` exports its runtime list as a Starlark constant (`RUNTIME_DEPS = ["click", "jinja2", "lark"]`) that both the `py_library` and a `write_file` target use, so the list exists once.
+   - a JSON manifest of each library's third-party deps. Each package keeps its runtime list once, as a Starlark constant in a `deps.bzl` beside its `BUILD` (`RUNTIME_DEPS = ["click", "jinja2", "lark"]`). The `py_library` maps it through `requirement()`, and a `genrule` in the same package writes it to `runtime_deps.json` for the test.
    It asserts:
    - every requirement name in any `pyproject.toml` (runtime and extras) and in `requirements-tools.in` is pinned in the lock (normalised names, PEP 503);
    - each library's runtime list equals its package's `[project].dependencies` minus the workspace packages (`ipu-*`).

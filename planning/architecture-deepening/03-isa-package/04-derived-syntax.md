@@ -26,7 +26,7 @@ Remove the hand-written `syntax` line (Q15). It is derived as `MNEMONIC operand 
 
 - [ ] `test_hover_data.py` (every example assembles, no commas in code fields) and `test_isa_data.py` (`test_every_instruction_assembles_from_completion_values`) pass without the normalization step.
 - [ ] New `ipu-isa/test/test_syntax.py`: `syntax("SET", ["reg", "src"]) == "SET reg src"`; every instruction's derived syntax names exactly its operands.
-- [ ] E02 generated-artifact snapshots regenerated in this PR: `instructions.md` and `programmer-guide.md` lose commas in code and gain the prose fixes; `isa.json` is byte-identical (it was already normalized). The reviewer checks that the diff has no other change.
+- [ ] E02 generated-artifact snapshots regenerated in this PR: `instructions.md` and `programmer-guide.md` lose commas in code and gain the prose fixes; `isa.json` changes only in the `LDR_MULT_MASK_REG` and `INCR_MOD_POW2` syntax lines (it was already comma-normalized) and the prose fixes. The reviewer checks that the diff has no other change.
 - [ ] E02 asm digests, decode snapshots and SV golden unchanged.
 
 ## Acceptance Criteria
