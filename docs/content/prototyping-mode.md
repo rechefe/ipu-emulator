@@ -25,6 +25,10 @@ only inside a build produced with that flag:
 | Per state | `IpuState(prototyping=True/False)` | Select a mode inside a flagged build |
 | Per process | `IPU_EMU_PROTOTYPING=1/0` | Select the default inside a flagged build |
 
+`IPU_EMU_PROTOTYPING` is read case-insensitively, with surrounding whitespace
+ignored. `0`, `false`, `no`, `off` and the empty string mean off, in any build.
+`1`, `true`, `yes` and `on` mean on. Any other value raises `ValueError`.
+
 A default Bazel build and a plain checkout cannot activate the fast paths.
 Requesting `True` in either raises `ValueError` instead of silently bypassing
 the build boundary.

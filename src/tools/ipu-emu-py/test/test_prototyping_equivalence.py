@@ -21,7 +21,11 @@ from ipu_emu.errors import RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-from ipu_emu.prototyping import build_enabled, default_enabled
+from ipu_emu.prototyping import (
+    _env_requests_prototyping,
+    build_enabled,
+    default_enabled,
+)
 
 from ipu_as.lark_tree import assemble
 
@@ -344,15 +348,40 @@ def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
         assert IpuState(prototyping=True).prototyping is True
         monkeypatch.setenv("IPU_EMU_PROTOTYPING", "0")
         assert IpuState().prototyping is False
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "FALSE")
+        assert IpuState().prototyping is False
         monkeypatch.setenv("IPU_EMU_PROTOTYPING", "1")
         assert IpuState().prototyping is True
     else:
         assert IpuState().prototyping is False
         with pytest.raises(ValueError, match="--define=ipu_proto=1"):
             IpuState(prototyping=True)
+        monkeypatch.setenv("IPU_EMU_PROTOTYPING", "FALSE")
+        assert IpuState().prototyping is False
         monkeypatch.setenv("IPU_EMU_PROTOTYPING", "1")
         with pytest.raises(ValueError, match="--define=ipu_proto=1"):
             IpuState()
+
+
+@pytest.mark.parametrize(
+    "raw", ["FALSE", "False", "false", "NO", "Off", " 0 ", ""]
+)
+def test_env_false_values_are_case_insensitive(raw):
+    assert _env_requests_prototyping(raw) is False
+
+
+@pytest.mark.parametrize("raw", ["1", "true", "YES", "on", " On "])
+def test_env_true_values_are_case_insensitive(raw):
+    assert _env_requests_prototyping(raw) is True
+
+
+@pytest.mark.parametrize("raw", ["maybe", "2", "enable"])
+def test_env_unrecognised_value_raises(raw, monkeypatch):
+    with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
+        _env_requests_prototyping(raw)
+    monkeypatch.setenv("IPU_EMU_PROTOTYPING", raw)
+    with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
+        IpuState()
 
 
 @_REQUIRES_PROTO_BUILD
