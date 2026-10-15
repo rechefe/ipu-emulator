@@ -43,3 +43,17 @@ Then diff its `localparam` lines against a build of the base commit. Every `*_WI
 ## Project Knowledge
 
 See [SKILL.md](SKILL.md) for full architecture details, ISA reference, register file layout, and code examples.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (rechefe/ipu-emulator). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
