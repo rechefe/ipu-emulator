@@ -9,7 +9,7 @@ Faults are precise (IPU-FLT-3): the faulting word has no architectural effect, a
 ## Background
 
 - Faults are raised from inside handlers today. By the time the load slot raises an XMEM range error, the LR sub-slots of the same word have written their LRs (slot order `lr` → `load` → ..., ipu.py:2297-2304). An F-5 raised by ACC.RESHAPE (ipu.py:1598, 1607) comes after LOAD and MULT have written.
-- `test_prototyping_equivalence.py` pins that both modes stop at the same point with the same partial state (it compares state after exceptions, including the batched FP32 activation case near test_prototyping_equivalence.py:281). Those expectations change to "no state change".
+- `test_prototyping_equivalence.py` pins that both modes stop at the same point with the same partial state after an exception (for example `test_an_lr_conflict_still_raises`, test_prototyping_equivalence.py:317). For faults, those expectations change to "no state change". The AaQ activation overflow case (test_prototyping_equivalence.py:268-288) is not a fault and is out of scope (Q35).
 - Every fault F-1 to F-7 depends only on the word's encoding and on LR/CR values. LR values seen by non-Control stages are post-LR-write (Q32), so the checker must compute the LR results first.
 
 ## Implementation

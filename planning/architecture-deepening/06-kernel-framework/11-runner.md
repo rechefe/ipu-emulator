@@ -15,7 +15,7 @@ callers pass a kernel, a case and a format, and everything in between is hidden.
     `create_harness`, `app.run`, export, check);
   - `kernel_registry/base.py:68-124` `IpuApp.run` (debug, profiling, activation
     knobs);
-  - `kernel_registry/registry.py:85-102` `create_state` (maps
+  - `kernel_registry/registry.py:83-101` `create_state` (maps
     `ExecutionConfig` onto three wide-mode flags);
   - `kernel_registry/runner.py` (argparse front end).
 - `runner.py:62-63` catches `TypeError`, `AttributeError`, `KeyError` and more,

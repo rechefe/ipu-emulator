@@ -22,7 +22,7 @@ Finish removing format branches from the datapath handlers (Q43, Q48): ACC.ADD/S
 ## Tests
 
 - [ ] Output-identical proof: `test_execute.py` (ACC, AGG, RESHAPE, load/store), `test_wide_vector_debug.py`, `test_prototyping_equivalence.py` under `--define=ipu_proto=1`, E02 kernel output digests for every kernel and format in use today.
-- [ ] `TestNarrowStoreOverflow` (test_execute.py:3116-3144) and the wide overflow tests (test_wide_vector_debug.py:625-655) still pass: lanes before the overflow written, the lane zeroed, `OverflowError` raised.
+- [ ] `TestNarrowStoreOverflow` (test_execute.py:3116-3144) and `TestWideVectorStoreOverflow` (test_wide_vector_debug.py:622-653) still pass: lanes before the overflow written, the lane zeroed, `OverflowError` raised.
 - [ ] E04-02 benchmark before/after.
 
 ## Acceptance Criteria

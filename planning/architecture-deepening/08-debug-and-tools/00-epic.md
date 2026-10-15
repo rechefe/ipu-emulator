@@ -31,7 +31,7 @@ Verified at HEAD `694a8a8`.
   - `gen_docs.py`, `gen_codegen.py` (plus `templates/ipu_instr_pkg.sv.j2`) and `gen_vscode.py` live in `ipu_as`.
   - `union_layout_svg.py` and `gen_union_layout_svg.py` live in `ipu_common`.
   - `compound_inst.py:179-260` renders layout SVGs.
-  - Seven 3-line shims wrap them: `docs/gen_docs_wrapper.py`, `docs/gen_codegen_wrapper.py`, `docs/gen_instruction_format_md_wrapper.py`, `docs/mkdocs_wrapper.py`, `docs/serve_docs_wrapper.py`, `vscode-ipu-asm/gen_vscode_wrapper.py` and `vscode-ipu-asm/dump_parser_tokens_wrapper.py`.
+  - Seven `*_wrapper.py` scripts wrap them (six are thin re-exports; `serve_docs_wrapper.py` is a small real script): `docs/gen_docs_wrapper.py`, `docs/gen_codegen_wrapper.py`, `docs/gen_instruction_format_md_wrapper.py`, `docs/mkdocs_wrapper.py`, `docs/serve_docs_wrapper.py`, `vscode-ipu-asm/gen_vscode_wrapper.py` and `vscode-ipu-asm/dump_parser_tokens_wrapper.py`.
   - `gen_vscode_wrapper.py:23` reaches into the private `Ipu._lrd_lr_indices`.
 - **Cycle Inspector.** The artifact (https://claude.ai/artifact/4sTeRLzw27gc3z8JmhhMVB) is a static page. It fetches `data/isa.json` and `data/<kernel>.json` traces, each with:
   - `meta`, with dtype and wide mode;

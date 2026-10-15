@@ -107,35 +107,39 @@ If #3 landed first, `Engine.step()` would freeze today's `check_break` / `execut
 | E04-27 | [27-mult-reads-r-mask-at-cycle-start.md](27-mult-reads-r-mask-at-cycle-start.md) | MULT reads R_MASK at cycle start | S | E04-12, E03 | yes |
 | E04-28 | [28-cr-scalars-in-active-format.md](28-cr-scalars-in-active-format.md) | CR scalars decoded in the active element format | S | E04-15, E04-17 | yes |
 | E04-29 | [29-commit-record-schema.md](29-commit-record-schema.md) | Commit record and trace: versioned JSON schema in `ipu_isa` | M | E04-11, E04-19 | none (new output) |
-| E04-30 | [30-reference-model-api.md](30-reference-model-api.md) | Stable reference-model API v1 | M | E04-17, E04-21, E04-29 | none (new API) |
+| E04-30 | [30-reference-model-api.md](30-reference-model-api.md) | Stable reference-model API v1 | M | E04-17, E04-21, E04-22, E04-29 | none (new API) |
 | E04-31 | [31-conformance-suite.md](31-conformance-suite.md) | Conformance suite stored as data | M | E04-30 | none |
 
 ## Suggested order
 
 ```
-E04-01 ──▶ E04-02 (measure before anything moves)
-   │
-   ├──▶ E04-04 ──────────────────────────────┐
-   ├──▶ E04-05 ──────────────────┐            │
-   │                             │            │
-E04-03                           │            │
-                                 │            │
-E04-06 ──▶ E04-07 ──▶ E04-08 ──┐ │            │
-              │                ├─┼──▶ E04-10 ◀┘
-              └──▶ E04-09 ─────┘ │      │
-                     └──▶ E04-11 ◀┘      │
-                                         ▼
-                                      E04-12 ──▶ E04-14 ──┬──▶ E04-15 ──┐
-E04-13 ───────────────────────────────────────────────────┴──▶ E04-16 ──┴──▶ E04-17
-E04-18 (when E03 codec + E08 move land)
+Phase A: seams and measurement (independent, start at once)
+  E04-01 ──▶ E04-02
+  E04-01 ──▶ E04-04
+  E04-01 ──▶ E04-05
+  E04-03
 
-                    ── refactors above are output-identical ──
-                    ── behaviour changes below, one per PR ──
+Phase B: the cycle (needs E03 timing contract + E02 harnesses)
+  E04-06 ──▶ E04-07 ──▶ E04-08 ──┐
+                │                ├──▶ E04-10 ──▶ E04-12
+                └──▶ E04-09 ─────┤      ▲
+                                 │      └── E04-04
+                     E04-05 ─────┴──▶ E04-11
 
-E04-19 ──▶ E04-20, E04-21, E04-22, E04-23
-E04-24          E04-25   E04-26   E04-27   E04-28
+Phase C: handlers and formats (E04-13 needs only E03 formats)
+  E04-12 ──▶ E04-14 ──┬──▶ E04-15 ──┐
+  E04-13 ─────────────┴──▶ E04-16 ──┴──▶ E04-17
+  E04-18 (after E03 codec move and E08 debugger move)
 
-E04-11 + E04-19 ──▶ E04-29 ──▶ E04-30 ──▶ E04-31
+          ── everything above is output-identical (E02-proven) ──
+          ── everything below is a labelled behaviour change ──
+
+Phase D: faults, flags, timing, numerics
+  E04-19 ──▶ E04-20 · E04-21 · E04-22 · E04-23
+  E04-24 · E04-25 · E04-26 · E04-27 · E04-28    (independent of each other)
+
+Phase E: reference model (can overlap Phase D)
+  E04-11 + E04-19 ──▶ E04-29 ──▶ E04-30 ──▶ E04-31
 ```
 
 E04-07 is the earliest point at which the [steppable engine](../../riscv-host-integration/03-steppable-engine.md) can start. E04-13 can start as soon as E03 lands the element-format enum. The reference-model track (E04-29 to E04-31) can run in parallel with the timing flips (E04-25 to E04-27); each flip regenerates the affected conformance traces.
@@ -147,3 +151,17 @@ E04-07 is the earliest point at which the [steppable engine](../../riscv-host-in
 | `IpuState()` construction | about 0.27 s and 550 MB (plan 02) | E04-05 |
 | Matmul benchmark | to be measured in E04-02 | E04-08, E04-15, E04-16 |
 | Emulator unit tests (`bazel test //src/tools/ipu-emu-py/...`) | about 57.6 s (plan 02) | E04-01, E04-05 |
+
+## AaQ items handed to E09 (open questions, not E04 work)
+
+AaQ is out of scope (Q25, Q35). These items surface in E04 and go to the "Emulator and ISA" section of `docs/content/requirements/open-questions.md`:
+
+- `ACTIVATE.QUANTIZE` raises "requires INT8 mode" mid-run (ipu.py:1815): fault, configuration error, or defined behaviour?
+- exp2 and reciprocal activation overflow raise `OverflowError` from the FP32 store (pinned by test_prototyping_equivalence.py:268-288); arithmetic-event policy for AAQ is undefined.
+- Quantization saturation has a reserved sticky flag (faults.md) that the placeholder does not set.
+- `wide_vector_quantize_output` survives E04-17 only as an AaQ option.
+- reciprocal(0)/rsqrt(0) and the activation-function encoding mismatch with `stage-aaq-str.md` (plan 07, 07d).
+
+## Issue count
+
+31 issues, above the 15-25 guide, because each refactor is kept mergeable alone and each behaviour change has its own issue (D3). Phase A and E04-13 can proceed in parallel.
