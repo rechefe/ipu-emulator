@@ -14,6 +14,7 @@ from typing import Dict, Type
 import lark
 
 import ipu_as.ipu_token as ipu_token
+from ipu_as.errors import SlotError, SourceLocation
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 
 
@@ -38,8 +39,10 @@ def create_assembler_opcodes() -> Dict[str, Type]:
             for subclass in cls.__subclasses__():
                 if any(tv == name.lower() for name in subclass.enum_array()):
                     return subclass
-            raise ValueError(
-                f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
+            raise SlotError(
+                f"Opcode '{opcode_token.value}' not found in any Opcode subclass",
+                location=SourceLocation.of(opcode_token),
+                token=opcode_token.value,
             )
 
     slot_to_class_name = {

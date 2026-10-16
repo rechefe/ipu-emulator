@@ -2,6 +2,7 @@ import warnings
 
 import ipu_as.inst as inst
 import ipu_as.utils as utils
+from ipu_as.errors import SlotError
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
@@ -41,13 +42,17 @@ class CompoundInst:
                         slot_filled = True
                         break
                 if not slot_filled:
-                    raise ValueError(
+                    raise SlotError(
                         f"NOP: all slots are already filled\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
                 continue
 
-            inst_type = inst.Inst.find_inst_type_by_opcode(opcode_str)
+            inst_type = inst.Inst.find_inst_type_by_opcode(
+                opcode_str, instruction["opcode"].location()
+            )
 
             # Find the first available slot for this instruction type
             slot_filled = False
@@ -62,14 +67,18 @@ class CompoundInst:
                 available_slots = sum(1 for t in inst_types_list if t == inst_type)
 
                 if available_slots == 0:
-                    raise ValueError(
+                    raise SlotError(
                         f"Instruction type {inst_type.__name__} is not allowed in compound instruction\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
                 else:
-                    raise ValueError(
+                    raise SlotError(
                         f"Too many instructions of type {inst_type.__name__} (max {available_slots})\n"
-                        f"At: {instruction['opcode'].get_location_string()}"
+                        f"At: {instruction['opcode'].get_location_string()}",
+                        location=instruction["opcode"].location(),
+                        token=opcode_str,
                     )
 
             if not is_hardware_slot(inst_type._slot_type_name()):

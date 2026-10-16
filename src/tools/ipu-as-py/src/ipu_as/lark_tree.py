@@ -5,6 +5,7 @@ import ipu_as.compound_inst as compound_inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.label as ipu_label
 import ipu_as.template as template
+from ipu_as.errors import OperandError
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -68,11 +69,13 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
                     if pseudo_name.lower() == opcode_name.lower():
                         expected_operands = candidate["operands"]
                         names = ", ".join(op["name"] for op in expected_operands)
-                        raise ValueError(
+                        raise OperandError(
                             f"Pseudo-instruction '{pseudo_name}' expects "
                             f"{len(expected_operands)} operand(s) ({names}), "
                             f"got {len(operands)}\n"
-                            f"At: {opcode_token.get_location_string()}"
+                            f"At: {opcode_token.get_location_string()}",
+                            location=opcode_token.location(),
+                            token=opcode_name,
                         )
             expanded.append(instr)
             continue

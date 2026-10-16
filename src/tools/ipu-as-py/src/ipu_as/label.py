@@ -1,5 +1,7 @@
 import lark
 
+from ipu_as.errors import LabelError, SourceLocation
+
 class Labels:
     def __init__(self):
         self.labels = {}
@@ -12,16 +14,20 @@ class Labels:
             # the duplicate label. The exception below already says everything
             # the print did.
             existing_token = self.labels[token.token.value].token
-            raise ValueError(
+            raise LabelError(
                 f"Label '{token.token.value}' is defined for the second time at Line {token.token.line}, Column {token.token.column}. "
-                f"Previous definition at Line {existing_token.line}, Column {existing_token.column}."
+                f"Previous definition at Line {existing_token.line}, Column {existing_token.column}.",
+                location=SourceLocation.of(token.token),
+                token=token.token.value,
             )
         self.labels[token.token.value] = token
 
     def get_address(self, token: lark.Token) -> int:
         if token.value not in self.labels:
-            raise ValueError(
-                f"Label '{token.value}' referenced in Line {token.line}, Column {token.column} not defined."
+            raise LabelError(
+                f"Label '{token.value}' referenced in Line {token.line}, Column {token.column} not defined.",
+                location=SourceLocation.of(token),
+                token=token.value,
             )
         return self.labels[token.value].instr_id
 
