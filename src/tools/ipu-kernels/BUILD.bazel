@@ -1,4 +1,6 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load("//tools:typecheck.bzl", "mypy_test")
 
@@ -34,4 +36,18 @@ mypy_test(
 ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
+)
+
+# Packing with the shared transforms (E06-05); ipu_apps for the loaders the
+# transforms are extracted from (golden for E07-02, which deletes them).
+py_pytest_test(
+    name = "test_pack",
+    srcs = ["test/test_pack.py"],
+    deps = [
+        ":ipu_kernels_lib",
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        "//src/tools/ipu-harness:ipu_harness_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
 )

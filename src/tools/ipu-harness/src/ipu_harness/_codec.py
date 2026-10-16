@@ -1,6 +1,7 @@
-"""Element values as a format holds them: its range, and rounding into it.
+"""Element values as a format holds them: its range, rounding into it, its bytes.
 
-One place for the harness (the manifest's ``range`` check, case inputs). The
+One place for the harness (the manifest's ``range`` check, case inputs,
+packing): every per-format branch is here, none in the callers. The
 element codec itself moves to ``ipu_isa.formats`` in E04-13; until then FP8
 goes through the emulator's public encode and decode, which round to nearest
 and saturate.
@@ -64,3 +65,47 @@ def held(values: Array, fmt: ElementFormat) -> Array:
     dtype = DType(info.exp_bits)
     flat: Array = fp8_bytes_to_fp32(fp32_to_fp8_bytes(as_fp32.ravel(), dtype), dtype)
     return np.reshape(flat, as_fp32.shape)
+
+
+def _numpy_dtype(fmt: ElementFormat) -> str | None:
+    """The little-endian NumPy type of a format NumPy holds natively, else None (FP8)."""
+    info = FORMATS[fmt]
+    if fmt is ElementFormat.FP32:
+        return "<f4"
+    if not info.is_float:
+        return {8: "<i1", 32: "<i4"}[info.element_bits]
+    return None
+
+
+def encode(values: Array, fmt: ElementFormat) -> bytes:
+    """``values`` as ``fmt``'s bytes, element after element.
+
+    Args:
+        values: Finite numbers; rounded to the format first (:func:`held`).
+        fmt: The element format.
+
+    Returns:
+        ``values.size * element_bytes(fmt)`` bytes, little-endian.
+    """
+    in_format = held(values, fmt).ravel()
+    native = _numpy_dtype(fmt)
+    if native is not None:
+        return in_format.astype(native).tobytes()
+    return fp32_to_fp8_bytes(in_format.astype(np.float32), DType(FORMATS[fmt].exp_bits))
+
+
+def decode(raw: bytes, fmt: ElementFormat) -> Array:
+    """``fmt``'s bytes as float64 values, element after element (inverse of :func:`encode`).
+
+    Args:
+        raw: A whole number of ``fmt`` elements.
+        fmt: The element format.
+
+    Returns:
+        A flat float64 array.
+    """
+    native = _numpy_dtype(fmt)
+    if native is not None:
+        return np.frombuffer(raw, dtype=native).astype(np.float64)
+    decoded: Array = fp8_bytes_to_fp32(raw, DType(FORMATS[fmt].exp_bits))
+    return decoded.astype(np.float64)
