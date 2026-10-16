@@ -15,11 +15,6 @@ INST_SEPARATOR = ";"
 WILDCARD_OPCODES = frozenset({"nop"})
 
 
-def slot_kind(opcode: str) -> str:
-    """The slot a non-wildcard instruction ``opcode`` takes (raises ``SlotError`` for none)."""
-    return inst.Inst.find_inst_type_by_opcode(opcode)._slot_type_name()
-
-
 #: The assembler's instruction class of each slot. E05-02 replaces the
 #: classes with the slot codec and deletes this table.
 SLOT_TO_INST: dict[Slot, type[inst.Inst]] = {

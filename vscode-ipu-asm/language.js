@@ -435,13 +435,15 @@ class Language {
     // mnemonic (lower case) -> { mnemonic, forms }, as in the hover index.
     this.instructions = new Map(Object.entries(isa.instructions).map(([mnemonic, forms]) => [mnemonic.toLowerCase(), { mnemonic, forms }]));
     // From schema version 1 on, the number syntax and the slot-fill rule are the assembler's own
-    // (isa.json numberPattern, slotFill). A bundled isa.json without a version is version 0 and
-    // keeps the rules this file used to hard-code, so an older checkout still works.
-    this.schemaVersion = isa.schemaVersion || 0;
+    // (isa.json numberPattern, slotFill); later versions only add keys. An isa.json without a
+    // version is version 0 and keeps the rules this file used to hard-code: the bundled data always
+    // has a version, but E08-25 reads data from a checkout, which may be older.
+    this.schemaVersion = isa.schemaVersion ?? 0;
     this.numberRe = this.schemaVersion >= 1
       ? new RegExp(`^(?:${isa.numberPattern})$`)
       : /^[+-]?(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d+)$/;
-    this.slotFill = this.schemaVersion >= 1
+    // A fill rule this file does not know keeps the version-0 rule rather than misapplying one.
+    this.slotFill = this.schemaVersion >= 1 && isa.slotFill.rule === 'own-kind'
       ? { order: isa.slotFill.order, wildcards: new Set(isa.slotFill.wildcards), kinds: isa.slotFill.kinds }
       : null;
   }
@@ -560,7 +562,7 @@ class Language {
     }
     const { order, wildcards, kinds } = this.slotFill;
     if (wildcards.has(entry.mnemonic.toLowerCase())) return order.find((s) => free[s] > 0);
-    return kinds[entry.mnemonic] || entry.forms[0].slot;
+    return kinds[entry.mnemonic]; // none: the word does not fit, so generator drift shows
   }
 
   // --- Cursor context, for completion and signature help ---
@@ -606,6 +608,7 @@ class Language {
       return n >= domain.min && n <= domain.max;
     }
     // Exactly, as Python's int(v, 0) reads it: BigInt takes no sign before a 0x/0o/0b prefix.
+    // (The bounds are JSON numbers, exact while every operand range stays within 2^53.)
     const digits = v.replace(/_/g, '').replace(/^[+-]/, '');
     const n = (v.startsWith('-') ? -1n : 1n) * BigInt(digits);
     return n >= BigInt(domain.min) && n <= BigInt(domain.max);

@@ -744,3 +744,18 @@ class BreakInst(Inst):
     @classmethod
     def description(cls) -> str:
         return cls._render_instruction_docs("break")
+
+
+def slot_kind(opcode: str) -> str:
+    """The slot kind a non-wildcard instruction takes in a word.
+
+    Args:
+        opcode: A real instruction's mnemonic, in any case.
+
+    Returns:
+        Its slot's name (``"lr"``, ``"mult"``, ...).
+
+    Raises:
+        SlotError: No slot has ``opcode``.
+    """
+    return Inst.find_inst_type_by_opcode(opcode)._slot_type_name()

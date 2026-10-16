@@ -7,6 +7,7 @@ import contextlib
 import itertools
 import random
 import re
+from pathlib import Path
 
 import lark
 import pytest
@@ -22,6 +23,8 @@ from ipu_isa.instruction_spec import VALID_OPERAND_TYPES
 DATA = build_hover_data()
 TYPES = DATA["operandTypes"]
 RELATIVE_MAX = TYPES["Label"]["relative_max"]
+# The workspace root: the runfiles tree under Bazel, the checkout under plain pytest.
+CORPUS = Path(__file__).parents[4] / "vscode-ipu-asm" / "test" / "corpus"
 
 
 def _build(type_name: str, text: str, instr_id: int = 0):
@@ -129,7 +132,7 @@ def test_every_register_is_described_by_its_definition():
 def _literals():
     """Every string of up to 4 characters over the characters a number literal
     can contain (and a few it cannot), plus longer seeded random ones."""
-    alphabet = "+-0179afgxXoObB_"
+    alphabet = "+-0179aCfgxXoObB_."
     for length in range(1, 5):
         yield from map("".join, itertools.product(alphabet, repeat=length))
     rng = random.Random(0)
@@ -145,18 +148,36 @@ def _int_accepts(text: str) -> bool:
     return True
 
 
-def test_number_pattern_agrees_with_int_base_0():
-    # The editor's numberPattern accepts exactly what NumberToken's int(v, 0)
-    # does, among the strings the grammar's TOKEN can carry to it.
+def _corpus_tokens():
+    """Every token of the extension's assembly corpus."""
+    for path in sorted(CORPUS.rglob("*.asm")):
+        yield from re.findall(r"[^\s;:]+", path.read_text(encoding="utf-8"))
+
+
+def test_schema_version():
     assert DATA["schemaVersion"] == 1
+
+
+@pytest.mark.parametrize("source", ["generated", "corpus"])
+def test_number_pattern_agrees_with_int_base_0(source):
+    # The editor's numberPattern (a hand-written regex, in syntax Python's re and
+    # JavaScript's RegExp read alike) accepts exactly what NumberToken's
+    # int(v, 0) does, among the strings the grammar's TOKEN can carry to it.
     number = re.compile(DATA["numberPattern"])
     token = re.compile(DATA["lexical"]["token"])
+    texts = list(_literals() if source == "generated" else _corpus_tokens())
+    assert texts
     disagree = [
         text
-        for text in _literals()
+        for text in texts
         if token.fullmatch(text) and bool(number.fullmatch(text)) != _int_accepts(text)
     ]
     assert disagree == []
+
+
+def _word(mnemonic: str) -> str:
+    form = DATA["instructions"][mnemonic][0]
+    return " ".join([mnemonic, *(_operand_text(op["type"]) for op in form["operands"])])
 
 
 def test_slot_fill_is_the_assemblers():
@@ -173,11 +194,8 @@ def test_slot_fill_is_the_assemblers():
     # Two instructions of one kind in a word that holds one are rejected, as
     # the editor's fits() rejects them; a wildcard then takes another slot.
     one_slot = next(k for k in fill["order"] if DATA["slotCount"][k] == 1 and k != "break")
-    first, second = [m for m, k in fill["kinds"].items() if k == one_slot][:2]
+    same_kind = [m for m, k in fill["kinds"].items() if k == one_slot]
+    assert len(same_kind) >= 2, f"the {one_slot} slot has fewer than two mnemonics"
+    first, second = same_kind[:2]
     assert check(f"{_word(first)}; {_word(second)};;\nBKPT;;\n") != []
     assert check(f"{_word(first)}; NOP;;\nBKPT;;\n") == []
-
-
-def _word(mnemonic: str) -> str:
-    form = DATA["instructions"][mnemonic][0]
-    return " ".join([mnemonic, *(_operand_text(op["type"]) for op in form["operands"])])

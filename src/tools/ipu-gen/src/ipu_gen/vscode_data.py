@@ -34,9 +34,9 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
-from ipu_as.compound_inst import WILDCARD_OPCODES, slot_kind
+from ipu_as.compound_inst import WILDCARD_OPCODES
 from ipu_as.diagnostics import check
-from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_as.inst import OPERAND_TYPE_MAP, slot_kind
 from ipu_as.ipu_token import NUMBER_PATTERN
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
