@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import struct
-from typing import Any
 
 import pytest
 from emu_support import ElementFormat, make_state, new_state
@@ -13,9 +12,10 @@ from emu_support import ElementFormat, make_state, new_state
 import ipu_debug.format as debug_format
 import ipu_debug.tui.view as debug_tui
 from ipu_debug.session import DebugSession, XmemRequest
+from ipu_debug.tui.keymap import footer_text, help_lines
+from ipu_debug.tui.screen import COLOR_MASK, FakeScreen, Key, MouseEvent
 from ipu_debug.tui.view import (
     MIN_TERMINAL_COLUMNS,
-    MIN_TERMINAL_ROWS,
     PIPELINE_REGISTERS,
     CursesDebugView,
     DebugViewSession,
@@ -30,8 +30,6 @@ from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-from ipu_debug.tui.keymap import footer_text, help_lines
-from ipu_debug.tui.screen import COLOR_MASK, FakeScreen, Key, MouseEvent
 
 
 def cell(screen: FakeScreen, y: int, x: int) -> str:
@@ -2397,9 +2395,7 @@ class TestResponsiveMouseUI:
         view.handle_key("0")
         view.render()
         hit = next(
-            rect
-            for rect, key in view.overlay_hits
-            if key == (Key.ENTER if apply else Key.ESCAPE)
+            rect for rect, key in view.overlay_hits if key == (Key.ENTER if apply else Key.ESCAPE)
         )
         mouse(view, hit.y, hit.x)
         assert view.editor_mode is None
@@ -2837,9 +2833,7 @@ class TestPopupEscape:
 
 class TestStatusAndDividerDirection:
     @pytest.mark.parametrize("pane", debug_tui.PANE_FOCUS_ORDER)
-    @pytest.mark.parametrize(
-        "key,delta", [(Key.SHIFT_LEFT, -2), (Key.SHIFT_RIGHT, 2)]
-    )
+    @pytest.mark.parametrize("key,delta", [(Key.SHIFT_LEFT, -2), (Key.SHIFT_RIGHT, 2)])
     def test_arrow_moves_divider_in_screen_direction(self, pane, key, delta):
         view, _, session = make_view(screen=FakeScreen(columns=140))
         session.focus = pane

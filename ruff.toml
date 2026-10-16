@@ -103,7 +103,7 @@ max-args = 6
 
 # ipu-debug debugger: removed by E08.
 "src/tools/ipu-debug/src/ipu_debug/cli.py" = ["C901", "PLR0912"]
-"src/tools/ipu-debug/src/ipu_debug/tui.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+"src/tools/ipu-debug/src/ipu_debug/tui/view.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
 
 # ipu-isa layout solver: removed by E03 (immutable derived layout).
 "src/tools/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]
