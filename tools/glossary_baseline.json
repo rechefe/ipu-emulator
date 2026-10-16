@@ -1,0 +1,90 @@
+{
+  "docs/content/adding-instruction.md": {
+    "VLIW word": 1,
+    "compound instruction": 1,
+    "narrow mode": 1,
+    "slot type": 2,
+    "snapshot": 2
+  },
+  "docs/content/app-coverage.md": {
+    "bundle": 3
+  },
+  "docs/content/building-applications.md": {
+    "dtype": 1,
+    "program counter": 1,
+    "wide-vector debug mode": 3
+  },
+  "docs/content/debugging.md": {
+    "dtype": 1,
+    "program counter": 3,
+    "simulation-only": 1,
+    "snapshot": 1
+  },
+  "docs/content/ipu-configuration.md": {
+    "dtype": 5
+  },
+  "docs/content/isa-alias-catalogue.md": {
+    "bundle": 6,
+    "simulation-only": 2,
+    "snapshot": 2
+  },
+  "docs/content/prototyping-mode.md": {
+    "program counter": 1,
+    "snapshot": 2
+  },
+  "docs/content/requirements/architecture.md": {
+    "DRAM": 2,
+    "VLIW word": 1
+  },
+  "docs/content/requirements/execution-flow.md": {
+    "DRAM": 2
+  },
+  "docs/content/requirements/host-registers.md": {
+    "VLIW word": 1
+  },
+  "docs/content/requirements/index.md": {
+    "DRAM": 2,
+    "VLIW word": 4
+  },
+  "docs/content/requirements/interfaces.md": {
+    "DRAM": 1
+  },
+  "docs/content/requirements/memory-access.md": {
+    "DRAM": 5,
+    "slot name": 1
+  },
+  "docs/content/requirements/open-questions.md": {
+    "DRAM": 1,
+    "VLIW word": 1
+  },
+  "docs/content/specs/cache-unit.md": {
+    "DRAM": 18
+  },
+  "docs/content/specs/riscv-host-integration.md": {
+    "VLIW word": 2,
+    "dtype": 3,
+    "program counter": 3
+  },
+  "docs/content/specs/stage-aaq-str.md": {
+    "VLIW word": 1,
+    "bundle": 2
+  },
+  "docs/content/specs/stage-accumulator.md": {
+    "VLIW word": 1,
+    "dtype": 2,
+    "live value": 1,
+    "pre-instruction value": 1,
+    "snapshot": 8
+  },
+  "docs/content/specs/stage-control.md": {
+    "VLIW word": 16,
+    "program counter": 3,
+    "snapshot": 9
+  },
+  "docs/content/wide-vector-debug-mode.md": {
+    "debug-only": 1,
+    "narrow mode": 2,
+    "wide mode": 6,
+    "wide-vector debug mode": 2
+  }
+}
