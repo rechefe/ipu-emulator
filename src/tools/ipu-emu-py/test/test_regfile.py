@@ -16,15 +16,15 @@ from ipu_emu.errors import (
     RegisterKindError,
     RegisterSizeError,
 )
-from ipu_emu.ipu_config import (
-    CR_DSTRUCTURE_REG_INDEX,
+from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.regfile import RegFile
+from ipu_isa.constants import (
     DSTRUCTURE_VALID_ELEMENTS_MASK,
     PadMode,
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.regfile import RegFile
 
 # ---------------------------------------------------------------------------
 # RegFile — scalar (LR / CR) access
@@ -107,6 +107,8 @@ class TestRegFileOptimizedMode:
         assert probe.returncode == 0, probe.stderr
 
         script = """
+import sys
+
 from ipu_emu.errors import RegisterIndexError, RegisterSizeError
 from ipu_emu.regfile import RegFile
 
@@ -124,7 +126,7 @@ for expected, call in checks:
         call()
     except expected:
         continue
-    raise SystemExit(f"no {expected.__name__} raised")
+    sys.exit(f"no {expected.__name__} raised")
 print("ok")
 """
         result = subprocess.run(
@@ -433,14 +435,14 @@ class TestIpuState:
 
     def test_set_cr_dstructure_accepts_cr_idx(self):
         state = IpuState()
-        cr15_before = state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX)
+        cr15_before = state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR)
 
         state.set_cr_dstructure(7, 4, cr_idx=3)
 
         config = state.get_dstructure_for(3)
         assert config.valid_elements == 7
         assert config.partition == 4
-        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == cr15_before
+        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == cr15_before
 
     def test_cr_dstructure_masks_valid_elements(self):
         state = IpuState()
@@ -482,7 +484,7 @@ class TestIpuState:
     def test_cr_dstructure_uses_config_register(self):
         state = IpuState()
         state.set_cr_dstructure(7, 4)
-        assert state.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX) == encode_dstructure(
+        assert state.regfile.get_cr(DEFAULT_DSTRUCTURE_CR) == encode_dstructure(
             valid_elements=7,
             partition=4,
         )

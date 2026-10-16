@@ -67,7 +67,7 @@ from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
 )
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import run_test
-from ipu_emu.ipu_config import Partition
+from ipu_isa.constants import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState

@@ -7,9 +7,10 @@ import os
 import pytest
 
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
-from ipu_isa.layout import SLOT_BINARY_LAYOUT, SLOT_UNIONS, compute_layout, isa_layout
+from ipu_isa.layout import SLOT_BINARY_LAYOUT, SLOT_UNIONS, isa_layout
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.union_layout import compute_layout
 
 
 def test_compute_layout_is_pure():

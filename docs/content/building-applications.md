@@ -22,7 +22,7 @@ configuration that the assembly program reads. Keep this in the Python
 [IPU Configuration](ipu-configuration.md) for the full register layout.
 
 ```python
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.ipu_math import DType
 
 def setup(self, state: IpuState) -> None:
@@ -402,7 +402,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.ipu_math import DType
 from ipu_emu.emulator import load_binary_to_xmem, dump_xmem_to_binary
 

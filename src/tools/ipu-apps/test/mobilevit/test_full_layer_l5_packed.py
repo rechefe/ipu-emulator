@@ -47,8 +47,8 @@ from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_config import Partition, encode_dstructure
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_isa.constants import Partition, encode_dstructure
 
 N_CH = 240
 N_TOK = 16

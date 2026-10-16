@@ -39,7 +39,7 @@ from ipu_emu.errors import (
     RegisterKindError,
     RegisterSizeError,
 )
-from ipu_emu.ipu_config import (
+from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
     CR_REGISTER_NAME,
     LR_CR_SCALAR_VALUE_MASK,

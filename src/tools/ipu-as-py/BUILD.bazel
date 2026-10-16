@@ -100,6 +100,17 @@ py_pytest_test(
     ],
 )
 
+# `cr` / `lr` ABI namespaces in templates (E05-13).
+py_pytest_test(
+    name = "test_abi",
+    srcs = ["test/test_abi.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # GNU numeric local labels (E05-14).
 py_pytest_test(
     name = "test_local_labels",
@@ -179,6 +190,17 @@ py_pytest_test(
         requirement("jsonschema"),
         requirement("pytest"),
         requirement("referencing"),
+    ],
+)
+
+# diagnostics.check on the AssemblySession stages (E05-07).
+py_pytest_test(
+    name = "test_diagnostics_session",
+    srcs = ["test/test_diagnostics_session.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
     ],
 )
 

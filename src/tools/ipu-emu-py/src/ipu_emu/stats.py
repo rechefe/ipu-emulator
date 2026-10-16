@@ -17,11 +17,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import MISSING, dataclass, field, fields
 
-from ipu_isa.registers import get_lane_count
-
-# The same constant ipu.LANES uses, from the same accessor, so the denominators
-# here cannot drift from the lane counts accumulated there.
-LANES = get_lane_count()
+# The same constant ipu.LANES is, so the denominators here cannot drift from
+# the lane counts accumulated there.
+from ipu_isa.geometry import LANES
 
 
 @dataclass

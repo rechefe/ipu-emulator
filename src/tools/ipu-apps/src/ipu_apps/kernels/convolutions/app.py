@@ -59,7 +59,7 @@ from ipu_apps.kernel_registry import (
     yes,
 )
 from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape
-from ipu_emu.ipu_config import DEFAULT_VALID_ELEMENTS
+from ipu_isa.constants import DEFAULT_VALID_ELEMENTS
 
 # -- Memory-layout kernels ----------------------------------------------------
 

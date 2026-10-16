@@ -82,6 +82,9 @@ def main(argv=None):
             output_path=args.output,
             alias_profile=profile,
         )
+        if state.quit_requested:
+            # The user quit the debugger: an unfinished run has no result.
+            return 0
         if args.alias_report:
             args.alias_report.write_text(profile.to_json(indent=2) + "\n")
     except (

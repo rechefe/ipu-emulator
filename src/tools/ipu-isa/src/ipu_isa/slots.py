@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
+from typing import Any
 
 from ipu_isa import schema
 from ipu_isa.tags import Tag
@@ -111,7 +112,7 @@ ENTRY_KEYS = schema.Keys(
     )
 )
 
-_SPEC: dict[Slot, dict] = {
+_SPEC: dict[Slot, dict[str, Any]] = {
     Slot.BREAK: {
         "count": 1,
         "pad_to_bits": None,
@@ -311,7 +312,9 @@ LAYOUT_ORDER: tuple[Slot, ...] = (
 )
 
 
-def _load(spec: Mapping[Slot, dict], layout_order: tuple[Slot, ...]) -> Mapping[Slot, SlotInfo]:
+def _load(
+    spec: Mapping[Slot, dict[str, Any]], layout_order: tuple[Slot, ...]
+) -> Mapping[Slot, SlotInfo]:
     """Check the authored entries and freeze them into records."""
     if set(spec) != set(Slot):
         raise schema.SpecError(f"SLOTS: entries {sorted(spec)} do not match Slot {sorted(Slot)}")

@@ -38,14 +38,15 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import jinja2
 from jinja2.sandbox import SandboxedEnvironment
 
 from ipu_as.errors import SourceLocation, TemplateError
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 #: A marker means the parser sees different text than the file holds, so a
 #: position in the parsed text need not correspond to the file it came from.
@@ -289,43 +290,118 @@ def lex(text: str) -> list[tuple[int, str, str]]:
     return list(_environment((), None).lex(text))
 
 
+#: The ABI namespaces a template may name registers through, and the register
+#: file each one names: `{{ cr.data_base }}` -> "CR2", `{{ lr.data_ptr }}` -> "LR0".
+ABI_NAMESPACES = ("cr", "lr")
+
+
+class _AbiNamespace:
+    """A read-only `name -> register token` mapping a template reads as `cr.name` or `cr["name"]`."""
+
+    def __init__(self, namespace: str, registers: Mapping[str, str]) -> None:
+        self._namespace = namespace
+        self._registers = dict(registers)
+
+    def __getattr__(self, name: str) -> str:
+        # Only reached for names the object does not have; the sandbox refuses
+        # `_`-names before this, and abi_namespaces() rejects them as ABI names.
+        return self[name]
+
+    def __getitem__(self, name: str) -> str:
+        try:
+            return self._registers[name]
+        except KeyError:
+            # Not AttributeError or KeyError: jinja turns those into Undefined,
+            # and an unknown register name must fail whatever the Undefined policy.
+            raise TemplateError(f"unknown ABI name {self._namespace}.{name}") from None
+
+    def __iter__(self):
+        raise TemplateError(f"the ABI namespace {self._namespace} cannot be iterated")
+
+    def __str__(self) -> str:
+        raise TemplateError(f"use {self._namespace}.<name>, not {self._namespace} alone")
+
+
+def _abi_context(
+    namespaces: Mapping[str, Mapping[str, str]], source_name: str
+) -> dict[str, _AbiNamespace]:
+    """The `cr` / `lr` render values; TemplateError for a namespace or register the ISA lacks."""
+    where = SourceLocation(1, 1, source=source_name)
+    context = {}
+    for namespace, registers in namespaces.items():
+        if namespace not in ABI_NAMESPACES:
+            raise TemplateError(
+                f"unknown ABI namespace {namespace!r} (have: {', '.join(ABI_NAMESPACES)})",
+                location=where,
+            )
+        tokens = REGISTER_DEFINITIONS[namespace]["assembler_values"]
+        checked = {}
+        for name, register in registers.items():
+            if not str(name).isidentifier() or str(name).startswith("_"):
+                raise TemplateError(f"ABI name {namespace}.{name} is not a name", location=where)
+            if str(register).lower() not in tokens:
+                raise TemplateError(
+                    f"ABI name {namespace}.{name} = {register!r} is not a register "
+                    f"{tokens[0].upper()}-{tokens[-1].upper()}",
+                    location=where,
+                )
+            checked[name] = str(register).upper()
+        context[namespace] = _AbiNamespace(namespace, checked)
+    return context
+
+
+def abi_namespaces(table: Mapping[str, str]) -> dict[str, dict[str, str]]:
+    """Split a flat `name -> register` table (`kernel.toml [abi]`) into the `cr` / `lr` namespaces.
+
+    Raises:
+        TemplateError: a value is not a CR or LR register.
+    """
+    namespaces: dict[str, dict[str, str]] = {namespace: {} for namespace in ABI_NAMESPACES}
+    for name, register in table.items():
+        namespace = str(register)[:2].lower()
+        if not isinstance(register, str) or namespace not in namespaces:
+            raise TemplateError(f"[abi] {name} = {register!r} is not a CR or LR register")
+        namespaces[namespace][name] = register
+    _abi_context(namespaces, "[abi]")  # the per-register checks
+    return namespaces
+
+
+def _check_reserved(names: Iterable[str], source_name: str, what: str) -> None:
+    for name in names:
+        if name in ABI_NAMESPACES:
+            raise TemplateError(
+                f"{what} {name!r} is reserved for the ABI namespace",
+                location=SourceLocation(1, 1, source=source_name),
+            )
+
+
 def has_markers(text: str) -> bool:
     """True when the source carries a Jinja layer that must be rendered first."""
     return any(marker in text for marker in MARKERS)
 
 
-def render(
-    text: str,
-    *,
-    defines: Mapping[str, object] | None = None,
-    params: ParamSpec | None = None,
-    search_path: Sequence[Path] = (),
-    source_name: str = "<asm>",
-    transform: SourceTransform | None = None,
-) -> str:
-    """Render one assembly source through the sandbox.
+@dataclass(frozen=True, eq=False)
+class TemplateInputs:
+    """What a template is rendered with, besides its text."""
 
-    Args:
-        text: The source.
-        defines: Template values, checked against the declared parameters.
-        params: The declared parameters; if None, the source's `ipu:params`
-            header, if any. A source that declares nothing takes no defines.
-        search_path: Roots that `{% include %}` and `{% import %}` resolve in.
-        source_name: The source's name in error locations.
-        transform: Applied to the source and to every loaded template first.
+    #: Template values, checked against the declared parameters.
+    defines: Mapping[str, object] = field(default_factory=dict)
+    #: The declared parameters; if None, the source's `ipu:params` header, if
+    #: any. A source that declares nothing takes no defines.
+    params: ParamSpec | None = None
+    #: Roots that `{% include %}` and `{% import %}` resolve in.
+    search_path: tuple[Path, ...] = ()
+    #: ABI names by namespace, `{"cr": {"data_base": "CR2"}}`; the template
+    #: reads them as `{{ cr.data_base }}`. An unknown name fails.
+    namespaces: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
-    Returns:
-        The rendered text; `text` itself when it has no Jinja markers.
 
-    Raises:
-        TemplateError: a bad define, or any jinja failure (syntax, undefined
-            name, sandbox escape, missing template, an expression raising),
-            located in the template it happened in, with the jinja2 exception
-            as `__cause__`.
-    """
-    defines = dict(defines or {})
-    if params is None:
-        params = declared_params(text, source_name)
+def _context(text: str, inputs: TemplateInputs, source_name: str) -> dict[str, object]:
+    """The render values: the bound defines and the ABI namespaces."""
+    defines = dict(inputs.defines)
+    abi = _abi_context(inputs.namespaces, source_name)
+    _check_reserved(defines, source_name, "define")
+    params = inputs.params if inputs.params is not None else declared_params(text, source_name)
     if params is None:
         if defines:
             raise TemplateError(
@@ -333,14 +409,42 @@ def render(
                 f"parameters (add an ipu:params header)",
                 location=SourceLocation(1, 1, source=source_name),
             )
-        context: dict[str, object] = {}
-    else:
-        context = params.bind(defines, source_name)
+        return dict(abi)
+    _check_reserved((param.name for param in params.params), source_name, "parameter")
+    return {**params.bind(defines, source_name), **abi}
+
+
+def render(
+    text: str,
+    inputs: TemplateInputs | None = None,
+    *,
+    source_name: str = "<asm>",
+    transform: SourceTransform | None = None,
+) -> str:
+    """Render one assembly source through the sandbox.
+
+    Args:
+        text: The source.
+        inputs: Its defines, declared parameters, search path and ABI names.
+        source_name: The source's name in error locations.
+        transform: Applied to the source and to every loaded template first.
+
+    Returns:
+        The rendered text; `text` itself when it has no Jinja markers.
+
+    Raises:
+        TemplateError: a bad define or ABI name, or any jinja failure (syntax,
+            undefined name, sandbox escape, missing template, an expression
+            raising), located in the template it happened in, with the jinja2
+            exception as `__cause__`.
+    """
+    inputs = inputs or TemplateInputs()
+    context = _context(text, inputs, source_name)
     if not has_markers(text):
         return text
     if transform is not None:
         text = transform(source_name, text)
-    environment = _environment(search_path, transform)
+    environment = _environment(inputs.search_path, transform)
     try:
         return environment.from_string(text).render(**context)
     except Exception as error:

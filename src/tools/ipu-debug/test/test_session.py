@@ -210,7 +210,7 @@ class TestDisassemble:
 
 class TestSetRegister:
     def test_scalar_write_returns_the_masked_value_and_bumps_generation(self, session):
-        from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+        from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 
         view = session.set_register("cr2", -1)
         assert view.name == "cr" and view.index == 2

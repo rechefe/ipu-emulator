@@ -24,8 +24,6 @@ class DebugControl(RunControl):
     (``run_with_debug(..., control=...)``) and its frontends.
     """
 
-    kernel_name: str | None = None
-
     def add_breakpoint(self, pc: int) -> None:
         self._breakpoints = self._breakpoints | {validate_pc(pc)}
 

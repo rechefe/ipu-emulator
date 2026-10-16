@@ -8,11 +8,14 @@ import lark
 import ipu_as.utils as utils
 from ipu_as.errors import LabelError, OperandError, SourceLocation
 from ipu_as.symbols import is_local_reference
-from ipu_isa.geometry import MAX_PROGRAM_SIZE
+from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.operand_types import operand_type
 
 if TYPE_CHECKING:
     from ipu_as.symbols import SymbolTable
+
+#: Instruction-memory depth, as the assembler names it.
+MAX_PROGRAM_SIZE = INST_MEM_WORDS
 
 
 @dataclasses.dataclass
