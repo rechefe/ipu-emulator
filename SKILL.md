@@ -9,15 +9,14 @@ ipu-emulator defines the instruction set of the IPU, a 128-lane VLIW vector proc
 The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Constraints" and "Generated SystemVerilog Package". They are explained in:
 
 - Opcodes from position, no duplicated metadata, handler argument names: [adding-instruction.md](docs/content/adding-instruction.md) and [ADR 0001](docs/adr/0001-isa-package-is-the-single-source-of-truth.md).
-- Naming and separator conventions in docs, and the `asm-fragment` marker: [CLAUDE.md](CLAUDE.md), "Docs and written examples".
-- SystemVerilog package widths after an ISA change: [CLAUDE.md](CLAUDE.md), "Generated SystemVerilog Package".
+- Docs conventions and SystemVerilog package widths: CLAUDE.md is their only home.
 
 ## Where each topic is documented
 
 | Task or topic | Page |
 |---|---|
 | Build and run tests | [CLAUDE.md](CLAUDE.md), "Build & Test" |
-| Packages and where the code lives | [README.md](README.md), "Python Packages" |
+| Packages and where the code lives | [README.md](README.md), "Python Packages"; kernels: [adding-applications.md](docs/content/adding-applications.md) |
 | Write a kernel | [building-applications.md](docs/content/building-applications.md) |
 | Register a kernel (folder contract, Bazel targets) | [adding-applications.md](docs/content/adding-applications.md) |
 | Kernel catalogue | [kernels/index.md](docs/content/kernels/index.md) |
@@ -28,10 +27,10 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Bit layout of the instruction word | generated [Instruction format](https://rechefe.github.io/ipu-emulator/instruction-format/) |
 | Pseudo-instructions | generated [Programmer's guide](https://rechefe.github.io/ipu-emulator/programmer-guide/) |
 | Element formats, CR constants, dstructure | [ipu-configuration.md](docs/content/ipu-configuration.md), [wide-vector-debug-mode.md](docs/content/wide-vector-debug-mode.md) |
-| Command-line tools | [reference/cli.md](docs/content/reference/cli.md); until it is written, `ipu-as --help` |
-| Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md) |
-| Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) |
-| Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md), [ADR 0002](docs/adr/0002-timing-contract.md) |
+| Command-line tools | [reference/cli.md](docs/content/reference/cli.md) (stub, E09-15); meanwhile `bazel run //src/tools/ipu-as-py:ipu-as -- --help` |
+| Reference-model API | [reference/reference-model-api.md](docs/content/reference/reference-model-api.md) (stub, E09-16); meanwhile [ADR 0004](docs/adr/0004-stable-reference-model-api.md) |
+| Architecture | [explanation/architecture.md](docs/content/explanation/architecture.md) (stub, E09-17); meanwhile [docs/adr/](docs/adr/) |
+| Timing model (cycle-start and forwarded values) | [explanation/timing-model.md](docs/content/explanation/timing-model.md) (stub, E09-18); meanwhile [ADR 0002](docs/adr/0002-timing-contract.md) |
 | Prototyping mode | [prototyping-mode.md](docs/content/prototyping-mode.md) |
 | ISA idioms and kernel coverage | [isa-alias-catalogue.md](docs/content/isa-alias-catalogue.md), [app-coverage.md](docs/content/app-coverage.md) |
 | Hardware specs and requirements | [specs/](docs/content/specs/), [requirements/index.md](docs/content/requirements/index.md) |

@@ -42,7 +42,7 @@ Then diff its `localparam` lines against a build of the base commit. Every `*_WI
 
 ## Project Knowledge
 
-[SKILL.md](SKILL.md) is the index: for each task or topic it names the `docs/` page that covers it. `docs/` is canonical.
+[SKILL.md](SKILL.md) is the index: for each task or topic it names the page that covers it.
 
 ## Agent skills
 

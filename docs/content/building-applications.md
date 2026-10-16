@@ -119,7 +119,7 @@ Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) w
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing.
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. The `ipu-as` command line has no option to set template variables yet; `--define` is planned in E05-10.
 
 ## Step 2: Define Bazel Build Targets
 
