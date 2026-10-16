@@ -24,6 +24,7 @@ from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.codec.word import WORD_LAYOUT, DecodedWord, FieldSpec
 from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "WILDCARD_OPCODES",
     "Placed",
     "assign_slots",
+    "target_tag",
     "disassemble_word",
     "encode_word",
 ]
@@ -209,25 +211,60 @@ def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
     return value
 
 
-def encode_word(compound: dict) -> int:
+def target_tag(target: str) -> Tag:
+    """The word a target assembles to: ``"emulator"`` or ``"hardware"``.
+
+    Raises:
+        ValueError: any other target.
+    """
+    tag = Tag(target)
+    if tag not in _TARGETS:
+        raise ValueError(f"target must be emulator or hardware, not {target!r}")
+    return tag
+
+
+_TARGETS = (Tag.EMULATOR, Tag.HARDWARE)
+
+
+def _check_target(placed: Placed, target: Tag) -> None:
+    """Raise if ``placed`` cannot be assembled for ``target``."""
+    opcode = placed.instruction["opcode"]
+    if target is not Tag.HARDWARE or opcode.token.value.lower() in WILDCARD_OPCODES:
+        return
+    if SLOT_CODECS[placed.slot].instruction(opcode.token.value).tag is Tag.EMULATOR:
+        raise SlotError(
+            f"{opcode.token.value} is emulator-only and cannot be assembled for --target hardware",
+            location=opcode.location(),
+            token=opcode.token.value,
+        )
+
+
+def encode_word(compound: dict, target: Tag = Tag.EMULATOR) -> int:
     """The instruction word of one parsed compound.
 
     Args:
         compound: One entry of ``ASTBuilder``'s output.
+        target: ``Tag.EMULATOR`` (the default) or ``Tag.HARDWARE``. The word is
+            the emulator word either way (``ipu_isa.codec.word.hardware_word``
+            takes its hardware part); for the hardware an EMULATOR-tagged
+            instruction is an error rather than a warning.
 
     Returns:
         The word; a slot instance no instruction takes is NOP.
 
     Raises:
-        SlotError: see ``assign_slots``.
+        SlotError: see ``assign_slots``; or, for ``Tag.HARDWARE``, an
+            emulator-only instruction.
         OperandError: a wrong operand count or an invalid operand value.
         LabelError: an undefined label.
 
     Warns:
-        UserWarning: an instruction of a simulation-only slot.
+        UserWarning: an instruction of a simulation-only slot (emulator target).
     """
+    target = target_tag(target)
     values = {}
     for placed in _placements(compound):
+        _check_target(placed, target)
         operands = _operand_values(placed)
         opcode = placed.instruction["opcode"]
         try:
@@ -238,7 +275,11 @@ def encode_word(compound: dict) -> int:
             raise OperandError(
                 str(error), location=opcode.location(), token=opcode.token.value
             ) from error
-        if opcode.token.value.lower() not in WILDCARD_OPCODES and SLOTS[placed.slot].debug_only:
+        if (
+            target is Tag.EMULATOR
+            and opcode.token.value.lower() not in WILDCARD_OPCODES
+            and SLOTS[placed.slot].debug_only
+        ):
             warnings.warn(
                 f"{opcode.token.value} uses the simulation-only {placed.slot.value} slot "
                 "(not implemented in real IPU hardware)",
@@ -292,11 +333,23 @@ def _instance_text(fields: DecodedWord, key: tuple[Slot, int]) -> str:
     return " ".join((mnemonic, *operands))
 
 
-def disassemble_word(word: int) -> str:
+#: The slot instances of each target's word, most significant first.
+_TARGET_INSTANCES: Mapping[Tag, tuple[tuple[Slot, int], ...]] = MappingProxyType(
+    {
+        Tag.EMULATOR: SLOT_INSTANCES,
+        Tag.HARDWARE: tuple(key for key in SLOT_INSTANCES if SLOTS[key[0]].tag is Tag.HARDWARE),
+    }
+)
+
+
+def disassemble_word(word: int, target: Tag = Tag.EMULATOR) -> str:
     """The assembly text of one word: every slot instance, NOP and unused fields included.
 
     Args:
-        word: An instruction word.
+        word: An instruction word: the emulator word, or for ``Tag.HARDWARE``
+            the hardware word (its top bits, ``hardware_word``).
+        target: Which word ``word`` is; the hardware text has the hardware
+            slots only.
 
     Returns:
         One ``MNEMONIC field...`` group per slot instance, most significant
@@ -305,5 +358,9 @@ def disassemble_word(word: int) -> str:
     Raises:
         IndexError: a slot holds an opcode no instruction uses.
     """
+    target = target_tag(target)
+    if target is Tag.HARDWARE:
+        word <<= isa().layout.word_bits(Tag.EMULATOR)  # the emulator slots are the low bits
     fields = DecodedWord.from_word(word)
-    return ";\n\t\t\t".join(_instance_text(fields, key) for key in SLOT_INSTANCES) + ";;"
+    instances = _TARGET_INSTANCES[target]
+    return ";\n\t\t\t".join(_instance_text(fields, key) for key in instances) + ";;"

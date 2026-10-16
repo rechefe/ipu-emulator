@@ -224,7 +224,7 @@ def _active_lane_count(mask_int: int, valid_elements: int) -> int:
 
 # The slots a word holds once, in registry order. LR's sub-slots are read per
 # instance. Field names come from the ISA's word layout (field_name,
-# opcode_field), never built here (E05-03).
+# opcode_field), never built here.
 _SINGLE_INSTANCE_SLOTS = tuple(slot for slot, info in SLOTS.items() if info.count == 1)
 
 

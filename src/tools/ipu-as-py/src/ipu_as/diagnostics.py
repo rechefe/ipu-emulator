@@ -388,6 +388,7 @@ def check(
     defines: Mapping[str, object] | None = None,
     search_path: Sequence[Path] = (),
     abi: Mapping[str, Mapping[str, str]] | None = None,
+    target: str = "emulator",
 ) -> list[Diagnostic]:
     """Return diagnostics for one assembly source. Empty means it assembles.
 
@@ -402,6 +403,8 @@ def check(
             error inside an included template is reported at the open file's
             include line, and its message names the template and line.
         abi: The `cr` / `lr` names the template reads.
+        target: `"emulator"` or `"hardware"`; for the hardware an emulator-only
+            instruction is an error at its mnemonic.
     """
     inputs = template.TemplateInputs(
         defines=dict(defines or {}),
@@ -413,7 +416,7 @@ def check(
         return [failed]
     stages = AssemblySession(text)
     try:
-        stages.encode(stages.parse_rendered(rendered))
+        stages.encode(stages.parse_rendered(rendered), target)
     except ParseError as error:
         return [_recover(_parse_diagnostic(error, text, rendered), text, inputs)]
     except EncodeError as error:
