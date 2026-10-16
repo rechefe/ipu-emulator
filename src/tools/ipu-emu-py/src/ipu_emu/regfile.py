@@ -25,7 +25,8 @@ takes an index argument (multi-element) or not (single-element).
 from __future__ import annotations
 
 import struct
-from typing import Any
+import weakref
+from typing import Any, Callable
 
 import numpy as np
 
@@ -65,6 +66,31 @@ def _check_scalar(name: str, desc: RegDescriptor) -> None:
         raise RegisterKindError(f"{name} is not a scalar register")
 
 
+#: ``fn(name, start, size)``: register *name* bytes ``[start, start+size)`` may change.
+RegisterObserver = Callable[[str, int, int], None]
+
+
+def _remover(owner, fn: Callable) -> Callable[[], None]:
+    """A function that detaches *fn* from *owner*. It holds *owner* weakly, so
+    an observer that keeps its remover does not form a reference cycle."""
+    ref = weakref.ref(owner)
+
+    def remove() -> None:
+        target = ref()
+        if target is not None:
+            target._observers = _without(target._observers, fn)
+
+    return remove
+
+
+def _without(observers: tuple, fn: Callable) -> tuple:
+    """*observers* with the first occurrence of *fn* removed (if any)."""
+    for i, observer in enumerate(observers):
+        if observer is fn:
+            return observers[:i] + observers[i + 1:]
+    return observers
+
+
 class RegFile:
     """Register file whose layout is defined by ``REGFILE_SCHEMA``.
 
@@ -82,7 +108,7 @@ class RegFile:
         self._alias_map: dict[str, str] = {}  # alias -> canonical name
         self._constant_one_bytes: dict[str, int] = {}
         self._mutable_exports: set[str] = set()
-        self._profile_observer = None
+        self._observers: tuple[RegisterObserver, ...] = ()
 
         for desc in self._schema:
             total = desc.size_bytes * desc.count
@@ -112,6 +138,18 @@ class RegFile:
         # R_MASK defaults to all-ones: bit=1 means lane active, bit=0 means deactivated.
         self._storage["r_mask"][:] = b"\xff" * len(self._storage["r_mask"])
 
+    # -- observers ----------------------------------------------------------
+
+    def add_observer(self, fn: RegisterObserver) -> Callable[[], None]:
+        """Call ``fn(name, start, size)`` whenever a register range may change.
+
+        ``name`` is the canonical register name and ``start``/``size`` the
+        byte range written (the whole register for a mutable export). Returns
+        a function that detaches ``fn``; calling it twice is harmless.
+        """
+        self._observers = self._observers + (fn,)
+        return _remover(self, fn)
+
     # -- helpers ------------------------------------------------------------
 
     def _resolve(self, name: str) -> str:
@@ -128,8 +166,8 @@ class RegFile:
         """Return the raw ``bytearray`` backing register *name*."""
         canon = self._resolve(name)
         # A mutable escape may be written without going through an accessor.
-        if self._profile_observer is not None:
-            self._profile_observer(canon, 0, len(self._storage[canon]))
+        for observer in self._observers:
+            observer(canon, 0, len(self._storage[canon]))
         self._constant_one_bytes.pop(canon, None)
         self._mutable_exports.add(canon)
         return self._storage[canon]
@@ -161,8 +199,8 @@ class RegFile:
         return bits & mask == mask
 
     def _forget_constant_ones(self, name: str, start: int, size: int) -> None:
-        if self._profile_observer is not None:
-            self._profile_observer(name, start, size)
+        for observer in self._observers:
+            observer(name, start, size)
         if name in self._constant_one_bytes:
             self._constant_one_bytes[name] &= ~(((1 << size) - 1) << start)
             if not self._constant_one_bytes[name]:
@@ -259,7 +297,7 @@ class RegFile:
         new._descriptors = self._descriptors
         new._alias_map = self._alias_map
         new._constant_one_bytes = self._constant_one_bytes.copy()
-        new._profile_observer = None
+        new._observers = ()
         new._mutable_exports = set()
         new._storage = {name: bytearray(buf) for name, buf in self._storage.items()}
         if self._schema is not REGFILE_SCHEMA:
@@ -280,8 +318,8 @@ class RegFile:
         other._constant_one_bytes = {name: bits for name, bits in self._constant_one_bytes.items()
                                     if name not in other._mutable_exports}
         for name, buf in self._storage.items():
-            if other._profile_observer is not None:
-                other._profile_observer(name, 0, len(buf))
+            for observer in other._observers:
+                observer(name, 0, len(buf))
             dst[name][:] = buf
 
     # -- iteration (for debug / serialisation) ------------------------------
@@ -529,8 +567,8 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 
     def _make_get_words(n: str = name):
         def get_words(self) -> np.ndarray:
-            if self._profile_observer is not None:
-                self._profile_observer(n, 0, len(self._storage[n]))
+            for observer in self._observers:
+                observer(n, 0, len(self._storage[n]))
             self._constant_one_bytes.pop(n, None)
             self._mutable_exports.add(n)
             return np.frombuffer(self._storage[n], dtype=np.uint32)

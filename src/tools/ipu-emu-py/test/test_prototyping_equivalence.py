@@ -117,8 +117,7 @@ def _assert_regfiles_identical(regfile_a, regfile_b) -> None:
 def _assert_states_identical(state_a: IpuState, state_b: IpuState) -> None:
     assert state_a.program_counter == state_b.program_counter
     _assert_regfiles_identical(state_a.regfile, state_b.regfile)
-    # TODO(E04-05): compare with XMem.__eq__ instead of the private buffer.
-    assert state_a.xmem._data == state_b.xmem._data
+    assert state_a.xmem == state_b.xmem
     assert state_a.stats == state_b.stats
 
 

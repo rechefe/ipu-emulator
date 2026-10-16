@@ -599,7 +599,7 @@ def _resolve_xmem_request(
             byte_count=byte_count,
             row_size=xmem_row_size_bytes(state),
             metadata=metadata,
-            data=bytes(state.xmem.read_address(byte_address, byte_count)),
+            data=state.xmem.snapshot_bytes(byte_address, byte_count),
         ),
         None,
     )
@@ -709,7 +709,7 @@ def _save_state_with_xmem(
 ) -> Path:
     """Save registers to JSON and one raw XMEM range to a binary sidecar."""
     sidecar_path = _xmem_sidecar_path(json_path)
-    xmem_data = bytes(state.xmem.read_address(byte_address, byte_count))
+    xmem_data = state.xmem.snapshot_bytes(byte_address, byte_count)
     data = state_to_json_dict(state)
     data["xmem"] = {
         **metadata,
