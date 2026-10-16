@@ -112,11 +112,12 @@ def test_lexical_facts_match_the_grammar_and_the_assembler():
 
 def test_every_register_is_described_by_its_definition():
     # The hover's words come from ipu_isa.registers (and LrdRegField for
-    # pairs), and the fixed values from whoever passes them (the emulator).
+    # pairs), and the fixed values and LRD pairs from the facts passed in
+    # (vscode_data.REGISTER_FACTS in the generated file).
     data = build_hover_data({"fixed": {"cr0": 0, "cr1": 1}, "pairs": {"lrd4": (4, 5)}})
     docs = data["registerDocs"]
     assert set(docs) == set(data["registers"])
     assert all(doc["about"] for doc in docs.values())
     assert docs["cr0"]["fixed"] == 0 and docs["cr1"]["fixed"] == 1
     assert "fixed" not in docs["cr2"]
-    assert docs["lrd4"]["pair"] == ["lr5", "lr4"]  # hi:lo, as the emulator pairs them
+    assert docs["lrd4"]["pair"] == ["lr5", "lr4"]  # hi:lo, as ipu_isa.registers.lrd_pair pairs them
