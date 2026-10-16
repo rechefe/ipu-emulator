@@ -139,7 +139,8 @@ extra:
   docs_git_branch: master
   # giscus: set repo_id + category_id from https://giscus.app (Discussions must be on).
   # CI: add repository secrets GISCUS_REPO_ID and GISCUS_CATEGORY_ID (optional: GISCUS_CATEGORY, …).
-  # Local: export the same env vars before `mkdocs build` or `bazel build //docs:build_docs`.
+  # Local: export the same env vars before `mkdocs build` or `bazel build --config=docs //docs:build_docs`.
+  # Build with --config=docs: without it Bazel does not forward GISCUS_* and the widget is omitted.
   giscus:
     repo: rechefe/ipu-emulator
     repo_id: ""

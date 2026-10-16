@@ -11,10 +11,11 @@ permissions:
   pages: write
   id-token: write
 
-# Allow one concurrent deployment
+# One run per ref. A newer push supersedes an older run on the same branch,
+# but a master build-and-deploy is never cancelled.
 concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   build:
@@ -51,9 +52,19 @@ jobs:
           GISCUS_THEME: ${{ vars.GISCUS_THEME }}
           GISCUS_LANG: ${{ vars.GISCUS_LANG }}
         run: |
-          bazel build //docs:build_docs
+          # --config=docs forwards the GISCUS_* variables into the build (.bazelrc).
+          bazel build --config=docs //docs:build_docs
           mkdir -p site
           tar -xf bazel-bin/docs/site.tar -C site
+
+      - name: Check giscus widget is rendered
+        # Secrets are not available to fork PRs, so only check master pushes.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          if ! tar -xOf bazel-bin/docs/site.tar ./index.html | grep -q 'data-repo-id="[^"]'; then
+            echo "::error::index.html has no giscus widget; check the GISCUS_* secrets/variables and --config=docs."
+            exit 1
+          fi
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4

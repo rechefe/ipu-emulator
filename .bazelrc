@@ -24,6 +24,20 @@ test --test_summary=detailed
 # Forward GITHUB_TOKEN into genrules that need it (e.g. generate_release_log)
 build --action_env=GITHUB_TOKEN
 
+# Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to
+# --config=docs so they stay out of every other action's cache key.
+build:docs --action_env=GISCUS_REPO_ID
+build:docs --action_env=GISCUS_CATEGORY_ID
+build:docs --action_env=GISCUS_REPO
+build:docs --action_env=GISCUS_CATEGORY
+build:docs --action_env=GISCUS_MAPPING
+build:docs --action_env=GISCUS_REACTIONS_ENABLED
+build:docs --action_env=GISCUS_EMIT_METADATA
+build:docs --action_env=GISCUS_INPUT_POSITION
+build:docs --action_env=GISCUS_THEME
+build:docs --action_env=GISCUS_LANG
+build:docs --action_env=GISCUS_STRICT
+
 # Launch any IpuApp harness in the TUI after setup, before instruction execution.
 run:debug --run_env=IPU_DEBUG_TUI=1
 # Executable test targets receive the test environment under bazel run.
