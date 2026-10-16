@@ -71,6 +71,19 @@ py_pytest_test(
 )
 
 # slang elaborates the package with zero diagnostics.
+# One ISA entry is enough for the generators (E03-24).
+py_pytest_test(
+    name = "test_one_edit_generators",
+    srcs = ["test/test_one_edit_generators.py"],
+    data = ["//src/tools/ipu-as-py:test/golden/ipu_instr_pkg.sv"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/tools/ipu-isa:one_edit",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_sv_package_compiles",
     srcs = ["test/test_sv_package_compiles.py"],
