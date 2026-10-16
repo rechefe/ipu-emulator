@@ -31,7 +31,7 @@ const FLAG = { kind: 'flag', pattern: /^--?[A-Za-z0-9][A-Za-z0-9_-]*$/ };
 
 /** `value` (the manifest's `what`), quoted, if it has `shape` (LABEL or FLAG); else an error
  *  the user is shown, since a manifest that fails this was not written by the kernel registry. */
-function checked(value, shape, what) {
+function requireShape(value, shape, what) {
   if (typeof value !== 'string' || !shape.pattern.test(value)) {
     throw new Error(`the kernel manifest's ${what} ${JSON.stringify(value)} is not a valid ${shape.kind}; nothing was run.`);
   }
@@ -47,7 +47,7 @@ const optionType = (o) => o.type || (typeof o.default === 'boolean' ? 'bool'
 function optionArgs(caseEntry, values = {}) {
   return Object.entries((caseEntry && caseEntry.options) || {}).flatMap(([name, o]) => {
     const value = Object.hasOwn(values, name) ? values[name] : o.default;
-    const flag = (f) => checked(f, FLAG, `flag of option ${name}`);
+    const flag = (f) => requireShape(f, FLAG, `flag of option ${name}`);
     return optionType(o) === 'bool' ? [flag(value ? o.flag : o.negated_flag)] : [flag(o.flag), shellQuote(String(value))];
   }).join(' ');
 }
@@ -81,7 +81,7 @@ function kernelCases(kernel, saved = {}) {
 function kernelCommand(kernel, action, { caseName, options = '', flags = [] } = {}) {
   const targets = kernel.targets || {};
   const bazel = (verb, target, ...tail) =>
-    target ? ['bazel', verb, ...flags.map(shellQuote), checked(target, LABEL, `${action} target`), ...tail].join(' ') : null;
+    target ? ['bazel', verb, ...flags.map(shellQuote), requireShape(target, LABEL, `${action} target`), ...tail].join(' ') : null;
   const passCase = ['--', '--case', shellQuote(caseName || 'default'), options].filter(Boolean).join(' ');
   const actions = {
     run: ['run', targets.run, passCase],
@@ -96,7 +96,7 @@ function kernelCommand(kernel, action, { caseName, options = '', flags = [] } = 
 
 /** The shell command to test a family; throws when its suite is no Bazel label. */
 const familyCommand = (family, { flags = [] } = {}) =>
-  ['bazel', 'test', ...flags.map(shellQuote), checked(family.suite, LABEL, 'family suite')].join(' ');
+  ['bazel', 'test', ...flags.map(shellQuote), requireShape(family.suite, LABEL, 'family suite')].join(' ');
 
 /** The query argv for `op` and its `name=value` params. `configured` (ipuAsm.queryCommand,
  *  e.g. a virtualenv's script) replaces `bazel run` of the manifest's query target. */

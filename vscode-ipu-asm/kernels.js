@@ -163,6 +163,16 @@ function sendToTerminal(index, name, command) {
   return (sending = sending.then(send, send));
 }
 
+/** `build()`'s command, or undefined after showing why a manifest value made it refuse. */
+function commandOrReport(name, build) {
+  try {
+    return build();
+  } catch (err) {
+    vscode.window.showErrorMessage(`IPU: ${name}: ${err.message}`);
+    return undefined;
+  }
+}
+
 /** The checkout to run `kernelName` from: `folder` (an index key) if it has it, else the
  *  first that does. */
 const indexOf = (indexes, kernelName, folder) =>
@@ -183,14 +193,10 @@ async function runKernel(indexes, action, kernelName, caseName = 'default', fold
     vscode.window.showWarningMessage(`IPU: ${kernelName} has no case ${caseName}.`);
     return undefined;
   }
-  let command;
-  try {
-    const options = runs.optionArgs(chosen.entry, chosen.values);
-    command = runs.kernelCommand(kernel, action, { caseName: chosen.base, options, flags: setting(index.folder, 'bazelFlags', []) });
-  } catch (err) {
-    vscode.window.showErrorMessage(`IPU: ${kernelName}: ${err.message}`);
-    return undefined;
-  }
+  const command = commandOrReport(kernelName, () => runs.kernelCommand(kernel, action, {
+    caseName: chosen.base, options: runs.optionArgs(chosen.entry, chosen.values), flags: setting(index.folder, 'bazelFlags', []),
+  }));
+  if (command === undefined) return undefined;
   if (!command) {
     vscode.window.showWarningMessage(`IPU: ${kernelName} has no ${action} target.`);
     return undefined;
@@ -504,14 +510,8 @@ function register(context) {
     testFamily: (n) => {
       const index = n && n.entry ? indexes.get(n.folder) : undefined;
       if (!index) return undefined;
-      let command;
-      try {
-        command = runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) });
-      } catch (err) {
-        vscode.window.showErrorMessage(`IPU: ${n.family}: ${err.message}`);
-        return undefined;
-      }
-      return sendToTerminal(index, n.family, command);
+      const command = commandOrReport(n.family, () => runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) }));
+      return command && sendToTerminal(index, n.family, command);
     },
     refreshKernels: () => indexes.forEach((index) => index.refresh()),
     query: () => query(indexes, output, context.workspaceState),

@@ -96,7 +96,7 @@ jobs:
         run: node vscode-ipu-asm/test/project.js
 
       # The extension activated on a stand-in `vscode`: Restricted Mode runs nothing
-      # (VS Code trusts every workspace under test, so the integration test cannot see it).
+      # (no API grants workspace trust inside VS Code, so the integration test cannot drive it).
       - name: Check what activation runs, and when
         run: node vscode-ipu-asm/test/activation.js
 

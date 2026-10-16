@@ -271,7 +271,7 @@ class Checking {
   /** runCheckText, in checkout `root` (null: none). */
   async checkIn(root, uri, text, key, token) {
     // In Restricted Mode the folder's settings and BUILD files would choose what runs.
-    if (!trust.mayRun()) return { restricted: true, error: trust.RESTRICTED };
+    if (!trust.mayRun()) return { error: trust.RESTRICTED };
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     // A document with neither a checkout nor a file has nowhere to be checked from.
     if (!root && !folder && !FILE_SCHEMES.has(uri.scheme)) return { outside: true };
@@ -436,6 +436,11 @@ class Checking {
   /** Build the checkers now, not on the first keystroke (slow exactly once, and nothing
    *  waits on it), and check what is open. */
   start() {
+    if (!trust.mayRun()) {
+      this.showStatus();
+      return;
+    }
+    this.status.hide(); // the Restricted Mode notice, when trust was just granted
     for (const root of this.kernelApi.indexes.keys()) this.ensureChecker(root);
     vscode.workspace.textDocuments.forEach((d) => this.refresh(d));
   }
@@ -460,7 +465,6 @@ function activate(context) {
   const checking = new Checking(kernelApi);
   context.subscriptions.push(checking);
 
-  checking.showStatus();
   // After activation returns, since starting a process blocks briefly.
   setImmediate(() => checking.start());
 
@@ -479,10 +483,7 @@ function activate(context) {
 
   context.subscriptions.push(
     // Out of Restricted Mode: what it kept from running starts now.
-    vscode.workspace.onDidGrantWorkspaceTrust(() => {
-      checking.status.hide();
-      checking.start();
-    }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => checking.start()),
     vscode.workspace.onDidOpenTextDocument((d) => checking.refresh(d)),
     vscode.workspace.onDidSaveTextDocument((d) => checking.refresh(d)),
     // No content change (the dirty flag flipped): nothing new to check.

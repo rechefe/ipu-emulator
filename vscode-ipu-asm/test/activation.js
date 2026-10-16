@@ -1,8 +1,8 @@
 'use strict';
 
 // The extension activated in plain node, on a fake `vscode` (fake-vscode.js): what it runs,
-// when, and what it shows. VS Code trusts every workspace while it runs extension tests,
-// so Restricted Mode is tested here rather than in integration/.
+// when, and what it shows. No API can grant workspace trust from inside VS Code, so
+// Restricted Mode and leaving it are tested here rather than in integration/.
 //
 //   node test/activation.js
 

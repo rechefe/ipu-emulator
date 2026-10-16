@@ -1,8 +1,8 @@
 'use strict';
 
 // A stand-in for the `vscode` module, enough to activate the extension in plain node: the
-// parts the tests look at are recorded (`fake.log`), the rest are inert. VS Code trusts every
-// workspace while it runs extension tests, so Restricted Mode can only be tested this way.
+// parts the tests look at are recorded (`fake.log`), the rest are inert. No API grants
+// workspace trust from inside VS Code, so leaving Restricted Mode can only be tested this way.
 //
 //   const fake = require('./fake-vscode').install({ trusted: false, folders: [dir] });
 //   const api = fake.activate();
