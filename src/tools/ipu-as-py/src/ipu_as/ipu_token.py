@@ -1,16 +1,23 @@
+from __future__ import annotations
+
 import lark
 import dataclasses
-import ipu_as.label as label
+from typing import TYPE_CHECKING
 from ipu_as.errors import LabelError, OperandError, SourceLocation
 import ipu_as.utils as utils
 from ipu_isa.geometry import MAX_PROGRAM_SIZE
 from ipu_isa.operand_types import operand_type
+
+if TYPE_CHECKING:
+    from ipu_as.symbols import SymbolTable
 
 
 @dataclasses.dataclass
 class AnnotatedToken:
     token: lark.Token
     instr_id: int
+    #: The label table of the assembly this token belongs to; None outside one.
+    symbols: SymbolTable | None = None
 
     def location(self) -> SourceLocation:
         """Where this token is in the rendered source."""
@@ -185,7 +192,7 @@ class LabelToken(IpuToken):
                 self._raise_error(
                     f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
                 )
-        elif self.token.value not in label.ipu_labels.labels:
+        elif self.annotated_token.symbols is None or self.token.value not in self.annotated_token.symbols:
             raise LabelError(
                 self._invalid_value_message(f"Label {self.token.value} not defined"),
                 location=self.annotated_token.location(),
@@ -209,7 +216,7 @@ class LabelToken(IpuToken):
         if self.token.value.startswith("+"):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
-        return label.ipu_labels.get_address(self.token)
+        return self.annotated_token.symbols.address(self.token)
 
     @classmethod
     def decode(cls, value: int) -> str:

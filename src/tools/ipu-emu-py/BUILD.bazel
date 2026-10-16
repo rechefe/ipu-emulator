@@ -39,17 +39,14 @@ py_library(
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
-# Shared by every emulator test: conftest.py (autouse fixtures), the
-# assemble-load-run helpers and pytest.ini (warning filters). pytest finds
-# conftest.py and pytest.ini through the runfiles tree, so they are not test srcs:
-# rules_python_pytest passes every src to pytest as a file to collect.
+# Shared by every emulator test: the assemble-load-run helpers and pytest.ini
+# (warning filters). pytest finds pytest.ini through the runfiles tree, so it is
+# not a test src: rules_python_pytest passes every src to pytest as a file to
+# collect.
 py_library(
     name = "emu_test_support",
     testonly = True,
-    srcs = [
-        "test/conftest.py",
-        "test/emu_support.py",
-    ],
+    srcs = ["test/emu_support.py"],
     data = ["pytest.ini"],
     imports = ["test"],
     deps = [

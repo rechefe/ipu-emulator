@@ -1,228 +1,84 @@
-import functools
-import os
+"""File and CLI entry points of the assembler, adapted to `AssemblySession`.
+
+The pipeline lives in `ipu_as.session`; the parser and AST builder in
+`ipu_as.syntax` (re-exported here for existing importers). These wrappers keep
+their historical behaviour: a template error propagates as the jinja2 exception,
+and a parse or assemble error prints a message and exits with status 1.
+"""
+
 import lark
+
 import ipu_as.compound_inst as compound_inst
-import ipu_as.ipu_token as ipu_token
-import ipu_as.label as ipu_label
-import ipu_as.template as template
-from ipu_as.errors import OperandError
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    PSEUDO_INSTRUCTION_SPEC,
-    find_pseudo_instruction,
-)
+from ipu_as import session
+from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_as.session import instruction_aligned_bytes_len
+from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
 
-IPU_INSTR_ADDR_JUMP = 1
-
-
-@functools.lru_cache(maxsize=1)
-def get_parser() -> lark.Lark:
-    """The single parser-construction site, shared by the assembler and tooling.
-
-    Cached because building a LALR parser is not cheap and `parse()` is called
-    once per assembled file; it used to be rebuilt on every call.
-    """
-    script_dir = os.path.dirname(__file__)
-    return lark.Lark.open(
-        os.path.join(script_dir, "asm_grammar.lark"), start="start", parser="lalr"
-    )
+__all__ = [
+    "ASTBuilder",
+    "assemble",
+    "assemble_to_bin_file",
+    "assemble_to_mem_file",
+    "disassemble",
+    "disassemble_from_bin_file",
+    "disassemble_from_mem_file",
+    "get_parser",
+    "instruction_aligned_bytes_len",
+    "parse",
+    "parse_tree",
+]
 
 
-def parse_tree(text: str) -> lark.Tree:
-    """Render Jinja, then parse, **raising** `lark.exceptions.LarkError`.
-
-    `parse()` below prints and exits, which suits the CLI but makes failures
-    unobservable to callers. Tooling and tests use this instead.
-    """
-    if template.has_markers(text):
-        text = template.render(text)
-    return get_parser().parse(text)
-
-
-def _is_real_instruction_name(name: str) -> bool:
-    lowered = name.lower()
-    return any(
-        any(real_name.lower() == lowered for real_name in slot_instructions)
-        for slot_instructions in INSTRUCTION_SPEC.values()
-    )
-
-
-def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
-    """Expand pseudo-instructions into their real-instruction equivalents.
-
-    Matched by (opcode name, operand count) via ``find_pseudo_instruction``,
-    so a pseudo-instruction can share a name with a real instruction of a
-    different arity without ambiguity. Pseudo-instructions never reach
-    ``CompoundInst`` — by the time this returns, every instruction is a
-    real one.
-    """
-    expanded = []
-    for instr in instructions:
-        opcode_token = instr["opcode"]
-        operands = instr["operands"]
-        opcode_name = opcode_token.token.value
-
-        pseudo_def = find_pseudo_instruction(opcode_name, len(operands))
-        if pseudo_def is None:
-            if not _is_real_instruction_name(opcode_name):
-                for pseudo_name, candidate in PSEUDO_INSTRUCTION_SPEC.items():
-                    if pseudo_name.lower() == opcode_name.lower():
-                        expected_operands = candidate["operands"]
-                        names = ", ".join(op["name"] for op in expected_operands)
-                        raise OperandError(
-                            f"Pseudo-instruction '{pseudo_name}' expects "
-                            f"{len(expected_operands)} operand(s) ({names}), "
-                            f"got {len(operands)}\n"
-                            f"At: {opcode_token.get_location_string()}",
-                            location=opcode_token.location(),
-                            token=opcode_name,
-                        )
-            expanded.append(instr)
-            continue
-
-        expansion = pseudo_def["expands_to"]
-        operand_by_name = dict(
-            zip((op["name"] for op in pseudo_def["operands"]), operands)
-        )
-        # Borrow the position of the pseudo-instruction being expanded. A bare
-        # lark.Token() carries no line or column, so any later error about the
-        # expansion reported "Line None, Column None" and could not be placed —
-        # `B loop;;` expanding to BEQ is invisible to the diagnostics.
-        real_opcode = ipu_token.AnnotatedToken(
-            token=lark.Token.new_borrow_pos(
-                opcode_token.token.type, expansion["instruction"], opcode_token.token
-            ),
-            instr_id=opcode_token.instr_id,
-        )
-        real_operands = [
-            operand_by_name.get(
-                arg,
-                ipu_token.AnnotatedToken(
-                    token=lark.Token.new_borrow_pos(
-                        opcode_token.token.type, arg, opcode_token.token
-                    ),
-                    instr_id=opcode_token.instr_id,
-                ),
-            )
-            for arg in expansion["args"]
-        ]
-        expanded.append({"opcode": real_opcode, "operands": real_operands})
-    return expanded
-
-
-class ASTBuilder(lark.Transformer):
-    def __init__(self):
-        super().__init__()
-        self.instr_index = 0
-
-    def __default_token__(self, token: lark.Token):
-        return ipu_token.AnnotatedToken(token=token, instr_id=self.instr_index)
-
-    def program(self, items):
-        return items
-
-    def compound_instr_list(self, items):
-        return self.compound_instruction(items)
-
-    def compound_instruction(self, items):
-        label = None
-        instructions = []
-
-        if items and isinstance(items[0], dict) and items[0].get("type") == "label":
-            label = items[0]["name"]
-            if label:
-                ipu_label.ipu_labels.add_label(label)
-            items = items[1:]
-
-        for it in items:
-            if isinstance(it, list):
-                instructions.extend(it)
-            else:
-                instructions.append(it)
-
-        instructions = _expand_pseudo_instructions(instructions)
-
-        self.instr_index += IPU_INSTR_ADDR_JUMP
-        return {
-            "label": label,
-            "instructions": instructions,
-        }
-
-    def instr_list(self, items):
-        return items
-
-    def instruction(self, items):
-        opcode = items[0]
-        operands = [tok for tok in items[1:]]
-        return {"opcode": opcode, "operands": operands}
-
-    def label(self, items):
-        return {"type": "label", "name": items[0]}
-
-    def operand(self, items):
-        return items[0]
+def _parse_failure(error: AssemblerError) -> lark.exceptions.LarkError | AssemblerError:
+    """What the parse stage reported before the session: lark's own exception text."""
+    cause = error.__cause__
+    return cause if isinstance(cause, lark.exceptions.LarkError) else error
 
 
 def parse(text: str) -> list[dict[str, any]]:
-    # Reset the module-global label registry so repeated assemble() calls in a
-    # single process don't raise "label defined for the second time". Each parse
-    # is a self-contained translation unit; the label table must not leak across
-    # calls. (App harnesses, tests, and benchmarks assemble several .asm files in
-    # one process rather than spawning a fresh process per file.)
-    ipu_label.reset_labels()
-    # Render the Jinja layer, if any, before parsing. Sandboxed: see
-    # ipu_as/template.py -- an .asm source is executable input, so an
-    # unsandboxed render makes assembling a file someone sent you the same
-    # thing as running whatever they put in it.
-    if template.has_markers(text):
-        text = template.render(text)
-
+    """The compound instructions of `text`; prints and exits on a parse error."""
     try:
-        tree = parse_tree(text)
-        ast = ASTBuilder().transform(tree)
-        return ast
-    except lark.exceptions.LarkError as e:
-        print(f"Error parsing code: {e}")
+        return session.AssemblySession(text).parse()
+    except TemplateError as error:
+        # The jinja2 exception itself, as before the session existed.
+        raise (error.__cause__ or error) from None
+    except AssemblerError as error:
+        if isinstance(error, ParseError) or isinstance(error.__cause__, lark.exceptions.LarkError):
+            print(f"Error parsing code: {_parse_failure(error)}")
+            exit(1)
+        raise
+
+
+def _assemble(text: str) -> session.AssemblyResult:
+    try:
+        return session.assemble(text)
+    except TemplateError as error:
+        # The jinja2 exception itself, as before the session existed.
+        raise (error.__cause__ or error) from None
+    except AssemblerError as error:
+        if isinstance(error, ParseError) or isinstance(error.__cause__, lark.exceptions.LarkError):
+            print(f"Error parsing code: {_parse_failure(error)}")
+        else:
+            print(f"Error assembling code: {error}")
+        exit(1)
+    except ValueError as error:
+        print(f"Error assembling code: {error}")
         exit(1)
 
 
 def assemble(text: str) -> list[int]:
-    ast = parse(text)
-    try:
-        program = [compound_inst.CompoundInst(instr).encode() for instr in ast]
-        return program
-    except ValueError as e:
-        print(f"Error assembling code: {e}")
-        exit(1)
+    """The instruction words of `text`; prints and exits on a parse or assemble error."""
+    return list(_assemble(text).words)
 
 
 def assemble_to_mem_file(text: str, output_path: str):
-    program = assemble(text)
     with open(output_path, "w") as f:
-        for word in program:
-            f.write(f"0x0{word:08x}\n")
-
-
-WORD_SIZE = 32
-
-
-def instruction_aligned_bytes_len() -> int:
-    val = compound_inst.CompoundInst.bits()
-    if val % WORD_SIZE != 0:
-        val += WORD_SIZE - (val % WORD_SIZE)
-    return (val // WORD_SIZE) * 4
+        f.write(_assemble(text).to_mem())
 
 
 def assemble_to_bin_file(text: str, output_path: str):
-    program = assemble(text)
     with open(output_path, "wb") as f:
-        for word in program:
-            f.write(
-                word.to_bytes(
-                    instruction_aligned_bytes_len(),
-                    byteorder="little",
-                )
-            )
+        f.write(_assemble(text).to_bin())
 
 
 def disassemble(program: list[int]) -> list[str]:
@@ -235,7 +91,7 @@ def disassemble(program: list[int]) -> list[str]:
 
 
 def disassemble_from_mem_file(input_path: str, output_path: str):
-    with open(input_path, "r") as f:
+    with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
     with open(output_path, "w") as f:
         for line in disassemble(program):
@@ -254,32 +110,3 @@ def disassemble_from_bin_file(input_path: str, output_path: str):
     with open(output_path, "w") as f:
         for line in disassemble(program):
             f.write(f"{line}\n")
-
-
-if __name__ == "__main__":
-    code = """
-# The provided code snippet is a simple assembly-like code written in a custom language. Here's a
-# breakdown of what it does:
-start:
-    beq lr13 lr15 end; 
-    mac.ee rq4 r1 r2;
-    ldr lr3 cr9;                     ;;
-    
-    
-end:
-    mac.ev rq8 r5 r9 lr0; 
-    beq lr0 lr1 +2;
-    add lr2 lr2 15;
-    ;;
-    
-    b start; mac.ev rq0 r3 mem_bypass lr15; ;;
-    """
-
-    description = compound_inst.CompoundInst.desc()
-    print("\n".join(description))
-    assembled = assemble(code)
-    for line in assembled:
-        print(hex(line))
-
-    for line in disassemble(assembled):
-        print(line)

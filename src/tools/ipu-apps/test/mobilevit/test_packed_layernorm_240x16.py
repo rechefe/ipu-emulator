@@ -14,7 +14,6 @@ import jinja2
 import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.ipu_config import encode_dstructure
@@ -97,7 +96,6 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     expected = _numpy_layernorm(X.astype(np.float64), gamma.astype(np.float64), beta.astype(np.float64))
 
     # ---- Packed run ----
-    reset_labels()
     packed_bin = tmp_path / "packed_layernorm.bin"
     template_text = _PACKED_ASM_SRC.read_text()
     rendered = jinja2.Template(template_text).render()

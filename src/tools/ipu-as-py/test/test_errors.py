@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import ipu_as.label as ipu_label
 import lark
 import pytest
-from ipu_as import lark_tree
-from ipu_as.compound_inst import CompoundInst
 from ipu_as.errors import (
     AssemblerError,
     EncodeError,
@@ -17,17 +14,13 @@ from ipu_as.errors import (
     SourceLocation,
     TemplateError,
 )
+from ipu_as.session import AssemblySession, SymbolTable
 from ipu_isa.errors import IpuError
 
 
 def _encode(source: str) -> list[int]:
-    """Parse and encode without the CLI's print-and-exit, re-raising the real error."""
-    ipu_label.reset_labels()
-    try:
-        ast = lark_tree.ASTBuilder().transform(lark_tree.parse_tree(source))
-    except lark.exceptions.VisitError as error:
-        raise error.orig_exc from error
-    return [CompoundInst(instr).encode() for instr in ast]
+    """Assemble through the session, which raises instead of printing and exiting."""
+    return list(AssemblySession(source).assemble().words)
 
 
 CASES = [
@@ -136,10 +129,9 @@ def test_error_site_raises_located_subclass(source, error_class, where, token, m
 
 
 def test_undefined_label_lookup_raises_label_error() -> None:
-    labels = ipu_label.Labels()
     token = lark.Token("LABEL", "missing", line=4, column=7)
     with pytest.raises(LabelError) as info:
-        labels.get_address(token)
+        SymbolTable().address(token)
     assert str(info.value) == "Label 'missing' referenced in Line 4, Column 7 not defined."
     assert info.value.location == SourceLocation(4, 7)
     assert info.value.token == "missing"

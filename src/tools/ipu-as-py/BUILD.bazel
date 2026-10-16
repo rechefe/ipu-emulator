@@ -62,6 +62,17 @@ py_pytest_test(
     ],
 )
 
+# AssemblySession: own symbol table, one render, cache (E05-05).
+py_pytest_test(
+    name = "test_session",
+    srcs = ["test/test_session.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Every input error is a located AssemblerError subclass (E05-04).
 py_pytest_test(
     name = "test_errors",

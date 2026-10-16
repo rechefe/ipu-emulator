@@ -27,7 +27,6 @@ import jinja2
 import lark
 
 import ipu_as.compound_inst as compound_inst
-import ipu_as.label as ipu_label
 import ipu_as.template as template
 from ipu_as.lark_tree import ASTBuilder, get_parser
 
@@ -212,7 +211,6 @@ def _recover_line_without_fusion(text: str) -> tuple[str, int] | None:
     except Exception:
         return None
 
-    ipu_label.reset_labels()
     try:
         tree = get_parser().parse(rendered)
     except lark.exceptions.LarkError as error:
@@ -502,10 +500,6 @@ def check(text: str) -> list[Diagnostic]:
                 marked = None
             if marked is not None and _same_tokens(marked, rendered):
                 rendered = marked
-
-    # The label registry is module-global; a stale entry from a previous check
-    # would surface as a bogus "label defined twice".
-    ipu_label.reset_labels()
 
     try:
         tree = get_parser().parse(rendered)

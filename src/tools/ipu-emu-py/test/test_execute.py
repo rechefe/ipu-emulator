@@ -1093,10 +1093,15 @@ SET lr0 cr9;;
 BKPT;;
 """,
             cr={8: 0, 9: 1})
-        from ipu_as.label import ipu_labels
-        target_addr = ipu_labels.get_address(
-            type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
-        )
+        from ipu_as.session import AssemblySession
+        target_addr = AssemblySession("""\
+BR cr2;;
+SET lr0 cr8;;
+BKPT;;
+br_cr_target:
+SET lr0 cr9;;
+BKPT;;
+""").assemble().symbols["br_cr_target"]
         state.regfile.set_cr(2, target_addr)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == 1

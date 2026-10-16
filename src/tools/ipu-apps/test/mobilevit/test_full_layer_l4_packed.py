@@ -50,7 +50,6 @@ import jinja2
 import numpy as np
 
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_as.label import reset_labels
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.ipu_config import encode_dstructure, Partition
@@ -183,7 +182,6 @@ def run_packed_layernorm(state: IpuState, *, data_base_row: int, gamma: np.ndarr
     allones_mask_row = mask_row + 1
     scratch64_row = allones_mask_row + 1
 
-    reset_labels()
     rendered = jinja2.Template(_PACKED_LAYERNORM_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "ln.bin"
@@ -224,7 +222,6 @@ def run_packed_layernorm(state: IpuState, *, data_base_row: int, gamma: np.ndarr
 
 def run_unpack(state: IpuState, *, packed_base_row: int, unpacked_base_row: int,
                mask_row: int, max_cycles: int = 100_000) -> tuple[int, dict]:
-    reset_labels()
     rendered = jinja2.Template(_UNPACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "unpack.bin"
@@ -246,7 +243,6 @@ def run_unpack(state: IpuState, *, packed_base_row: int, unpacked_base_row: int,
 
 def run_pack(state: IpuState, *, unpacked_base_row: int, packed_base_row: int,
              mask_row: int, max_cycles: int = 100_000) -> tuple[int, dict]:
-    reset_labels()
     rendered = jinja2.Template(_PACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "pack.bin"
@@ -286,7 +282,6 @@ def run_packed_output_linear(state: IpuState, *, asm_src: Path, data_base_row: i
         this_weights_base = weights_base_row + group * PACK * w_chunks
         this_output_row = output_base_row + group
 
-        reset_labels()
         with tempfile.TemporaryDirectory() as tmpdir:
             bin_path = Path(tmpdir) / "lin.bin"
             assemble_to_bin_file(rendered, str(bin_path))
@@ -329,7 +324,6 @@ def run_packed_residual_add(state: IpuState, *, a_base_row: int, b_base_row: int
         "read-only zero) -- the A operand's packed rows must start at XMEM "
         "row 0; relocate the OTHER operand (B) or the output instead."
     )
-    reset_labels()
     rendered = _RESIDUAL_ASM.read_text()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "res.bin"
