@@ -18,7 +18,9 @@ class RunControl:
     ``last_completed_instruction`` are written by the run.
     """
 
-    _breakpoints: set[int] = field(default_factory=set, init=False)
+    # Immutable, replaced on each change: the run reads it every cycle, so the
+    # read-only view must not copy.
+    _breakpoints: frozenset[int] = field(default_factory=frozenset, init=False)
     run_target: int | None = None
     stop_reason: str = "paused"
     last_completed_pc: int | None = None
@@ -26,4 +28,4 @@ class RunControl:
 
     @property
     def breakpoints(self) -> frozenset[int]:
-        return frozenset(self._breakpoints)
+        return self._breakpoints

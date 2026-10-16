@@ -27,22 +27,20 @@ class DebugControl(RunControl):
     kernel_name: str | None = None
 
     def add_breakpoint(self, pc: int) -> None:
-        self._breakpoints.add(validate_pc(pc))
+        self._breakpoints = self._breakpoints | {validate_pc(pc)}
 
     def remove_breakpoint(self, pc: int) -> None:
         """Remove the breakpoint at *pc*; nothing happens if there is none."""
-        self._breakpoints.discard(validate_pc(pc))
+        self._breakpoints = self._breakpoints - {validate_pc(pc)}
 
     def clear_breakpoints(self) -> None:
-        self._breakpoints.clear()
+        self._breakpoints = frozenset()
 
     def toggle_breakpoint(self, pc: int) -> bool:
         validate_pc(pc)
-        if pc in self._breakpoints:
-            self._breakpoints.remove(pc)
-            return False
-        self._breakpoints.add(pc)
-        return True
+        enabled = pc not in self._breakpoints
+        self._breakpoints = self._breakpoints ^ {pc}
+        return enabled
 
     @staticmethod
     def set_pc(state: IpuState, pc: int) -> None:

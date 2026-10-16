@@ -44,7 +44,8 @@ use `bazel run //src/tools/ipu-apps:identity -- --help`.
 ### Deprecated line debugger
 
 The old line debugger is deprecated and retained for existing Python callers.
-It is not accessible from the TUI. Existing callbacks continue to work:
+It is not accessible from the TUI. Pass it the run's `DebugControl`, or
+breakpoints set at its prompt last for that prompt only:
 
 ```python
 from ipu_emu.emulator import run_with_debug
