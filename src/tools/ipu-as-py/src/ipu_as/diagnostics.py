@@ -45,10 +45,6 @@ from ipu_as.source_map import (
 )
 from ipu_as.syntax import get_parser
 
-#: The tests check these two through their historical names.
-_instrument = instrument
-_disable_whitespace_control = disable_whitespace_control
-
 #: Jinja is a preprocessing layer, so a template marker means the parser sees
 #: different text than the editor shows. See instrument.
 _JINJA_MARKERS = ("{{", "{%", "{#")
@@ -124,9 +120,11 @@ def _parse_offset(error: ParseError) -> int | None:
 
 def _location_offset(error: EncodeError, rendered: str) -> int | None:
     """Offset in the rendered text of an error's location (1-based line and column)."""
-    if error.location is None:
+    location = error.location
+    # A synthetic token (an instruction the assembler made up) has line 0: no position.
+    if location is None or location.line < 1 or location.column < 1:
         return None
-    return linecol_to_offset(rendered, error.location.line - 1, error.location.column - 1)
+    return linecol_to_offset(rendered, location.line - 1, location.column - 1)
 
 
 def _humanize(terminal_names) -> str:

@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import asm_corpus
-import jinja2
 import pytest
 
 from ipu_as.session import AssemblySession
@@ -22,7 +21,7 @@ ENTRIES = asm_corpus.discover(ROOT)
 def test_result_bytes_equal_the_written_files(entry):
     text = (ROOT / entry.path).read_text()
     if entry.context is not None:
-        text = jinja2.Template(text).render(**entry.context)
+        text = AssemblySession(text, defines=entry.context).render()
     result = AssemblySession(text).assemble()
     written = asm_corpus.assemble(ROOT, entry)
     assert result.to_bin() == written.bin_bytes

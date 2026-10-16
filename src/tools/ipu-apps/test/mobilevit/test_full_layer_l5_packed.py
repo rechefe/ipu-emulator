@@ -37,7 +37,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import jinja2
 import numpy as np
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l5_measure import count_instructions
@@ -46,6 +45,7 @@ from ipu_apps.kernels.attention.attn_v_16x60.app import AttnV16x60App
 from ipu_apps.kernels.attention.qk_scores_16x60.app import QkScores16x60App
 from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_isa.constants import Partition, encode_dstructure
@@ -186,7 +186,7 @@ def run_packed_layernorm(
     allones_mask_row = mask_row + 1
     scratch16_row = allones_mask_row + 1
 
-    rendered = jinja2.Template(_PACKED_LAYERNORM_ASM.read_text()).render()
+    rendered = AssemblySession(_PACKED_LAYERNORM_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "ln.bin"
         assemble_to_bin_file(rendered, str(bin_path))
@@ -232,7 +232,7 @@ def run_unpack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    rendered = jinja2.Template(_UNPACK_ASM.read_text()).render()
+    rendered = AssemblySession(_UNPACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "unpack.bin"
         assemble_to_bin_file(rendered, str(bin_path))
@@ -259,7 +259,7 @@ def run_pack(
     mask_row: int,
     max_cycles: int = 100_000,
 ) -> tuple[int, dict]:
-    rendered = jinja2.Template(_PACK_ASM.read_text()).render()
+    rendered = AssemblySession(_PACK_ASM.read_text()).render()
     with tempfile.TemporaryDirectory() as tmpdir:
         bin_path = Path(tmpdir) / "pack.bin"
         assemble_to_bin_file(rendered, str(bin_path))
@@ -296,7 +296,7 @@ def run_packed_output_linear(
     mask_row = scratch_base_row
     weights_base_row = mask_row + 1
 
-    rendered = jinja2.Template(asm_src.read_text()).render(chunk_widths=widths)
+    rendered = AssemblySession(asm_src.read_text(), defines={"chunk_widths": widths}).render()
     state.xmem.write_address(mask_row * ROW_BYTES, _mask_row_8())
 
     total_cycles = 0

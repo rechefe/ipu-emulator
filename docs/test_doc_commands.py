@@ -156,10 +156,9 @@ def test_commands_are_found() -> None:
 @pytest.mark.parametrize(
     ("argv", "problem"),
     [
-        (["assemble", "--input", "a", "--output", "b"], "prompts"),
         (["assemble", "--input", "a", "--output", "b", "--format", "hex"], "not one of"),
         (["assemble", "--input", "a", "--format", "bin"], "missing required option --output"),
-        (["assemble", "--define", "X=1"], "no option --define"),
+        (["assemble", "--input", "a", "--output", "b", "--defines", "X=1"], "no option --defines"),
         (["assemble", "--input", "a", "--output", "b", "--format", "bin", "x"], "positional"),
         (["link"], "unknown subcommand"),
     ],
@@ -170,4 +169,6 @@ def test_check_command_rejects(argv: list[str], problem: str) -> None:
 
 def test_check_command_accepts() -> None:
     argv = ["assemble", "--input", "a", "--output", "b", "--format=bin"]
+    assert check_command(argv) == []
+    argv = ["assemble", "--input", "a", "--output", "b.bin", "--define", "rows=8", "-I", "lib"]
     assert check_command(argv) == []

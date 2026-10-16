@@ -81,7 +81,7 @@
   },
   "test_diagnostics.py: '{% for i in undefined_var %}\\nBKPT;;\\n{% endfor %}\\n'": {
     "exit_code": 1,
-    "stdout": "[{\"line\": 2, \"column\": 2, \"end_line\": 2, \"end_column\": 3, \"message\": \"unexpected ''; expected one of: token\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: UndefinedError: 'undefined_var' is undefined\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
   },
   "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    BKPT;;\\n'": {
     "exit_code": 0,

@@ -19,7 +19,10 @@ def ipu_app(name, kernel_package, deps, data = [], test_deps = []):
     cases in the emulator, which takes minutes for the bigger ones.
     """
     asm_path = kernel_package + "/" + name + ".asm"
-    kernel_data = data + [asm_path]
+    # Templates the family's kernels may {% include %}; the macro and the run
+    # both need them.
+    includes = native.glob([kernel_package.rpartition("/")[0] + "/**/*.asm.j2"], allow_empty = True)
+    kernel_data = data + [asm_path] + includes
     test_file = kernel_package + "/test.py"
     py_test(
         name = name,
@@ -38,6 +41,7 @@ def ipu_app(name, kernel_package, deps, data = [], test_deps = []):
     assemble_asm(
         name = "assemble_" + name,
         src = asm_path,
+        includes = includes,
     )
 
 def _kernel_name(asm_path):

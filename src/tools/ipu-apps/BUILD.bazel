@@ -246,6 +246,14 @@ py_pytest_test(
     ],
 )
 
+# No `| default` or definedness test in an assembly source (E05-11).
+py_pytest_test(
+    name = "test_template_lint",
+    srcs = ["test/test_template_lint.py"],
+    data = _ASM_CORPUS,
+    deps = [":asm_corpus", requirement("pytest")],
+)
+
 # AssemblyResult bytes against the file entry points, over the corpus (E05-05).
 py_pytest_test(
     name = "test_session_outputs",
@@ -254,7 +262,6 @@ py_pytest_test(
     deps = [
         ":asm_corpus",
         "//src/tools/ipu-as-py:ipu_as_lib",
-        requirement("jinja2"),
         requirement("pytest"),
     ],
 )

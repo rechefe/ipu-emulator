@@ -127,13 +127,16 @@ class AssemblySession:
         """Parse text that is already rendered, into a fresh symbol table.
 
         The stage `parse` runs on this session's own render; diagnostics passes
-        an instrumented render instead.
+        an instrumented render instead. It discards any parse `parse` cached,
+        since that parse's labels are no longer in `symbols`.
 
         Raises:
-            ParseError, or the LabelError / OperandError found while building
-            the instruction list.
+            ParseError: the text does not match the grammar.
+            LabelError: a label is defined twice.
+            OperandError: an operand is invalid while building the instruction list.
         """
         self.symbols = SymbolTable()
+        self._parsed = None  # the new symbol table belongs to this parse, not a cached one
         try:
             return ASTBuilder(self.symbols).transform(parse_tree(rendered))
         except lark.exceptions.VisitError as error:

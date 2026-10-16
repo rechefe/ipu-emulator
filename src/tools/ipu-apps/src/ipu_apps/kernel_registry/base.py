@@ -18,6 +18,7 @@ Subclass :class:`IpuApp`, implement :meth:`setup` (and optionally
 from __future__ import annotations
 
 import os
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,18 @@ class IpuApp:
         from ipu_apps.kernel_registry.registry import create_state
 
         return create_state(self)
+
+    def program(self) -> AbstractContextManager[Path]:
+        """The instruction binary :meth:`run` loads, for as long as the run lasts.
+
+        ``inst_path`` by default. A harness whose program depends on its
+        parameters overrides this to return
+        ``program_file(assemble_program(source, defines=...))``.
+
+        Returns:
+            A context manager whose value is the ``.bin`` path to load.
+        """
+        return nullcontext(self.inst_path)
 
     def setup(self, state: IpuState) -> None:
         """Prepare the IPU state before execution. Override this."""
@@ -107,19 +120,20 @@ class IpuApp:
             if alias_profile is not None:
                 state.alias_profile = alias_profile
                 state.stats.alias_profile = alias_profile
-            return run_test(
-                inst_path=self.inst_path,
-                setup=self.setup,
-                teardown=self.teardown,
-                max_cycles=max_cycles,
-                debug_callback=debug_callback,
-                break_on_entry=debug_launch,
-                debug_control=debug_control,
-                state=state,
-                elu_alpha=ea,
-                window_a=wa,
-                window_b=wb,
-            )
+            with self.program() as inst_path:
+                return run_test(
+                    inst_path=inst_path,
+                    setup=self.setup,
+                    teardown=self.teardown,
+                    max_cycles=max_cycles,
+                    debug_callback=debug_callback,
+                    break_on_entry=debug_launch,
+                    debug_control=debug_control,
+                    state=state,
+                    elu_alpha=ea,
+                    window_a=wa,
+                    window_b=wb,
+                )
         except KeyboardInterrupt:
             if not debug_launch:
                 raise

@@ -1,3 +1,6 @@
+{#- ipu:params
+chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
+-#}
 # SILU VARIANT (FFN1's nonlinearity): identical to
 # asm_packed_output_linear_generic_p4.asm except the final store applies
 #

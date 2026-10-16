@@ -50,7 +50,6 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import copy
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -59,13 +58,11 @@ import numpy as np
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
-    kernel_asm,
     universal_spec,
 )
 from ipu_apps.kernels.convolutions.depthwise_conv_universal.app import (
-    DepthwiseConvUniversalApp,
+    DepthwiseConvUniversalStage,
 )
-from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import run_test
 from ipu_isa.constants import Partition
 
@@ -135,8 +132,8 @@ class DepthwiseConvStride2_16App(IpuApp):
         # so its region layout (computed dynamically per DepthwiseConvUniversalApp's
         # ctor) is the single source of truth for where stage 1's output
         # really lands.
-        self._stage1_app = DepthwiseConvUniversalApp(
-            inst_path="depthwise_conv_universal.asm",  # replaced in run()
+        self._stage1_app = DepthwiseConvUniversalStage(
+            inst_path="depthwise_conv_universal.asm",  # not run: the stage assembles its .asm
             input_path=self.input_path,
             kernel=kernel,
             kernel_path=self.kernel_path,
@@ -153,15 +150,7 @@ class DepthwiseConvStride2_16App(IpuApp):
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple[IpuState, int]:
-        with tempfile.TemporaryDirectory(prefix="depthwise_stride2_16_") as tmp:
-            return self._run(Path(tmp), max_cycles=max_cycles, **kwargs)
-
-    def _run(self, tmp_dir: Path, *, max_cycles: int, **kwargs) -> tuple[IpuState, int]:
-        stage1_bin_path = tmp_dir / "stage1.bin"
-        assemble_to_bin_file(kernel_asm("depthwise_conv_universal"), str(stage1_bin_path))
-
         stage1_app = self._stage1_app
-        stage1_app.inst_path = stage1_bin_path
         kwargs.setdefault("state", self.make_state())
         state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
         # Each run's stats cover that run only; keep stage 1's so the
