@@ -4,9 +4,9 @@ name: VS Code Extension
 # with the parser and assembler on a real corpus, tests it in a real VS Code,
 # then packages (and on master, publishes) the .vsix.
 #
-# The paths filters include ipu_as, ipu_isa and ipu_emu: the grammar,
+# The paths filters include ipu_as, ipu_isa and ipu_gen: the grammar,
 # instruction set, operand types, case rules and register facts are read from
-# them at build time. requirements_lock.txt and tools/bootstrap.sh change the
+# them at build time (by ipu_gen/vscode_data.py). requirements_lock.txt and tools/bootstrap.sh change the
 # build it runs, so pull requests that touch them run it too.
 #
 # Keep these paths in step with the package layout: E03's rename of ipu_isa
@@ -15,24 +15,22 @@ name: VS Code Extension
 on:
   # Master publishes, so only files that can change the packaged .vsix count:
   # test/** is excluded by .vscodeignore, and the generator reads nothing from
-  # ipu_emu beyond ipu.py (LRD pairs) and ipu_config.py (fixed CRs).
+  # ipu_emu.
   push:
     branches: [ master ]
     paths:
       - 'vscode-ipu-asm/**'
       - '!vscode-ipu-asm/test/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
-      - 'src/tools/ipu-gen/src/ipu_gen/**'
+      - 'src/tools/ipu-gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu.py'
-      - 'src/tools/ipu-emu-py/src/ipu_emu/ipu_config.py'
       - '.github/workflows/vscode-extension.yml'
   pull_request:
     branches: [ "**" ]
     paths:
       - 'vscode-ipu-asm/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
-      - 'src/tools/ipu-gen/src/ipu_gen/**'
+      - 'src/tools/ipu-gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
       - 'src/tools/ipu-emu-py/src/ipu_emu/**'
       - '.github/workflows/vscode-extension.yml'

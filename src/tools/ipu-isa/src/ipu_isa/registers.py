@@ -206,10 +206,16 @@ def get_register_sizes() -> dict[str, dict[str, int | bool]]:
 
 
 def lrd_pair(n: int) -> tuple[int, int]:
-    """The LR indices ``(lo, hi)`` behind the n-th LRD register: LRDn = LR(2n+1):LR(2n).
+    """The LR indices behind the n-th entry of the ``LrdIdx`` domain.
 
-    ``n`` is the register's position in the ``LrdIdx`` domain (``lrd0`` is 0,
-    ``lrd2`` is 1, ...); the name is that of the lower register.
+    That entry is register LRD{2n} = LR(2n+1):LR(2n): ``lrd0`` is entry 0,
+    ``lrd2`` entry 1, and each is named after its lower register.
+
+    Args:
+        n: The position in the ``LrdIdx`` domain (the encoded operand value).
+
+    Returns:
+        ``(lo, hi)``: the indices of the low and high LR of the pair.
     """
     return 2 * n, 2 * n + 1
 

@@ -22,9 +22,9 @@ filegroup(
 )
 
 # Generators that render artifacts from the ISA: the SystemVerilog package
-# (E08-13), the docs pages and layout SVGs (E08-14). E08-15 moves the VS Code
-# generator here. ipu_as: the instruction reference renders each Inst class's
-# description until E05-02 takes it from the slot codec.
+# (E08-13), the docs pages and layout SVGs (E08-14), and the VS Code language
+# data (E08-15). ipu_as: the VS Code data reads the parser and token classes,
+# and the instruction reference renders Inst.description() until E05-02.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),
@@ -40,6 +40,8 @@ py_library(
 #   bazel run //src/tools/ipu-gen:ipu-gen -- docs-pages /tmp/docs
 #   bazel run //src/tools/ipu-gen:ipu-gen -- instruction-format-md /tmp/instruction-format.md
 #   bazel run //src/tools/ipu-gen:ipu-gen -- union-layout-svg /tmp/union_layout.svg
+#   bazel run //src/tools/ipu-gen:ipu-gen -- vscode-data [OUT_DIR]
+#   bazel run //src/tools/ipu-gen:ipu-gen -- verify-sv-package path/to/ipu_instr_pkg.sv
 py_binary(
     name = "ipu-gen",
     srcs = ["src/ipu_gen/cli.py"],
@@ -102,6 +104,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -112,6 +115,8 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("lark"),
         requirement("pytest"),
     ],
 )

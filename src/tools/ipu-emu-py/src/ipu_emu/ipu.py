@@ -985,24 +985,19 @@ class Ipu:
             return self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32
         return self.state.dtype != DType.INT8
 
-    @staticmethod
-    def _lrd_lr_indices(n: int) -> tuple[int, int]:
-        """Real LR register indices (lo, hi) backing LrdIdx pair n (``ipu_isa.registers.lrd_pair``)."""
-        return lrd_pair(n)
-
     def _get_lrd_bytes(self, n: int, regfile: RegFile) -> bytes:
         """Read LRDn's 8 byte elements from a register file (snapshot or live).
 
         Elements 0-3 are LR(2n)'s bytes (little-endian), elements 4-7 are LR(2n+1)'s.
         """
-        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        lo_idx, hi_idx = lrd_pair(n)
         return regfile.get_lr(lo_idx).to_bytes(4, "little") + regfile.get_lr(hi_idx).to_bytes(
             4, "little"
         )
 
     def _set_lrd_bytes(self, n: int, lanes: bytes | bytearray) -> None:
         """Write LRDn's 8 byte elements to the live register file (inverse of ``_get_lrd_bytes``)."""
-        lo_idx, hi_idx = self._lrd_lr_indices(n)
+        lo_idx, hi_idx = lrd_pair(n)
         self.state.regfile.set_lr(lo_idx, int.from_bytes(lanes[0:4], "little"))
         self.state.regfile.set_lr(hi_idx, int.from_bytes(lanes[4:8], "little"))
 
@@ -1184,7 +1179,7 @@ class Ipu:
             if plan.write_operand is not None:
                 raw = kwargs[plan.write_operand]
                 if plan.write_is_lrd:
-                    all_targets.extend(Ipu._lrd_lr_indices(raw))
+                    all_targets.extend(lrd_pair(raw))
                 else:
                     all_targets.append(raw)
             pending.append((plan, kwargs))
@@ -2179,7 +2174,7 @@ class Ipu:
             if plan.write_operand is not None:
                 raw = kwargs[plan.write_operand]
                 if plan.write_is_lrd:
-                    targets.extend(Ipu._lrd_lr_indices(raw))
+                    targets.extend(lrd_pair(raw))
                 else:
                     targets.append(raw)
             if plan.inst_name != "NOP":
