@@ -131,7 +131,7 @@ _ROW_FMT = {"<f": f"<{LANES}f", "<i": f"<{LANES}i"}
 _LOG_2 = math.log(2.0)
 
 
-def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray, values, byte_off: int = 0) -> None:
+def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray | memoryview, values, byte_off: int = 0) -> None:
     """The lane-by-lane store, kept for the failure path.
 
     ``struct.pack_into`` zeroes a field before it packs it and raises on a
@@ -144,7 +144,7 @@ def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray, values, byte_off: int 
         struct.pack_into(lane_fmt, buf, byte_off + 4 * i, v)
 
 
-def _store_row(buf: bytearray, lane_fmt: str, values) -> None:
+def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:
     """Write LANES values into *buf* as one row, or fail exactly as lane-by-lane would."""
     try:
         packed = struct.pack(_ROW_FMT[lane_fmt], *values)
@@ -599,6 +599,14 @@ class Ipu:
             self._public_snapshot = self._snapshot_buffer.snapshot()
         return self._public_snapshot
 
+    @staticmethod
+    def _read(regfile: RegFile, name: str) -> memoryview:
+        """*regfile*'s register *name*, to read. Reading through ``raw()`` used to
+        forget the register's constant-ones provenance, and these reads still
+        do, so alias and identity statistics stay as they were until E04-24."""
+        regfile.forget_provenance(name)  # E04-24
+        return regfile.view(name)
+
     def _take_snapshot(self) -> None:
         """Refresh the private execution snapshot at cycle start."""
         regfile = self.state.regfile
@@ -701,7 +709,7 @@ class Ipu:
             buf, dtype="<i4", count=LANES, offset=byte_off
         ).astype(np.int64)
 
-    def _wide_store_lanes(self, buf: bytearray, values: np.ndarray, byte_off: int = 0) -> None:
+    def _wide_store_lanes(self, buf: bytearray | memoryview, values: np.ndarray, byte_off: int = 0) -> None:
         """Write LANES lanes back, rounding once — what ``pack_into`` did."""
         if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
             # numpy 2 refuses to re-enter one errstate object, so this stays
@@ -890,7 +898,7 @@ class Ipu:
             # Lane statistics are still recorded: prototyping mode is only
             # allowed to skip work, never to change what a run reports.
             slot = (mask_idx % (LANES // 16)) * 16
-            if self.state.regfile.raw("r_mask")[slot:slot + 16] == _ALL_ONES_MASK_SLOT:
+            if self._read(self.state.regfile, "r_mask")[slot:slot + 16] == _ALL_ONES_MASK_SLOT:
                 self._count_mult_lanes(
                     _ALL_ONES_MASK_INT, self.state.get_dstructure_for(cr_idx)
                 )
@@ -903,7 +911,7 @@ class Ipu:
         if not inactive:
             return
         pad_bytes = self._mult_pad_lane_bytes(dstructure.pad_mode)
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
         for i in inactive:
             mult_res[i * 4:i * 4 + 4] = pad_bytes
 
@@ -1238,7 +1246,7 @@ class Ipu:
     def execute_mult_rc_vv(self, *, rc_idx: int, ra: bytearray | int,
                            mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VV: R_CYCLIC vector × Ra (R0/R1) vector, element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1267,7 +1275,7 @@ class Ipu:
     def execute_mult_rc_ve(self, *, rc_idx: int, src: int,
                            mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VE: R_CYCLIC vector × scalar (R0/R1 element or CR value)."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1298,7 +1306,7 @@ class Ipu:
     def execute_mult_rc_vs(self, *, rc_idx: int,
                            mask_offset: int, mask_shift: int, cr_idx: int) -> None:
         """Execute MULT.RC.VS: R_CYCLIC vector self-multiply (square), element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             byte_off = self._rc_element_to_byte_offset(rc_idx)
@@ -1327,7 +1335,7 @@ class Ipu:
     def execute_mult_ve(self, *, ra_idx: int, cr_idx: int,
                         mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.VE: Ra (combined R0/R1) vector × CR scalar, element-wise."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
@@ -1358,7 +1366,7 @@ class Ipu:
     def execute_mult_ee(self, *, ra_idx: int, cr_idx: int,
                         mask_offset: int, mask_shift: int, dstructure_cr_idx: int) -> None:
         """Execute MULT.EE: single Ra element × CR scalar, broadcast to all 128 elements."""
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self.state.regfile.mutable("mult_res")
 
         if self._wide_vector_active():
             cr_scalar = self._wide_cr_scalar_byte_as_int32(cr_idx)
@@ -1395,15 +1403,15 @@ class Ipu:
     def _store_mult_res_row_in_acc(self) -> None:
         """Store MULT_RES in R_ACC through the parent lane conversion path."""
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read(self.state.regfile, "mult_res")
         values = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(self.state.regfile.raw("r_acc"), fmt, values)
+        _store_row(self.state.regfile.mutable("r_acc"), fmt, values)
 
     def execute_acc_add(self) -> None:
         """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read(self.state.regfile, "mult_res")
+        snap_acc = self._read(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1428,9 +1436,9 @@ class Ipu:
 
     def execute_acc_max(self) -> None:
         """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read(self.state.regfile, "mult_res")
+        snap_acc = self._read(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1456,9 +1464,9 @@ class Ipu:
 
     def execute_acc_sub(self) -> None:
         """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
-        snap_acc = self._snapshot_buffer.raw("r_acc")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read(self.state.regfile, "mult_res")
+        snap_acc = self._read(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1479,8 +1487,8 @@ class Ipu:
 
     def execute_acc_sub_first(self) -> None:
         """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
+        acc_buf = self.state.regfile.mutable("r_acc")
+        mult_res = self._read(self.state.regfile, "mult_res")
 
         if self._wide_vector_active():
             # 0 - x, not -x: for x = +0.0 the scalar path produced +0.0, and
@@ -1547,15 +1555,16 @@ class Ipu:
 
         base = (offset % 4) * 32
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
-        mult_res = self.state.regfile.raw("mult_res")
+        # From the first lane written to the end: a row overrunning it fails in pack_into, as before.
+        acc_buf = self.state.regfile.mutable("r_acc", base * 4)
+        mult_res = self._read(self.state.regfile, "mult_res")
 
         for i, idx in enumerate(out_indices):
             if idx >= 0:
                 val = struct.unpack_from(fmt, mult_res, idx * 4)[0]
             else:
                 val = 0.0 if fmt == "<f" else 0
-            struct.pack_into(fmt, acc_buf, (base + i) * 4, val)
+            struct.pack_into(fmt, acc_buf, i * 4, val)
 
     def execute_acc_reshape(self, *, source: int, dest: int, reshape_mask: int) -> None:
         """Execute ACC.RESHAPE: scatter MULT_RES elements into R_ACC via two LRDn byte-index arrays.
@@ -1585,7 +1594,7 @@ class Ipu:
                 f"({RESHAPE_ELEMENT_COUNT})"
             )
 
-        mult_res = self._snapshot_buffer.raw("mult_res")
+        mult_res = self._read(self._snapshot_buffer, "mult_res")
         writes = []
         for i in range(mask, RESHAPE_ELEMENT_COUNT):
             if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
@@ -1613,7 +1622,7 @@ class Ipu:
         v = int(val) & 0xFFFFFFFF
         return v - 0x100000000 if v >= 0x80000000 else v
 
-    def _agg_sum_lanes(self, fmt: str, snap_acc: bytearray, active: int) -> float | int:
+    def _agg_sum_lanes(self, fmt: str, snap_acc: bytes | memoryview, active: int) -> float | int:
         # Summed in lane order, one lane at a time: floating-point addition is
         # not associative, so a pairwise (numpy) sum would give a different
         # answer. Only the unpacking is batched.
@@ -1623,7 +1632,7 @@ class Ipu:
         return total
 
     def _agg_max_lanes(
-        self, fmt: str, snap_acc: bytearray, active: int, seed: float | int
+        self, fmt: str, snap_acc: bytes | memoryview, active: int, seed: float | int
     ) -> float | int:
         best = seed
         for v in struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)[:active]:
@@ -1635,22 +1644,22 @@ class Ipu:
         """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         result = self._agg_sum_lanes(fmt, mult_res, active)
         dest = int(dest_slot) % LANES
         if fmt == "<i":
             result = self._to_int32(result)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_sum(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._snapshot_buffer.raw("r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(fmt, self._read(self._snapshot_buffer, "r_acc"), dest * 4)[0]
         partial = self._agg_sum_lanes(fmt, mult_res, active)
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
@@ -1659,7 +1668,7 @@ class Ipu:
             # (_acc_agg_lane_fmt); ipu_add's DType.INT8 branch is plain 32-bit wrap
             # with no 8-bit saturation, so it's correct for INT32 lanes too.
             result = ipu_add(self._to_int32(partial), int(snap_dest), DType.INT8)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_max_first(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX.FIRST: max of active MULT_RES elements, write to R_ACC[dest] (no seed).
@@ -1669,26 +1678,26 @@ class Ipu:
         """
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
         result = self._agg_max_lanes(fmt, mult_res, active, seed)
         dest = int(dest_slot) % LANES
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def execute_agg_max(self, *, dest_slot: int, cr_idx: int) -> None:
         """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self.state.regfile.raw("mult_res")
+        mult_res = self._read(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._snapshot_buffer.raw("r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(fmt, self._read(self._snapshot_buffer, "r_acc"), dest * 4)[0]
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
-        struct.pack_into(fmt, self.state.regfile.raw("r_acc"), dest * 4, result)
+        struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
     def _execute_prototype_wide_fp32_activation(
-        self, fn_id: int, acc_buf: bytearray, post_buf: bytearray
+        self, fn_id: int, acc_buf: memoryview, post_buf: memoryview
     ) -> bool:
         """Batch the full-row activations used by FP32 softmax.
 
@@ -1747,8 +1756,8 @@ class Ipu:
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self.state.regfile.raw("r_acc")
-        post_buf = self.state.regfile.raw("post_aaq_reg")
+        acc_buf = self._read(self.state.regfile, "r_acc")
+        post_buf = self.state.regfile.mutable("post_aaq_reg")
 
         if self._wide_vector_active():
             if (
@@ -1820,7 +1829,7 @@ class Ipu:
         modes; only the row address is translated.
         """
         addr = self._xmem_row_addr(offset + base)
-        self.state.xmem.write_address(addr, bytes(self.state.regfile.raw("post_aaq_reg")))
+        self.state.xmem.write_address(addr, bytes(self._read(self.state.regfile, "post_aaq_reg")))
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers

@@ -609,8 +609,8 @@ def _read_pipeline_register(
         if state.wide_vector_debug and spec.wide_backing is not None
         else spec.backing
     )
-    descriptor = state.regfile._desc(backing)
-    raw = state.regfile.raw(backing)
+    descriptor = state.regfile.descriptor(backing)
+    raw = state.regfile.view(backing)
     start = spec.index * descriptor.size_bytes
     return bytes(raw[start : start + descriptor.size_bytes])
 
@@ -3112,10 +3112,10 @@ class CursesDebugView:
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             size, _ = self._pipeline_value_geometry(fmt)
             backing = spec.wide_backing if self.state.wide_vector_debug and spec.wide_backing else spec.backing
-            register_size = self.state.regfile._desc(backing).size_bytes
+            register_size = self.state.regfile.descriptor(backing).size_bytes
             tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
             offset = spec.index * register_size + tab.cursor * size
-            raw = bytes(self.state.regfile.raw(backing)[offset:offset + size])
+            raw = bytes(self.state.regfile.view(backing)[offset:offset + size])
             label = f"{spec.label}[{tab.cursor}]"
         else:
             tab = self.session.selected_tab()
@@ -3164,10 +3164,9 @@ class CursesDebugView:
             if backing is None:
                 self.state.xmem.write_address(offset, raw)
             else:
-                buffer = self.state.regfile.raw(backing)
-                if offset < 0 or offset + size > len(buffer):
+                if offset < 0 or offset + size > len(self.state.regfile.view(backing)):
                     raise ValueError("Selected value is out of range")
-                buffer[offset:offset + size] = raw
+                self.state.regfile.mutable(backing, offset, size)[:] = raw
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
             return _NO_OUTCOME

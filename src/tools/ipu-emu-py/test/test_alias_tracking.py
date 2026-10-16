@@ -121,7 +121,7 @@ class TestRealWeightsAreNotIdentity:
             cr={5: 5},
         )
         # Write the raw combined Ra buffer (R0 ++ R1) so LR2 finds the weight.
-        state.regfile.raw("r")[5] = 1
+        state.regfile.mutable("r")[5] = 1
         run_until_complete(state)
         stats = state.stats
         assert stats.mult_identity_cycles == 0
@@ -281,7 +281,8 @@ class TestDeclaredVectorIdentities:
         if mutation == 'setter':
             state.regfile.set_r(0, bytes([1]) * 128)
         elif mutation == 'raw':
-            state.regfile.raw('r')[:128] = bytes([1]) * 128
+            with pytest.deprecated_call():
+                state.regfile.raw('r')[:128] = bytes([1]) * 128
         run_until_complete(state)
         assert state.stats.alias_hits == {}
 
@@ -333,7 +334,8 @@ MULT.RC.VE LR3 LR0 0 LR0 CR15 ; ACC.ADD;; BKPT;;'''
 
     def test_retained_mutable_handle_cannot_reacquire_constant_provenance(self):
         state = self.prepare(tail='MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\nBKPT;;')
-        escaped = state.regfile.raw('r')
+        with pytest.deprecated_call():
+            escaped = state.regfile.raw('r')
         engine = Ipu(state)
         engine.execute_vliw_cycle()  # declared load after the handle escaped
         escaped[:128] = bytes([1]) * 128

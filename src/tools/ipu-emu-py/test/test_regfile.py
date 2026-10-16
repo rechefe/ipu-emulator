@@ -175,7 +175,7 @@ class TestRegFileRRegs:
         with pytest.raises(RegisterSizeError):
             rf.set_r(0, bytearray(129))  # too large
         assert len(rf.get_r(0)) == 128
-        assert len(rf.raw("r")) == 256  # storage not resized
+        assert len(rf.view("r")) == 256  # storage not resized
 
     def test_r_index_out_of_range(self):
         rf = RegFile()
@@ -601,10 +601,10 @@ def test_regfile_observers_register_and_detach():
     first, second = [], []
     remove_first = rf.add_observer(lambda *event: first.append(event))
     rf.add_observer(lambda *event: second.append(event))
-    rf.raw("r_acc")
+    rf.mutable("r_acc")
     remove_first()
     remove_first()  # idempotent
-    rf.raw("mult_res")
+    rf.mutable("mult_res")
     assert [name for name, _, _ in first] == ["r_acc"]
     assert [name for name, _, _ in second] == ["r_acc", "mult_res"]
 
@@ -613,5 +613,64 @@ def test_regfile_snapshot_does_not_inherit_observers():
     rf = RegFile()
     events = []
     rf.add_observer(lambda *event: events.append(event))
-    rf.snapshot().raw("r_acc")
+    rf.snapshot().mutable("r_acc")
     assert events == []
+
+
+class TestReadAndWriteViews:
+    """``view`` reads without side effects; ``mutable`` reports exactly what it hands out."""
+
+    def test_view_tells_no_observer_and_keeps_provenance(self):
+        rf = RegFile()
+        rf.mark_constant_ones("r", 0, 128)
+        events = []
+        rf.add_observer(lambda *event: events.append(event))
+        assert bytes(rf.view("r")[:4]) == bytes(4)
+        assert events == []
+        assert rf.has_constant_ones("r", 0, 128)
+
+    def test_writing_through_a_view_raises(self):
+        rf = RegFile()
+        with pytest.raises(TypeError):
+            rf.view("r_acc")[0] = 1
+        assert not rf.get_r_acc_words().flags.writeable
+
+    def test_mutable_reports_and_forgets_exactly_its_range(self):
+        rf = RegFile()
+        rf.mark_constant_ones("r", 0, 128)
+        events = []
+        rf.add_observer(lambda *event: events.append(event))
+        rf.mutable("r", 16, 8)[:] = bytes(range(8))
+        assert events == [("r", 16, 8)]
+        assert rf.view("r")[16:24] == bytes(range(8))
+        assert not rf.has_constant_ones("r", 16, 8)
+        assert rf.has_constant_ones("r", 0, 16) and rf.has_constant_ones("r", 24, 104)
+        # Unlike raw(), it does not make the register untrustworthy for good.
+        rf.mark_constant_ones("r", 16, 8)
+        assert rf.has_constant_ones("r", 0, 128)
+
+    def test_mutable_range_is_checked(self):
+        rf = RegFile()
+        with pytest.raises(RegisterIndexError):
+            rf.mutable("r_acc", 508, 8)
+
+    def test_set_words_writes_the_whole_register(self):
+        rf = RegFile()
+        rf.set_r_acc_words(np.arange(128, dtype=np.uint32))
+        assert rf.get_r_acc_word(5) == 5
+        with pytest.raises(RegisterSizeError):
+            rf.set_r_acc_words(np.arange(3, dtype=np.uint32))
+
+    def test_descriptor_resolves_aliases(self):
+        rf = RegFile()
+        assert rf.descriptor("r_acc").name == "r_acc"
+        assert rf.descriptor("r0").name == "r"
+
+    def test_raw_is_deprecated_and_still_escapes(self):
+        rf = RegFile()
+        with pytest.deprecated_call():
+            buffer = rf.raw("r")
+        buffer[0] = 7
+        assert rf.view("r")[0] == 7
+        rf.mark_constant_ones("r", 0, 128)
+        assert not rf.has_constant_ones("r", 0, 128), "an escaped buffer is never trusted again"

@@ -25,6 +25,7 @@ takes an index argument (multi-element) or not (single-element).
 from __future__ import annotations
 
 import struct
+import warnings
 import weakref
 from typing import Any, Callable
 
@@ -156,19 +157,46 @@ class RegFile:
         """Resolve an alias to the canonical register name."""
         return self._alias_map.get(name, name)
 
-    def _desc(self, name: str) -> RegDescriptor:
-        canon = self._resolve(name)
-        return self._descriptors[canon]
+    def descriptor(self, name: str) -> RegDescriptor:
+        """The descriptor of register *name* (or of the register it aliases)."""
+        return self._descriptors[self._resolve(name)]
 
-    # -- raw byte access ----------------------------------------------------
+    # -- byte access ----------------------------------------------------------
+
+    def view(self, name: str) -> memoryview:
+        """Register *name*'s bytes, read-only: no observer is told, and
+        constant-ones provenance is kept. Writing through it raises ``TypeError``."""
+        return memoryview(self._storage[self._resolve(name)]).toreadonly()
+
+    def mutable(self, name: str, start: int = 0, size: int | None = None) -> memoryview:
+        """Bytes ``[start, start+size)`` of register *name* (to its end when
+        *size* is None), writable. Observers are told that exactly that range
+        may change, and its constant-ones provenance is forgotten."""
+        canon = self._resolve(name)
+        storage = self._storage[canon]
+        if size is None:
+            size = len(storage) - start
+        if start < 0 or size < 0 or start + size > len(storage):
+            raise RegisterIndexError(f"{canon}[{start}:{start + size}] out of range ({len(storage)} bytes)")
+        self._forget_constant_ones(canon, start, size)
+        return memoryview(storage)[start:start + size]
+
+    def forget_provenance(self, name: str) -> None:
+        """Forget register *name*'s constant-ones provenance. Only the emulator's
+        reads call it, to keep alias statistics as they were (E04-24)."""
+        self._constant_one_bytes.pop(self._resolve(name), None)
 
     def raw(self, name: str) -> bytearray:
-        """Return the raw ``bytearray`` backing register *name*."""
+        """Return the ``bytearray`` backing register *name*.
+
+        Deprecated: use :meth:`view` to read and :meth:`mutable` to write. The
+        whole buffer escapes, so its provenance is never trusted again.
+        """
+        warnings.warn("RegFile.raw() is deprecated: use view() to read or mutable() to write",
+                      DeprecationWarning, stacklevel=2)
         canon = self._resolve(name)
         # A mutable escape may be written without going through an accessor.
-        for observer in self._observers:
-            observer(canon, 0, len(self._storage[canon]))
-        self._constant_one_bytes.pop(canon, None)
+        self.mutable(canon)
         self._mutable_exports.add(canon)
         return self._storage[canon]
 
@@ -567,14 +595,20 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 
     def _make_get_words(n: str = name):
         def get_words(self) -> np.ndarray:
-            for observer in self._observers:
-                observer(n, 0, len(self._storage[n]))
-            self._constant_one_bytes.pop(n, None)
-            self._mutable_exports.add(n)
-            return np.frombuffer(self._storage[n], dtype=np.uint32)
+            return np.frombuffer(self.view(n), dtype=np.uint32)
         get_words.__name__ = f"get_{n}_words"
-        get_words.__doc__ = f"View {n} as uint32 words ({n_words} words)."
+        get_words.__doc__ = f"View {n} as uint32 words ({n_words} words), read-only."
         return get_words
+
+    def _make_set_words(n: str = name, nw: int = n_words):
+        def set_words(self, words) -> None:
+            data = np.asarray(words, dtype=np.uint32)
+            if data.shape != (nw,):
+                raise RegisterSizeError(f"{n}: expected {nw} words, got {data.size}")
+            self.mutable(n)[:] = data.astype("<u4").tobytes()
+        set_words.__name__ = f"set_{n}_words"
+        set_words.__doc__ = f"Set all of {n} from {n_words} uint32 words."
+        return set_words
 
     def _make_get_word(n: str = name, nw: int = n_words):
         def get_word(self, index: int) -> int:
@@ -599,6 +633,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
         return set_word
 
     methods[f"get_{name}_words"] = _make_get_words()
+    methods[f"set_{name}_words"] = _make_set_words()
     methods[f"get_{name}_word"] = _make_get_word()
     methods[f"set_{name}_word"] = _make_set_word()
 

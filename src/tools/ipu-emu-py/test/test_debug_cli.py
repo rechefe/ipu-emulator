@@ -207,13 +207,13 @@ class TestCLICommands:
 
     def test_get_acc_bytes(self):
         state = IpuState()
-        state.regfile.raw("r_acc")[0] = 0xAB
+        state.regfile.mutable("r_acc")[0] = 0xAB
         action, output = _run_cli(state, "get acc\ncontinue\n")
         assert "ab" in output
 
     def test_getw_acc(self):
         state = IpuState()
-        struct.pack_into("<I", state.regfile.raw("r_acc"), 0, 0x12345678)
+        struct.pack_into("<I", state.regfile.mutable("r_acc"), 0, 0x12345678)
         action, output = _run_cli(state, "getw acc\ncontinue\n")
         assert "12345678" in output
 
@@ -644,14 +644,14 @@ class TestFormatRegister:
 
     def test_byte_array(self):
         state = IpuState()
-        state.regfile.raw("r_acc")[0] = 0xFF
+        state.regfile.mutable("r_acc")[0] = 0xFF
         desc = next(d for d in REGFILE_SCHEMA if d.name == "r_acc")
         text = format_register(state, desc, offset=0, count=4)
         assert "ff" in text
 
     def test_word_view(self):
         state = IpuState()
-        struct.pack_into("<I", state.regfile.raw("mult_res"), 0, 0xDEADBEEF)
+        struct.pack_into("<I", state.regfile.mutable("mult_res"), 0, 0xDEADBEEF)
         desc = next(d for d in REGFILE_SCHEMA if d.name == "mult_res")
         text = format_register(state, desc, as_words=True, count=1)
         assert "deadbeef" in text

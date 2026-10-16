@@ -273,7 +273,7 @@ def format_register(
 
 
 def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
-    desc = state.regfile._desc(name)
+    desc = state.regfile.descriptor(name)
     header = f"=== {name.upper()} Registers ==="
     out.write(header + "\n")
     for i in range(desc.count):
@@ -284,7 +284,7 @@ def _print_scalar_group(state: IpuState, name: str, out: TextIO) -> None:
 def _print_byte_register(
     state: IpuState, name: str, out: TextIO, preview_bytes: int = 16
 ) -> None:
-    desc = state.regfile._desc(name)
+    desc = state.regfile.descriptor(name)
     data = state.regfile.raw_readonly(name)
     if desc.count == 1:
         header = f"=== {name} ({desc.size_bytes} bytes) ==="

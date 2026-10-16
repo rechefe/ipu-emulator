@@ -83,7 +83,7 @@ def test_load_offset_and_index_read_forwarded():
     assert r_cyclic_element(run(PROBES["load_cyclic_offset"]).state, 0) == 2
     state = run(PROBES["load_cyclic_index"]).state
     assert (r_cyclic_element(state, 0), r_cyclic_element(state, 128)) == (0, 1)
-    assert run(PROBES["load_mask_offset"]).state.regfile.raw("r_mask")[0] == 0x22
+    assert run(PROBES["load_mask_offset"]).state.regfile.view("r_mask")[0] == 0x22
 
 
 def test_store_offsets_read_forwarded():

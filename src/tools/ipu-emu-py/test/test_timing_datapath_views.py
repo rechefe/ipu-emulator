@@ -103,7 +103,7 @@ def test_activate_reads_this_cycle_r_acc(op, expected):
     case; this one covers ACC.ADD(.FIRST).
     """
     state = run(PROBES[f"activate_r_acc_{op}"]).state
-    assert state.regfile.raw("post_aaq_reg")[0] == expected
+    assert state.regfile.view("post_aaq_reg")[0] == expected
 
 
 def test_store_reads_this_cycle_post_aaq():

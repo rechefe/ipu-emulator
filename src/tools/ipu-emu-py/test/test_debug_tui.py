@@ -1145,7 +1145,7 @@ class TestPipelineRegisters:
 
     def test_pipeline_register_format_cycles_and_renders(self):
         state = IpuState()
-        state.regfile.raw("r")[:4] = b"\x01\x00\x00\x80"
+        state.regfile.mutable("r")[:4] = b"\x01\x00\x00\x80"
         view, screen, session = make_view(state)
         session.focus = "pipeline"
         session.maximized = True
@@ -1175,7 +1175,7 @@ class TestPipelineRegisters:
             1 | (2 << 8) | (3 << 12),
             2 | (5 << 8) | (6 << 12),
         )
-        state.regfile.raw("r")[:6] = struct.pack("<HHH", *cells)
+        state.regfile.mutable("r")[:6] = struct.pack("<HHH", *cells)
         session = DebugViewSession(initialized=True)
         session.ensure_default_tab(state)
         session.pipeline_tabs[0].fmt = "cell16"
@@ -1213,7 +1213,7 @@ class TestPipelineRegisters:
     def test_unsigned_register_formats_use_xmem_zero_padding(self):
         state = IpuState()
         state.regfile.set_lr(0, 1)
-        state.regfile.raw("r")[:4] = struct.pack("<I", 1)
+        state.regfile.mutable("r")[:4] = struct.pack("<I", 1)
         session = DebugViewSession(initialized=True)
         session.ensure_default_tab(state)
         session.register_tabs[0].fmt = "u32"
@@ -1253,7 +1253,7 @@ class TestPipelineRegisters:
 
     def test_wide_pipeline_hex_groups_every_four_bytes(self):
         state = new_state(fmt=ElementFormat.FP32)
-        state.regfile.raw("r_wide_debug")[:8] = bytes(range(8))
+        state.regfile.mutable("r_wide_debug")[:8] = bytes(range(8))
         session = DebugViewSession(initialized=True)
         session.ensure_default_tab(state)
         session.pipeline_tabs[0].fmt = "hex"
@@ -1329,8 +1329,8 @@ class TestPipelineRegisters:
 
     def test_wide_r0_uses_wide_storage_and_arithmetic_format(self):
         state = new_state(fmt=ElementFormat.FP32)
-        state.regfile.raw("r")[0] = 0xFF
-        state.regfile.raw("r_wide_debug")[:4] = struct.pack("<f", 1.5)
+        state.regfile.mutable("r")[0] = 0xFF
+        state.regfile.mutable("r_wide_debug")[:4] = struct.pack("<f", 1.5)
         view, screen, _ = make_view(state, screen=FakeScreen(columns=140))
 
         view.render()
@@ -1345,7 +1345,7 @@ class TestPipelineRegisters:
         state = IpuState()
         view, screen, session = make_view(state)
         session.commit_baseline(state)
-        state.regfile.raw("r")[0] = 1
+        state.regfile.mutable("r")[0] = 1
 
         view.render()
 
@@ -2392,7 +2392,7 @@ class TestDebuggerImprovements:
 
     def test_pipeline_bits_are_clipped_and_maximize_reveals_full_value(self):
         state = IpuState()
-        state.regfile.raw("r")[:4] = b"\x01\x00\x00\x80"
+        state.regfile.mutable("r")[:4] = b"\x01\x00\x00\x80"
         view, screen, session = make_view(state)
         session.focus = "pipeline"
         session.pipeline_tabs[0].fmt = "bits"
@@ -2956,10 +2956,10 @@ class TestMemoryValueEditing:
         tab = session.selected_pipeline_tab()
         tab.register_key, tab.fmt, tab.cursor = "r1", "int32", 1
         backing = "r_wide_debug" if wide else "r"
-        buf = state.regfile.raw(backing)
+        buf = state.regfile.mutable(backing)
         buf[:] = b"\x55" * len(buf)
         before = bytes(buf)
-        desc = next(d for d in state.regfile.schema if d.name == backing)
+        desc = state.regfile.descriptor(backing)
         offset = desc.size_bytes + 4
         view.handle_key("e")
         view.command = "-123"
@@ -2999,7 +2999,7 @@ class TestMemoryValueEditing:
         assert view.editor_mode == "value" and session.message_is_error
         view.handle_key("\x1b")
         assert view.editor_mode is None
-        assert state.regfile.raw("r") == bytearray(256)
+        assert state.regfile.view("r") == bytearray(256)
         assert state.xmem.read_address(0, 16) == bytes(16)
 
 class TestPopupEscape:

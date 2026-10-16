@@ -1120,7 +1120,7 @@ BKPT;;
         # Pre-fill acc with garbage; ACC.ADD.FIRST should ignore it
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 7)
         run_until_complete(state)
@@ -1138,7 +1138,7 @@ BKPT;;
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 10)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 3)
         run_until_complete(state)
@@ -1157,7 +1157,7 @@ BKPT;;
         for i in range(128):
             # alternate: even lanes R_ACC>MULT_RES, odd lanes R_ACC<MULT_RES
             state.regfile.set_r_acc_word(i, 20 if i % 2 == 0 else 5)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 10)
         run_until_complete(state)
@@ -1177,7 +1177,7 @@ BKPT;;
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 42)
         run_until_complete(state)
@@ -1196,7 +1196,7 @@ BKPT;;
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 100)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 7)
         run_until_complete(state)
@@ -1215,7 +1215,7 @@ BKPT;;
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 9999)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 5)
         run_until_complete(state)
@@ -1233,7 +1233,7 @@ BKPT;;
 """,
             cr={8: 0})
         state.dtype = DType.INT8
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
         run_until_complete(state)
@@ -1250,7 +1250,7 @@ BKPT;;
 """,
             cr={8: 0})
         state.dtype = DType.INT8
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, i)
         run_until_complete(state)
@@ -1274,7 +1274,7 @@ BKPT;;
         state.dtype = DType.INT8
         for i in range(128):
             state.regfile.set_r_acc_word(i, 0)
-        mult_buf = state.regfile.raw("mult_res")
+        mult_buf = state.regfile.mutable("mult_res")
         for i in range(128):
             struct.pack_into("<i", mult_buf, i * 4, 100 + i)
         run_until_complete(state)
@@ -1547,7 +1547,7 @@ BKPT;;
         # ACTIVATE.QUANTIZE relu must see the post-AGG r_acc (lane 0 = 384), not
         # the cycle-start snapshot value (3).
         # relu(384) = 384, clamped to INT8 byte range = 127.
-        post = state.regfile.raw("post_aaq_reg")
+        post = state.regfile.mutable("post_aaq_reg")
         lane0_byte = post[0]
         assert lane0_byte == 127, (
             f"ACTIVATE.QUANTIZE saw wrong r_acc lane 0: expected byte 127, got {lane0_byte}"
@@ -2169,7 +2169,7 @@ BKPT;;
         run_until_complete(state)
 
         # Read back acc as floats
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 2.0) < 0.01, f"acc word {i}: expected 2.0, got {val}"
@@ -2208,7 +2208,7 @@ BKPT;;
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 6, f"acc word {i}: expected 6, got {val}"
@@ -2234,7 +2234,7 @@ BKPT;;
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == -10, f"acc word {i}: expected -10, got {val}"
@@ -2259,7 +2259,7 @@ BKPT;;
         state.regfile.set_r_cyclic_at(0, bytes([rc_fill] * 512))
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == scalar * rc_fill, f"word {i}: expected {scalar * rc_fill}, got {val}"
@@ -2288,7 +2288,7 @@ BKPT;;
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 1.0) < 0.01, f"acc word {i}: expected 1.0, got {val}"
@@ -2315,7 +2315,7 @@ BKPT;;
         state.regfile.set_r_cyclic_at(0, bytes([two_fp8] * 512))
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):  # wraps modulo 512: every word reads 2.0 → 3.0 * 2.0 = 6.0
             val = struct.unpack_from("<f", acc_raw, i * 4)[0]
             assert abs(val - 6.0) < 0.1, f"word {i}: expected 6.0, got {val}"
@@ -2345,7 +2345,7 @@ BKPT;;
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 20, f"acc word {i}: expected 20, got {val}"
@@ -2372,7 +2372,7 @@ BKPT;;
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 18, f"acc word {i}: expected 18, got {val}"
@@ -2404,7 +2404,7 @@ BKPT;;
         state.xmem.write_address(0x2000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 28, f"acc word {i}: expected 28 (r1[0]=7 × cyclic[i]=4), got {val}"
@@ -2431,7 +2431,7 @@ BKPT;;
         state.xmem.write_address(0x1000, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 16, f"acc word {i}: expected 16 (4×4), got {val}"
@@ -2452,7 +2452,7 @@ BKPT;;
         state.regfile.set_r_cyclic_at(0, cyclic_data)
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(128):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 9, f"acc word {i}: expected 9 (3×3), got {val}"
@@ -2481,7 +2481,7 @@ BKPT;;
         state.xmem.write_address(0x2000, bytes(mask_data))
         run_until_complete(state)
 
-        acc_raw = state.regfile.raw("r_acc")
+        acc_raw = state.regfile.mutable("r_acc")
         for i in range(64):
             val = struct.unpack_from("<i", acc_raw, i * 4)[0]
             assert val == 9, f"word {i}: expected 9 (3×3), got {val}"
@@ -2548,7 +2548,7 @@ BKPT;;
         state.xmem.write_address(self._RC_ADDR, bytes([2] * 512))
         state.xmem.write_address(self._MASK_ADDR, mask_bytes)
         run_until_complete(state)
-        return state.regfile.raw("r_acc")
+        return state.regfile.view("r_acc")
 
     def _suppressed(self, acc_raw: bytearray, lane: int) -> bool:
         return struct.unpack_from("<i", acc_raw, lane * 4)[0] == 0
@@ -3070,7 +3070,7 @@ BKPT;;
         decoded = decode_program(encoded)
         load_program(state, decoded)
         run_until_complete(state)
-        acc = state.regfile.raw("r_acc")
+        acc = state.regfile.mutable("r_acc")
         for i in range(128):
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
@@ -3139,14 +3139,14 @@ class TestNarrowStoreOverflow:
         acc = [1.0] * LANES
         mult = [2.0] * LANES
         acc[k] = mult[k] = 3e38
-        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
-        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
+        state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
+        state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
         with pytest.raises(OverflowError, match="float too large to pack with f format"):
             Ipu(state).execute_vliw_cycle()
 
         expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
-        assert state.regfile.raw("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+        assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
 
 
 class TestFirstStoreBitExactness:
@@ -3165,11 +3165,11 @@ class TestFirstStoreBitExactness:
         state = new_state(fmt=fmt)
         signaling_nan = struct.pack("<I", 0x7F800001)
         quiet_nan = struct.pack("<I", 0x7FC00001)
-        state.regfile.raw("mult_res")[:] = signaling_nan * 128
+        state.regfile.mutable("mult_res")[:] = signaling_nan * 128
 
         getattr(Ipu(state), handler_name)()
 
-        assert state.regfile.raw("r_acc") == quiet_nan * 128
+        assert state.regfile.view("r_acc") == quiet_nan * 128
 
 
 class TestInspectableSnapshot:
