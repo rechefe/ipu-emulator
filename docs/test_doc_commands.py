@@ -22,6 +22,7 @@ from docs.doc_files import doc_files
 _INVOCATION = re.compile(r"\bipu-as(?![\w-])(?:[ \t]+--)?[ \t]+(?P<rest>[a-z].*)$")
 _SHELL_OPERATORS = {"|", "||", "&&", ";", ">", ">>", "<", "&", "2>&1"}
 
+
 @dataclass(frozen=True)
 class Command:
     path: str
@@ -65,51 +66,49 @@ def _commands(path: Path) -> list[Command]:
     return commands
 
 
-def check_command(argv: list[str]) -> list[str]:
-    """Problems with running `ipu-as` with `argv` non-interactively; empty when it would run."""
-    if not argv:
-        return ["no subcommand"]
-    name, *args = argv
-    command = cli.commands.get(name) if isinstance(cli, click.Group) else None
-    if command is None:
-        return [f"unknown subcommand {name!r} (have: {', '.join(sorted(cli.commands))})"]
-
+def _options_by_flag(command: click.Command) -> dict[str, click.Option]:
+    """Each option's flags (`--json`, `--text`, ...) mapped to the option."""
     options: dict[str, click.Option] = {}
     for param in command.params:
         if isinstance(param, click.Option):
             for opt in (*param.opts, *param.secondary_opts):
                 options[opt] = param
-    takes_arguments = any(isinstance(p, click.Argument) for p in command.params)
+    return options
 
-    problems = []
+
+def _check_given(command: click.Command, args: list[str]) -> tuple[list[str], set[str]]:
+    """Problems with the arguments in `args`, and the names of the options given."""
+    options = _options_by_flag(command)
+    takes_arguments = any(isinstance(p, click.Argument) for p in command.params)
+    problems: list[str] = []
     given: set[str] = set()
-    i = 0
-    while i < len(args):
-        token = args[i]
-        i += 1
-        if token == "--help":
-            return []
+    tokens = iter(args)
+    for token in tokens:
         if not token.startswith("-") or token == "-":
             if not takes_arguments:
-                problems.append(f"{name} takes no positional argument, got {token!r}")
+                problems.append(f"{command.name} takes no positional argument, got {token!r}")
             continue
         opt, eq, value = token.partition("=")
         param = options.get(opt)
         if param is None:
-            problems.append(f"{name} has no option {opt}")
+            problems.append(f"{command.name} has no option {opt}")
             continue
         given.add(param.name)
         if param.is_flag or param.count:
             continue
         if not eq:
-            if i == len(args):
+            value = next(tokens, None)
+            if value is None:
                 problems.append(f"{opt} needs a value")
                 continue
-            value = args[i]
-            i += 1
         if isinstance(param.type, click.Choice) and value not in param.type.choices:
             problems.append(f"{opt} {value!r} is not one of {', '.join(param.type.choices)}")
+    return problems, given
 
+
+def _check_missing(command: click.Command, given: set[str]) -> list[str]:
+    """Problems with the options `given` leaves out: required ones, and ones that prompt."""
+    problems = []
     for param in command.params:
         if not isinstance(param, click.Option) or param.name in given:
             continue
@@ -118,6 +117,20 @@ def check_command(argv: list[str]) -> list[str]:
         elif param.prompt:
             problems.append(f"{param.opts[0]} is not given, so the command prompts for it")
     return problems
+
+
+def check_command(argv: list[str]) -> list[str]:
+    """Problems with running `ipu-as` with `argv` non-interactively; empty when it would run."""
+    if not argv:
+        return ["no subcommand"]
+    name, *args = argv
+    command = cli.commands.get(name) if isinstance(cli, click.Group) else None
+    if command is None:
+        return [f"unknown subcommand {name!r} (have: {', '.join(sorted(cli.commands))})"]
+    if "--help" in args:
+        return []
+    problems, given = _check_given(command, args)
+    return problems + _check_missing(command, given)
 
 
 def _cases() -> list:

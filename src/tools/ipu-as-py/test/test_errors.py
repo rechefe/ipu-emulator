@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
+import ipu_as.label as ipu_label
 import lark
 import pytest
-from ipu_isa.errors import IpuError
-
-import ipu_as.label as ipu_label
 from ipu_as import lark_tree
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.errors import (
@@ -19,6 +17,7 @@ from ipu_as.errors import (
     SourceLocation,
     TemplateError,
 )
+from ipu_isa.errors import IpuError
 
 
 def _encode(source: str) -> list[int]:
@@ -33,26 +32,86 @@ def _encode(source: str) -> list[int]:
 
 CASES = [
     # (id, source, error class, location (line, column), token, message start)
-    ("number-out-of-range", "INC LR0 99999;;", OperandError, (1, 9), "99999",
-     "Invalid token value - 99999 in token LrIncDecImmediate\nIn Line 1, Column 9"),
-    ("enum-not-an-option", "ACTIVATE.QUANTIZE nosuch CR15;;", OperandError, (1, 19), "nosuch",
-     "Invalid token value - nosuch in token ActivationFnField\nIn Line 1, Column 19"),
-    ("label-not-defined", "B nowhere;;", LabelError, (1, 3), "nowhere",
-     "Invalid token value - nowhere"),
-    ("relative-label-out-of-range", "B +5000;;", OperandError, (1, 3), "+5000",
-     "Invalid token value - +5000"),
-    ("label-defined-twice", "a:\nNOP;;\na:\nNOP;;", LabelError, (3, 1), "a",
-     "Label 'a' is defined for the second time at Line 3, Column 1."),
-    ("nop-all-slots-filled", ";".join(["NOP"] * 20) + ";;", SlotError, (1, 45), "NOP",
-     "NOP: all slots are already filled\nAt: Line 1, Column 45"),
-    ("too-many-per-slot", "ACC.ADD; ACC.ADD;;", SlotError, (1, 10), "ACC.ADD",
-     "Too many instructions of type AccInst (max 1)\nAt: Line 1, Column 10"),
-    ("operand-count", "ACC.ADD LR0;;", OperandError, (1, 1), "ACC.ADD",
-     "Instruction ACC.ADD expects 0 operands, got 1, in Line 1, Column 1."),
-    ("unknown-mnemonic", "FOO;;", SlotError, (1, 1), "FOO",
-     "Opcode 'FOO' not found in any Inst subclass."),
-    ("pseudo-operand-count", "BGT LR0;;", OperandError, (1, 1), "BGT",
-     "Pseudo-instruction 'BGT' expects 3 operand(s)"),
+    (
+        "number-out-of-range",
+        "INC LR0 99999;;",
+        OperandError,
+        (1, 9),
+        "99999",
+        "Invalid token value - 99999 in token LrIncDecImmediate\nIn Line 1, Column 9",
+    ),
+    (
+        "enum-not-an-option",
+        "ACTIVATE.QUANTIZE nosuch CR15;;",
+        OperandError,
+        (1, 19),
+        "nosuch",
+        "Invalid token value - nosuch in token ActivationFnField\nIn Line 1, Column 19",
+    ),
+    (
+        "label-not-defined",
+        "B nowhere;;",
+        LabelError,
+        (1, 3),
+        "nowhere",
+        "Invalid token value - nowhere",
+    ),
+    (
+        "relative-label-out-of-range",
+        "B +5000;;",
+        OperandError,
+        (1, 3),
+        "+5000",
+        "Invalid token value - +5000",
+    ),
+    (
+        "label-defined-twice",
+        "a:\nNOP;;\na:\nNOP;;",
+        LabelError,
+        (3, 1),
+        "a",
+        "Label 'a' is defined for the second time at Line 3, Column 1.",
+    ),
+    (
+        "nop-all-slots-filled",
+        ";".join(["NOP"] * 20) + ";;",
+        SlotError,
+        (1, 45),
+        "NOP",
+        "NOP: all slots are already filled\nAt: Line 1, Column 45",
+    ),
+    (
+        "too-many-per-slot",
+        "ACC.ADD; ACC.ADD;;",
+        SlotError,
+        (1, 10),
+        "ACC.ADD",
+        "Too many instructions of type AccInst (max 1)\nAt: Line 1, Column 10",
+    ),
+    (
+        "operand-count",
+        "ACC.ADD LR0;;",
+        OperandError,
+        (1, 1),
+        "ACC.ADD",
+        "Instruction ACC.ADD expects 0 operands, got 1, in Line 1, Column 1.",
+    ),
+    (
+        "unknown-mnemonic",
+        "FOO;;",
+        SlotError,
+        (1, 1),
+        "FOO",
+        "Opcode 'FOO' not found in any Inst subclass.",
+    ),
+    (
+        "pseudo-operand-count",
+        "BGT LR0;;",
+        OperandError,
+        (1, 1),
+        "BGT",
+        "Pseudo-instruction 'BGT' expects 3 operand(s)",
+    ),
 ]
 
 
