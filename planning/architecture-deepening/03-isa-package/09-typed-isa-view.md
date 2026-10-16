@@ -73,3 +73,4 @@ Authors keep writing nested dicts (Q30). Consumers stop walking them by string k
 - [ ] One loader builds the view; nothing else in `ipu_isa` reads the authoring dicts after load.
 - [ ] Every ISA fact a consumer needs is reachable from `isa()` without string-key dict access.
 - [ ] `load_isa` takes the dicts as arguments, so tests can build a modified ISA in-process.
+- [ ] `//src/tools/ipu-isa:mypy` runs with `strict = True` and passes (Q65; E01-11 added it in default mode, 15 strict errors in 3 files at the time).

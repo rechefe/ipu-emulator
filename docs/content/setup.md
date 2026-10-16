@@ -195,6 +195,18 @@ reads that file on its own; tell your local git to skip those commits in
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
+## Type Checking
+
+A package opts into type checking with a `mypy_test` from
+`tools/typecheck.bzl`. It runs the locked mypy over one `py_library` with the
+shared settings in the root `mypy.ini`; `strict = True` adds `--strict`. The
+tests run in the default tier and carry the `typecheck` tag, so
+`bazel test --test_tag_filters=typecheck //...` runs only them:
+
+```bash
+bazel test //src/tools/ipu-isa:mypy
+```
+
 ## Common Issues
 
 ### Bazel build fails with "external repository not found"

@@ -12,6 +12,7 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --out
 bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
 bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
 bazel test //tools:lint                                  # ruff lint + format check (ruff.toml; manual until E01-10)
+bazel test --test_tag_filters=typecheck //...            # every mypy_test (tools/typecheck.bzl, mypy.ini)
 bazel run //tools:ruff -- check --fix                    # auto-fix lint with the locked ruff
 bazel run //tools:ruff -- format                         # format with the locked ruff
 ```

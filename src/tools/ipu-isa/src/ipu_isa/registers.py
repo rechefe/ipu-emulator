@@ -13,12 +13,24 @@ consistency.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TypedDict
 
 from ipu_isa.types import RegDescriptor, RegDtype, RegKind
 
-if TYPE_CHECKING:
-    pass
+
+class RegisterDefinition(TypedDict, total=False):
+    """One entry of `REGISTER_DEFINITIONS` (keys described in the table below)."""
+
+    kind: RegKind
+    vector: bool
+    size_bytes: int
+    count: int
+    dtype: RegDtype
+    cyclic: bool
+    word_view: bool
+    debug_aliases: tuple[str, ...]
+    assembler_values: list[str]
+    encoding_class: str
 
 
 # ===========================================================================
@@ -33,7 +45,7 @@ if TYPE_CHECKING:
 #
 # ===========================================================================
 
-REGISTER_DEFINITIONS = {
+REGISTER_DEFINITIONS: dict[str, RegisterDefinition] = {
     # -----------------------------------------------------------------------
     # Multiply-stage registers
     # -----------------------------------------------------------------------
@@ -181,7 +193,7 @@ def get_register_sizes() -> dict[str, dict[str, int | bool]]:
     This is the single source of truth for register dimensions used by
     both assembler and emulator.
     """
-    result = {}
+    result: dict[str, dict[str, int | bool]] = {}
     for name, meta in REGISTER_DEFINITIONS.items():
         result[name] = {
             "size_bytes": meta["size_bytes"],
@@ -240,11 +252,11 @@ def create_regfile_schema() -> list[RegDescriptor]:
     Returns a list of RegDescriptors in the correct order for initializing
     the emulator's register file.
     """
-    schema = []
+    schema: list[RegDescriptor] = []
 
     for name, metadata in REGISTER_DEFINITIONS.items():
         # Skip fields that aren't for RegDescriptor
-        descriptor_fields = {
+        descriptor_fields: dict[str, Any] = {
             k: v
             for k, v in metadata.items()
             if k in {"kind", "size_bytes", "count", "dtype", "cyclic", "word_view", "debug_aliases"}
@@ -269,7 +281,7 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
             "LcrRegField": ["lr0", ..., "lr15", "cr0", ..., "cr15"],
         }
     """
-    enums = {}
+    enums: dict[str, list[str]] = {}
 
     # First pass: collect values for each encoding class
     for metadata in REGISTER_DEFINITIONS.values():
@@ -321,7 +333,7 @@ def validate_register_definitions() -> None:
 
     # Check for duplicate enum values across different classes
     # (except LcrRegField which is a composite of LR and CR)
-    all_values = {}
+    all_values: dict[str, str] = {}
     for enc_class, values in enums.items():
         # Skip checking LcrRegField as it's a composite
         if enc_class == "LcrRegField":

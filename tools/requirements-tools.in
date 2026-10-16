@@ -7,3 +7,5 @@ uv
 tomli
 # Lint and format: //tools:ruff and the ruff_test targets (tools/lint.bzl).
 ruff
+# Type checking: the mypy_test targets (tools/typecheck.bzl).
+mypy

@@ -4,6 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 
 exports_files([
+    "mypy_runner.py",
     "requirements-tools.in",
     "ruff_runner.py",
 ])

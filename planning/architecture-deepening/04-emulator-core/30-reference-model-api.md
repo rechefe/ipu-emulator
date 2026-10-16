@@ -40,7 +40,7 @@ Rules:
 3. `step()` never stops at the EMULATOR-only BREAK slot (Q39); it retires the word. HALT ends the run with `Status.HALTED`.
 4. Delete `execute_next_instruction` and `execute_instruction_skip_break` and migrate their callers (test_execute.py:1913-1952) to the API or `Cycle`.
 5. Contract test `test_reference_api_contract.py`: pins the public names and signatures (via `inspect.signature`) against a committed snapshot, and the behaviour of each method. Changing the snapshot requires a version bump; a breaking change requires a major bump (Q11).
-6. Strict typing: the module passes the type checker configured in E01 (Q65 puts the reference API first).
+6. Strict typing: the module passes the type checker configured in E01 (Q65 puts the reference API first): a `mypy_test(name = "mypy_reference", lib = <the API library>, strict = True)` from `//tools:typecheck.bzl` (E01-11), with the API module in a py_library of its own if the package's other modules are not yet strict-clean.
 7. Short usage page for cocotb users (E09 owns the docs section; this PR adds the page content).
 
 ## Tests
@@ -56,3 +56,4 @@ Rules:
 - [ ] `ipu_emu.reference` exposes only the names above, with `API_VERSION`.
 - [ ] No API method returns an internal object (`IpuState`, `RegFile`, `Ipu`).
 - [ ] The steppable-engine issue references this API as a consumer of `Engine`.
+- [ ] A strict `mypy_test` (E01-11) over the API module passes in the default tier.

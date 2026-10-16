@@ -5,6 +5,7 @@ load("//tools:lint.bzl", "ruff_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "mypy.ini",
     "requirements_lock.txt",
     "ruff.toml",
 ])
