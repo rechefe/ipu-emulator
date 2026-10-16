@@ -27,9 +27,11 @@ from ipu_emu.execute import (
     execute_next_instruction,
     load_binary_instructions,
 )
+from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes, ipu_add, ipu_mult
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
 
 __all__ = [
@@ -42,7 +44,9 @@ __all__ = [
     "RegDescriptor",
     "REGFILE_SCHEMA",
     "RegFile",
+    "Ipu",
     "IpuState",
+    "RunStats",
     "WideVectorArithmetic",
     "DType",
     "ipu_mult",

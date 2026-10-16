@@ -150,6 +150,7 @@ py_pytest_test(
     deps = [
         ":emu_test_support",
         ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -175,6 +176,7 @@ py_pytest_test(
     deps = [
         ":emu_test_support",
         ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
 )
