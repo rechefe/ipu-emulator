@@ -1,9 +1,10 @@
 """Snapshots of the decoded-word names the assembler and emulator agree on (E02-02).
 
-Three things are wire format today but are derived from Python class names:
+Three things are wire format:
 
 * ``word_fields.json``: ``CompoundInst.get_fields()``, the name and width of
-  every field of an instruction word, LSB first, plus the total width.
+  every field of an instruction word, LSB first, plus the total width (from
+  ``ipu_isa.codec.word.WORD_LAYOUT`` since E05-02).
 * ``emulator_field_maps.json``: for every slot (and LR sub-slot) and
   instruction, the operand-name to field-name map the emulator dispatches on,
   and the field each slot instance reads its opcode from.
