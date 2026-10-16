@@ -402,18 +402,19 @@ class Inst:
             if instruction.doc is None:
                 continue
             lines.extend(
-                cls._render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands)
+                cls.render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands)
             )
             lines.append("")
 
         return "\n".join(lines).rstrip()
 
     @staticmethod
-    def _render_opcode_doc(
+    def render_opcode_doc(
         opcode: str,
         doc: InstructionDoc,
         spec_operands: Sequence[Operand],
     ) -> list[str]:
+        """Markdown lines documenting one opcode or pseudo-instruction (used by ipu_gen.docs_pages)."""
         lines = [f"### `{opcode}` — {doc.title}", ""]
         names = [operand.name for operand in spec_operands]
         lines.append(f"**Syntax:** `{syntax(opcode, names)}`")

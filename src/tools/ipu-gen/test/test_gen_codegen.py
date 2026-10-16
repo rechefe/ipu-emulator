@@ -7,7 +7,7 @@ from click.testing import CliRunner
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.inst import Inst
 from ipu_as.ipu_token import EnumToken
-from ipu_gen import sv_package
+from ipu_gen import layout_svg, sv_package
 from ipu_gen.cli import cli
 from ipu_isa.view import isa
 
@@ -217,3 +217,20 @@ def test_cli_writes_the_package(tmp_path: Path):
     result = CliRunner().invoke(cli, ["sv-package", "--output", str(out)])
     assert result.exit_code == 0, result.output
     assert out.read_text(encoding="utf-8") == sv_package.render_sv_package()
+
+
+def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
+    pages = tmp_path / "pages"
+    assert CliRunner().invoke(cli, ["docs-pages", str(pages)]).exit_code == 0
+    assert sorted(p.name for p in pages.iterdir()) == [
+        "assembly-syntax.md",
+        "instructions.md",
+        "operand-types.md",
+        "programmer-guide.md",
+    ]
+    svg = tmp_path / "union.svg"
+    assert CliRunner().invoke(cli, ["union-layout-svg", str(svg)]).exit_code == 0
+    assert svg.read_text() == layout_svg.union_layout_svg()
+    page = tmp_path / "instruction-format.md"
+    assert CliRunner().invoke(cli, ["instruction-format-md", str(page)]).exit_code == 0
+    assert "## Compound instruction layout" in page.read_text()

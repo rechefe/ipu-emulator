@@ -12,17 +12,12 @@ if one starts to, normalize it here and list it in ``NORMALIZATIONS``.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import gen_vscode_wrapper
-
-from ipu_as import gen_docs, gen_vscode
-from ipu_gen import gen_union_layout_svg
+from ipu_gen import docs_pages, layout_svg, vscode_data
 
 #: Where the snapshots live, repo-relative.
 SNAPSHOT_DIR = "src/tools/ipu-as-py/test/baselines/generated"
@@ -35,7 +30,7 @@ NORMALIZATIONS: tuple[tuple[str, str], ...] = ()
 
 
 def _all_docs(out: Path) -> None:
-    gen_docs.generate_all_docs(
+    docs_pages.generate_all_docs(
         out / "instructions.md",
         out / "operand-types.md",
         out / "assembly-syntax.md",
@@ -44,18 +39,15 @@ def _all_docs(out: Path) -> None:
 
 
 def _instruction_format(out: Path) -> None:
-    gen_docs.generate_instruction_format_md(out / "instruction-format.md")
+    docs_pages.generate_instruction_format_md(out / "instruction-format.md")
 
 
 def _vscode(out: Path) -> None:
-    gen_vscode.generate_all(out, gen_vscode_wrapper.EMULATOR)
+    vscode_data.generate_all(out, vscode_data.REGISTER_FACTS)
 
 
 def _union_layout_svg(out: Path) -> None:
-    with contextlib.redirect_stdout(io.StringIO()):
-        status = gen_union_layout_svg.main([str(out / "union_layout.svg")])
-    if status != 0:
-        raise RuntimeError(f"gen_union_layout_svg.main failed with {status}")
+    (out / "union_layout.svg").write_text(layout_svg.union_layout_svg())
 
 
 @dataclass(frozen=True)
@@ -70,22 +62,22 @@ class Producer:
 
 PRODUCERS = (
     Producer(
-        "ipu_as.gen_docs.generate_all_docs (//docs:generate_mkdocs_md)",
+        "ipu_gen.docs_pages.generate_all_docs (//docs:generate_mkdocs_md)",
         _all_docs,
         ("instructions.md", "operand-types.md", "assembly-syntax.md", "programmer-guide.md"),
     ),
     Producer(
-        "ipu_as.gen_docs.generate_instruction_format_md (//docs:generate_instruction_format_md)",
+        "ipu_gen.docs_pages.generate_instruction_format_md (//docs:generate_instruction_format_md)",
         _instruction_format,
         ("instruction-format.md",),
     ),
     Producer(
-        "ipu_as.gen_vscode.generate_all (//vscode-ipu-asm:generate_grammar)",
+        "ipu_gen.vscode_data.generate_all (//vscode-ipu-asm:generate_grammar)",
         _vscode,
         ("syntaxes/ipu-asm.tmLanguage.json", "language-configuration.json", "data/isa.json"),
     ),
     Producer(
-        "ipu_gen.gen_union_layout_svg.main (//src/tools/ipu-gen:gen_union_layout_svg)",
+        "ipu_gen.layout_svg.union_layout_svg (ipu-gen union-layout-svg)",
         _union_layout_svg,
         ("union_layout.svg",),
     ),

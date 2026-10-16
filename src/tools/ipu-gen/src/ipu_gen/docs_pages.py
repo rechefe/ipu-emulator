@@ -1,12 +1,18 @@
-#!/usr/bin/env python3
-"""Generate markdown documentation for IPU assembly (instructions, operand types, syntax page)."""
+"""Generate the MkDocs pages for IPU assembly (E08-14).
+
+The instruction reference, operand types, assembly syntax, programmer's guide
+and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
+``ipu-gen instruction-format-md OUT`` write them.
+"""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from ipu_gen.union_layout_svg import render_union_layout_svg
+from ipu_as.inst import Inst
+from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
+from ipu_isa.formats import FORMATS
+from ipu_isa.layout import word_bits
 from ipu_isa.registers import create_assembler_reg_enums
 from ipu_isa.view import Isa, isa
 
@@ -21,7 +27,7 @@ def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> Non
     lines: list[str] = [
         "# Operand types",
         "",
-        "This page is **generated** by `ipu_as.gen_docs` from `VALID_OPERAND_TYPES` in "
+        "This page is **generated** by `ipu_gen.docs_pages` from `VALID_OPERAND_TYPES` in "
         "`instruction_spec.py` and the descriptions below. For encodings per instruction, see the "
         "[Instruction reference](instructions.md).",
         "",
@@ -361,15 +367,29 @@ def _generate_slots_section(view: Isa) -> str:
     return "\n".join(lines)
 
 
-def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
-    """Generate instruction reference documentation.
+def _generate_formats_section() -> str:
+    """Generate the Element formats table from ``ipu_isa.formats``."""
+    lines: list[str] = [
+        "## Element formats\n",
+        "The element format is selected at run time. It sets the element width, "
+        "and from it the XMEM row width, the register element widths and the "
+        "accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. "
+        "`EMULATOR` formats exist only in the emulator. A float element is "
+        "1 sign bit, the exponent bits and the stored mantissa bits.\n",
+        "| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |",
+        "|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|",
+    ]
+    for fmt, info in FORMATS.items():
+        lines.append(
+            f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.exp_bits} | "
+            f"{info.man_bits} | {info.row_bytes} | `{info.accumulator.name}` |"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
-    Every section reads ``view`` (default: ``isa()``), except the whole-word
-    bit diagram: it is drawn from the assembler's token classes, which are
-    built from ``isa()``, so for any other view it is replaced by a note.
-    """
-    from ipu_as.compound_inst import CompoundInst
-    from ipu_as.inst import Inst
+
+def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
+    """Generate instruction reference documentation from ``view`` (default: ``isa()``)."""
 
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append(
@@ -378,9 +398,9 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
         "[operand type reference](operand-types.md).\n"
     )
 
-    default = view is None or view is isa()
     view = isa() if view is None else view
     content.append(_generate_slots_section(view))
+    content.append(_generate_formats_section())
 
     content.append("## Compound Instruction Layout\n")
     content.append(
@@ -394,18 +414,9 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
         "opcode field sharing comes from.\n"
     )
     content.append("\n### Whole-word bit layout\n")
-    if default:
-        content.append(CompoundInst.generate_struct_layout_svg())
-    else:
-        content.append("*(Drawn for the repository's ISA only.)*")
+    content.append(struct_layout_svg(view))
     content.append("\n### Per-slot union layout\n")
-    content.append(
-        render_union_layout_svg(
-            view.layout.unions,
-            slot_order=[slot.value for slot in view.layout.layout_order],
-            slot_counts={slot.value: info.count for slot, info in view.slots.items()},
-        )
-    )
+    content.append(union_layout_svg(view))
     content.append("\n---\n\n")
 
     for slot in view.layout.layout_order:
@@ -418,11 +429,9 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
 
 def generate_instruction_format_md(output_path: Path) -> None:
     """Generate the instruction-format documentation page (with download links)."""
-    from ipu_as.compound_inst import CompoundInst
-
-    width = CompoundInst.bits()
-    struct_svg = CompoundInst.generate_struct_layout_svg()
-    union_svg = CompoundInst.generate_union_layout_svg()
+    width = word_bits()
+    struct_svg = struct_layout_svg()
+    union_svg = union_layout_svg()
 
     content = f"""# Instruction format
 
@@ -470,7 +479,6 @@ bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.
 
 def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> None:
     """Generate the programmer-facing pseudo-instruction/alias reference."""
-    from ipu_as.inst import Inst
 
     content = ["# Programmer's Guide: Pseudo-Instructions\n"]
     content.append(
@@ -484,7 +492,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
 
     for pseudo in (isa() if view is None else view).pseudos():
         target = pseudo.expands_to
-        lines = Inst._render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
+        lines = Inst.render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")
         lines.append(
             f"**Expands to:** `{target.mnemonic}` "
@@ -504,30 +512,8 @@ def generate_all_docs(
     programmer_guide_path: Path,
     view: Isa | None = None,
 ) -> None:
-    """Regenerate all MkDocs pages owned by the assembler toolchain."""
+    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
     generate_operand_types_md(operand_types_path, view)
     generate_assembly_syntax_md(assembly_syntax_path)
     generate_instruction_docs(instructions_path, view)
     generate_programmer_guide_md(programmer_guide_path, view)
-
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-    if len(argv) == 4:
-        generate_all_docs(Path(argv[0]), Path(argv[1]), Path(argv[2]), Path(argv[3]))
-    elif len(argv) == 1:
-        d = Path(argv[0])
-        d.mkdir(parents=True, exist_ok=True)
-        generate_all_docs(
-            d / "instructions.md",
-            d / "operand-types.md",
-            d / "assembly-syntax.md",
-            d / "programmer-guide.md",
-        )
-    else:
-        print(
-            "Usage: gen_docs.py <instructions.md> <operand-types.md> <assembly-syntax.md> <programmer-guide.md>\n"
-            "   or: gen_docs.py <output_directory>/",
-            file=sys.stderr,
-        )
-        sys.exit(1)

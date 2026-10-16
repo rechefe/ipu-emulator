@@ -9,10 +9,10 @@ import lark
 import pytest
 
 from ipu_as.diagnostics import check
-from ipu_as.gen_vscode import build_hover_data
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.ipu_token import AnnotatedToken
 from ipu_as.lark_tree import get_parser
+from ipu_gen.vscode_data import build_hover_data
 from ipu_isa.acc_stride_enums import get_horizontal_stride_bits, get_vertical_stride_bits
 from ipu_isa.instruction_spec import VALID_OPERAND_TYPES
 

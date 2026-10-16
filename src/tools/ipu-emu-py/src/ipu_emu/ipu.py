@@ -57,6 +57,7 @@ from ipu_isa.registers import (
     REGISTER_DEFINITIONS,
     get_mult_stage_map,
     get_register_sizes,
+    lrd_pair,
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import SLOTS, Slot
@@ -1028,8 +1029,8 @@ class Ipu:
 
     @staticmethod
     def _lrd_lr_indices(n: int) -> tuple[int, int]:
-        """Real LR register indices (lo, hi) backing LrdIdx pair n: LRDn = LR(2n+1):LR(2n)."""
-        return 2 * n, 2 * n + 1
+        """Real LR register indices (lo, hi) backing LrdIdx pair n (``ipu_isa.registers.lrd_pair``)."""
+        return lrd_pair(n)
 
     def _get_lrd_bytes(self, n: int, regfile: RegFile) -> bytes:
         """Read LRDn's 8 byte elements from a register file (snapshot or live).

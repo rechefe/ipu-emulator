@@ -21,6 +21,7 @@ import ipu_debug.tui.screen as screen_module
 from ipu_debug.control import DebugControl
 from ipu_debug.session import DebugSession
 from ipu_debug.tui import new_debug_view_session
+from ipu_debug.tui.draw import UNICODE_GLYPHS
 from ipu_debug.tui.keymap import (
     KEY_BINDINGS,
     KEYMAP,
@@ -41,7 +42,7 @@ from ipu_debug.tui.screen import (
     overlay_style,
 )
 from ipu_debug.tui.tabs import TabSet
-from ipu_debug.tui.view import UNICODE_GLYPHS, CursesDebugView
+from ipu_debug.tui.view import CursesDebugView
 from ipu_emu.emulator import DebugAction, run_with_debug
 
 _PACKAGE = Path(__file__).parent.parent

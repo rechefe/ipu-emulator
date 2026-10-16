@@ -1,6 +1,6 @@
 # Operand types
 
-This page is **generated** by `ipu_as.gen_docs` from `VALID_OPERAND_TYPES` in `instruction_spec.py` and the descriptions below. For encodings per instruction, see the [Instruction reference](instructions.md).
+This page is **generated** by `ipu_gen.docs_pages` from `VALID_OPERAND_TYPES` in `instruction_spec.py` and the descriptions below. For encodings per instruction, see the [Instruction reference](instructions.md).
 
 ## `ActivationFn` {: #activationfn }
 

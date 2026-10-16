@@ -22,6 +22,7 @@ on:
       - 'vscode-ipu-asm/**'
       - '!vscode-ipu-asm/test/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-gen/src/ipu_gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
       - 'src/tools/ipu-emu-py/src/ipu_emu/ipu.py'
       - 'src/tools/ipu-emu-py/src/ipu_emu/ipu_config.py'
@@ -31,6 +32,7 @@ on:
     paths:
       - 'vscode-ipu-asm/**'
       - 'src/tools/ipu-as-py/src/ipu_as/**'
+      - 'src/tools/ipu-gen/src/ipu_gen/**'
       - 'src/tools/ipu-isa/src/ipu_isa/**'
       - 'src/tools/ipu-emu-py/src/ipu_emu/**'
       - '.github/workflows/vscode-extension.yml'

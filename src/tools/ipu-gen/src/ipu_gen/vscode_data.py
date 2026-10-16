@@ -1,5 +1,8 @@
-#!/usr/bin/env python3
-"""Generate the VS Code TextMate grammar for IPU assembly.
+"""Generate the VS Code language data for IPU assembly (E08-15).
+
+The TextMate grammar, ``language-configuration.json`` and ``data/isa.json``;
+``ipu-gen vscode-data [OUT_DIR]`` (``bazel run //vscode-ipu-asm:gen_vscode``)
+writes them.
 
 The grammar is built from two sources, and it is worth being precise about
 which is which:
@@ -35,8 +38,9 @@ from ipu_as.diagnostics import check
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, CR_REGISTER_NAME
 from ipu_isa.instruction_spec import syntax
-from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums, lrd_pair
 from ipu_isa.types import RegKind
 from ipu_isa.view import Isa, Operand, isa
 
@@ -205,11 +209,11 @@ def _comment_patterns() -> list[str]:
     ]
 
 
-def _register_docs(emulator: dict | None = None) -> dict[str, dict]:
+def _register_docs(facts: dict | None = None) -> dict[str, dict]:
     """What each register name is, in its definitions' own words (`RegKind`'s
-    or `LrdRegField`'s docstring). `emulator` carries the emulator's facts,
-    which this package does not depend on: `fixed` values and LRD `pairs`."""
-    emulator = emulator or {}
+    or `LrdRegField`'s docstring), plus `facts` (:data:`REGISTER_FACTS`):
+    `fixed` values and LRD `pairs`."""
+    facts = facts or {}
     kinds = dict(re.findall(r"^\s*(\w+):\s+(.+)$", RegKind.__doc__, re.M))
     docs = {
         name: {"about": kinds[meta["kind"].name]}
@@ -218,9 +222,9 @@ def _register_docs(emulator: dict | None = None) -> dict[str, dict]:
     }
     pair = " ".join(LrdRegField.__doc__.split("\n\n")[0].split())
     docs.update({name: {"about": pair} for name in LRD_REG_FIELDS})
-    for name, (lo, hi) in emulator.get("pairs", {}).items():
+    for name, (lo, hi) in facts.get("pairs", {}).items():
         docs[name]["pair"] = [f"lr{hi}", f"lr{lo}"]
-    for name, value in emulator.get("fixed", {}).items():
+    for name, value in facts.get("fixed", {}).items():
         docs[name]["fixed"] = value
     return dict(sorted(docs.items()))
 
@@ -265,7 +269,7 @@ def _label_pattern() -> dict:
         if len(symbols) != 2 or not all(s in by_name for s in symbols):
             raise UnmappedTerminalError(
                 f"The 'label' rule has an unexpected shape {symbols!r}; "
-                f"gen_vscode can only derive a <name> <terminator> label. "
+                f"vscode_data can only derive a <name> <terminator> label. "
                 f"Update _label_pattern() to match the new grammar."
             )
         name_term, terminator = symbols
@@ -444,7 +448,7 @@ def _doc_to_dict(doc, syntax_line: str) -> dict | None:
     return data
 
 
-def build_hover_data(emulator: dict | None = None, view: Isa | None = None) -> dict:
+def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict:
     """Instruction and register reference, consumed by the extension at runtime.
 
     A mnemonic can occupy more than one slot — NOP exists in all nine, each with
@@ -485,7 +489,7 @@ def build_hover_data(emulator: dict | None = None, view: Isa | None = None) -> d
             for mnemonic, forms in instructions.items()
         },
         "registers": _registers(),
-        "registerDocs": _register_docs(emulator),
+        "registerDocs": _register_docs(facts),
         # "hardware" is false for the debug-only slot (acc_store) only, as
         # before the slot tags; E08 regenerates the editor data from them.
         "slots": {
@@ -544,11 +548,11 @@ def render_language_configuration() -> str:
     return _dumps(build_language_configuration())
 
 
-def render_hover_data(emulator: dict | None = None, view: Isa | None = None) -> str:
-    return _dumps(build_hover_data(emulator, view))
+def render_hover_data(facts: dict | None = None, view: Isa | None = None) -> str:
+    return _dumps(build_hover_data(facts, view))
 
 
-#: Relative path -> renderer, shared by the wrapper and any test.
+#: Relative path -> renderer, shared by the CLI and any test.
 GENERATED_FILES = {
     "syntaxes/ipu-asm.tmLanguage.json": render_tmlanguage,
     "language-configuration.json": render_language_configuration,
@@ -556,14 +560,22 @@ GENERATED_FILES = {
 }
 
 
-def generate_all(out_dir: Path, emulator: dict | None = None, view: Isa | None = None) -> None:
+def generate_all(out_dir: Path, facts: dict | None = None, view: Isa | None = None) -> None:
     for rel_path, render in GENERATED_FILES.items():
         target = out_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         if render is render_hover_data:
-            text = render_hover_data(emulator, view)
+            text = render_hover_data(facts, view)
         elif render is render_tmlanguage:
             text = render_tmlanguage(view)
         else:
             text = render()
         target.write_text(text, encoding="utf-8")
+
+
+#: For register hovers: the fixed registers (CR0 = 0, CR1 = 1) and the LR pair
+#: behind each LRD name (indexed by its position in the LrdIdx domain).
+REGISTER_FACTS = {
+    "fixed": {f"{CR_REGISTER_NAME}{i}": v for i, v in CR_READ_ONLY_INITIAL_VALUES.items()},
+    "pairs": {name: lrd_pair(n) for n, name in enumerate(LRD_REG_FIELDS)},
+}

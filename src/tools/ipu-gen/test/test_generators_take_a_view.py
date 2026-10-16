@@ -10,8 +10,7 @@ import dataclasses
 
 import pytest
 
-from ipu_as import gen_docs, gen_vscode
-from ipu_gen import sv_package
+from ipu_gen import docs_pages, sv_package, vscode_data
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS
 from ipu_isa.view import Isa, authoring_copies, isa, load_isa
@@ -33,16 +32,16 @@ def test_the_view_has_the_new_instruction(view):
 
 
 def test_instruction_reference(view, tmp_path):
-    gen_docs.generate_instruction_docs(tmp_path / "view.md", view)
-    gen_docs.generate_instruction_docs(tmp_path / "default.md")
+    docs_pages.generate_instruction_docs(tmp_path / "view.md", view)
+    docs_pages.generate_instruction_docs(tmp_path / "default.md")
     assert f"`{NEW}`" in (tmp_path / "view.md").read_text()
     assert NEW not in (tmp_path / "default.md").read_text()
 
 
 def test_editor_data(view):
-    assert NEW in gen_vscode.render_hover_data(None, view)
-    assert NEW in gen_vscode.render_tmlanguage(view)
-    assert NEW not in gen_vscode.render_hover_data()
+    assert NEW in vscode_data.render_hover_data(None, view)
+    assert NEW in vscode_data.render_tmlanguage(view)
+    assert NEW not in vscode_data.render_hover_data()
 
 
 def test_sv_package(view):
