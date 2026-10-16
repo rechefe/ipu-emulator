@@ -71,9 +71,7 @@ def imported_modules(source: str, filename: str = "<string>") -> Iterator[tuple[
                 yield node.lineno, node.args[0].value
 
 
-def violations(
-    packages: Mapping[str, Path], table: Mapping[str, frozenset[str]]
-) -> list[str]:
+def violations(packages: Mapping[str, Path], table: Mapping[str, frozenset[str]]) -> list[str]:
     """One line per import of a first-party package that ``table`` forbids.
 
     An ``ipu_*`` package with no sources in ``packages`` is reported too: it
