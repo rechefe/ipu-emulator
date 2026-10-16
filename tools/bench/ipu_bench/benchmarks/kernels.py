@@ -1,8 +1,8 @@
 """``kernel/<k>/*``: emulator speed and peak memory on two fixed kernel cases.
 
 ``identity`` (small) and ``matmul_720x240_x128`` (large: the largest standard
-matmul case, the same kernel E04-02 benchmarks), each with its ``default``
-case, run and checked exactly as the tests run them.
+matmul case; E04-02's ``emulator`` module uses a smaller one), each with its
+``default`` case, run and checked exactly as the tests run them.
 """
 
 from __future__ import annotations

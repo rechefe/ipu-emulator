@@ -3,10 +3,10 @@
 * ``IpuState()`` construction: time per construction, ``tracemalloc`` peak and
   the ``ru_maxrss`` growth of the first construction (targets: < 5 ms, < 5 MB).
 * Cycles per second of a fixed matmul kernel run to ``HALT``, best of 5 (one
-  run with ``--quick``; target: >= 50k cycles/s): ``MATMUL`` in wide FP32, the format it is written
-  for, and ``INT8`` (the INT8 case of ``fully_connected``; no matmul kernel is
-  written for INT8). Both run on the faithful path and, in a build with
-  ``--define=ipu_proto=1``, also in prototyping mode.
+  run with ``--quick``; target: >= 50k cycles/s): ``MATMUL`` in FP32, the
+  format it is written for, and ``INT8`` (the INT8 case of ``fully_connected``;
+  no matmul kernel is written for INT8). Both run on the faithful path and, in
+  a build with ``--define=ipu_proto=1``, also in prototyping mode.
 
 ``bazel run //src/tools/ipu-emu-py:bench_emulator`` runs only this module.
 """
@@ -21,7 +21,9 @@ from ipu_bench.isolated import call, peak_rss_mb
 from ipu_bench.result import Result, tiny_budget
 
 # The largest matmul whose default case runs in about 10 s on the faithful path
-# (77185 cycles); matmul_720x240_x128 takes about 22 s, too long for best of 5.
+# (77185 cycles). matmul_720x240_x128 (the default in IMPLEMENTATION-DECISIONS.md,
+# still kernels.LARGE) takes about 22 s, which breaks the 30 s bound on --quick.
+# TODO(E04-17): add an E4 entry once the E4 format lands.
 MATMUL = ("matmul_384x192_x128", "default")
 INT8 = ("fully_connected", "int8")
 CONSTRUCT_NUMBER = 20
@@ -45,14 +47,16 @@ def construct() -> dict:
     return {"seconds": seconds, "traced_mb": traced_peak / (1024 * 1024), "rss_mb": rss_delta}
 
 
-def cycles(kernel: str, case_name: str, repeats: int, prototyping: bool) -> dict:
+def cycles(kernel: str, case_name: str, repeats: int, mode: str) -> dict:
     """In a fresh interpreter: assemble once, run the case ``repeats`` times.
+
+    ``mode`` is ``"faithful"`` or ``"prototyping"``.
 
     Only the emulated run is timed; each run is checked as the tests check it.
     """
     # Read when each IpuState is built; set on or off explicitly, because a
     # --define=ipu_proto=1 build makes prototyping the default.
-    os.environ["IPU_EMU_PROTOTYPING"] = "1" if prototyping else "0"
+    os.environ["IPU_EMU_PROTOTYPING"] = "1" if mode == "prototyping" else "0"
     from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, run_case
 
     case = load_cases(kernel)[case_name]
@@ -83,10 +87,10 @@ def run(quick: bool) -> list[Result]:
             extra=f"IpuState(), mean of {CONSTRUCT_NUMBER}",
         ),
         Result("emulator/ipu_state_tracemalloc_peak_mb", "MB", c["traced_mb"], extra=first),
-        # ru_maxrss counts KiB and only grows, so 0 is a real value here.
+        # ru_maxrss is a high-water mark: a construction below the existing peak reads 0.
         Result("emulator/ipu_state_rss_delta_mb", "MB", c["rss_mb"], extra=first),
     ]
-    # The smoke test runs the INT8 case once (2674 cycles) and nothing larger.
+    # The smoke test runs the INT8 case (2674 cycles) once per mode, nothing larger.
     repeats = 1 if quick or tiny_budget() else 5
     kernels = (INT8,) if tiny_budget() else (MATMUL, INT8)
     modes = ("faithful", "prototyping") if _prototyping_built() else ("faithful",)
@@ -97,7 +101,7 @@ def run(quick: bool) -> list[Result]:
                 kernel=kernel,
                 case_name=case_name,
                 repeats=repeats,
-                prototyping=mode == "prototyping",
+                mode=mode,
             )
             results.append(
                 Result(

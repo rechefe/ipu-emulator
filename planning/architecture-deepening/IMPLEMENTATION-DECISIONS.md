@@ -29,7 +29,7 @@ The user decided the program-level questions in the grilling session. They are r
 | `pad_mode` that needs float lanes under an integer format | Configuration error. | E04-19 |
 | R_CYCLIC alignment check | Fault F-4. | E04-19 |
 | F-6 / F-7 | F-6 covers addresses beyond the XMEM address space. F-7 is never raised until tables exist. | E04-19 |
-| Matmul benchmark kernel | `matmul_720x240_x128`, the largest standard case. | E04-02, E01-14 |
+| Matmul benchmark kernel | `matmul_720x240_x128`, the largest standard case. Overridden for E04-02: it uses `matmul_384x192_x128`, because 720x240 takes about 22 s a run and `bench_emulator -- --quick` must finish in 30 s. E01-14's `kernel/*` keeps 720x240. | E04-02, E01-14 |
 | Where the element codec lives | `ipu_isa.formats`, so the harness packs data without importing the emulator. | E04-13 |
 | JSON schema validation | `jsonschema` as a test-only dependency. | E04-29 |
 | Conformance data | `src/tools/ipu-isa/conformance/` (programs plus expected traces). | E04-31 |

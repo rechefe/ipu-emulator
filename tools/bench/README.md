@@ -29,14 +29,17 @@ after the change (see the code-conventions page).
 | `kernel/<k>/peak_rss_mb` | MB | lower | `ru_maxrss` of the process that ran the case. |
 | `emulator/ipu_state_construct_ms` | ms | lower | `timeit(IpuState, number=20) / 20`. Q71 target: < 5 ms. |
 | `emulator/ipu_state_tracemalloc_peak_mb`, `emulator/ipu_state_rss_delta_mb` | MB | lower | The first `IpuState()` in a fresh interpreter: `tracemalloc` peak, and growth of `ru_maxrss` (0 when construction does not raise the process's peak). Q71 target: < 5 MB. |
-| `emulator/<mode>/<kernel>.<case>/cycles_per_s` | cycles/s | higher | `matmul_384x192_x128.default` (wide FP32) and `fully_connected.int8`, run to `HALT` and checked, best of 5 (1 with `--quick`); only the emulated run is timed. `<mode>` is `faithful`, plus `prototyping` in a `--config=proto` build. Q71 target: >= 50k cycles/s. |
+| `emulator/<mode>/<kernel>.<case>/cycles_per_s` | cycles/s | higher | `matmul_384x192_x128.default` (FP32) and `fully_connected.int8`, run to `HALT` and checked, best of 5 (1 with `--quick`); only the emulated run is timed. `<mode>` is `faithful`, plus `prototyping` in a `--config=proto` build. Q71 target: >= 50k cycles/s. |
 | `ci/full_suite_wall_s` | s | lower | Nightly only: the coverage step of the nightly `full` job. |
 | `ci/default_tier_wall_s` | s | lower | Nightly only: the test step of the latest successful `ci.yml` run on master. |
 
 The third Q71 target, emulator unit tests under 30 s, is not measured here:
 an emulator PR records the wall time of
 `bazel test //src/tools/ipu-emu-py/... --nocache_test_results` by hand, and the
-nightly `ci/*` entries track the whole suites.
+nightly `ci/*` entries track the whole suites. The nightly job does not build
+with `--config=proto`, so `emulator/prototyping/*` is local only. The 30 s
+bound on `bench_emulator -- --quick` is for the default build; the
+`--config=proto` run measures twice as much.
 
 Each measurement runs in a fresh interpreter (`ipu_bench.isolated`), so
 imports and memory are not shared between measurements.
