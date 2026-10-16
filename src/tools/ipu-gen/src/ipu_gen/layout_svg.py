@@ -12,18 +12,18 @@ shows, for every slot:
 The diagram is the canonical visual for the "Compound Instruction Layout"
 section of the docs.  Slot order follows the binary layout MSB → LSB so the
 picture matches what an encoded instruction word looks like in memory. Both read
-the ISA (``LAYOUT_ORDER``, ``SLOTS``, ``SLOT_UNIONS``); E05-03 moves them onto its
-word codec (``WORD_LAYOUT``).
+the ISA view they are given (default: ``isa()``); E05-03 moves them onto its word
+codec (``WORD_LAYOUT``).
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
-from ipu_isa.layout import SLOT_UNIONS, word_bits
-from ipu_isa.operand_types import OPERAND_TYPES
-from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import SlotUnion
+from ipu_isa.view import Isa, isa
 
 # Slot palette, from the slot registry: one stable colour per slot.
 _SLOT_COLORS: dict[str, str] = {slot.value: info.legend_colour for slot, info in SLOTS.items()}
@@ -133,7 +133,7 @@ def _render_slot(
 
 
 def render_union_layout_svg(
-    slot_unions: dict[str, SlotUnion],
+    slot_unions: Mapping[str, SlotUnion],
     slot_order: list[str],
     slot_counts: dict[str, int] | None = None,
     width: int = 660,
@@ -143,7 +143,8 @@ def render_union_layout_svg(
     """Render a per-slot union layout diagram and return the SVG source.
 
     Args:
-        slot_unions: ``{slot_name: SlotUnion}`` (``ipu_isa.layout.SLOT_UNIONS``).
+        slot_unions: ``{slot: SlotUnion}`` (``isa().layout.unions``; looked up
+            by slot name).
         slot_order: Slot names in the order they should appear top-to-bottom
             (typically the MSB → LSB order of the compound instruction).
         slot_counts: Optional ``{slot_name: count}`` for slots that appear
@@ -194,9 +195,9 @@ def render_union_layout_svg(
 _WORD_TITLE = "CompoundInst"
 
 
-def _word_slots() -> list[Slot]:
+def _word_slots(view: Isa) -> list[Slot]:
     """Every slot copy of the instruction word, MSB first."""
-    return [slot for slot in LAYOUT_ORDER for _ in range(SLOTS[slot].count)]
+    return [slot for slot in view.layout.layout_order for _ in range(view.slots[slot].count)]
 
 
 def _snake_case(name: str) -> str:
@@ -204,24 +205,27 @@ def _snake_case(name: str) -> str:
     return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
-def _slot_tokens(slot: Slot) -> list[tuple[str, int]]:
+def _slot_tokens(view: Isa, slot: Slot) -> list[tuple[str, int]]:
     """``(snake_case token name, bits)`` of a slot's opcode, then its union fields."""
-    union = SLOT_UNIONS[slot.value]
-    tokens = [(SLOTS[slot].asm_opcode_class, union.opcode_bits)]
-    tokens += [(OPERAND_TYPES[f.canonical_type].token_class, f.bits) for f in union.fields]
+    union = view.layout.unions[slot]
+    tokens = [(view.slots[slot].asm_opcode_class, union.opcode_bits)]
+    tokens += [(view.operand_types[f.canonical_type].token_class, f.bits) for f in union.fields]
     return [(_snake_case(name), bits) for name, bits in tokens]
 
 
-def union_layout_svg() -> str:
-    """The per-slot union layout of the ISA, slots in word order (MSB → LSB).
+def union_layout_svg(view: Isa | None = None) -> str:
+    """The per-slot union layout of ``view`` (default: ``isa()``), slots in word
+    order (MSB → LSB).
 
     Returns:
         The SVG source.
     """
+    view = isa() if view is None else view
+    order = view.layout.layout_order
     return render_union_layout_svg(
-        dict(SLOT_UNIONS),
-        slot_order=[slot.value for slot in LAYOUT_ORDER],
-        slot_counts={slot.value: SLOTS[slot].count for slot in LAYOUT_ORDER},
+        view.layout.unions,
+        slot_order=[slot.value for slot in order],
+        slot_counts={slot.value: view.slots[slot].count for slot in order},
     )
 
 
@@ -238,13 +242,13 @@ _TEXT_LINE_H = 11
 _LEGEND_BOX = 12
 
 
-def _word_fields() -> list[dict]:
+def _word_fields(view: Isa) -> list[dict]:
     """Every field of the instruction word, LSB first, with its bit range and slot colour."""
-    colours = {slot: info.legend_colour for slot, info in SLOTS.items()}
+    colours = {slot: info.legend_colour for slot, info in view.slots.items()}
     fields = []
     current_bit = 0
-    for slot in reversed(_word_slots()):
-        for token_name, token_bits in reversed(_slot_tokens(slot)):
+    for slot in reversed(_word_slots(view)):
+        for token_name, token_bits in reversed(_slot_tokens(view, slot)):
             fields.append(
                 {
                     "name": _smart_abbreviate_field_name(token_name),
@@ -324,13 +328,13 @@ def _row_svg(row_idx: int, num_rows: int, total_bits: int, fields: list[dict]) -
     return out
 
 
-def _legend_svg(legend_y: float) -> list[str]:
+def _legend_svg(view: Isa, legend_y: float) -> list[str]:
     """The slot colour key below the rows."""
     out = [
         f'  <text x="{_ROW_X}" y="{legend_y}" class="inst-label" '
         f'style="font-weight: bold;">Instruction Type Colors:</text>'
     ]
-    for i, info in enumerate(SLOTS.values()):
+    for i, info in enumerate(view.slots.values()):
         y_pos = legend_y + 15 + i * 15
         out.append(
             f'  <rect x="{_ROW_X}" y="{y_pos - _LEGEND_BOX + 2}" '
@@ -344,7 +348,7 @@ def _legend_svg(legend_y: float) -> list[str]:
     return out
 
 
-def struct_layout_svg() -> str:
+def struct_layout_svg(view: Isa | None = None) -> str:
     """Render the whole instruction word as bit rows of 32.
 
     Shows every operand field in its actual bit position, coloured by the
@@ -356,10 +360,11 @@ def struct_layout_svg() -> str:
     Returns:
         The SVG source.
     """
-    fields = _word_fields()
-    total_bits = word_bits()
+    view = isa() if view is None else view
+    fields = _word_fields(view)
+    total_bits = view.layout.word_bits()
     num_rows = (total_bits + 31) // 32
-    legend_height = 20 + len(SLOTS) * 15
+    legend_height = 20 + len(view.slots) * 15
     svg_width = _ROW_W + _PAD * 2 + 80
     svg_height = (num_rows * _ROW_H) + _TITLE_PX * 4 + _PAD * 3 + legend_height
     svg_lines = [
@@ -379,7 +384,7 @@ def struct_layout_svg() -> str:
     ]
     for row_idx in range(num_rows - 1, -1, -1):
         svg_lines += _row_svg(row_idx, num_rows, total_bits, fields)
-    svg_lines += _legend_svg(_PAD + _TITLE_PX * 2.5 + (num_rows * _ROW_H) + 20)
+    svg_lines += _legend_svg(view, _PAD + _TITLE_PX * 2.5 + (num_rows * _ROW_H) + 20)
     svg_lines.append("</svg>")
     return "\n".join(svg_lines)
 

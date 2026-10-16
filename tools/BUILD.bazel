@@ -71,17 +71,42 @@ py_pytest_test(
     data = [
         "import_graph.toml",
         "//src/tools/ipu-apps:py_sources",
+        "//src/tools/ipu-apps:py_test_sources",
         "//src/tools/ipu-as-py:py_sources",
+        "//src/tools/ipu-as-py:py_test_sources",
         "//src/tools/ipu-debug:py_sources",
+        "//src/tools/ipu-debug:py_test_sources",
         "//src/tools/ipu-emu-py:py_sources",
+        "//src/tools/ipu-emu-py:py_test_sources",
         "//src/tools/ipu-gen:py_sources",
+        "//src/tools/ipu-gen:py_test_sources",
         "//src/tools/ipu-harness:py_sources",
+        "//src/tools/ipu-harness:py_test_sources",
         "//src/tools/ipu-isa:py_sources",
         "//src/tools/ipu-kernels:py_sources",
+        "//src/tools/ipu-kernels:py_test_sources",
     ],
     deps = [
         requirement("pytest"),
         requirement("tomli"),
+    ],
+)
+
+# ruff.toml bans a second assembly render path (E05-12).
+py_pytest_test(
+    name = "test_one_render_path",
+    size = "small",
+    srcs = [
+        "ruff_runner.py",
+        "test_one_render_path.py",
+    ],
+    data = [
+        "//:ruff.toml",
+        data_requirement("ruff"),
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("ruff"),
     ],
 )
 

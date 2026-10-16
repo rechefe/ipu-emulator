@@ -6,7 +6,8 @@ and ``importlib.import_module("x...")`` with a literal name, at any depth (a
 function-level import counts). Each first-party one must be the package itself
 or listed in the source's ``[allowed]`` row, and a module in the source's
 ``[deferred]`` row may only be imported inside a function or under
-``if TYPE_CHECKING:``.
+``if TYPE_CHECKING:``. A name in a module's ``[private]`` row may not be
+imported, or read as an attribute, outside that module's package.
 
 A row's key is a package or a dotted subpackage (``ipu_kernels.reference``);
 a source follows the longest key that is its module or a parent of it, in
@@ -43,7 +44,7 @@ FIRST_PARTY_PREFIX = "ipu_"
 Table = Mapping[str, frozenset[str]]
 
 
-SECTIONS = ("allowed", "deferred")
+SECTIONS = ("allowed", "deferred", "private")
 
 
 def load_table(path: Path = TABLE, section: str = "allowed") -> dict[str, frozenset[str]]:
@@ -165,8 +166,38 @@ def violations(
     return found
 
 
+def private_name_uses(packages: Mapping[str, Path], private: Table) -> list[str]:
+    """One line per use of a ``[private]`` name outside its module's package:
+    ``from module import NAME`` (or ``*``), or any ``<expr>.NAME``. A package's
+    sources and its distribution's ``test/`` directory both count as the
+    package."""
+    found = []
+    names = {name: module for module, members in private.items() for name in members}
+    for package, directory in sorted(packages.items()):
+        tests = directory.parent.parent / "test"
+        paths = sorted(directory.rglob("*.py")) + sorted(tests.rglob("*.py"))
+        for path in paths:
+            for node in ast.walk(ast.parse(path.read_text(), str(path))):
+                if isinstance(node, ast.ImportFrom) and node.module in private:
+                    used = [
+                        a.name if a.name != "*" else "*"
+                        for a in node.names
+                        if a.name in private[node.module] or a.name == "*"
+                    ]
+                elif isinstance(node, ast.Attribute) and node.attr in names:
+                    used = [node.attr]
+                else:
+                    continue
+                for name in used:
+                    owner = node.module if name == "*" else names[name]
+                    if owner.split(".")[0] != package:
+                        found.append(f"{path}:{node.lineno}: uses {owner}.{name}")
+    return found
+
+
 TABLE_ROWS = load_table()
 DEFERRED_ROWS = load_table(section="deferred")
+PRIVATE_ROWS = load_table(section="private")
 PACKAGES = find_packages()
 
 
@@ -221,6 +252,35 @@ def test_every_package_has_sources():
 
 def test_only_allowed_imports():
     assert violations(PACKAGES, TABLE_ROWS, DEFERRED_ROWS) == []
+
+
+def test_private_names_stay_in_their_package():
+    assert private_name_uses(PACKAGES, PRIVATE_ROWS) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
+        "def f():\n    from ipu_isa.instruction_spec import PSEUDO_INSTRUCTION_SPEC\n",
+        "import ipu_isa.instruction_spec as spec\nx = spec.INSTRUCTION_SPEC\n",
+        "from ipu_isa.instruction_spec import *\n",
+    ],
+)
+@pytest.mark.parametrize("where", ["as/src/ipu_as/mod.py", "as/test/test_mod.py"])
+def test_a_planted_private_name_use_is_reported(tmp_path, text, where):
+    packages = _plant(
+        tmp_path,
+        {
+            "as/src/ipu_as/__init__.py": "",
+            where: text,
+            "isa/src/ipu_isa/view.py": "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
+            "isa/test/test_view.py": "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
+        },
+    )
+    [found] = private_name_uses(packages, PRIVATE_ROWS)
+    assert found.startswith(str(tmp_path / where))
+    assert "ipu_isa.instruction_spec." in found
 
 
 # The checker itself, on planted packages.

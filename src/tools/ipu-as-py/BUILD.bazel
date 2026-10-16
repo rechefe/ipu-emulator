@@ -4,6 +4,7 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
 load("//tools:lint.bzl", "ruff_test")
+load("//:asm_rules.bzl", "assemble_asm")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,6 +12,8 @@ exports_files([
     # Read by //tools:test_update_baselines.
     "BUILD.bazel",
     "pyproject.toml",
+    # Read by //src/tools/ipu-isa:test_word_codec (E03-16).
+    "test/baselines/word_fields.json",
 ])
 
 # RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
@@ -74,6 +77,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # Derived operand widths are right whatever is imported first (E03-08).
 py_pytest_test(
     name = "test_import_order",
@@ -103,6 +112,42 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The CLI: no prompt, --define and -I (E05-10).
+py_pytest_test(
+    name = "test_cli",
+    srcs = ["test/test_cli.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("pytest"),
+    ],
+)
+
+# assemble_asm(defines=, includes=) against the CLI (E05-12).
+assemble_asm(
+    name = "asm_rule_defines",
+    src = "test/asm_rule/template.asm",
+    defines = {"cpr": "3"},
+    includes = ["test/asm_rule/lib/body.asm.j2"],
+)
+
+py_pytest_test(
+    name = "test_asm_rule",
+    srcs = ["test/test_asm_rule.py"],
+    data = [
+        ":asm_rule_defines",
+        "test/asm_rule/lib/body.asm.j2",
+        "test/asm_rule/template.asm",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
         requirement("pytest"),
     ],
 )

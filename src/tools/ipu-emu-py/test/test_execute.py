@@ -3353,8 +3353,9 @@ class TestFirstStoreBitExactness:
 
 
 class TestInspectableSnapshot:
-    def test_retained_snapshot_is_stable_and_lazily_replaced(self) -> None:
+    def test_retained_snapshot_is_stable_and_lazily_replaced(self, monkeypatch) -> None:
         from ipu_emu.ipu import Ipu
+        from ipu_emu.regfile import RegFile
 
         state = make_state(
             """\
@@ -3372,11 +3373,20 @@ BKPT;;
         assert ipu.snapshot is first
         assert first.get_lr(0) == 0
 
+        copies = []
+        real_snapshot = RegFile.snapshot
+
+        def counting_snapshot(regfile):
+            copies.append(regfile)
+            return real_snapshot(regfile)
+
+        monkeypatch.setattr(RegFile, "snapshot", counting_snapshot)
         ipu.execute_vliw_cycle()
-        # TODO(E04-07): the Cycle module owns the snapshot; assert laziness through it.
-        assert ipu._public_snapshot is None
+        # The cycle refreshes its buffer in place; no public copy until asked.
+        assert copies == []
         assert first.get_lr(0) == 0
         second = ipu.snapshot
+        assert len(copies) == 1
         assert second is not None
         assert second is not first
         assert second.get_lr(0) == 1
@@ -3385,13 +3395,21 @@ BKPT;;
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
         # TODO(E04-08): per-word execution plans replace _build_plan.
-        from ipu_emu.ipu import _build_plan
+        import dataclasses
 
-        spec = {"execute_fn": "execute_no_such_handler", "operands": []}
+        from ipu_emu.ipu import _build_plan
+        from ipu_isa.slots import Slot
+        from ipu_isa.view import isa
+
+        fake = dataclasses.replace(
+            isa().instruction(Slot.MULT, "NOP"),
+            mnemonic="FAKE",
+            execute_fn="execute_no_such_handler",
+        )
         with pytest.raises(
             RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
         ):
-            _build_plan("mult", "FAKE", spec, {})
+            _build_plan(fake, {})
 
 
 # ============================================================================
@@ -3413,26 +3431,28 @@ class TestDeclaredSlotOrder:
 
     @pytest.mark.parametrize("skip_break", [False, True])
     def test_faithful_dispatch_follows_declared_order(self, monkeypatch, skip_break):
+        import ipu_emu.cycle as cycle_mod
         import ipu_emu.ipu as ipu_mod
 
         order = self._reordered()
-        monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", order)
+        monkeypatch.setattr(cycle_mod, "SLOT_EXECUTION_ORDER", order)
         dispatched: list[str] = []
-        real_dispatch = ipu_mod.Ipu.dispatch_instruction
-        real_lr = ipu_mod.Ipu._dispatch_lr_slots
+        real_dispatch = ipu_mod.Ipu.dispatch_op
+        real_lr = ipu_mod.Ipu.dispatch_lr
 
-        def spy_dispatch(self, slot_type, inst):
-            dispatched.append(slot_type)
-            return real_dispatch(self, slot_type, inst)
+        def spy_dispatch(self, op, inst):
+            dispatched.append(op.slot)
+            return real_dispatch(self, op, inst)
 
-        def spy_lr(self, inst):
+        def spy_lr(self, ops, inst):
             dispatched.append("lr")
-            return real_lr(self, inst)
+            return real_lr(self, ops, inst)
 
-        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_instruction", spy_dispatch)
-        monkeypatch.setattr(ipu_mod.Ipu, "_dispatch_lr_slots", spy_lr)
+        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_op", spy_dispatch)
+        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_lr", spy_lr)
 
-        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
+        # The BREAK.IFEQ does not fire (LR1 is 0), so the word retires.
+        state = make_state("SET lr0 cr8 ; BREAK.IFEQ lr1 5;;\nBKPT;;", cr={8: 7}, prototyping=False)
         engine = ipu_mod.Ipu(state)
         if skip_break:
             engine.execute_vliw_cycle_skip_break()
@@ -3444,10 +3464,11 @@ class TestDeclaredSlotOrder:
         assert state.regfile.get_lr(0) == 7
 
     def test_prototyping_plan_follows_declared_order(self, monkeypatch):
+        import ipu_emu.cycle as cycle_mod
         import ipu_emu.ipu as ipu_mod
 
         order = self._reordered()
-        monkeypatch.setattr(ipu_mod, "SLOT_EXECUTION_ORDER", order)
+        monkeypatch.setattr(cycle_mod, "SLOT_EXECUTION_ORDER", order)
         # The plan and the fast cycle are driven directly, so this runs in a
         # build without --define=ipu_proto=1 as well.
         state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
@@ -3469,7 +3490,7 @@ class TestDeclaredSlotOrder:
         assert seen == expected
         # LR and the always-run COND slot are both present, in declared order.
         assert {"lr", "cond"} <= set(seen)
-        engine._take_snapshot()
+        engine.bind_snapshot(state.regfile.snapshot())
         engine._execute_cycle_fast(inst, pc, with_break=True)
         assert state.regfile.get_lr(0) == 7
 

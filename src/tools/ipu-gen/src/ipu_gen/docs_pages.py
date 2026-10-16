@@ -13,26 +13,19 @@ from pathlib import Path
 from ipu_as.inst import Inst
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
 from ipu_isa.formats import FORMATS
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    PSEUDO_INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    SLOT_METADATA,
-    VALID_OPERAND_TYPES,
-)
 from ipu_isa.layout import word_bits
-from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import create_assembler_reg_enums
 from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
-from ipu_isa.view import isa
+from ipu_isa.view import Isa, isa
 
 
 def _operand_slug(typ: str) -> str:
     return typ.lower().replace("_", "-")
 
 
-def generate_operand_types_md(output_path: Path) -> None:
+def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> None:
     """Write operand-types.md (linked from the instruction reference)."""
+    view = isa() if view is None else view
     lines: list[str] = [
         "# Operand types",
         "",
@@ -41,11 +34,11 @@ def generate_operand_types_md(output_path: Path) -> None:
         "[Instruction reference](instructions.md).",
         "",
     ]
-    for typ in sorted(VALID_OPERAND_TYPES):
+    for typ in sorted(view.operand_types):
         slug = _operand_slug(typ)
         lines.append(f"## `{typ}` {{: #{slug} }}")
         lines.append("")
-        lines.append(operand_type(typ).doc)
+        lines.append(view.operand_types[typ].doc)
         lines.append("")
     output_path.write_text("\n".join(lines))
     print(f"Generated operand types at {output_path}")
@@ -362,7 +355,7 @@ def _accesses(accesses: Iterable[RegisterAccess]) -> str:
     return ", ".join(_access(access) for access in accesses) or "—"
 
 
-def timing_section() -> str:
+def timing_section(view: Isa | None = None) -> str:
     """The execution order, the timing contract, every instruction's register
     reads and writes, and the known deviations, from ``ipu_isa.timing`` (E03-14)."""
     order = " → ".join(f"**{slot.value.upper()}**" for slot in SLOT_EXECUTION_ORDER)
@@ -399,7 +392,7 @@ def timing_section() -> str:
         "| Instruction | Slot | Reads at cycle start | Reads forwarded | Writes |",
         "|-------------|------|----------------------|-----------------|--------|",
     ]
-    view = isa()
+    view = isa() if view is None else view
     for slot in SLOT_EXECUTION_ORDER:
         for instruction in view.instructions(slot):
             if instruction.mnemonic == "NOP":
@@ -435,8 +428,8 @@ def _view(view: View) -> str:
     return "cycle start" if view is View.CYCLE_START else "forwarded"
 
 
-def _generate_slots_section() -> str:
-    """Generate the Slots overview section from instruction_spec metadata."""
+def _generate_slots_section(view: Isa) -> str:
+    """Generate the Slots overview section from the slot registry."""
     lines: list[str] = [
         "## Slots\n",
         "A VLIW instruction word encodes one sub-instruction per slot. "
@@ -448,11 +441,9 @@ def _generate_slots_section() -> str:
         "| Slot | Count | Description |",
         "|------|------:|-------------|",
     ]
-    for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-        count = SLOT_COUNT[slot]
-        meta = SLOT_METADATA.get(slot, {})
-        description = meta.get("description", "")
-        lines.append(f"| `{slot.upper()}` | {count} | {description} |")
+    for slot in view.layout.layout_order:
+        info = view.slots[slot]
+        lines.append(f"| `{slot.value.upper()}` | {info.count} | {info.description} |")
     lines += [
         "",
         "### `NOP` — No Operation\n",
@@ -486,8 +477,8 @@ def _generate_formats_section() -> str:
     return "\n".join(lines)
 
 
-def generate_instruction_docs(output_path: Path) -> None:
-    """Generate instruction reference documentation."""
+def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
+    """Generate instruction reference documentation from ``view`` (default: ``isa()``)."""
 
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append(
@@ -496,7 +487,8 @@ def generate_instruction_docs(output_path: Path) -> None:
         "[operand type reference](operand-types.md).\n"
     )
 
-    content.append(_generate_slots_section())
+    view = isa() if view is None else view
+    content.append(_generate_slots_section(view))
     content.append(_generate_formats_section())
 
     content.append("## Compound Instruction Layout\n")
@@ -511,13 +503,13 @@ def generate_instruction_docs(output_path: Path) -> None:
         "opcode field sharing comes from.\n"
     )
     content.append("\n### Whole-word bit layout\n")
-    content.append(struct_layout_svg())
+    content.append(struct_layout_svg(view))
     content.append("\n### Per-slot union layout\n")
-    content.append(union_layout_svg())
+    content.append(union_layout_svg(view))
     content.append("\n---\n\n")
 
-    for inst_class in Inst.get_all_instruction_classes():
-        content.append(inst_class.description())
+    for slot in view.layout.layout_order:
+        content.append(Inst._render_instruction_docs(slot.value, view))
         content.append("\n---\n")
 
     output_path.write_text("\n".join(content))
@@ -574,7 +566,7 @@ bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.
     print(f"Generated instruction format page at {output_path}")
 
 
-def generate_programmer_guide_md(output_path: Path) -> None:
+def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> None:
     """Generate the programmer-facing pseudo-instruction/alias reference."""
 
     content = ["# Programmer's Guide: Pseudo-Instructions\n"]
@@ -587,13 +579,13 @@ def generate_programmer_guide_md(output_path: Path) -> None:
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
 
-    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
-        expansion = pseudo_def["expands_to"]
-        lines = Inst.render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+    for pseudo in (isa() if view is None else view).pseudos():
+        target = pseudo.expands_to
+        lines = Inst.render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")
         lines.append(
-            f"**Expands to:** `{expansion['instruction']}` "
-            f"({expansion['slot']} slot), arguments `{', '.join(expansion['args'])}`"
+            f"**Expands to:** `{target.mnemonic}` "
+            f"({target.slot.value} slot), arguments `{', '.join(pseudo.args)}`"
         )
         content.append("\n".join(lines))
         content.append("\n---\n")
@@ -607,9 +599,10 @@ def generate_all_docs(
     operand_types_path: Path,
     assembly_syntax_path: Path,
     programmer_guide_path: Path,
+    view: Isa | None = None,
 ) -> None:
     """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
-    generate_operand_types_md(operand_types_path)
+    generate_operand_types_md(operand_types_path, view)
     generate_assembly_syntax_md(assembly_syntax_path)
-    generate_instruction_docs(instructions_path)
-    generate_programmer_guide_md(programmer_guide_path)
+    generate_instruction_docs(instructions_path, view)
+    generate_programmer_guide_md(programmer_guide_path, view)

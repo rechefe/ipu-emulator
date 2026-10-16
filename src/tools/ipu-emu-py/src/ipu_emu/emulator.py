@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
+from ipu_emu.cycle import CycleOutcome
 from ipu_emu.errors import ConfigurationError
 from ipu_emu.execute import (
-    BreakResult,
     Ipu,
     load_binary_instructions,
 )
@@ -92,9 +92,10 @@ def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) ->
                     f"Exceeded {max_cycles} cycles — possible infinite loop "
                     f"(PC={state.program_counter})"
                 )
-            result = ipu.execute_vliw_cycle()
-            if result == BreakResult.BREAK:
-                # In "run" mode, skip the break and execute the instruction anyway
+            # Cycle.step(honour_break=False), entered through Ipu's delegates:
+            # the mobilevit measuring fixture wraps both until E04-11 moves it
+            # to a CycleObserver.
+            if ipu.execute_vliw_cycle() == CycleOutcome.BREAK:
                 ipu.execute_vliw_cycle_skip_break()
             cycles += 1
     finally:
@@ -134,6 +135,7 @@ def run_with_debug(
     cycles = 0
     stepping = False
     ipu = Ipu(state)
+    cycle = ipu.cycle
     _begin_run(state)
 
     # TODO(E04): express this loop over the stepping engine once E04 lands it.
@@ -162,9 +164,11 @@ def run_with_debug(
             if stepping:
                 reasons.append("step")
             # A requested stop must not execute the instruction. Still check
-            # its BREAK slot so simultaneous causes produce one callback.
-            result = ipu.check_break() if reasons else ipu.execute_vliw_cycle()
-            if result == BreakResult.BREAK:
+            # its BREAK slot so simultaneous causes produce one callback. An
+            # unstopped word is Cycle.step(), entered through Ipu's delegate:
+            # debugger tests patch it until E08 migrates them.
+            result = cycle.evaluate_break() if reasons else ipu.execute_vliw_cycle()
+            if result == CycleOutcome.BREAK:
                 reasons.append("BREAK instruction")
             if reasons:
                 control.stop_reason = ", ".join(reasons)
@@ -178,7 +182,7 @@ def run_with_debug(
                 # the callback edits PC. A later loop visit can stop again.
                 issued_pc = state.program_counter
                 issued_instruction = state.inst_mem[issued_pc]
-                ipu.execute_vliw_cycle_skip_break()
+                cycle.retire()
             control.last_completed_pc = issued_pc
             control.last_completed_instruction = (
                 dict(issued_instruction) if issued_instruction is not None else None

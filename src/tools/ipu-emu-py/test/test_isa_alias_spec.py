@@ -1,6 +1,6 @@
 """Tests for the ISA alias table.
 
-The table only references INSTRUCTION_SPEC — it must never restate instruction
+The table only references the ISA (``isa()``) — it must never restate instruction
 metadata — so these tests mostly guard that the references stay live and that
 the constraint vocabulary is enforced.
 """
@@ -16,7 +16,12 @@ from ipu_emu.isa_alias_spec import (
     aliases_for,
     validate_isa_alias_spec,
 )
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+from ipu_isa.slots import Slot
+from ipu_isa.view import isa
+
+
+def _mnemonics(slot: str) -> set[str]:
+    return {i.mnemonic for i in isa().instructions(Slot(slot))}
 
 
 class TestTableIsWellFormed:
@@ -27,17 +32,15 @@ class TestTableIsWellFormed:
         for alias_id, entry in ISA_ALIAS_SPEC.items():
             for match in entry["matches"]:
                 slot, instruction = match["slot"], match["instruction"]
-                assert instruction in INSTRUCTION_SPEC[slot], (
+                assert instruction in _mnemonics(slot), (
                     f"{alias_id} references {slot}/{instruction}"
                 )
 
     def test_operand_references_are_real_operands(self):
         for alias_id, entry in ISA_ALIAS_SPEC.items():
             for match in entry["matches"]:
-                names = {
-                    op["name"]
-                    for op in INSTRUCTION_SPEC[match["slot"]][match["instruction"]]["operands"]
-                }
+                target = isa().instruction(Slot(match["slot"]), match["instruction"])
+                names = {op.name for op in target.operands}
                 for constraint in match["where"]:
                     if "operand" in constraint:
                         assert constraint["operand"] in names, alias_id

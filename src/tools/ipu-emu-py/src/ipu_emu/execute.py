@@ -11,7 +11,7 @@ which uses automatic dispatch based on instruction_spec metadata.
 Instruction format
 ~~~~~~~~~~~~~~~~~~
 An instruction is stored as a ``dict[str, int]`` whose keys match the
-C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
+wire field names of ``ipu_isa.codec.word.WORD_LAYOUT``, e.g.::
 
     {
         "break_inst_token_0_break_inst_opcode": 2,   # NOP (break slot)
@@ -21,71 +21,27 @@ C struct field names produced by ``CompoundInst.get_fields()``, e.g.::
         ...
     }
 
-These dicts are produced by :func:`decode_instruction_word`.
+These dicts (``DecodedWord``) are produced by :func:`decode_instruction_word`.
 """
 
 from __future__ import annotations
 
-# Re-export for convenience
-from ipu_as.compound_inst import CompoundInst
-
 # Re-export Ipu class and BreakResult for backward compatibility
 from ipu_emu.ipu import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.instruction_spec import SLOT_COUNT
+from ipu_isa.codec.word import DecodedWord, opcode_field, unpack_program
 from ipu_isa.slots import SLOTS
-from ipu_isa.view import get_instruction_by_opcode
+from ipu_isa.view import isa
 
 # ---------------------------------------------------------------------------
-# Instruction word decoder
+# Instruction words and program files: the ISA's word codec (E03-16)
 # ---------------------------------------------------------------------------
 
+#: Decode a raw instruction word into a field dict.
+decode_instruction_word = DecodedWord.from_word
 
-def decode_instruction_word(word: int) -> dict[str, int]:
-    """Decode a raw integer instruction word into a field dict.
-
-    Uses ``CompoundInst.get_fields()`` which returns ``((name, bits), ...)``
-    ordered from MSB to LSB.  We iterate in reverse (LSB first) to extract
-    each field.
-    """
-    fields = CompoundInst.get_fields()  # LSB-first list
-    result: dict[str, int] = {}
-    shift = 0
-    for name, width in fields:
-        mask = (1 << width) - 1
-        result[name] = (word >> shift) & mask
-        shift += width
-    return result
-
-
-def _instruction_aligned_bytes() -> int:
-    """Number of bytes per instruction in binary format (32-bit word aligned).
-
-    Must match ``instruction_aligned_bytes_len()`` in the assembler.
-    """
-    bits = CompoundInst.bits()
-    word_size = 32
-    if bits % word_size != 0:
-        bits += word_size - (bits % word_size)
-    return (bits // word_size) * 4
-
-
-def load_binary_instructions(data: bytes) -> list[dict[str, int]]:
-    """Load a binary file (output of ``ipu-as assemble --format bin``) into
-    a list of decoded instruction dicts.
-
-    Each instruction is word-aligned to 32-bit boundaries (matching the
-    assembler's ``assemble_to_bin_file``).
-    """
-    inst_bytes = _instruction_aligned_bytes()
-    instructions: list[dict[str, int]] = []
-    for offset in range(0, len(data), inst_bytes):
-        chunk = data[offset : offset + inst_bytes]
-        if len(chunk) < inst_bytes:
-            break
-        word = int.from_bytes(chunk, byteorder="little")
-        instructions.append(decode_instruction_word(word))
-    return instructions
+#: Decode a binary program file (``ipu-as assemble --format bin``).
+load_binary_instructions = unpack_program
 
 
 def emulator_only_instructions(instructions) -> set[str]:
@@ -97,18 +53,17 @@ def emulator_only_instructions(instructions) -> set[str]:
     decoded words of :func:`load_binary_instructions`, so it does not depend
     on mnemonic spelling.
     """
-    slots = [slot.value for slot, info in SLOTS.items() if info.debug_only]
-    for slot in slots:
-        if SLOT_COUNT[slot] != 1:
+    infos = [info for info in SLOTS.values() if info.debug_only]
+    for info in infos:
+        if info.count != 1:
             raise NotImplementedError(
-                f"emulator-only slot {slot!r} appears {SLOT_COUNT[slot]} times"
+                f"emulator-only slot {info.slot.value!r} appears {info.count} times"
             )
+    fields = [(info.slot, opcode_field(info.slot)) for info in infos]
     found: set[str] = set()
     for inst in instructions:
-        for slot in slots:
-            name, _ = get_instruction_by_opcode(
-                slot, inst[f"{slot}_inst_token_0_{slot}_inst_opcode"]
-            )
+        for slot, field in fields:
+            name = isa().by_opcode(slot, inst[field]).mnemonic
             if name != "NOP":
                 found.add(name)
     return found
@@ -117,33 +72,29 @@ def emulator_only_instructions(instructions) -> set[str]:
 # ---------------------------------------------------------------------------
 # Legacy execution API (backward compatibility wrappers)
 # ---------------------------------------------------------------------------
-# These functions maintain the old API but delegate to the Ipu class.
-# New code should use the Ipu class directly.
+# These functions maintain the old API but delegate to ipu_emu.cycle.Cycle.
+# New code should use Cycle (``ipu.cycle``, or ``Cycle(state, ipu)``) directly.
 # ---------------------------------------------------------------------------
 
 
 def execute_next_instruction(state: IpuState) -> BreakResult:
-    """Execute one VLIW cycle.
+    """Execute one VLIW cycle, honouring BREAK.
 
-    Legacy wrapper — new code should use Ipu class directly.
-
-    1. Fetch instruction at program counter
-    2. Snapshot the register file
-    3. Execute BREAK first (before side effects)
-    4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
+    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.step`, deleted when the
+    reference-model API replaces it (E04-30).
 
     Returns:
-        BreakResult.BREAK if break condition occurred, CONTINUE otherwise
+        BreakResult.BREAK if the word stopped at its BREAK slot, else CONTINUE.
     """
     ipu = Ipu(state)
-    return ipu.execute_vliw_cycle()
+    return ipu.cycle.step()
 
 
 def execute_instruction_skip_break(state: IpuState) -> None:
-    """Execute the current instruction without re-checking break.
+    """Retire the current word without evaluating BREAK.
 
-    Legacy wrapper — new code should use Ipu class directly.
-    Used after returning from a debug break to complete the cycle.
+    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.retire`, deleted when the
+    reference-model API replaces it (E04-30).
     """
     ipu = Ipu(state)
-    ipu.execute_vliw_cycle_skip_break()
+    ipu.cycle.retire()

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
-from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.view import isa
 
 #: One label per slot instance, in layout order; ``*`` marks debug-only slots.
 SLOT_LABELS = tuple(
@@ -19,11 +19,7 @@ def stage_operations(instruction: dict[str, int] | None) -> list[tuple[str, str]
     """Decode every slot, including idle NOPs, without executing any operation."""
     if instruction is None:
         return [(label, "NOP") for label in SLOT_LABELS]
-    word = 0
-    shift = 0
-    for name, width in CompoundInst.get_fields():
-        word |= (instruction.get(name, 0) & ((1 << width) - 1)) << shift
-        shift += width
+    word = DecodedWord(instruction).to_word()
     operations = [part.strip() for part in CompoundInst.decode(word).split(";") if part.strip()]
     return list(zip(SLOT_LABELS, semantic_operations(operations), strict=True))
 
@@ -38,7 +34,7 @@ def display_operation(operation: str) -> str:
 
 def semantic_operations(operations: list[str]) -> list[str]:
     """Select bound fields in assembly operand order, omitting unused bits."""
-    slot_types = [slot for slot in COMPOUND_LAYOUT_SLOT_ORDER for _ in range(SLOT_COUNT[slot])]
+    slot_types = [slot for slot in LAYOUT_ORDER for _ in range(SLOTS[slot].count)]
     if len(operations) != len(slot_types):
         return operations
     result = []
@@ -48,7 +44,7 @@ def semantic_operations(operations: list[str]) -> list[str]:
             result.append(operation)
             continue
         mnemonic = tokens[0]
-        bindings = SLOT_UNIONS[slot].opcode_bindings.get(mnemonic)
+        bindings = isa().layout.unions[slot].opcode_bindings.get(mnemonic)
         if bindings is None:
             result.append(operation)
             continue

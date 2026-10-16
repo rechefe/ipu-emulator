@@ -27,12 +27,11 @@ mask choices) are emitted as a single GENUINE RUNTIME loop, not unrolled per
 row -- unrolling every row would blow past the 1024-instruction program
 memory for anything but tiny `rows`. The column-chunk loop (``cpr`` sections,
 typically 3-5) IS fully unrolled, since border masking there varies by cc and
-cpr is always small. This app therefore renders and assembles its OWN binary
-at run() time (bypassing the base class's raw-binary-in / no-Jinja-context
-path other apps use), landing the freshly assembled bytes in a tempdir -- no
-.bin build artifacts are written into the source tree. The ``inst_path`` the
-registry binds (the .asm assembled standalone, i.e. with its template
-defaults cpr=3, rows=8) is therefore not what runs.
+cpr is always small. This app therefore assembles its OWN program per run
+(``program()``: the ``.asm`` with ``cpr`` and ``rows`` as defines), in a
+tempdir -- no .bin build artifacts are written into the source tree. The
+``inst_path`` the registry binds (the .asm assembled standalone, i.e. with its
+header defaults cpr=3, rows=8) is therefore not what runs.
 
 ``input_path``/``output_path`` hold the TRUE ``[channels, rows, width]``
 float32 tensor -- see ``pointwise_conv_unified``'s class docstring for the
@@ -59,21 +58,20 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import math
-import tempfile
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_apps.kernel_registry.programs import assemble_program, program_file
 from ipu_apps.kernels.convolutions.app import (
     CHUNK_ELEMENTS,
     allocate_regions,
-    kernel_asm,
-    render_asm,
+    kernel_source,
     universal_spec,
 )
-from ipu_as.lark_tree import assemble_to_bin_file
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -180,8 +178,8 @@ class ConvUniversalWide384App(IpuApp):
         kernel_path: str | Path | None = None,
         **kwargs,
     ) -> None:
-        # The bound inst_path is kept but not run: this app renders and
-        # assembles its own binary per (cpr, rows) in run().
+        # The bound inst_path is kept but not run: program() assembles this
+        # app's own binary per (cpr, rows).
         kwargs.setdefault("inst_path", "conv_universal_wide384.asm")
         super().__init__(**kwargs)
         self.input_path = Path(input_path)
@@ -263,8 +261,10 @@ class ConvUniversalWide384App(IpuApp):
             )
         return _pack_conv_weights_dense_fp32(weights)
 
-    def _render_asm(self) -> str:
-        return render_asm(kernel_asm("conv_universal_wide384"), cpr=self.cpr, rows=self.rows)
+    def program(self) -> AbstractContextManager[Path]:
+        """The program assembled for this shape's ``cpr`` and ``rows``."""
+        source = kernel_source("conv_universal_wide384")
+        return program_file(assemble_program(source, defines={"cpr": self.cpr, "rows": self.rows}))
 
     def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE [in_channels, rows, width] float32
@@ -326,15 +326,8 @@ class ConvUniversalWide384App(IpuApp):
             Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
     def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple[IpuState, int]:
-        bound = self.inst_path
-        with tempfile.TemporaryDirectory(prefix="conv_universal_wide384_") as tmp:
-            bin_path = Path(tmp) / "conv_universal_wide384.bin"
-            assemble_to_bin_file(self._render_asm(), str(bin_path))
-            self.inst_path = bin_path
-            try:
-                return super().run(max_cycles=max_cycles, **kwargs)
-            finally:
-                self.inst_path = bound
+        # Only the larger max_cycles default differs from IpuApp.run.
+        return super().run(max_cycles=max_cycles, **kwargs)
 
 
 # -- registry declaration ---------------------------------------------------

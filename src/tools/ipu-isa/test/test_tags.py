@@ -10,8 +10,6 @@ from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
     SLOT_METADATA,
-    instruction_tag,
-    pseudo_tag,
     validate_instruction_spec,
     validate_pseudo_instruction_spec,
 )
@@ -19,6 +17,7 @@ from ipu_isa.layout import slots_with_tag, word_bits
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import _SPEC, LAYOUT_ORDER, SLOTS, Slot, _load
 from ipu_isa.tags import Tag
+from ipu_isa.view import isa
 
 
 def test_word_widths():
@@ -39,10 +38,10 @@ def test_hardware_slots_are_a_prefix_of_the_layout_order():
 
 
 def test_every_instruction_and_pseudo_has_one_tag():
-    for slot, instructions in INSTRUCTION_SPEC.items():
-        for inst_def in instructions.values():
-            assert instruction_tag(slot, inst_def) is SLOTS[Slot(slot)].tag
-    assert {pseudo_tag(d) for d in PSEUDO_INSTRUCTION_SPEC.values()} == {Tag.ASSEMBLER}
+    for slot in Slot:
+        for instruction in isa().instructions(slot):
+            assert instruction.tag is SLOTS[slot].tag
+    assert {pseudo.tag for pseudo in isa().pseudos()} == {Tag.ASSEMBLER}
 
 
 def _with(slot, field, value):

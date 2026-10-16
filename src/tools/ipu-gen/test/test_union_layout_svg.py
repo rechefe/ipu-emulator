@@ -10,18 +10,17 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from ipu_gen.layout_svg import render_union_layout_svg
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    SLOT_COUNT,
-)
-from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER
+from ipu_isa.view import isa
+
+UNIONS = isa().layout.unions
 
 
 def _render() -> str:
     return render_union_layout_svg(
-        SLOT_UNIONS,
-        slot_order=COMPOUND_LAYOUT_SLOT_ORDER,
-        slot_counts=dict(SLOT_COUNT),
+        UNIONS,
+        slot_order=[slot.value for slot in isa().layout.layout_order],
+        slot_counts={slot.value: info.count for slot, info in isa().slots.items()},
     )
 
 
@@ -42,14 +41,14 @@ def test_every_slot_appears():
 
 def test_every_opcode_appears():
     svg = _render()
-    for su in SLOT_UNIONS.values():
+    for su in UNIONS.values():
         for opcode in su.opcode_bindings:
             assert opcode in svg, f"opcode {opcode!r} missing from rendered SVG"
 
 
 def test_every_canonical_type_appears():
     svg = _render()
-    for su in SLOT_UNIONS.values():
+    for su in UNIONS.values():
         for f in su.fields:
             assert f.canonical_type in svg, (
                 f"canonical type {f.canonical_type!r} missing from rendered SVG"

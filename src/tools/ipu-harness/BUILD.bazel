@@ -12,6 +12,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # The kernel framework (E06). ipu_as for its session API only, ipu_emu for its
 # reference-model API only (checked in review); tools/import_graph.toml holds
 # the package-level import rules.

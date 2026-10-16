@@ -22,11 +22,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import jinja2
 import lark
 
 import ipu_as.template as template
-from ipu_as.errors import TemplateError
 from ipu_as.lark_tree import get_parser
 
 #: Parse-tree rule -> role for the token it owns.
@@ -114,6 +112,12 @@ def describe(path: Path) -> dict:
     }
 
 
+def _needs_defines(path: Path) -> bool:
+    """True when the source declares a parameter with no default."""
+    spec = template.declared_params(path.read_text(encoding="utf-8"), str(path))
+    return spec is not None and any(p.default is template.REQUIRED for p in spec.params)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(
@@ -125,13 +129,11 @@ def main(argv: list[str]) -> int:
     out = Path(argv[0])
     corpus = []
     for p in argv[1:]:
-        try:
-            corpus.append(describe(Path(p)))
-        except TemplateError as exc:
-            if not isinstance(exc.__cause__, jinja2.exceptions.UndefinedError):
-                raise
+        if _needs_defines(Path(p)):
             # Renders only with its harness's values: no text of its own.
-            print(f"skipped {p}: {exc}", file=sys.stderr)
+            print(f"skipped {p}: its ipu:params header has a required parameter", file=sys.stderr)
+            continue
+        corpus.append(describe(Path(p)))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(corpus, indent=2) + "\n", encoding="utf-8")
     return 0

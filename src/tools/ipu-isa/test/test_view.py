@@ -18,11 +18,6 @@ from ipu_isa.view import (
     Instruction,
     Isa,
     Read,
-    find_pseudo_instruction,
-    get_instruction,
-    get_instruction_by_opcode,
-    get_opcode_for_instruction,
-    get_operand_names_and_types,
     isa,
     load_isa,
 )
@@ -184,24 +179,3 @@ def test_a_modified_spec_loads_in_process():
     assert len(view.instructions(Slot.LR)) == len(isa().instructions(Slot.LR)) + 1
     with pytest.raises(KeyError):
         isa().instruction(Slot.LR, "ADD2")
-
-
-def test_old_helpers_keep_their_return_shapes():
-    name, entry = get_instruction_by_opcode("lr", 0)
-    assert name == next(iter(INSTRUCTION_SPEC["lr"]))
-    original = INSTRUCTION_SPEC["lr"][name]
-    assert entry == {
-        "operands": original["operands"],
-        "doc": original["doc"],
-        "execute_fn": original["execute_fn"],
-    }
-    assert get_instruction("lr", name.lower()) == entry
-    assert get_opcode_for_instruction("lr", name) == 0
-    assert get_operand_names_and_types("lr", name) == [
-        (op["name"], op["type"]) for op in original["operands"]
-    ]
-    pseudo = find_pseudo_instruction("bz", 2)
-    assert pseudo is not None
-    assert pseudo["expands_to"] == PSEUDO_INSTRUCTION_SPEC["BZ"]["expands_to"]
-    assert pseudo["operands"] == PSEUDO_INSTRUCTION_SPEC["BZ"]["operands"]
-    assert find_pseudo_instruction("BZ", 3) is None

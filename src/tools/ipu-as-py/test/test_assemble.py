@@ -105,13 +105,13 @@ def test_attribute_traversal_out_of_the_sandbox_is_refused(code):
     assert isinstance(info.value.__cause__, SecurityError)
 
 
-def test_unsafe_attribute_yields_nothing_rather_than_the_object():
+def test_unsafe_attribute_is_a_template_error_not_the_object():
     # Reading an unsafe attribute is answered with an undefined value, not with
-    # the object: printing it yields nothing and using it raises. So this is not
-    # an error, it is a program with a hole where the expression was, and
-    # nothing of the interpreter reaches the assembled text. (Jinja drops the
-    # trailing newline, as it did before the sandbox.)
-    assert template.render("{{ ''.__class__ }}\nBKPT;;\n") == "\nBKPT;;"
+    # the object, and under StrictUndefined (E05-11) printing it fails: nothing
+    # of the interpreter reaches the assembled text, and there is no hole.
+    with pytest.raises(TemplateError, match="__class__") as info:
+        template.render("{{ ''.__class__ }}\nBKPT;;\n")
+    assert isinstance(info.value.__cause__, SecurityError)
 
 
 @pytest.mark.parametrize(

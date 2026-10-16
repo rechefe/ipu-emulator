@@ -217,7 +217,7 @@ covering all three stages:
 Templates render in Jinja's sandbox, as the assembler does, because a file is
 checked as soon as it opens; in Restricted Mode nothing is checked at all (see
 [Restricted Mode](#restricted-mode)).
-A template that expects harness values should give them a `| default(...)`.
+A template that expects harness values declares them in an `ipu:params` header; give each a default there so the file checks on its own (an undefined name is an error).
 
 What `ipu-as check --json` prints is a versioned contract between the two: [schema/check-json.md](schema/check-json.md).
 

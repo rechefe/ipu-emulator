@@ -1,18 +1,18 @@
-"""Opcode definitions for IPU assembler — auto-generated from instruction_spec.
+"""Opcode definitions for IPU assembler — auto-generated from the ISA view.
 
-This module builds the Opcode token classes from ipu_isa.instruction_spec
-at import. No manual opcode definitions here — everything flows from the
-single source of truth (INSTRUCTION_SPEC).
+This module builds the Opcode token classes from ``ipu_isa.view.isa()`` at
+import. No manual opcode definitions here — everything flows from the single
+source of truth (``instruction_spec.py``).
 
 All opcode values are AUTOMATICALLY DERIVED from instruction position.
-When you add or reorder instructions in INSTRUCTION_SPEC, opcodes update
+When you add or reorder instructions in the spec, opcodes update
 automatically without touching this file.
 """
 
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import SlotError, SourceLocation
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
-from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.slots import SLOTS
+from ipu_isa.view import isa
 
 
 def create_assembler_opcodes() -> dict[str, type]:
@@ -55,11 +55,11 @@ def create_assembler_opcodes() -> dict[str, type]:
             )
 
     result = {}
-    # INSTRUCTION_SPEC order: it fixes the order the token classes are created
-    # in, which the SV package's enum order follows.
-    for slot_type, instructions in INSTRUCTION_SPEC.items():
-        class_name = SLOTS[Slot(slot_type)].asm_opcode_class
-        enum_array = list(instructions.keys())
+    # Spec order: it fixes the order the token classes are created in, which
+    # the SV package's enum order follows.
+    for slot in isa().spec_slot_order:
+        class_name = SLOTS[slot].asm_opcode_class
+        enum_array = [instruction.mnemonic for instruction in isa().instructions(slot)]
 
         # Create class dynamically
         opcode_class = type(

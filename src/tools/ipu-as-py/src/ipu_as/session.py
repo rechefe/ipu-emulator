@@ -28,6 +28,7 @@ import ipu_as.template as template
 from ipu_as.errors import AssemblerError, ParseError, SourceLocation
 from ipu_as.symbols import SymbolTable
 from ipu_as.syntax import ASTBuilder, parse_tree
+from ipu_isa.codec.word import pack_program, word_bytes
 
 __all__ = [
     "AssemblyResult",
@@ -37,15 +38,10 @@ __all__ = [
     "instruction_aligned_bytes_len",
 ]
 
-_WORD_SIZE_BITS = 32
-
 
 def instruction_aligned_bytes_len() -> int:
     """Bytes per instruction word in a `.bin` file: the word rounded up to 32 bits."""
-    bits = compound_inst.CompoundInst.bits()
-    if bits % _WORD_SIZE_BITS != 0:
-        bits += _WORD_SIZE_BITS - (bits % _WORD_SIZE_BITS)
-    return (bits // _WORD_SIZE_BITS) * 4
+    return word_bytes()
 
 
 @dataclass(frozen=True)
@@ -65,8 +61,7 @@ class AssemblyResult:
 
     def to_bin(self) -> bytes:
         """The `.bin` file bytes: each word little-endian, padded to 32 bits."""
-        width = instruction_aligned_bytes_len()
-        return b"".join(word.to_bytes(width, byteorder="little") for word in self.words)
+        return pack_program(self.words)
 
     def reissue_warnings(self) -> None:
         """Raise the assembly's warnings again, as encoding did.
@@ -132,13 +127,16 @@ class AssemblySession:
         """Parse text that is already rendered, into a fresh symbol table.
 
         The stage `parse` runs on this session's own render; diagnostics passes
-        an instrumented render instead.
+        an instrumented render instead. It discards any parse `parse` cached,
+        since that parse's labels are no longer in `symbols`.
 
         Raises:
-            ParseError, or the LabelError / OperandError found while building
-            the instruction list.
+            ParseError: the text does not match the grammar.
+            LabelError: a label is defined twice.
+            OperandError: an operand is invalid while building the instruction list.
         """
         self.symbols = SymbolTable()
+        self._parsed = None  # the new symbol table belongs to this parse, not a cached one
         try:
             return ASTBuilder(self.symbols).transform(parse_tree(rendered))
         except lark.exceptions.VisitError as error:

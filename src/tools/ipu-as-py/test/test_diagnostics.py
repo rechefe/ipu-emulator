@@ -97,11 +97,11 @@ def test_position_is_exact_inside_a_loop_body():
 def test_instrumentation_does_not_change_what_the_parser_sees():
     # Markers are appended as `#` comments; adding them must not alter whether a
     # program assembles, only where an error is reported.
-    from ipu_as.diagnostics import _instrument
+    from ipu_as.source_map import instrument
 
     source = '{%- set a = "lr0" -%}\n    SET {{a}} cr0;;\n    BKPT;;\n'
     assert check(source) == []
-    assert check(_instrument(source)) == []
+    assert check(instrument(source)) == []
 
 
 @pytest.mark.parametrize(
@@ -136,19 +136,18 @@ def test_jinja_runtime_errors_are_reported_not_raised(source):
     assert found and found[0].stage == "template"
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        "",
-        "{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n",
-    ],
-)
-def test_empty_program_is_reported_not_crashed(source):
-    # An undefined name iterates as empty rather than raising, so a template can
-    # render to nothing at all. The parser then fails on the synthetic `$END`
-    # token, which carries no end position -- that used to crash the checker.
-    found = check(source)
+def test_empty_program_is_reported_not_crashed():
+    # The parser fails on the synthetic `$END` token, which carries no end
+    # position -- that used to crash the checker.
+    found = check("")
     assert found and found[0].stage == "parse"
+
+
+def test_an_undefined_name_is_a_template_error_at_its_line():
+    # StrictUndefined (E05-11): an undefined name no longer iterates as empty.
+    (found,) = check("{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n")
+    assert (found.stage, found.line) == ("template", 0)  # 0-based: source line 1
+    assert "'undefined_var' is undefined" in found.message
 
 
 def test_encode_column_is_not_a_rendered_offset():
@@ -239,11 +238,11 @@ def test_whitespace_control_fusion_still_yields_an_exact_line():
 
 
 def test_disabling_whitespace_control_leaves_normal_templates_alone():
-    from ipu_as.diagnostics import _disable_whitespace_control
+    from ipu_as.source_map import disable_whitespace_control
 
-    assert _disable_whitespace_control("{%- set a = 1 -%}") == "{% set a = 1 %}"
-    assert _disable_whitespace_control("{#- x -#}") == "{# x #}"
-    assert _disable_whitespace_control("{% set a = 1 %}") == "{% set a = 1 %}"
+    assert disable_whitespace_control("{%- set a = 1 -%}") == "{% set a = 1 %}"
+    assert disable_whitespace_control("{#- x -#}") == "{# x #}"
+    assert disable_whitespace_control("{% set a = 1 %}") == "{% set a = 1 %}"
 
 
 @pytest.mark.parametrize(

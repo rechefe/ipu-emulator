@@ -7,11 +7,21 @@ import struct
 import weakref
 
 from ipu_emu.alias_profile import Event
+from ipu_emu.cycle import decode_word
 from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
 from ipu_isa.geometry import LANES
-from ipu_isa.registers import lrd_pair
+from ipu_isa.operand_types import OperandType
+from ipu_isa.registers import REGISTER_DEFINITIONS, lrd_pair
+
+_LR_NAMES = frozenset(REGISTER_DEFINITIONS["lr"]["assembler_values"])
+
+
+def _names_an_lr(operand_type: OperandType, encoded: int) -> bool:
+    """Whether an operand of ``operand_type`` encoded as ``encoded`` names an LR."""
+    members = operand_type.domain.members
+    return 0 <= encoded < len(members) and members[encoded] in _LR_NAMES
 
 
 class ExecutionObserver:
@@ -84,22 +94,15 @@ class ExecutionObserver:
             return None
         if kwargs.get("label") != self.pc + 3:
             return None
-        from ipu_emu.ipu import _LR_OPCODE_FIELDS, _LR_PLANS, _SLOT_OPCODE_FIELDS, _SLOT_PLANS
 
         def operations(pc):
             if pc >= len(self.state.inst_mem) or self.state.inst_mem[pc] is None:
                 return []
-            inst = self.state.inst_mem[pc]
-            result = []
-            for slot, plans in _SLOT_PLANS.items():
-                p = plans[inst[_SLOT_OPCODE_FIELDS[slot]]]
-                if p.inst_name != "NOP":
-                    result.append((slot, p.inst_name, {n: inst[k] for n, k in p.fields}))
-            for i, plans in enumerate(_LR_PLANS):
-                p = plans[inst[_LR_OPCODE_FIELDS[i]]]
-                if p.inst_name != "NOP":
-                    result.append(("lr", p.inst_name, {n: inst[k] for n, k in p.fields}))
-            return result
+            return [
+                (op.slot, op.plan.inst_name, dict(op.operands))
+                for op in decode_word(self.state.inst_mem[pc])
+                if op.plan.inst_name != "NOP"
+            ]
 
         a, jump, b = (operations(self.pc + i) for i in (1, 2, 3))
         if not (len(a) == len(b) == len(jump) == 1):
@@ -152,10 +155,10 @@ class ExecutionObserver:
                 data = self.state.xmem.snapshot_bytes(address, size)
             self.accesses.append((kind, address, bytes(data), origin))
 
-    def begin(self, ipu):
+    def begin(self, pc):
         self.cycle += 1
         self.profile.cycles += 1
-        self.pc = self.state.program_counter
+        self.pc = pc
         self.snapshot_rows = self.rows.copy()
         self.cycle_events = []
 
@@ -168,7 +171,7 @@ class ExecutionObserver:
         facts["lr_reads"] = {
             read.name: encoded[read.name]
             for read in plan.reads
-            if read.op_type == "LrIdx" or (read.op_type == "LcrIdx" and encoded[read.name] < 16)
+            if _names_an_lr(read.op_type, encoded[read.name])
         }
         facts["snapshot_reads"] = tuple(read.name for read in plan.reads if read.from_snapshot)
         if slot == "lr" and plan.write_operand:

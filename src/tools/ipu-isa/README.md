@@ -8,7 +8,13 @@ catalogue live in `ipu_emu`, and generators live in `ipu_gen`.
 
 `ipu-isa` provides the single source of truth for:
 
-- **Instructions** (`instruction_spec.py`): every slot, instruction and operand
+- **Instructions** (`instruction_spec.py`): every slot, instruction and operand,
+  authored as dicts and read only by the loader
+- **The typed view** (`view.py`): `isa()` returns the frozen `Isa` (instructions,
+  pseudo-instructions, slots, operand types, layout); every consumer reads it
+- **Instruction word** (`codec/word.py`): `WORD_LAYOUT` (every field, its wire name
+  and bit position), `DecodedWord`, `word_bytes`, `hardware_word`, and the program
+  file layout (`pack_program`, `unpack_program`)
 - **Element formats** (`formats.py`): `ElementFormat` (`int8`, `e1`..`e7`, and the
   emulator-only `fp32`, `int32`) with the element bytes, row bytes, accumulator
   type and register element layout derived from each

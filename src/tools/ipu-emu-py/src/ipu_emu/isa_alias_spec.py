@@ -7,7 +7,7 @@ multiply against a hardwired 1.0. Those cycles bill as "MULT active" while
 retiring zero MACs, which is why ``mult%`` is not MAC utilization.
 
 This table declares those idioms so the emulator can count them. It holds **no
-instruction metadata** — only references into ``INSTRUCTION_SPEC``, checked by
+instruction metadata** — only references into the ISA (``ipu_isa.view.isa()``), checked by
 ``validate_isa_alias_spec()`` at import. See ``docs/content/isa-alias-catalogue.md``
 for what each alias stands in for and the sequence that implements it.
 
@@ -75,8 +75,8 @@ overlapping tallies.
 
 from __future__ import annotations
 
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.view import Instruction, isa
 
 # Only 1 is implementable today: the emulator tests a multiplicand against the
 # dtype's encoding of 1.0, which is the whole point of the table. Widening this
@@ -101,7 +101,7 @@ _ACC_REDUCE = ("AGG.SUM", "AGG.SUM.FIRST", "AGG.MAX", "AGG.MAX.FIRST", "ACC.MAX"
 # Every mult form that takes a scalar multiplicand, and the operand carrying it.
 # The emulator reads this too, to know which operand to probe for a constant
 # 1.0 — keep it the only place that mapping is written down. The operand's
-# *type* is not restated here; it is read from INSTRUCTION_SPEC.
+# *type* is not restated here; it is read from the ISA view (``isa()``).
 SCALAR_MULT_OPERANDS: dict[str, str] = {
     "MULT.RC.VE": "src",
     "MULT.VE": "cr_idx",
@@ -199,12 +199,18 @@ ISA_ALIAS_SPEC: dict[str, dict] = {
 }
 
 
-def _operand_names(slot: str, instruction: str) -> set[str]:
-    return {op["name"] for op in INSTRUCTION_SPEC[slot][instruction]["operands"]}
+_SLOT_NAMES = frozenset(slot.value for slot in Slot)
+
+
+def _instruction(slot: str, mnemonic: str) -> Instruction | None:
+    """The ISA's ``slot`` instruction spelled exactly ``mnemonic``, or None."""
+    if slot not in _SLOT_NAMES:
+        return None
+    return next((i for i in isa().instructions(Slot(slot)) if i.mnemonic == mnemonic), None)
 
 
 def validate_isa_alias_spec() -> None:
-    """Check every reference into ``INSTRUCTION_SPEC`` resolves. Called at import."""
+    """Check every reference into the ISA resolves. Called at import."""
     signatures = set()
     for alias_id, entry in ISA_ALIAS_SPEC.items():
         for required in ("missing_op", "summary", "matches"):
@@ -215,13 +221,14 @@ def validate_isa_alias_spec() -> None:
 
         for match in entry["matches"]:
             slot, instruction = match.get("slot"), match.get("instruction")
-            if slot not in INSTRUCTION_SPEC:
+            if slot not in _SLOT_NAMES:
                 raise ValueError(f"alias {alias_id!r} names unknown slot {slot!r}")
-            if instruction not in INSTRUCTION_SPEC[slot]:
+            target = _instruction(slot, instruction)
+            if target is None:
                 raise ValueError(
                     f"alias {alias_id!r} names unknown instruction {instruction!r} in slot {slot!r}"
                 )
-            operands = _operand_names(slot, instruction)
+            operands = {op.name for op in target.operands}
 
             # The emulator decides a match by testing the multiplicand against
             # 1.0, except for hardware_only entries which fire unconditionally.
@@ -276,15 +283,11 @@ def validate_isa_alias_spec() -> None:
                             f"{name!r} (has {sorted(operands)})"
                         )
                     if "immediate_ne" in constraint:
-                        operand = next(
-                            op
-                            for op in INSTRUCTION_SPEC[slot][instruction]["operands"]
-                            if op["name"] == name
-                        )
+                        operand = target.operand(name)
                         # This is the only immediate type on the supported
                         # scalar multiplies. Require its spec type, not just
                         # the absence of a read: CR indices also lack reads.
-                        if operand["type"] != "MultMaskOffsetImmediate" or "read" in operand:
+                        if operand.type.name != "MultMaskOffsetImmediate" or operand.read:
                             raise ValueError(
                                 f"alias {alias_id!r}: {slot}/{instruction}.{name} "
                                 "is not a supported raw immediate operand"
@@ -302,10 +305,10 @@ def validate_isa_alias_spec() -> None:
                         )
                 if "co_slot" in constraint:
                     co_slot = constraint["co_slot"]
-                    if co_slot not in INSTRUCTION_SPEC:
+                    if co_slot not in _SLOT_NAMES:
                         raise ValueError(f"alias {alias_id!r} names unknown co_slot {co_slot!r}")
                     for name in constraint["instruction_in"]:
-                        if name not in INSTRUCTION_SPEC[co_slot]:
+                        if _instruction(co_slot, name) is None:
                             raise ValueError(
                                 f"alias {alias_id!r} names unknown instruction "
                                 f"{name!r} in co_slot {co_slot!r}"

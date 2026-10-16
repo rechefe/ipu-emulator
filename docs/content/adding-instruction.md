@@ -331,7 +331,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
 ### Resolution and disambiguation
 
 A pseudo-instruction is matched by **name + operand count**
-(`find_pseudo_instruction`). This means a pseudo-instruction could share a
+(`isa().pseudo(mnemonic, arity)` in `ipu_isa.view`). This means a pseudo-instruction could share a
 name with a real instruction of a *different* arity without ambiguity — the
 assembler picks whichever matches the operand count the caller wrote.
 

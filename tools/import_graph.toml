@@ -20,6 +20,10 @@
 #
 # Edges marked "temporary" are today's code, not the target design; the
 # issue named beside each one removes it, and that change deletes the edge.
+#
+# [private] names, per module, the names no other package may use; the check
+# also reads each distribution's test/ directory (its :py_test_sources), so a
+# new package adds that filegroup to the test's data too.
 
 [allowed]
 # The ISA is the root: it depends on no other package (Q31, Q62).
@@ -36,10 +40,9 @@ ipu_gen = [
 
 ipu_as = ["ipu_isa"]
 
-ipu_emu = [
-    "ipu_isa",
-    "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it; E04-18 checks)
-]
+# E03-16 removed the emulator's last assembler import (decoding moved to the
+# ISA's word codec), so the temporary ipu_as edge is gone ahead of E03-18.
+ipu_emu = ["ipu_isa"]
 
 # The debugger (E08-03): one way onto the emulator and the ISA. Only the
 # runner imports it (ipu_apps today, ipu_harness after E06), so no other row
@@ -82,3 +85,10 @@ ipu_kernels = ["ipu_harness"]
 
 # torch is a test-only dependency: the checker loads the reference lazily (E06-09).
 ipu_harness = ["torch"]
+
+[private]
+# Names a module keeps to its own package: no source or test of another
+# package may import them (or `import *` the module) or read them as an
+# attribute (E03-11). The authoring dicts are
+# read only by ipu_isa's loader; everything else reads the typed view, isa().
+"ipu_isa.instruction_spec" = ["INSTRUCTION_SPEC", "PSEUDO_INSTRUCTION_SPEC"]

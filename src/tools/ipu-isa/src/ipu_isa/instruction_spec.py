@@ -112,8 +112,6 @@ __all__ = [
     "SLOT_METADATA",
     "COMPOUND_LAYOUT_SLOT_ORDER",
     "VALID_OPERAND_TYPES",
-    "instruction_tag",
-    "pseudo_tag",
     "validate_instruction_spec",
     "PSEUDO_INSTRUCTION_SPEC",
     "validate_pseudo_instruction_spec",
@@ -151,8 +149,8 @@ def syntax(mnemonic: str, operand_names: Sequence[str]) -> str:
     return " ".join([mnemonic, *operand_names])
 
 
-# The binary layout (SLOT_UNIONS, SLOT_BINARY_LAYOUT, word widths) is derived
-# from INSTRUCTION_SPEC by ipu_isa.layout, which imports this module. Slots are
+# The binary layout (each slot's union fields, word widths) is derived from
+# INSTRUCTION_SPEC by ipu_isa.view.load_isa (isa().layout). Slots are
 # tagged HARDWARE or EMULATOR in ipu_isa.slots; until E03-22 the generated SV
 # package still renders every slot, the EMULATOR ones (acc_store, break)
 # included.
@@ -174,7 +172,7 @@ SLOT_METADATA: dict[str, dict[str, Any]] = {
 }
 
 
-def instruction_tag(
+def _instruction_tag(
     slot: str, inst_def: dict[str, Any], slots: Mapping[Slot, SlotInfo] = SLOTS
 ) -> Tag:
     """An instruction's tag: its own ``"tag"`` if it has one, else its slot's.
@@ -185,7 +183,7 @@ def instruction_tag(
     return tag
 
 
-def pseudo_tag(pseudo_def: dict[str, Any]) -> Tag:
+def _pseudo_tag(pseudo_def: dict[str, Any]) -> Tag:
     """A pseudo-instruction's tag: ``ASSEMBLER`` (the schema rejects any other)."""
     tag: Tag = pseudo_def.get("tag", Tag.ASSEMBLER)
     return tag
@@ -1656,7 +1654,7 @@ def validate_pseudo_instruction_spec(
         schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
         _check_operands(path, pseudo_def["operands"], operand_types)
         _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])
-        if pseudo_tag(pseudo_def) is not Tag.ASSEMBLER:
+        if _pseudo_tag(pseudo_def) is not Tag.ASSEMBLER:
             raise schema.SpecError(f"{path}.tag: a pseudo-instruction is Tag.ASSEMBLER")
         _check_expansion(path, name, pseudo_def, instruction_spec, slots, operand_types)
 
@@ -1692,7 +1690,7 @@ def _check_expansion(  # noqa: PLR0913 -- the pseudo, its spec and the two regis
         raise schema.SpecError(
             f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
         )
-    if instruction_tag(slot, real_def, slots) not in (Tag.HARDWARE, Tag.EMULATOR):
+    if _instruction_tag(slot, real_def, slots) not in (Tag.HARDWARE, Tag.EMULATOR):
         raise schema.SpecError(
             f"{path}.expands_to.instruction: {real_instruction!r} is not a HARDWARE "
             "or EMULATOR instruction"

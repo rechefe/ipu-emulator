@@ -123,10 +123,14 @@
       ISA has no defined behaviour for that) so each word writes lr13 at
       most once.
 -#}
-{#- The harness renders cpr/rows per run; the defaults (width 384, 8 rows)
-    only let the file assemble standalone (`assemble_<kernel>`). -#}
-{%- set CPR = cpr | default(3) -%}
-{%- set ROWS = rows | default(8) -%}
+{#- ipu:params
+cpr:  int = 3    # column chunks per row; the default is width 384
+rows: int = 8
+-#}
+{#- The harness assembles cpr/rows per run; the defaults only let the file
+    assemble standalone (`assemble_<kernel>`). -#}
+{%- set CPR = cpr -%}
+{%- set ROWS = rows -%}
 {#- ======================= shared per-(row,cc) filter body ================ -#}
 {%- macro filter_body(row_id, cc, kr_top_valid, kr_bot_valid) %}
 {%-   set kc_neg_valid = (cc != 0) %}

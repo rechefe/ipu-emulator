@@ -1,3 +1,6 @@
+{#- ipu:params
+chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
+-#}
 # Packed-OUTPUT linear layer, L4 shape (K, N_OUT=2 fixed per call).
 #
 # Layer:   L4

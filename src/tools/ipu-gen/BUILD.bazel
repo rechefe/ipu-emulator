@@ -21,6 +21,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # Generators that render artifacts from the ISA: the SystemVerilog package
 # (E08-13), the docs pages and layout SVGs (E08-14), and the VS Code language
 # data (E08-15). ipu_as: the VS Code data reads the parser and token classes,
@@ -105,6 +111,17 @@ py_pytest_test(
     deps = [
         ":ipu_gen_lib",
         "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Each generator renders the ISA it is given (E03-11).
+py_pytest_test(
+    name = "test_generators_take_a_view",
+    srcs = ["test/test_generators_take_a_view.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
         requirement("pytest"),
     ],
 )

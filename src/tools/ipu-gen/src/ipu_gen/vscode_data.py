@@ -36,23 +36,15 @@ from pathlib import Path
 
 from ipu_as.compound_inst import WILDCARD_OPCODES
 from ipu_as.diagnostics import check
-from ipu_as.inst import OPERAND_TYPE_MAP, slot_kind
+from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.ipu_token import NUMBER_PATTERN
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, CR_REGISTER_NAME
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    INSTRUCTION_SPEC,
-    PSEUDO_INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    SLOT_METADATA,
-    syntax,
-)
-from ipu_isa.operand_types import operand_type
+from ipu_isa.instruction_spec import syntax
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums, lrd_pair
-from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.types import RegKind
+from ipu_isa.view import Isa, Operand, isa
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"
 
@@ -198,9 +190,9 @@ def scope_for(name: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _mnemonics() -> list[str]:
-    real = {name for slot in INSTRUCTION_SPEC.values() for name in slot}
-    return sorted(real | set(PSEUDO_INSTRUCTION_SPEC))
+def _mnemonics(view: Isa) -> list[str]:
+    real = {i.mnemonic for slot in view.slots for i in view.instructions(slot)}
+    return sorted(real | {pseudo.mnemonic for pseudo in view.pseudos()})
 
 
 def _registers() -> list[str]:
@@ -320,7 +312,7 @@ def _ordered_terminals():
         yield by_name[name]
 
 
-def build_tmlanguage() -> dict:
+def build_tmlanguage(view: Isa | None = None) -> dict:
     """Assemble the TextMate grammar from the parser plus the ISA vocabulary."""
     repository: dict[str, dict] = {}
     terminal_includes = []
@@ -347,7 +339,7 @@ def build_tmlanguage() -> dict:
     # to it — so they are enumerated from the spec instead.
     repository["mnemonic"] = {
         "name": "keyword.other.mnemonic.ipu-asm",
-        "match": _keyword_pattern(_mnemonics()),
+        "match": _keyword_pattern(_mnemonics(isa() if view is None else view)),
     }
     repository["register"] = {
         "name": "variable.language.register.ipu-asm",
@@ -446,63 +438,78 @@ def build_language_configuration() -> dict:
     }
 
 
-def _doc_to_dict(doc, mnemonic: str, operands: list[dict]) -> dict | None:
+def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict]:
+    return [
+        {
+            "name": op.name,
+            "type": op.type.name,
+            **({"read": op.read.value} if op.read else {}),
+            **({"write": True} if op.write else {}),
+        }
+        for op in operands
+    ]
+
+
+def _doc_to_dict(doc, syntax_line: str) -> dict | None:
     """The hover text of one instruction form, with its derived syntax line."""
     if doc is None:
         return None
     data = asdict(doc) if is_dataclass(doc) else dict(doc)
-    data["syntax"] = syntax(mnemonic, [operand["name"] for operand in operands])
+    data["syntax"] = syntax_line
     return data
 
 
-def _slot_fill(instructions: dict[str, list[dict]]) -> dict:
+def _slot_fill(instructions: dict[str, list[dict]], order: list[str]) -> dict:
     """How the assembler fills a word's slots (``CompoundInst._fill_instructions``):
     in source order, a wildcard takes the first free slot in ``order``, and every
-    other mnemonic a free slot of its kind (a pseudo-instruction, of the
-    instruction it expands to)."""
+    other mnemonic a free slot of its kind: the slot its real form is specified
+    in, or for a pseudo-instruction the slot of the instruction it expands to
+    (its form's ``slot``). From the view's forms, so a view's ISA is its own."""
     kinds = {}
     for mnemonic, forms in instructions.items():
         if mnemonic.lower() in WILDCARD_OPCODES:
             continue
-        real = forms[0]["expandsTo"] if forms[0]["pseudo"] else mnemonic
-        kinds[mnemonic] = slot_kind(real)
+        real = [f for f in forms if not f["pseudo"]]
+        kinds[mnemonic] = (real or forms)[0]["slot"]
     return {
-        "order": list(COMPOUND_LAYOUT_SLOT_ORDER),
+        "order": order,
         "wildcards": sorted(WILDCARD_OPCODES),
         "rule": "own-kind",
         "kinds": dict(sorted(kinds.items())),
     }
 
 
-def build_hover_data(facts: dict | None = None) -> dict:
+def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict:
     """Instruction and register reference, consumed by the extension at runtime.
 
     A mnemonic can occupy more than one slot — NOP exists in all nine, each with
     its own summary — so each entry keeps every form rather than flattening.
     """
+    view = isa() if view is None else view
     instructions: dict[str, list[dict]] = {}
 
-    for slot, entries in INSTRUCTION_SPEC.items():
-        for opcode, (mnemonic, entry) in enumerate(entries.items()):
-            instructions.setdefault(mnemonic, []).append(
+    for slot in view.slots:
+        for instruction in view.instructions(slot):
+            instructions.setdefault(instruction.mnemonic, []).append(
                 {
-                    "slot": slot,
-                    "opcode": opcode,
+                    "slot": slot.value,
+                    "opcode": instruction.opcode,
                     "pseudo": False,
-                    "operands": [dict(op) for op in entry.get("operands", [])],
-                    "doc": _doc_to_dict(entry.get("doc"), mnemonic, entry.get("operands", [])),
+                    "operands": _operand_dicts(instruction.operands),
+                    "doc": _doc_to_dict(instruction.doc, instruction.syntax),
                 }
             )
 
-    for mnemonic, entry in PSEUDO_INSTRUCTION_SPEC.items():
-        expands_to = entry.get("expands_to", {})
-        instructions.setdefault(mnemonic, []).append(
+    for pseudo in view.pseudos():
+        instructions.setdefault(pseudo.mnemonic, []).append(
             {
-                "slot": expands_to.get("slot", "cond"),
+                "slot": pseudo.expands_to.slot.value,
                 "pseudo": True,
-                "expandsTo": expands_to.get("instruction"),
-                "operands": [dict(op) for op in entry.get("operands", [])],
-                "doc": _doc_to_dict(entry.get("doc"), mnemonic, entry.get("operands", [])),
+                "expandsTo": pseudo.expands_to.mnemonic,
+                "operands": _operand_dicts(pseudo.operands),
+                "doc": _doc_to_dict(
+                    pseudo.doc, syntax(pseudo.mnemonic, [op.name for op in pseudo.operands])
+                ),
             }
         )
 
@@ -518,23 +525,20 @@ def build_hover_data(facts: dict | None = None) -> dict:
         # "hardware" is false for the debug-only slot (acc_store) only, as
         # before the slot tags; E08 regenerates the editor data from them.
         "slots": {
-            slot: {
-                "description": meta.get("description", ""),
-                "hardware": not SLOTS[Slot(slot)].debug_only,
-            }
-            for slot, meta in SLOT_METADATA.items()
+            slot.value: {"description": info.description, "hardware": not info.debug_only}
+            for slot, info in view.slots.items()
         },
         # How many instructions of each slot one word holds, and the order the
         # assembler fills them in (a bare NOP takes the first free one).
-        "slotCount": dict(SLOT_COUNT),
-        "slotOrder": list(COMPOUND_LAYOUT_SLOT_ORDER),
-        "slotFill": _slot_fill(instructions),
+        "slotCount": {slot.value: info.count for slot, info in view.slots.items()},
+        "slotOrder": [slot.value for slot in view.layout.layout_order],
+        "slotFill": _slot_fill(instructions, [slot.value for slot in view.layout.layout_order]),
         # The number literals the assembler accepts (ipu_as.ipu_token.NUMBER_PATTERN).
         "numberPattern": NUMBER_PATTERN,
         # What each operand type accepts, from the class that validates it, so
         # completion never offers a value the assembler rejects (test_isa_data.py).
         "operandTypes": {
-            name: {**cls.completion_domain(), "description": operand_type(name).doc}
+            name: {**cls.completion_domain(), "description": view.operand_types[name].doc}
             for name, cls in OPERAND_TYPE_MAP.items()
         },
         # Lexical facts: patterns from the grammar's terminals, and case rules
@@ -571,16 +575,16 @@ def _dumps(obj) -> str:
     return json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def render_tmlanguage() -> str:
-    return _dumps(build_tmlanguage())
+def render_tmlanguage(view: Isa | None = None) -> str:
+    return _dumps(build_tmlanguage(view))
 
 
 def render_language_configuration() -> str:
     return _dumps(build_language_configuration())
 
 
-def render_hover_data(facts: dict | None = None) -> str:
-    return _dumps(build_hover_data(facts))
+def render_hover_data(facts: dict | None = None, view: Isa | None = None) -> str:
+    return _dumps(build_hover_data(facts, view))
 
 
 #: Relative path -> renderer, shared by the CLI and any test.
@@ -591,13 +595,17 @@ GENERATED_FILES = {
 }
 
 
-def generate_all(out_dir: Path, facts: dict | None = None) -> None:
+def generate_all(out_dir: Path, facts: dict | None = None, view: Isa | None = None) -> None:
     for rel_path, render in GENERATED_FILES.items():
         target = out_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            render(facts) if render is render_hover_data else render(), encoding="utf-8"
-        )
+        if render is render_hover_data:
+            text = render_hover_data(facts, view)
+        elif render is render_tmlanguage:
+            text = render_tmlanguage(view)
+        else:
+            text = render()
+        target.write_text(text, encoding="utf-8")
 
 
 #: For register hovers: the fixed registers (CR0 = 0, CR1 = 1) and the LR pair
