@@ -20,14 +20,14 @@ jobs:
         run: find . -name "*.sh" -type f -exec chmod +x {} \;
 
       - name: Build all targets
-        run: bazel build //... --build_tag_filters=-docs
+        run: bazel build --config=ci //...
 
       - name: Run all tests
-        run: bazel test //... --test_output=errors
+        run: bazel test --config=ci //...
 
       - name: Generate coverage
         run: |
-          bazel coverage //...
+          bazel coverage --config=ci //...
           # Convert coverage to lcov format
           cp bazel-out/_coverage/_coverage_report.dat coverage.info || true
 

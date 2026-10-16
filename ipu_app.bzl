@@ -173,8 +173,10 @@ def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
     the next). Every kernel's ``.asm`` under kernels_root is data, as are the
     suite's other ``.py`` files (shared fixtures) and ``.asm`` programs. Files named
     ``test_full_*.py`` run whole model stacks and take hours, so they are
-    ``manual``: run them by name, passing pytest options with ``--test_arg``
-    and switches with ``--test_env``.
+    ``manual`` and size ``enormous``: run them by name with ``--config=full``
+    (the default ``--test_size_filters=-enormous`` filters them out even when
+    named), passing pytest options with ``--test_arg`` and switches with
+    ``--test_env``.
     """
     for test in native.glob([suites_root + "/*/test_*.py"]):
         suite, _, filename = test.rpartition("/")
