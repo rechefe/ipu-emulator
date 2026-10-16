@@ -288,24 +288,3 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
     assert state.is_halted and cycles > 0
     assert stops == [(0, 0)]
     assert len(output.read_bytes()) == 512
-
-
-from ipu_apps.kernel_registry import kernels
-
-
-@pytest.mark.parametrize("kernel", [spec.name for spec in kernels()])
-def test_every_kernel_enters_debugger_and_completes(debug_terminal, monkeypatch, kernel):
-    from ipu_apps.kernel_registry.cases import load_cases, run_case
-
-    stops = []
-
-    def view(state, cycle):
-        stops.append((state.program_counter, cycle))
-        return DebugAction.CONTINUE
-
-    monkeypatch.setattr(tui, "run_debug_tui", view)
-    state, cycles = run_case(kernel, load_cases(kernel)["default"])
-    assert state.is_halted and cycles > 0
-    assert stops[0] == (0, 0)
-    # Existing assembly BREAK instructions may reopen the debugger after entry.
-    assert all(cycle > 0 for _, cycle in stops[1:])

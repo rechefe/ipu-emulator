@@ -12,7 +12,12 @@ exports_files([
 
 py_library(
     name = "ipu_apps_lib",
-    srcs = glob(["src/ipu_apps/**/*.py"]),
+    # Test modules stay out of the library: each kernel and family target lists
+    # its own test.py, so editing one reruns only the targets that use it.
+    srcs = glob(
+        ["src/ipu_apps/**/*.py"],
+        exclude = ["src/ipu_apps/**/test.py", "src/ipu_apps/**/test_*.py"],
+    ),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-emu-py:ipu_emu_lib",
@@ -96,12 +101,24 @@ ipu_families_from_kernels(
     data = ["//docs:doc_sources"],
 )
 
+# Debugger launch behaviour on a tiny program and the identity kernel.
 py_pytest_test(
     name = "test_debug_launch",
-    size = "enormous",
+    size = "small",
     srcs = ["test/test_debug_launch.py"],
     data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
     deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+# Every kernel's default case run to completion under a stubbed debugger: one
+# target per kernel, `enormous` (heavy tier) because the sweep takes minutes.
+ipu_per_kernel_test(
+    name = "test_debug_launch_kernels",
+    src = "test/test_debug_launch_kernels.py",
+    kernels_root = "src/ipu_apps/kernels",
+    data = glob(["src/ipu_apps/**/*.asm", "src/ipu_apps/**/*.bin"]),
+    deps = [":ipu_apps_lib", requirement("pytest")],
+    size = "enormous",
 )
 
 py_pytest_test(
