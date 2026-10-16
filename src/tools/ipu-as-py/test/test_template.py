@@ -10,7 +10,7 @@ import pytest
 
 from ipu_as import diagnostics, template
 from ipu_as.errors import TemplateError
-from ipu_as.template import Param, ParamSpec
+from ipu_as.template import Param, ParamSpec, TemplateInputs
 
 HEADER = """\
 {#- ipu:params
@@ -36,19 +36,24 @@ def test_header_is_parsed_with_types_defaults_choices_and_lines() -> None:
 
 def test_defines_are_coerced_from_command_line_strings() -> None:
     rendered = template.render(
-        HEADER, defines={"rows": "8", "flags": "true", "widths": "4,5,6", "activation": "relu"}
+        HEADER,
+        TemplateInputs(
+            defines={"rows": "8", "flags": "true", "widths": "4,5,6", "activation": "relu"}
+        ),
     )
     assert rendered == "3 8 relu True (4, 5, 6)"
 
 
 def test_defaults_render_the_same_as_passing_them() -> None:
     explicit = {"cpr": 3, "rows": 1, "activation": "identity", "flags": False, "widths": (1, 2)}
-    assert template.render(HEADER, defines={"rows": 1}) == template.render(HEADER, defines=explicit)
+    assert template.render(HEADER, TemplateInputs(defines={"rows": 1})) == template.render(
+        HEADER, TemplateInputs(defines=explicit)
+    )
 
 
 def test_a_param_spec_from_the_caller_replaces_the_header() -> None:
     spec = ParamSpec((Param("n", int, 7),))
-    assert template.render("{{ n }}", params=spec) == "7"
+    assert template.render("{{ n }}", TemplateInputs(params=spec)) == "7"
 
 
 @pytest.mark.parametrize(
@@ -65,7 +70,7 @@ def test_a_param_spec_from_the_caller_replaces_the_header() -> None:
 )
 def test_bad_defines_and_headers_are_located_template_errors(source, defines, message, line):
     with pytest.raises(TemplateError, match=message) as info:
-        template.render(source, defines=defines, source_name="k.asm")
+        template.render(source, TemplateInputs(defines=defines), source_name="k.asm")
     assert info.value.location.line == line
     assert info.value.location.source == "k.asm"
 
@@ -87,8 +92,13 @@ def roots(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_include_and_import_resolve_in_the_search_path(roots) -> None:
     lib, _ = roots
-    assert template.render('{% include "body.asm.j2" %}', search_path=[lib]) == "NOP;;\nBKPT;;"
-    rendered = template.render('{% import "m.asm.j2" as m %}{{ m.f() }}', search_path=[lib])
+    assert (
+        template.render('{% include "body.asm.j2" %}', TemplateInputs(search_path=(lib,)))
+        == "NOP;;\nBKPT;;"
+    )
+    rendered = template.render(
+        '{% import "m.asm.j2" as m %}{{ m.f() }}', TemplateInputs(search_path=(lib,))
+    )
     assert rendered == "NOP;;"
 
 
@@ -98,7 +108,7 @@ def test_include_and_import_resolve_in_the_search_path(roots) -> None:
 def test_include_outside_the_search_path_is_refused(roots, name) -> None:
     lib, _ = roots
     with pytest.raises(TemplateError) as info:
-        template.render(f'NOP;;\n{{% include "{name}" %}}', search_path=[lib])
+        template.render(f'NOP;;\n{{% include "{name}" %}}', TemplateInputs(search_path=(lib,)))
     assert isinstance(info.value.__cause__, jinja2.TemplateNotFound)
     assert info.value.location.line == 2
 
@@ -106,7 +116,7 @@ def test_include_outside_the_search_path_is_refused(roots, name) -> None:
 def test_a_sandbox_escape_inside_an_included_file_is_refused(roots) -> None:
     lib, _ = roots
     with pytest.raises(TemplateError) as info:
-        template.render('{% include "escape.asm.j2" %}', search_path=[lib])
+        template.render('{% include "escape.asm.j2" %}', TemplateInputs(search_path=(lib,)))
     assert isinstance(info.value.__cause__, jinja2.exceptions.SecurityError)
     assert info.value.location.source == "escape.asm.j2"
 
@@ -115,7 +125,7 @@ def test_an_error_inside_an_included_macro_names_its_file_and_line(roots) -> Non
     lib, _ = roots
     source = 'NOP;;\n{% import "m.asm.j2" as m %}\n{{ m.bad() }}\nBKPT;;\n'
     with pytest.raises(TemplateError) as info:
-        template.render(source, search_path=[lib])
+        template.render(source, TemplateInputs(search_path=(lib,)))
     assert (info.value.location.source, info.value.location.line) == ("m.asm.j2", 4)
     (found,) = diagnostics.check(source, search_path=[lib])
     assert found.stage == "template"
@@ -157,10 +167,10 @@ def test_a_parameter_declared_twice_is_an_error() -> None:
 def test_a_deleted_include_is_reported_as_not_found(tmp_path: Path) -> None:
     (tmp_path / "gone.asm.j2").write_text("NOP;;")
     source = '{% include "gone.asm.j2" %}'
-    assert template.render(source, search_path=[tmp_path]) == "NOP;;"
+    assert template.render(source, TemplateInputs(search_path=(tmp_path,))) == "NOP;;"
     (tmp_path / "gone.asm.j2").unlink()
     with pytest.raises(TemplateError) as info:
-        template.render(source, search_path=[tmp_path])
+        template.render(source, TemplateInputs(search_path=(tmp_path,)))
     assert isinstance(info.value.__cause__, jinja2.TemplateNotFound)
 
 

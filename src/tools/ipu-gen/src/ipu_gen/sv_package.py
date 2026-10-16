@@ -1,27 +1,30 @@
-"""Generate SystemVerilog packages from the instruction format.
+"""Generate the SystemVerilog package from the instruction format (E08-13).
 
-Emits ``EnumToken`` descriptors, per-slot structs (opcode + operand union) and
-per-instruction ``union packed`` views derived from ``SLOT_UNIONS`` in
-``instruction_spec``.
+Emits the opcode and operand enums, per-slot structs (opcode + operand union)
+and per-instruction ``union packed`` views derived from ``SLOT_UNIONS``. Every
+name comes from ISA data (``SlotInfo.opcode_enum``, ``OperandType.sv_typedef``,
+``sv_struct_base``), never from a Python class name, so a refactor of the
+assembler cannot rename a downstream RTL type. Reads ``ipu_isa`` only.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import jinja2
 
-from ipu_as import compound_inst, ipu_token, utils
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
     SLOT_COUNT,
 )
 from ipu_isa.layout import SLOT_UNIONS
-from ipu_isa.operand_types import operand_type
-from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.operand_types import OPERAND_TYPES, operand_type
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -89,6 +92,31 @@ _SV_RESERVED_STRUCT_NAMES = frozenset(
 )
 
 
+#: The operand-type enums, in the order the package declares them (after the
+#: slot opcode enums). It is the order the generator emitted when it read the
+#: assembler's token classes; kept so the package stays byte-identical, so a
+#: position here is wire format. Checked at import: it names every operand type
+#: with an ``sv_typedef`` exactly once.
+OPERAND_ENUM_ORDER = (
+    "MultStageReg",
+    "LrIdx",
+    "CrIdx",
+    "DstructureCrIdx",
+    "LcrIdx",
+    "LrdIdx",
+    "ActivationFn",
+    "ElementsInRow",
+    "HorizontalStride",
+    "VerticalStride",
+)
+
+
+def _snake_case(name: str) -> str:
+    """``LrIdx`` -> ``lr_idx``: SV field names from ISA operand-type names."""
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
+
 def _sanitize_enum_member(name: str) -> str:
     return name.upper().replace(".", "_").replace("-", "_")
 
@@ -101,7 +129,7 @@ def _sv_logic_type(canonical_type: str, bits: int) -> str:
 
 
 def _canonical_field_name(canonical_type: str, field_index: int) -> str:
-    base = utils.camel_case_to_snake_case(canonical_type)
+    base = _snake_case(canonical_type)
     return f"{base}_{field_index}"
 
 
@@ -287,16 +315,15 @@ def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]
 def _compound_members() -> list[dict[str, Any]]:
     """Nested compound struct members in MSB → LSB order (matches encode layout)."""
     members: list[dict[str, Any]] = []
-    type_counts: dict[str, int] = {}
+    type_counts: dict[Slot, int] = {}
 
-    for inst_cls in compound_inst.CompoundInst.instruction_types():
-        slot = inst_cls._slot_type_name()
-        struct_base = SLOTS[Slot(slot)].sv_struct_base
+    for slot in (s for s in LAYOUT_ORDER for _ in range(SLOTS[s].count)):
+        struct_base = SLOTS[slot].sv_struct_base
         sv_type = f"{struct_base}_t"
 
         count = type_counts.get(slot, 0)
         type_counts[slot] = count + 1
-        if SLOT_COUNT[slot] > 1:
+        if SLOTS[slot].count > 1:
             member_name = f"{struct_base}_{count}"
         else:
             member_name = struct_base
@@ -305,17 +332,58 @@ def _compound_members() -> list[dict[str, Any]]:
             {
                 "name": member_name,
                 "sv_type": sv_type,
-                "slot": slot,
+                "slot": slot.value,
             }
         )
 
     return members
 
 
+def _check_operand_enum_order() -> None:
+    typed = {name for name, t in OPERAND_TYPES.items() if t.sv_typedef is not None}
+    if set(OPERAND_ENUM_ORDER) != typed or len(OPERAND_ENUM_ORDER) != len(typed):
+        raise ValueError(
+            "OPERAND_ENUM_ORDER in ipu_gen/sv_package.py must list each operand type "
+            f"with an sv_typedef once: missing {sorted(typed - set(OPERAND_ENUM_ORDER))}, "
+            f"extra {sorted(set(OPERAND_ENUM_ORDER) - typed)}; a new type's position "
+            "is wire format"
+        )
+
+
+_check_operand_enum_order()
+
+
+def _typedef_base(name: str) -> str:
+    typedef = OPERAND_TYPES[name].sv_typedef
+    if typedef is None or not typedef.endswith("_t"):
+        raise ValueError(f"operand type {name}: sv_typedef {typedef!r} must end in _t")
+    return typedef.removesuffix("_t")
+
+
+def enum_descriptors() -> dict[str, list[tuple[int, str]]]:
+    """Every SV enum in package order: each slot's opcodes, then the operand enums.
+
+    Returns:
+        ``{name: [(value, MEMBER), ...]}``, where ``name`` is the typedef without
+        ``_t``. Opcodes are in ``INSTRUCTION_SPEC`` order (position = opcode);
+        operand members in their domain's encoding order.
+    """
+    enums: dict[str, list[tuple[int, str]]] = {}
+    for slot, instructions in INSTRUCTION_SPEC.items():
+        enums[SLOTS[Slot(slot)].opcode_enum] = _members(instructions)
+    for name in OPERAND_ENUM_ORDER:
+        enums[_typedef_base(name)] = _members(OPERAND_TYPES[name].domain.members)
+    return enums
+
+
+def _members(names: Iterable[str]) -> list[tuple[int, str]]:
+    return [(i, _sanitize_enum_member(name)) for i, name in enumerate(names)]
+
+
 def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
-    """EnumToken descriptors with precomputed bit-width for SV typedefs."""
+    """The enums with precomputed bit-width for SV typedefs."""
     result: list[dict[str, Any]] = []
-    for enum_name, members in ipu_token.EnumToken.get_all_enum_descriptors().items():
+    for enum_name, members in enum_descriptors().items():
         n = len(members)
         width = max(1, (n - 1).bit_length()) if n > 1 else 1
         result.append(
@@ -337,6 +405,11 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
     return result
 
 
+def _compound_width() -> int:
+    """Bits of the instruction word: each slot's opcode and operand union, per copy."""
+    return sum(SLOTS[slot].count * SLOT_UNIONS[slot.value].bits for slot in LAYOUT_ORDER)
+
+
 def _compound_slot_order() -> str:
     """The compound word's slots, MSB first, as its comment names them: ``lr×3``."""
     return ", ".join(
@@ -346,7 +419,7 @@ def _compound_slot_order() -> str:
 
 
 def build_codegen_context() -> dict[str, Any]:
-    """Build the Jinja render context from live assembler metadata."""
+    """Build the Jinja render context from the ISA data."""
     enum_list = _enum_descriptors_for_templates()
     typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
     return {
@@ -354,7 +427,7 @@ def build_codegen_context() -> dict[str, Any]:
         "enum_types": enum_list,
         "slots": _slot_union_descriptors(typedef_bits),
         "compound_members": _compound_members(),
-        "compound_width": compound_inst.CompoundInst.bits(),
+        "compound_width": _compound_width(),
         "compound_slot_order": _compound_slot_order(),
     }
 

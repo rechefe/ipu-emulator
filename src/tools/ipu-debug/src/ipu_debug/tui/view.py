@@ -1,27 +1,21 @@
-"""Persistent curses frontend for IPU application debugging.
+"""The TUI's controller and renderer, over the ``Screen`` seam.
 
 The TUI is the application debugger. The deprecated line debugger is a
-separate compatibility API and cannot be entered from this interface.
+separate compatibility API and cannot be entered from this interface. The
+terminal is reached only through ``ipu_debug.tui.screen``; keys reach their
+handlers through ``ipu_debug.tui.keymap``.
 """
 
 from __future__ import annotations
 
 import locale
-import os
 import re
 import struct
-import sys
 import textwrap
 import time
-from collections.abc import Iterator
-from contextlib import closing
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-
-try:  # pragma: no cover - import availability is platform-dependent
-    import curses
-except ImportError:  # pragma: no cover
-    curses = None  # type: ignore[assignment]
 
 from ipu_debug import format as debug_format
 from ipu_debug.control import DebugControl
@@ -59,14 +53,37 @@ from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
+from ipu_debug.tui.keymap import (
+    KEY_BINDINGS,
+    PANE_COMMANDS,
+    PANE_FOCUS,
+    PANE_FOCUS_ORDER,
+    Command,
+    Focus,
+    PaneId,
+    footer_actions,
+    footer_text,
+    help_lines,
+    lookup,
+)
+from ipu_debug.tui.pane import LegacyPane, Line, LineRecorder, Outcome, Pane, Rect
+from ipu_debug.tui.screen import (
+    Input,
+    Key,
+    MouseEvent,
+    Screen,
+    Style,
+    overlay_style,
+    run_in_terminal,
+    terminal_available,
+)
+from ipu_debug.tui.tabs import TabSet
+
 MIN_TERMINAL_ROWS = 24
 MIN_TERMINAL_COLUMNS = 80
 MIN_COMPACT_ROWS = 12
 MIN_COMPACT_COLUMNS = 48
 DOUBLE_CLICK_SECONDS = 0.35
-INPUT_POLL_MS = 100
-# Escape also prefixes arrows/function keys; bound that ambiguity wait.
-ESCAPE_DELAY_MS = 25
 MAX_TAB_LABEL_WIDTH = 24
 HEADER_ROWS = 1
 MIN_DISASSEMBLY_COLUMNS = 30
@@ -84,7 +101,6 @@ REGISTER_NON_CONTENT_ROWS = 4
 # reserved for its scroll thumb, so the layout never reflows when the thumb
 # appears or disappears.
 SCROLLBAR_COLUMNS = 1
-VISIBLE_TAB_LOOKBEHIND = 2
 _SCALAR_REGISTER_COUNTS = {
     descriptor.name: descriptor.count
     for descriptor in REGFILE_SCHEMA
@@ -121,14 +137,13 @@ REGISTER_GROUPS = ("lr", "cr")
 PIPELINE_PAGE_FRACTION_NUMERATOR = 2
 PIPELINE_PAGE_FRACTION_DENOMINATOR = 5
 BITS_PER_REGISTER = 32
-PANE_FOCUS_ORDER = ("pipeline", "disassembly", "xmem", "registers")
 EMPTY_DISASSEMBLY_OPERATIONS = ("<nop>", "<NOP>", "NOP")
 # Parallel slots are stacked under their instruction and marked the way VLIW
 # assembly listings mark them, rather than run out across the pane.
 DISASSEMBLY_PARALLEL_MARKER = "||"
 DISASSEMBLY_PREFIX_WIDTH = len("> 0000  ")
-# Number keys jump straight to a pane, in the same order as ``Shift-Tab``.
-PANE_FOCUS_KEYS = {str(number + 1): pane for number, pane in enumerate(PANE_FOCUS_ORDER)}
+# Panes paint in this order, so a later one wins any shared cell.
+PANE_DRAW_ORDER: tuple[PaneId, ...] = ("disassembly", "registers", "xmem", "pipeline")
 PANE_TITLES = {
     "disassembly": "Disassembly",
     "registers": "LR / CR",
@@ -269,156 +284,6 @@ FOOTER_PANE_LABELS = {
     "xmem": "XMEM",
     "pipeline": "Pipe",
 }
-HELP_SCOPE_TITLES = (
-    ("global", "Execution and layout"),
-    ("pane", "Focused pane"),
-    ("editor", "Tab editor"),
-    ("help", "This overlay"),
-)
-
-
-@dataclass(frozen=True)
-class KeyBinding:
-    """One documented control, shown in the footer and the help overlay."""
-
-    keys: tuple[str, ...]
-    scope: str
-    description: str
-    footer: str | None = None
-    footer_rank: int = 3
-    panes: tuple[str, ...] = PANE_FOCUS_ORDER
-
-
-# Single source of truth for the footer and the help overlay. The footer puts
-# execution controls first. ``docs/content/debugging.md`` documents the same controls and is
-# synchronised by hand.
-KEY_BINDINGS: tuple[KeyBinding, ...] = (
-    KeyBinding(("F2",), "pane", "Add a tab to the focused pane", "F2:Add", 3),
-    KeyBinding(("F3",), "pane", "Edit the active tab", "F3:Edit", 3),
-    KeyBinding(("F4",), "pane", "Close the active tab", "F4:Close", 3),
-    KeyBinding(("f",), "pane", "Cycle the active tab's format", "f:Format", 2),
-    KeyBinding(
-        ("d", "a"),
-        "pane",
-        "Select the next / previous tab",
-        "a:Prev d:Next",
-        3,
-    ),
-    KeyBinding(
-        ("Arrows",),
-        "pane",
-        "Move the cursor inside the focused pane",
-        "Arrows:Move",
-        2,
-    ),
-    KeyBinding(("Tab",), "pane", "Select the next tab", "Tab:Next", 2),
-    KeyBinding(
-        ("PgUp", "PgDn"),
-        "pane",
-        "Move the cursor by one page",
-    ),
-    KeyBinding(
-        ("Home", "End"),
-        "pane",
-        "Jump to the first / last value",
-    ),
-    KeyBinding(
-        ("Click",),
-        "pane",
-        "Select panes, tabs, values, and footer actions",
-    ),
-    KeyBinding(
-        ("Wheel",),
-        "pane",
-        "Scroll panes, help, or tabs under the pointer",
-    ),
-    KeyBinding(("Shift-wheel",), "pane", "Move sideways within a pane"),
-    KeyBinding(("Double-click",), "pane", "Edit the selected register or memory value"),
-    KeyBinding(("Code gutter",), "pane", "Click to toggle an instruction breakpoint"),
-    KeyBinding(
-        ("Drag",),
-        "pane",
-        "Drag a pane divider or scrollbar",
-    ),
-    KeyBinding(("Shift-Tab",), "global", "Focus the next pane", "S-Tab:Pane"),
-    KeyBinding(
-        ("1-4",),
-        "global",
-        "Focus a pane directly, left to right",
-        None,
-        2,
-    ),
-    KeyBinding(("F5",), "global", "Continue to the next breakpoint", "F5:Run", 0),
-    KeyBinding(("F8",), "global", "Execute one instruction", "F8:Step", 0),
-    KeyBinding(
-        ("F9",),
-        "pane",
-        "Disassembly: toggle breakpoint",
-        "F9:Break",
-        1,
-        panes=("disassembly",),
-    ),
-    KeyBinding(
-        ("F10",),
-        "pane",
-        "Disassembly: run to cursor or next stop",
-        "F10:Until",
-        1,
-        panes=("disassembly",),
-    ),
-    KeyBinding(
-        ("e",),
-        "pane",
-        "Edit the selected value (PC in Disassembly)",
-        "e:Value",
-        1,
-        panes=("disassembly", "registers", "pipeline", "xmem"),
-    ),
-    KeyBinding(
-        ("Shift-Left", "Shift-Right"),
-        "global",
-        "Move the focused row's split",
-        "S-Arrows:Size",
-        4,
-    ),
-    KeyBinding(
-        ("Shift-Up", "Shift-Down"),
-        "global",
-        "Move the top / bottom split",
-        footer_rank=4,
-    ),
-    KeyBinding(("=",), "global", "Reset every split", "=:Reset", 4),
-    KeyBinding(("?",), "global", "Show this help overlay"),
-    KeyBinding(("q",), "global", "Halt execution and exit the debugger", "q Quit", 0),
-    KeyBinding(("Esc",), "editor", "Cancel the editor"),
-    KeyBinding(("Enter",), "editor", "Apply the edited value"),
-    KeyBinding(
-        ("Left", "Right", "Home", "End"),
-        "editor",
-        "Move within the edited text",
-    ),
-    KeyBinding(("Esc", "?", "Enter"), "help", "Close this overlay"),
-    KeyBinding(
-        ("Up", "Down", "PgUp", "PgDn"),
-        "help",
-        "Scroll this overlay",
-    ),
-)
-
-
-@dataclass(frozen=True)
-class Rect:
-    """Zero-based terminal rectangle."""
-
-    y: int
-    x: int
-    height: int
-    width: int
-
-    def contains(self, y: int, x: int) -> bool:
-        return self.y <= y < self.y + self.height and self.x <= x < self.x + self.width
-
-
 @dataclass(frozen=True)
 class PipelineRegisterSpec:
     """One logical pipeline register and its mode-specific storage."""
@@ -508,24 +373,24 @@ class PipelineTab:
         return f"{spec.label} {self.fmt or 'auto'}"
 
 
+def _new_panes() -> dict[str, TabSet[Any]]:
+    """One empty tab set per pane; closing a pane's last tab reopens a default
+    one, except in XMEM, which may be empty."""
+    return {
+        "pipeline": TabSet(default=PipelineTab),
+        "disassembly": TabSet(default=DisassemblyTab),
+        "xmem": TabSet(),
+        "registers": TabSet(default=RegisterTab),
+    }
+
+
 @dataclass
 class DebugViewSession:
     """State retained between debugger callbacks for one IPU state."""
 
     active: bool = False
     initialized: bool = False
-    tabs: list[XmemTab] = field(default_factory=list)
-    active_tab: int = 0
-    tab_offset: int = 0
-    disassembly_tabs: list[DisassemblyTab] = field(default_factory=list)
-    active_disassembly_tab: int = 0
-    disassembly_tab_offset: int = 0
-    register_tabs: list[RegisterTab] = field(default_factory=list)
-    active_register_tab: int = 0
-    register_tab_offset: int = 0
-    pipeline_tabs: list[PipelineTab] = field(default_factory=list)
-    active_pipeline_tab: int = 0
-    pipeline_tab_offset: int = 0
+    panes: dict[str, TabSet[Any]] = field(default_factory=_new_panes)
     focus: str = "xmem"
     message: str = "Ready"
     message_is_error: bool = False
@@ -536,13 +401,69 @@ class DebugViewSession:
     maximized: bool = False
     stages_scroll: int = 0
 
+    @classmethod
+    def with_tabs(
+        cls,
+        *,
+        xmem: list[XmemTab] | None = None,
+        disassembly: list[DisassemblyTab] | None = None,
+        registers: list[RegisterTab] | None = None,
+        pipeline: list[PipelineTab] | None = None,
+        **fields: Any,
+    ) -> DebugViewSession:
+        """A session whose panes start with the given tabs."""
+        session = cls(**fields)
+        for pane, tabs in (
+            ("xmem", xmem),
+            ("disassembly", disassembly),
+            ("registers", registers),
+            ("pipeline", pipeline),
+        ):
+            session.panes[pane].tabs.extend(tabs or [])
+        return session
+
+    # Typed views of ``panes``.
+    @property
+    def xmem(self) -> TabSet[XmemTab]:
+        return self.panes["xmem"]
+
+    @property
+    def disassembly(self) -> TabSet[DisassemblyTab]:
+        return self.panes["disassembly"]
+
+    @property
+    def registers(self) -> TabSet[RegisterTab]:
+        return self.panes["registers"]
+
+    @property
+    def pipeline(self) -> TabSet[PipelineTab]:
+        return self.panes["pipeline"]
+
+    def disassembly_tab(self) -> DisassemblyTab:
+        """The active disassembly tab (the pane always has one)."""
+        tab = self.disassembly.current()
+        assert tab is not None
+        return tab
+
+    def register_tab(self) -> RegisterTab:
+        """The active LR / CR tab (the pane always has one)."""
+        tab = self.registers.current()
+        assert tab is not None
+        return tab
+
+    def pipeline_tab(self) -> PipelineTab:
+        """The active pipeline-register tab (the pane always has one)."""
+        tab = self.pipeline.current()
+        assert tab is not None
+        return tab
+
     @property
     def stages_visible(self) -> bool:
-        return self.selected_disassembly_tab().fmt == "stages"
+        return self.disassembly_tab().fmt == "stages"
 
     @stages_visible.setter
     def stages_visible(self, visible: bool) -> None:
-        self.selected_disassembly_tab().fmt = "stages" if visible else "compact"
+        self.disassembly_tab().fmt = "stages" if visible else "compact"
 
     def set_message(self, text: str, *, error: bool = False) -> None:
         self.message = text.replace("\n", " ").strip() or "Ready"
@@ -550,7 +471,7 @@ class DebugViewSession:
 
     def ensure_default_tab(self, state: IpuState) -> None:
         fresh = not self.initialized
-        if fresh and not self.tabs:
+        if fresh and not self.xmem.tabs:
             numeric = (
                 "f32"
                 if state.wide_vector_debug and state.wide_vector_arithmetic.value == "fp32"
@@ -558,44 +479,24 @@ class DebugViewSession:
             )
             if state.wide_vector_debug and state.wide_vector_arithmetic.value == "int32":
                 numeric = "u32"
-            self.tabs.extend(
+            self.xmem.tabs.extend(
                 XmemTab(XmemRequest("row", "0", "0", xmem_row_size_bytes(state), fmt))
                 for fmt in ("hex", numeric)
             )
-        if not self.disassembly_tabs:
-            self.disassembly_tabs.extend(
+        if not self.disassembly.tabs:
+            self.disassembly.tabs.extend(
                 DisassemblyTab(fmt=fmt) for fmt in (DISASSEMBLY_FORMATS if fresh else ("compact",))
             )
-        if not self.register_tabs:
-            self.register_tabs.extend(
+        if not self.registers.tabs:
+            self.registers.tabs.extend(
                 RegisterTab(group=group) for group in (("all", "lr", "cr") if fresh else ("all",))
             )
-        if not self.pipeline_tabs:
-            self.pipeline_tabs.extend(
+        if not self.pipeline.tabs:
+            self.pipeline.tabs.extend(
                 PipelineTab(register_key=spec.key, fmt=_default_pipeline_format(state, spec))
                 for spec in (PIPELINE_REGISTERS if fresh else PIPELINE_REGISTERS[:1])
             )
         self.initialized = True
-
-    def selected_tab(self) -> XmemTab | None:
-        if not self.tabs:
-            return None
-        self.active_tab = min(self.active_tab, len(self.tabs) - 1)
-        return self.tabs[self.active_tab]
-
-    def selected_disassembly_tab(self) -> DisassemblyTab:
-        self.active_disassembly_tab = min(
-            self.active_disassembly_tab, len(self.disassembly_tabs) - 1
-        )
-        return self.disassembly_tabs[self.active_disassembly_tab]
-
-    def selected_register_tab(self) -> RegisterTab:
-        self.active_register_tab = min(self.active_register_tab, len(self.register_tabs) - 1)
-        return self.register_tabs[self.active_register_tab]
-
-    def selected_pipeline_tab(self) -> PipelineTab:
-        self.active_pipeline_tab = min(self.active_pipeline_tab, len(self.pipeline_tabs) - 1)
-        return self.pipeline_tabs[self.active_pipeline_tab]
 
     def snapshot_registers(self, state: IpuState) -> dict[tuple[str, int], int]:
         snapshot: dict[tuple[str, int], int] = {}
@@ -607,13 +508,13 @@ class DebugViewSession:
     def commit_baseline(self, state: IpuState) -> None:
         debug = DebugSession(state)
         register_snapshot = self.snapshot_registers(state)
-        for tab in self.register_tabs:
+        for tab in self.registers:
             tab.baseline = register_snapshot.copy()
-        for tab in self.pipeline_tabs:
+        for tab in self.pipeline:
             spec = _pipeline_spec(tab.register_key)
             tab.baseline_key = spec.key
             tab.baseline_data = _read_pipeline_register(state, spec)
-        for tab in self.tabs:
+        for tab in self.xmem:
             try:
                 resolved = debug.read_xmem(tab.request)
             except DebugError:
@@ -703,119 +604,88 @@ def _cell16_color_summary(data: bytes) -> str:
     return f"fg={_compact_color_set(foregrounds)} bg={_compact_color_set(backgrounds)}"
 
 
-def _overlay_attr(base: int, overlay: int) -> int:
-    """Combine emphasis, replacing a color pair instead of OR-ing pair IDs."""
-    color_mask = getattr(curses, "A_COLOR", 0) if curses else 0
-    if overlay & color_mask:
-        base &= ~color_mask
-    return base | overlay
+class Palette:
+    """The style of each kind of text, with monochrome fallbacks."""
 
-
-class _ColorManager:
-    """Best-effort curses colors with monochrome fallbacks."""
-
-    def __init__(self) -> None:
-        self.enabled = False
-        self._pairs: dict[tuple[int, int], int] = {}
-        self.current = getattr(curses, "A_BOLD", 0) if curses else 0
+    def __init__(self, screen: Screen) -> None:
+        self._screen = screen
+        self.enabled = screen.has_colors
+        bold = Style.BOLD
+        self.current = bold
         # Emphasis is layered, so no two of these may be the same attribute:
         # ``changed`` marks a value, ``selected`` the cursor under it, and
         # ``focus`` the frame of the pane they are in.
-        self.changed = self.current | (getattr(curses, "A_UNDERLINE", 0) if curses else 0)
-        self.selected = getattr(curses, "A_REVERSE", 0) if curses else 0
+        self.changed = bold | Style.UNDERLINE
+        self.selected = int(Style.REVERSE)
         # Every pane shows where its cursor is; only the focused one shows it
         # at full strength.
-        self.cursor = self.selected | (getattr(curses, "A_DIM", 0) if curses else 0)
-        self.header = self.current
-        self.paused = self.current | self.selected
-        self.breakpoint = self.changed
-        self.pc_marker = self.current
-        self.key = self.current
-        self.border = getattr(curses, "A_DIM", 0) if curses else 0
-        self.plain = self.current
-        self.title = self.current
-        self.focus = self.current
-        self.status = getattr(curses, "A_REVERSE", 0) if curses else 0
-        self.error = self.current
-        self.cell_selected = getattr(curses, "A_UNDERLINE", 0) if curses else 0
-        self.cell_changed = (getattr(curses, "A_ITALIC", 0) if curses else 0) or self.cell_selected
-        if curses is None:
+        self.cursor = Style.REVERSE | Style.DIM
+        self.header = int(bold)
+        self.paused = bold | Style.REVERSE
+        self.breakpoint = int(self.changed)
+        self.pc_marker = int(bold)
+        self.key = int(bold)
+        self.border = int(Style.DIM)
+        self.plain = int(bold)
+        self.title = int(bold)
+        self.focus = int(bold)
+        self.status = int(Style.REVERSE)
+        self.error = int(bold)
+        self.cell_selected = int(Style.UNDERLINE)
+        self.cell_changed = int(Style.ITALIC)
+        if not self.enabled:
             return
-        try:
-            if curses.has_colors():
-                curses.start_color()
-                try:
-                    curses.use_default_colors()
-                except curses.error:
-                    pass
-                self.enabled = True
-                self.header = 0  # Respect the terminal's light or dark theme.
-                self.paused = self._pair(0, 3)
-                self.breakpoint = self._pair(9, -1) | self.current
-                self.pc_marker = self._pair(10, -1) | self.current
-                self.key = self._pair(14, -1) | self.current
-                self.border = self._pair(8, -1)
-                self.plain = self.current
-                self.title = self._pair(14, -1) | self.current
-                self.focus = self._pair(14, -1) | self.current
-                self.status = 0
-                self.error = self._pair(15, 1) | self.current
-                self.selected = self._pair(0, 6)
-                # A dark foreground would be brightened into the background
-                # by the bold attribute rows carry, so the muted cursor keeps a
-                # light foreground and only drops the accent colour.
-                self.cursor = self._pair(15, 8)
-        except curses.error:
-            self.enabled = False
-
-    def _pair(self, fg: int, bg: int) -> int:
-        if not self.enabled or curses is None:
-            return 0
-        color_count = max(1, min(getattr(curses, "COLORS", 8), 16))
-        normalized = (fg % color_count, bg if bg < 0 else bg % color_count)
-        pair = self._pairs.get(normalized)
-        if pair is None:
-            pair = len(self._pairs) + 1
-            if pair >= getattr(curses, "COLOR_PAIRS", 1):
-                return 0
-            try:
-                curses.init_pair(pair, *normalized)
-            except curses.error:
-                return 0
-            self._pairs[normalized] = pair
-        try:
-            return curses.color_pair(pair)
-        except curses.error:
-            return 0
+        self.header = 0  # Respect the terminal's light or dark theme.
+        self.paused = screen.color(0, 3)
+        self.breakpoint = screen.color(9, -1) | bold
+        self.pc_marker = screen.color(10, -1) | bold
+        self.key = screen.color(14, -1) | bold
+        self.border = screen.color(8, -1)
+        self.title = screen.color(14, -1) | bold
+        self.focus = screen.color(14, -1) | bold
+        self.status = 0
+        self.error = screen.color(15, 1) | bold
+        self.selected = screen.color(0, 6)
+        # A dark foreground would be brightened into the background by the
+        # bold attribute rows carry, so the muted cursor keeps a light
+        # foreground and only drops the accent colour.
+        self.cursor = screen.color(15, 8)
 
     def cell(self, fg: int, bg: int) -> int:
-        if not self.enabled or curses is None:
+        """A 16-colour text cell; bright foregrounds are bold."""
+        if not self.enabled:
             return 0
-        attr = self._pair(fg, bg)
+        style = self._screen.color(fg, bg)
         if fg >= 8:
-            attr |= getattr(curses, "A_BOLD", 0)
-        return attr
+            style |= Style.BOLD
+        return style
 
 
 class CursesDebugView:
-    """Controller and renderer for one curses entry."""
+    """Controller and renderer for one debugger stop, over a :class:`Screen`."""
 
     def __init__(
         self,
-        screen: Any,
+        screen: Screen,
         state: IpuState,
         session: DebugViewSession,
         cycle: int,
         control: DebugControl | None = None,
+        debug: DebugSession | None = None,
     ) -> None:
         self.screen = screen
         self.state = state
-        # The run's control, from whoever started the run; else this view's own.
-        self.control = control if control is not None else DebugControl()
-        self.debug = DebugSession(state, self.control)
+        # The run's control and session, from whoever started the run; else
+        # this view's own.
+        if debug is not None:
+            self.control = debug.control
+            self.debug = debug
+        else:
+            self.control = control if control is not None else DebugControl()
+            self.debug = DebugSession(state, self.control)
         self.session = session
         self.cycle = cycle
-        self.colors = _ColorManager()
+        self.colors = Palette(screen)
         self.glyphs = _detect_glyphs()
         # ``(y, x) -> (segment mask, attribute, priority)`` for the pane frames.
         self.borders: dict[tuple[int, int], tuple[int, int, int]] = {}
@@ -825,7 +695,7 @@ class CursesDebugView:
         self.editor_pane: str | None = None
         # The scalar being edited, as ``DebugSession.set_register`` names it.
         self.editor_register: str | None = None
-        # Overlay state is per curses entry, so help never survives a step.
+        # Overlay state is per stop, so help never survives a step.
         self.help_visible = False
         self.help_scroll = 0
         self.help_track = None
@@ -850,14 +720,13 @@ class CursesDebugView:
         self.scroll_origin: tuple[int, float] | None = None
         self.scroll_drag_moved = False
         self.scroll_thumb_hits: dict[str, Rect] = {}
-        self.editor_value = None
+        self.editor_value: Any = None
         self.last_value_click: tuple[int, int, float] | None = None
-        self._last_terminal_size = self.screen.getmaxyx()
         # ``(split, origin_y, origin_x, moved)`` while a border is held.
         self.drag: tuple[str, int, int, bool] | None = None
         # Decoding an instruction is the single most expensive thing a render
         # does, and instruction memory cannot change while the debugger is
-        # stopped, so each PC is decoded at most once per curses entry.
+        # stopped, so each PC is decoded at most once per stop.
         self._disassembly_cache: dict[int, str] = {}
         # XMEM only changes through ``self.debug``, and one request can tokenise
         # into far more lines than a pane shows, so reads are cached for as
@@ -871,121 +740,44 @@ class CursesDebugView:
         self.xmem_rect = Rect(0, 0, 0, 0)
         self.pipeline_rect = Rect(0, 0, 0, 0)
         self.editor_rect = Rect(0, 0, 0, 0)
+        # Where ``_add`` sends text: the screen, or a pane's line recorder.
+        self._sink: Callable[[int, int, str, int], None] = self.screen.draw
+        self.panes: dict[str, Pane] = self._legacy_panes()
+        self._commands = self._command_table()
 
     def run(self) -> DebugAction:
-        self._configure_terminal()
         while True:
-            self._apply_terminal_resize()
+            if self.screen.resized():
+                self.redraw = True
+                self._cancel_gestures()
             if self.redraw:
                 self.render()
                 self.redraw = False
             try:
-                key = self.screen.get_wch()
-            except KeyboardInterrupt:
-                self.session.active = False
-                return DebugAction.QUIT
-            except _CURSES_ERRORS:
-                # A terminal resize interrupts the blocking read, and ncurses
-                # reports that as "no input" rather than as ``KEY_RESIZE``.
-                # Re-measure and redraw instead of falling out of the view.
-                self._apply_terminal_resize()
-                continue
-            outcome = self.handle_key(key)
-            if outcome is not _NO_OUTCOME:
-                return outcome
-            # Pointer motion arrives far faster than a frame can be drawn, so
-            # everything already queued is handled before the next redraw.
-            try:
-                with closing(self._drain_input()) as pending_keys:
-                    for pending in pending_keys:
-                        outcome = self.handle_key(pending)
-                        if outcome is not _NO_OUTCOME:
-                            return outcome
+                key = self.screen.read_key()
+                # Pointer motion arrives far faster than a frame can be drawn,
+                # so everything already queued is handled before the redraw.
+                handled = 0
+                while key is not None:
+                    outcome = self.handle_key(key)
+                    if outcome is not None:
+                        return outcome
+                    handled += 1
+                    key = self.screen.pending_key() if handled <= MAX_COALESCED_KEYS else None
             except KeyboardInterrupt:
                 self.session.active = False
                 return DebugAction.QUIT
 
-    def _drain_input(self) -> Iterator[Any]:
-        """Read and handle each queued event before consuming the next one."""
-        try:
-            self.screen.nodelay(True)
-        except (AttributeError, *_CURSES_ERRORS):
-            return
-        try:
-            for _ in range(MAX_COALESCED_KEYS):
-                try:
-                    key = self.screen.get_wch()
-                except _CURSES_ERRORS:
-                    break
-                if key is None or key == -1:
-                    break
-                yield key
-        finally:
-            try:
-                self.screen.nodelay(False)
-                self.screen.timeout(INPUT_POLL_MS)
-            except (AttributeError, *_CURSES_ERRORS):
-                pass
-
-    def _apply_terminal_resize(self) -> None:
-        """Use the actual PTY size, even when ncurses misses a resize event."""
-        if curses is None:
-            return
-        try:
-            size = os.get_terminal_size(sys.stdin.fileno())
-            dimensions = (size.lines, size.columns)
-        except (AttributeError, OSError, ValueError):
-            dimensions = self.screen.getmaxyx()
-        if min(dimensions) <= 0 or dimensions == self._last_terminal_size:
-            return
-        try:
-            if dimensions != self.screen.getmaxyx():
-                curses.resizeterm(*dimensions)
-        except (AttributeError, ValueError, curses.error):
-            return
-        self._last_terminal_size = dimensions
-        self.redraw = True
+    def _cancel_gestures(self) -> None:
+        """Drop pointer gestures in flight."""
         self.drag = None
         self.scroll_drag = None
         self.scroll_origin = None
         self.last_value_click = None
-        try:
-            self.screen.clear()
-        except (AttributeError, curses.error):
-            pass
-
-    def _configure_terminal(self) -> None:
-        # timeout()/nodelay() do not bound ncurses escape-sequence decoding.
-        # Configure this separately so cursor/mouse support cannot skip it.
-        if curses is not None:
-            try:
-                curses.set_escdelay(ESCAPE_DELAY_MS)
-            except (AttributeError, curses.error):
-                pass
-        try:
-            self.screen.keypad(True)
-            self.screen.nodelay(False)
-            try:
-                self.screen.timeout(INPUT_POLL_MS)
-            except AttributeError:
-                pass
-            if curses is not None:
-                curses.curs_set(0)
-                try:
-                    curses.mousemask(
-                        curses.ALL_MOUSE_EVENTS | getattr(curses, "REPORT_MOUSE_POSITION", 0)
-                    )
-                    curses.mouseinterval(0)
-                except curses.error:
-                    pass
-        # curses is None when the module is unavailable; the conditional still
-        # evaluates to an exception class.
-        except (AttributeError, curses.error if curses else Exception):  # noqa: B030
-            pass
 
     def _natural_register_columns(self, top_rows: int) -> int:
         """The width the active LR/CR tab needs at the grid shape it will use."""
-        tab = self.session.selected_register_tab()
+        tab = self.session.register_tab()
         grid_rows = register_grid_rows(max(1, top_rows - REGISTER_NON_CONTENT_ROWS))
         groups = self._register_groups(tab)
         columns = len(groups) * _REGISTERS_PER_GROUP // grid_rows
@@ -1044,7 +836,7 @@ class CursesDebugView:
         """Move the focused row divider by delta columns (positive is right)."""
         if self._single_pane():
             return
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         top_rows = rows - HEADER_ROWS - FOOTER_ROWS - self._clamped_top_pane_rows(rows) + 1
         if self.session.focus in ("disassembly", "pipeline"):
             current = self._clamped_pipeline_columns(columns)
@@ -1062,7 +854,7 @@ class CursesDebugView:
     def _resize_horizontal_split(self, delta: int) -> None:
         if self._single_pane():
             return
-        rows, _ = self.screen.getmaxyx()
+        rows, _ = self.screen.size()
         current = self._clamped_top_pane_rows(rows)
         self.session.top_pane_rows = current + delta
         height = self._clamped_top_pane_rows(rows)
@@ -1076,11 +868,11 @@ class CursesDebugView:
         self.session.set_message("Pane sizes reset")
 
     def _single_pane(self) -> bool:
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         return self.session.maximized or rows < MIN_TERMINAL_ROWS or columns < MIN_TERMINAL_COLUMNS
 
     def layout(self) -> dict[str, Rect] | None:
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         if rows < MIN_COMPACT_ROWS or columns < MIN_COMPACT_COLUMNS:
             return None
         if self._single_pane():
@@ -1114,7 +906,7 @@ class CursesDebugView:
             setattr(self, f"{pane}_rect", rect)
 
     def render(self) -> None:
-        self.screen.erase()
+        self.screen.clear()
         self.tab_hits.clear()
         self.tab_close_hits.clear()
         self.add_hits.clear()
@@ -1135,7 +927,7 @@ class CursesDebugView:
         if layout is None:
             self.drag = None
             self.scroll_drag = None
-            rows, columns = self.screen.getmaxyx()
+            rows, columns = self.screen.size()
             message = (
                 f"Terminal must be at least {MIN_COMPACT_COLUMNS}x"
                 f"{MIN_COMPACT_ROWS}; current size is {columns}x{rows}."
@@ -1157,33 +949,64 @@ class CursesDebugView:
                 self._box(layout[pane], focused=self.session.focus == pane)
         self._flush_borders()
         self._draw_header(layout["header"])
-        for pane, draw in (
-            ("disassembly", self._draw_disassembly),
-            ("registers", self._draw_registers),
-            ("xmem", self._draw_xmem),
-            ("pipeline", self._draw_pipeline_register),
-        ):
-            if pane in layout:
-                draw(layout[pane])
+        for pane_id in PANE_DRAW_ORDER:
+            if pane_id in layout:
+                pane = self.panes[pane_id]
+                for line in pane.render(self.debug, self.session.panes[pane_id], layout[pane_id]):
+                    self.screen.draw(line.y, line.x, line.text, line.style)
         self._draw_scrollbars()
         self._draw_keys(layout["keys"])
         if self.help_visible:
             self._draw_help()
         elif self.editor_mode:
             self._draw_editor()
+        else:
+            self.screen.cursor(False)
         self._refresh()
         self.redraw = False
 
     def _refresh(self) -> None:
+        self.screen.refresh()
+
+    def _legacy_panes(self) -> dict[str, Pane]:
+        """Each pane, wrapping the drawing code that still lives here."""
+        commands: dict[Command, Callable[[], Outcome]] = {
+            Command.CYCLE_FORMAT: self._cycle_focused_format,
+            Command.EDIT_VALUE: self._edit_focused_value,
+            Command.MOVE_UP: lambda: self._move_or_scroll_stages(dy=-1),
+            Command.MOVE_DOWN: lambda: self._move_or_scroll_stages(dy=1),
+            Command.MOVE_LEFT: lambda: self._move_focused_cursor(dx=-1),
+            Command.MOVE_RIGHT: lambda: self._move_focused_cursor(dx=1),
+            Command.PAGE_UP: lambda: self._page_focused_cursor(-1),
+            Command.PAGE_DOWN: lambda: self._page_focused_cursor(1),
+            Command.JUMP_FIRST: lambda: self._jump_or_scroll_stages(end=False),
+            Command.JUMP_LAST: lambda: self._jump_or_scroll_stages(end=True),
+        }
+        draws: dict[str, Callable[[Rect], None]] = {
+            "disassembly": self._draw_disassembly,
+            "registers": self._draw_registers,
+            "xmem": self._draw_xmem,
+            "pipeline": self._draw_pipeline_register,
+        }
+        return {
+            pane: LegacyPane(pane, draw, self._capture_lines, commands)
+            for pane, draw in draws.items()
+        }
+
+    def _capture_lines(self, draw: Callable[[Rect], None], rect: Rect) -> list[Line]:
+        """Run *draw* with ``_add`` recording into a list instead of the screen."""
+        recorder = LineRecorder()
+        self._sink = recorder
         try:
-            self.screen.refresh()
-        except _CURSES_ERRORS:
-            pass
+            draw(rect)
+        finally:
+            self._sink = self.screen.draw
+        return recorder.lines
 
     def _draw_header(self, rect: Rect) -> None:
         mode = "wide" if self.state.wide_vector_debug else "normal"
         segments = [
-            self.control.kernel_name or "IPU DEBUG",
+            self.debug.kernel_name or "IPU DEBUG",
             "PAUSED",
             f"PC={self.state.program_counter:04d}",
             f"cycle={self.cycle}",
@@ -1227,44 +1050,11 @@ class CursesDebugView:
         self._add(rect.y, x, label, self.colors.key, len(label))
         self.action_hits.append((Rect(rect.y, x, 1, len(label)), "?"))
 
-    def _pane_tabs(self, pane: str) -> list[Any]:
-        if pane == "disassembly":
-            return self.session.disassembly_tabs
-        if pane == "registers":
-            return self.session.register_tabs
-        if pane == "pipeline":
-            return self.session.pipeline_tabs
-        return self.session.tabs
-
-    @staticmethod
-    def _pane_active_attribute(pane: str) -> str:
-        return {
-            "disassembly": "active_disassembly_tab",
-            "registers": "active_register_tab",
-            "xmem": "active_tab",
-            "pipeline": "active_pipeline_tab",
-        }[pane]
-
-    @staticmethod
-    def _pane_offset_attribute(pane: str) -> str:
-        return {
-            "disassembly": "disassembly_tab_offset",
-            "registers": "register_tab_offset",
-            "xmem": "tab_offset",
-            "pipeline": "pipeline_tab_offset",
-        }[pane]
-
-    def _active_pane_tab_index(self, pane: str) -> int:
-        return getattr(self.session, self._pane_active_attribute(pane))
-
-    def _set_active_pane_tab_index(self, pane: str, index: int) -> None:
-        setattr(self.session, self._pane_active_attribute(pane), index)
-
     def _draw_tab_bar(self, pane: str, rect: Rect) -> None:
-        tabs = self._pane_tabs(pane)
-        active = self._active_pane_tab_index(pane)
-        offset_attribute = self._pane_offset_attribute(pane)
-        offset = getattr(self.session, offset_attribute)
+        tab_set = self.session.panes[pane]
+        tabs = tab_set.tabs
+        active = tab_set.active
+        offset = tab_set.offset
 
         def tab_label(tab: Any) -> str:
             title = tab.title
@@ -1298,7 +1088,7 @@ class CursesDebugView:
             if active_span <= available_width:
                 break
             offset += 1
-        setattr(self.session, offset_attribute, offset)
+        tab_set.offset = offset
         if offset:
             self._add(
                 tab_y,
@@ -1378,7 +1168,7 @@ class CursesDebugView:
         return text
 
     def _draw_disassembly(self, rect: Rect) -> None:
-        tab = self.session.selected_disassembly_tab()
+        tab = self.session.disassembly_tab()
         self._draw_tab_bar("disassembly", rect)
         if tab.fmt == "stages":
             self._draw_stages(rect)
@@ -1412,7 +1202,7 @@ class CursesDebugView:
             if is_empty and not is_current:
                 attr = self.colors.border
             if pc == centered_pc:
-                attr = _overlay_attr(attr, cursor_attr)
+                attr = overlay_style(attr, cursor_attr)
             y = rect.y + 3 + row
             x = rect.x + 1
             limit = x + row_width
@@ -1426,7 +1216,7 @@ class CursesDebugView:
                     y,
                     x + len(prefix),
                     DISASSEMBLY_PARALLEL_MARKER,
-                    _overlay_attr(self.colors.border, attr),
+                    overlay_style(self.colors.border, attr),
                     limit - x - len(prefix),
                 )
                 self._add(
@@ -1469,7 +1259,7 @@ class CursesDebugView:
                     )
                 names = slot_labels[pc]
                 label = names[slot] if slot < len(names) else ""
-                self._add(y, limit, label.rjust(11) + " ", _overlay_attr(self.colors.key, attr), 12)
+                self._add(y, limit, label.rjust(11) + " ", overlay_style(self.colors.key, attr), 12)
         self.scroll_state["disassembly"] = (
             first,
             last - first + 1,
@@ -1577,7 +1367,7 @@ class CursesDebugView:
             self._add(rect.y + 3 + index, rect.x + 1, line, attr, width)
 
     def _draw_registers(self, rect: Rect) -> None:
-        tab = self.session.selected_register_tab()
+        tab = self.session.register_tab()
         self._draw_tab_bar("registers", rect)
         groups = self._register_groups(tab)
         grid_rows = register_grid_rows(max(1, rect.height - REGISTER_NON_CONTENT_ROWS))
@@ -1699,8 +1489,8 @@ class CursesDebugView:
         value_attr = self.colors.changed if changed else self._value_attr(not value)
         if tab.cursor == visual_index:
             cursor_attr = self._cursor_attr("registers")
-            label_attr = _overlay_attr(label_attr, cursor_attr)
-            value_attr = _overlay_attr(value_attr, cursor_attr)
+            label_attr = overlay_style(label_attr, cursor_attr)
+            value_attr = overlay_style(value_attr, cursor_attr)
         self.value_hits.setdefault("registers", []).append((Rect(y, x, 1, width), visual_index))
         self._add(y, x, label, label_attr, min(len(label), width))
         remaining = width - len(label)
@@ -1743,7 +1533,7 @@ class CursesDebugView:
             and all(character in _PADDED_VALUE_CHARACTERS for character in text)
         ):
             padding = len(text) - len(significant)
-            self._add(y, x, text[:padding], _overlay_attr(self.colors.border, attr), max_width)
+            self._add(y, x, text[:padding], overlay_style(self.colors.border, attr), max_width)
             self._add(
                 y,
                 x + padding,
@@ -1778,7 +1568,7 @@ class CursesDebugView:
         focused = self.session.focus == "xmem"
         self._draw_tab_bar("xmem", rect)
 
-        tab = self.session.selected_tab()
+        tab = self.session.xmem.current()
         content_y = rect.y + 2
         content_height = max(0, rect.height - XMEM_NON_CONTENT_ROWS)
         limit = rect.x + rect.width - 1 - SCROLLBAR_COLUMNS
@@ -1895,7 +1685,7 @@ class CursesDebugView:
                     tab.cursor_line,
                     tab.cursor_column,
                 ):
-                    attr = _overlay_attr(
+                    attr = overlay_style(
                         attr,
                         (
                             self.colors.cell_selected
@@ -1955,7 +1745,7 @@ class CursesDebugView:
             tab.horizontal_scroll += 1
 
     def _draw_pipeline_register(self, rect: Rect) -> None:
-        tab = self.session.selected_pipeline_tab()
+        tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
         data = _read_pipeline_register(self.state, spec)
         fmt = tab.fmt or _pipeline_format(self.state, spec)
@@ -2058,7 +1848,7 @@ class CursesDebugView:
                 if changed:
                     attr |= self.colors.cell_changed if is_colored_cell else self.colors.changed
                 if selected:
-                    attr = _overlay_attr(
+                    attr = overlay_style(
                         attr,
                         (
                             self.colors.cell_selected
@@ -2099,7 +1889,7 @@ class CursesDebugView:
     def _pipeline_display_rows(self, fmt: str, rect: Rect, item_count: int) -> list[int | None]:
         per_line = self._pipeline_items_per_line(fmt, rect)
         size, _ = self._pipeline_value_geometry(fmt)
-        mask = self.session.selected_pipeline_tab().register_key == "r_mask"
+        mask = self.session.pipeline_tab().register_key == "r_mask"
         rows: list[int | None] = []
         for first in range(0, item_count, per_line):
             # R_MASK is eight independent 128-bit (16-byte) slots.
@@ -2126,7 +1916,7 @@ class CursesDebugView:
             item_count += 1
             if used_width >= available_width:
                 break
-        if self.session.selected_pipeline_tab().register_key == "r_mask":
+        if self.session.pipeline_tab().register_key == "r_mask":
             size, _ = self._pipeline_value_geometry(fmt)
             slot_items = 16 // size
             item_count = max(
@@ -2167,7 +1957,7 @@ class CursesDebugView:
         return f"{value:>{width}.{F32_SIGNIFICANT_DIGITS}g}"
 
     def _draw_keys(self, rect: Rect) -> None:
-        text = self._footer_text(rect.width)
+        text = footer_text(self.session.focus, rect.width)
         self._add(
             rect.y,
             rect.x,
@@ -2178,69 +1968,13 @@ class CursesDebugView:
         for match in re.finditer(r"(?<!\S)([^\s:]+)(?=:| Quit)", text):
             self._add(rect.y, rect.x + match.start(), match[0], self.colors.key, len(match[0]))
         for binding in KEY_BINDINGS:
-            if binding.footer and self.session.focus in binding.panes:
-                start = text.find(binding.footer)
-                if start >= 0:
-                    if binding.keys == ("d", "a"):
-                        for label, key in (("a:Prev", "a"), ("d:Next", "d")):
-                            self.action_hits.append(
-                                (Rect(rect.y, rect.x + text.index(label), 1, len(label)), key)
-                            )
-                        continue
-                    key = binding.keys[0]
-                    if key.startswith("F") and key[1:].isdigit():
-                        key = getattr(curses, "KEY_" + key, None)
-                    elif key == "1-4":
-                        key = "KEY_BTAB"
-                    elif key == "Tab":
-                        key = "\t"
-                    elif key == "Shift-Tab":
-                        key = "KEY_BTAB"
-                    elif key == "Arrows":
-                        continue
-                    elif key.startswith("Shift-"):
-                        continue
-                    if key == "KEY_BTAB":
-                        key = getattr(curses, key, None)
-                    if key is not None:
-                        self.action_hits.append(
-                            (Rect(rect.y, rect.x + start, 1, len(binding.footer)), key)
-                        )
-
-    def _footer_text(self, width: int) -> str:
-        """Fit whole shortcut labels, most important first, never clipping."""
-        # Execution, navigation, view/editing, layout, exit.
-        groups = (
-            ("F5", "F8", "F9", "F10"),
-            ("Arrows", "Tab", "d", "Shift-Tab"),
-            ("f", "e", "F2", "F3", "F4"),
-            ("Shift-Left", "Shift-Up", "="),
-            ("q",),
-        )
-        candidates = [
-            binding
-            for binding in KEY_BINDINGS
-            if binding.footer
-            and binding.scope in ("global", "pane")
-            and self.session.focus in binding.panes
-        ]
-
-        def format_bindings(selected: list[KeyBinding]) -> str:
-            parts = []
-            for group in groups:
-                ordered = sorted(
-                    (binding for binding in selected if binding.keys[0] in group),
-                    key=lambda binding: group.index(binding.keys[0]),
-                )
-                if ordered:
-                    parts.append(" ".join(binding.footer for binding in ordered))
-            return " " + " | ".join(parts)
-
-        selected: list[KeyBinding] = []
-        for binding in sorted(candidates, key=lambda item: item.footer_rank):
-            if len(format_bindings([*selected, binding])) <= width:
-                selected.append(binding)
-        return format_bindings(selected)[:width]
+            if not binding.footer or self.session.focus not in binding.panes:
+                continue
+            if text.find(binding.footer) < 0:
+                continue
+            for label, key in footer_actions(binding):
+                start = text.find(label)
+                self.action_hits.append((Rect(rect.y, rect.x + start, 1, len(label)), key))
 
     def _draw_position(self, rect: Rect, text: str, *, top: bool = False) -> bool:
         """Right-align a scroll-position readout on one of a pane's borders.
@@ -2318,44 +2052,15 @@ class CursesDebugView:
                 self.colors.focus if self.session.focus == pane else self.colors.border,
             )
 
-    @staticmethod
-    def _help_lines(width: int = 72) -> list[tuple[str, int]]:
-        """Every binding as ``(text, attribute_kind)`` where 1 marks a heading."""
-        lines: list[tuple[str, int]] = []
-        key_width = max(len(" / ".join(binding.keys)) for binding in KEY_BINDINGS)
-        for scope, title in HELP_SCOPE_TITLES:
-            bindings = [
-                binding
-                for binding in KEY_BINDINGS
-                if binding.scope == scope and binding.keys != ("q",)
-            ]
-            if not bindings:
-                continue
-            if lines:
-                lines.append(("", 0))
-            lines.append((title, 1))
-            for binding in bindings:
-                keys = " / ".join(binding.keys)
-                if width >= 60:
-                    keys = keys.ljust(key_width)
-                indent = " " * (key_width + 2)
-                for line in textwrap.wrap(
-                    f"{keys}  {binding.description}",
-                    width=width,
-                    subsequent_indent=indent if width >= 60 else "  ",
-                ):
-                    lines.append((line, 0))
-        return lines
-
     def _draw_help(self) -> None:
-        width = min(self.screen.getmaxyx()[1] - 4, 78)
-        lines = self._help_lines(width - 5)
+        width = min(self.screen.size()[1] - 4, 78)
+        lines = help_lines(width - 5)
         rect = self._overlay_rect(78, len(lines) + 4)
         for row in range(rect.height):
             self._add(rect.y + row, rect.x, " " * rect.width, max_width=rect.width)
         self._draw_overlay_frame(rect, ["Debugger controls"])
         self._add(rect.y, rect.x + rect.width - 5, "[x]", self.colors.key)
-        self.overlay_hits.append((Rect(rect.y, rect.x + rect.width - 6, 1, 5), "\x1b"))
+        self.overlay_hits.append((Rect(rect.y, rect.x + rect.width - 6, 1, 5), Key.ESCAPE))
         visible = max(1, rect.height - 3)
         self.help_max_scroll = max(0, len(lines) - visible)
         self.help_scroll = max(0, min(self.help_scroll, self.help_max_scroll))
@@ -2400,13 +2105,13 @@ class CursesDebugView:
             rect.width - 2,
         )
 
-    def _handle_help_mouse(
-        self, y: int, x: int, pressed: bool, released: bool, wheel: int
-    ) -> object:
+    def _handle_help_mouse(self, event: MouseEvent, wheel: int) -> Outcome:
+        y, x = event.y, event.x
+        pressed, released = event.pressed, event.release
         self.redraw = True
         if wheel:
             self.help_scroll = max(0, min(self.help_max_scroll, self.help_scroll + wheel))
-            return _NO_OUTCOME
+            return None
         if self.help_drag is not None and self.help_track and self.help_thumb:
             origin_y, origin_scroll = self.help_drag
             travel = max(1, self.help_track.height - self.help_thumb.height)
@@ -2419,7 +2124,7 @@ class CursesDebugView:
             )
             if released:
                 self.help_drag = None
-            return _NO_OUTCOME
+            return None
         if pressed or released:
             for hit, key in self.overlay_hits:
                 if hit.contains(y, x):
@@ -2433,30 +2138,22 @@ class CursesDebugView:
             else:
                 delta = self.help_track.height * (-1 if y < self.help_thumb.y else 1)
                 self.help_scroll = max(0, min(self.help_max_scroll, self.help_scroll + delta))
-        return _NO_OUTCOME
+        return None
 
-    def _handle_help_key(self, key: Any) -> object:
-        """Consume every key while the help overlay is up."""
-        if key in (27, "\x1b", "\n", "\r", 10, 13) or key == "?" or self._key_is("KEY_ENTER", key):
-            self.help_visible = False
-            self.help_drag = None
-            self.help_scroll = 0
-            return _NO_OUTCOME
-        page = max(1, self.screen.getmaxyx()[0] - 6)
-        if self._key_is("KEY_UP", key):
-            self.help_scroll = max(0, self.help_scroll - 1)
-        elif self._key_is("KEY_DOWN", key):
-            self.help_scroll += 1
-        elif self._key_is("KEY_PPAGE", key):
-            self.help_scroll = max(0, self.help_scroll - page)
-        elif self._key_is("KEY_NPAGE", key):
-            self.help_scroll += page
-        elif self._key_is("KEY_HOME", key):
-            self.help_scroll = 0
-        elif self._key_is("KEY_END", key):
-            width = min(self.screen.getmaxyx()[1] - 4, 78)
-            self.help_scroll = len(self._help_lines(width - 4))
-        return _NO_OUTCOME
+    def _close_help(self) -> None:
+        self.help_visible = False
+        self.help_drag = None
+        self.help_scroll = 0
+
+    def _scroll_help(self, delta: int) -> None:
+        self.help_scroll = max(0, self.help_scroll + delta)
+
+    def _help_page(self) -> int:
+        return max(1, self.screen.size()[0] - 6)
+
+    def _help_to_bottom(self) -> None:
+        width = min(self.screen.size()[1] - 4, 78)
+        self.help_scroll = len(help_lines(width - 4))
 
     def _draw_editor(self) -> None:
         rect = self._overlay_rect(76, EDITOR_HEIGHT)
@@ -2548,299 +2245,273 @@ class CursesDebugView:
         hint_x = max(rect.x + 1, rect.x + rect.width - 4 - len(hint)) + 1
         self.overlay_hits.extend(
             [
-                (Rect(rect.y + rect.height - 1, hint_x, 1, len("Enter Apply")), "\n"),
+                (Rect(rect.y + rect.height - 1, hint_x, 1, len("Enter Apply")), Key.ENTER),
                 (
                     Rect(
                         rect.y + rect.height - 1, hint_x + hint.index("Esc"), 1, len("Esc Cancel")
                     ),
-                    "\x1b",
+                    Key.ESCAPE,
                 ),
             ]
         )
         cursor_x = x + 2 + len(label) + self.cursor - visible_start
-        try:
-            if curses is not None:
-                curses.curs_set(1)
-            self.screen.move(y + 4, min(x + width - 2, cursor_x))
-        except Exception:
-            pass
+        self.screen.cursor(True, y + 4, min(x + width - 2, cursor_x))
 
-    def handle_key(self, key: Any) -> object:
+    def handle_key(self, key: Input) -> Outcome:
+        """Act on one input; a ``DebugAction`` ends this stop, None stays."""
         # A preceding queued event may have changed layout without a repaint.
         # Cursor arithmetic must use the new pane dimensions immediately.
         self._update_pane_rects(self.layout())
-        if not self._key_is("KEY_MOUSE", key):
-            self.redraw = True
-        if curses is not None and key == getattr(curses, "KEY_RESIZE", -1):
-            self._apply_terminal_resize()
-            return _NO_OUTCOME
+        if isinstance(key, MouseEvent):
+            return self._handle_mouse(key)
+        self.redraw = True
         # A drag whose release never arrives - the pointer left the terminal,
         # say - must not turn every later mouse event into a resize.
-        if not self._key_is("KEY_MOUSE", key):
-            self.drag = None
-            self.scroll_drag = None
-            self.scroll_origin = None
-            self.last_value_click = None
-        if self._key_is("KEY_MOUSE", key):
-            return self._handle_mouse()
-        # The overlay is modal: it must claim Esc before the editor sees it.
-        if self.help_visible:
-            return self._handle_help_key(key)
-        if key in (27, "\x1b"):
-            if (
-                self.session.stages_visible
-                and self.session.focus == "disassembly"
-                and not self.editor_mode
-            ):
-                self.session.stages_visible = False
-                return _NO_OUTCOME
-            if self.editor_mode:
-                pane = self.editor_pane
-                self._clear_editor()
-                label = "XMEM" if pane == "xmem" else pane
-                self.session.set_message(f"{label} tab edit cancelled")
-            return _NO_OUTCOME
-        if self.editor_mode:
-            return self._handle_editor_key(key)
-        if self.session.stages_visible and self.session.focus == "disassembly":
-            movements = {
-                "KEY_DOWN": 1,
-                "KEY_UP": -1,
-                "KEY_NPAGE": max(1, self.disassembly_rect.height - 4),
-                "KEY_PPAGE": -max(1, self.disassembly_rect.height - 4),
-            }
-            for name, delta in movements.items():
-                if self._key_is(name, key):
-                    self.session.stages_scroll = max(0, self.session.stages_scroll + delta)
-                    return _NO_OUTCOME
-            if self._key_is("KEY_HOME", key) or self._key_is("KEY_END", key):
-                self.session.stages_scroll = 0 if self._key_is("KEY_HOME", key) else 10000
-                return _NO_OUTCOME
-        if key in ("e", "E"):
-            if self.session.focus == "disassembly":
-                self._begin_scalar_editor("pc")
-            elif self.session.focus in ("registers", "pipeline", "xmem"):
-                self._begin_value_editor()
-            return _NO_OUTCOME
-        if self._key_is("KEY_F9", key) or self._key_is("KEY_F10", key):
-            if self.session.focus != "disassembly":
-                return _NO_OUTCOME
-            tab = self.session.selected_disassembly_tab()
-            base = self.state.program_counter if tab.target is None else tab.target
-            pc = max(0, min(INST_MEM_SIZE - 1, base + tab.cursor_offset))
-            if self._key_is("KEY_F9", key):
-                enabled = self.debug.toggle_breakpoint(pc)
-                action = "set" if enabled else "removed"
-                self.session.set_message(f"Breakpoint {action} at PC {pc}")
-            elif self.debug.run_until(pc):
-                return self._execution_action(DebugAction.CONTINUE)
-            else:
-                self.session.set_message(f"Already at PC {pc}")
-            return _NO_OUTCOME
-        if isinstance(key, str) and key.lower() == "q":
-            self.debug.halt()
-            return self._execution_action(DebugAction.QUIT)
-        if isinstance(key, str) and key.lower() == "f":
-            self._cycle_focused_format()
-            return _NO_OUTCOME
-        if isinstance(key, str) and key in PANE_FOCUS_KEYS:
-            self._focus_pane(PANE_FOCUS_KEYS[key])
-            return _NO_OUTCOME
-        if isinstance(key, str) and key.lower() == "a":
-            self._select_tab_in_focused_pane(-1)
-            return _NO_OUTCOME
-        if isinstance(key, str) and key.lower() == "d":
-            self._select_tab_in_focused_pane(1)
-            return _NO_OUTCOME
-        # Opens only outside an editor, so "?" stays typable in a tab request.
-        if key == "?":
-            self.help_visible = True
-            self.help_scroll = 0
-            return _NO_OUTCOME
-        if key == "=":
-            self._reset_splits()
-            return _NO_OUTCOME
-        if self._key_is("KEY_F2", key):
-            self._begin_tab_editor("add")
-            return _NO_OUTCOME
-        if self._key_is("KEY_F3", key):
-            self._begin_tab_editor("edit")
-            return _NO_OUTCOME
-        if self._key_is("KEY_F4", key):
-            self._close_active_tab()
-            return _NO_OUTCOME
-        if self._key_is("KEY_F5", key):
-            return self._execution_action(DebugAction.CONTINUE)
-        if self._key_is("KEY_F8", key):
-            return self._execution_action(DebugAction.STEP)
-        if key in ("\t", 9):
-            self._select_tab_in_focused_pane(1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_BTAB", key):
-            self._select_relative_pane(1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_PPAGE", key):
-            self._move_focused_cursor(dy=-self._focused_page_size())
-            return _NO_OUTCOME
-        if self._key_is("KEY_NPAGE", key):
-            self._move_focused_cursor(dy=self._focused_page_size())
-            return _NO_OUTCOME
-        if self._key_is("KEY_HOME", key):
-            self._jump_focused_cursor(end=False)
-            return _NO_OUTCOME
-        if self._key_is("KEY_END", key):
-            self._jump_focused_cursor(end=True)
-            return _NO_OUTCOME
-        # Shift-Left moves the focused row's split left, so its right-hand
-        # pane grows.
-        if self._key_is("KEY_SLEFT", key):
-            self._resize_vertical_split(-PANE_RESIZE_STEP)
-            return _NO_OUTCOME
-        if self._key_is("KEY_SRIGHT", key):
-            self._resize_vertical_split(PANE_RESIZE_STEP)
-            return _NO_OUTCOME
-        if self._key_is("KEY_SR", key):
-            self._resize_horizontal_split(-1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_SF", key):
-            self._resize_horizontal_split(1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_UP", key):
-            self._move_focused_cursor(dy=-1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_DOWN", key):
-            self._move_focused_cursor(dy=1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_LEFT", key):
-            self._move_focused_cursor(dx=-1)
-            return _NO_OUTCOME
-        if self._key_is("KEY_RIGHT", key):
-            self._move_focused_cursor(dx=1)
-            return _NO_OUTCOME
-        return _NO_OUTCOME
+        self._cancel_gestures()
+        if key is Key.RESIZE:
+            return None
+        command = lookup(self._key_focus(), key)
+        if command is not None:
+            return self._commands[command]()
+        if self.editor_mode and not self.help_visible:
+            self._edit_text(key)
+        return None
 
-    def _handle_editor_key(self, key: Any) -> object:
-        if self._key_is("KEY_LEFT", key):
-            self.cursor = max(0, self.cursor - 1)
-        elif self._key_is("KEY_RIGHT", key):
-            self.cursor = min(len(self.command), self.cursor + 1)
-        elif self._key_is("KEY_HOME", key):
-            self.cursor = 0
-        elif self._key_is("KEY_END", key):
-            self.cursor = len(self.command)
-        elif self._key_is("KEY_DC", key) and self.cursor < len(self.command):
+    def _key_focus(self) -> Focus:
+        """The help overlay and the editor are modal; otherwise the focused pane."""
+        if self.help_visible:
+            return Focus.HELP
+        if self.editor_mode:
+            return Focus.EDITOR
+        return PANE_FOCUS[self.session.focus]
+
+    def _command_table(self) -> dict[Command, Callable[[], Outcome]]:
+        """The method that carries out each command."""
+
+        def does(action: Callable[[], object]) -> Callable[[], Outcome]:
+            def run() -> Outcome:
+                action()
+                return None
+
+            return run
+
+        table: dict[Command, Callable[[], Outcome]] = {
+            Command.QUIT: self._quit,
+            Command.CONTINUE: lambda: self._execution_action(DebugAction.CONTINUE),
+            Command.STEP: lambda: self._execution_action(DebugAction.STEP),
+            Command.SHOW_HELP: does(self._show_help),
+            Command.RESET_SPLITS: does(self._reset_splits),
+            Command.NEXT_PANE: does(lambda: self._select_relative_pane(1)),
+            Command.SPLIT_LEFT: does(lambda: self._resize_vertical_split(-PANE_RESIZE_STEP)),
+            Command.SPLIT_RIGHT: does(lambda: self._resize_vertical_split(PANE_RESIZE_STEP)),
+            Command.SPLIT_UP: does(lambda: self._resize_horizontal_split(-1)),
+            Command.SPLIT_DOWN: does(lambda: self._resize_horizontal_split(1)),
+            Command.ADD_TAB: does(lambda: self._begin_tab_editor("add")),
+            Command.EDIT_TAB: does(lambda: self._begin_tab_editor("edit")),
+            Command.CLOSE_TAB: does(self._close_active_tab),
+            Command.NEXT_TAB: does(lambda: self._select_tab_in_focused_pane(1)),
+            Command.PREVIOUS_TAB: does(lambda: self._select_tab_in_focused_pane(-1)),
+            Command.TOGGLE_BREAKPOINT: does(self._toggle_breakpoint_at_cursor),
+            Command.RUN_TO_CURSOR: self._run_to_cursor,
+            Command.CANCEL: does(self._cancel),
+            Command.EDITOR_LEFT: does(lambda: self._move_editor_cursor(self.cursor - 1)),
+            Command.EDITOR_RIGHT: does(lambda: self._move_editor_cursor(self.cursor + 1)),
+            Command.EDITOR_HOME: does(lambda: self._move_editor_cursor(0)),
+            Command.EDITOR_END: does(lambda: self._move_editor_cursor(len(self.command))),
+            Command.EDITOR_SUBMIT: self._submit_editor,
+            Command.CLOSE_HELP: does(self._close_help),
+            Command.HELP_UP: does(lambda: self._scroll_help(-1)),
+            Command.HELP_DOWN: does(lambda: self._scroll_help(1)),
+            Command.HELP_PAGE_UP: does(lambda: self._scroll_help(-self._help_page())),
+            Command.HELP_PAGE_DOWN: does(lambda: self._scroll_help(self._help_page())),
+            Command.HELP_TOP: does(self._close_help_scroll_to_top),
+            Command.HELP_BOTTOM: does(self._help_to_bottom),
+        }
+        for command, pane in (
+            (Command.FOCUS_PIPELINE, "pipeline"),
+            (Command.FOCUS_DISASSEMBLY, "disassembly"),
+            (Command.FOCUS_XMEM, "xmem"),
+            (Command.FOCUS_REGISTERS, "registers"),
+        ):
+            table[command] = does(lambda pane=pane: self._focus_pane(pane))
+        for command in PANE_COMMANDS:
+            table[command] = lambda command=command: self._pane_command(command)
+        return table
+
+    def _pane_command(self, command: Command) -> Outcome:
+        pane = self.session.focus
+        return self.panes[pane].handle(command, self.debug, self.session.panes[pane])
+
+    def _close_help_scroll_to_top(self) -> None:
+        self.help_scroll = 0
+
+    def _show_help(self) -> None:
+        # Opens only outside an editor, so "?" stays typable in a tab request.
+        self.help_visible = True
+        self.help_scroll = 0
+
+    def _quit(self) -> Outcome:
+        self.debug.halt()
+        return self._execution_action(DebugAction.QUIT)
+
+    def _cancel(self) -> None:
+        """Esc: leave the editor, or the disassembly pane's stage view."""
+        if self.editor_mode:
+            pane = self.editor_pane
+            self._clear_editor()
+            label = "XMEM" if pane == "xmem" else pane
+            self.session.set_message(f"{label} tab edit cancelled")
+        elif self.session.stages_visible and self.session.focus == "disassembly":
+            self.session.stages_visible = False
+
+    def _disassembly_cursor_pc(self) -> int:
+        tab = self.session.disassembly_tab()
+        base = self.state.program_counter if tab.target is None else tab.target
+        return max(0, min(INST_MEM_SIZE - 1, base + tab.cursor_offset))
+
+    def _toggle_breakpoint_at_cursor(self) -> None:
+        pc = self._disassembly_cursor_pc()
+        enabled = self.debug.toggle_breakpoint(pc)
+        action = "set" if enabled else "removed"
+        self.session.set_message(f"Breakpoint {action} at PC {pc}")
+
+    def _run_to_cursor(self) -> Outcome:
+        pc = self._disassembly_cursor_pc()
+        if self.debug.run_until(pc):
+            return self._execution_action(DebugAction.CONTINUE)
+        self.session.set_message(f"Already at PC {pc}")
+        return None
+
+    def _stages_shown(self) -> bool:
+        return self.session.stages_visible and self.session.focus == "disassembly"
+
+    def _scroll_stages(self, delta: int) -> None:
+        self.session.stages_scroll = max(0, self.session.stages_scroll + delta)
+
+    def _move_or_scroll_stages(self, *, dy: int) -> None:
+        if self._stages_shown():
+            self._scroll_stages(dy)
+        else:
+            self._move_focused_cursor(dy=dy)
+
+    def _page_focused_cursor(self, direction: int) -> None:
+        if self._stages_shown():
+            self._scroll_stages(direction * max(1, self.disassembly_rect.height - 4))
+        else:
+            self._move_focused_cursor(dy=direction * self._focused_page_size())
+
+    def _jump_or_scroll_stages(self, *, end: bool) -> None:
+        if self._stages_shown():
+            self.session.stages_scroll = 10000 if end else 0
+        else:
+            self._jump_focused_cursor(end=end)
+
+    def _edit_focused_value(self) -> None:
+        if self.session.focus == "disassembly":
+            self._begin_scalar_editor("pc")
+        else:
+            self._begin_value_editor()
+
+    def _move_editor_cursor(self, position: int) -> None:
+        self.cursor = max(0, min(len(self.command), position))
+
+    def _submit_editor(self) -> Outcome:
+        if self.editor_mode == "scalar":
+            return self._submit_scalar_editor()
+        if self.editor_mode == "value":
+            return self._submit_value_editor()
+        return self._submit_tab_editor(self.command.strip())
+
+    def _edit_text(self, key: Input) -> None:
+        """Typing in the editor: insert a character, or delete one."""
+        if key is Key.DELETE and self.cursor < len(self.command):
             self.command = self.command[: self.cursor] + self.command[self.cursor + 1 :]
-        elif (key in ("\b", "\x7f", 8) or self._key_is("KEY_BACKSPACE", key)) and self.cursor > 0:
+        elif key is Key.BACKSPACE and self.cursor > 0:
             self.command = self.command[: self.cursor - 1] + self.command[self.cursor :]
             self.cursor -= 1
-        elif key in ("\n", "\r", 10, 13) or self._key_is("KEY_ENTER", key):
-            if self.editor_mode == "scalar":
-                return self._submit_scalar_editor()
-            if self.editor_mode == "value":
-                return self._submit_value_editor()
-            return self._submit_tab_editor(self.command.strip())
         elif isinstance(key, str) and key.isprintable():
             self.command = self.command[: self.cursor] + key + self.command[self.cursor :]
             self.cursor += len(key)
-        return _NO_OUTCOME
 
-    def _handle_mouse(self) -> object:
-        if curses is None:
-            return _NO_OUTCOME
-        try:
-            _, x, y, _, button_state = curses.getmouse()
-        except curses.error:
-            return _NO_OUTCOME
-        released = bool(button_state & getattr(curses, "BUTTON1_RELEASED", 0))
-        pressed = bool(
-            button_state
-            & (
-                getattr(curses, "BUTTON1_PRESSED", 0)
-                | getattr(curses, "BUTTON1_CLICKED", 0)
-                | getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0)
-            )
-        )
-        wheel = 0
-        if button_state & getattr(curses, "BUTTON4_PRESSED", 0):
-            wheel = -MOUSE_WHEEL_LINES
-        elif button_state & getattr(curses, "BUTTON5_PRESSED", 0):
-            wheel = MOUSE_WHEEL_LINES
+    def _handle_mouse(self, event: MouseEvent) -> Outcome:
+        y, x = event.y, event.x
+        released, pressed = event.release, event.pressed
+        wheel = event.wheel * MOUSE_WHEEL_LINES
         if released and self.consume_mouse_release:
             self.consume_mouse_release = False
-            return _NO_OUTCOME
+            return None
         if pressed:
             self.consume_mouse_release = False
         if not (pressed or released or wheel or self.drag or self.scroll_drag or self.help_drag):
-            return _NO_OUTCOME
+            return None
         if self.redraw:
             self.render()
         if self.help_visible:
-            return self._handle_help_mouse(y, x, pressed, released, wheel)
-        # Modal controls consume every pointer event, including wheel input.
-        if self.help_visible or self.editor_mode:
+            return self._handle_help_mouse(event, wheel)
+        # The editor is modal: it consumes every pointer event, wheel included.
+        if self.editor_mode:
             self.redraw = True
-            if wheel and self.help_visible:
-                self.help_scroll = max(0, self.help_scroll + wheel)
             if pressed:
                 for rect, key in self.overlay_hits:
                     if rect.contains(y, x):
                         return self.handle_key(key)
-                if self.editor_mode and self.editor_field is not None:
+                if self.editor_field is not None:
                     rect, start = self.editor_field
                     if rect.contains(y, x):
                         self.cursor = min(len(self.command), start + x - rect.x)
-            return _NO_OUTCOME
+            return None
         if self.scroll_drag is not None:
-            pane = self.scroll_drag
-            track = self.scrollbar_hits.get(pane)
-            if track is not None:
-                origin_y, fraction = self.scroll_origin or (track.y, 0.0)
-                delta = y - origin_y
-                if delta or self.scroll_drag_moved:
-                    self.scroll_drag_moved = True
-                    self._scroll_to_fraction(pane, fraction + delta / max(1, track.height - 1))
-                    self.redraw = True
-            if released:
-                self.scroll_drag = None
-                self.scroll_origin = None
-            return _NO_OUTCOME
+            self._continue_scroll_drag(y, released)
+            return None
         if self.drag is not None:
             return self._continue_drag(y, x, released)
         if wheel:
             self.last_value_click = None
             self.redraw = True
-            self._wheel(
-                y,
-                x,
-                wheel,
-                horizontal=bool(button_state & getattr(curses, "BUTTON_SHIFT", 0)),
-            )
-            return _NO_OUTCOME
+            self._wheel(y, x, wheel, horizontal=event.shift)
+            return None
         if pressed:
-            self.redraw = True
-            for rect, key in self.action_hits:
-                if rect.contains(y, x):
-                    return self.handle_key(key)
-            if button_state & getattr(curses, "BUTTON1_PRESSED", 0):
-                for pane, track in self.scrollbar_hits.items():
-                    if track.contains(y, x):
-                        self._focus_pane(pane)
-                        self.scroll_drag = pane
-                        self.scroll_drag_moved = False
-                        self.last_value_click = None
-                        thumb = self.scroll_thumb_hits.get(pane)
-                        if thumb is None or not thumb.contains(y, x):
-                            self._scroll_to_fraction(pane, (y - track.y) / max(1, track.height - 1))
-                        self.scroll_origin = (y, self._scroll_cursor_fraction(pane))
-                        return _NO_OUTCOME
-                split = self._split_at(y, x)
-                if split is not None:
-                    self.drag = (split, y, x, False)
-                    return _NO_OUTCOME
-            self._handle_click(
-                y, x, double=bool(button_state & getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0))
-            )
-        return _NO_OUTCOME
+            return self._press(event)
+        return None
+
+    def _continue_scroll_drag(self, y: int, released: bool) -> None:
+        pane = self.scroll_drag
+        track = self.scrollbar_hits.get(pane) if pane is not None else None
+        if pane is not None and track is not None:
+            origin_y, fraction = self.scroll_origin or (track.y, 0.0)
+            delta = y - origin_y
+            if delta or self.scroll_drag_moved:
+                self.scroll_drag_moved = True
+                self._scroll_to_fraction(pane, fraction + delta / max(1, track.height - 1))
+                self.redraw = True
+        if released:
+            self.scroll_drag = None
+            self.scroll_origin = None
+
+    def _press(self, event: MouseEvent) -> Outcome:
+        y, x = event.y, event.x
+        self.redraw = True
+        for rect, key in self.action_hits:
+            if rect.contains(y, x):
+                return self.handle_key(key)
+        if event.press:
+            for pane, track in self.scrollbar_hits.items():
+                if track.contains(y, x):
+                    self._focus_pane(pane)
+                    self.scroll_drag = pane
+                    self.scroll_drag_moved = False
+                    self.last_value_click = None
+                    thumb = self.scroll_thumb_hits.get(pane)
+                    if thumb is None or not thumb.contains(y, x):
+                        self._scroll_to_fraction(pane, (y - track.y) / max(1, track.height - 1))
+                    self.scroll_origin = (y, self._scroll_cursor_fraction(pane))
+                    return None
+            split = self._split_at(y, x)
+            if split is not None:
+                self.drag = (split, y, x, False)
+                return None
+        self._handle_click(y, x, double=event.double)
+        return None
 
     def _wheel(self, y: int, x: int, delta: int, *, horizontal: bool = False) -> None:
         if self._focus_pane_at(y, x):
@@ -2872,7 +2543,7 @@ class CursesDebugView:
                 return split
         return None
 
-    def _continue_drag(self, y: int, x: int, released: bool) -> object:
+    def _continue_drag(self, y: int, x: int, released: bool) -> Outcome:
         split, origin_y, origin_x, moved = self.drag or ("", 0, 0, False)
         moved = moved or (y, x) != (origin_y, origin_x)
         if moved:
@@ -2886,10 +2557,10 @@ class CursesDebugView:
                 self._handle_click(origin_y, origin_x)
         else:
             self.drag = (split, origin_y, origin_x, moved)
-        return _NO_OUTCOME
+        return None
 
     def _drag_split_to(self, split: str, y: int, x: int) -> None:
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         if split == "top_pane_rows":
             self.session.top_pane_rows = y - HEADER_ROWS + 1
             height = self._clamped_top_pane_rows(rows)
@@ -2915,8 +2586,7 @@ class CursesDebugView:
         for rect, pane, index in self.tab_scroll_hits:
             if rect.contains(y, x):
                 self._focus_pane(pane)
-                self._set_active_pane_tab_index(pane, index)
-                self._ensure_active_tab_visible(pane)
+                self.session.panes[pane].select(index)
                 return
         for pane, hits in self.tab_close_hits.items():
             for rect, index in hits:
@@ -2928,9 +2598,8 @@ class CursesDebugView:
             for rect, index in hits:
                 if rect.contains(y, x):
                     self.session.focus = pane
-                    self._set_active_pane_tab_index(pane, index)
-                    self._ensure_active_tab_visible(pane)
-                    self.session.set_message(f"Selected {self._pane_tabs(pane)[index].title}")
+                    self.session.panes[pane].select(index)
+                    self.session.set_message(f"Selected {self.session.panes[pane][index].title}")
                     return
         for pane, rect in self.add_hits.items():
             if rect.contains(y, x):
@@ -2959,7 +2628,8 @@ class CursesDebugView:
                     self._place_cursor(pane, payload)
                     if pane in ("registers", "pipeline", "xmem"):
                         now = time.monotonic()
-                        identity = id(self._pane_tabs(pane)[self._active_pane_tab_index(pane)])
+                        tab_set = self.session.panes[pane]
+                        identity = id(tab_set[tab_set.active])
                         if double or (
                             previous_click is not None
                             and previous_click[:2] == (identity, payload)
@@ -2982,17 +2652,17 @@ class CursesDebugView:
     def _place_cursor(self, pane: str, payload: Any) -> None:
         """Put the focused pane's cursor on the value that was clicked."""
         if pane == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = payload - base
             return
         if pane == "registers":
-            self.session.selected_register_tab().cursor = payload
+            self.session.register_tab().cursor = payload
             return
         if pane == "pipeline":
-            self.session.selected_pipeline_tab().cursor = payload
+            self.session.pipeline_tab().cursor = payload
             return
-        tab = self.session.selected_tab()
+        tab = self.session.xmem.current()
         if tab is not None:
             tab.cursor_line, tab.cursor_column = payload
 
@@ -3000,11 +2670,11 @@ class CursesDebugView:
         """Remember the selection at grab time, so a thumb press never jumps."""
         total = self.scroll_state[pane][2]
         if pane == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             target = base + tab.cursor_offset
         elif pane == "pipeline":
-            tab = self.session.selected_pipeline_tab()
+            tab = self.session.pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             size, _ = self._pipeline_value_geometry(fmt)
@@ -3017,7 +2687,7 @@ class CursesDebugView:
                 if first is not None and first <= tab.cursor < first + per_line
             )
         else:
-            tab = self.session.selected_tab()
+            tab = self.session.xmem.current()
             target = tab.cursor_line if tab is not None else 0
         return (target + 0.5) / max(1, total)
 
@@ -3028,12 +2698,12 @@ class CursesDebugView:
             return
         target = max(0, min(total - 1, int(fraction * total)))
         if pane == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = target - base
             return
         if pane == "pipeline":
-            tab = self.session.selected_pipeline_tab()
+            tab = self.session.pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             item_size, _ = self._pipeline_value_geometry(fmt)
@@ -3044,7 +2714,7 @@ class CursesDebugView:
                 target = min(target + 1, len(rows) - 1)
             tab.cursor = max(0, min(items - 1, rows[target]))
             return
-        xmem_tab = self.session.selected_tab()
+        xmem_tab = self.session.xmem.current()
         if xmem_tab is not None:
             xmem_tab.cursor_line = target
 
@@ -3061,26 +2731,24 @@ class CursesDebugView:
                 return True
         return False
 
-    def _submit_tab_editor(self, command: str) -> object:
+    def _submit_tab_editor(self, command: str) -> Outcome:
         pane = self.editor_pane or self.session.focus
         mode = self.editor_mode
-        tabs = self._pane_tabs(pane)
-        active = self._active_pane_tab_index(pane)
-        existing = tabs[active] if mode == "edit" and tabs else None
+        tabs = self.session.panes[pane]
+        existing = tabs[tabs.active] if mode == "edit" and tabs else None
         tab, error = self._parse_editor_tab(pane, command, existing)
         if error is not None or tab is None:
             self.session.set_message(f"{pane} tab error: {error}", error=True)
-            return _NO_OUTCOME
+            return None
         if mode == "add" or not tabs:
-            tabs.append(tab)
-            self._set_active_pane_tab_index(pane, len(tabs) - 1)
+            tabs.add(tab)
         else:
-            tabs[active] = tab
+            tabs.tabs[tabs.active] = tab
+            tabs.select(tabs.active)
         self._clear_editor()
-        self._ensure_active_tab_visible(pane)
         action = "added" if mode == "add" else "updated"
         self.session.set_message(f"{pane} tab {action}: {tab.title}")
-        return _NO_OUTCOME
+        return None
 
     def _parse_editor_tab(
         self,
@@ -3138,7 +2806,7 @@ class CursesDebugView:
             return
         pane = self.session.focus
         if pane == "pipeline":
-            tab = self.session.selected_pipeline_tab()
+            tab = self.session.pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             size, _ = self._pipeline_value_geometry(fmt)
@@ -3156,7 +2824,7 @@ class CursesDebugView:
             raw = register[start : start + size]
             label = f"{spec.label}[{tab.cursor}]"
         else:
-            tab = self.session.selected_tab()
+            tab = self.session.xmem.current()
             if tab is None:
                 return
             resolved, error = self._resolve_xmem(tab.request)
@@ -3193,7 +2861,7 @@ class CursesDebugView:
         self.cursor = len(self.command)
         self.session.set_message(f"Editing {label}")
 
-    def _submit_value_editor(self) -> object:
+    def _submit_value_editor(self) -> Outcome:
         backing, offset, size, fmt, label = self.editor_value
         try:
             if fmt == "f32":
@@ -3210,16 +2878,16 @@ class CursesDebugView:
                 self.debug.write_register_bytes(backing, offset, raw)
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
-            return _NO_OUTCOME
+            return None
         self._clear_editor()
         self.editor_value = None
         self.session.set_message(f"Updated {label}")
-        return _NO_OUTCOME
+        return None
 
     def _begin_scalar_editor(self, register: str | None = None) -> None:
         """Edit one scalar: *register* (``"pc"``) or the LR / CR under the cursor."""
         if register is None:
-            tab = self.session.selected_register_tab()
+            tab = self.session.register_tab()
             groups = self._register_groups(tab)
             position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
             register = (
@@ -3238,28 +2906,27 @@ class CursesDebugView:
         self.cursor = len(self.command)
         self.session.set_message(f"Enter an integer for {register.upper()}")
 
-    def _submit_scalar_editor(self) -> object:
+    def _submit_scalar_editor(self) -> Outcome:
         assert self.editor_register is not None
         try:
             value = self.debug.parse_int(self.command.strip())
         except DebugError:
             self.session.set_message("Invalid integer value", error=True)
-            return _NO_OUTCOME
+            return None
         try:
             written = self.debug.set_register(self.editor_register, value)
         except DebugError as error:
             self.session.set_message(str(error), error=True)
-            return _NO_OUTCOME
+            return None
         label = self.editor_register.upper()
         self._clear_editor()
         self.session.set_message(f"Set {label} = {written.value:#x}")
-        return _NO_OUTCOME
+        return None
 
     def _begin_tab_editor(self, mode: str) -> None:
         pane = self.session.focus
-        tabs = self._pane_tabs(pane)
-        active = self._active_pane_tab_index(pane)
-        tab = tabs[active] if tabs else None
+        tabs = self.session.panes[pane]
+        tab = tabs[tabs.active] if tabs else None
         if mode == "edit" and not tabs:
             mode = "add"
         if mode == "edit":
@@ -3293,11 +2960,7 @@ class CursesDebugView:
         self.editor_pane = None
         self.editor_register = None
         self.editor_value = None
-        try:
-            if curses is not None:
-                curses.curs_set(0)
-        except Exception:
-            pass
+        self.screen.cursor(False)
 
     def _select_relative_pane(self, delta: int) -> None:
         panes = list(PANE_FOCUS_ORDER)
@@ -3313,24 +2976,21 @@ class CursesDebugView:
 
     def _select_tab_in_focused_pane(self, delta: int) -> None:
         pane = self.session.focus
-        tabs = self._pane_tabs(pane)
-        if not tabs:
+        tab = self.session.panes[pane].step(delta)
+        if tab is None:
             self.session.set_message(f"{pane} has no tabs")
             return
-        active = (self._active_pane_tab_index(pane) + delta) % len(tabs)
-        self._set_active_pane_tab_index(pane, active)
-        self._ensure_active_tab_visible(pane)
-        self.session.set_message(f"Selected {tabs[active].title}")
+        self.session.set_message(f"Selected {tab.title}")
 
     def _cycle_focused_format(self, delta: int = 1) -> None:
         pane = self.session.focus
         if pane == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             tab.fmt = self._next_format(tab.fmt, DISASSEMBLY_FORMATS, delta)
             self.session.set_message(f"Disassembly format: {tab.fmt}")
             return
         if pane == "registers":
-            tab = self.session.selected_register_tab()
+            tab = self.session.register_tab()
             tab.fmt = self._next_format(
                 tab.fmt,
                 SCALAR_REGISTER_FORMATS,
@@ -3340,7 +3000,7 @@ class CursesDebugView:
             self.session.set_message(f"LR / CR format: {tab.fmt}")
             return
         if pane == "pipeline":
-            tab = self.session.selected_pipeline_tab()
+            tab = self.session.pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             current = tab.fmt or _pipeline_format(self.state, spec)
             selected = self._next_format(
@@ -3356,7 +3016,7 @@ class CursesDebugView:
         self._cycle_xmem_format(delta)
 
     def _cycle_xmem_format(self, delta: int) -> None:
-        tab = self.session.selected_tab()
+        tab = self.session.xmem.current()
         if tab is None:
             self.session.set_message("XMEM has no tabs")
             return
@@ -3397,47 +3057,22 @@ class CursesDebugView:
             index = -1
         return formats[(index + delta) % len(formats)]
 
-    def _ensure_active_tab_visible(self, pane: str) -> None:
-        active = self._active_pane_tab_index(pane)
-        offset_attribute = self._pane_offset_attribute(pane)
-        offset = getattr(self.session, offset_attribute)
-        if active < offset:
-            offset = active
-        elif active > offset + VISIBLE_TAB_LOOKBEHIND:
-            offset = max(0, active - VISIBLE_TAB_LOOKBEHIND)
-        setattr(self.session, offset_attribute, offset)
-
     def _close_active_tab(self) -> None:
         pane = self.session.focus
-        tabs = self._pane_tabs(pane)
+        tabs = self.session.panes[pane]
         if tabs:
-            self._close_tab(pane, self._active_pane_tab_index(pane))
+            self._close_tab(pane, tabs.active)
 
     def _close_tab(self, pane: str, index: int) -> None:
-        tabs = self._pane_tabs(pane)
+        tabs = self.session.panes[pane]
         if not 0 <= index < len(tabs):
             return
-        del tabs[index]
-        if not tabs and pane != "xmem":
-            defaults = {
-                "disassembly": DisassemblyTab(),
-                "registers": RegisterTab(),
-                "pipeline": PipelineTab(),
-            }
-            tabs.append(defaults[pane])
-        active = min(index, max(0, len(tabs) - 1))
-        self._set_active_pane_tab_index(pane, active)
-        offset_attribute = self._pane_offset_attribute(pane)
-        setattr(
-            self.session,
-            offset_attribute,
-            min(getattr(self.session, offset_attribute), max(0, len(tabs) - 1)),
-        )
+        tabs.close(index)
         self.session.set_message(f"Closed {pane} tab")
 
     def _move_focused_cursor(self, *, dx: int = 0, dy: int = 0) -> None:
         if self.session.focus == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             minimum = -base
             maximum = INST_MEM_SIZE - 1 - base
@@ -3447,7 +3082,7 @@ class CursesDebugView:
             )
             return
         if self.session.focus == "registers":
-            tab = self.session.selected_register_tab()
+            tab = self.session.register_tab()
             grid_rows, column_count = self._register_grid(tab)
             row = min(grid_rows - 1, tab.cursor % grid_rows)
             column = tab.cursor // grid_rows
@@ -3464,17 +3099,17 @@ class CursesDebugView:
     def _jump_focused_cursor(self, *, end: bool) -> None:
         """Move the focused pane's cursor to its first or last value."""
         if self.session.focus == "disassembly":
-            tab = self.session.selected_disassembly_tab()
+            tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = (INST_MEM_SIZE - 1 - base) if end else -base
             return
         if self.session.focus == "registers":
-            tab = self.session.selected_register_tab()
+            tab = self.session.register_tab()
             groups = self._register_groups(tab)
             tab.cursor = len(groups) * _REGISTERS_PER_GROUP - 1 if end else 0
             return
         if self.session.focus == "pipeline":
-            tab = self.session.selected_pipeline_tab()
+            tab = self.session.pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             item_size, _ = self._pipeline_value_geometry(fmt)
@@ -3484,7 +3119,7 @@ class CursesDebugView:
         self._jump_xmem_cursor(end=end)
 
     def _jump_xmem_cursor(self, *, end: bool) -> None:
-        tab = self.session.selected_tab()
+        tab = self.session.xmem.current()
         if tab is None:
             return
         resolved, error = self._resolve_xmem(tab.request)
@@ -3500,7 +3135,7 @@ class CursesDebugView:
         tab.cursor_column = len(tokens) - 1 if end else 0
 
     def _move_xmem_cursor(self, dx: int, dy: int) -> None:
-        tab = self.session.selected_tab()
+        tab = self.session.xmem.current()
         if tab is None:
             return
         resolved, error = self._resolve_xmem(tab.request)
@@ -3541,7 +3176,7 @@ class CursesDebugView:
             dx -= 1
 
     def _move_pipeline_cursor(self, dx: int, dy: int) -> None:
-        tab = self.session.selected_pipeline_tab()
+        tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
         data = _read_pipeline_register(self.state, spec)
         fmt = tab.fmt or _pipeline_format(self.state, spec)
@@ -3572,9 +3207,6 @@ class CursesDebugView:
         self.session.commit_baseline(self.state)
         self.session.active = action in (DebugAction.CONTINUE, DebugAction.STEP)
         return action
-
-    def _key_is(self, name: str, key: Any) -> bool:
-        return curses is not None and key == getattr(curses, name, object())
 
     def _box(self, rect: Rect, *, focused: bool = False) -> None:
         """Record one pane frame; ``_flush_borders`` resolves the junctions."""
@@ -3636,7 +3268,7 @@ class CursesDebugView:
 
     def _overlay_rect(self, preferred_width: int, preferred_height: int) -> Rect:
         """Centre a modal overlay between the header and the footer."""
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         available = max(1, rows - HEADER_ROWS - FOOTER_ROWS)
         width = max(1, min(columns - 4, preferred_width))
         height = max(1, min(available, preferred_height))
@@ -3707,22 +3339,13 @@ class CursesDebugView:
         attr: int = 0,
         max_width: int | None = None,
     ) -> None:
-        rows, columns = self.screen.getmaxyx()
+        rows, columns = self.screen.size()
         if y < 0 or y >= rows or x < 0 or x >= columns or not text:
             return
         width = columns - x if max_width is None else min(max_width, columns - x)
         if width <= 0:
             return
-        try:
-            self.screen.addnstr(y, x, text, width, attr)
-        except Exception:
-            pass
-
-
-_NO_OUTCOME = object()
-# ``curses`` is optional, so the guarded excepts need a tuple that is valid
-# even when the import failed.
-_CURSES_ERRORS: tuple[type[BaseException], ...] = (curses.error,) if curses is not None else ()
+        self._sink(y, x, text[:width], attr)
 
 
 def run_debug_tui(
@@ -3731,30 +3354,30 @@ def run_debug_tui(
     *,
     control: DebugControl | None = None,
     session: DebugViewSession | None = None,
+    debug: DebugSession | None = None,
 ) -> DebugAction:
-    """Enter curses and return an execution action; interrupts cancel.
+    """Enter the terminal and return an execution action; interrupts cancel.
 
     *control* is the one passed to ``run_with_debug``, and *session* the view
-    kept from the previous stop; without them, this stop has its own.
+    kept from the previous stop; without them, this stop has its own. *debug*
+    is the run's ``DebugSession`` (it carries the kernel name the header
+    shows); when given, its control is the one used.
     """
-    if curses is None:
+    if not terminal_available():
         raise RuntimeError("curses is not available on this platform")
     if session is None:
         session = new_debug_view_session(state)
     session.ensure_default_tab(state)
     session.active = True
-    result = DebugAction.QUIT
 
-    def _run(screen: Any) -> None:
-        nonlocal result
-        result = CursesDebugView(screen, state, session, cycle, control).run()
+    def run(screen: Screen) -> DebugAction:
+        return CursesDebugView(screen, state, session, cycle, control, debug).run()
 
     try:
-        curses.wrapper(_run)
+        return run_in_terminal(run)
     except KeyboardInterrupt:
         session.active = False
         return DebugAction.QUIT
     except Exception as error:
         session.active = False
         raise RuntimeError(f"curses TUI failed: {error}") from error
-    return result

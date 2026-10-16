@@ -201,6 +201,36 @@ class TestRunTest:
         )
         assert len(cb_calls) > 0
 
+    def test_quit_is_a_returned_outcome_that_skips_teardown(self, tmp_path: Path) -> None:
+        """QUIT stops the run, sets ``quit_requested`` and skips teardown; a
+        later run on the same state starts with it cleared."""
+        from ipu_as.lark_tree import assemble_to_bin_file
+
+        inst_path = tmp_path / "break.bin"
+        assemble_to_bin_file("BREAK;;\nBKPT;;\n", str(inst_path))
+        teardowns = []
+
+        state, cycles = run_test(
+            inst_path=inst_path,
+            teardown=teardowns.append,
+            debug_callback=lambda state, cycle: DebugAction.QUIT,
+        )
+        assert state.quit_requested
+        assert not state.is_halted
+        assert cycles == 0
+        assert teardowns == []
+
+        state.program_counter = 0
+        state, cycles = run_test(
+            inst_path=inst_path,
+            state=state,
+            teardown=teardowns.append,
+            debug_callback=lambda state, cycle: DebugAction.CONTINUE,
+        )
+        assert not state.quit_requested
+        assert state.is_halted
+        assert teardowns == [state]
+
     def test_run_test_passes_activation_alphas_to_state(self, tmp_path: Path) -> None:
         """``run_test`` forwards α kwargs into ``IpuState`` (emulator-only)."""
         from ipu_as.lark_tree import assemble_to_bin_file

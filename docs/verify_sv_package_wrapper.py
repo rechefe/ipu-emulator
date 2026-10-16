@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-from ipu_as.gen_codegen import verify_sv_package
+from ipu_gen.sv_package import verify_sv_package
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

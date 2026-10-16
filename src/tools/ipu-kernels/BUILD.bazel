@@ -1,0 +1,31 @@
+load("@rules_python//python:defs.bzl", "py_library")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:typecheck.bzl", "mypy_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# Kernel-side Python shared across kernels (E06): references, pack transforms,
+# family code. tools/import_graph.toml holds the import rules.
+py_library(
+    name = "ipu_kernels_lib",
+    srcs = glob(["src/ipu_kernels/**/*.py"]),
+    imports = ["src"],
+    deps = ["//src/tools/ipu-harness:ipu_harness_lib"],
+)
+
+mypy_test(
+    name = "mypy",
+    lib = ":ipu_kernels_lib",
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

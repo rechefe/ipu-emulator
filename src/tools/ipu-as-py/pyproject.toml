@@ -12,12 +12,12 @@ dependencies = [
     "click>=8.3.1",
     "lark>=1.3.1",
     "jinja2>=3.1.4",
+    "tomli>=2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1",
-    "pyslang>=11.0.0",
     "jsonschema>=4.0",
     "referencing>=0.30",
 ]
@@ -33,7 +33,7 @@ docs = [
 ipu-as = "ipu_as.cli:cli"
 
 [tool.setuptools.package-data]
-ipu_as = ["*.lark", "**/*.lark", "*.j2", "**/*.j2"]
+ipu_as = ["*.lark", "**/*.lark"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

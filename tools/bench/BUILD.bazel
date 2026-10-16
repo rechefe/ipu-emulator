@@ -10,9 +10,15 @@ exports_files(["README.md"])
 py_library(
     name = "ipu_bench",
     srcs = glob(["ipu_bench/**/*.py"]),
-    # Every kernel .asm: assemble/all_kernels assembles them all.
-    data = ["//src/tools/ipu-apps:kernel_sources"],
+    # Every kernel .asm: assemble/all_kernels assembles them all. The kernels'
+    # .bin inputs: the emulator module runs fully_connected's INT8 case.
+    data = [
+        "//src/tools/ipu-apps:kernel_data",
+        "//src/tools/ipu-apps:kernel_sources",
+    ],
     imports = ["."],
+    # //src/tools/ipu-emu-py:bench_emulator runs its `emulator` module.
+    visibility = ["//src/tools/ipu-emu-py:__pkg__"],
     deps = [
         "//src/tools/ipu-apps:ipu_apps_lib",
         # assemble/{render,parse,encode}_s, over the digest corpus (E05-01).

@@ -2,18 +2,23 @@
 
 from pathlib import Path
 
-from ipu_as import gen_codegen
+from click.testing import CliRunner
+
 from ipu_as.compound_inst import CompoundInst
+from ipu_as.inst import Inst
+from ipu_as.ipu_token import EnumToken
+from ipu_gen import sv_package
+from ipu_gen.cli import cli
 from ipu_isa.layout import SLOT_UNIONS
 
 
 def test_build_context_matches_compound_width():
-    ctx = gen_codegen.build_codegen_context()
+    ctx = sv_package.build_codegen_context()
     assert ctx["compound_width"] == CompoundInst.bits()
 
 
 def test_slot_union_struct_bit_widths():
-    ctx = gen_codegen.build_codegen_context()
+    ctx = sv_package.build_codegen_context()
     for slot in ctx["slots"]:
         field_bits = slot["opcode_width"] + sum(f["bits"] for f in slot["fields"])
         assert field_bits == slot["width"], slot["slot"]
@@ -22,7 +27,7 @@ def test_slot_union_struct_bit_widths():
 
 
 def test_compound_members_follow_slot_order():
-    ctx = gen_codegen.build_codegen_context()
+    ctx = sv_package.build_codegen_context()
     names = [m["name"] for m in ctx["compound_members"]]
     assert names[0].startswith("cond_slot")
     assert names[-1].startswith("break_slot")
@@ -31,7 +36,7 @@ def test_compound_members_follow_slot_order():
 
 def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
-    gen_codegen.generate_sv_package(out)
+    sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     assert "package ipu_instr_pkg;" in text
     assert "endpackage : ipu_instr_pkg" in text
@@ -59,7 +64,7 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
 
 
 def test_union_members_padded_to_operand_width():
-    ctx = gen_codegen.build_codegen_context()
+    ctx = sv_package.build_codegen_context()
     for slot in ctx["slots"]:
         operand_width = slot["operand_width"]
         for inst in slot["instructions"]:
@@ -69,7 +74,7 @@ def test_union_members_padded_to_operand_width():
 
 
 def test_union_member_fields_named_after_their_operands():
-    ctx = gen_codegen.build_codegen_context()
+    ctx = sv_package.build_codegen_context()
     for slot in ctx["slots"]:
         bindings = SLOT_UNIONS[slot["slot"]].opcode_bindings
         for inst in slot["instructions"]:
@@ -80,7 +85,7 @@ def test_union_member_fields_named_after_their_operands():
 
 def test_unused_union_columns_named_padding(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
-    gen_codegen.generate_sv_package(out)
+    sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     # COND BR: reg in column 1; columns 0 and 2 unused → padding_0, padding_2
     marker = "} br;\n    struct packed {\n      logic [19:0] padding"
@@ -100,7 +105,7 @@ def test_unused_union_columns_named_padding(tmp_path: Path):
 
 def test_union_members_exclude_opcode(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
-    gen_codegen.generate_sv_package(out)
+    sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     # Opcode is outside the union; union members are operand payload only.
     assert "COND_SLOT_U_WIDTH = 20" in text
@@ -117,7 +122,7 @@ def test_union_members_exclude_opcode(tmp_path: Path):
 
 def test_nop_union_members_use_single_padding_field(tmp_path: Path):
     out = tmp_path / "ipu_instr_pkg.sv"
-    gen_codegen.generate_sv_package(out)
+    sv_package.generate_sv_package(out)
     text = out.read_text(encoding="utf-8")
     import re
 
@@ -145,30 +150,68 @@ def test_nop_union_members_use_single_padding_field(tmp_path: Path):
 
 
 def test_render_is_deterministic():
-    assert gen_codegen.render_sv_package() == gen_codegen.render_sv_package()
+    assert sv_package.render_sv_package() == sv_package.render_sv_package()
 
 
 def test_header_names_the_hash_of_the_body_not_a_commit():
     import hashlib
 
-    first, second, body = gen_codegen.render_sv_package().split("\n", 2)
+    first, second, body = sv_package.render_sv_package().split("\n", 2)
     assert first == "// Auto-generated from instruction_spec.py — do not edit."
     assert second == f"// Content: sha256:{hashlib.sha256(body.encode()).hexdigest()}"
     assert "Source:" not in body and "@" not in second
 
 
 def test_verify_accepts_the_package_and_rejects_any_edit():
-    text = gen_codegen.render_sv_package()
-    assert gen_codegen.verify_sv_package(text)
+    text = sv_package.render_sv_package()
+    assert sv_package.verify_sv_package(text)
     at = text.index("package ipu_instr_pkg;")
     edited = text[:at] + "P" + text[at + 1 :]
-    assert not gen_codegen.verify_sv_package(edited)
-    assert not gen_codegen.verify_sv_package(
+    assert not sv_package.verify_sv_package(edited)
+    assert not sv_package.verify_sv_package(
         text.replace("// Content: sha256:", "// Content: sha256:0", 1)
     )
-    assert not gen_codegen.verify_sv_package("")
+    assert not sv_package.verify_sv_package("")
 
 
 def test_compound_comment_lists_the_layout_order():
-    text = gen_codegen.render_sv_package()
+    text = sv_package.render_sv_package()
     assert "slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store, acc_store, break" in text
+
+
+def _subclasses(cls):
+    for sub in cls.__subclasses__():
+        yield sub
+        yield from _subclasses(sub)
+
+
+def test_renaming_token_classes_does_not_change_the_package():
+    """SV names come from ISA data, not from the assembler's class names (E08-13).
+
+    The structural guarantee is the import-graph row ``ipu_gen = ["ipu_isa"]``
+    (tools/import_graph.toml); this checks the output as well.
+    """
+    before = sv_package.render_sv_package()
+    # Restored by hand: monkeypatch cannot delete __name__ from a type.
+    names = {cls: cls.__name__ for base in (EnumToken, Inst) for cls in _subclasses(base)}
+    assert len(names) > 20
+    try:
+        for i, cls in enumerate(names):
+            cls.__name__ = f"Renamed{i}"
+        assert sv_package.render_sv_package() == before
+    finally:
+        for cls, name in names.items():
+            cls.__name__ = name
+
+
+def test_enums_match_the_assembler():
+    """The SV enums are the assembler's, by name, member and order (an
+    independent source: the assembler derives them from its class names)."""
+    assert sv_package.enum_descriptors() == EnumToken.get_all_enum_descriptors()
+
+
+def test_cli_writes_the_package(tmp_path: Path):
+    out = tmp_path / "pkg.sv"
+    result = CliRunner().invoke(cli, ["sv-package", "--output", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.read_text(encoding="utf-8") == sv_package.render_sv_package()

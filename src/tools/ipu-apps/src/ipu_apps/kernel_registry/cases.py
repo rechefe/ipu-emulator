@@ -145,6 +145,8 @@ def run_case(
     inspect output files. Otherwise all temporary files are cleaned on every
     exit, including cancellation. Completed output is exported before checking
     so callers can inspect failed results. Returns the state and cycle count.
+    When the debugger quits, ``state.quit_requested`` is true and the case
+    returns at once: nothing is recorded, exported or checked.
     An optional :class:`~ipu_apps.kernel_registry.baseline.Recorder` captures
     the run for the case's baseline record.
     """
@@ -190,6 +192,8 @@ def run_case(
             max_cycles=limit,
             **({"alias_profile": alias_profile} if alias_profile is not None else {}),
         )
+    if state.quit_requested:
+        return state, cycles
     if recorder is not None:
         recorder.finish(state, cycles, bindings.get("output_path"))
     if not state.is_halted:

@@ -1,0 +1,38 @@
+load("@rules_python//python:defs.bzl", "py_library")
+load("//tools:lint.bzl", "ruff_test")
+load("//tools:typecheck.bzl", "mypy_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
+# The kernel framework (E06). ipu_as for its session API only, ipu_emu for its
+# reference-model API only (checked in review); tools/import_graph.toml holds
+# the package-level import rules.
+py_library(
+    name = "ipu_harness_lib",
+    srcs = glob(["src/ipu_harness/**/*.py"]),
+    imports = ["src"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+    ],
+)
+
+# Strict from day one (E06-01, Q65).
+mypy_test(
+    name = "mypy",
+    lib = ":ipu_harness_lib",
+    strict = True,
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)

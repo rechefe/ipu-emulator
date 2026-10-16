@@ -1,9 +1,19 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
+load(":deps.bzl", "RUNTIME_DEPS")
 load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
+
+exports_files(["pyproject.toml"])
+
+# RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.
+runtime_deps_manifest(
+    name = "runtime_deps",
+    runtime_deps = RUNTIME_DEPS,
+)
 
 # The package's Python sources, for //tools:test_import_graph.
 filegroup(
@@ -11,13 +21,50 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
-# Generators that render artifacts from the ISA. E08 moves the docs, SV and
+# Generators that render artifacts from the ISA: the SystemVerilog package
+# (E08-13) and the union layout SVG. E08-14 and E08-15 move the docs and
 # VS Code generators here.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),
+    data = glob(["src/ipu_gen/templates/*.j2"]),
     imports = ["src"],
-    deps = ["//src/tools/ipu-isa:ipu_isa_lib"],
+    deps = ["//src/tools/ipu-isa:ipu_isa_lib"] + [requirement(dep) for dep in RUNTIME_DEPS],
+)
+
+#   bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
+py_binary(
+    name = "ipu-gen",
+    srcs = ["src/ipu_gen/cli.py"],
+    imports = ["src"],
+    main = "src/ipu_gen/cli.py",
+    deps = [":ipu_gen_lib"],
+)
+
+# The SV package's structure and the ipu-gen CLI. Needs ipu_as_lib: the word
+# width is cross-checked against CompoundInst, the enums against the
+# assembler's token classes, and the rename test renames those classes.
+py_pytest_test(
+    name = "test_gen_codegen",
+    srcs = ["test/test_gen_codegen.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+# slang elaborates the package with zero diagnostics.
+py_pytest_test(
+    name = "test_sv_package_compiles",
+    srcs = ["test/test_sv_package_compiles.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_gen_lib",
+        requirement("pytest"),
+        requirement("pyslang"),
+    ],
 )
 
 #   bazel run //src/tools/ipu-gen:gen_union_layout_svg -- /tmp/union_layout.svg

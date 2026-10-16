@@ -5,4 +5,4 @@ packages (`ipu-*`); `//tools:deps_consistency_test` checks it. Test and docs
 packages belong on the test and docs targets, not here.
 """
 
-RUNTIME_DEPS = ["click", "jinja2", "lark"]
+RUNTIME_DEPS = ["click", "jinja2", "lark", "tomli"]

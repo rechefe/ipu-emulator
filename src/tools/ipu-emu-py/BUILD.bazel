@@ -256,6 +256,18 @@ py_pytest_test(
     ],
 )
 
+# The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
+# (FP32 and INT8; prototyping too with --config=proto). A `bazel run` target, not a
+# test: //tools/bench:bench_smoke_test keeps it from rotting. tools/bench/README.md.
+# E04-02 names this label; the code lives in //tools/bench as its `emulator`
+# module, so the nightly runner tracks it too.
+py_binary(
+    name = "bench_emulator",
+    srcs = ["bench/bench_emulator.py"],
+    main = "bench/bench_emulator.py",
+    deps = ["//tools/bench:ipu_bench"],
+)
+
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
 ruff_test(
     name = "ruff",

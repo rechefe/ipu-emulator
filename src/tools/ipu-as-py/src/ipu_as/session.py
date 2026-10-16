@@ -88,9 +88,11 @@ class AssemblySession:
         defines: Mapping[str, object] | None = None,
         params: template.ParamSpec | None = None,
         search_path: Sequence[Path] = (),
+        abi: Mapping[str, Mapping[str, str]] | None = None,
         name: str = "<input>",
     ) -> None:
         self.source = source
+        self.abi = {namespace: dict(names) for namespace, names in (abi or {}).items()}
         self.defines = dict(defines or {})
         self.params = params
         self.search_path = tuple(Path(p) for p in search_path)
@@ -106,30 +108,53 @@ class AssemblySession:
             TemplateError: a bad define or a jinja failure, located.
         """
         if self._rendered is None:
-            self._rendered = template.render(
-                self.source,
+            inputs = template.TemplateInputs(
                 defines=self.defines,
                 params=self.params,
                 search_path=self.search_path,
-                source_name=self.name,
+                namespaces=self.abi,
             )
+            self._rendered = template.render(self.source, inputs, source_name=self.name)
         return self._rendered
 
     def parse(self) -> list[dict]:
-        """The compound instructions, with every label defined. Raises ParseError or LabelError."""
+        """The compound instructions of the rendered source, parsed once.
+
+        Raises:
+            TemplateError, ParseError, or the LabelError / OperandError found
+            while building the instruction list.
+        """
         if self._parsed is None:
-            rendered = self.render()
-            try:
-                self._parsed = ASTBuilder(self.symbols).transform(parse_tree(rendered))
-            except lark.exceptions.VisitError as error:
-                # lark wraps whatever the AST builder raises; a LabelError or
-                # OperandError found while building is reported as itself.
-                if isinstance(error.orig_exc, AssemblerError):
-                    raise error.orig_exc from error
-                raise ParseError(str(error)) from error
-            except lark.exceptions.LarkError as error:
-                raise ParseError(str(error), location=_lark_location(error)) from error
+            self._parsed = self.parse_rendered(self.render())
         return self._parsed
+
+    def parse_rendered(self, rendered: str) -> list[dict]:
+        """Parse text that is already rendered, into a fresh symbol table.
+
+        The stage `parse` runs on this session's own render; diagnostics passes
+        an instrumented render instead.
+
+        Raises:
+            ParseError, or the LabelError / OperandError found while building
+            the instruction list.
+        """
+        self.symbols = SymbolTable()
+        try:
+            return ASTBuilder(self.symbols).transform(parse_tree(rendered))
+        except lark.exceptions.VisitError as error:
+            # lark wraps whatever the AST builder raises: an assembler error is
+            # reported as itself, anything else is a bug and raised as itself.
+            raise error.orig_exc from error
+        except lark.exceptions.LarkError as error:
+            raise ParseError(str(error), location=_lark_location(error)) from error
+
+    def encode(self, parsed: list[dict]) -> tuple[int, ...]:
+        """The instruction words of `parsed` (from `parse` or `parse_rendered`).
+
+        Raises:
+            EncodeError: an operand, slot or label error.
+        """
+        return tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
 
     def assemble(self) -> AssemblyResult:
         """Encode every instruction word and raise the encoder's warnings.
@@ -147,7 +172,7 @@ class AssemblySession:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             try:
-                words = tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
+                words = self.encode(parsed)
                 failure = None
             except AssemblerError as error:
                 failure = error
@@ -181,14 +206,20 @@ _cache: collections.OrderedDict[tuple, AssemblyResult] = collections.OrderedDict
 
 
 def _cache_key(
-    source: str, defines: Mapping[str, object] | None, params: template.ParamSpec | None
+    source: str,
+    defines: Mapping[str, object] | None,
+    params: template.ParamSpec | None,
+    abi: Mapping[str, Mapping[str, str]] | None,
 ) -> tuple | None:
     """The cache key, or None when the inputs cannot be one (a ParamSpec with an unhashable default)."""
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
     # Each value with its type and repr: True == 1 == 1.0 in Python, but they
     # bind differently against a declared int (only 1 is valid).
     values = tuple(sorted((k, type(v).__name__, repr(v)) for k, v in (defines or {}).items()))
-    key = (digest, values, params)
+    names = tuple(
+        sorted((namespace, tuple(sorted(regs.items()))) for namespace, regs in (abi or {}).items())
+    )
+    key = (digest, values, params, names)
     try:
         hash(key)
     except TypeError:
@@ -202,6 +233,7 @@ def assemble(
     defines: Mapping[str, object] | None = None,
     params: template.ParamSpec | None = None,
     search_path: Sequence[Path] = (),
+    abi: Mapping[str, Mapping[str, str]] | None = None,
     name: str = "<input>",
 ) -> AssemblyResult:
     """Assemble `source`, reusing the result of an identical recent assembly.
@@ -210,14 +242,14 @@ def assemble(
     warnings whether or not the result came from the cache. A source with a
     search path is never cached: an included file can change between calls.
     """
-    key = None if search_path else _cache_key(source, defines, params)
+    key = None if search_path else _cache_key(source, defines, params, abi)
     cached = _cache.get(key) if key is not None else None
     if cached is not None:
         _cache.move_to_end(key)
         cached.reissue_warnings()
         return cached
     result = AssemblySession(
-        source, defines=defines, params=params, search_path=search_path, name=name
+        source, defines=defines, params=params, search_path=search_path, abi=abi, name=name
     )._encode()
     result.reissue_warnings()
     if key is None:
