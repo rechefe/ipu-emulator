@@ -94,9 +94,9 @@ py_pytest_test(
     ],
 )
 
-# test_regfile again with assert statements compiled out (python -O): every
-# pytest.raises in it must still see its typed exception. (Its own bare asserts
-# vanish too, so only those checks mean anything here.)
+# test_regfile again with assert statements compiled out of the emulator (python
+# -O; pytest still rewrites the test's own asserts): the register file's checks
+# must hold without asserts.
 py_pytest_test(
     name = "test_regfile_optimized",
     srcs = ["test/test_regfile.py"],
