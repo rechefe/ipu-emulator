@@ -8,7 +8,7 @@ below, and the ``window`` bounds ``[a, b)`` default to ``DEFAULT_WINDOW_A`` /
 :meth:`IpuState.set_activation_alphas` (not CR-visible). The emulator writes
 activated elements into ``POST_AAQ_REG``. See
 ``docs/content/building-applications.md#activations-emulator`` for calibration,
-``STR_POST_AAQ_REG`` (store that register to XMEM), and pipeline notes.
+``ST.AAQ`` (store that register to XMEM), and pipeline notes.
 """
 
 from __future__ import annotations

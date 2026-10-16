@@ -17,7 +17,7 @@ loop counts differ:
 Inputs Q, K are logically channel-major (head_dim D=60, N=16 tokens). K is
 loaded channel-major verbatim; Q is staged query-major (a gather of its strided
 channels) so one query's 60 head-channels load into R0 with a single
-``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from R0,
+``LD.MULT`` — the matmul broadcast template (scalar = Q[i,c] from R0,
 vector = K's channel-c column in R_CYCLIC, ``MULT.RC.VE``).
 
 ONE CHANNEL PER ROW: N_TOK=16 means each K channel column and each staged Q row
@@ -27,7 +27,7 @@ crops the output to the live lanes. (Packing two channels into one row at a
 16-element stride is a bug — see the N_TOK=16 matmul family.)
 
 The score row goes through the standard quantize boundary
-(``ACTIVATE.QUANTIZE identity`` + ``STR_POST_AAQ_REG``), like every other
+(``ACTIVATE.QUANTIZE identity`` + ``ST.AAQ``), like every other
 kernel. No AGG.
 
 Wide-vector FP32 only: elements are 4-byte FP32 and an XMEM row is 512 B.
@@ -187,7 +187,7 @@ class QkScores16x60App(IpuApp):
         state.regfile.set_lr(0, 0)  # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)  # K data stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
-        state.regfile.set_lr(6, D - 2)  # contraction BLT bound
+        state.regfile.set_lr(6, D - 2)  # contraction BLT.S bound
         state.regfile.set_lr(7, 0)  # output query row offset
         state.regfile.set_lr(8, 0)  # Q-row row offset
         state.regfile.set_lr(9, 0)  # query counter

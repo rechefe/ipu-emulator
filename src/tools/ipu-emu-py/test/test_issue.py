@@ -31,10 +31,10 @@ def _engine_at_vv_multiply():
     state.write_constant_ones(0)
     state.regfile.set_cr(2, 1)
     code = (
-        "LDR_MULT_REG R0 LR0 CR0;;\n"
-        "LDR_CYCLIC_MULT_REG LR0 CR2 LR0;;\n"
+        "LD.MULT R0 LR0 CR0;;\n"
+        "LD.MULT.CYCLIC LR0 CR2 LR0;;\n"
         "MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD ;;\n"
-        "BKPT;;"
+        "HALT;;"
     )
     load_program(state, assemble_program(code))
     engine = Ipu(state)

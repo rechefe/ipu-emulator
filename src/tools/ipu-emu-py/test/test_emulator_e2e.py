@@ -156,8 +156,8 @@ class TestRunTest:
         """A program that immediately breaks should run in 1 cycle."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        asm = "BKPT;;\n"
-        inst_path = tmp_path / "BKPT.bin"
+        asm = "HALT;;\n"
+        inst_path = tmp_path / "HALT.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
         setup_called = [False]
@@ -177,15 +177,15 @@ class TestRunTest:
 
         assert setup_called[0]
         assert teardown_called[0]
-        # BKPT in run_until_complete skips the break, advances PC
+        # HALT in run_until_complete skips the break, advances PC
         assert cycles >= 1
 
     def test_run_test_with_debug_callback(self, tmp_path: Path) -> None:
         """run_test with debug_callback should invoke it on break."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        # Use a BREAK instruction (break slot) followed by BKPT (cond halt)
-        asm = "BREAK;;\nBKPT;;\n"
+        # Use a BREAK instruction (break slot) followed by HALT (cond halt)
+        asm = "BREAK;;\nHALT;;\n"
         inst_path = tmp_path / "break.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
@@ -207,7 +207,7 @@ class TestRunTest:
         from ipu_as.lark_tree import assemble_to_bin_file
 
         inst_path = tmp_path / "break.bin"
-        assemble_to_bin_file("BREAK;;\nBKPT;;\n", str(inst_path))
+        assemble_to_bin_file("BREAK;;\nHALT;;\n", str(inst_path))
         teardowns = []
 
         state, cycles = run_test(
@@ -235,8 +235,8 @@ class TestRunTest:
         """``run_test`` forwards α kwargs into ``IpuState`` (emulator-only)."""
         from ipu_as.lark_tree import assemble_to_bin_file
 
-        inst_path = tmp_path / "bkpt.bin"
-        assemble_to_bin_file("BKPT;;\n", str(inst_path))
+        inst_path = tmp_path / "halt.bin"
+        assemble_to_bin_file("HALT;;\n", str(inst_path))
 
         state, _ = run_test(
             inst_path=inst_path,
@@ -258,7 +258,7 @@ class TestEndToEnd:
         from ipu_as.lark_tree import assemble_to_bin_file
 
         # Simple program: SET lr0 from cr8 (=42), then breakpoint
-        asm = "SET lr0 cr8;;\nBKPT;;\n"
+        asm = "SET lr0 cr8;;\nHALT;;\n"
         inst_path = tmp_path / "simple.bin"
         assemble_to_bin_file(asm, str(inst_path))
 
@@ -268,4 +268,4 @@ class TestEndToEnd:
         )
 
         assert state.regfile.get_lr(0) == 42
-        assert cycles >= 2  # set + BKPT
+        assert cycles >= 2  # set + HALT

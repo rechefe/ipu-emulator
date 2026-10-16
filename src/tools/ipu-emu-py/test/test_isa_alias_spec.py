@@ -165,7 +165,7 @@ class TestValidatorRejectsMistakes:
                     "matches": [
                         {
                             "slot": "store",
-                            "instruction": "STR_POST_AAQ_REG",
+                            "instruction": "ST.AAQ",
                             "where": [{"hardware_only": True}],
                         }
                     ],

@@ -43,7 +43,7 @@ def test_profiled_state_is_freed_without_the_cycle_collector():
     """state -> profile -> observer must not point back at the state: a
     reference cycle would keep every profiled state's XMEM alive until the
     cyclic garbage collector happens to run."""
-    state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;")
+    state = run("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;")
     profile = state.alias_profile
     released = weakref.ref(state)
     gc.disable()
@@ -63,7 +63,7 @@ def test_registry_extension_needs_no_emulator_changes():
 
     registry = default_registry().copy().register(AliasDefinition("custom_move", "Custom"), Custom)
     state = IpuState(alias_profile=AliasProfile(registry))
-    load_program(state, assemble_program("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;"))
+    load_program(state, assemble_program("MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;"))
     run_until_complete(state)
     assert count(state, "custom_move") == 1
     assert "custom_move" not in default_registry().entries
@@ -75,7 +75,7 @@ def test_registry_extension_needs_no_emulator_changes():
 
 
 def test_profile_preserves_architecture_and_identity_accounting():
-    code = "MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nBKPT;;"
+    code = "MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;\nHALT;;"
     on, off = run(code), run(code, enabled=False)
     for field in (
         "total_cycles",
@@ -97,10 +97,10 @@ def test_profile_preserves_architecture_and_identity_accounting():
 
 TRANSFER = """
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-BKPT;;
+HALT;;
 """
 
 
@@ -133,10 +133,10 @@ def test_constant_exp_and_fractional():
 
     state = run(
         """
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 ACTIVATE.QUANTIZE exp2 CR15;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -162,14 +162,14 @@ def test_program_written_row_is_not_an_automatic_constant():
 
     state = run(
         """
-LDR_CYCLIC_MULT_REG LR1 CR0 LR0;;
+LD.MULT.CYCLIC LR1 CR0 LR0;;
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR2;;
-LDR_MULT_REG R0 LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR2;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 ACTIVATE.QUANTIZE exp2 CR15;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -180,11 +180,11 @@ BKPT;;
 
 def test_repeated_reads_and_write_invalidation():
     state = run("""
-LDR_MULT_REG R0 LR0 CR0;;
-LDR_MULT_REG R1 LR0 CR0;;
-STR_POST_AAQ_REG LR0 CR0;;
-LDR_MULT_REG R0 LR0 CR0;;
-BKPT;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT R1 LR0 CR0;;
+ST.AAQ LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
+HALT;;
 """)
     assert count(state, "A14_MULTIPLE_ACC") == 1
     assert state.alias_profile.read_bytes == 384
@@ -197,11 +197,11 @@ def test_mask_and_scalar_add_subtypes():
 
     state = run(
         """
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 ADD LR6 LR6 LR7;;
 ADD LR6 LR6 LR7;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
     )
@@ -212,9 +212,9 @@ BKPT;;
 def test_address_update_dependency():
     state = run("""
 ADD LR2 LR2 CR1;;
-LDR_MULT_REG R0 LR2 CR0;;
+LD.MULT R0 LR2 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
-BKPT;;
+HALT;;
 """)
     assert count(state, "A12_ADDRESSING", subtype="address_update") == 1
     assert count(state, "A12_ADDRESSING", subtype="load_to_mult") == 1
@@ -249,12 +249,12 @@ def test_segmented_fold_geometry():
     state = run(
         """
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
 SET LR3 CR2;;
 MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.ADD;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -270,13 +270,13 @@ def test_conditional_select_both_paths(taken):
 
     state = run(
         """
-BLT LR1 CR1 full;;
+BLT.S LR1 CR1 full;;
 SET LR6 CR0;;
 B joined;;
 full:
 SET LR6 CR1;;
 joined:
-BKPT;;
+HALT;;
 """,
         setup=setup,
     )
@@ -317,14 +317,14 @@ def test_empty_cycles_and_break_resume_count_once():
 def test_rotating_fold_requires_complete_duplicated_input():
     code = """
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
 SET LR3 CR2;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR3;;
+LD.MULT.CYCLIC LR0 CR0 LR3;;
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.MAX.FIRST;;
 SET LR3 CR3;;
 MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.MAX;;
-BKPT;;
+HALT;;
 """
 
     def setup(state):
@@ -333,13 +333,13 @@ BKPT;;
 
     yes = run(code, setup=setup, wide=True)
     assert count(yes, "A7_REDUCE_SEG", subtype="rotating_partition_fold") == 1
-    no = run(code.replace("LDR_CYCLIC_MULT_REG LR0 CR0 LR3;;", "NOP;;"), setup=setup, wide=True)
+    no = run(code.replace("LD.MULT.CYCLIC LR0 CR0 LR3;;", "NOP;;"), setup=setup, wide=True)
     assert count(no, "A7_REDUCE_SEG") == 0
 
 
 def test_hardware_only_alias_and_dtype_support():
     with pytest.warns(DebugOnlyInstructionWarning):
-        state = run("STR_ACC_REG LR0 CR0;;\nBKPT;;")
+        state = run("ST.ACC LR0 CR0;;\nHALT;;")
     assert count(state, "A16_STR_ACC_REG") == 1
     assert rows(state, "A16_STR_ACC_REG")[0]["metrics"]["write_bytes"] == 512
     assert (
@@ -349,11 +349,9 @@ def test_hardware_only_alias_and_dtype_support():
 
 
 def test_roundtrip_does_not_include_store_padding_or_mask_loads():
-    code = TRANSFER.replace("LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;", "LDR_MULT_MASK_REG LR0 CR0;;")
+    code = TRANSFER.replace("LD.MULT.CYCLIC LR0 CR0 LR0;;", "LD.MASK LR0 CR0;;")
     assert count(run(code), "A8_MOV_ACC") == 0
-    code = TRANSFER.replace(
-        "LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;", "LDR_CYCLIC_MULT_REG LR0 CR1 LR0;;"
-    )
+    code = TRANSFER.replace("LD.MULT.CYCLIC LR0 CR0 LR0;;", "LD.MULT.CYCLIC LR0 CR1 LR0;;")
     assert count(run(code), "A8_MOV_ACC") == 0
 
 
@@ -363,11 +361,11 @@ def test_exp_rebase_with_offset_is_candidate_until_offset_is_proven():
 
     state = run(
         """
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 MULT.EE LR0 CR1 0 LR0 CR15; ACC.SUB;;
 ACTIVATE.QUANTIZE exp2 CR15;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -387,14 +385,14 @@ def test_exp_offset_traces_packed_reduction_and_memory(slot, activation, verifie
 
     state = run(
         f"""
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; AGG.MAX.FIRST LR0 CR15;;
-ACTIVATE.QUANTIZE {activation} CR15; STR_POST_AAQ_REG LR0 CR2;;
-LDR_MULT_REG R1 LR0 CR2;;
+ACTIVATE.QUANTIZE {activation} CR15; ST.AAQ LR0 CR2;;
+LD.MULT R1 LR0 CR2;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 MULT.EE LR1 CR1 0 LR0 CR15; ACC.SUB;;
 ACTIVATE.QUANTIZE exp2 CR15;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -413,14 +411,14 @@ def test_exp_offset_same_bytes_do_not_preserve_overwritten_provenance(overwrite)
     load_program(
         state,
         assemble_program("""
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; AGG.MAX.FIRST LR0 CR15;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR2;;
-LDR_MULT_REG R1 LR0 CR2;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR2;;
+LD.MULT R1 LR0 CR2;;
 MULT.RC.VV LR0 R0 0 LR0 CR15; ACC.ADD.FIRST;;
 MULT.EE LR1 CR1 0 LR0 CR15; ACC.SUB;;
 ACTIVATE.QUANTIZE exp2 CR15;;
-BKPT;;
+HALT;;
 """),
     )
     engine = Ipu(state)
@@ -447,9 +445,9 @@ def test_binary_vector_mask_uses_active_dtype(dtype_name):
     load_program(
         state,
         assemble_program("""
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 MULT.RC.VV LR0 R0 0 LR0 CR15;;
-BKPT;;
+HALT;;
 """),
     )
     run_until_complete(state)
@@ -459,8 +457,8 @@ BKPT;;
 def test_address_update_overwritten_before_live_read_is_not_a_dependency():
     state = run("""
 ADD LR2 LR2 CR1;;
-SET LR2 CR0; LDR_MULT_REG R0 LR2 CR0;;
-BKPT;;
+SET LR2 CR0; LD.MULT R0 LR2 CR0;;
+HALT;;
 """)
     assert count(state, "A12_ADDRESSING", subtype="address_update") == 0
 
@@ -469,7 +467,7 @@ def test_mask_shift_update_is_not_address_arithmetic():
     state = run("""
 ADD LR2 LR2 CR1;;
 MULT.RC.VE LR0 CR1 0 LR2 CR15;;
-BKPT;;
+HALT;;
 """)
     assert count(state, "A12_ADDRESSING", subtype="address_update") == 0
 
@@ -482,9 +480,9 @@ def test_indexed_memory_versions_distinguish_overlap(address, expected):
     load_program(
         state,
         assemble_program("""
-LDR_MULT_REG R0 LR0 CR0;;
-LDR_MULT_REG R1 LR0 CR0;;
-BKPT;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT R1 LR0 CR0;;
+HALT;;
 """),
     )
     engine = Ipu(state)
@@ -506,7 +504,7 @@ BKPT;;
     ],
 )
 def test_legacy_alias_profile_includes_coissued_consumer(instruction, expected):
-    state = run(instruction + ";;\nBKPT;;")
+    state = run(instruction + ";;\nHALT;;")
     assert count(state, expected) == 1
     assert rows(state, expected)[0]["metrics"]["participating_instructions"] == 2
     assert rows(state, expected)[0]["metrics"]["participating_cycles"] == 1
@@ -520,17 +518,17 @@ def test_rotation_cannot_mix_accumulator_memory_versions():
     state = run(
         """
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.ADD.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
 SET LR3 CR2;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR3;;
+LD.MULT.CYCLIC LR0 CR0 LR3;;
 MULT.RC.VE LR0 CR1 0 LR0 CR15; ACC.MAX.FIRST;;
-ACTIVATE.QUANTIZE identity CR15; STR_POST_AAQ_REG LR0 CR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR0;;
-LDR_CYCLIC_MULT_REG LR0 CR0 LR3;;
+ACTIVATE.QUANTIZE identity CR15; ST.AAQ LR0 CR0;;
+LD.MULT.CYCLIC LR0 CR0 LR0;;
+LD.MULT.CYCLIC LR0 CR0 LR3;;
 SET LR3 CR3;;
 MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.MAX;;
-BKPT;;
+HALT;;
 """,
         setup=setup,
         wide=True,
@@ -541,7 +539,7 @@ BKPT;;
 def test_xmem_clear_under_profiler_is_constant_size():
     """clear() is one ranged event: the observer drops its tables instead of
     stamping a version on each of the 4M 128-byte blocks."""
-    state = run("BKPT;;")
+    state = run("HALT;;")
     observer = state.alias_profile._bridge
     state.xmem.write_address(0, bytes(range(256)))
     assert len(observer.memory_versions) == 2
@@ -555,7 +553,7 @@ def test_xmem_clear_under_profiler_is_constant_size():
 
 def test_profiled_xmem_is_freed_without_the_cycle_collector():
     """The observer keeps its removers; they must not pin XMEM in a cycle."""
-    state = run("BKPT;;")
+    state = run("HALT;;")
     xmem = weakref.ref(state.xmem)
     gc.disable()
     try:

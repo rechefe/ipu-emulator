@@ -20,7 +20,7 @@
       longer exists; rsqrt is one of ACTIVATE.QUANTIZE's twelve activations, so
       the reciprocal square root is taken on the way out of R_ACC:
 
-          ACTIVATE.QUANTIZE rsqrt cr15 ; STR_POST_AAQ_REG -> the scale row
+          ACTIVATE.QUANTIZE rsqrt cr15 ; ST.AAQ -> the scale row
 
       The emulator's rsqrt is guarded (x <= 0 yields 0), so an all-zero column
       normalizes to zeros rather than producing inf or NaN.
@@ -54,7 +54,7 @@
     Slot order within a word is LR -> LOAD -> MULT -> ACC -> AAQ -> STORE ->
     COND. That is why the walking address is advanced in the word AFTER the load
     or store that uses it, and why each loop counter is incremented one word
-    BEFORE its BLT (BLT reads its register from the start-of-word snapshot, so
+    BEFORE its BLT.S (BLT.S reads its register from the start-of-word snapshot, so
     an increment in the same word would run one iteration too many).
 ========================================================================== -#}
 
@@ -74,29 +74,29 @@ tile_loop:
 
 pass1_loop:
     ADD {{lr_row}} {{lr_row}} cr1 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
     ADD {{lr_addr}} {{lr_addr}} cr5 ;
     MULT.RC.VS {{lr_zero}} 0 {{lr_zero}} cr15 ; ACC.ADD ;
-    BLT {{lr_row}} cr6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
+    BLT.S {{lr_row}} cr6 pass1_loop ;;                     {#- += x^2, lane-wise -#}
 
     ACTIVATE.QUANTIZE rsqrt cr15 ;
-    STR_POST_AAQ_REG {{lr_zero}} cr4 ;;                  {#- rvec = 1/||x[:, col]|| -#}
-    LDR_MULT_REG r0 {{lr_zero}} cr4 ;
+    ST.AAQ {{lr_zero}} cr4 ;;                  {#- rvec = 1/||x[:, col]|| -#}
+    LD.MULT r0 {{lr_zero}} cr4 ;
     ADD {{lr_addr}} {{lr_tile}} cr0 ;
     SET {{lr_row}} cr0 ;;                                {#- R0 = rvec (visible NEXT word) -#}
 
 {#- ---- PASS 2: out = x * rvec, lane-wise -------------------------------- -#}
 pass2_loop:
     ADD {{lr_row}} {{lr_row}} cr1 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[row, tile] -#}
     MULT.RC.VV {{lr_zero}} r0 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_addr}} cr3 ;;                  {#- OUT[row, tile] -#}
+    ST.AAQ {{lr_addr}} cr3 ;;                  {#- OUT[row, tile] -#}
     ADD {{lr_addr}} {{lr_addr}} cr5 ;
-    BLT {{lr_row}} cr6 pass2_loop ;;
+    BLT.S {{lr_row}} cr6 pass2_loop ;;
 
     ADD {{lr_tile}} {{lr_tile}} cr1 ;;
-    BLT {{lr_tile}} cr5 tile_loop ;;
+    BLT.S {{lr_tile}} cr5 tile_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

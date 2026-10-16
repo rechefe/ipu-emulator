@@ -38,7 +38,7 @@ OPERAND TYPE NAMES (resolved by the assembler into its token classes):
   - "LrdIdx": LRD0, LRD2, LRD4, ..., LRD14 register-pair alias over LR (LrdRegField), named after the lower register in the pair; no physical storage — LRDn = LR(n+1):LR(n)
   - "LrIncDecImmediate": unsigned immediate for INC/DEC; bit width derived from LR slot union layout
   - "AddbiImmediate": byte immediate for ADDBI (0–255, or an equivalent signed literal); reinterpreted as signed int8 for the add
-  - "LrModPow2KImmediate": k operand for INCR_MOD_POW2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
+  - "LrModPow2KImmediate": k operand for INC.MODP2 (semantic k ∈ [1, 9]; encoded as k−1 in 4 bits)
   - "MultMaskOffsetImmediate": mask slot index for mult masking (0–7; eight 128-bit slots in R_MASK)
   - "LrOrReshapeMaskImmediate": element-start index for RESHAPE; selects trailing elements (reshape_mask..7); accepts immediate 0–7 or an LR register (bit width, and therefore the range of encodable LR registers, derived from union layout)
   - "ActivationFn": keyword on `ACTIVATE.QUANTIZE` (see ``ACTIVATION_FN_NAMES`` in ``activations.py``)
@@ -95,6 +95,7 @@ from typing import Any
 
 from ipu_isa import schema
 from ipu_isa.constants import CR_ONE_REG_INDEX, CR_ZERO_REG_INDEX
+from ipu_isa.mnemonics import check_mnemonic
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
 from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, SlotInfo
@@ -199,10 +200,10 @@ def _pseudo_tag(pseudo_def: dict[str, Any]) -> Tag:
 INSTRUCTION_SPEC = {
     # =========================================================================
     # LOAD Slot (first pipeline stage — feeds the multiply unit)
-    # Opcode = position in list: LDR_MULT_REG=0, LDR_CYCLIC_MULT_REG=1, etc.
+    # Opcode = position in list: LD.MULT=0, LD.MULT.CYCLIC=1, etc.
     # =========================================================================
     "load": {
-        "LDR_MULT_REG": {
+        "LD.MULT": {
             "operands": [
                 {"name": "dest", "type": "MultStageReg", "write": True},
                 {"name": "offset", "type": "LrIdx", "read": "forwarded"},
@@ -217,11 +218,11 @@ INSTRUCTION_SPEC = {
                     "`base`: **`CR0`**…**`CR15`** — base address register, in XMEM rows.",
                 ],
                 operation="dest = Memory[row(offset + base)]  # one row = 128 elements (128 B narrow, 512 B wide-vector debug)",
-                example="SET LR0 CR1;;\nLDR_MULT_REG R0 LR0 CR0;;",
+                example="SET LR0 CR1;;\nLD.MULT R0 LR0 CR0;;",
             ),
-            "execute_fn": "execute_ldr_mult_reg",
+            "execute_fn": "execute_ld_mult",
         },
-        "LDR_CYCLIC_MULT_REG": {
+        "LD.MULT.CYCLIC": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "forwarded"},
                 {"name": "base", "type": "CrIdx", "read": "cycle_start"},
@@ -238,9 +239,9 @@ INSTRUCTION_SPEC = {
                 operation="R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
             ),
             "implicit_writes": [{"register": "r_cyclic"}],
-            "execute_fn": "execute_ldr_cyclic_mult_reg",
+            "execute_fn": "execute_ld_mult_cyclic",
         },
-        "LDR_MULT_MASK_REG": {
+        "LD.MASK": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "forwarded"},
                 {"name": "base", "type": "CrIdx", "read": "cycle_start"},
@@ -255,7 +256,7 @@ INSTRUCTION_SPEC = {
                 operation="R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
             ),
             "implicit_writes": [{"register": "r_mask"}],
-            "execute_fn": "execute_ldr_mult_mask_reg",
+            "execute_fn": "execute_ld_mask",
         },
         "NOP": {
             "operands": [],
@@ -271,7 +272,7 @@ INSTRUCTION_SPEC = {
     # STORE Slot (last pipeline stage — drains POST_AAQ_REG after AAQ/activate)
     # =========================================================================
     "store": {
-        "STR_POST_AAQ_REG": {
+        "ST.AAQ": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "forwarded"},
                 {"name": "base", "type": "CrIdx", "read": "cycle_start"},
@@ -287,12 +288,12 @@ INSTRUCTION_SPEC = {
                     "base: Base address register (CR0–CR15), in XMEM rows.",
                 ],
                 operation="Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
-                example="STR_POST_AAQ_REG LR0 CR0;;",
+                example="ST.AAQ LR0 CR0;;",
             ),
             "implicit_reads": [
                 {"register": "post_aaq_reg", "view": "forwarded"},
             ],
-            "execute_fn": "execute_str_post_aaq_reg",
+            "execute_fn": "execute_st_aaq",
         },
         "NOP": {
             "operands": [],
@@ -308,7 +309,7 @@ INSTRUCTION_SPEC = {
     # ACC_STORE Slot (simulation-only — NOT implemented in real IPU hardware)
     # =========================================================================
     "acc_store": {
-        "STR_ACC_REG": {
+        "ST.ACC": {
             "operands": [
                 {"name": "offset", "type": "LrIdx", "read": "forwarded"},
                 {"name": "base", "type": "CrIdx", "read": "cycle_start"},
@@ -324,13 +325,13 @@ INSTRUCTION_SPEC = {
                     "base: Base address register (CR0–CR15), in XMEM rows.",
                 ],
                 operation="Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
-                example="STR_ACC_REG LR0 CR1;;",
+                example="ST.ACC LR0 CR1;;",
                 notes="This instruction lives in the simulation-only **acc_store** slot.",
             ),
             "implicit_reads": [
                 {"register": "r_acc", "view": "forwarded"},
             ],
-            "execute_fn": "execute_str_acc_reg",
+            "execute_fn": "execute_st_acc",
         },
         "NOP": {
             "operands": [],
@@ -344,7 +345,7 @@ INSTRUCTION_SPEC = {
     },
     # =========================================================================
     # LR Slot (Loop Register Instructions)
-    # Opcode = position: SET=0, ADD=1, SUB=2, INCR_MOD_POW2=3, INC=4, DEC=5,
+    # Opcode = position: SET=0, ADD=1, SUB=2, INC.MODP2=3, INC=4, DEC=5,
     #          ADDB=6, ADDBI=7, NOP=8
     # =========================================================================
     "lr": {
@@ -406,7 +407,7 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_lr_sub",
         },
-        "INCR_MOD_POW2": {
+        "INC.MODP2": {
             "operands": [
                 {"name": "dest", "type": "LrIdx", "write": True},
                 {"name": "step", "type": "LcrIdx", "read": "cycle_start"},
@@ -424,12 +425,12 @@ INSTRUCTION_SPEC = {
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
                 operation="dest <- (dest + step) & ((1 << k) - 1)",
-                example="INCR_MOD_POW2 LR2 LR3 4;;",
+                example="INC.MODP2 LR2 LR3 4;;",
             ),
             "implicit_reads": [
                 {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
             ],
-            "execute_fn": "execute_lr_incr_mod_pow2",
+            "execute_fn": "execute_lr_inc_modp2",
         },
         "INC": {
             "operands": [
@@ -572,8 +573,8 @@ INSTRUCTION_SPEC = {
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
-                    "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
+                    "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LD.MULT` into **`R0`**/**`R1`** is allowed).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
@@ -607,7 +608,7 @@ INSTRUCTION_SPEC = {
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
                     "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
@@ -643,7 +644,7 @@ INSTRUCTION_SPEC = {
                     "(any CR0-CR15; must be named explicitly)."
                 ),
                 operands=[
-                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
+                    "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
                     "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
                     "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
                     "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly).",
@@ -1106,7 +1107,7 @@ INSTRUCTION_SPEC = {
     },
     # =========================================================================
     # COND Slot (Conditional Branch Instructions)
-    # Opcode = position: BEQ=0, BNE=1, BLT=2, BGE=3, BR=4, BKPT=5, NOP=6
+    # Opcode = position: BEQ=0, BNE=1, BLT.S=2, BGE.S=3, BR=4, HALT=5, NOP=6
     # BNZ, BZ, and B are pseudo-instructions (see PSEUDO_INSTRUCTION_SPEC):
     # they're each exactly expressible via BEQ/BNE against CR0 (always zero),
     # so they don't need their own opcode.
@@ -1150,43 +1151,46 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_bne",
         },
-        "BLT": {
+        "BLT.S": {
             "operands": [
                 {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
-                title="Branch if Less Than",
-                summary="Branch if first register is less than second.",
+                title="Branch if Less Than (signed)",
+                summary="Branch if first register is less than second, as signed 32-bit integers.",
                 operands=[
                     "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
                     "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
-                operation="if (reg1 < reg2) PC = label",
-                example="BLT LR0 CR1 smaller;;",
+                operation="if (int32(reg1) < int32(reg2)) PC = label  # signed 32-bit",
+                example="BLT.S LR0 CR1 smaller;;",
             ),
-            "execute_fn": "execute_blt",
+            "execute_fn": "execute_blt_s",
         },
-        "BGE": {
+        "BGE.S": {
             "operands": [
                 {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
-                title="Branch if Greater or Equal",
-                summary="Branch if first register is greater than or equal to second.",
+                title="Branch if Greater or Equal (signed)",
+                summary=(
+                    "Branch if first register is greater than or equal to second, "
+                    "as signed 32-bit integers."
+                ),
                 operands=[
                     "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
                     "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
                     "label: Branch target label",
                 ],
-                operation="if (reg1 >= reg2) PC = label",
-                example="BGE LR0 CR1 ge;;",
+                operation="if (int32(reg1) >= int32(reg2)) PC = label  # signed 32-bit",
+                example="BGE.S LR0 CR1 ge;;",
             ),
-            "execute_fn": "execute_bge",
+            "execute_fn": "execute_bge_s",
         },
         "BR": {
             "operands": [
@@ -1200,7 +1204,7 @@ INSTRUCTION_SPEC = {
             ),
             "execute_fn": "execute_br",
         },
-        "BKPT": {
+        "HALT": {
             "operands": [],
             "doc": InstructionDoc(
                 title="Breakpoint",
@@ -1208,7 +1212,7 @@ INSTRUCTION_SPEC = {
                 operands=[],
                 operation="Halt execution (debugging)",
             ),
-            "execute_fn": "execute_bkpt",
+            "execute_fn": "execute_halt",
         },
         "NOP": {
             "operands": [],
@@ -1293,7 +1297,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(OPERAND_TYPES)
 #             "operands": [{"name": "reg1", "type": "LcrIdx"}, ...],
 #             "expands_to": {
 #                 "slot": "cond",
-#                 "instruction": "BLT",
+#                 "instruction": "BLT.S",
 #                 "args": ["reg2", "reg1", "label"],
 #                     # Real instruction's operands, in order. Each entry is
 #                     # either a name from this pseudo's own "operands" list
@@ -1308,7 +1312,7 @@ VALID_OPERAND_TYPES: frozenset[str] = frozenset(OPERAND_TYPES)
 #     }
 
 PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
-    "BGT": {
+    "BGT.S": {
         "operands": [
             {"name": "reg1", "type": "LcrIdx"},
             {"name": "reg2", "type": "LcrIdx"},
@@ -1316,7 +1320,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         ],
         "expands_to": {
             "slot": "cond",
-            "instruction": "BLT",
+            "instruction": "BLT.S",
             "args": ["reg2", "reg1", "label"],
         },
         "doc": InstructionDoc(
@@ -1328,15 +1332,15 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",
-            example="BGT LR0 LR1 bigger;;",
+            example="BGT.S LR0 LR1 bigger;;",
             notes=(
-                "Expands to `BLT reg2, reg1, label` at assemble time "
+                "Expands to `BLT.S reg2, reg1, label` at assemble time "
                 "(operands swapped). Identical encoding and runtime cost "
-                "to a hand-written BLT."
+                "to a hand-written BLT.S."
             ),
         ),
     },
-    "BLE": {
+    "BLE.S": {
         "operands": [
             {"name": "reg1", "type": "LcrIdx"},
             {"name": "reg2", "type": "LcrIdx"},
@@ -1344,7 +1348,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
         ],
         "expands_to": {
             "slot": "cond",
-            "instruction": "BGE",
+            "instruction": "BGE.S",
             "args": ["reg2", "reg1", "label"],
         },
         "doc": InstructionDoc(
@@ -1356,12 +1360,12 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict[str, Any]] = {
                 "label: Branch target label",
             ],
             operation="if (reg1 <= reg2) PC = label",
-            example="BLE LR0 LR1 smaller_or_equal;;",
+            example="BLE.S LR0 LR1 smaller_or_equal;;",
             notes=(
-                "Expands to `BGE reg2, reg1, label` at assemble time "
-                "(operands swapped), exactly mirroring how BGT expands to "
-                "BLT. Identical encoding and runtime cost to a hand-written "
-                "BGE."
+                "Expands to `BGE.S reg2, reg1, label` at assemble time "
+                "(operands swapped), exactly mirroring how BGT.S expands to "
+                "BLT.S. Identical encoding and runtime cost to a hand-written "
+                "BGE.S."
             ),
         ),
     },
@@ -1603,6 +1607,7 @@ def validate_instruction_spec(
             raise schema.SpecError(f"{slot_type}: must have exactly one NOP, has {len(nops)}")
         for inst_name, inst_def in instructions.items():
             path = f"{slot_type}.{inst_name}"
+            check_mnemonic(path, inst_name, Slot(slot_type))
             schema.check_keys(path, inst_def, schema.INSTRUCTION)
             _check_operands(path, inst_def["operands"], operand_types)
             _check_accesses(path, inst_def)
@@ -1651,6 +1656,7 @@ def validate_pseudo_instruction_spec(
     """
     for name, pseudo_def in pseudo_spec.items():
         path = f"pseudo.{name}"
+        check_mnemonic(path, name, None)
         schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
         _check_operands(path, pseudo_def["operands"], operand_types)
         _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])

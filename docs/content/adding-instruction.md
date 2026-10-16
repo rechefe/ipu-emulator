@@ -24,7 +24,7 @@ A **new operand type** needs one entry in the operand-type registry, `src/tools/
 
 Open `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"load"`, `"store"`, `"acc_store"`, `"lr"`, `"cond"`, `"break"`).
 
-Add your instruction to the slot's dictionary (**instruction keys are upper-case mnemonics**, e.g. `MULT.EE`, `STR_ACC_REG`; operand `"name"` fields stay **lower case**):
+Add your instruction to the slot's dictionary (**instruction keys are upper-case mnemonics**, e.g. `MULT.EE`, `ST.ACC`; operand `"name"` fields stay **lower case**):
 
 ```python
 INSTRUCTION_SPEC = {
@@ -87,7 +87,7 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
     - `"LrIdx"` — `LR0`–`LR15`
     - `"CrIdx"` — `CR0`–`CR15`
     - `"LcrIdx"` — `LR0`–`LR15` or `CR0`–`CR15`
-    - `"LrModPow2KImmediate"` — exponent **k** for `INCR_MOD_POW2` (semantic **k ∈ [1, 9]**)
+    - `"LrModPow2KImmediate"` — exponent **k** for `INC.MODP2` (semantic **k ∈ [1, 9]**)
     - `"MultMaskOffsetImmediate"` — mult mask slot index **0**–**7**
     - `"BreakImmediate"` — 16-bit break condition
     - `"Label"` — branch target label
@@ -205,7 +205,7 @@ ipu_add(a: int, b: int, dtype: DType) -> int
 
 Emulator instruction tests live in `src/tools/ipu-emu-py/test/test_execute.py`. Its helpers assemble real source, so a test needs no hand-built instruction word:
 
-- `_run(asm_code, cr=...)` assembles, loads, runs to `BKPT` and returns the final `IpuState`.
+- `_run(asm_code, cr=...)` assembles, loads, runs to `HALT` and returns the final `IpuState`.
 - `_make_state(asm_code, cr=...)` assembles and loads without running, so you can write input data to XMEM first; then call `run_until_complete(state)`.
 
 Add a test next to the tests for the same slot:
@@ -217,10 +217,10 @@ def test_my_new_instruction():
     state = _make_state("""\
 SET LR0 CR8;;
 SET LR1 CR9;;
-LDR_MULT_REG R0 LR0 CR0;;
-LDR_MULT_REG R1 LR1 CR0;;
+LD.MULT R0 LR0 CR0;;
+LD.MULT R1 LR1 CR0;;
 MY_NEW_INSTRUCTION R0 R0 R1;;
-BKPT;;
+HALT;;
 """, cr={8: 32, 9: 33})
     state.xmem.write_address(0x1000, bytes(range(128)))
     state.xmem.write_address(0x1080, bytes([1] * 128))
@@ -260,8 +260,8 @@ bazel build //docs:generate_instruction_format_artifacts
 ## Adding a Pseudo-Instruction
 
 Some assembly mnemonics don't need any new hardware behavior — they're just a
-more convenient way of writing an existing instruction. For example, `BGT
-reg1 reg2 label` is exactly `BLT reg2 reg1 label` with the operands
+more convenient way of writing an existing instruction. For example, `BGT.S
+reg1 reg2 label` is exactly `BLT.S reg2 reg1 label` with the operands
 swapped: there's no new opcode, no new emulator behavior, just a friendlier
 name. These are **pseudo-instructions**, declared in
 `PSEUDO_INSTRUCTION_SPEC` (in the same `instruction_spec.py` file as
@@ -282,7 +282,7 @@ Add an entry to `PSEUDO_INSTRUCTION_SPEC`:
 
 ```python
 PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
-    "BGT": {
+    "BGT.S": {
         "operands": [
             {"name": "reg1", "type": "LcrIdx"},
             {"name": "reg2", "type": "LcrIdx"},
@@ -290,7 +290,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
         ],
         "expands_to": {
             "slot": "cond",
-            "instruction": "BLT",
+            "instruction": "BLT.S",
             "args": ["reg2", "reg1", "label"],
         },
         "doc": InstructionDoc(
@@ -302,7 +302,7 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
                 "label: Branch target label",
             ],
             operation="if (reg1 > reg2) PC = label",
-            example="BGT LR0 LR1 bigger;;",
+            example="BGT.S LR0 LR1 bigger;;",
         ),
     },
 }
@@ -349,7 +349,7 @@ its hand-written real-instruction expansion:
 from ipu_as.lark_tree import assemble
 
 def test_bgt_matches_hand_written_blt():
-    assert assemble("BGT LR0 LR1 +1;;") == assemble("BLT LR1 LR0 +1;;")
+    assert assemble("BGT.S LR0 LR1 +1;;") == assemble("BLT.S LR1 LR0 +1;;")
 ```
 
 See `src/tools/ipu-as-py/test/test_assemble.py` for more examples, including

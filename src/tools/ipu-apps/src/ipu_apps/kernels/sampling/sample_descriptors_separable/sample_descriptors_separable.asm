@@ -32,40 +32,40 @@
     Vertical pass streams three input rows while a single Ky row stays in R0.
     Horizontal pass keeps three neighbor vectors resident in R_CYCLIC across
     all eight b phases; one Kx row is loaded per coarse column, not per tap.
-    MULT data reads use snapshots, LR indexes are live; BLT reads snapshot LRs.
+    MULT data reads use snapshots, LR indexes are live; BLT.S reads snapshot LRs.
 -#}
     SET lr0 cr0 ; SET lr1 cr0 ; SET lr2 cr11 ;;
     SET lr8 cr0 ; SET lr13 cr12 ;;
     ADD lr14 lr13 lr13 ;;
 coarse_row_loop:
-    LDR_MULT_REG r0 lr1 cr4 ; SET lr3 cr0 ; SET lr5 cr11 ;;
+    LD.MULT r0 lr1 cr4 ; SET lr3 cr0 ; SET lr5 cr11 ;;
 vertical_phase_loop:
     SET lr4 cr0 ;;
 vertical_tile_loop:
     ADD lr6 lr2 lr4 ; ADD lr7 lr3 cr0 ;
-    LDR_CYCLIC_MULT_REG lr6 cr2 lr0 ;;
-    ADD lr6 lr6 cr7 ; LDR_CYCLIC_MULT_REG lr6 cr2 lr0 ;
+    LD.MULT.CYCLIC lr6 cr2 lr0 ;;
+    ADD lr6 lr6 cr7 ; LD.MULT.CYCLIC lr6 cr2 lr0 ;
     MULT.RC.VE lr0 lr7 0 lr0 cr15 ; ACC.ADD.FIRST ;;
     ADD lr6 lr6 cr7 ; ADD lr7 lr7 cr10 ;
-    LDR_CYCLIC_MULT_REG lr6 cr2 lr0 ;
+    LD.MULT.CYCLIC lr6 cr2 lr0 ;
     MULT.RC.VE lr0 lr7 0 lr0 cr15 ; ACC.ADD ;;
     ADD lr7 lr7 cr10 ; ADD lr4 lr4 cr1 ;
     MULT.RC.VE lr0 lr7 0 lr0 cr15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity cr15 ; STR_POST_AAQ_REG lr5 cr6 ;;
-    ADD lr5 lr5 cr1 ; BLT lr4 cr13 vertical_tile_loop ;;
+    ACTIVATE.QUANTIZE identity cr15 ; ST.AAQ lr5 cr6 ;;
+    ADD lr5 lr5 cr1 ; BLT.S lr4 cr13 vertical_tile_loop ;;
     ADD lr3 lr3 cr1 ; INC lr5 4 ;;
-    BLT lr3 cr10 vertical_phase_loop ;;
+    BLT.S lr3 cr10 vertical_phase_loop ;;
 
     SET lr3 cr0 ; SET lr5 cr0 ;;
 horizontal_row_loop:
     SET lr4 cr0 ;;
 horizontal_cell_loop:
-    LDR_MULT_REG r0 lr4 cr5 ; SET lr11 cr0 ;;
+    LD.MULT r0 lr4 cr5 ; SET lr11 cr0 ;;
 horizontal_tile_loop:
     ADD lr6 lr5 lr11 ; ADD lr9 lr8 lr11 ; SET lr10 cr0 ;;
-    LDR_CYCLIC_MULT_REG lr6 cr6 lr0 ;;
-    ADD lr6 lr6 cr11 ; LDR_CYCLIC_MULT_REG lr6 cr6 lr13 ;;
-    ADD lr6 lr6 cr11 ; LDR_CYCLIC_MULT_REG lr6 cr6 lr14 ;;
+    LD.MULT.CYCLIC lr6 cr6 lr0 ;;
+    ADD lr6 lr6 cr11 ; LD.MULT.CYCLIC lr6 cr6 lr13 ;;
+    ADD lr6 lr6 cr11 ; LD.MULT.CYCLIC lr6 cr6 lr14 ;;
 horizontal_phase_loop:
     ADD lr7 lr10 cr0 ;
     MULT.RC.VE lr0 lr7 0 lr0 cr15 ; ACC.ADD.FIRST ;;
@@ -73,14 +73,14 @@ horizontal_phase_loop:
     MULT.RC.VE lr13 lr7 0 lr0 cr15 ; ACC.ADD ;;
     ADD lr7 lr7 cr10 ; ADD lr10 lr10 cr1 ;
     MULT.RC.VE lr14 lr7 0 lr0 cr15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity cr15 ; STR_POST_AAQ_REG lr9 cr3 ;;
-    ADD lr9 lr9 cr11 ; BLT lr10 cr10 horizontal_phase_loop ;;
+    ACTIVATE.QUANTIZE identity cr15 ; ST.AAQ lr9 cr3 ;;
+    ADD lr9 lr9 cr11 ; BLT.S lr10 cr10 horizontal_phase_loop ;;
     ADD lr11 lr11 cr1 ;;
-    BLT lr11 cr11 horizontal_tile_loop ;;
+    BLT.S lr11 cr11 horizontal_tile_loop ;;
     ADD lr4 lr4 cr1 ; ADD lr5 lr5 cr11 ; INC lr8 16 ;;
-    BLT lr4 cr8 horizontal_cell_loop ;;
+    BLT.S lr4 cr8 horizontal_cell_loop ;;
     ADD lr3 lr3 cr1 ; INC lr5 4 ;;
-    BLT lr3 cr10 horizontal_row_loop ;;
+    BLT.S lr3 cr10 horizontal_row_loop ;;
     ADD lr1 lr1 cr1 ; ADD lr2 lr2 cr7 ;;
-    BLT lr1 cr9 coarse_row_loop ;;
-    BKPT ;;
+    BLT.S lr1 cr9 coarse_row_loop ;;
+    HALT ;;

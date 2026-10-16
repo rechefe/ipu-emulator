@@ -24,7 +24,7 @@ class Terminal(StringIO):
 @pytest.fixture
 def program(tmp_path):
     path = tmp_path / "program.bin"
-    assemble_to_bin_file("INC lr0 1;;\nINC lr0 1;;\nBKPT;;", str(path))
+    assemble_to_bin_file("INC lr0 1;;\nINC lr0 1;;\nHALT;;", str(path))
     return path
 
 
@@ -200,7 +200,7 @@ def test_normal_run_interrupt_still_propagates(app, monkeypatch, with_callback):
 
 def test_explicit_callback_keeps_normal_behavior(program, tmp_path, monkeypatch):
     monkeypatch.delenv("IPU_DEBUG_TUI", raising=False)
-    assemble_to_bin_file("BREAK;;\nBKPT;;", str(program))
+    assemble_to_bin_file("BREAK;;\nHALT;;", str(program))
     app = App(inst_path=program, output_path=tmp_path / "out.bin")
     stops = []
 
@@ -222,7 +222,7 @@ def test_noninteractive_debug_is_rejected_before_setup(app, monkeypatch):
 
 
 def test_entry_uses_prepared_pc_and_combines_break_causes(program):
-    assemble_to_bin_file("INC lr0 1;;\nBREAK;;\nBKPT;;", str(program))
+    assemble_to_bin_file("INC lr0 1;;\nBREAK;;\nHALT;;", str(program))
     state = IpuState()
     control = DebugControl()
     control.add_breakpoint(1)

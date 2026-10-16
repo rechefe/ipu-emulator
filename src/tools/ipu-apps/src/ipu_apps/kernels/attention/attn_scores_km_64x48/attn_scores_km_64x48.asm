@@ -22,7 +22,7 @@
 #   Q channel-major: Q[p, i, c] on row (p*48 + c), queries 0..63 in the first 64
 #     lanes -> loads straight into R_CYCLIC (the vector operand).
 #   K key-major scratch (built by the harness): K[p, s, 0:48] on row (p*64 + s)
-#     -> one LDR_MULT_REG pulls a key's whole head-channel vector into R0 (the
+#     -> one LD.MULT pulls a key's whole head-channel vector into R0 (the
 #     scalar operand, indexed by the contraction channel c).
 #   S key-major: key (p, s) owns row (p*64 + s); its leading 64 lanes are the
 #     query scores S[p, 0:64, s]. The harness crops them in teardown -- rows are
@@ -37,11 +37,11 @@
 #       -> mult_res[i] = Q[i,c] * K[s,c]
 #   c==0: ACC.ADD.FIRST  else: ACC.ADD   -> R_ACC[i] += Q[i,c] * K[s,c]
 #   After 48 channels: R_ACC[i] = S[p, i, s] for the 64 queries of the stream.
-#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG -> one whole 512 B row.
+#   ACTIVATE.QUANTIZE identity + ST.AAQ -> one whole 512 B row.
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
-# consume a Q column loaded by LDR_CYCLIC_MULT_REG in its own bundle -- it would
+# consume a Q column loaded by LD.MULT.CYCLIC in its own bundle -- it would
 # see the previous column. `;;` ends one VLIW word = one cycle = one snapshot,
 # so a load and a MULT in the same bundle always run in the same cycle
 # regardless of textual order; co-issuing is fine, consuming the same-cycle load
@@ -53,8 +53,8 @@
 #   q_ptr naturally addresses the NEXT channel's column.
 #   chan_index (the r0 scalar selector) is read LIVE by MULT and must name the
 #   channel just loaded, so its ADD moves into a c_loop_pre block that falls
-#   through into the loop body. That changes what BLT sees: with the ADD in the
-#   same word, BLT read the pre-ADD snapshot; with the ADD one word earlier it
+#   through into the loop body. That changes what BLT.S sees: with the ADD in the
+#   same word, BLT.S read the pre-ADD snapshot; with the ADD one word earlier it
 #   reads the already-incremented value and would drop the last channel. The
 #   loop bound is therefore raised by one, in-kernel, into chan_last
 #   (= chan_bound + 1 = D-1 = 47), leaving the harness's lr6 untouched.
@@ -64,7 +64,7 @@
 # Loop nest:  for p in 0..3 { for s in 0..63 {
 #                 load K[p,s] -> r0; prime c=0
 #                 for c in 0..47: MULT.RC.VE + ACC
-#                 ACTIVATE.QUANTIZE + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE + ST.AAQ
 #             }}
 #
 # Counts: 4 streams x 64 keys x 48 channels = 12288 MULT+ACC bundles + 256
@@ -93,7 +93,7 @@
 {% set q_ptr        = "lr4"  %}  {# row offset into Q, walks head channels c #}
 {% set chan_index   = "lr5"  %}  {# head-channel index c -> selects K[s,c] in r0 #}
 {% set chan_bound   = "lr6"  %}  {# 46 = c-loop bound (first=0, width=48) #}
-{% set chan_last    = "lr11" %}  {# 47 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set chan_last    = "lr11" %}  {# 47 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr      = "lr7"  %}  {# row offset into S, += out_stride per store #}
 {% set key_ptr      = "lr8"  %}  {# row offset into key-major K, += key_stride #}
 {% set key_index    = "lr9"  %}  {# key counter s within the stream #}
@@ -116,7 +116,7 @@
 {% set DSTRUCT      = "cr15" %}  {# reserved dstructure register #}
 
     # chan_last = chan_bound + 1 (= D-1 = 47). See the snapshot note in the
-    # header: chan_index's ADD now sits one word ahead of the BLT, so the branch
+    # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
     ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
 
@@ -125,23 +125,23 @@ p_loop:
     ADD {{ q_start }} {{ q_stream_off }} {{ Q_START }};;    # per-key q_ptr seed = stream base - 1 row
 
 s_loop:
-    LDR_MULT_REG r0 {{ key_ptr }} {{ K_BASE_KM }};;         # r0 = K[p, s, 0:48] (rest pad)
+    LD.MULT r0 {{ key_ptr }} {{ K_BASE_KM }};;         # r0 = K[p, s, 0:48] (rest pad)
 
     ADD {{ q_ptr }} {{ q_start }} {{ ZERO }};;              # Q-data startup: stream base - 1 row (LR copy)
     SET {{ chan_index }} {{ CHAN_START }};;                 # fixed_idx c startup: -1
 
     # Prime c=0's Q column: MULT reads r_cyclic from the snapshot, so the column
     # it consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
     B after_c;;
 
 c_loop_pre:
@@ -150,22 +150,22 @@ c_loop_pre:
 c_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[p, 0:64, s] (key-major row)
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[p, 0:64, s] (key-major row)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;      # advance output row
 
     ADD {{ key_ptr }} {{ key_ptr }} {{ key_stride }};
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;  # next key
-    BLT {{ key_index }} {{ key_limit }} s_loop;;
+    BLT.S {{ key_index }} {{ key_limit }} s_loop;;
 
     ADD {{ q_stream_off }} {{ q_stream_off }} {{ Q_STREAM }};;  # next stream: Q base += 48 rows
     ADD {{ stream_index }} {{ stream_index }} {{ ONE }};;
-    BLT {{ stream_index }} {{ STREAM_LIMIT }} p_loop;;
+    BLT.S {{ stream_index }} {{ STREAM_LIMIT }} p_loop;;
 
 end:
-    BKPT;;
+    HALT;;

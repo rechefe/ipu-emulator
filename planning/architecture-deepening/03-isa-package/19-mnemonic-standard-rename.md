@@ -63,6 +63,14 @@ The SV package derives enum members as `<SLOT>_INST_OPCODE_<MNEMONIC with . -> _
 - [ ] Each schema rule fails on a planted violation (`LD_MULT`, a datapath mnemonic without a dot, defining `BLT.U`).
 - [ ] `rename_mnemonics.py` run twice changes nothing the second time.
 
+## Outcome
+
+- Script output: 3042 + 210 + 12 replacements over 238 files (three passes while the boundary rules were refined: a name right after a string escape such as `\n` is renamed; a full stop after a name does not protect it; a regex-escaped dotted name `BLT\.U` is left alone). A later base merge needed 7 more in 3 new files, which is the script's intended use.
+- `test_sv_rename_table` maps every new SV name back through the published table and checks the result against the pre-rename package's sha256, so the table names every changed identifier.
+- Disassembly-snapshot item: not a standing test. The disassembly text is a function of the binary, the mnemonic table and the operand rendering. E02-01 digests show the binaries unchanged, this change does not touch operand rendering, and the view snapshot fixture shows the mnemonic table changed by exactly the map. A one-off check normalised every regenerated baseline and found no difference beyond the mapped names, alphabetical re-ordering by name, and the `BLT.S`/`BGE.S` signedness text. A pinned digest of the snapshots would break on every later kernel edit, so it was not added.
+- Hand-kept goldens (check-JSON, CLI errors, TUI screens, the view snapshot fixture) were renamed in place, keeping the behaviour they record.
+- The emulator alias ID `A16_STR_ACC_REG` keeps its name: it is an ID in profile output, not a mnemonic.
+
 ## Acceptance Criteria
 
 - [ ] No old mnemonic remains in sources, tests or docs outside `planning/` and the release log.

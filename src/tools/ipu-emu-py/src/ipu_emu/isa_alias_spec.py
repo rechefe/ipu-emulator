@@ -191,7 +191,7 @@ ISA_ALIAS_SPEC: dict[str, dict] = {
         "matches": [
             {
                 "slot": "acc_store",
-                "instruction": "STR_ACC_REG",
+                "instruction": "ST.ACC",
                 "where": [{"hardware_only": True}],
             },
         ],

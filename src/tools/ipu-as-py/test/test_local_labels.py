@@ -16,16 +16,16 @@ def _words(source: str) -> tuple[int, ...]:
 def test_each_macro_expansion_branches_to_its_own_loop() -> None:
     expanded = (
         "{% macro loop() %}\n1:\nNOP;;\nBNE lr0 lr1 1b;;\n{% endmacro %}\n"
-        "{{ loop() }}{{ loop() }}BKPT;;\n"
+        "{{ loop() }}{{ loop() }}HALT;;\n"
     )
-    by_name = "a:\nNOP;;\nBNE lr0 lr1 a;;\nb:\nNOP;;\nBNE lr0 lr1 b;;\nBKPT;;\n"
+    by_name = "a:\nNOP;;\nBNE lr0 lr1 a;;\nb:\nNOP;;\nBNE lr0 lr1 b;;\nHALT;;\n"
     assert _words(expanded) == _words(by_name)
 
 
 def test_forward_reference_skips_the_current_words_own_label() -> None:
     # Word 0 is `1:` and branches with 1f, so the target is the next `1:` (word 2).
-    local = "1:\nB 1f;;\nNOP;;\n1:\nBKPT;;\n"
-    named = "B x;;\nNOP;;\nx:\nBKPT;;\n"
+    local = "1:\nB 1f;;\nNOP;;\n1:\nHALT;;\n"
+    named = "B x;;\nNOP;;\nx:\nHALT;;\n"
     assert _words(local) == _words(named)
 
 
@@ -36,7 +36,7 @@ def test_backward_reference_may_target_its_own_word() -> None:
 @pytest.mark.parametrize(
     ("source", "message", "line"),
     [
-        ("B 1b;;\n1:\nBKPT;;\n", "local label 1b has no definition at or before line 1", 1),
+        ("B 1b;;\n1:\nHALT;;\n", "local label 1b has no definition at or before line 1", 1),
         ("1:\nNOP;;\nB 1f;;\n", "local label 1f has no definition after line 3", 3),
         ("1:\nNOP;;\nB 1;;\n", "use 1f or 1b", 3),
     ],
@@ -64,7 +64,7 @@ def test_local_labels_are_not_in_the_named_symbols() -> None:
 
 @pytest.mark.parametrize(
     ("source", "line", "column"),
-    [("B 1b;;\n1:\nBKPT;;\n", 0, 2), ("1:\nNOP;;\nB 1f;;\n", 2, 2), ("1:\nNOP;;\nB 1;;\n", 2, 2)],
+    [("B 1b;;\n1:\nHALT;;\n", 0, 2), ("1:\nNOP;;\nB 1f;;\n", 2, 2), ("1:\nNOP;;\nB 1;;\n", 2, 2)],
 )
 def test_check_reports_local_label_errors_at_the_reference(source, line, column) -> None:
     (found,) = diagnostics.check(source)

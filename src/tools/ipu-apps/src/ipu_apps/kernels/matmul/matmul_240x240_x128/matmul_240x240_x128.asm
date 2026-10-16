@@ -35,7 +35,7 @@
 #    OUTPUT_BASE + j.
 #
 # lr4 (data ptr) advances continuously by 1 row across chunks; lr5 reset to -1 per chunk.
-# Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT).
+# Loop bound per chunk = width-2 (do-while, live MULT/XMEM, snapshot BLT.S).
 #
 # CRs: cr0=DATA_BASE, cr9=WEIGHTS_BASE, cr2=WB+1 row, cr5=OUTPUT_BASE, cr6=-1 row (data startup), cr8=-1 (chunk startup)
 # LRs: lr0=0, lr2=1 row (data stride), lr3=1 row (output stride), lr6=126 (width-128 bound),
@@ -49,7 +49,7 @@
 
 j_loop:
     SET lr4 cr6;
-    LDR_MULT_REG r0 lr8 cr9;;  # data startup -128; r0 = W[j, chunk0]
+    LD.MULT r0 lr8 cr9;;  # data startup -128; r0 = W[j, chunk0]
     SET lr5 cr8;;                            # chunk0 fixed_idx startup: -1
     SUB lr5 lr5 cr1;;                        # biased to -2 (load runs a bundle ahead)
 
@@ -57,38 +57,38 @@ j_loop:
     # start-of-cycle snapshot (issue #157), so it cannot consume a chunk loaded
     # in its OWN bundle -- it would multiply against the previous row. Each load
     # therefore runs one bundle ahead of the MULT that consumes it.
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LD.MULT.CYCLIC lr4 cr0 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LD.MULT.CYCLIC lr4 cr0 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
-    BLT lr5 lr6 k_chunk0;;
+    BLT.S lr5 lr6 k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LD.MULT.CYCLIC lr4 cr0 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
-    BLT lr5 lr6 k_chunk0;;
+    BLT.S lr5 lr6 k_chunk0;;
 
 after_chunk0:
     SET lr5 cr8;
-    LDR_MULT_REG r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
+    LD.MULT r0 lr8 cr2;;  # chunk1 startup; r0 = W[j, chunk1]
 
 k_chunk1:
     MULT.RC.VE lr0 lr5 0 lr0 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr0 lr0;
+    LD.MULT.CYCLIC lr4 cr0 lr0;
     ADD lr4 lr4 lr2;
     ADD lr5 lr5 cr1;
-    BLT lr5 lr11 k_chunk1;;
+    BLT.S lr5 lr11 k_chunk1;;
 
     # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
@@ -96,12 +96,12 @@ k_chunk1:
     # result and the store is free. `identity` + valid_elements=128 (the CR
     # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG lr7 cr5;;  # store 512B -> OUTPUT[j] (first 64B valid)
+    ST.AAQ lr7 cr5;;  # store 512B -> OUTPUT[j] (first 64B valid)
     ADD lr7 lr7 lr3;;                        # advance output ptr (packed)
 
     ADD lr8 lr8 lr12;
     ADD lr9 lr9 cr1;;  # next j
-    BLT lr9 lr10 j_loop;;
+    BLT.S lr9 lr10 j_loop;;
 
 end:
-    BKPT;;
+    HALT;;

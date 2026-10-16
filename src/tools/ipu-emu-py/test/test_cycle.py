@@ -23,15 +23,15 @@ from ipu_emu.regfile import RegFile
 # accumulates, aggregation, a store, LR arithmetic and the cond slot.
 PROGRAM = """
     SET LR0 CR0 ; SET LR1 CR1 ;;
-    LDR_MULT_REG R0 LR0 CR2 ;;
-    LDR_CYCLIC_MULT_REG LR0 CR3 LR0 ;;
+    LD.MULT R0 LR0 CR2 ;;
+    LD.MULT.CYCLIC LR0 CR3 LR0 ;;
 loop:
     MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
     MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ; BREAK ;;
     MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
-    ACTIVATE.QUANTIZE relu CR15 ; STR_POST_AAQ_REG LR1 CR4 ; INC LR2 1 ;;
-    BLT LR2 CR7 loop ;;
-    BKPT ;;
+    ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ; INC LR2 1 ;;
+    BLT.S LR2 CR7 loop ;;
+    HALT ;;
 """
 
 STORE_ROW_ADDRESS = 0x30000
@@ -103,8 +103,8 @@ def test_evaluate_break_has_no_side_effects(fires):
     # The word loads, multiplies, accumulates, stores and writes LRs.
     breaking = "BREAK" if fires else "BREAK.IFEQ LR1 5"
     asm = (
-        "LDR_MULT_REG R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ; "
-        f"STR_POST_AAQ_REG LR0 CR4 ; SET LR0 CR3 ; INC LR3 2 ; {breaking} ;;\nBKPT ;;"
+        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ; "
+        f"ST.AAQ LR0 CR4 ; SET LR0 CR3 ; INC LR3 2 ; {breaking} ;;\nHALT ;;"
     )
     state, twin = _program_state(asm), _program_state(asm)
     before = _observable(twin)
@@ -118,7 +118,7 @@ def test_evaluate_break_has_no_side_effects(fires):
 
 def test_an_idle_word_counts_one_idle_cycle_and_advances_the_pc():
     state = new_state()
-    load_program(state, [None, *assemble_program("BKPT ;;")])
+    load_program(state, [None, *assemble_program("HALT ;;")])
     cycle = _cycle(state)
 
     assert cycle.step() is CycleOutcome.RETIRED
@@ -130,7 +130,7 @@ def test_an_idle_word_counts_one_idle_cycle_and_advances_the_pc():
 
 def test_an_idle_word_split_at_its_break_still_counts_once():
     state = new_state()
-    load_program(state, [None, *assemble_program("BKPT ;;")])
+    load_program(state, [None, *assemble_program("HALT ;;")])
     cycle = _cycle(state)
 
     assert cycle.evaluate_break() is CycleOutcome.RETIRED
@@ -140,7 +140,7 @@ def test_an_idle_word_split_at_its_break_still_counts_once():
 
 
 def test_without_honour_break_the_word_retires():
-    state = make_state("SET LR0 CR8 ; BREAK ;;\nBKPT ;;", cr={8: 42})
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nHALT ;;", cr={8: 42})
     cycle = _cycle(state)
 
     assert cycle.step(honour_break=False) is CycleOutcome.RETIRED
@@ -150,7 +150,7 @@ def test_without_honour_break_the_word_retires():
 
 
 def test_a_break_stops_before_any_side_effect():
-    state = make_state("SET LR0 CR8 ; BREAK ;;\nBKPT ;;", cr={8: 42})
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nHALT ;;", cr={8: 42})
     cycle = _cycle(state)
 
     assert cycle.step() is CycleOutcome.BREAK
@@ -160,7 +160,7 @@ def test_a_break_stops_before_any_side_effect():
 
 
 def test_an_edit_made_at_a_break_is_visible_to_the_resumed_word():
-    state = make_state("SET LR0 CR8 ; ADD LR1 LR2 CR8 ; BREAK ;;\nBKPT ;;", cr={8: 42})
+    state = make_state("SET LR0 CR8 ; ADD LR1 LR2 CR8 ; BREAK ;;\nHALT ;;", cr={8: 42})
     cycle = _cycle(state)
     assert cycle.evaluate_break() is CycleOutcome.BREAK
 
@@ -174,7 +174,7 @@ def test_an_edit_made_at_a_break_is_visible_to_the_resumed_word():
 
 
 def test_reset_empties_the_schedule_cache_and_recopies_the_register_file(monkeypatch):
-    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nBKPT ;;", cr={8: 1})
+    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nHALT ;;", cr={8: 1})
     ipu = Ipu(state)
     ipu.cycle.step()
     ipu.cycle.step()
@@ -200,7 +200,7 @@ def test_reset_empties_the_schedule_cache_and_recopies_the_register_file(monkeyp
 def test_a_word_is_scheduled_once_per_pc(monkeypatch):
     import ipu_emu.cycle as cycle_mod
 
-    state = make_state("loop:\nINC LR0 1 ;;\nBLT LR0 CR8 loop ;;\nBKPT ;;", cr={8: 5})
+    state = make_state("loop:\nINC LR0 1 ;;\nBLT.S LR0 CR8 loop ;;\nHALT ;;", cr={8: 5})
     scheduled = []
     real = cycle_mod.schedule_word
 
@@ -219,7 +219,7 @@ def test_a_word_is_scheduled_once_per_pc(monkeypatch):
 
 
 def test_writing_imem_drops_only_that_pcs_schedule():
-    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nSET LR2 CR8 ;;\nBKPT ;;", cr={8: 4})
+    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nSET LR2 CR8 ;;\nHALT ;;", cr={8: 4})
     cycle = _cycle(state)
     for _ in range(3):
         cycle.step()
@@ -277,7 +277,7 @@ def test_imem_does_not_keep_a_cycle_alive():
 
 
 def test_a_debugger_word_written_at_a_break_is_retired():
-    state = make_state("SET LR0 CR8 ; BREAK ;;\nBKPT ;;", cr={8: 5, 9: 6})
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nHALT ;;", cr={8: 5, 9: 6})
     cycle = _cycle(state)
     assert cycle.evaluate_break() is CycleOutcome.BREAK
 
@@ -290,7 +290,7 @@ def test_a_debugger_word_written_at_a_break_is_retired():
 
 
 def test_the_observer_brackets_each_retired_word_and_not_a_break():
-    state = make_state("SET LR0 CR8 ; BREAK ;;\nSET LR1 CR8 ;;\nBKPT ;;", cr={8: 3})
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nSET LR1 CR8 ;;\nHALT ;;", cr={8: 3})
     recorder = _Recorder(state)
     cycle = _cycle(state, recorder)
 
@@ -302,7 +302,7 @@ def test_the_observer_brackets_each_retired_word_and_not_a_break():
 
 
 def test_an_lr_conflict_raises_before_any_lr_write():
-    state = make_state("SET LR0 CR8 ; SET LR0 CR9 ; INC LR3 1 ;;\nBKPT ;;", cr={8: 5, 9: 6})
+    state = make_state("SET LR0 CR8 ; SET LR0 CR9 ; INC LR3 1 ;;\nHALT ;;", cr={8: 5, 9: 6})
     with pytest.raises(RuntimeError, match=r"LR conflict.*targets: \[0, 0, 3\]"):
         _cycle(state).step()
     assert state.regfile.get_lr(0) == 0
@@ -398,7 +398,7 @@ def test_lr_subslot_exception_atomicity():
     in both modes, compared in lockstep."""
     from ipu_emu.errors import RegisterIndexError
 
-    program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nBKPT ;;")
+    program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nHALT ;;")
     word = program[0]
     # SET's source shares the ADDBI immediate's union column: point sub-slot
     # 2's source at a CR that does not exist, so its resolver raises.

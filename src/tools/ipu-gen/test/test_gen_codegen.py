@@ -55,7 +55,7 @@ def test_generate_sv_package_is_proper_systemverilog(tmp_path: Path):
     # Typedefs use _t suffix; enum literals are sized (e.g. 3'd5)
     assert "_e;" not in text
     assert "lr_reg_field_t" in text
-    assert "mult_stage_reg_field_t dest_2; // MultStageReg" in text  # LDR_MULT_REG
+    assert "mult_stage_reg_field_t dest_2; // MultStageReg" in text  # LD.MULT
     assert "3'd" in text or "2'd" in text or "1'd" in text
     assert "break_inst;" in text  # reserved-word-safe union member name
     assert "} break;" not in text
@@ -97,8 +97,8 @@ def test_unused_union_columns_named_padding(tmp_path: Path):
     assert "lcr_reg_field_t reg_1; // LcrIdx" in br
     assert "padding_2; // padding" in br
     assert "label_0" not in br
-    # LDR_MULT_REG: every column used; the 1-bit dest pads the rest of column 2
-    j = text.index("} ldr_mult_reg;")
+    # LD.MULT: every column used; the 1-bit dest pads the rest of column 2
+    j = text.index("} ld_mult;")
     ldr = text[j - 400 : j]
     assert "logic [2:0] padding_2; // padding\n      mult_stage_reg_field_t dest_2;" in ldr
     assert "padding_0" not in ldr and "padding_1" not in ldr

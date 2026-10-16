@@ -73,9 +73,9 @@
       W[o, ci].ravel() -- (kr, kc) row-major, nine per channel.
 
     CHANNEL GROUPS:
-      Nine weights per channel and 128 per LDR_MULT_REG row gives 14 channels
+      Nine weights per channel and 128 per LD.MULT row gives 14 channels
       per group (126 of 128 elements used). Group size is exact: CR13 = 13, so
-      done+CR13 is the group's LAST channel index, which is what tap 9's BLT
+      done+CR13 is the group's LAST channel index, which is what tap 9's BLT.S
       wants (it reads lr_done pre-increment). Only a partial final group needs
       clamping. R_ACC is never reset between groups, which is what makes an
       arbitrary Cin work.
@@ -141,7 +141,7 @@
     INC {{lr_rc}} 2 ;;                                   {#- 258 -#}
 
 ochan_loop:
-    LDR_MULT_REG r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o (visible NEXT word) -#}
+    LD.MULT r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o (visible NEXT word) -#}
     SET {{lr_y}}    cr0 ;
     SET {{lr_rowb}} cr0 ;;
 
@@ -157,20 +157,20 @@ tile_loop:
     ACC.ADD.FIRST ;;                                     {#- R_ACC = bias[o] -- reset and seed -#}
 {#- ---- prime the pipeline: slots 0 and 1 hold channel 0's rows y and y+1, -#}
 {#- which in steady state the previous channel's taps 4 and 7 would load.   -#}
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot 0 <- ch0 row y -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot 0 <- ch0 row y -#}
     ADD {{lr_addr}} {{lr_addr}} cr7 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_s1}} ;;     {#- slot 1 <- ch0 row y+1 -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_s1}} ;;     {#- slot 1 <- ch0 row y+1 -#}
 
 group_loop:
 {#- ---- exact group size. CR13 = cap-1, so done+CR13 IS the group's last -#}
-{#- channel index -- which is what tap 9's BLT wants, since it reads       -#}
+{#- channel index -- which is what tap 9's BLT.S wants, since it reads       -#}
 {#- lr_done pre-increment. Only the final group needs clamping.            -#}
     ADD {{lr_gend}} {{lr_done}} cr13 ;;
-    BLT {{lr_gend}} cr9 group_sized ;;                   {#- full group: last index is in range -#}
+    BLT.S {{lr_gend}} cr9 group_sized ;;                   {#- full group: last index is in range -#}
     SET {{lr_gend}} cr9 ;;
     DEC {{lr_gend}} 1 ;;                                 {#- final group: last index = CIN-1 -#}
 group_sized:
-    LDR_MULT_REG r0 {{lr_wrow}} cr4 ;                    {#- R0 = W[o][group] (visible NEXT word) -#}
+    LD.MULT r0 {{lr_wrow}} cr4 ;                    {#- R0 = W[o][group] (visible NEXT word) -#}
     SUB {{lr_widx}} {{lr_zero}} cr1 ;;                   {#- widx = -1 (live +1 lands before the read) -#}
 
 chan_loop:
@@ -182,7 +182,7 @@ chan_loop:
 {#- of this channel to row y of the next.                                     -#}
     ADD {{lr_rc}} {{lr_rc}} {{lr_wrap}} ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
     ADD {{lr_addr}} {{lr_addr}} cr7 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_s2}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_s2}} ;
     MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} cr15 ; ACC.ADD ;;
                                           {#- kr-1 kc-1 | slot2 <- THIS ch row y+2 -#}
     ADD {{lr_rc}} {{lr_rc}} cr1 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
@@ -192,7 +192,7 @@ chan_loop:
 
     ADD {{lr_rc}} {{lr_rc}} cr14 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;
     MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} cr15 ; ACC.ADD ;;
                                           {#- kr 0 kc-1 | slot0 <- NEXT ch row y -#}
     ADD {{lr_rc}} {{lr_rc}} cr1 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
@@ -202,7 +202,7 @@ chan_loop:
 
     ADD {{lr_rc}} {{lr_rc}} cr14 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
     ADD {{lr_addr}} {{lr_addr}} cr7 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_s1}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_s1}} ;
     MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} cr15 ; ACC.ADD ;;
                                           {#- kr+1 kc-1 | slot1 <- NEXT ch row y+1 -#}
     ADD {{lr_rc}} {{lr_rc}} cr1 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
@@ -210,27 +210,27 @@ chan_loop:
     ADD {{lr_rc}} {{lr_rc}} cr1 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
     ADD {{lr_done}} {{lr_done}} cr1 ;
     MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} cr15 ; ACC.ADD ;
-    BLT {{lr_done}} {{lr_gend}} chan_loop ;;
-                                          {#- kr+1 kc+1 | BLT reads lr_done pre-increment -#}
+    BLT.S {{lr_done}} {{lr_gend}} chan_loop ;;
+                                          {#- kr+1 kc+1 | BLT.S reads lr_done pre-increment -#}
 
     ADD {{lr_wrow}} {{lr_wrow}} cr1 ;;                   {#- next group's weight row -#}
-    BLT {{lr_done}} cr9 group_loop ;;
+    BLT.S {{lr_done}} cr9 group_loop ;;
 
 {#- ---- drain the tile. The store's offset is advanced in the NEXT word: LR -#}
 {#- runs before STORE, so incrementing it here would store one row too far.  -#}
     ACTIVATE.QUANTIZE relu cr15 ;
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- OUT[o, y, tile] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- OUT[o, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_t}} {{lr_t}} cr1 ;;
-    BLT {{lr_t}} cr7 tile_loop ;;
+    BLT.S {{lr_t}} cr7 tile_loop ;;
 
     ADD {{lr_rowb}} {{lr_rowb}} cr7 ;                    {#- next spatial row: += TPR -#}
     ADD {{lr_y}} {{lr_y}} cr1 ;;
-    BLT {{lr_y}} cr8 row_loop ;;
+    BLT.S {{lr_y}} cr8 row_loop ;;
 
     ADD {{lr_wbase}} {{lr_wbase}} cr11 ;                 {#- next output channel: += NGROUPS -#}
     ADD {{lr_o}} {{lr_o}} cr1 ;;
-    BLT {{lr_o}} cr10 ochan_loop ;;
+    BLT.S {{lr_o}} cr10 ochan_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

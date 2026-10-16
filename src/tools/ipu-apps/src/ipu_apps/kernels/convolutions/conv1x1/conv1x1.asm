@@ -38,7 +38,7 @@
 
     SOFTWARE-PIPELINED CHANNEL LOOP:
       MULT.RC.* reads R_CYCLIC from the start-of-word SNAPSHOT while
-      LDR_CYCLIC_MULT_REG's offset is read LIVE, so a load co-issued with the
+      LD.MULT.CYCLIC's offset is read LIVE, so a load co-issued with the
       multiply that consumes it would be one channel too late. The body instead
       advances lr_addr and loads channel c+1 in the same word whose multiply
       consumes channel c from the snapshot:
@@ -55,7 +55,7 @@
       the read. The -1 is never itself read; the LR add wraps 0xFFFFFFFF -> 0.
 
     EXACT CHANNEL GROUPS (no padding):
-      One LDR_MULT_REG row holds 128 FP32 weights and a 1x1 kernel needs one
+      One LD.MULT row holds 128 FP32 weights and a 1x1 kernel needs one
       weight per channel, so a group covers up to 128 channels. The group size
       is computed exactly as min(128, Cin - done), so a 129-channel input runs
       128 then 1. R_ACC is never reset between groups -- the accumulation
@@ -106,11 +106,11 @@
     SET {{lr_o}}     cr0 ;
     SET {{lr_out}}   cr0 ;;
     SET {{lr_wbase}} cr0 ;
-    SET {{lr_cin}}   cr9 ;                               {#- LR copy of CIN for SUB/BLT -#}
+    SET {{lr_cin}}   cr9 ;                               {#- LR copy of CIN for SUB/BLT.S -#}
     SET {{lr_bias}}  cr12 ;;                             {#- 128 = R1[0] selector -#}
 
 ochan_loop:
-    LDR_MULT_REG r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o (snapshot: visible NEXT word) -#}
+    LD.MULT r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o (snapshot: visible NEXT word) -#}
     SET {{lr_y}}    cr0 ;
     SET {{lr_rowb}} cr0 ;;
 
@@ -128,13 +128,13 @@ coltile_loop:
 group_loop:
 {#- ---- exact group size: bound = min(128, CIN - done) -------------------- -#}
     SUB {{lr_bound}} {{lr_cin}} {{lr_done}} ;;           {#- remaining = CIN - done (>= 1) -#}
-    BLT {{lr_bound}} cr12 group_size_set ;;              {#- if remaining < 128, keep it ... -#}
+    BLT.S {{lr_bound}} cr12 group_size_set ;;              {#- if remaining < 128, keep it ... -#}
     SET {{lr_bound}} cr12 ;;                             {#- ... else cap bound = 128 -#}
 group_size_set:
-    LDR_MULT_REG r0 {{lr_wrow}} cr4 ;;                   {#- R0 = W[o][group] (visible NEXT word) -#}
+    LD.MULT r0 {{lr_wrow}} cr4 ;;                   {#- R0 = W[o][group] (visible NEXT word) -#}
     SUB {{lr_widx}} {{lr_zero}} cr1 ;                    {#- widx = -1 (live +1 lands before the read) -#}
     SET {{lr_c}} cr0 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- prime the pipeline: load channel `done` -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- prime the pipeline: load channel `done` -#}
 
 cin_loop:
 {#- Load channel c+1 (offset read LIVE, so the same-word ADD applies) while the -#}
@@ -142,30 +142,30 @@ cin_loop:
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
     ADD {{lr_widx}} {{lr_widx}} cr1 ;
     ADD {{lr_c}} {{lr_c}} cr1 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;
     MULT.RC.VE {{lr_zero}} {{lr_widx}} 0 {{lr_zero}} cr15 ;
     ACC.ADD ;;
-    BLT {{lr_c}} {{lr_bound}} cin_loop ;;                {#- BLT reads the snapshot -- lr_c is already advanced -#}
+    BLT.S {{lr_c}} {{lr_bound}} cin_loop ;;                {#- BLT.S reads the snapshot -- lr_c is already advanced -#}
 
     ADD {{lr_done}} {{lr_done}} {{lr_bound}} ;           {#- done += this group -#}
     ADD {{lr_wrow}} {{lr_wrow}} cr1 ;;                   {#- next group's weight row -#}
-    BLT {{lr_done}} {{lr_cin}} group_loop ;;
+    BLT.S {{lr_done}} {{lr_cin}} group_loop ;;
 
 {#- ---- drain the tile. The store's offset is advanced in the NEXT word: LR -#}
 {#- runs before STORE, so incrementing it here would store one row too far.  -#}
     ACTIVATE.QUANTIZE identity cr15 ;                    {#- FP32 pass-through (reads r_acc LIVE) -#}
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- OUT[o, y, tile] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- OUT[o, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_ct}} {{lr_ct}} cr1 ;;
-    BLT {{lr_ct}} cr7 coltile_loop ;;
+    BLT.S {{lr_ct}} cr7 coltile_loop ;;
 
     ADD {{lr_rowb}} {{lr_rowb}} cr7 ;                    {#- next spatial row: += NCT -#}
     ADD {{lr_y}} {{lr_y}} cr1 ;;
-    BLT {{lr_y}} cr8 row_loop ;;
+    BLT.S {{lr_y}} cr8 row_loop ;;
 
     ADD {{lr_wbase}} {{lr_wbase}} cr11 ;                 {#- next output channel's weights: += NGROUPS -#}
     ADD {{lr_o}} {{lr_o}} cr1 ;;
-    BLT {{lr_o}} cr10 ochan_loop ;;
+    BLT.S {{lr_o}} cr10 ochan_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

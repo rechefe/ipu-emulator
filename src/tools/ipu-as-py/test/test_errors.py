@@ -99,12 +99,20 @@ CASES = [
         "Opcode 'FOO' not found in any Inst subclass.",
     ),
     (
+        "reserved-mnemonic",
+        "BLT.U LR0 LR1 +1;;",
+        SlotError,
+        (1, 1),
+        "BLT.U",
+        "Opcode 'BLT.U' is reserved, not implemented.",
+    ),
+    (
         "pseudo-operand-count",
-        "BGT LR0;;",
+        "BGT.S LR0;;",
         OperandError,
         (1, 1),
-        "BGT",
-        "Pseudo-instruction 'BGT' expects 3 operand(s)",
+        "BGT.S",
+        "Pseudo-instruction 'BGT.S' expects 3 operand(s)",
     ),
 ]
 

@@ -1,6 +1,6 @@
 0: NOP 0 lr0 lr0; SET cr0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-1: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-2: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+1: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+2: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 3: NOP 0 lr0 lr0; SET cr1 lr1 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 4: NOP 0 lr0 lr0; SET cr2 lr2 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 5: NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; ACC.ADD.FIRST cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
@@ -13,6 +13,6 @@
 12: BEQ 13 cr0 cr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 13: BNE 15 lr0 lr1; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
 14: BEQ 16 lr0 lr1; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-15: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-16: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
-17: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+15: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+16: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+17: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;

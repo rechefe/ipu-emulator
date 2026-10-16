@@ -36,7 +36,7 @@ Output layout (per-stream, one channel per row):
     ``N_TOK = 16`` valid FP32 tokens per channel, and a row is never
     shared between channels, so each row is
     ``[16 valid FP32 tokens | 112 stale lanes]``. ``ACTIVATE.QUANTIZE identity``
-    stages all 128 lanes of R_ACC and ``STR_POST_AAQ_REG`` writes the full 128-element
+    stages all 128 lanes of R_ACC and ``ST.AAQ`` writes the full 128-element
     row, so lanes 16.. carry stale R_ACC content. ``teardown`` crops each row to
     its valid prefix (and keeps the raw uncropped rows beside it, as
     ``<output>.rows.bin`` -- fold_8x8x240's input format); this kernel's

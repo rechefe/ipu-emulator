@@ -63,20 +63,20 @@
 pair_loop:
     # --- channel A (=2p), row-group 0: offset 0 (writes r_acc[0:32]).
     ADD                 lr4 lr3 cr0;;
-    ldr_mult_reg        r0 lr4 cr3;;
+    ld.mult        r0 lr4 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          16 on on lr9;;
 
     # --- channel A, row-group 1: +channels rows, offset 1 (writes r_acc[32:64]).
     ADD                 lr4 lr4 cr4;;
-    ldr_mult_reg        r0 lr4 cr3;;
+    ld.mult        r0 lr4 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          16 on on lr10;;
 
     # --- channel B (=2p+1), row-group 0: lr3+1 (NOT lr4+channels -- see
     #     header note), offset 2 (writes r_acc[64:96]).
     ADD                 lr4 lr3 cr1;;
-    ldr_mult_reg        r0 lr4 cr3;;
+    ld.mult        r0 lr4 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          16 on on lr11;;
 
@@ -84,12 +84,12 @@ pair_loop:
     #     r_acc[96:128]). Quantize the full 128-element r_acc (identity, no
     #     clamp change) then store.
     ADD                 lr4 lr4 cr4;;
-    ldr_mult_reg        r0 lr4 cr3;;
+    ld.mult        r0 lr4 cr3;;
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          16 on on lr12;
     ACTIVATE.QUANTIZE   identity cr15;;
 
-    str_post_aaq_reg    lr2 cr5;;
+    st.aaq    lr2 cr5;;
 
     INC                 lr2 1;;
     # Two separate ADDs (ADD's src_a reads the cycle-start snapshot, so a
@@ -98,7 +98,7 @@ pair_loop:
     ADD                 lr3 lr3 cr1;;
 
     INC                 lr1 1;
-    blt                 lr1 cr6 pair_loop;;
+    blt.s                 lr1 cr6 pair_loop;;
 
 end:
-    bkpt;;
+    halt;;

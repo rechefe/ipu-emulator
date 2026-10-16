@@ -15,7 +15,7 @@ A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped 
 | `ACC` | 1 | Accumulation instructions for combining multiply results into R_ACC. |
 | `AAQ` | 1 | Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG. |
 | `STORE` | 1 | Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization. |
-| `ACC_STORE` | 1 | Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware. |
+| `ACC_STORE` | 1 | Simulation-only stores of R_ACC to external memory (ST.ACC). Not implemented in real IPU hardware. |
 | `BREAK` | 1 | Debug break: halts execution or enters debug mode. |
 
 ### `NOP` — No Operation
@@ -479,7 +479,7 @@ The compound (VLIW) instruction word is shown two ways below.
   <rect x="80" y="590.0" width="12" height="12" fill="#E74C3C" stroke="black" stroke-width="1" opacity="0.85"/>
   <text x="100" y="602.0" class="field-label" style="font-size: 9px;">StoreInst (Memory Store)</text>
   <rect x="80" y="605.0" width="12" height="12" fill="#C0392B" stroke="black" stroke-width="1" opacity="0.85"/>
-  <text x="100" y="617.0" class="field-label" style="font-size: 9px;">AccStoreInst (STR_ACC_REG, simulation-only)</text>
+  <text x="100" y="617.0" class="field-label" style="font-size: 9px;">AccStoreInst (ST.ACC, simulation-only)</text>
   <rect x="80" y="620.0" width="12" height="12" fill="#4ECDC4" stroke="black" stroke-width="1" opacity="0.85"/>
   <text x="100" y="632.0" class="field-label" style="font-size: 9px;">MultInst (Multiply)</text>
   <rect x="80" y="635.0" width="12" height="12" fill="#45B7D1" stroke="black" stroke-width="1" opacity="0.85"/>
@@ -517,39 +517,39 @@ The compound (VLIW) instruction word is shown two ways below.
   <text x="406" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="147" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="170" font-size="8.5" font-family="monospace" fill="#222">BGE</text>
+  <text x="28" y="170" font-size="8.5" font-family="monospace" fill="#222">BGE.S</text>
   <rect x="134" y="161" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
   <rect x="352" y="161" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="406" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="161" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="184" font-size="8.5" font-family="monospace" fill="#222">BKPT</text>
-  <rect x="134" y="175" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="243" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="352" y="175" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="461" y="175" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="548" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="198" font-size="8.5" font-family="monospace" fill="#222">BLT</text>
+  <text x="28" y="184" font-size="8.5" font-family="monospace" fill="#222">BLT.S</text>
+  <rect x="134" y="175" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="175" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="175" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="198" font-size="8.5" font-family="monospace" fill="#222">BNE</text>
   <rect x="134" y="189" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
   <rect x="352" y="189" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="406" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="189" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="212" font-size="8.5" font-family="monospace" fill="#222">BNE</text>
-  <rect x="134" y="203" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="243" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <text x="28" y="212" font-size="8.5" font-family="monospace" fill="#222">BR</text>
+  <rect x="134" y="203" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="352" y="203" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
-  <rect x="461" y="203" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="548" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="226" font-size="8.5" font-family="monospace" fill="#222">BR</text>
+  <text x="406" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="461" y="203" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="226" font-size="8.5" font-family="monospace" fill="#222">HALT</text>
   <rect x="134" y="217" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="352" y="217" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="352" y="217" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="461" y="217" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <text x="28" y="240" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
@@ -607,7 +607,7 @@ The compound (VLIW) instruction word is shown two ways below.
   <text x="384" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
   <rect x="434" y="433" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="535" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="456" font-size="8.5" font-family="monospace" fill="#222">INCR_MOD_POW2</text>
+  <text x="28" y="456" font-size="8.5" font-family="monospace" fill="#222">INC.MODP2</text>
   <rect x="134" y="447" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
   <text x="234" y="456" text-anchor="middle" font-size="7.5" font-family="Arial">step:LcrIdx</text>
   <rect x="334" y="447" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
@@ -648,27 +648,27 @@ The compound (VLIW) instruction word is shown two ways below.
   <rect x="459" y="564" width="177" height="64" fill="#FF6B6B" stroke="#333" stroke-width="1" rx="3"/>
   <text x="547" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
   <text x="547" y="606" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
-  <text x="28" y="644" font-size="8.5" font-family="monospace" fill="#222">LDR_CYCLIC_MULT_REG</text>
+  <text x="28" y="644" font-size="8.5" font-family="monospace" fill="#222">LD.MASK</text>
   <rect x="134" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
-  <rect x="418" y="635" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">index</text>
-  <text x="28" y="658" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_MASK_REG</text>
+  <rect x="418" y="635" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="658" font-size="8.5" font-family="monospace" fill="#222">LD.MULT</text>
   <rect x="134" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
-  <rect x="418" y="649" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="672" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_REG</text>
+  <rect x="418" y="649" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">dest:MultStageReg</text>
+  <text x="28" y="672" font-size="8.5" font-family="monospace" fill="#222">LD.MULT.CYCLIC</text>
   <rect x="134" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
   <rect x="418" y="663" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">dest:MultStageReg</text>
+  <text x="527" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">index</text>
   <text x="28" y="686" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
   <rect x="134" y="677" width="142" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="686" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
@@ -929,7 +929,7 @@ The compound (VLIW) instruction word is shown two ways below.
   <text x="245" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="357" y="1513" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="496" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="1536" font-size="8.5" font-family="monospace" fill="#222">STR_POST_AAQ_REG</text>
+  <text x="28" y="1536" font-size="8.5" font-family="monospace" fill="#222">ST.AAQ</text>
   <rect x="134" y="1527" width="223" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
   <text x="245" y="1536" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="357" y="1527" width="279" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
@@ -949,7 +949,7 @@ The compound (VLIW) instruction word is shown two ways below.
   <text x="245" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="357" y="1673" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="496" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="1696" font-size="8.5" font-family="monospace" fill="#222">STR_ACC_REG</text>
+  <text x="28" y="1696" font-size="8.5" font-family="monospace" fill="#222">ST.ACC</text>
   <rect x="134" y="1687" width="223" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="245" y="1696" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="357" y="1687" width="279" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>
@@ -1034,9 +1034,9 @@ Branch if two registers are not equal.
 BNE LR0 CR0 loop;;
 ```
 
-### `BLT` — Branch if Less Than
+### `BLT.S` — Branch if Less Than (signed)
 
-**Syntax:** `BLT reg1 reg2 label`
+**Syntax:** `BLT.S reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1047,19 +1047,19 @@ BNE LR0 CR0 loop;;
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
-Branch if first register is less than second.
+Branch if first register is less than second, as signed 32-bit integers.
 
 **Pseudo code:**
-`if (reg1 < reg2) PC = label`
+`if (int32(reg1) < int32(reg2)) PC = label  # signed 32-bit`
 
 **Example of usage:**
 ```asm
-BLT LR0 CR1 smaller;;
+BLT.S LR0 CR1 smaller;;
 ```
 
-### `BGE` — Branch if Greater or Equal
+### `BGE.S` — Branch if Greater or Equal (signed)
 
-**Syntax:** `BGE reg1 reg2 label`
+**Syntax:** `BGE.S reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1070,14 +1070,14 @@ BLT LR0 CR1 smaller;;
 | `label` | [`Label`](operand-types.md#label) | label: Branch target label |
 
 **General description:**
-Branch if first register is greater than or equal to second.
+Branch if first register is greater than or equal to second, as signed 32-bit integers.
 
 **Pseudo code:**
-`if (reg1 >= reg2) PC = label`
+`if (int32(reg1) >= int32(reg2)) PC = label  # signed 32-bit`
 
 **Example of usage:**
 ```asm
-BGE LR0 CR1 ge;;
+BGE.S LR0 CR1 ge;;
 ```
 
 ### `BR` — Branch Register
@@ -1097,9 +1097,9 @@ Branch to address in register.
 `PC = reg`
 
 
-### `BKPT` — Breakpoint
+### `HALT` — Breakpoint
 
-**Syntax:** `BKPT`
+**Syntax:** `HALT`
 
 **General description:**
 Conditional breakpoint.
@@ -1183,9 +1183,9 @@ SUB LR0 LR1 LR2;;
 SUB LR3 LR1 CR5;;
 ```
 
-### `INCR_MOD_POW2` — Increment Loop Register Modulo Power of Two
+### `INC.MODP2` — Increment Loop Register Modulo Power of Two
 
-**Syntax:** `INCR_MOD_POW2 dest step k`
+**Syntax:** `INC.MODP2 dest step k`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1203,7 +1203,7 @@ Add a loop or configuration register into the destination loop register, then ma
 
 **Example of usage:**
 ```asm
-INCR_MOD_POW2 LR2 LR3 4;;
+INC.MODP2 LR2 LR3 4;;
 ```
 
 ### `INC` — Increment
@@ -1308,9 +1308,9 @@ ADDBI LRD2 7;;
 
 First-stage memory loads that feed the multiply unit (mult-stage registers, cyclic register, and mask register).
 
-### `LDR_MULT_REG` — Load Register
+### `LD.MULT` — Load Register
 
-**Syntax:** `LDR_MULT_REG dest offset base`
+**Syntax:** `LD.MULT dest offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1329,12 +1329,12 @@ Load data from memory into a multiplication stage register.
 **Example of usage:**
 ```asm
 SET LR0 CR1;;
-LDR_MULT_REG R0 LR0 CR0;;
+LD.MULT R0 LR0 CR0;;
 ```
 
-### `LDR_CYCLIC_MULT_REG` — Load Cyclic Register
+### `LD.MULT.CYCLIC` — Load Cyclic Register
 
-**Syntax:** `LDR_CYCLIC_MULT_REG offset base index`
+**Syntax:** `LD.MULT.CYCLIC offset base index`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1351,9 +1351,9 @@ Load with cyclic addressing into R_CYCLIC.
 `R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}`
 
 
-### `LDR_MULT_MASK_REG` — Load Mask Register
+### `LD.MASK` — Load Mask Register
 
-**Syntax:** `LDR_MULT_MASK_REG offset base`
+**Syntax:** `LD.MASK offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1383,8 +1383,8 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`). |
-| `ra` | [`MultStageReg`](operand-types.md#multstagereg) | `ra`: **`R0`** \| **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed). |
+| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`). |
+| `ra` | [`MultStageReg`](operand-types.md#multstagereg) | `ra`: **`R0`** \| **`R1`** — multiplicand mult-stage register (same cycle as `LD.MULT` into **`R0`**/**`R1`** is allowed). |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | `cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly). |
@@ -1410,7 +1410,7 @@ MULT.RC.VV LR0 R0 0 LR2 CR15;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`). |
+| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`). |
 | `src` | [`LcrIdx`](operand-types.md#lcridx) | `src`: **`LR0`**…**`LR15`** \| **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly. |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
@@ -1437,7 +1437,7 @@ MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`). |
+| `rc_idx` | [`LrIdx`](operand-types.md#lridx) | `rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`). |
 | `mask_offset` | [`MultMaskOffsetImmediate`](operand-types.md#multmaskoffsetimmediate) | `mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**. |
 | `mask_shift` | [`LrIdx`](operand-types.md#lridx) | `mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end). |
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | `cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly). |
@@ -1781,9 +1781,9 @@ ACTIVATE.QUANTIZE relu CR15;;
 
 Last-stage memory stores that drain **POST_AAQ_REG** to external memory after activation and quantization.
 
-### `STR_POST_AAQ_REG` — Store Post-AAQ register
+### `ST.AAQ` — Store Post-AAQ register
 
-**Syntax:** `STR_POST_AAQ_REG offset base`
+**Syntax:** `ST.AAQ offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1800,7 +1800,7 @@ Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the b
 
 **Example of usage:**
 ```asm
-STR_POST_AAQ_REG LR0 CR0;;
+ST.AAQ LR0 CR0;;
 ```
 
 ---
@@ -1809,11 +1809,11 @@ STR_POST_AAQ_REG LR0 CR0;;
 
 > **Simulation-only slot** — not implemented in real IPU hardware. Excluded from hardware codegen.
 
-Simulation-only slot for storing **R_ACC** to external memory (`STR_ACC_REG`). Not implemented in real IPU hardware.
+Simulation-only slot for storing **R_ACC** to external memory (`ST.ACC`). Not implemented in real IPU hardware.
 
-### `STR_ACC_REG` — Store Accumulator
+### `ST.ACC` — Store Accumulator
 
-**Syntax:** `STR_ACC_REG offset base`
+**Syntax:** `ST.ACC offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1832,7 +1832,7 @@ Store **R_ACC** to external memory. **Simulation-only** — not implemented in r
 
 **Example of usage:**
 ```asm
-STR_ACC_REG LR0 CR1;;
+ST.ACC LR0 CR1;;
 ```
 
 ---

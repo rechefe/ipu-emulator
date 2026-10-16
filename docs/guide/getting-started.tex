@@ -350,7 +350,7 @@ Slot & Does & Instructions \\
 \texttt{aaq} & activate and quantize \texttt{R\_ACC} into \texttt{POST\_AAQ\_REG} & \texttt{ACTIVATE.QUANTIZE} \\
 \texttt{store} & writes \texttt{POST\_AAQ\_REG} to memory & \texttt{STR\_POST\_AAQ\_REG}; simulation only: \texttt{STR\_ACC\_REG} \\
 \texttt{lr} (three) & LR arithmetic: addresses, counters & \texttt{SET}, \texttt{ADD}, \texttt{SUB}, \texttt{INC}, \texttt{DEC}, \texttt{INCR\_MOD\_POW2}, \texttt{ADDB}, \texttt{ADDBI} \\
-\texttt{cond} & branches & \texttt{BEQ}, \texttt{BNE}, \texttt{BLT}, \texttt{BGE}, \texttt{BR}, \texttt{BKPT} \\
+\texttt{cond} & branches & \texttt{BEQ}, \texttt{BNE}, \texttt{BLT.S}, \texttt{BGE.S}, \texttt{BR}, \texttt{HALT} \\
 \texttt{break} & debugger stops & \texttt{BREAK}, \texttt{BREAK.IFEQ} \\
 \bottomrule
 \end{tabularx}
@@ -368,13 +368,13 @@ The loop of the \texttt{identity} kernel, which copies rows:
 
 \begin{pycode}
 row_loop:
-    LDR_MULT_REG r0 lr1 cr2 ;;          # load:  row CR2+LR1 -> R0
+    LD.MULT r0 lr1 cr2 ;;               # load:  row CR2+LR1 -> R0
     MULT.VE lr0 cr1 0 lr0 cr15 ;        # mult:  R0 x 1.0
     ACC.ADD.FIRST ;;                    # acc:   R_ACC = MULT_RES
     ACTIVATE.QUANTIZE identity cr15 ;   # aaq:   pass through
-    STR_POST_AAQ_REG lr1 cr3 ;;         # store: to row CR3+LR1
+    ST.AAQ lr1 cr3 ;;                   # store: to row CR3+LR1
     ADD lr1 lr1 cr1 ;;                  # lr:    next row
-    BLT lr1 cr4 row_loop ;;             # cond:  loop while LR1 < CR4
+    BLT.S lr1 cr4 row_loop ;;           # cond:  loop while LR1 < CR4
 \end{pycode}
 
 Each \texttt{;;} ends an instruction word, so this loop takes five cycles per
@@ -957,7 +957,7 @@ Tab & Shows \\
 Press \texttt{2} to focus the Instructions pane, move the cursor with the arrow
 keys, and press \texttt{F9} to toggle a breakpoint (a red \texttt{B}):
 
-\screenshot{ra_bp.png}{Breakpoint set at PC 8 (\texttt{BLT}, the loop's branch).}
+\screenshot{ra_bp.png}{Breakpoint set at PC 8 (\texttt{BLT.S}, the loop's branch).}
 
 \needspace{0.38\textheight}
 \texttt{F5} continues until a breakpoint:
@@ -973,7 +973,7 @@ stops only when \texttt{LR0} is 5.
 \subsection{Registers and memory}
 
 In a pane, \texttt{Tab} selects the next tab and \texttt{f} cycles the number
-format. Press \texttt{F8} once more (\texttt{BLT} branches back to PC 4), then
+format. Press \texttt{F8} once more (\texttt{BLT.S} branches back to PC 4), then
 focus the pipeline pane (\texttt{1}) and press \texttt{Tab} four times to reach
 R\_ACC:
 
@@ -1216,16 +1216,16 @@ becomes the kernel's name and its Bazel target.
     SET {{lr_row}} cr0 ;;
 
 row_loop:
-    LDR_MULT_REG r0 {{lr_row}} cr2 ;;
+    LD.MULT r0 {{lr_row}} cr2 ;;
     MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
     ACC.ADD.FIRST ;;
     MULT.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ;
     ACC.ADD ;;
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_row}} cr3 ;;
+    ST.AAQ {{lr_row}} cr3 ;;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} cr4 row_loop ;;
-    BKPT ;;
+    BLT.S {{lr_row}} cr4 row_loop ;;
+    HALT ;;
 \end{pycode}
 
 \begin{itemize}
@@ -1241,8 +1241,8 @@ row_loop:
 \item \texttt{ACTIVATE.QUANTIZE identity cr15 ; STR\_POST\_AAQ\_REG lr1 cr3 ;;}
   --- pass \texttt{R\_ACC} through unchanged and store it at output row
   \texttt{CR3 + LR1}.
-\item \texttt{ADD ... ;; BLT lr1 cr4 row\_loop ;;} --- next row, loop while
-  \texttt{LR1 < CR4}; \texttt{BKPT ;;} halts.
+\item \texttt{ADD ... ;; BLT.S lr1 cr4 row\_loop ;;} --- next row, loop while
+  \texttt{LR1 < CR4}; \texttt{HALT ;;} halts.
 \end{itemize}
 
 \subsection{Harness and SPEC: \texttt{app.py}}
@@ -1491,7 +1491,7 @@ below, \texttt{:<target>} stands for \texttt{//src/tools/ipu-apps:<target>}.
 \texttt{\{\%set a="lr1"\%\}} & Jinja name \\
 \texttt{\{\{a\}\}} & use it \\
 \texttt{BREAK;;} & stop in the debugger \\
-\texttt{BKPT;;} & end of program \\
+\texttt{HALT;;} & end of program \\
 \end{tabular}
 
 \medskip\textbf{\sffamily A kernel folder}\par

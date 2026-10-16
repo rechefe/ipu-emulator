@@ -10,9 +10,9 @@ test establish that lanes N_TOK..127 of every output row are exactly ZERO, not
 stale r_acc garbage -- because `ACC.STRIDE 16 ...` only ever writes 32
 elements into r_acc slot 0 (lanes 0..31, of which 16..31 are the decimated
 ZERO input-padding), and lanes 32..127 are never written by this kernel and
-stay 0.0 from reset. (unfold_16x16x192 uses the older STR_ACC_REG-full-register
+stay 0.0 from reset. (unfold_16x16x192 uses the older ST.ACC-full-register
 path and genuinely leaves stale garbage; unfold_8x8x240 uses the newer
-ACTIVATE.QUANTIZE + STR_POST_AAQ_REG path and does not.) This test still
+ACTIVATE.QUANTIZE + ST.AAQ path and does not.) This test still
 checks the seam exactly like the L4 counterpart -- verbatim byte handoff, no
 _load_data, no repacking -- and separately records whether the tail bytes it
 captured are actually the zero the docstring predicts or something else.

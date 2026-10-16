@@ -65,7 +65,7 @@
 #
 # RUNTIME CHUNK LOOPS (not fully unrolled): same 1024-instruction ceiling
 # concern as the L5 kernel (which hit ~1.9x over at 240 channels fully
-# unrolled). Steps 1/3/4a/6 are genuine runtime BLT loops over the chunk
+# unrolled). Steps 1/3/4a/6 are genuine runtime BLT.S loops over the chunk
 # counter; only the 2-way partition unroll WITHIN one chunk (steps 1/4a)
 # stays statically unrolled.
 #
@@ -79,7 +79,7 @@
 # has no width-dependent content, only the row-count constants change).
 
 {% set rc_idx_reg   = "lr0"  %}  {# r_cyclic base ELEMENT offset for masked gather/scatter/multiply #}
-{% set mask_off_lr  = "lr1"  %}  {# mask_offset carrier / LDR_MULT_MASK_REG offset / LDR_CYCLIC_MULT_REG index carrier #}
+{% set mask_off_lr  = "lr1"  %}  {# mask_offset carrier / LD.MASK offset / LD.MULT.CYCLIC index carrier #}
 {% set read_ptr     = "lr2"  %}  {# per-step row read pointer (offset from a ZERO base -- absolute row number) #}
 {% set write_ptr    = "lr3"  %}  {# per-step row write pointer #}
 {% set gb_ptr       = "lr4"  %}  {# gamma/beta row pointer in step 6, recomputed each chunk from base + running chunk offset #}
@@ -87,8 +87,8 @@
 {% set row_limit    = "lr6"  %}  {# runtime loop bound, set per step #}
 {% set row_stride   = "lr7"  %}  {# 1 = row stride #}
 {% set mask_shift0  = "lr8"  %}  {# const 0: mask_shift (no partition-boundary shifting used) #}
-{% set slot0_lr     = "lr9"  %}  {# const 0: LDR_CYCLIC_MULT_REG index for slot 0 #}
-{% set slot128_lr   = "lr10" %}  {# const 128: LDR_CYCLIC_MULT_REG index for slot 128 #}
+{% set slot0_lr     = "lr9"  %}  {# const 0: LD.MULT.CYCLIC index for slot 0 #}
+{% set slot128_lr   = "lr10" %}  {# const 128: LD.MULT.CYCLIC index for slot 128 #}
 
 {% set ZERO            = "cr0"  %}  {# const 0 #}
 {% set ONE             = "cr1"  %}  {# hardwired read-only 1 #}
@@ -132,17 +132,17 @@
     SET {{ slot0_lr }} {{ ZERO }};;
     SET {{ slot128_lr }} {{ ZERO }};;
     {{- inc(slot128_lr, SLOT_STRIDE) }}
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 1: -mean[t] = sum over 192 channels of x[ch,t] * (-1/192)
 # -----------------------------------------------------------------------
 
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ NEG_INV_N_BASE }};;   # r0 <- -1/192 (every lane)
+    LD.MULT r0 {{ mask_off_lr }} {{ NEG_INV_N_BASE }};;   # r0 <- -1/192 (every lane)
 
     SET {{ read_ptr }} {{ DATA_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime chunk 0 into slot 0
 
 {%- for p_in in range(2) %}
@@ -153,7 +153,7 @@
     {%- if is_last_p %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -173,10 +173,10 @@ step1_loop:
     {%- if loop.last %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step1_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step1_loop;;
     {%- else %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
@@ -184,7 +184,7 @@ step1_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT64 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ NEG_MEAN_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 2: broadcast NEG_MEAN (64 values) into a 128-lane tile, one 64-lane
@@ -192,7 +192,7 @@ step1_loop:
 # unroll, no runtime loop needed.
 # -----------------------------------------------------------------------
 
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ NEG_MEAN_BASE }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ NEG_MEAN_BASE }} {{ slot0_lr }};;
 
 {%- for p in range(2) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
@@ -202,20 +202,20 @@ step1_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ NEG_MEAN_TILE }};;
+    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_TILE }};;
 
 # -----------------------------------------------------------------------
 # Step 3: centered[c] = x[c] + NEG_MEAN_TILE, partition-local elementwise.
 # -----------------------------------------------------------------------
 
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ NEG_MEAN_TILE }} {{ slot128_lr }};;
+    LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ NEG_MEAN_TILE }} {{ slot128_lr }};;
 
     SET {{ read_ptr }} {{ DATA_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -223,9 +223,9 @@ step1_loop:
     MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
     SET {{ row_idx }} {{ ZERO }};;
@@ -239,22 +239,22 @@ step3_loop:
     MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step3_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step3_loop;;
 
 # -----------------------------------------------------------------------
 # Step 4a: raw sum of squares (unscaled) -- same gather shape as step 1,
 # source = centered, op = MULT.RC.VS.
 # -----------------------------------------------------------------------
 
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
     SET {{ read_ptr }} {{ CENTERED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
 {%- for p_in in range(2) %}
@@ -265,7 +265,7 @@ step3_loop:
     {%- if is_last_p %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -285,10 +285,10 @@ step4a_loop:
     {%- if loop.last %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step4a_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step4a_loop;;
     {%- else %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
@@ -296,26 +296,26 @@ step4a_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT64 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 4b: 1/sigma = rsqrt((1/192) * sum_of_squares)
 # -----------------------------------------------------------------------
 
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ INV_N_BASE }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ INV_N_BASE }} {{ slot0_lr }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
 
     ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT64 }};;
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ INVSTD_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ INVSTD_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 5: broadcast INVSTD (64 values) into a 128-lane tile, same
 # construction as step 2.
 # -----------------------------------------------------------------------
 
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ INVSTD_BASE }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ INVSTD_BASE }} {{ slot0_lr }};;
 
 {%- for p in range(2) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
@@ -325,45 +325,45 @@ step4a_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ INVSTD_TILE }};;
+    ST.AAQ {{ mask_off_lr }} {{ INVSTD_TILE }};;
 
 # -----------------------------------------------------------------------
 # Step 6: output[c] = centered[c] * INVSTD_TILE * GAMMA_TILE[c] + BETA_TILE[c]
 # -----------------------------------------------------------------------
 
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;
-    LDR_MULT_REG r1 {{ mask_off_lr }} {{ INVSTD_TILE }};;
+    LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;
+    LD.MULT r1 {{ mask_off_lr }} {{ INVSTD_TILE }};;
 
     SET {{ read_ptr }} {{ CENTERED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
     SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
     SET {{ row_idx }} {{ ZERO }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
     # ---- chunk 0 (peeled): row_idx == 0, pointers land at the tile bases ----
     MULT.RC.VV {{ slot0_lr }} r1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }};
+    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
 
@@ -374,27 +374,27 @@ step6_loop:
     MULT.RC.VV {{ slot0_lr }} r1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }};
+    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step6_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step6_loop;;
 
 end:
-    BKPT;;
+    HALT;;

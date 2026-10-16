@@ -20,7 +20,7 @@
 #   slot 1: r_acc = bias; += taps over slot1 lanes; QUANTIZE identity -> temp1.
 #   reload temp0, identity-MULT, ACC.STRIDE 64 on off offset 0 -> r_acc[0..63].
 #   reload temp1, identity-MULT, ACC.STRIDE 64 on off offset 2 -> r_acc[64..127].
-#   ACTIVATE.QUANTIZE relu -> STR_POST_AAQ_REG at lr6 (+cr5).
+#   ACTIVATE.QUANTIZE relu -> ST.AAQ at lr6 (+cr5).
 #
 # Two loops:
 #   EDGE   (output row 0):     kr in {0,+1}  -> 4 loads/ch (row -1 out of bounds).
@@ -33,9 +33,9 @@
 #   left  (col 0):  kc=-1 slot0 -> mask slot 1 zeros lane 0.
 #   right (col255): kc=+1 slot1 -> mask slot 2 zeros lane 127.
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands (ldr_mult_reg,
-# ldr_cyclic_mult_reg's offset+base, str_post_aaq_reg) are ROW numbers;
-# ldr_cyclic_mult_reg's `index` operand stays an ELEMENT index (0/128 slot
+# Row-addressed ISA (issue #179): XMEM offset/base operands (ld.mult,
+# ld.mult.cyclic's offset+base, st.aaq) are ROW numbers;
+# ld.mult.cyclic's `index` operand stays an ELEMENT index (0/128 slot
 # boundary, unscaled). cr8 is the XMEM filter-block stride and cr14
 # holds the literal r_cyclic slot1 index 128 -- the two cannot share a CR
 # because their units diverge under row addressing.
@@ -63,9 +63,9 @@
 {%-   if ch == 2 %}
     add                 lr9 lr9 cr6;;
 {%-   endif %}
-    ldr_cyclic_mult_reg lr9 cr10 lr0;
+    ld.mult.cyclic lr9 cr10 lr0;
     add                 lr10 lr9 cr8;;
-    ldr_cyclic_mult_reg lr10 cr10 lr11;;
+    ld.mult.cyclic lr10 cr10 lr11;;
 {%- endmacro -%}
 {#- Emit the 3 kc taps of one (slot, ch, kr).
     lr4 CONVENTION: on entry lr4 holds (this kr's kc=-1 tap index) - 1, i.e. it
@@ -124,7 +124,7 @@
 {%- for slot in [0, 1] %}
     # ---- SLOT {{slot}} ----
 {%-   if slot == 0 %}
-    ldr_mult_reg        r0 lr7 cr3;;
+    ld.mult        r0 lr7 cr3;;
 {%-   endif %}
     # Bias tap: MULT.EE reads lr4 live too, so lr4 must be 0 (bias byte index)
     # in THIS word.  The following `SET lr4 cr0` re-arms it to 0 = "last index
@@ -145,33 +145,33 @@
 {{ kc_taps(slot) }}
 {%-     endfor %}
 {%-   endfor %}
-    # ACTIVATE.QUANTIZE reads r_acc LIVE and STR_POST_AAQ_REG reads
+    # ACTIVATE.QUANTIZE reads r_acc LIVE and ST.AAQ reads
     # post_aaq_reg LIVE (store dispatches after aaq in the per-cycle order),
     # so they co-issue in one word — no separate store cycle needed.
 {%-   if slot == 0 %}
     ACTIVATE.QUANTIZE   identity cr15;
-    str_post_aaq_reg    lr0 cr13;;
+    st.aaq    lr0 cr13;;
 {%-   else %}
     ACTIVATE.QUANTIZE   identity cr15;
     # XMEM offset for temp1 = +1 ROW (temp0/temp1 are adjacent 128-byte rows);
     # lr11 holds 128 in its r_cyclic-ELEMENT role, so use lr1 (=1) here instead.
-    str_post_aaq_reg    lr1 cr13;;
+    st.aaq    lr1 cr13;;
 {%-   endif %}
 {%- endfor %}
 
     # ---- decimate + relu + store ----
     ADD                 lr12 lr1 cr1;;               # lr12 = 2 (offset%4=2 -> r_acc start 64)
-    ldr_cyclic_mult_reg lr0 cr13 lr0;;
+    ld.mult.cyclic lr0 cr13 lr0;;
     MULT.RC.VE          lr0 cr1 0 lr0 cr15;;
     acc.stride          64 on off lr0;;
-    ldr_cyclic_mult_reg lr1 cr13 lr0;;   # XMEM offset +1 row (temp1); lr11 stays r_cyclic-ELEMENT-only
+    ld.mult.cyclic lr1 cr13 lr0;;   # XMEM offset +1 row (temp1); lr11 stays r_cyclic-ELEMENT-only
     MULT.RC.VE          lr0 cr1 0 lr0 cr15;;
     # acc.stride (finalizes r_acc), ACTIVATE.QUANTIZE (reads r_acc LIVE), and
-    # STR_POST_AAQ_REG (reads post_aaq_reg LIVE; store dispatches after aaq)
+    # ST.AAQ (reads post_aaq_reg LIVE; store dispatches after aaq)
     # co-issue in one word — no separate ACTIVATE/store cycles needed.
     acc.stride          64 on off lr12;
     ACTIVATE.QUANTIZE   relu cr15;
-    str_post_aaq_reg    lr6 cr5;;
+    st.aaq    lr6 cr5;;
 {%- endmacro -%}
 
 # ===========================================================================
@@ -179,7 +179,7 @@
 # ===========================================================================
 
     SET                 lr0 cr0;
-    ldr_mult_mask_reg   lr0 cr4;;
+    ld.mask   lr0 cr4;;
 
     ADD                 lr1 lr0 cr1;                 # +1 (kc=+1 rc_idx for slot0; const)
     ADD                 lr2 lr0 cr1;                 # +1  (mask_shift kc=-1)
@@ -201,7 +201,7 @@ row0_filter_loop:
 {{ filter_body([0, 1]) }}
     add                 lr6 lr6 cr8;
     add                 lr7 lr7 cr8;;
-    blt                 lr7 cr12 row0_filter_loop;;
+    blt.s                 lr7 cr12 row0_filter_loop;;
 
     # advance to output row 1
     add                 lr5 lr5 cr9;                 # center row-group += 1536
@@ -218,11 +218,11 @@ filter_loop:
 {{ filter_body([-1, 0, 1]) }}
     add                 lr6 lr6 cr8;
     add                 lr7 lr7 cr8;;
-    blt                 lr7 cr12 filter_loop;;
+    blt.s                 lr7 cr12 filter_loop;;
 
     add                 lr5 lr5 cr9;
     INC                 lr8 1;;
-    blt                 lr8 cr11 row_loop;;
+    blt.s                 lr8 cr11 row_loop;;
 
 end:
-    bkpt;;
+    halt;;

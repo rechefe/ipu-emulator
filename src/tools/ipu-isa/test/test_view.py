@@ -94,7 +94,7 @@ def test_lookups():
         view.instruction(Slot.LR, "NOT_AN_INSTRUCTION")
     with pytest.raises(KeyError):
         view.by_opcode(Slot.LR, len(view.instructions(Slot.LR)))
-    assert view.find_slot("str_acc_reg") is Slot.ACC_STORE
+    assert view.find_slot("st.acc") is Slot.ACC_STORE
     with pytest.raises(ValueError, match="several slots"):
         view.find_slot("NOP")
     with pytest.raises(KeyError):

@@ -111,10 +111,6 @@ class NumberToken(IpuToken):
             return self.int + (1 << self.bits())
         return self.int
 
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return f"{value}"
-
 
 #: Each EnumToken subclass's lower-case name -> value map, built on first use.
 _REVERSE_MAPS: dict[type, dict[str, int]] = {}
@@ -169,10 +165,6 @@ class EnumToken(IpuToken):
             reverse = {name.lower(): idx for idx, name in enumerate(cls.enum_array())}
             _REVERSE_MAPS[cls] = reverse
         return reverse
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return cls.enum_array()[value]
 
     @classmethod
     def get_all_enum_descriptors(cls) -> dict[str, any]:
@@ -252,7 +244,3 @@ class LabelToken(IpuToken):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
         return self.annotated_token.symbols.address(self.token, at=self.instr_id)
-
-    @classmethod
-    def decode(cls, value: int) -> str:
-        return f"{value}"

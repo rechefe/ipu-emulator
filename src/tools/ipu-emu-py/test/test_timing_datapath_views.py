@@ -31,7 +31,7 @@ def _mult_res(probe: str, mode: Mode = Mode.NARROW):
 @pytest.mark.parametrize("probe", ["mult_ra_operand", "mult_r0_r1"])
 def test_mult_reads_r0_r1_at_cycle_start(mode, probe):
     """MULT reads R0/R1 at cycle start, through the ``ra`` operand (MULT.RC.VV)
-    and inside MULT.VE alike: a same-word LDR_MULT_REG (2s) is not seen, so
+    and inside MULT.VE alike: a same-word LD.MULT (2s) is not seen, so
     R0 (1s) x 1 = 1."""
     assert _mult_res(probe, mode) == 1
 
@@ -39,13 +39,13 @@ def test_mult_reads_r0_r1_at_cycle_start(mode, probe):
 @_MODES
 def test_mult_reads_r_cyclic_at_cycle_start(mode):
     """MULT.RC.* reads R_CYCLIC at cycle start: a same-word
-    LDR_CYCLIC_MULT_REG (3s) is not seen, so 1 x 1 = 1."""
+    LD.MULT.CYCLIC (3s) is not seen, so 1 x 1 = 1."""
     assert _mult_res("mult_r_cyclic", mode) == 1
 
 
 @_MODES
 def test_mult_reads_r_mask_forwarded(mode):
-    """MULT reads R_MASK forwarded: a same-word LDR_MULT_MASK_REG (all zero)
+    """MULT reads R_MASK forwarded: a same-word LD.MASK (all zero)
     masks lane 0, which is padded with 0 instead of holding 3 x 3. Q32 makes
     this cycle start (flipped by E04-27)."""
     assert _mult_res("mult_r_mask", mode) == 0
@@ -107,22 +107,22 @@ def test_activate_reads_this_cycle_r_acc(op, expected):
 
 
 def test_store_reads_this_cycle_post_aaq():
-    """STR_POST_AAQ_REG stores this cycle's POST_AAQ_REG (7, not 1)."""
+    """ST.AAQ stores this cycle's POST_AAQ_REG (7, not 1)."""
     state = run(PROBES["store_post_aaq"]).state
     assert state.xmem.read_address(ROW * 128, 1) == b"\x07"
 
 
 def test_acc_store_reads_this_cycle_r_acc():
-    """STR_ACC_REG stores this cycle's R_ACC (7, not 1)."""
+    """ST.ACC stores this cycle's R_ACC (7, not 1)."""
     with pytest.warns(DebugOnlyInstructionWarning):
         state = run(PROBES["acc_store_r_acc"]).state
     assert struct.unpack("<i", state.xmem.read_address(ROW * 128, 4))[0] == 7
 
 
 def test_bkpt_halts_after_whole_word_retires():
-    """BKPT halts after every other slot of its word has run: the LR write and
-    the store land, and the next word does not run. (BKPT becomes HALT in E03.)"""
-    result = run(PROBES["bkpt"])
+    """HALT halts after every other slot of its word has run: the LR write and
+    the store land, and the next word does not run. (HALT becomes HALT in E03.)"""
+    result = run(PROBES["halt"])
     state = result.state
     assert (
         result.cycles,
@@ -134,7 +134,7 @@ def test_bkpt_halts_after_whole_word_retires():
 
 @pytest.mark.parametrize(("probe", "marker"), [("signed_blt", 2), ("signed_bge", 1)])
 def test_branches_compare_signed(probe, marker):
-    """BLT and BGE compare signed 32-bit values: 0xFFFFFFFF is -1 < 0. (They
+    """BLT.S and BGE.S compare signed 32-bit values: 0xFFFFFFFF is -1 < 0. (They
     become BLT.S/BGE.S in E03.)"""
     assert run(PROBES[probe]).state.regfile.get_lr(7) == marker
 

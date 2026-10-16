@@ -115,7 +115,7 @@ _SPEC: dict[str, dict[str, Any]] = {
         "summary": "Multiply-stage register R0 or R1 (2-bit field).",
         "doc": "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; "
         "the field is **two bits** wide (encoding `2` is reserved). Used as the destination of "
-        "`LDR_MULT_REG` and as the **`ra`** operand of `MULT.RC.VV`.",
+        "`LD.MULT` and as the **`ra`** operand of `MULT.RC.VV`.",
     },
     "LrIdx": {
         "kind": OperandKind.REGISTER,
@@ -155,7 +155,7 @@ _SPEC: dict[str, dict[str, Any]] = {
         "summary": "A loop register or a configuration register in one field.",
         "doc": "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to "
         "**`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** "
-        "on **`ADD`**/**`SUB`**, as **`step`** on **`INCR_MOD_POW2`**, and as **`src`** on "
+        "on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on "
         "**`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte "
         "is the scalar directly).",
     },
@@ -279,8 +279,8 @@ _SPEC: dict[str, dict[str, Any]] = {
         "token_class": "LrModPow2KImmediate",
         "field_suffix": "lr_mod_pow2_k_immediate",
         "sv_typedef": None,
-        "summary": "INCR_MOD_POW2 exponent k, encoded as k - 1.",
-        "doc": "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic "
+        "summary": "INC.MODP2 exponent k, encoded as k - 1.",
+        "doc": "Four-bit immediate for **`INC.MODP2`**: encodes exponent **k** with semantic "
         "**k ∈ [1, 9]** as **(k − 1)** in the word.",
     },
     "MultMaskOffsetImmediate": {

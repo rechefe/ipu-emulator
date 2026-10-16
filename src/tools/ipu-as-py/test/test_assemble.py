@@ -25,10 +25,10 @@ start:
 @pytest.mark.parametrize(
     "pseudo_code, real_code",
     [
-        ("BGT lr0 lr1 +1;;", "BLT lr1 lr0 +1;;"),
-        ("BGT cr1 lr3 +2;;", "BLT lr3 cr1 +2;;"),
-        ("BLE lr0 lr1 +1;;", "BGE lr1 lr0 +1;;"),
-        ("BLE cr2 lr4 +2;;", "BGE lr4 cr2 +2;;"),
+        ("BGT.S lr0 lr1 +1;;", "BLT.S lr1 lr0 +1;;"),
+        ("BGT.S cr1 lr3 +2;;", "BLT.S lr3 cr1 +2;;"),
+        ("BLE.S lr0 lr1 +1;;", "BGE.S lr1 lr0 +1;;"),
+        ("BLE.S cr2 lr4 +2;;", "BGE.S lr4 cr2 +2;;"),
         ("BZ lr0 +1;;", "BEQ lr0 cr0 +1;;"),
         ("BZ cr3 +2;;", "BEQ cr3 cr0 +2;;"),
         ("BNZ lr0 +1;;", "BNE lr0 cr0 +1;;"),
@@ -42,7 +42,7 @@ def test_pseudo_instruction_matches_hand_written_expansion(pseudo_code, real_cod
 
 
 def test_pseudo_instructions_are_case_insensitive():
-    assert assemble("bgt lr0 lr1 +1;;") == assemble("BLT lr1 lr0 +1;;")
+    assert assemble("bgt.s lr0 lr1 +1;;") == assemble("BLT.S lr1 lr0 +1;;")
     assert assemble("bz lr0 +1;;") == assemble("BEQ lr0 cr0 +1;;")
     assert assemble("b +1;;") == assemble("BEQ cr0 cr0 +1;;")
 
@@ -50,8 +50,8 @@ def test_pseudo_instructions_are_case_insensitive():
 @pytest.mark.parametrize(
     "code",
     [
-        "BGT lr0 lr1;;",  # missing label, BGT needs 3 operands
-        "BLE lr0 lr1;;",
+        "BGT.S lr0 lr1;;",  # missing label, BGT.S needs 3 operands
+        "BLE.S lr0 lr1;;",
         "BZ lr0;;",  # missing label, pseudo BZ needs 2 operands
         "BNZ lr0;;",
         "BZ lr0 lr1 +1;;",  # no real 3-operand BZ anymore; only the 2-operand pseudo exists
@@ -84,7 +84,7 @@ def test_template_escape_is_refused_and_does_not_run(tmp_path):
     marker = tmp_path / "executed"
     code = (
         "{{ self.__init__.__globals__.__builtins__.__import__('os')"
-        ".popen('touch " + str(marker) + "').read() }}BKPT;;\n"
+        ".popen('touch " + str(marker) + "').read() }}HALT;;\n"
     )
     with pytest.raises(TemplateError) as info:
         assemble(code)
@@ -95,8 +95,8 @@ def test_template_escape_is_refused_and_does_not_run(tmp_path):
 @pytest.mark.parametrize(
     "code",
     [
-        "{% for c in ''.__class__.__mro__ %}\nBKPT;;\n{% endfor %}\n",
-        "{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\n",
+        "{% for c in ''.__class__.__mro__ %}\nHALT;;\n{% endfor %}\n",
+        "{{ ({}).__class__.__base__.__subclasses__() }}HALT;;\n",
     ],
 )
 def test_attribute_traversal_out_of_the_sandbox_is_refused(code):
@@ -110,7 +110,7 @@ def test_unsafe_attribute_is_a_template_error_not_the_object():
     # the object, and under StrictUndefined (E05-11) printing it fails: nothing
     # of the interpreter reaches the assembled text, and there is no hole.
     with pytest.raises(TemplateError, match="__class__") as info:
-        template.render("{{ ''.__class__ }}\nBKPT;;\n")
+        template.render("{{ ''.__class__ }}\nHALT;;\n")
     assert isinstance(info.value.__cause__, SecurityError)
 
 
@@ -120,7 +120,7 @@ def test_unsafe_attribute_is_a_template_error_not_the_object():
         # What the kernels actually use: set, loops over range, filters and
         # whitespace control. The sandbox must not cost any of it.
         '{%- set a = "lr0" -%}\n    SET {{ a }} cr0;;\n',
-        "{% for i in range(2) %}\n    BKPT;;\n{% endfor %}\n",
+        "{% for i in range(2) %}\n    HALT;;\n{% endfor %}\n",
         '    SET {{ "LR0"|lower }} cr0;;\n',
     ],
 )

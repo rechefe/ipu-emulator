@@ -158,7 +158,7 @@
 # MULT SNAPSHOT CONTRACT (issue #157, inherited from fold_16x16x192 and
 # fold_32x32x144): a MULT.RC.VV instruction reads its Ra DATA (r0) from the
 # start-of-cycle snapshot, so it cannot consume a chunk loaded by an
-# LDR_MULT_REG issued in the very same bundle -- co-issuing a load and a
+# LD.MULT issued in the very same bundle -- co-issuing a load and a
 # MULT in one bundle is fine only when the MULT consumes a PREVIOUSLY loaded
 # chunk. This kernel primes the first load before ch_loop and keeps every
 # subsequent LDR one bundle ahead of the MULT that consumes it. Rotation:
@@ -166,7 +166,7 @@
 # stream2, stream2 prefetches stream3, and stream3 prefetches stream0 of the
 # NEXT channel (advancing lr6 first, in its own word, before that load).
 #
-# STR_POST_AAQ_REG reads its offset operand LIVE -- never co-issue an ADD on
+# ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
 # the offset LR (lr8) in the same bundle as the store, or the row lands one
 # slot late. Here lr8 only advances in its own bundle at the very end of the
 # channel loop, well clear of the store.
@@ -177,9 +177,9 @@
      ("s3", 9, "cr12", "cr9"),
    ] %}
 
-    LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
+    LD.MULT.CYCLIC lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
 
-    LDR_MULT_REG        r0 lr6 cr9;;        # prime: stream 0 row of ch 0
+    LD.MULT        r0 lr6 cr9;;        # prime: stream 0 row of ch 0
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..239)
@@ -206,7 +206,7 @@ ch_loop:
     # this ADD gets its own word.
     ADD                 lr6 lr6 lr7;;       # src offset: next channel (+1 row)
 {%- endif %}
-    LDR_MULT_REG r0 lr6 {{ next_cr }};
+    LD.MULT r0 lr6 {{ next_cr }};
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply {{ name }} row (prefetch next stream)
     ACC.RESHAPE lrd2 lrd4 0;;               # call0: src[0..7] -> dest[{{ dest_base }},{{ dest_base+2 }},{{ dest_base+4 }},{{ dest_base+6 }},{{ dest_base+16 }},{{ dest_base+18 }},{{ dest_base+20 }},{{ dest_base+22 }}]
     ADDBI               lrd2 8;
@@ -214,12 +214,12 @@ ch_loop:
     ACC.RESHAPE lrd2 lrd4 0;;               # call1: src[8..15] -> dest[+32 of call0]
 {% endfor %}
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr13;;     # ch <- DST_BASE_ROW + ch (current channel)
+    ST.AAQ         lr8 cr13;;     # ch <- DST_BASE_ROW + ch (current channel)
 
     # -- Advance pointers; loop -------------------------------------------------
     ADD                 lr8 lr8 lr9;;       # dst offset: next channel
     ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 ch_loop;; # loop while ch < 240
+    BLT.S                 lr10 lr11 ch_loop;; # loop while ch < 240
 
 end:
-    BKPT;;
+    HALT;;

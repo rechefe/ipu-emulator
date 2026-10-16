@@ -84,15 +84,15 @@ row_loop:
 tile_loop:
 {#- ---- preload rows 0 and 1 into slots 0 and 1 --------------------------- -#}
     ADD {{lr_addr}} {{lr_rowb}} {{lr_t}} ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{slots[0]}} ;;  {#- slot0 <- padded row y+0 -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{slots[0]}} ;;  {#- slot0 <- padded row y+0 -#}
     ADD {{lr_addr}} {{lr_addr}} cr5 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{slots[1]}} ;;  {#- slot1 <- padded row y+1 -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{slots[1]}} ;;  {#- slot1 <- padded row y+1 -#}
 {%- for dy in range(K) %}
 {#- row {{dy}}: read slot {{dy % 3}}{% if dy + 2 < K %}, load row {{dy + 2}} into slot {{(dy + 2) % 3}}{% endif %} -#}
     ADD {{lr_rc}} {{slots[dy % 3]}} cr0 ;
 {%- if dy + 2 < K %}
     ADD {{lr_addr}} {{lr_addr}} cr5 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{slots[(dy + 2) % 3]}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{slots[(dy + 2) % 3]}} ;
 {%- endif %}
     MULT.RC.VE {{lr_rc}} cr1 0 {{lr_zero}} cr15 ; {% if dy == 0 %}ACC.MAX.FIRST{% else %}ACC.MAX{% endif %} ;;
 {%- for dx in range(1, K) %}
@@ -102,18 +102,18 @@ tile_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- OUT[c, y, tile] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- OUT[c, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_t}} {{lr_t}} cr1 ;;
-    BLT {{lr_t}} cr5 tile_loop ;;
+    BLT.S {{lr_t}} cr5 tile_loop ;;
 
     ADD {{lr_rowb}} {{lr_rowb}} cr5 ;
     ADD {{lr_y}} {{lr_y}} cr1 ;;
-    BLT {{lr_y}} cr7 row_loop ;;
+    BLT.S {{lr_y}} cr7 row_loop ;;
 
     ADD {{lr_cbase}} {{lr_cbase}} cr6 ;
     ADD {{lr_c}} {{lr_c}} cr1 ;;
-    BLT {{lr_c}} cr8 chan_loop ;;
+    BLT.S {{lr_c}} cr8 chan_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

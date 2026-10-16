@@ -1,1 +1,1 @@
-0: BKPT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
+0: HALT 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP 0 lr0 lr0; NOP cr0 lr0 lr0; NOP lr0 cr0 lr0 lr0 0; NOP cr0 lrd0 lr0 off; NOP identity cr0; NOP cr0 lr0; NOP cr0 lr0; NOP 0 lr0;;
