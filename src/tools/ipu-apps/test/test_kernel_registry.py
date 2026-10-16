@@ -943,3 +943,23 @@ def test_debug_only_detection_reads_the_assembled_words(tmp_path):
         assert uses_debug_only_instructions(path) is (name == "uses_str_acc_reg")
     assert kernel_uses_debug_only_instructions("fully_connected")
     assert not kernel_uses_debug_only_instructions("maxpool2d_stride2")
+
+
+def test_runner_reports_a_broken_kernel_source(tmp_path, monkeypatch, capsys):
+    """A kernel whose `.asm` does not assemble is reported by the runner's handler
+    (E05-06: the assembler raises an AssemblerError instead of exiting)."""
+    from ipu_apps.kernel_registry import cases as cases_module
+    from ipu_apps.kernel_registry import runner
+    from ipu_apps.kernel_registry.cases import kernel_spec, load_cases
+
+    spec = kernel_spec("identity")
+    (tmp_path / spec.asm).write_text("NOT_AN_INSTRUCTION LR0;;\n")
+    monkeypatch.setattr(cases_module, "files", lambda package: tmp_path)
+    case = next(iter(load_cases("identity")))
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--kernel", "identity", "--case", case])
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == (
+        "error: Opcode 'NOT_AN_INSTRUCTION' not found in any Inst subclass.\n"
+    )

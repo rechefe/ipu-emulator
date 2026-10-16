@@ -1,18 +1,13 @@
-"""File and CLI entry points of the assembler, adapted to `AssemblySession`.
+"""File entry points of the assembler, over `ipu_as.session`.
 
-The pipeline lives in `ipu_as.session`; the parser and AST builder in
-`ipu_as.syntax` (re-exported here for existing importers). These wrappers keep
-their historical behaviour: a template error propagates as the jinja2 exception,
-and a parse or assemble error prints a message and exits with status 1.
+The pipeline lives in `ipu_as.session`, and the parser and AST builder in
+`ipu_as.syntax` (re-exported here for existing importers). These functions
+never print or exit: a bad source raises an `AssemblerError` subclass. Only
+`ipu_as.cli` turns errors into text and exit codes.
 """
-
-from typing import NoReturn
-
-import lark
 
 import ipu_as.compound_inst as compound_inst
 from ipu_as import session
-from ipu_as.errors import AssemblerError, ParseError, TemplateError
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
 
@@ -31,63 +26,26 @@ __all__ = [
 ]
 
 
-def _report_and_exit(error: AssemblerError) -> NoReturn:
-    """Print the line each stage printed before the session existed, and exit 1.
-
-    The session chains every parse-stage error to the lark exception it came
-    from (`raise ... from error`); that exception's text is what was printed.
-    """
-    cause = error.__cause__
-    if isinstance(error, ParseError) or isinstance(cause, lark.exceptions.LarkError):
-        reported = cause if isinstance(cause, lark.exceptions.LarkError) else error
-        print(f"Error parsing code: {reported}")
-    else:
-        print(f"Error assembling code: {error}")
-    exit(1)
-
-
-def _jinja_error(error: TemplateError) -> BaseException:
-    """The jinja2 exception a TemplateError wraps, which is what callers got before."""
-    return error.__cause__ or error
-
-
 def parse(text: str) -> list[dict]:
-    """The compound instructions of `text`; prints and exits on a parse error."""
-    try:
-        return session.AssemblySession(text).parse()
-    except TemplateError as error:
-        raise _jinja_error(error) from None
-    except AssemblerError as error:
-        if isinstance(error, ParseError) or isinstance(error.__cause__, lark.exceptions.LarkError):
-            _report_and_exit(error)
-        raise
-
-
-def _assemble(text: str) -> session.AssemblyResult:
-    try:
-        return session.assemble(text)
-    except TemplateError as error:
-        raise _jinja_error(error) from None
-    except AssemblerError as error:
-        _report_and_exit(error)
-    except ValueError as error:
-        print(f"Error assembling code: {error}")
-        exit(1)
+    """The compound instructions of `text`. Raises an AssemblerError subclass."""
+    return session.AssemblySession(text).parse()
 
 
 def assemble(text: str) -> list[int]:
-    """The instruction words of `text`; prints and exits on a parse or assemble error."""
-    return list(_assemble(text).words)
+    """The instruction words of `text`. Raises an AssemblerError subclass."""
+    return list(session.assemble(text).words)
 
 
 def assemble_to_mem_file(text: str, output_path: str):
+    result = session.assemble(text)
     with open(output_path, "w") as f:
-        f.write(_assemble(text).to_mem())
+        f.write(result.to_mem())
 
 
 def assemble_to_bin_file(text: str, output_path: str):
+    result = session.assemble(text)
     with open(output_path, "wb") as f:
-        f.write(_assemble(text).to_bin())
+        f.write(result.to_bin())
 
 
 def disassemble(program: list[int]) -> list[str]:

@@ -64,4 +64,12 @@ def test_cli_output_is_unchanged(tmp_path):
         )
     assert actual.keys() == expected.keys()
     for name, before in expected.items():
-        assert actual[name] == before, name
+        if before["exception"] is not None:
+            # A template error escaped as a jinja2 traceback; now it is one line.
+            header = before["stdout"]
+            assert actual[name]["exit_code"] == 1, name
+            assert actual[name]["exception"] is None, name
+            assert actual[name]["stdout"].startswith(header + "Error rendering template: "), name
+            assert actual[name]["stdout"].count("\n") == header.count("\n") + 1, name
+        else:
+            assert actual[name] == before, name
