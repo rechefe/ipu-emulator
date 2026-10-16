@@ -1540,7 +1540,7 @@ def _check_constant_register_literal(where: str, name: str, arg: str, doc: Instr
         allowed = ", ".join(f"CR{index}" for index in _CONSTANT_CRS)
         raise schema.SpecError(f"{where}: literal {arg!r} is not a constant register ({allowed})")
     text = " ".join(filter(None, (doc.summary, doc.operation, doc.notes)))
-    if arg.upper() not in text.upper():
+    if not re.search(rf"\b{re.escape(arg)}\b", text, re.IGNORECASE):
         raise schema.SpecError(
             f"{where}: pseudo-instruction {name} expands with {arg!r} but its docs do not say so"
         )

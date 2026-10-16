@@ -49,7 +49,7 @@ DEFAULT_VALID_ELEMENTS = LANES
 
 
 class Partition(IntEnum):
-    """Valid CR15.partition values. Controls how the 128 elements are grouped for mask shifts."""
+    """Valid dstructure partition values: how the LANES elements are grouped for mask shifts."""
 
     P0 = 0  # no partitioning — all 128 lanes in one group
     P2 = 2  # 2 groups of 64 lanes

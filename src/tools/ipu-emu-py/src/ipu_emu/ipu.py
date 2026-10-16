@@ -81,12 +81,12 @@ R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
-# Number of vector lanes: 128, mode-invariant. An element is 1 byte in narrow
-# mode and 4 bytes in wide-vector debug mode, so LANES must never be confused
-# with a byte count — use it for lane loop bounds, mask bit-widths, and
-# lane-indexed lists/tuples in both modes. R_REG_SIZE remains a byte count
-# (the "r" register's size); it coincides with LANES only in narrow mode.
-# LANES itself is imported from ipu_isa.geometry.
+# LANES (from ipu_isa.geometry) is the number of vector lanes: 128,
+# mode-invariant. An element is 1 byte in narrow mode and 4 bytes in
+# wide-vector debug mode, so LANES must never be confused with a byte count —
+# use it for lane loop bounds, mask bit-widths, and lane-indexed lists/tuples
+# in both modes. R_REG_SIZE remains a byte count (the "r" register's size); it
+# coincides with LANES only in narrow mode.
 
 # XMEM row geometry is shared by instruction execution and debugging. Derive
 # it from the register schema and the active element representation so there
