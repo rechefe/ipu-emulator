@@ -122,6 +122,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_emu_lib",
+        ":timing_probes",
         requirement("pytest"),
     ],
 )

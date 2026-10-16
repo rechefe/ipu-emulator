@@ -29,6 +29,8 @@ from ipu_emu.prototyping import (
 
 from ipu_as.lark_tree import assemble
 
+import timing_probes
+
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"
@@ -129,6 +131,12 @@ def _run_both(asm: str, *, wide: bool, arithmetic=None, seed: int = 5):
     ]
     for state in states:
         load_program(state, [dict(inst) for inst in decoded])
+    return _lockstep(states)
+
+
+def _lockstep(states: list[IpuState]):
+    """Run a faithful and a prototyping state, both loaded, in lockstep to the
+    end, comparing everything after every cycle."""
     engines = [Ipu(state) for state in states]
 
     retained_snapshot = None
@@ -191,6 +199,63 @@ def test_narrow_int8_programs_are_identical(name):
 def test_wide_vector_programs_are_identical(name, arithmetic):
     faithful, fast = _run_both(PROGRAMS[name], wide=True, arithmetic=arithmetic)
     _assert_identical(faithful, fast)
+
+
+# The timing probes (E02-05, E02-06): one minimal program per row of the
+# register-timing table, each in every element format it is meaningful in.
+_PROBE_RUNS = [
+    pytest.param(name, mode, id=f"{name}-{mode.value}")
+    for name, probe in timing_probes.PROBES.items()
+    if name not in timing_probes.RAISES
+    for mode in probe.modes
+]
+
+
+def _probe_states(name: str, mode) -> list[IpuState]:
+    return [
+        timing_probes.prepare(timing_probes.PROBES[name], mode, prototyping=prototyping)
+        for prototyping in (False, True)
+    ]
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
+def test_timing_probes_are_identical(name, mode):
+    _lockstep(_probe_states(name, mode))
+
+
+def _run_until_raise(name: str):
+    """Run a probe that raises in both modes; return each mode's exception and
+    final state."""
+    states = _probe_states(name, timing_probes.Mode.NARROW)
+    exceptions = []
+    for state in states:
+        engine = Ipu(state)
+        with pytest.raises(timing_probes.RAISES[name]) as caught:
+            while not state.is_halted:
+                engine.execute_vliw_cycle()
+        exceptions.append(caught.value)
+    return states, exceptions
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
+def test_raising_timing_probes_are_identical(name):
+    states, exceptions = _run_until_raise(name)
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.xfail(strict=True, reason="E04-07 closes the LR sub-slot divergence")
+def test_lr_subslot_exception_partial_state_matches():
+    """When an LR sub-slot's operand read raises, faithful mode has written no
+    LR; prototyping mode runs sub-slots one at a time and has already written
+    sub-slot 0's LR1. E04-07 makes the two agree; the strict xfail then fails
+    and that PR removes the marker."""
+    states, _ = _run_until_raise("lr_subslot_exception")
+    _assert_states_identical(*states)
 
 
 @_REQUIRES_PROTO_BUILD
