@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from ipu_emu.debug_control import get_debug_control
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import decode_instruction_word
@@ -222,15 +222,16 @@ class TestIdleAccounting:
             "ADD LR1 LR1 CR1 ;;\nBKPT;;"
         )
         load_program(state, [decode_instruction_word(w) for w in code])
-        get_debug_control(state).add_breakpoint(1)
-        get_debug_control(state).add_breakpoint(2)
+        control = DebugControl()
+        control.add_breakpoint(1)
+        control.add_breakpoint(2)
         observed = []
 
         def callback(state, cycles):
             observed.append((cycles, state.stats.mult_idle_cycles))
             return DebugAction.CONTINUE
 
-        run_with_debug(state, callback)
+        run_with_debug(state, callback, control=control)
         assert observed == [(1, 0), (2, 1)]
         assert state.stats.mult_idle_cycles == 2
         assert state.stats.mult_idle_cycles + state.stats.mult_active_cycles == 3

@@ -13,7 +13,6 @@ import struct
 import sys
 import textwrap
 import time
-import weakref
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -40,7 +39,7 @@ from ipu_emu.debug_cli import (
 )
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
-from ipu_emu.debug_control import get_debug_control
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.debug_pipeline import pipeline_occupancy, SLOT_LABELS, display_operation, semantic_operations
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
@@ -584,17 +583,10 @@ class DebugViewSession:
             tab.baseline_data = resolved.data
 
 
-_SESSIONS: weakref.WeakKeyDictionary[IpuState, DebugViewSession] = (
-    weakref.WeakKeyDictionary()
-)
-
-
-def get_debug_view_session(state: IpuState) -> DebugViewSession:
-    """Return the persistent TUI session associated with *state*."""
-    session = _SESSIONS.get(state)
-    if session is None:
-        session = DebugViewSession()
-        _SESSIONS[state] = session
+def new_debug_view_session(state: IpuState) -> DebugViewSession:
+    """A TUI session for *state*, with its default XMEM tab. Whoever runs the
+    debugger keeps it and passes it to every stop, so the view persists."""
+    session = DebugViewSession()
     session.ensure_default_tab(state)
     return session
 
@@ -785,10 +777,12 @@ class CursesDebugView:
         state: IpuState,
         session: DebugViewSession,
         cycle: int,
+        control: DebugControl | None = None,
     ) -> None:
         self.screen = screen
         self.state = state
-        self.control = get_debug_control(self.state)
+        # The run's control, from whoever started the run; else this view's own.
+        self.control = control if control is not None else DebugControl()
         self.session = session
         self.cycle = cycle
         self.colors = _ColorManager()
@@ -3709,17 +3703,29 @@ _CURSES_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
-def run_debug_tui(state: IpuState, cycle: int) -> DebugAction:
-    """Enter curses and return an execution action; interrupts cancel."""
+def run_debug_tui(
+    state: IpuState,
+    cycle: int,
+    *,
+    control: DebugControl | None = None,
+    session: DebugViewSession | None = None,
+) -> DebugAction:
+    """Enter curses and return an execution action; interrupts cancel.
+
+    *control* is the one passed to ``run_with_debug``, and *session* the view
+    kept from the previous stop; without them, this stop has its own.
+    """
     if curses is None:
         raise RuntimeError("curses is not available on this platform")
-    session = get_debug_view_session(state)
+    if session is None:
+        session = new_debug_view_session(state)
+    session.ensure_default_tab(state)
     session.active = True
     result = DebugAction.QUIT
 
     def _run(screen: Any) -> None:
         nonlocal result
-        result = CursesDebugView(screen, state, session, cycle).run()
+        result = CursesDebugView(screen, state, session, cycle, control).run()
 
     try:
         curses.wrapper(_run)

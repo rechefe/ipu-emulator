@@ -31,14 +31,6 @@ from ipu_emu.emulator import (
     DebugAction,
     DEFAULT_MAX_CYCLES,
 )
-from ipu_emu.debug_cli import (
-    debug_prompt,
-    DebugCLI,
-    print_all_registers,
-    state_to_json_dict,
-    save_state_json,
-    disassemble_current,
-)
 
 __all__ = [
     "DebugOnlyInstructionWarning",
@@ -72,10 +64,4 @@ __all__ = [
     "fp8_bytes_to_fp32",
     "DebugAction",
     "DEFAULT_MAX_CYCLES",
-    "debug_prompt",
-    "DebugCLI",
-    "print_all_registers",
-    "state_to_json_dict",
-    "save_state_json",
-    "disassemble_current",
 ]

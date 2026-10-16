@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.run_control import RunControl
 
 
 def validate_pc(pc: int) -> int:
@@ -15,23 +15,16 @@ def validate_pc(pc: int) -> int:
 
 
 @dataclass
-class DebugControl:
-    """Controls retained for the lifetime of one IPU state.
+class DebugControl(RunControl):
+    """A debug run's controls as its frontends change them.
 
     Every change to the breakpoints or to a user-chosen PC goes through a
     method here, which validates it; ``breakpoints`` is a read-only view.
+    Whoever starts the run creates one and gives it to both the run
+    (``run_with_debug(..., control=...)``) and its frontends.
     """
 
-    _breakpoints: set[int] = field(default_factory=set, init=False)
-    run_target: int | None = None
-    stop_reason: str = "paused"
     kernel_name: str | None = None
-    last_completed_pc: int | None = None
-    last_completed_instruction: dict[str, int] | None = None
-
-    @property
-    def breakpoints(self) -> frozenset[int]:
-        return frozenset(self._breakpoints)
 
     def add_breakpoint(self, pc: int) -> None:
         self._breakpoints.add(validate_pc(pc))
@@ -62,13 +55,3 @@ class DebugControl:
         self.run_target = pc if pc != current_pc else None
         return pc != current_pc
 
-
-_CONTROLS: weakref.WeakKeyDictionary[IpuState, DebugControl] = weakref.WeakKeyDictionary()
-
-
-def get_debug_control(state: IpuState) -> DebugControl:
-    control = _CONTROLS.get(state)
-    if control is None:
-        control = DebugControl()
-        _CONTROLS[state] = control
-    return control

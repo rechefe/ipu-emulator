@@ -220,7 +220,9 @@ Add `BREAK;;` to assembly, then run with the debug callback:
 
 ```python
 from ipu_emu.debug_cli import debug_prompt
-run_with_debug(state, debug_prompt)
+from ipu_emu.debug_control import DebugControl
+control = DebugControl()  # shared, so `break` at the prompt reaches the run
+run_with_debug(state, lambda s, c: debug_prompt(s, c, control=control), control=control)
 ```
 
 Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.json`

@@ -10,6 +10,7 @@ import pytest
 
 import ipu_emu.debug_cli as debug_cli_module
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.debug_cli import (
     DebugCLI,
     DebugAction,
@@ -36,11 +37,11 @@ from ipu_as.lark_tree import assemble
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_cli(state: IpuState, commands: str) -> tuple[DebugCLI, StringIO]:
+def _make_cli(state: IpuState, commands: str, control: DebugControl | None = None) -> tuple[DebugCLI, StringIO]:
     """Create a CLI with pre-canned input and capture output."""
     inp = StringIO(commands)
     out = StringIO()
-    cli = DebugCLI(state, out=out, inp=inp)
+    cli = DebugCLI(state, out=out, inp=inp, control=control)
     return cli, out
 
 
@@ -71,7 +72,7 @@ def test_active_tui_session_does_not_change_legacy_prompt(monkeypatch):
     import ipu_emu.debug_tui as tui
 
     state = IpuState()
-    tui.get_debug_view_session(state).active = True
+    tui.new_debug_view_session(state).active = True
 
     def forbidden(*args, **kwargs):
         pytest.fail("the legacy prompt must never open curses")
@@ -688,10 +689,11 @@ class TestPrintAllRegisters:
 class TestRuntimeControls:
     def test_breakpoints_are_shared_between_prompt_instances(self):
         state = IpuState()
-        cli, _ = _make_cli(state, "")
+        control = DebugControl()
+        cli, _ = _make_cli(state, "", control=control)
         cli.onecmd("break")
         cli.onecmd("break 0x10")
-        other, output = _make_cli(state, "")
+        other, output = _make_cli(state, "", control=control)
         other.onecmd("breaks")
         assert "Breakpoints: 0, 16" in output.getvalue()
         other.onecmd("delete 0")
