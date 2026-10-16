@@ -607,7 +607,8 @@ class Kernels {
 }
 
 /** Register the sidebar and the kernel commands. For tests: the live index and tree, the query
- *  without its prompts, and `ready`, settled once the open folders' checkouts are found. */
+ *  without its prompts, `ready`, settled once the open folders' checkouts are found, and whether
+ *  a kernel terminal is idle, as a run decides before reusing it. */
 function register(context) {
   const kernels = new Kernels(context);
   const ready = kernels.start();
@@ -615,6 +616,7 @@ function register(context) {
   return {
     indexes, tree, view, editorContext, ready,
     kernelOfFile: (uri) => kernels.kernelOfFile(uri),
+    terminalIdle: (terminal) => isIdle(terminal),
     runQuery: (op, params) => runQuery([...indexes.values()].find((i) => i.manifest), op, params, kernels.output),
   };
 }

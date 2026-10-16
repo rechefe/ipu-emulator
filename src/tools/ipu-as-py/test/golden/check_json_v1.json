@@ -118,5 +118,29 @@
   "vscode-ipu-asm/test/corpus/edge_cases.asm": {
     "exit_code": 0,
     "stdout": "[]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register.asm": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 3, \"column\": 59, \"end_line\": 3, \"end_column\": 60, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 10, \"end_line\": 2, \"end_column\": 11, \"message\": \"Too many instructions of type CondInst (max 1)\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals.asm": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 0, \"end_line\": 2, \"end_column\": 0, \"message\": \"Template error: Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unknown_mnemonic.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 4, \"end_line\": 1, \"end_column\": 5, \"message\": \"Opcode 'FROB' not found in any Inst subclass.\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   }
 }

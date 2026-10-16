@@ -9,7 +9,7 @@ const vscode = require('vscode');
 
 const runs = require('../../runs');
 const isa = require('../../data/isa.json');
-const { test, sleep, until, runAll } = require('../harness');
+const { test, until, runAll } = require('../harness');
 
 const workspace = process.env.IPU_TEST_WORKSPACE;
 const kernelFile = path.join(workspace, 'kernels/demo/demo_kernel/demo_kernel.asm');
@@ -188,20 +188,28 @@ async function typeIn(start, text, done, at) {
   return { editor, lines };
 }
 
+/** Whether Enter's formatting as you type has nothing left to do at the cursor: it is the one
+ *  source of a late edit (an empty line between words), so no edit from it means none will come. */
+async function noLateEdit(editor) {
+  const edits = (await exec('vscode.executeFormatOnTypeProvider', editor.document.uri, editor.selection.active, '\n',
+    { tabSize: 4, insertSpaces: true })) || [];
+  return edits.every((e) => editor.document.getText(e.range) === e.newText);
+}
+
 test('Enter after ;; or a label indents the next line; after ;; it leaves an empty line with "emptyLine"', async () => {
-  const { lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 2);
-  await sleep(500); // and no late empty line
+  const { editor: first, lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 2);
+  assert(await noLateEdit(first), 'and no late empty line');
   assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    ']);
   await withSettings({ wordSeparation: 'emptyLine' }, async () => {
     const { editor, lines } = await typeIn('    SET lr0 cr0;;', '\n', (l) => l.length === 3);
     assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '', '    ']);
     assert.strictEqual(editor.selection.active.line, 2);
     // After a label it indents; within a word it adds no empty line, even with "emptyLine".
-    const label = (await typeIn('row_loop:', '\n', (l) => l.length === 2)).lines;
+    const { editor: labelled, lines: label } = await typeIn('row_loop:', '\n', (l) => l.length === 2);
     assert.strictEqual(label()[1], '    ');
     await exec('type', { text: 'SET lr0 cr0;\n' });
     await until(() => label().length === 3, 'the next line');
-    await sleep(500); // and no late empty line
+    assert(await noLateEdit(labelled), 'and no late empty line');
     assert.deepStrictEqual(label(), ['row_loop:', '    SET lr0 cr0;', '    ']);
   });
 });
@@ -234,8 +242,8 @@ test('the title bar buttons appear on kernel files only, and act on the file cli
   }
   // They act on the file clicked on (VS Code passes its Uri): only a kernel opens a terminal.
   await closeKernelTerminals();
-  await exec('ipuAsm.benchmarkKernel', vscode.Uri.file(scratchFile));
-  await sleep(1000);
+  // A run resolves once its command is sent (or refused), so the terminals are settled then.
+  assert(!(await exec('ipuAsm.benchmarkKernel', vscode.Uri.file(scratchFile))), 'nothing sent');
   assert.strictEqual(kernelTerminals().length, 0, 'a file that is no kernel runs nothing');
   await exec('ipuAsm.benchmarkKernel', doc.uri);
   await until(() => kernelTerminals().length === 1, 'the kernel terminal');
@@ -246,14 +254,13 @@ async function idleTerminal() {
   const [first] = await until(() => kernelTerminals().length && kernelTerminals(), 'the kernel terminal');
   const pid = await first.processId;
   if ((await runs.atPrompt(pid)) === null) return null;
-  await sleep(2000); // past the moment a just-sent command may not have started
-  await until(async () => (await runs.atPrompt(pid)) === true, 'the command to end', 120000);
+  // Idle as a run decides it: not while a just-sent command may not have started yet.
+  await until(() => api().kernels.terminalIdle(first), 'the command to end', 120000);
   return first;
 }
-/** The kernel terminals a moment after running `commands` on the kernel together. */
+/** The kernel terminals once `commands`, run on the kernel together, have sent their runs. */
 async function after(...commands) {
   await Promise.all(commands.map((c) => exec(c, 'demo_kernel')));
-  await sleep(1000);
   return kernelTerminals();
 }
 

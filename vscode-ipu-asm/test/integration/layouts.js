@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
-const { test, sleep, until, runAll, count } = require('../harness');
+const { test, until, runAll, count } = require('../harness');
 
 const layout = process.env.IPU_TEST_LAYOUT;
 const workspace = process.env.IPU_TEST_WORKSPACE;
@@ -51,8 +51,8 @@ if (layout === 'other') {
   test('another project\'s .asm is coloured, but nothing is run for it; its .s is no IPU assembly', async () => {
     const { doc, api } = await open(path.join(workspace, 'boot', 'start.asm'));
     assert.strictEqual(doc.languageId, 'ipu-asm');
-    await check();
-    await sleep(3000);
+    await check(); // resolves once the check is done
+    await api.kernels.ready; // settled once the open folders' checkouts are found
     assert.strictEqual(api.kernels.indexes.size, 0, 'no kernel index');
     assert.deepStrictEqual(lines(path.join(temp, 'other-manifest')), [], 'the manifest command never ran');
     assert.strictEqual(api.checkerError(), null, 'no checker ran, so none failed');
@@ -74,8 +74,7 @@ if (layout === 'old') {
     }, 'the manifest to fail');
     assert.match(index.error, /predates it/);
     assert((await api.kernels.tree.getChildren()).some((r) => /predates it/.test(String(r.item.label) + String(r.item.tooltip || ''))), 'shown in the sidebar');
-    await check();
-    await sleep(2000);
+    await check(); // resolves once the check is done
     assert.strictEqual(api.checkerError(), null);
   });
 }

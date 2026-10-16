@@ -5,7 +5,8 @@
 # language the assembler accepts.
 #
 # Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the
-# Python targets below (gen_vscode, dump_parser_tokens, check_rewrites); the agreement test and the .vsix build both run in
+# Python targets below (gen_vscode, dump_parser_tokens, check_rewrites,
+# check_verdicts); the JS tests and the .vsix build run in
 # .github/workflows/vscode-extension.yml. Please do not add a JS ruleset here.
 
 load("@rules_python//python:defs.bzl", "py_binary")
@@ -31,24 +32,14 @@ filegroup(
 )
 
 # The assembly fixtures, for the assembled-binary baseline in
-# //src/tools/ipu-apps:test_asm_digests.
+# //src/tools/ipu-apps:test_asm_digests. Not the negative corpus: texts the
+# editor and the assembler judge (check_verdicts), most of which do not assemble.
 filegroup(
     name = "asm_fixtures",
-    srcs = glob(["test/**/*.asm"]),
-)
-
-filegroup(
-    name = "agreement_test_srcs",
-    srcs = [
-        "test/agreement.js",
-        "test/checker.js",
-        "test/harness.js",
-        "test/language.js",
-        "test/mangle.js",
-        "test/project.js",
-        "test/rewrites.js",
-        "test/runs.js",
-    ],
+    srcs = glob(
+        ["test/**/*.asm"],
+        exclude = ["test/corpus/negative/**"],
+    ),
 )
 
 # Writes syntaxes/ipu-asm.tmLanguage.json, language-configuration.json and data/isa.json
@@ -65,6 +56,18 @@ alias(
 alias(
     name = "dump_parser_tokens",
     actual = "//src/tools/ipu-as-py:dump_parser_tokens",
+)
+
+# Judges test/verdicts.js: the editor's verdict on each text against the
+# assembler's (ipu_as.diagnostics.check, what `ipu-as check --json` prints).
+#   bazel run //vscode-ipu-asm:check_verdicts -- <verdicts.json>
+py_binary(
+    name = "check_verdicts",
+    srcs = ["check_verdicts.py"],
+    data = ["test/corpus/negative/allowed-gaps.json"],
+    main = "check_verdicts.py",
+    python_version = "PY3",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
 )
 
 # Judges test/rewrites.js: every rename and format the editor could apply to
