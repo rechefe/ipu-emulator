@@ -67,4 +67,5 @@ The user decided the program-level questions in the grilling session. They are r
 | Formatter | Normalises mnemonics and register names to upper case | E08-24 |
 | Cycle Inspector fonts | System font stack (no external fonts on the docs site) | E08-17 |
 | Inspector demos | The vector-tour demos are kept as curated conformance programs | E08-16 |
+| SV generator in `ipu_gen` | `ipu_gen.sv_package` reads `ipu_isa` only (names from `SlotInfo.opcode_enum` and `OperandType.sv_typedef`). `OPERAND_ENUM_ORDER` pins the operand enums' declaration order, wire format, checked at import. No `--status-file` (E03-21 removed stamping). `test_sv_package_golden` and `update_sv_golden` keep their `ipu-as-py` labels; `test_gen_codegen` and `test_sv_package_compiles` move to `//src/tools/ipu-gen`. `//docs:verify_sv_package` keeps its wrapper until E08-15 removes the wrappers. | E08-13 |
 | CODEOWNERS | Written last, from the candidates in E09-20 | E09-20 |

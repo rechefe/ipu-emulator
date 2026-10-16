@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -93,8 +94,9 @@ _SV_RESERVED_STRUCT_NAMES = frozenset(
 
 #: The operand-type enums, in the order the package declares them (after the
 #: slot opcode enums). It is the order the generator emitted when it read the
-#: assembler's token classes; kept so the package stays byte-identical.
-#: ``_operand_enum_types`` checks it names every type with an ``sv_typedef``.
+#: assembler's token classes; kept so the package stays byte-identical, so a
+#: position here is wire format. Checked at import: it names every operand type
+#: with an ``sv_typedef`` exactly once.
 OPERAND_ENUM_ORDER = (
     "MultStageReg",
     "LrIdx",
@@ -313,15 +315,15 @@ def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]
 def _compound_members() -> list[dict[str, Any]]:
     """Nested compound struct members in MSB → LSB order (matches encode layout)."""
     members: list[dict[str, Any]] = []
-    type_counts: dict[str, int] = {}
+    type_counts: dict[Slot, int] = {}
 
-    for slot in (s.value for s in LAYOUT_ORDER for _ in range(SLOTS[s].count)):
-        struct_base = SLOTS[Slot(slot)].sv_struct_base
+    for slot in (s for s in LAYOUT_ORDER for _ in range(SLOTS[s].count)):
+        struct_base = SLOTS[slot].sv_struct_base
         sv_type = f"{struct_base}_t"
 
         count = type_counts.get(slot, 0)
         type_counts[slot] = count + 1
-        if SLOT_COUNT[slot] > 1:
+        if SLOTS[slot].count > 1:
             member_name = f"{struct_base}_{count}"
         else:
             member_name = struct_base
@@ -330,40 +332,52 @@ def _compound_members() -> list[dict[str, Any]]:
             {
                 "name": member_name,
                 "sv_type": sv_type,
-                "slot": slot,
+                "slot": slot.value,
             }
         )
 
     return members
 
 
-def _operand_enum_types() -> list[str]:
+def _check_operand_enum_order() -> None:
     typed = {name for name, t in OPERAND_TYPES.items() if t.sv_typedef is not None}
     if set(OPERAND_ENUM_ORDER) != typed or len(OPERAND_ENUM_ORDER) != len(typed):
-        raise AssertionError(
-            f"OPERAND_ENUM_ORDER must list each operand type with an sv_typedef once: "
-            f"missing {sorted(typed - set(OPERAND_ENUM_ORDER))}, "
-            f"extra {sorted(set(OPERAND_ENUM_ORDER) - typed)}"
+        raise ValueError(
+            "OPERAND_ENUM_ORDER in ipu_gen/sv_package.py must list each operand type "
+            f"with an sv_typedef once: missing {sorted(typed - set(OPERAND_ENUM_ORDER))}, "
+            f"extra {sorted(set(OPERAND_ENUM_ORDER) - typed)}; a new type's position "
+            "is wire format"
         )
-    return list(OPERAND_ENUM_ORDER)
+
+
+_check_operand_enum_order()
+
+
+def _typedef_base(name: str) -> str:
+    typedef = OPERAND_TYPES[name].sv_typedef
+    if typedef is None or not typedef.endswith("_t"):
+        raise ValueError(f"operand type {name}: sv_typedef {typedef!r} must end in _t")
+    return typedef.removesuffix("_t")
 
 
 def enum_descriptors() -> dict[str, list[tuple[int, str]]]:
-    """Every SV enum, by name (the typedef without ``_t``), in package order:
-    each slot's opcodes (``INSTRUCTION_SPEC`` order, position = opcode), then
-    the operand-type enums. Members are ``(value, NAME)``."""
+    """Every SV enum in package order: each slot's opcodes, then the operand enums.
+
+    Returns:
+        ``{name: [(value, MEMBER), ...]}``, where ``name`` is the typedef without
+        ``_t``. Opcodes are in ``INSTRUCTION_SPEC`` order (position = opcode);
+        operand members in their domain's encoding order.
+    """
     enums: dict[str, list[tuple[int, str]]] = {}
     for slot, instructions in INSTRUCTION_SPEC.items():
         enums[SLOTS[Slot(slot)].opcode_enum] = _members(instructions)
-    for name in _operand_enum_types():
-        record = OPERAND_TYPES[name]
-        assert record.sv_typedef is not None and record.sv_typedef.endswith("_t")
-        enums[record.sv_typedef.removesuffix("_t")] = _members(record.domain.members)
+    for name in OPERAND_ENUM_ORDER:
+        enums[_typedef_base(name)] = _members(OPERAND_TYPES[name].domain.members)
     return enums
 
 
-def _members(names) -> list[tuple[int, str]]:
-    return [(i, name.upper().replace(".", "_")) for i, name in enumerate(names)]
+def _members(names: Iterable[str]) -> list[tuple[int, str]]:
+    return [(i, _sanitize_enum_member(name)) for i, name in enumerate(names)]
 
 
 def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
@@ -392,7 +406,7 @@ def _enum_descriptors_for_templates() -> list[dict[str, Any]]:
 
 
 def _compound_width() -> int:
-    """Bits of the compound word: each slot's opcode and operand union, per copy."""
+    """Bits of the instruction word: each slot's opcode and operand union, per copy."""
     return sum(SLOTS[slot].count * SLOT_UNIONS[slot.value].bits for slot in LAYOUT_ORDER)
 
 
