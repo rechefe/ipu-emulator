@@ -60,8 +60,12 @@ def _commands(path: Path) -> list[Command]:
         if not match:
             continue
         rest = match.group("rest").split("`", 1)[0]  # an inline code span ends at a backtick
+        try:
+            tokens = shlex.split(rest, comments=True)
+        except ValueError:  # an unbalanced quote in prose after the command
+            tokens = rest.split()
         argv = []
-        for token in shlex.split(rest, comments=True):
+        for token in tokens:
             if token in _SHELL_OPERATORS:
                 break
             argv.append(token)
@@ -71,6 +75,8 @@ def _commands(path: Path) -> list[Command]:
 
 def check_command(argv: list[str]) -> list[str]:
     """Problems with running `ipu-as` with `argv` non-interactively; empty when it would run."""
+    if not argv:
+        return ["no subcommand"]
     name, *args = argv
     command = cli.commands.get(name) if isinstance(cli, click.Group) else None
     if command is None:

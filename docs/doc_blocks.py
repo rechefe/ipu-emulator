@@ -44,6 +44,10 @@ def _strip_indent(line: str, indent: int) -> str:
     return line[min(indent, stripped):]
 
 
+def _orphan_marker(path: str | Path, line: int, lang: str) -> DocBlockError:
+    return DocBlockError(f"{path}:{line}: {lang}-fragment marker is not followed by a ```{lang} fence")
+
+
 def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
     """Return every fenced block in `path` whose info string starts with `lang`.
 
@@ -62,10 +66,7 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
         marker = _MARKER.match(line)
         if marker and marker.group("lang") == lang:
             if pending_marker is not None:
-                raise DocBlockError(
-                    f"{path}:{pending_marker[0]}: {lang}-fragment marker is not followed by a "
-                    f"```{lang} fence"
-                )
+                raise _orphan_marker(path, pending_marker[0], lang)
             rest = marker.group("rest").strip()
             reason = rest[1:].strip() if rest.startswith(":") else ""
             if not reason:
@@ -80,10 +81,7 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
         fence = _FENCE.match(line)
         if not fence:
             if pending_marker is not None:
-                raise DocBlockError(
-                    f"{path}:{pending_marker[0]}: {lang}-fragment marker is not followed by a "
-                    f"```{lang} fence"
-                )
+                raise _orphan_marker(path, pending_marker[0], lang)
             i += 1
             continue
 
@@ -107,15 +105,9 @@ def fenced_blocks(path: str | Path, lang: str) -> list[Block]:
             reason = pending_marker[1] if pending_marker else None
             blocks.append(Block(str(path), open_line, "\n".join(body) + "\n", reason))
         elif pending_marker is not None:
-            raise DocBlockError(
-                f"{path}:{pending_marker[0]}: {lang}-fragment marker is not followed by a "
-                f"```{lang} fence"
-            )
+            raise _orphan_marker(path, pending_marker[0], lang)
         pending_marker = None
 
     if pending_marker is not None:
-        raise DocBlockError(
-            f"{path}:{pending_marker[0]}: {lang}-fragment marker is not followed by a "
-            f"```{lang} fence"
-        )
+        raise _orphan_marker(path, pending_marker[0], lang)
     return blocks
