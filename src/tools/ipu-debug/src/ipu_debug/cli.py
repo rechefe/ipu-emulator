@@ -34,7 +34,6 @@ import shlex
 import struct
 import sys
 import types
-from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from typing import Any, TextIO
@@ -45,13 +44,28 @@ except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
 # Single source of truth — import register types/schema from ipu_isa
-from ipu_debug.control import DebugControl, validate_pc
+from ipu_debug.control import DebugControl
+from ipu_debug.format import (
+    VISIBLE_ALPHABET,
+    decode_16bit_cell,
+    encode_16bit_cell,
+    format_xmem,
+)
+from ipu_debug.session import (
+    REGFILE_SCHEMA,
+    DebugError,
+    DebugSession,
+    XmemRequest,
+    XmemWindow,
+    disassemble_at,
+    parse_xmem_count,
+    resolve_xmem_address,
+    xmem_address_limit,
+    xmem_range_error,
+)
 from ipu_emu.emulator import DebugAction
-from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
-from ipu_isa.registers import create_regfile_schema
+from ipu_emu.ipu_state import IpuState
+from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.types import RegDescriptor, RegDtype
 
 # Re-export so callers only need this module
@@ -63,136 +77,13 @@ __all__ = [
     "VISIBLE_ALPHABET",
     "encode_16bit_cell",
     "decode_16bit_cell",
+    "disassemble_at",
     "XmemRequest",
     "ResolvedXmemRequest",
 ]
 
-# Build the schema once at import time
-REGFILE_SCHEMA: list[RegDescriptor] = create_regfile_schema()
-
-_XMEM_FORMAT_ITEM_SIZE_BYTES = {
-    "hex": 1,
-    "int8": 1,
-    "u8": 1,
-    "cell16": 2,
-    "u32": 4,
-    "f32": 4,
-}
-_XMEM_FORMATS = tuple(_XMEM_FORMAT_ITEM_SIZE_BYTES)
-_XMEM_FORMATS_TEXT = "|".join(_XMEM_FORMATS)
-_XMEM_VALUES_PER_LINE = {
-    "hex": 16,
-    "int8": 16,
-    "u8": 16,
-    "cell16": 32,
-    "u32": 4,
-    "f32": 4,
-}
-
-_HEX_BYTES_PER_GROUP = 4
-_CELL16_CHARACTERS_PER_GROUP = 2
-_INT8_DECIMAL_WIDTH = 4
-_U8_DECIMAL_WIDTH = 3
-_U32_DECIMAL_WIDTH = 10
-_F32_DISPLAY_WIDTH = 15
-_F32_SIGNIFICANT_DIGITS = 9
-
-_CELL16_CHARACTER_MASK = 0xFF
-_CELL16_COLOR_MASK = 0xF
-_CELL16_FOREGROUND_SHIFT = 8
-_CELL16_BACKGROUND_SHIFT = 12
-_ANSI_STANDARD_COLOR_COUNT = 8
-_ANSI_STANDARD_FG_BASE = 30
-_ANSI_BRIGHT_FG_BASE = 90
-_ANSI_STANDARD_BG_BASE = 40
-_ANSI_BRIGHT_BG_BASE = 100
-
-# A control-free character for every possible 8-bit cell value. The ASCII and
-# Latin-1 ranges provide 188 entries; Latin Extended-A supplies the remaining
-# 68 so all indices 0..255 are valid.
-_VISIBLE_ASCII = [chr(i) for i in range(33, 127)]
-_VISIBLE_LATIN1 = [chr(i) for i in range(161, 256) if i != 173]
-_VISIBLE_EXTENDED = [chr(i) for i in range(0x100, 0x144)]
-VISIBLE_ALPHABET = _VISIBLE_ASCII + _VISIBLE_LATIN1 + _VISIBLE_EXTENDED
-assert len(VISIBLE_ALPHABET) == 256
-
-
-@dataclass(frozen=True)
-class XmemRequest:
-    """Unresolved, repeatable XMEM debugger request."""
-
-    mode: str
-    base_token: str
-    offset_token: str
-    count: int
-    fmt: str
-
-    def command(self) -> str:
-        return f"xmem {self.mode} {self.base_token} {self.offset_token} {self.count} {self.fmt}"
-
-
-@dataclass(frozen=True)
-class ResolvedXmemRequest:
-    """Validated XMEM request resolved against the current IPU state."""
-
-    request: XmemRequest
-    byte_address: int
-    byte_count: int
-    row_size: int
-    metadata: dict[str, int | str]
-    data: bytes
-
-
-@dataclass(frozen=True)
-class XmemDisplayToken:
-    """One formatted XMEM value plus its source-byte span."""
-
-    text: str
-    leading: str
-    raw_start: int
-    raw_size: int
-    fg: int | None = None
-    bg: int | None = None
-
-
-@dataclass(frozen=True)
-class XmemDisplayLine:
-    """One address or row-marker line in a formatted XMEM display."""
-
-    prefix: str
-    tokens: tuple[XmemDisplayToken, ...] = ()
-
-
-def encode_16bit_cell(char_byte: int, fg_4bit: int, bg_4bit: int) -> str:
-    """Render one character/color cell as an ANSI terminal string."""
-    char = VISIBLE_ALPHABET[char_byte & _CELL16_CHARACTER_MASK]
-    return _ansi_colored_character(char, fg_4bit, bg_4bit)
-
-
-def _ansi_colored_character(char: str, fg_4bit: int, bg_4bit: int) -> str:
-    """Apply the debugger's 16-color ANSI mapping to a visible character."""
-    fg = fg_4bit & _CELL16_COLOR_MASK
-    bg = bg_4bit & _CELL16_COLOR_MASK
-    ansi_fg = (
-        _ANSI_STANDARD_FG_BASE + fg
-        if fg < _ANSI_STANDARD_COLOR_COUNT
-        else _ANSI_BRIGHT_FG_BASE + (fg - _ANSI_STANDARD_COLOR_COUNT)
-    )
-    ansi_bg = (
-        _ANSI_STANDARD_BG_BASE + bg
-        if bg < _ANSI_STANDARD_COLOR_COUNT
-        else _ANSI_BRIGHT_BG_BASE + (bg - _ANSI_STANDARD_COLOR_COUNT)
-    )
-    return f"\033[{ansi_fg};{ansi_bg}m{char}\033[0m"
-
-
-def decode_16bit_cell(char_code: int, fg_4bit: int, bg_4bit: int) -> tuple[str, int, int]:
-    """Return the visible character and normalized 4-bit colors."""
-    return (
-        VISIBLE_ALPHABET[char_code & _CELL16_CHARACTER_MASK],
-        fg_4bit & _CELL16_COLOR_MASK,
-        bg_4bit & _CELL16_COLOR_MASK,
-    )
+# The resolved XMEM window's former name, kept for existing callers.
+ResolvedXmemRequest = XmemWindow
 
 
 # ---------------------------------------------------------------------------
@@ -352,330 +243,14 @@ def save_state_json(state: IpuState, path: str | Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def disassemble_at(state: IpuState, pc: int) -> str:
-    """Disassemble the instruction at *pc*."""
-    from ipu_as.compound_inst import CompoundInst
-
-    if pc < 0 or pc >= INST_MEM_SIZE:
-        return "PC out of bounds"
-
-    inst = state.inst_mem[pc]
-    if inst is None:
-        return f"PC {pc}: <nop>"
-
-    # Re-encode the field dict back to an int and use CompoundInst.decode()
-    fields = CompoundInst.get_fields()
-    word = 0
-    shift = 0
-    for name, width in fields:
-        word |= (inst.get(name, 0) & ((1 << width) - 1)) << shift
-        shift += width
-
-    return f"PC {pc}: {CompoundInst.decode(word)}"
-
-
 def disassemble_current(state: IpuState) -> str:
     """Disassemble the instruction at the current PC."""
     return disassemble_at(state, state.program_counter)
 
 
 # ---------------------------------------------------------------------------
-# Register resolution helper
+# XMEM save helpers
 # ---------------------------------------------------------------------------
-
-
-def _resolve_register(name: str) -> tuple[RegDescriptor | None, int]:
-    """Resolve a register name (e.g. "lr5", "r0", "acc") to (descriptor, index).
-
-    Returns (None, 0) if not found.
-    """
-    # Try exact match on canonical name
-    for desc in REGFILE_SCHEMA:
-        if name == desc.name:
-            return desc, 0
-        # Check debug aliases
-        for alias in desc.debug_aliases:
-            if name == alias:
-                if desc.count > 1:
-                    for i in range(desc.count):
-                        if alias == f"{desc.name}{i}":
-                            return desc, i
-                return desc, 0
-
-    # Try pattern: "lr5", "cr12" → scalar registers
-    for desc in REGFILE_SCHEMA:
-        if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
-            if name.startswith(desc.name):
-                suffix = name[len(desc.name) :]
-                try:
-                    idx = int(suffix)
-                    if 0 <= idx < desc.count:
-                        return desc, idx
-                except ValueError:
-                    pass
-
-    # Try pattern: "r0", "r1" (for array-type registers)
-    for desc in REGFILE_SCHEMA:
-        if desc.count > 1 and desc.dtype not in (RegDtype.UINT32, RegDtype.INT32):
-            if name.startswith(desc.name):
-                suffix = name[len(desc.name) :]
-                try:
-                    idx = int(suffix)
-                    if 0 <= idx < desc.count:
-                        return desc, idx
-                except ValueError:
-                    pass
-
-    return None, 0
-
-
-def _parse_int(s: str) -> int | None:
-    """Parse an integer, supporting 0x hex prefix."""
-    try:
-        return int(s, 0)
-    except ValueError:
-        return None
-
-
-# ---------------------------------------------------------------------------
-# XMEM helpers
-# ---------------------------------------------------------------------------
-
-
-def _resolve_address_term(state: IpuState, token: str) -> tuple[int | None, str | None]:
-    """Resolve an XMEM address term from an immediate or indexed LR/CR."""
-    immediate = _parse_int(token)
-    if immediate is not None:
-        return immediate, None
-
-    lower = token.lower()
-    if not (lower.startswith("lr") or lower.startswith("cr")):
-        return None, f"Invalid address term '{token}': expected an immediate, lrN, or crN"
-
-    prefix = lower[:2]
-    suffix = lower[2:]
-    if not suffix.isdigit():
-        return None, f"Invalid address register '{token}': expected {prefix}N"
-
-    desc, index = _resolve_register(lower)
-    if desc is None or desc.name != prefix:
-        return None, f"Unknown address register: {token}"
-    return state.regfile.get_scalar(desc.name, index), None
-
-
-def _resolve_xmem_address(
-    state: IpuState, mode: str, base_token: str, offset_token: str
-) -> tuple[int | None, dict[str, int | str] | None, str | None]:
-    """Resolve row/byte debugger operands to a physical XMEM byte address."""
-    mode = mode.lower()
-    if mode not in ("row", "byte"):
-        return None, None, "XMEM address mode must be 'row' or 'byte'"
-
-    base, error = _resolve_address_term(state, base_token)
-    if error is not None:
-        return None, None, error
-    offset, error = _resolve_address_term(state, offset_token)
-    if error is not None:
-        return None, None, error
-    assert base is not None and offset is not None
-
-    effective = base + offset
-    if effective < 0:
-        return None, None, f"XMEM {mode} address must be non-negative; got {effective}"
-
-    metadata: dict[str, int | str] = {"address_mode": mode}
-    if mode == "row":
-        row_size = xmem_row_size_bytes(state)
-        if effective >= addressable_rows(state):
-            return (
-                None,
-                None,
-                f"XMEM row {effective} out of range [0, {addressable_rows(state) - 1}]",
-            )
-        byte_address = effective * row_size
-        metadata.update(
-            {
-                "row": effective,
-                "row_size_bytes": row_size,
-                "byte_address": byte_address,
-            }
-        )
-    else:
-        if effective >= XMEM_SIZE_BYTES:
-            return (
-                None,
-                None,
-                f"XMEM byte address {effective} out of range [0, {XMEM_SIZE_BYTES - 1}]",
-            )
-        byte_address = effective
-        metadata["byte_address"] = byte_address
-
-    return byte_address, metadata, None
-
-
-def _xmem_range_error(
-    byte_address: int, byte_count: int, limit: int = XMEM_SIZE_BYTES
-) -> str | None:
-    if byte_count < 1:
-        return "XMEM read size must be positive"
-    end = byte_address + byte_count
-    if end > limit:
-        return (
-            f"XMEM range out of bounds: byte address {byte_address}, "
-            f"size {byte_count}, end {end}, max {limit}"
-        )
-    return None
-
-
-def _xmem_address_limit(state: IpuState, mode: str) -> int:
-    """Return the accessible byte count for an XMEM addressing mode."""
-    if mode == "row":
-        return addressable_rows(state) * xmem_row_size_bytes(state)
-    return XMEM_SIZE_BYTES
-
-
-def _parse_xmem_request(args: str) -> tuple[XmemRequest | None, str | None]:
-    """Parse an ``xmem`` command tail without resolving register operands."""
-    parts = args.split()
-    if len(parts) != 5:
-        return (
-            None,
-            "Usage: xmem row|byte BASE OFFSET COUNT " + _XMEM_FORMATS_TEXT,
-        )
-
-    mode, base_token, offset_token, count_token, fmt = parts
-    mode = mode.lower()
-    fmt = fmt.lower()
-    if mode not in ("row", "byte"):
-        return None, "XMEM address mode must be 'row' or 'byte'"
-    if fmt not in _XMEM_FORMAT_ITEM_SIZE_BYTES:
-        return None, f"XMEM format must be one of: {_XMEM_FORMATS_TEXT}"
-
-    count = _parse_int(count_token)
-    if count is None or count < 1:
-        return None, f"XMEM count must be a positive integer; got '{count_token}'"
-    return XmemRequest(mode, base_token, offset_token, count, fmt), None
-
-
-def _resolve_xmem_request(
-    state: IpuState, request: XmemRequest
-) -> tuple[ResolvedXmemRequest | None, str | None]:
-    """Resolve, validate, and read a reusable XMEM request."""
-    byte_address, metadata, error = _resolve_xmem_address(
-        state,
-        request.mode,
-        request.base_token,
-        request.offset_token,
-    )
-    if error is not None:
-        return None, error
-    assert byte_address is not None and metadata is not None
-
-    item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[request.fmt]
-    if item_size > 1 and byte_address % item_size:
-        return (
-            None,
-            f"XMEM {request.fmt} address must be {item_size}-byte aligned; got {byte_address}",
-        )
-
-    byte_count = request.count * item_size
-    limit = _xmem_address_limit(state, str(metadata["address_mode"]))
-    error = _xmem_range_error(byte_address, byte_count, limit)
-    if error is not None:
-        return None, error
-
-    return (
-        ResolvedXmemRequest(
-            request=request,
-            byte_address=byte_address,
-            byte_count=byte_count,
-            row_size=xmem_row_size_bytes(state),
-            metadata=metadata,
-            data=state.xmem.snapshot_bytes(byte_address, byte_count),
-        ),
-        None,
-    )
-
-
-def _tokenize_xmem(
-    data: bytes | bytearray, byte_address: int, fmt: str, row_size: int
-) -> list[XmemDisplayLine]:
-    """Tokenize validated XMEM data for ANSI or curses rendering."""
-    values_per_line = _XMEM_VALUES_PER_LINE[fmt]
-    item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[fmt]
-    lines: list[XmemDisplayLine] = []
-    total_items = len(data) // item_size
-    start = 0
-
-    while start < total_items:
-        address = byte_address + start * item_size
-        row = address // row_size
-        row_address = row * row_size
-        if start == 0 or address == row_address:
-            marker = f"--- XMEM row {row} starts at byte address 0x{row_address:08x}"
-            if address != row_address:
-                marker += f"; display starts at 0x{address:08x}"
-            lines.append(XmemDisplayLine(marker + " ---"))
-
-        items_left_in_row = (row_address + row_size - address) // item_size
-        count = min(values_per_line, total_items - start, items_left_in_row)
-        tokens: list[XmemDisplayToken] = []
-        for i in range(count):
-            raw_start = (start + i) * item_size
-            leading = " "
-            fg: int | None = None
-            bg: int | None = None
-            if fmt == "hex":
-                if row_size > XMEM_WIDTH_BYTES and i > 0 and i % _HEX_BYTES_PER_GROUP == 0:
-                    leading = "  "
-                text = f"{data[raw_start]:02x}"
-            elif fmt == "int8":
-                value = struct.unpack_from("<b", data, raw_start)[0]
-                text = f"{value:>{_INT8_DECIMAL_WIDTH}d}"
-            elif fmt == "u8":
-                text = f"{data[raw_start]:0{_U8_DECIMAL_WIDTH}d}"
-            elif fmt == "cell16":
-                cell = struct.unpack_from("<H", data, raw_start)[0]
-                char_code = cell & _CELL16_CHARACTER_MASK
-                fg = (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK
-                bg = (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK
-                text = VISIBLE_ALPHABET[char_code]
-                leading = " " if i == 0 or i % _CELL16_CHARACTERS_PER_GROUP == 0 else ""
-            elif fmt == "u32":
-                value = struct.unpack_from("<I", data, raw_start)[0]
-                text = f"{value:0{_U32_DECIMAL_WIDTH}d}"
-            else:
-                value = struct.unpack_from("<f", data, raw_start)[0]
-                text = f"{value:>{_F32_DISPLAY_WIDTH}.{_F32_SIGNIFICANT_DIGITS}g}"
-
-            tokens.append(
-                XmemDisplayToken(
-                    text=text,
-                    leading=leading,
-                    raw_start=raw_start,
-                    raw_size=item_size,
-                    fg=fg,
-                    bg=bg,
-                )
-            )
-        lines.append(XmemDisplayLine(f"  0x{address:08x}:", tuple(tokens)))
-        start += count
-
-    return lines
-
-
-def _format_xmem(data: bytes | bytearray, byte_address: int, fmt: str, row_size: int) -> str:
-    """Format an already-validated XMEM range for interactive display."""
-    rendered: list[str] = []
-    for line in _tokenize_xmem(data, byte_address, fmt, row_size):
-        text = line.prefix
-        for token in line.tokens:
-            value = token.text
-            if token.fg is not None and token.bg is not None:
-                value = _ansi_colored_character(value, token.fg, token.bg)
-            text += token.leading + value
-        rendered.append(text)
-    return "\n".join(rendered)
 
 
 def _xmem_sidecar_path(json_path: Path) -> Path:
@@ -733,6 +308,7 @@ class DebugCLI(cmd.Cmd):
         self.state = state
         # The run's control, from whoever started the run; else this prompt's own.
         self.control = control if control is not None else DebugControl()
+        self.session = DebugSession(state, self.control)
         self.cycle = cycle
         self.out = out
         self.inp = inp
@@ -797,7 +373,7 @@ class DebugCLI(cmd.Cmd):
     def do_quit(self, args: str) -> bool:
         """Quit debugger and halt execution."""
         self.out.write("Halting execution.\n")
-        self.state.program_counter = INST_MEM_SIZE
+        self.session.halt()
         self._result = DebugAction.QUIT
         return True
 
@@ -813,22 +389,17 @@ class DebugCLI(cmd.Cmd):
 
     # -- Register commands --------------------------------------------------
 
-    def _command_pc(self, token: str) -> int | None:
-        pc = _parse_int(token)
-        try:
-            if pc is None:
-                raise ValueError("PC must be an integer")
-            return validate_pc(pc)
-        except ValueError as error:
-            self.out.write(f"{error}\n")
-            return None
+    def _report(self, error: DebugError) -> None:
+        self.out.write(f"{error}\n")
 
     def do_break(self, args: str) -> None:
         """Add a runtime breakpoint. Usage: break [PC]"""
-        pc = self._command_pc(args.strip() or str(self.state.program_counter))
-        if pc is not None:
-            self.control.add_breakpoint(pc)
-            self.out.write(f"Breakpoint at PC {pc}\n")
+        try:
+            pc = self.session.parse_pc(args.strip() or str(self.state.program_counter))
+            self.session.add_breakpoint(pc)
+        except DebugError as error:
+            return self._report(error)
+        self.out.write(f"Breakpoint at PC {pc}\n")
 
     def do_breaks(self, args: str) -> None:
         """List runtime breakpoints. Usage: breaks"""
@@ -844,23 +415,36 @@ class DebugCLI(cmd.Cmd):
     def do_delete(self, args: str) -> None:
         """Remove runtime breakpoints. Usage: delete PC|all"""
         if args.strip().lower() == "all":
-            self.control.clear_breakpoints()
+            self.session.clear_breakpoints()
             self.out.write("All runtime breakpoints removed\n")
             return
-        pc = self._command_pc(args.strip())
-        if pc is not None:
-            self.control.remove_breakpoint(pc)
-            self.out.write(f"Breakpoint removed at PC {pc}\n")
+        try:
+            pc = self.session.parse_pc(args.strip())
+            self.session.remove_breakpoint(pc)
+        except DebugError as error:
+            return self._report(error)
+        self.out.write(f"Breakpoint removed at PC {pc}\n")
 
     def do_until(self, args: str) -> bool | None:
         """Run to a PC or the next stop, whichever comes first. Usage: until PC"""
-        pc = self._command_pc(args.strip())
-        if pc is None:
-            return None
-        if not self.control.run_until(pc, self.state.program_counter):
+        try:
+            pc = self.session.parse_pc(args.strip())
+            resume = self.session.run_until(pc)
+        except DebugError as error:
+            return self._report(error)
+        if not resume:
             self.out.write(f"Already at PC {pc}\n")
             return None
         return self.do_continue("")
+
+    def _optional_int(self, parts: list[str], position: int, default: int | None) -> int | None:
+        """The integer at *position*, *default* when absent, None when malformed."""
+        if len(parts) <= position:
+            return default
+        try:
+            return self.session.parse_int(parts[position])
+        except DebugError:
+            return None
 
     def do_regs(self, args: str) -> None:
         """Print all registers."""
@@ -877,16 +461,17 @@ class DebugCLI(cmd.Cmd):
             self.out.write("Usage: get <register> [offset] [count]\n")
             return
         reg_name = parts[0]
-        offset = _parse_int(parts[1]) if len(parts) >= 2 else 0
-        count = _parse_int(parts[2]) if len(parts) >= 3 else None
+        offset = self._optional_int(parts, 1, 0)
+        count = self._optional_int(parts, 2, None)
 
         if reg_name == "pc":
             self.out.write(f"pc = {self.state.program_counter}\n")
             return
 
-        desc, idx = _resolve_register(reg_name)
-        if desc is None:
-            self.out.write(f"Unknown register: {reg_name}\n")
+        try:
+            desc, idx = self.session.resolve_register(reg_name)
+        except DebugError as error:
+            self.out.write(f"{error}\n")
             return
 
         if offset is None:
@@ -903,12 +488,13 @@ class DebugCLI(cmd.Cmd):
             self.out.write("Usage: getw <register> [word_offset] [count]\n")
             return
         reg_name = parts[0]
-        offset = _parse_int(parts[1]) if len(parts) >= 2 else 0
-        count = _parse_int(parts[2]) if len(parts) >= 3 else None
+        offset = self._optional_int(parts, 1, 0)
+        count = self._optional_int(parts, 2, None)
 
-        desc, idx = _resolve_register(reg_name)
-        if desc is None:
-            self.out.write(f"Unknown register: {reg_name}\n")
+        try:
+            desc, idx = self.session.resolve_register(reg_name)
+        except DebugError as error:
+            self.out.write(f"{error}\n")
             return
         if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
             self.out.write(f"Use 'get {reg_name}' for scalar registers\n")
@@ -927,48 +513,25 @@ class DebugCLI(cmd.Cmd):
         if len(parts) < 2:
             self.out.write("Usage: set <register> <value>\n")
             return
-        reg_name = parts[0]
-        value = _parse_int(parts[1])
-        if value is None:
+        try:
+            value = self.session.parse_int(parts[1])
+        except DebugError:
             self.out.write(f"Invalid value: {parts[1]}\n")
             return
-
-        if reg_name == "pc":
-            try:
-                self.control.set_pc(self.state, value)
-            except ValueError as error:
-                self.out.write(f"{error}\n")
-                return
-            self.out.write(f"Set pc = {value}\n")
-            return
-
-        desc, idx = _resolve_register(reg_name)
-        if desc is None:
-            self.out.write(f"Unknown register: {reg_name}\n")
-            return
-
-        if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
-            try:
-                self.state.regfile.set_scalar(desc.name, idx, value)
-            except EmulatorError as error:
-                self.out.write(f"{error}\n")
-                return
-            self.out.write(f"Set {reg_name} = {value}\n")
-        else:
-            self.out.write(f"Cannot set byte-array register '{reg_name}' with a scalar value\n")
+        try:
+            self.session.set_register(parts[0], value)
+        except DebugError as error:
+            return self._report(error)
+        self.out.write(f"Set {parts[0]} = {value}\n")
 
     def do_xmem(self, args: str) -> None:
         """Read XMEM. Usage: xmem row|byte BASE OFFSET COUNT FORMAT"""
-        request, error = _parse_xmem_request(args)
-        if error is not None:
-            self.out.write(error + "\n")
+        try:
+            request = self.session.parse_xmem(args)
+            resolved = self.session.read_xmem(request)
+        except DebugError as error:
+            self.out.write(f"{error}\n")
             return
-        assert request is not None
-        resolved, error = _resolve_xmem_request(self.state, request)
-        if error is not None:
-            self.out.write(error + "\n")
-            return
-        assert resolved is not None
 
         if resolved.metadata["address_mode"] == "row":
             heading = (
@@ -979,7 +542,7 @@ class DebugCLI(cmd.Cmd):
             heading = f"=== XMEM byte address 0x{resolved.byte_address:08x} ({request.fmt}) ==="
         self.out.write(heading + "\n")
         self.out.write(
-            _format_xmem(
+            format_xmem(
                 resolved.data,
                 resolved.byte_address,
                 request.fmt,
@@ -1035,27 +598,24 @@ class DebugCLI(cmd.Cmd):
             metadata: dict[str, int | str] = {"address_mode": "all"}
         elif len(parts) == 6 and parts[2].lower() in ("row", "byte"):
             mode, base_token, offset_token, count_token = parts[2:]
-            count = _parse_int(count_token)
-            if count is None or count < 1:
-                self.out.write(f"XMEM count must be a positive integer; got '{count_token}'\n")
+            try:
+                count = parse_xmem_count(count_token)
+                byte_address, metadata = resolve_xmem_address(
+                    self.state, mode, base_token, offset_token
+                )
+            except DebugError as error:
+                self.out.write(f"{error}\n")
                 return
-
-            byte_address, metadata, error = _resolve_xmem_address(
-                self.state, mode, base_token, offset_token
-            )
-            if error is not None:
-                self.out.write(error + "\n")
-                return
-            assert byte_address is not None and metadata is not None
             byte_count = count * int(metadata["row_size_bytes"]) if mode.lower() == "row" else count
         else:
             self.out.write(usage)
             return
 
-        limit = _xmem_address_limit(self.state, str(metadata["address_mode"]))
-        error = _xmem_range_error(byte_address, byte_count, limit)
-        if error is not None:
-            self.out.write(error + "\n")
+        limit = xmem_address_limit(self.state, str(metadata["address_mode"]))
+        try:
+            xmem_range_error(byte_address, byte_count, limit)
+        except DebugError as error:
+            self.out.write(f"{error}\n")
             return
 
         sidecar = _save_state_with_xmem(self.state, json_path, byte_address, byte_count, metadata)

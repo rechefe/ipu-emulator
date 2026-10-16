@@ -8,10 +8,11 @@ from typing import Any
 import pytest
 from emu_support import ElementFormat, make_state, new_state
 
-# TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*,
-# _resolve_xmem_request) are tested white-box until the debuggers move to ipu_debug.
+# TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*) are tested
+# white-box until the TUI is split per pane (E08-08..E08-11).
+import ipu_debug.format as debug_format
 import ipu_debug.tui as debug_tui
-from ipu_debug.cli import XmemRequest, _resolve_xmem_request
+from ipu_debug.session import DebugSession, XmemRequest
 from ipu_debug.tui import (
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
@@ -28,7 +29,7 @@ from ipu_debug.tui import (
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
 
 class FakeScreen:
@@ -236,7 +237,7 @@ class TestLayout:
 
     def test_parallel_operations_are_stacked_under_their_instruction(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -257,7 +258,7 @@ class TestLayout:
 
     def test_no_instruction_spans_the_pane_sideways(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nMULT lr3 lr4 lr5\nSET cr0 lr6",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -270,7 +271,7 @@ class TestLayout:
 
     def test_every_row_of_an_instruction_carries_its_cursor(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, session = make_view(screen=FakeScreen(columns=140))
@@ -288,7 +289,7 @@ class TestLayout:
 
     def test_mnemonics_share_one_column_across_every_slot(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1\nSTR_ACC_REG lr2 lr3",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -304,7 +305,7 @@ class TestLayout:
 
     def test_the_parallel_marker_recedes(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nADD lr3 lr4 lr5",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -321,7 +322,7 @@ class TestLayout:
             mnemonic = "STR_ACC_REG" if pc % 2 else "ADD"
             return f"PC {pc}: {mnemonic} lr0 lr1"
 
-        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.session.disassemble_at", disassemble)
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
 
         view.render()
@@ -331,7 +332,7 @@ class TestLayout:
 
     def test_nops_are_collapsed_in_disassembly(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_debug.cli.disassemble_at",
+            "ipu_debug.session.disassemble_at",
             lambda _state, pc: f"PC {pc}: NOP 0 lr0 lr0;\nADD lr0 lr1 lr2;;",
         )
         view, screen, _ = make_view()
@@ -670,15 +671,11 @@ class TestXmemTabs:
         assert len(session.tabs) == 2
         tab = session.tabs[-1]
         assert tab.request.base_token == "cr4"
-        resolved, error = _resolve_xmem_request(state, tab.request)
-        assert error is None
-        assert resolved is not None
+        resolved = DebugSession(state).read_xmem(tab.request)
         assert resolved.metadata["row"] == 3
 
         state.regfile.set_lr(0, 2)
-        resolved, error = _resolve_xmem_request(state, tab.request)
-        assert error is None
-        assert resolved is not None
+        resolved = DebugSession(state).read_xmem(tab.request)
         assert resolved.metadata["row"] == 4
 
     def test_invalid_tab_request_stays_in_editor(self):
@@ -1238,13 +1235,11 @@ class TestPipelineRegisters:
         )
         view, _, _ = make_view(state, session=session)
         session.focus = "xmem"
-        before, error = _resolve_xmem_request(state, session.tabs[0].request)
-        assert error is None
+        before = DebugSession(state).read_xmem(session.tabs[0].request)
 
         view.handle_key("f")
 
-        after, error = _resolve_xmem_request(state, session.tabs[0].request)
-        assert error is None
+        after = DebugSession(state).read_xmem(session.tabs[0].request)
         assert (after.byte_address, after.byte_count) == (
             before.byte_address,
             before.byte_count,
@@ -1398,7 +1393,7 @@ class TestRenderCost:
             decoded.append(pc)
             return f"PC {pc}: ADD lr0 lr1 lr2"
 
-        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.session.disassemble_at", disassemble)
         view, _, _ = make_view()
 
         view.render()
@@ -1410,16 +1405,14 @@ class TestRenderCost:
         assert len(decoded) == first
 
     def test_an_xmem_request_is_tokenised_once_per_curses_entry(self, monkeypatch):
-        import ipu_debug.cli as debug_cli
-
         tokenized: list[int] = []
-        real = debug_cli._tokenize_xmem
+        real = debug_format.tokenize_xmem
 
         def tokenize(data, address, fmt, row_size):
             tokenized.append(address)
             return real(data, address, fmt, row_size)
 
-        monkeypatch.setattr(debug_cli, "_tokenize_xmem", tokenize)
+        monkeypatch.setattr(debug_format, "tokenize_xmem", tokenize)
         view, _, session = make_view()
         session.focus = "xmem"
 
@@ -2361,6 +2354,43 @@ class TestDebuggerImprovements:
         assert error is None
         assert resolved.data == b"\x22"
 
+    def test_cr_edit_moves_the_session_generation_and_refreshes_xmem(self):
+        state = IpuState()
+        state.xmem.write_address(0, b"\x11")
+        state.xmem.write_address(128, b"\x22")
+        view, _, session = make_view(state)
+        request = XmemRequest("row", "0", "cr2", 1, "hex")
+        session.tabs = [XmemTab(request)]
+        view.render()
+        assert view._resolve_xmem(request)[0].data == b"\x11"
+        generation = view.debug.generation
+        session.focus = "registers"
+        session.register_tabs[0].group = "cr"
+        session.register_tabs[0].cursor = 2
+        view.handle_key("e")
+        view.command = "1"
+        view.handle_key("\n")
+        assert view.editor_mode is None
+        assert view.debug.generation == generation + 1
+        assert view._resolve_xmem(request)[0].data == b"\x22"
+
+    def test_disassembly_editor_sets_the_pc_through_the_session(self):
+        view, screen, session = make_view()
+        session.focus = "disassembly"
+        view.handle_key("e")
+        assert view.editor_mode == "scalar" and view.editor_register == "pc"
+        view.render()
+        assert "Edit PC value" in screen.text()
+        view.command = str(INST_MEM_SIZE)
+        view.handle_key("\n")
+        assert session.message_is_error and "PC must be between" in session.message
+        assert view.state.program_counter == 0
+        view.command = "0x3"
+        view.handle_key("\n")
+        assert view.editor_mode is None
+        assert view.state.program_counter == 3
+        assert session.message == "Set PC = 0x3"
+
     @pytest.mark.parametrize("index", [0, 1])
     def test_scalar_editor_rejects_constants_and_invalid_input(self, index):
         view, _, session = make_view()
@@ -2926,6 +2956,7 @@ class TestMemoryValueEditing:
         view.render()
         tab = session.selected_tab()
         tab.cursor_column = 1
+        generation = view.debug.generation
         view.handle_key("e")
         assert view.editor_mode == "value"
         view.command = "1.25"
@@ -2933,7 +2964,10 @@ class TestMemoryValueEditing:
         assert (
             state.xmem.read_address(16, 16) == b"\x55" * 4 + struct.pack("<f", 1.25) + b"\x55" * 8
         )
-        assert not view._xmem_cache and not view._xmem_requests
+        assert view.debug.generation > generation
+        resolved, error = view._resolve_xmem(tab.request)
+        assert error is None
+        assert resolved.cells[1].value == 1.25
 
     @pytest.mark.parametrize("pane", ["pipeline", "xmem"])
     def test_double_click_invalid_input_and_cancel_leave_bytes_unchanged(self, monkeypatch, pane):

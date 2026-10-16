@@ -65,6 +65,32 @@ py_pytest_test(
     ],
 )
 
+# DebugSession on real states: parse, resolve, read and disassemble.
+py_pytest_test(
+    name = "test_session",
+    srcs = ["test/test_session.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# No module imports a _-prefixed name from another ipu_debug module (Q66). It
+# reads this package's sources and tests and the apps that launch the debugger.
+py_pytest_test(
+    name = "test_no_private_imports",
+    srcs = ["test/test_no_private_imports.py"],
+    data = [
+        "pytest.ini",
+        ":py_sources",
+        "//src/tools/ipu-apps:py_sources",
+    ] + glob(["test/*.py"]),
+    deps = [requirement("pytest")],
+)
+
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
 ruff_test(
     name = "ruff",
