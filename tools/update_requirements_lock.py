@@ -22,12 +22,12 @@ INPUTS = (
     "src/tools/ipu-as-py/pyproject.toml",
     "src/tools/ipu-emu-py/pyproject.toml",
     "src/tools/ipu-apps/pyproject.toml",
-    "src/tools/ipu-common/pyproject.toml",
+    "src/tools/ipu-isa/pyproject.toml",
     "tools/requirements-tools.in",
 )
 
 # The repository's own packages: Bazel wires them as py_library targets.
-LOCAL_PACKAGES = ("ipu-as-py", "ipu-emu-py", "ipu-apps", "ipu-common")
+LOCAL_PACKAGES = ("ipu-as-py", "ipu-emu-py", "ipu-apps", "ipu-isa")
 
 LOCK = "requirements_lock.txt"
 

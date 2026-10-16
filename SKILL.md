@@ -16,7 +16,7 @@ Despite the repo name, there is no C code — it is pure Python with a Bazel bui
 
 ```
 src/tools/
-├── ipu-common/src/ipu_common/    # Shared definitions (single source of truth)
+├── ipu-isa/src/ipu_isa/    # Shared definitions (single source of truth)
 │   ├── instruction_spec.py       # ALL instruction definitions live here
 │   ├── registers.py              # ALL register definitions live here
 │   ├── acc_stride_enums.py       # Stride control enums

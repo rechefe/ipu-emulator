@@ -1,13 +1,13 @@
 """Tests for the union layout solver."""
 from __future__ import annotations
 
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_METADATA,
     SLOT_UNIONS,
     is_hardware_slot,
 )
-from ipu_common.union_layout import compute_slot_layouts, get_operand_type_bits
+from ipu_isa.union_layout import compute_slot_layouts, get_operand_type_bits
 
 
 def test_solver_is_deterministic():
@@ -90,7 +90,7 @@ def test_lr_slot_total_width_unchanged():
 
 def test_lr_inc_dec_imm_width_derived():
     """INC/DEC immediate shares its field with ADDBI's 8-bit AddbiImmediate (8 bits)."""
-    from ipu_common.lr_inc_dec_imm import LR_INC_DEC_IMM_FIELD_BITS
+    from ipu_isa.lr_inc_dec_imm import LR_INC_DEC_IMM_FIELD_BITS
 
     assert LR_INC_DEC_IMM_FIELD_BITS == 8
 

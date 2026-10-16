@@ -55,7 +55,7 @@ def count_instructions():
     # dispatch_instruction does (get_instruction_by_opcode), rather than
     # guessing from the return value -- this stays byte-for-byte aligned
     # with the emulator's own NOP classification.
-    from ipu_common.instruction_spec import get_instruction_by_opcode
+    from ipu_isa.instruction_spec import get_instruction_by_opcode
     from ipu_emu.ipu import _SLOT_FIELD_PREFIX
 
     def counting_dispatch(self, slot_type, inst):

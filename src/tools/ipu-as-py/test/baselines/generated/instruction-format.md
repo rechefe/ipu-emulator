@@ -2,7 +2,7 @@
 
 This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
 Field names, bit widths, opcode values, and union-field sharing are **generated** from
-`instruction_spec.py` in `ipu_common` (the same source the assembler and emulator use).
+`instruction_spec.py` in `ipu_isa` (the same source the assembler and emulator use).
 
 ## Compound instruction layout (186 bits)
 

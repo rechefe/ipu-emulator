@@ -2,7 +2,7 @@
 
 Usage::
 
-    bazel run //src/tools/ipu-common:gen_union_layout_svg -- /tmp/union_layout.svg
+    bazel run //src/tools/ipu-isa:gen_union_layout_svg -- /tmp/union_layout.svg
 
 The slot order matches the compound instruction binary layout (MSB → LSB).
 """
@@ -11,12 +11,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
     SLOT_UNIONS,
 )
-from ipu_common.union_layout_svg import render_union_layout_svg
+from ipu_isa.union_layout_svg import render_union_layout_svg
 
 
 def main(argv: list[str]) -> int:

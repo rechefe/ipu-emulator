@@ -391,7 +391,7 @@ no hazard interlocks.
 The CTRL stage executes **11 mnemonics** across two slots: four local-register
 ops in the **LR slot** (replicated ×3 lanes per VLIW word) and seven branches
 in the **COND slot** (one per VLIW word). Detailed binary encoding is
-maintained in `SLOT_BINARY_LAYOUT` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and is not duplicated here.
+maintained in `SLOT_BINARY_LAYOUT` in `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` and is not duplicated here.
 
 An LR write performed in cycle N is **not** visible to **CTRL's own**
 reads in the same cycle — the LR-ALU lane source operands and the

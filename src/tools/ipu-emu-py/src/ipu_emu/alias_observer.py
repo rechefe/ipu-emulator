@@ -5,8 +5,8 @@ import math
 import struct
 import weakref
 
-from ipu_common.activations import ACTIVATION_IDENTITY
-from ipu_common.registers import get_lane_count
+from ipu_isa.activations import ACTIVATION_IDENTITY
+from ipu_isa.registers import get_lane_count
 from ipu_emu.alias_profile import Event
 from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES

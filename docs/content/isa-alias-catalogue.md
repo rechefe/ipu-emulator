@@ -377,7 +377,7 @@ detector.
 
 ### The table
 
-The idioms above are declared in `ipu_common/isa_alias_spec.py`, validated at
+The idioms above are declared in `ipu_isa/isa_alias_spec.py`, validated at
 import; each run reports per-alias hit counts. Entries are most-specific-first with
 first-match-wins, so an idiom matching several entries is counted once, under the
 most specific. A16 independently counts the simulation-only accumulator store.

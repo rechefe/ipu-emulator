@@ -14,7 +14,7 @@ from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMem
-from ipu_common import activations as _activations
+from ipu_isa import activations as _activations
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,

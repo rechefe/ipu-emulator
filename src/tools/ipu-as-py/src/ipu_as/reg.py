@@ -1,15 +1,15 @@
-"""IPU Register definitions — imported from ipu-common with backward compatibility.
+"""IPU Register definitions — imported from ipu-isa with backward compatibility.
 
-This module now imports register definitions from ipu-common, the single source
+This module now imports register definitions from ipu-isa, the single source
 of truth for all IPU register metadata. It maintains full backward compatibility
 by re-exporting all the same names and classes.
 
 Old code uses: from ipu_as.reg import MultStageRegField, LrRegField, etc.
-New code uses: from ipu_common.registers import create_regfile_schema, etc.
+New code uses: from ipu_isa.registers import create_regfile_schema, etc.
 """
 
 import ipu_as.ipu_token as ipu_token
-from ipu_common.registers import create_assembler_reg_classes, create_assembler_reg_enums
+from ipu_isa.registers import create_assembler_reg_classes, create_assembler_reg_enums
 
 # ============================================================================
 # Backward Compatibility: Re-export all original names
@@ -20,7 +20,7 @@ IPU_MULT_STAGE_REG_R_NUM = 2
 IPU_LR_REG_NUM = 16
 IPU_CR_REG_NUM = 16
 
-# Generate the EnumToken classes from ipu-common
+# Generate the EnumToken classes from ipu-isa
 _generated_classes = create_assembler_reg_classes(ipu_token)
 
 _MultStageBase = _generated_classes.pop("MultStageRegField")

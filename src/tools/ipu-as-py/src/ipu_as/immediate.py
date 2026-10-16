@@ -1,26 +1,26 @@
 import lark
 
 import ipu_as.ipu_token as ipu_token
-from ipu_common.incr_mod_pow2_k import (
+from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
     LR_MOD_POW2_K_MIN,
 )
-from ipu_common.lr_inc_dec_imm import (
+from ipu_isa.lr_inc_dec_imm import (
     LR_INC_DEC_IMM_FIELD_BITS,
     lr_inc_dec_imm_max,
 )
-from ipu_common.mult_mask_offset import (
+from ipu_isa.mult_mask_offset import (
     MULT_MASK_OFFSET_FIELD_BITS,
     MULT_MASK_SLOT_COUNT,
 )
-from ipu_common.reshape_mask import (
+from ipu_isa.reshape_mask import (
     RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_FIELD_BITS,
     RESHAPE_MASK_LR_OFFSET,
     reshape_mask_field_max,
 )
-from ipu_common.acc_stride_enums import (
+from ipu_isa.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
@@ -208,7 +208,7 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
         return str(value)
 
 
-from ipu_common.activations import ACTIVATION_FN_NAMES
+from ipu_isa.activations import ACTIVATION_FN_NAMES
 
 
 class ActivationFnField(ipu_token.EnumToken):
@@ -261,7 +261,7 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 
 # ---------------------------------------------------------------------------
 # acc.stride operand enums (instruction-specific, not registers)
-# Single source of truth: ipu_common.acc_stride_enums
+# Single source of truth: ipu_isa.acc_stride_enums
 # ---------------------------------------------------------------------------
 
 class ElementsInRowField(ipu_token.EnumToken):

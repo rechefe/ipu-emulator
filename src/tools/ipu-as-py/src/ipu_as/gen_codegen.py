@@ -16,13 +16,13 @@ import jinja2
 
 from ipu_as import compound_inst, ipu_token, utils
 from ipu_as.inst import OPERAND_TYPE_MAP
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_COUNT,
     SLOT_UNIONS,
     VALID_OPERAND_TYPES,
 )
-from ipu_common.union_layout import get_operand_type_bits
+from ipu_isa.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 

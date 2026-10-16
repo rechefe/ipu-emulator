@@ -35,7 +35,7 @@ MANIFESTS = (
     Path("src/tools/ipu-as-py/runtime_deps.json"),
     Path("src/tools/ipu-emu-py/runtime_deps.json"),
     Path("src/tools/ipu-apps/runtime_deps.json"),
-    Path("src/tools/ipu-common/runtime_deps.json"),
+    Path("src/tools/ipu-isa/runtime_deps.json"),
 )
 
 # The repository's own distributions: Bazel wires them as py_library targets.
@@ -217,7 +217,7 @@ def test_requirement_name(spec, name):
 
 def test_unpinned_requirement_is_reported():
     pyproject = tomllib.loads(
-        '[project]\ndependencies = ["numpy>=1", "requests>=2", "ipu-common"]\n'
+        '[project]\ndependencies = ["numpy>=1", "requests>=2", "ipu-isa"]\n'
         '[project.optional-dependencies]\ndev = ["pytest"]\n'
     )
     runtime, extras = pyproject_requirements(pyproject)
@@ -235,7 +235,7 @@ def test_unpinned_tool_is_reported():
 
 
 def test_runtime_dep_missing_from_runtime_deps_is_reported():
-    assert runtime_mismatch(["click", "lark", "ipu-common"], ["click"]) == ({"lark"}, set())
+    assert runtime_mismatch(["click", "lark", "ipu-isa"], ["click"]) == ({"lark"}, set())
     assert runtime_mismatch(["click"], ["click", "pytest"]) == (set(), {"pytest"})
     assert runtime_mismatch(["ml_dtypes"], ["ml-dtypes"]) == (set(), set())
 

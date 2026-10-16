@@ -4,7 +4,7 @@ This page is **generated** by `ipu_as.gen_docs` from `VALID_OPERAND_TYPES` in `i
 
 ## `ActivationFn` {: #activationfn }
 
-AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, **sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** (see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α and the **window** bounds a, b) is described in **Building Applications** (`docs/content/building-applications.md`).
+AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, **sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** (see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the **window** bounds a, b) is described in **Building Applications** (`docs/content/building-applications.md`).
 
 ## `AddbiImmediate` {: #addbiimmediate }
 
@@ -24,11 +24,11 @@ Constant-register index: **`cr0`** … **`cr15`**, selecting which CR supplies t
 
 ## `ElementsInRow` {: #elementsinrow }
 
-ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, **`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_common`.
+ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, **`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_isa`.
 
 ## `HorizontalStride` {: #horizontalstride }
 
-ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, **`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_common`.
+ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, **`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_isa`.
 
 ## `Label` {: #label }
 

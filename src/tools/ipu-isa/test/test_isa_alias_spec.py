@@ -11,8 +11,8 @@ import copy
 
 import pytest
 
-from ipu_common.instruction_spec import INSTRUCTION_SPEC
-from ipu_common.isa_alias_spec import (
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+from ipu_isa.isa_alias_spec import (
     ISA_ALIAS_SPEC,
     aliases_for,
     validate_isa_alias_spec,

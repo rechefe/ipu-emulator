@@ -23,17 +23,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ipu_common.acc_stride_enums import (
+from ipu_isa.acc_stride_enums import (
     ELEMENTS_IN_ROW_NAMES,
     HORIZONTAL_STRIDE_NAMES,
     VERTICAL_STRIDE_NAMES,
 )
-from ipu_common.activations import ACTIVATION_FN_NAMES
-from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
-from ipu_common.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
-from ipu_common import lr_inc_dec_imm
-from ipu_common import reshape_mask
-from ipu_common.registers import REGISTER_DEFINITIONS
+from ipu_isa.activations import ACTIVATION_FN_NAMES
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_FIELD_BITS
+from ipu_isa.mult_mask_offset import MULT_MASK_OFFSET_FIELD_BITS
+from ipu_isa import lr_inc_dec_imm
+from ipu_isa import reshape_mask
+from ipu_isa.registers import REGISTER_DEFINITIONS
 
 # Operand types whose bit-width is determined by union packing, not a fixed constant.
 _DERIVED_OPERAND_TYPES: frozenset[str] = frozenset(

@@ -4,7 +4,7 @@ This guide shows how to add a new instruction to the IPU assembler and emulator.
 
 ## Overview
 
-The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-common/src/ipu_common/instruction_spec.py`.
+The IPU uses a **single source of truth** for all instruction definitions: `INSTRUCTION_SPEC` in `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py`.
 
 Adding an instruction is a 3-step process:
 
@@ -20,7 +20,7 @@ When you add a **new operand type** string to `INSTRUCTION_SPEC`, also add it to
 
 ## Step 1: Add Instruction to `instruction_spec.py`
 
-Open `src/tools/ipu-common/src/ipu_common/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"load"`, `"store"`, `"acc_store"`, `"lr"`, `"cond"`, `"break"`).
+Open `src/tools/ipu-isa/src/ipu_isa/instruction_spec.py` and find the `INSTRUCTION_SPEC` dictionary. Locate the slot type where your instruction belongs (e.g., `"mult"`, `"acc"`, `"load"`, `"store"`, `"acc_store"`, `"lr"`, `"cond"`, `"break"`).
 
 Add your instruction to the slot's dictionary (**instruction keys are upper-case mnemonics**, e.g. `MULT.EE`, `STR_ACC_REG`; operand `"name"` fields stay **lower case**):
 

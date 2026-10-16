@@ -13,7 +13,7 @@ picture matches what an encoded VLIW word looks like in memory.
 """
 from __future__ import annotations
 
-from ipu_common.union_layout import SlotUnion
+from ipu_isa.union_layout import SlotUnion
 
 # Slot palette — one stable colour per slot for cross-slot recognisability.
 _SLOT_COLORS: dict[str, str] = {

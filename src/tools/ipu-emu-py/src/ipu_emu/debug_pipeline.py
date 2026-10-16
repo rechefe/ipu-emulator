@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
-from ipu_common.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT, SLOT_UNIONS, is_hardware_slot
+from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT, SLOT_UNIONS, is_hardware_slot
 
 SLOT_LABELS = tuple(
     (slot.upper() + (str(index) if SLOT_COUNT[slot] > 1 else "")

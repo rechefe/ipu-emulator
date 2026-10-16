@@ -225,7 +225,7 @@ CLion supports Bazel projects natively. Open the repository and select "Import B
 Now that your environment is set up:
 
 1. [Build your first application](building-applications.md)
-2. Learn the [Assembly Syntax](assembly-syntax.md) (generated; register tokens match `ipu_common`)
+2. Learn the [Assembly Syntax](assembly-syntax.md) (generated; register tokens match `ipu_isa`)
 3. Read [Operand types](operand-types.md) (generated from `VALID_OPERAND_TYPES` + `gen_docs.py`)
 4. Explore the [Instruction Reference](instructions.md)
 

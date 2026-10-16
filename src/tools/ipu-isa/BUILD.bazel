@@ -17,9 +17,9 @@ runtime_deps_manifest(
 )
 
 py_library(
-    name = "ipu_common_lib",
+    name = "ipu_isa_lib",
     srcs = glob([
-        "src/ipu_common/*.py",
+        "src/ipu_isa/*.py",
     ]),
     imports = ["src"],
     deps = [requirement(dep) for dep in RUNTIME_DEPS],
@@ -27,10 +27,10 @@ py_library(
 
 py_binary(
     name = "gen_union_layout_svg",
-    srcs = ["src/ipu_common/gen_union_layout_svg.py"],
+    srcs = ["src/ipu_isa/gen_union_layout_svg.py"],
     imports = ["src"],
-    main = "src/ipu_common/gen_union_layout_svg.py",
-    deps = [":ipu_common_lib"],
+    main = "src/ipu_isa/gen_union_layout_svg.py",
+    deps = [":ipu_isa_lib"],
 )
 
 py_pytest_test(
@@ -38,7 +38,7 @@ py_pytest_test(
     srcs = ["test/test_isa_alias_spec.py"],
     imports = ["src"],
     deps = [
-        ":ipu_common_lib",
+        ":ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -48,7 +48,7 @@ py_pytest_test(
     srcs = ["test/test_union_layout.py"],
     imports = ["src"],
     deps = [
-        ":ipu_common_lib",
+        ":ipu_isa_lib",
         requirement("pytest"),
     ],
 )
@@ -58,7 +58,7 @@ py_pytest_test(
     srcs = ["test/test_union_layout_svg.py"],
     imports = ["src"],
     deps = [
-        ":ipu_common_lib",
+        ":ipu_isa_lib",
         requirement("pytest"),
     ],
 )

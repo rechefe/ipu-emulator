@@ -1,10 +1,10 @@
-# ipu-common
+# ipu-isa
 
 Shared types and definitions for all IPU Python packages.
 
 ## Overview
 
-`ipu-common` provides the single source of truth for:
+`ipu-isa` provides the single source of truth for:
 
 - **Register descriptors** (`RegDescriptor`): Metadata for all IPU registers
 - **Data types** (`RegDtype`): Register storage formats (uint8, int8, uint32, int32, uint128)
@@ -13,7 +13,7 @@ Shared types and definitions for all IPU Python packages.
 ## Usage
 
 ```python
-from ipu_common import RegDtype, RegKind, RegDescriptor
+from ipu_isa import RegDtype, RegKind, RegDescriptor
 
 # Define a register
 r_acc_desc = RegDescriptor(
@@ -28,7 +28,7 @@ r_acc_desc = RegDescriptor(
 ## Building
 
 ```bash
-bazel build //src/tools/ipu-common:ipu_common_lib
+bazel build //src/tools/ipu-isa:ipu_isa_lib
 ```
 
 ## Updating

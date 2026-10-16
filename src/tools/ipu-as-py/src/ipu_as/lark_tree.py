@@ -5,7 +5,7 @@ import ipu_as.compound_inst as compound_inst
 import ipu_as.ipu_token as ipu_token
 import ipu_as.label as ipu_label
 import ipu_as.template as template
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
     find_pseudo_instruction,

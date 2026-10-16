@@ -1,6 +1,6 @@
 """Opcode definitions for IPU assembler — auto-generated from instruction_spec.
 
-This module re-exports Opcode classes created from ipu_common.instruction_spec
+This module re-exports Opcode classes created from ipu_isa.instruction_spec
 at runtime. No manual opcode definitions here — everything flows from the
 single source of truth (INSTRUCTION_SPEC).
 
@@ -10,7 +10,7 @@ automatically without touching this file.
 """
 
 import lark
-from ipu_common.instruction_spec import create_assembler_opcodes
+from ipu_isa.instruction_spec import create_assembler_opcodes
 
 # Create Opcode classes at runtime from instruction_spec
 _opcode_classes = create_assembler_opcodes()

@@ -1787,7 +1787,7 @@ validate_instruction_spec()
 validate_pseudo_instruction_spec()
 
 # Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
-from ipu_common.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
+from ipu_isa.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
 
 _computed_unions = compute_slot_layouts(INSTRUCTION_SPEC)
 SLOT_UNIONS.update(_computed_unions)

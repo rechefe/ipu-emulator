@@ -12,7 +12,7 @@ Python Packages
 
 | Package | Path | Description |
 |---------|------|-------------|
-| `ipu_common` | `src/tools/ipu-common/` | Shared types, register schema, instruction spec |
+| `ipu_isa` | `src/tools/ipu-isa/` | Shared types, register schema, instruction spec |
 | `ipu_as` | `src/tools/ipu-as-py/` | IPU assembler (`.asm` → binary) |
 | `ipu_emu` | `src/tools/ipu-emu-py/` | IPU emulator with debug CLI |
 
@@ -89,7 +89,7 @@ and `docs` extras) go on the test and docs targets that use them, as
 
 Notes
 -----
-- The assembler and emulator share a single source of truth via `ipu_common` (instruction spec, register schema).
+- The assembler and emulator share a single source of truth via `ipu_isa` (instruction spec, register schema).
 - Applications live in `src/tools/ipu-apps/` — each app is a subpackage under `ipu_apps/` with its assembly, test data, and Python harness together.
 - Bazel uses hermetic builds with automatic caching and parallelization.
 
