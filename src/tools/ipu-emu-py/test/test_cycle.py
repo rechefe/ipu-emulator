@@ -397,14 +397,13 @@ def test_both_modes_agree_cycle_by_cycle():
 
 
 def test_lr_subslot_exception_atomicity():
-    """A read that raises in LR sub-slot 2 leaves sub-slot 1's target unwritten,
-    in both modes, compared in lockstep."""
-    from ipu_emu.errors import RegisterIndexError
-
+    """A word whose LR sub-slot 2 names a CR past the operand's width faults
+    F-1 (reserved encoding) before any slot runs: sub-slot 1's target stays
+    unwritten, in both modes, compared in lockstep."""
     program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nBKPT ;;")
     word = program[0]
     # SET's source shares the ADDBI immediate's union column: point sub-slot
-    # 2's source at a CR that does not exist, so its resolver raises.
+    # 2's source at a CR that does not exist (a value the CrIdx width cannot hold).
     source = next(
         name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
@@ -414,8 +413,9 @@ def test_lr_subslot_exception_atomicity():
 
     failures = []
     for state, cycle in runs:
-        with pytest.raises(RegisterIndexError) as caught:
+        with pytest.raises(EmulatorFault, match="SET src = 999 is a reserved encoding") as caught:
             cycle.step()
+        assert (caught.value.fault, caught.value.pc) == (FaultId.F1, 0)
         failures.append((type(caught.value), caught.value.args))
         assert state.regfile.get_lr(1) == 0  # sub-slot 1's target
         assert state.regfile.get_lr(4) == 0

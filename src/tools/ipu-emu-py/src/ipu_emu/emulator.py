@@ -56,6 +56,11 @@ def _begin_run(state: IpuState) -> None:
     state.halt = None
 
 
+def _word_at(state: IpuState, pc: int):
+    """The IMEM word at *pc*, or ``None`` outside IMEM (the fetch faults F-2)."""
+    return state.inst_mem[pc] if 0 <= pc < len(state.inst_mem) else None
+
+
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory.
 
@@ -97,7 +102,9 @@ def run_until_complete(
     ipu = Ipu(state)
     _begin_run(state)
     try:
-        while not state.is_halted:
+        # Until a HALT or a fault: a PC past the program, IMEM included, is
+        # fetched and faults F-2 (``is_halted`` also counts a PC past IMEM).
+        while state.halt is None:
             if cycles >= max_cycles:
                 raise RuntimeError(
                     f"Exceeded {max_cycles} cycles — possible infinite loop "
@@ -158,7 +165,9 @@ def run_with_debug(
     control.last_completed_instruction = None
     entry_pending = break_on_entry
     try:
-        while not state.is_halted:
+        # As in run_until_complete; a debugger's quit (PC past IMEM) ends the
+        # run at the callback below.
+        while state.halt is None:
             if cycles >= max_cycles:
                 raise RuntimeError(
                     f"Exceeded {max_cycles} cycles — possible infinite loop "
@@ -166,7 +175,7 @@ def run_with_debug(
                 )
 
             issued_pc = state.program_counter
-            issued_instruction = state.inst_mem[issued_pc]
+            issued_instruction = _word_at(state, issued_pc)
             reasons = []
             if entry_pending:
                 reasons.append("entry")
@@ -195,7 +204,7 @@ def run_with_debug(
                 # Resume the paused instruction exactly once, including when
                 # the callback edits PC. A later loop visit can stop again.
                 issued_pc = state.program_counter
-                issued_instruction = state.inst_mem[issued_pc]
+                issued_instruction = _word_at(state, issued_pc)
                 cycle.retire()
             control.last_completed_pc = issued_pc
             control.last_completed_instruction = (

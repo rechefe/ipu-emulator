@@ -161,8 +161,9 @@ def test_lr_write_conflict_raises(probe):
 
 
 def test_lr_subslot_exception_leaves_no_partial_write():
-    """Faithful mode reads every LR sub-slot's operands before writing any, so
-    when sub-slot 1's read raises, sub-slot 0's write to LR1 has not happened.
+    """A word whose LR sub-slot 1 source is a reserved encoding faults F-1 at
+    fetch, so sub-slot 0's write to LR1 never happens (E04-19: the check moved
+    from the operand read to the schedule).
 
     Prototyping mode diverges here today (it runs sub-slots one at a time);
     E02-08 records that in test_prototyping_equivalence as a strict xfail

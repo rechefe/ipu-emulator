@@ -54,7 +54,7 @@ from ipu_isa.constants import (
     PadMode,
     Partition,
 )
-from ipu_isa.faults import FaultId
+from ipu_isa.faults import FaultId, reserved_operand_codes
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
@@ -409,6 +409,10 @@ class SlotPlan(NamedTuple):
     scalar_operand: str | None  # mult slot: scalar multiplicand
     scalar_kind: int  # ...and how it is addressed
     alias_checks: tuple[_AliasCheck, ...]  # empty for almost every plan
+    # F-1: (operand name, field capacity, reserved codes) of every operand. The
+    # union column can be wider than the operand type, so the capacity is the
+    # type's width, not the column's.
+    operand_checks: tuple[tuple[str, int, frozenset[int]], ...] = ()
 
 
 # Which RunStats counter a non-NOP instruction in each slot bumps.
@@ -419,6 +423,16 @@ _SLOT_STAT = {
     Slot.STORE: "xmem_writes",
     Slot.ACC_STORE: "xmem_writes",
 }
+
+
+def _operand_checks(instruction: Instruction) -> tuple[tuple[str, int, frozenset[int]], ...]:
+    """Each operand's F-1 check: codes at or past its type's width, or reserved."""
+    operand_bits = isa().layout.operand_bits
+    checks = []
+    for op in instruction.operands:
+        bits = operand_bits[op.type.name]
+        checks.append((op.name, 1 << bits, frozenset(reserved_operand_codes(op.type, bits))))
+    return tuple(checks)
 
 
 def _opcode_field(slot_type: str) -> str:
@@ -529,6 +543,7 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan
         scalar_operand=scalar_operand,
         scalar_kind=scalar_kind,
         alias_checks=_compile_alias_checks(slot.value, inst_name),
+        operand_checks=_operand_checks(instruction),
     )
 
 

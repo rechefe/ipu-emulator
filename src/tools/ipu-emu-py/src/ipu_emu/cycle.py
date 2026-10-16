@@ -158,9 +158,34 @@ def decode_word(inst: Mapping[str, int]) -> tuple[IssuedOp, ...]:
     # package stays the one place it is declared (tests patch it here).
     ops = []
     for slot, field, plans in _issue_table(tuple(SLOT_EXECUTION_ORDER)):
-        plan = plans[inst[field]]
+        plan = _plan(slot, field, plans, inst, -1)
         ops.append(IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields}))
     return tuple(ops)
+
+
+def _plan(
+    slot: str, field: str, plans: tuple[SlotPlan, ...], inst: Mapping[str, int], pc: int
+) -> SlotPlan:
+    """The plan of the opcode in ``inst[field]``; F-1 when the ISA defines none."""
+    code = inst[field]
+    if not 0 <= code < len(plans):
+        raise EmulatorFault(
+            FaultId.F1, pc, f"{slot} slot: opcode {code} ({field}) is not defined by the ISA"
+        )
+    return plans[code]
+
+
+def _check_operands(slot: str, plan: SlotPlan, inst: Mapping[str, int], pc: int) -> None:
+    """F-1 for an operand code past its type's width, or reserved."""
+    fields = dict(plan.fields)
+    for name, capacity, reserved in plan.operand_checks:
+        code = inst[fields[name]]
+        if not 0 <= code < capacity or code in reserved:
+            raise EmulatorFault(
+                FaultId.F1,
+                pc,
+                f"{slot} slot: {plan.inst_name} {name} = {code} is a reserved encoding",
+            )
 
 
 def _lr_targets(plan: SlotPlan, operands: Mapping[str, int]) -> tuple[int, ...]:
@@ -203,12 +228,8 @@ def schedule_word(
     lr_position = -1
     targets: list[int] = []
     for slot, field, plans in _issue_table(tuple(SLOT_EXECUTION_ORDER)):
-        code = inst[field]
-        if not 0 <= code < len(plans):
-            raise EmulatorFault(
-                FaultId.F1, pc, f"{field} holds opcode {code}, which the ISA does not define"
-            )
-        plan = plans[code]
+        plan = _plan(slot, field, plans, inst, pc)
+        _check_operands(slot, plan, inst, pc)
         if slot == "break":
             if plan.inst_name != "NOP":
                 break_op = IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields})
@@ -423,10 +444,7 @@ class Cycle:
             if inst is None
             else schedule_word(inst, skip_idle_nops=self._skip_idle_nops, pc=pc),
         )
-        # The IMEM write observer reports non-negative PCs, so only those are
-        # cached (a negative PC is an error elsewhere, never a hot path).
-        if pc >= 0:
-            self._schedules[pc] = entry
+        self._schedules[pc] = entry
         return entry
 
     def _take_snapshot(self) -> None:

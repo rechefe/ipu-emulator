@@ -60,6 +60,13 @@ def test_a_branch_past_the_program_is_f2_at_the_next_fetch():
     assert (fault.fault, fault.pc) == (FaultId.F2, 40)
 
 
+@pytest.mark.parametrize("target", [1024, 1029, 0xFFFFFFFF])
+def test_a_branch_past_imem_is_f2_not_a_quiet_halt(target):
+    state = make_state("BR CR2 ;;\nBKPT ;;", cr={2: target})
+    fault = fault_of(state)
+    assert (fault.fault, fault.pc) == (FaultId.F2, target)
+
+
 def test_raise_on_fault_false_returns_with_the_fault_recorded():
     state = make_state("INC LR0 1 ;;")
     assert run_until_complete(state, raise_on_fault=False) == 1
@@ -75,7 +82,39 @@ def test_an_undefined_opcode_is_f1():
     load_program(state, [nop, word])
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F1, 1)
-    assert f"{field} holds opcode {len(plans)}" in fault.detail
+    assert fault.detail == f"cond slot: opcode {len(plans)} ({field}) is not defined by the ISA"
+
+
+def with_operand(asm: str, slot: Slot, mnemonic: str, operand: str, value: int) -> dict:
+    """The first word of *asm* with *mnemonic*'s *operand* column set to *value*
+    (a code the assembler would never emit)."""
+    word = dict(assemble_program(asm)[0])
+    for field, plans in plans_for(slot):
+        plan = plans[word[field]]
+        if plan.inst_name == mnemonic:
+            word[dict(plan.fields)[operand]] = value
+            return word
+    raise AssertionError(f"{mnemonic} not in {asm!r}")
+
+
+@pytest.mark.parametrize(
+    ("asm", "slot", "mnemonic", "operand", "value"),
+    [
+        ("LDR_MULT_REG R0 LR0 CR2 ;;", Slot.LOAD, "LDR_MULT_REG", "dest", 2),
+        ("INCR_MOD_POW2 LR0 LR1 4 ;;", Slot.LR, "INCR_MOD_POW2", "k", 9),
+        ("ACC.STRIDE 16 off off LR0 ;;", Slot.ACC, "ACC.STRIDE", "elements_in_row", 3),
+        ("ACTIVATE.QUANTIZE relu CR15 ;;", Slot.AAQ, "ACTIVATE.QUANTIZE", "activation_fn", 15),
+        # SET's source shares a column wider than CrIdx: a code past CR15.
+        ("SET LR0 CR1 ;;", Slot.LR, "SET", "src", 200),
+    ],
+)
+def test_a_reserved_operand_encoding_is_f1(asm, slot, mnemonic, operand, value):
+    state = new_state()
+    nop = assemble_program("NOP ;;")[0]
+    load_program(state, [nop, with_operand(asm, slot, mnemonic, operand, value)])
+    fault = fault_of(state)
+    assert (fault.fault, fault.pc) == (FaultId.F1, 1)
+    assert f"{mnemonic} {operand} = {value} is a reserved encoding" in fault.detail
 
 
 def test_an_lr_conflict_is_f3_at_its_word():

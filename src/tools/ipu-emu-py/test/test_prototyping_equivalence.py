@@ -21,7 +21,7 @@ import timing_probes
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault, RegisterIndexError
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
@@ -340,7 +340,7 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
     for prototyping in (False, True):
         state = new_state(prototyping=prototyping)
         load_program(state, [dict(inst)])
-        with pytest.raises(RegisterIndexError) as caught:
+        with pytest.raises(EmulatorFault, match="reserved encoding") as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
         exceptions.append(caught.value)

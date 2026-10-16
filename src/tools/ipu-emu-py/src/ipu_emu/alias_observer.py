@@ -8,6 +8,7 @@ import weakref
 
 from ipu_emu.alias_profile import Event
 from ipu_emu.cycle import decode_word
+from ipu_emu.errors import EmulatorFault
 from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
 from ipu_isa.activations import ACTIVATION_IDENTITY
@@ -98,14 +99,18 @@ class ExecutionObserver:
         def operations(pc):
             if pc >= len(self.state.inst_mem) or self.state.inst_mem[pc] is None:
                 return []
+            try:
+                ops = decode_word(self.state.inst_mem[pc])
+            except EmulatorFault:
+                return None  # an undefined opcode: faults when fetched, never a diamond
             return [
                 (op.slot, op.plan.inst_name, dict(op.operands))
-                for op in decode_word(self.state.inst_mem[pc])
+                for op in ops
                 if op.plan.inst_name != "NOP"
             ]
 
         a, jump, b = (operations(self.pc + i) for i in (1, 2, 3))
-        if not (len(a) == len(b) == len(jump) == 1):
+        if a is None or jump is None or b is None or not (len(a) == len(b) == len(jump) == 1):
             return None
         if a[0][:2] != ("lr", "SET") or b[0][:2] != ("lr", "SET"):
             return None

@@ -40,10 +40,10 @@ class ConfigurationError(EmulatorError, ValueError):
     mid-run. Also a ``ValueError``, as these checks raised before."""
 
 
-class XMemBoundsError(EmulatorError, ValueError):
-    """An XMEM access beyond the allocation. Raised by ``XMem`` at any time;
-    inside a cycle the cycle reports it as fault F-6. Also a ``ValueError``,
-    as the check raised before."""
+class XMemBoundsError(ConfigurationError):
+    """An XMEM access beyond the allocation. Outside a cycle (loading inputs,
+    reading results) it is a setup error; inside one the cycle reports it as
+    fault F-6, so it never leaves a run under this type."""
 
 
 # Register-file validation errors (E00-02). Each one also derives from the

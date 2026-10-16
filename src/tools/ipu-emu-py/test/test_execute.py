@@ -35,7 +35,7 @@ from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault
 from ipu_emu.execute import BreakResult, decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
 from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
 from ipu_isa.faults import FaultId
@@ -567,7 +567,8 @@ BKPT;;
         )
         with pytest.raises(EmulatorFault, match="index must be one of") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F4 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F4
 
     def test_mask_register_load(self):
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
@@ -1819,7 +1820,8 @@ BKPT;;
             state.regfile.set_r_acc_word(i, 9999)
         with pytest.raises(EmulatorFault, match="RESHAPE element") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F5 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_raises_on_out_of_range_dest(self):
         """A participating dest[i] >= 128 raises rather than silently skipping."""
@@ -1842,7 +1844,8 @@ BKPT;;
             state.regfile.set_r_acc_word(i, 9999)
         with pytest.raises(EmulatorFault, match="RESHAPE element") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F5 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_non_participating_out_of_range_does_not_raise(self):
         """An out-of-range source/dest outside the participation range (masked out) is fine."""
@@ -1970,7 +1973,8 @@ BKPT;;
             state.regfile.set_r_acc_word(i, 9999)
         with pytest.raises(EmulatorFault, match="reshape_mask") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F5 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F5
 
     def test_reshape_mult_res_reads_from_snapshot(self):
         """MULT_RES is read from the pre-instruction snapshot (not live state)."""
@@ -3190,7 +3194,8 @@ BKPT;;
         )
         with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F6 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_narrow_limit_is_fixed_not_derived_from_the_allocation(self):
         """Enlarging XMEM for wide-mode kernels must not widen narrow mode's reach:
@@ -3221,7 +3226,8 @@ BKPT;;
         )
         with pytest.raises(EmulatorFault, match="out of range for narrow mode") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F6 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_debug_mode_reaches_bytes_past_narrow_2mb_bound(self):
         """Debug mode's row size is 4x narrow's, so the same row count reaches 4x the
@@ -3274,7 +3280,8 @@ BKPT;;
         load_program(state, decoded)
         with pytest.raises(EmulatorFault, match="exceeds") as caught:
             run_until_complete(state)
-        assert caught.value.fault is FaultId.F6 and state.halt.reason == "fault"
+        assert state.halt == HaltRecord("fault", caught.value.pc, caught.value.fault)
+        assert caught.value.fault is FaultId.F6
 
     def test_ldr_mult_mask_reg_reads_row_start_128_bytes_both_modes(self):
         """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""

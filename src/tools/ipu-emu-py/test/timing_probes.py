@@ -23,7 +23,7 @@ from enum import Enum
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import EmulatorFault, RegisterIndexError
+from ipu_emu.errors import EmulatorFault
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -514,5 +514,5 @@ PROBES: dict[str, Probe] = {
 RAISES: dict[str, type[Exception]] = {
     "lr_conflict_same_lr": EmulatorFault,  # F-3
     "lr_conflict_lrd_overlap": EmulatorFault,
-    "lr_subslot_exception": RegisterIndexError,
+    "lr_subslot_exception": EmulatorFault,  # F-1: the source is past CrIdx's width
 }

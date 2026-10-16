@@ -51,12 +51,12 @@ The fault list and this table are mirrored as data in `ipu_isa.faults`, which de
 
 ## In the emulator
 
-The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A HALT word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
+The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A `BKPT` (HALT) word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
 
 | Fault | In the emulator |
 |---|---|
-| F-1 | An opcode the ISA does not define, at fetch. A handler raises it for a `MultStageReg` other than `R0` or `R1`, and for an `INCR_MOD_POW2` `k` encoding above 8. |
-| F-2 | A fetch at or past `IpuState.program_length`, which `load_program` sets. A state whose IMEM is written directly keeps all of IMEM. |
+| F-1 | At fetch: an opcode the ISA does not define, or an operand code that is reserved (the table above) or past its operand type's width (a union column can be wider). |
+| F-2 | A fetch at or past `IpuState.program_length`, which `load_program` sets, by sequential flow, branch or `BR`, including a target past IMEM. A state whose IMEM is written directly keeps all of IMEM. |
 | F-3 | Two LR sub-slots write the same LR, detected before any LR write. |
 | F-4 | An `LDR_CYCLIC_MULT_REG` index that is not a slot boundary. |
 | F-5 | An `ACC.RESHAPE` mask above 8, or an index of 128 or more. |
