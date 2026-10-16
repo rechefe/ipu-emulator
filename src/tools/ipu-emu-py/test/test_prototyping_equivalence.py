@@ -235,8 +235,9 @@ def test_raising_timing_probes_are_identical(name):
 
 @_REQUIRES_PROTO_BUILD
 def test_lr_subslot_exception_partial_state_matches():
-    """When an LR sub-slot's operand read raises, neither mode has written an
-    LR: both resolve every sub-slot before any writes (E04-08)."""
+    """A word with a reserved LR sub-slot operand faults F-1 at fetch in both
+    modes, before any LR is written (it raised in the operand read before
+    E04-19)."""
     states, _ = _run_until_raise("lr_subslot_exception")
     _assert_states_identical(*states)
 

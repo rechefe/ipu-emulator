@@ -158,10 +158,9 @@ class DepthwiseConvStride2_16App(IpuApp):
         stage1_stats = copy.copy(state.stats)
 
         def stage2_setup(s: IpuState) -> None:
-            # Stage 1 left program_counter at its halted sentinel; reset it
-            # so run_until_complete's `while not state.is_halted` loop
-            # actually executes stage 2's freshly loaded program instead of
-            # exiting immediately with 0 cycles.
+            # Stage 1 left program_counter past IMEM (HALT); reset it so stage
+            # 2's freshly loaded program runs from its start instead of
+            # faulting F-2 at that PC.
             s.program_counter = 0
             # Stage 1 partitioned CR15 for its own mask-shift scheme (cols
             # lanes/group). Stage 2 uses no masks and needs the FULL 128-lane

@@ -162,12 +162,9 @@ def test_lr_write_conflict_raises(probe):
 
 def test_lr_subslot_exception_leaves_no_partial_write():
     """A word whose LR sub-slot 1 source is a reserved encoding faults F-1 at
-    fetch, so sub-slot 0's write to LR1 never happens (E04-19: the check moved
-    from the operand read to the schedule).
-
-    Prototyping mode diverges here today (it runs sub-slots one at a time);
-    E02-08 records that in test_prototyping_equivalence as a strict xfail
-    until E04-07.
+    fetch, before any slot runs, so sub-slot 0's write to LR1 never happens.
+    (Before E04-19 this word raised in the operand read; no encodable word
+    can make an LR read raise now.)
     """
     state = prepare(PROBES["lr_subslot_exception"])
     with pytest.raises(RAISES["lr_subslot_exception"]):

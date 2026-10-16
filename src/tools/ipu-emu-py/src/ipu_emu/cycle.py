@@ -8,7 +8,8 @@ advances the PC. Two LR sub-slots writing the same register is fault F-3,
 raised before any LR write.
 
 An illegal program faults (E04-19): a fetch at or past ``program_length`` is
-F-2, an undefined opcode F-1, an XMEM access beyond the allocation F-6, and
+F-2, an undefined opcode or a reserved operand code (or one past its type's
+width) F-1, an XMEM access beyond the allocation F-6, and
 handlers raise the rest. Every :class:`EmulatorFault` leaving a cycle has first
 recorded ``IpuState.halt``.
 
@@ -214,13 +215,14 @@ def schedule_word(
             counter-only op, so a later slot's exception truncates the cycle
             where the faithful schedule would. The cond slot's NOP is never
             skipped: it advances the PC.
-        pc: The word's PC, for the fault an undefined opcode raises.
+        pc: The word's PC, for the F-1 fault the word may raise.
 
     Returns:
         The word's schedule, with its LR conflict checked once.
 
     Raises:
-        EmulatorFault: F-1, a slot holds an opcode the ISA does not define.
+        EmulatorFault: F-1, a slot holds an opcode the ISA does not define,
+            or an operand code that is reserved or past its type's width.
     """
     break_op = None
     lr_ops: list[IssuedOp] = []
@@ -426,7 +428,7 @@ class Cycle:
 
         Raises:
             EmulatorFault: F-2, *pc* is outside the loaded program; F-1, the
-                word holds an undefined opcode.
+                word holds an undefined opcode or a reserved operand code.
         """
         if not 0 <= pc < self.state.program_length:
             raise EmulatorFault(

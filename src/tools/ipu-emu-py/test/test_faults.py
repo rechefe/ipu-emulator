@@ -13,7 +13,7 @@ from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu import xmem
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.errors import EmulatorFault, XMemBoundsError
+from ipu_emu.errors import EmulatorError, EmulatorFault, XMemBoundsError
 from ipu_emu.ipu import plans_for
 from ipu_emu.ipu_state import HaltRecord
 from ipu_isa.faults import FaultId
@@ -154,3 +154,13 @@ def test_an_access_beyond_the_xmem_allocation_is_f6(monkeypatch):
     # Outside a cycle the same check is a plain error, as before.
     with pytest.raises(XMemBoundsError):
         state.xmem.read_address(512, 1)
+
+
+def test_an_acc_stride_past_r_acc_is_an_error_before_any_write():
+    # Not a fault: the ISA leaves the overrun undefined (an open question).
+    state = make_state("ACC.STRIDE 16 off off LR0 ;;\nBKPT ;;")
+    state.regfile.set_lr(0, 1)  # start at lane 32, then 128 elements
+    before = bytes(state.regfile.get_r_acc_bytes())
+    with pytest.raises(EmulatorError, match="past the end of R_ACC"):
+        run_until_complete(state)
+    assert bytes(state.regfile.get_r_acc_bytes()) == before

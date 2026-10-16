@@ -186,10 +186,9 @@ class DepthwiseConvStride2_128App(IpuApp):
         stage1_stats = copy.copy(state.stats)
 
         def stage2_setup(s: IpuState) -> None:
-            # Stage 1 left program_counter at its halted sentinel; reset it
-            # so run_until_complete's `while not state.is_halted` loop
-            # actually executes stage 2's freshly loaded program instead of
-            # exiting immediately with 0 cycles.
+            # Stage 1 left program_counter past IMEM (HALT); reset it so stage
+            # 2's freshly loaded program runs from its start instead of
+            # faulting F-2 at that PC.
             s.program_counter = 0
             s.regfile.set_cr(3, stage1_app.output_base_row)
             s.regfile.set_cr(4, self.channels)

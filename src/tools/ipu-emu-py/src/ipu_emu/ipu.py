@@ -1608,9 +1608,16 @@ class Ipu:
 
         base = (offset % 4) * 32
         fmt = self._acc_agg_lane_fmt()
-        # From the first lane written to the end: a row overrunning it still fails in
-        # pack_into (struct.error), with offsets counted from that lane.
+        # From the first lane written to the end of R_ACC.
         acc_buf = self.state.regfile.mutable("r_acc", base * 4)
+        if len(out_indices) * 4 > len(acc_buf):
+            # The ISA leaves start + N > R_ACC undefined (stage-accumulator
+            # 6.8): an open question, not a fault yet, so an EmulatorError
+            # before any lane is written.
+            raise EmulatorError(
+                f"ACC.STRIDE writes {len(out_indices)} elements from lane {base}, "
+                f"past the end of R_ACC ({base + len(acc_buf) // 4} lanes)"
+            )
         mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
 
         for i, idx in enumerate(out_indices):
