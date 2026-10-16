@@ -58,6 +58,7 @@ acceptance kernel, `scale`.
 
 ## Tests
 
+- [ ] `bazel run //kernels:manifest` prints the kernel manifest (E06-16 deferred it here: it joins the target file `ipu_kernel()` writes with `Registry`), with the same keys as `//src/tools/ipu-apps:kernel_manifest`, and each kernel's files join `//kernels:tree` so `//kernels:query` routes over them.
 - [ ] `bazel test //kernels/elementwise/scale` passes 17 parametrised runs: `default`, `one_row` and `mine` x 3 formats, plus `sweep[...]` x 4 x 2 formats.
 - [ ] `bazel run //kernels/elementwise/scale -- --case one_row --format e4` prints one PASS line with cycles and MAC utilisation.
 - [ ] A planted wrong-output `.asm` (for example `ADD` instead of `MULT.VE`) fails with the case, the format, the output index and the tier in the message.

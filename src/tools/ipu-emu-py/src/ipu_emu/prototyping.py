@@ -49,7 +49,7 @@ _FALSEY = frozenset({"", "0", "false", "no", "off"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
-def _env_requests_prototyping(raw: str) -> bool:
+def env_requests_prototyping(raw: str) -> bool:
     """Parse an ``IPU_EMU_PROTOTYPING`` value, ignoring case and surrounding whitespace.
 
     ``0``, ``false``, ``no``, ``off`` and the empty string mean off; ``1``,
@@ -69,7 +69,7 @@ def _env_requests_prototyping(raw: str) -> bool:
 def default_enabled() -> bool:
     """Whether a new :class:`~ipu_emu.ipu_state.IpuState` starts in prototyping mode."""
     env = os.environ.get("IPU_EMU_PROTOTYPING")
-    requested = bool(_BUILD_DEFAULT) if env is None else _env_requests_prototyping(env)
+    requested = bool(_BUILD_DEFAULT) if env is None else env_requests_prototyping(env)
     return resolve_enabled(requested)
 
 

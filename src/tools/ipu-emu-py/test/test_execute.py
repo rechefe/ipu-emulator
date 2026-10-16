@@ -3394,7 +3394,7 @@ BKPT;;
 
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
-        # TODO(E04-08): per-word execution plans replace _build_plan.
+        # _build_plan is the per-opcode plan the per-word schedules hold.
         import dataclasses
 
         from ipu_emu.ipu import _build_plan
@@ -3463,35 +3463,25 @@ class TestDeclaredSlotOrder:
         assert dispatched == expected
         assert state.regfile.get_lr(0) == 7
 
-    def test_prototyping_plan_follows_declared_order(self, monkeypatch):
+    def test_prototyping_schedule_follows_declared_order(self, monkeypatch):
         import ipu_emu.cycle as cycle_mod
         import ipu_emu.ipu as ipu_mod
 
         order = self._reordered()
         monkeypatch.setattr(cycle_mod, "SLOT_EXECUTION_ORDER", order)
-        # The plan and the fast cycle are driven directly, so this runs in a
-        # build without --define=ipu_proto=1 as well.
+        # The NOP-skipping schedule is built and run directly, so this runs in
+        # a build without --define=ipu_proto=1 as well.
         state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
-        engine = ipu_mod.Ipu(state)
-        pc = state.program_counter
-        inst = state.inst_mem[pc]
-        _, _, _, slot_work = engine._cycle_plan(pc, inst)
+        schedule = cycle_mod.schedule_word(state.inst_mem[0], skip_idle_nops=True)
+        seen = [op.slot for op in schedule.slot_ops]
+        seen.insert(schedule.lr_position, "lr")
 
-        def slot_of(entry):
-            if entry is ipu_mod._LR_WORK:
-                return "lr"
-            plan = entry[0]
-            return next(
-                slot for slot, plans in ipu_mod._SLOT_PLANS.items() if any(p is plan for p in plans)
-            )
-
-        seen = [slot_of(entry) for entry in slot_work]
         expected = [slot.value for slot in order if slot.value in seen]
         assert seen == expected
         # LR and the always-run COND slot are both present, in declared order.
         assert {"lr", "cond"} <= set(seen)
-        engine.bind_snapshot(state.regfile.snapshot())
-        engine._execute_cycle_fast(inst, pc, with_break=True)
+        engine = ipu_mod.Ipu(state)
+        cycle_mod.Cycle(state, engine, skip_idle_nops=True).step()
         assert state.regfile.get_lr(0) == 7
 
     def test_order_must_cover_every_planned_slot(self, monkeypatch):

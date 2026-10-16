@@ -16,10 +16,16 @@ The break-then-resume protocol a debugger needs is two calls:
 :meth:`Cycle.evaluate_break` stops before any side effect, and
 :meth:`Cycle.retire` later runs everything except BREAK. :meth:`Cycle.step` is
 the two together.
+
+What a word does is a :class:`Schedule`, built once per PC by
+:func:`schedule_word` and cached until that IMEM entry is written (E04-08).
+Prototyping mode is an adapter on this one cycle: its schedules skip the idle
+NOP slots (``skip_idle_nops=True``) and nothing else differs.
 """
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Mapping
 from enum import IntEnum
 from functools import lru_cache
@@ -55,12 +61,15 @@ class IssuedOp(NamedTuple):
         slot: The slot type (``"lr"`` for every LR sub-slot).
         plan: What dispatch needs for this (slot, opcode).
         operands: The raw operand values the word holds, by operand name. Never
-            mutated: a caller that resolves reads copies it first.
+            mutated: a caller that resolves reads copies it first. ``None``
+            marks a skipped NOP that only bumps its counter (``plan.stat``):
+            prototyping's schedules keep such a slot in place instead of
+            dispatching it.
     """
 
     slot: str
     plan: SlotPlan
-    operands: Mapping[str, int]
+    operands: Mapping[str, int] | None
 
 
 class Schedule(NamedTuple):
@@ -71,8 +80,11 @@ class Schedule(NamedTuple):
 
     Attributes:
         break_op: The BREAK slot, or ``None`` when it holds a NOP.
-        lr_ops: Every LR sub-slot, in sub-slot order.
+        lr_ops: Every LR sub-slot, in sub-slot order (without the NOPs when
+            idle NOPs are skipped).
         slot_ops: Every other slot except BREAK, in ``SLOT_EXECUTION_ORDER``.
+            When idle NOPs are skipped, a NOP whose handler does nothing is
+            left out, or kept as a counter-only op if it bumps a counter.
         lr_position: Where in ``slot_ops`` the LR sub-slots run: they run before
             ``slot_ops[lr_position]`` (after the last op when it equals the length).
         lr_conflict: The LR registers the sub-slots write, in sub-slot order,
@@ -91,6 +103,8 @@ class CycleObserver(Protocol):
 
     ``begin`` runs before the first slot after BREAK (or before an idle word's
     PC advance), ``end`` after the last. A cycle stopped by BREAK calls neither.
+    Both modes call it the same way: a schedule that skips idle NOPs still
+    brackets the same words.
     """
 
     def begin(self, pc: int) -> None: ...
@@ -138,11 +152,30 @@ def decode_word(inst: Mapping[str, int]) -> tuple[IssuedOp, ...]:
     return tuple(ops)
 
 
-def schedule_word(inst: Mapping[str, int]) -> Schedule:
+def _lr_targets(plan: SlotPlan, operands: Mapping[str, int]) -> tuple[int, ...]:
+    """The LRs one LR sub-slot writes: none, one, or an LrdIdx target's pair."""
+    if plan.write_operand is None:
+        return ()
+    raw = operands[plan.write_operand]
+    return tuple(lrd_pair(raw)) if plan.write_is_lrd else (raw,)
+
+
+#: Slots whose NOP handler is not a no-op: the cond slot's NOP advances the PC,
+#: so a schedule that skips idle NOPs still issues it.
+_ACTIVE_NOP_SLOTS = frozenset({Slot.COND.value})
+
+
+def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> Schedule:
     """Build the :class:`Schedule` of one instruction word.
 
     Args:
         inst: A decoded instruction word (field name to value).
+        skip_idle_nops: Leave out the NOP slots whose handler does nothing
+            (prototyping mode). A skipped NOP that bumps a counter (an idle
+            multiplier counts ``mult_idle_cycles``) stays in place as a
+            counter-only op, so a later slot's exception truncates the cycle
+            where the faithful schedule would. The cond slot's NOP is never
+            skipped: it advances the PC.
 
     Returns:
         The word's schedule, with its LR conflict checked once.
@@ -158,18 +191,17 @@ def schedule_word(inst: Mapping[str, int]) -> Schedule:
             if plan.inst_name != "NOP":
                 break_op = IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields})
             continue
+        if slot == "lr" and lr_position < 0:
+            lr_position = len(slot_ops)
+        if skip_idle_nops and plan.inst_name == "NOP" and slot not in _ACTIVE_NOP_SLOTS:
+            if plan.stat is not None:
+                # Kept in place with no operands: issued for its counter alone.
+                slot_ops.append(IssuedOp(slot, plan, None))
+            continue
         op = IssuedOp(slot, plan, {name: inst[key] for name, key in plan.fields})
         if slot == "lr":
-            if lr_position < 0:
-                lr_position = len(slot_ops)
             lr_ops.append(op)
-            if plan.write_operand is not None:
-                raw = op.operands[plan.write_operand]
-                # An LrdIdx target writes the two LRs of the pair.
-                if plan.write_is_lrd:
-                    targets.extend(lrd_pair(raw))
-                else:
-                    targets.append(raw)
+            targets.extend(_lr_targets(plan, op.operands))
         else:
             slot_ops.append(op)
     if lr_position < 0:  # unreachable while the declared order names LR
@@ -186,21 +218,43 @@ def schedule_word(inst: Mapping[str, int]) -> Schedule:
 class Cycle:
     """Executes the instruction word at the PC, one cycle per call.
 
+    Each PC's :class:`Schedule` is built on first use and cached until that IMEM
+    entry is written; :meth:`reset` drops them all.
+
     Args:
         state: The machine state the cycle reads and writes.
         ipu: The handlers and slot dispatch the cycle drives. Held as given:
             ``Ipu`` passes a weak proxy of itself, so it is not a reference cycle.
         observer: Optional begin/end hooks (the alias profiler today).
+        skip_idle_nops: Build schedules that skip idle NOP slots. Defaults to
+            ``state.prototyping``: prototyping mode is this flag (and its
+            operand resolver) and nothing else. Results are identical either
+            way, so a test may pass it in any build.
     """
 
-    def __init__(self, state: IpuState, ipu: Ipu, observer: CycleObserver | None = None) -> None:
+    def __init__(
+        self,
+        state: IpuState,
+        ipu: Ipu,
+        observer: CycleObserver | None = None,
+        *,
+        skip_idle_nops: bool | None = None,
+    ) -> None:
         self.state = state
         self._ipu = ipu
         self._observer = observer
-        # Prototyping mode's NOP-skipping cycle, read once: the flag belongs to
-        # the run, not to the cycle. A profiled run takes the faithful path so
-        # the profile describes every slot the cycle issued.
-        self._fast = state.prototyping and observer is None
+        # Read once: the flag belongs to the run, not to the cycle.
+        self._skip_idle_nops = state.prototyping if skip_idle_nops is None else skip_idle_nops
+        # PC -> (the word, its schedule); (None, None) for an empty entry. The
+        # word is IMEM's frozen copy, so the entry stays right until that PC
+        # is written, and the IMEM write observer drops it then.
+        self._schedules: dict[int, tuple[Mapping[str, int] | None, Schedule | None]] = {}
+        schedules = self._schedules
+        remove = state.inst_mem.add_write_observer(lambda pc: schedules.pop(pc, None))
+        # The observer holds the dict, not the cycle; it is removed when the
+        # cycle is collected, so a state outliving many engines does not
+        # collect dead observers.
+        weakref.finalize(self, remove)
         # The snapshot buffer is reused across cycles: every register is
         # refreshed from the live file at cycle start, so it holds exactly what
         # a fresh copy would. ``_source`` is the file it copies.
@@ -225,6 +279,23 @@ class Cycle:
             self._public_snapshot = self._buffer.snapshot()
         return self._public_snapshot
 
+    @property
+    def skip_idle_nops(self) -> bool:
+        """Whether this cycle's schedules skip idle NOP slots (prototyping)."""
+        return self._skip_idle_nops
+
+    def cached_schedule(self, pc: int) -> Schedule | None:
+        """The schedule cached for *pc*, or ``None`` if none is (or *pc* is empty).
+
+        Args:
+            pc: An IMEM address.
+
+        Returns:
+            What the next cycle at *pc* would reuse without decoding the word.
+        """
+        entry = self._schedules.get(pc)
+        return None if entry is None else entry[1]
+
     def evaluate_break(self) -> CycleOutcome:
         """Take the snapshot and evaluate the BREAK slot only. No side effects.
 
@@ -232,28 +303,24 @@ class Cycle:
             ``BREAK`` if the word's BREAK slot fires, else ``RETIRED`` (the word
             is still to be retired with :meth:`retire`).
         """
-        inst = self.state.inst_mem[self.state.program_counter]
-        if inst is None:
+        inst, schedule = self._fetch(self.state.program_counter)
+        if schedule is None:
             return CycleOutcome.RETIRED
         self._take_snapshot()
-        return self._evaluate_break(inst, schedule_word(inst))
+        return self._evaluate_break(inst, schedule)
 
     def retire(self) -> None:
         """Take a fresh snapshot, then run every slot except BREAK, in order.
 
         The snapshot is taken again on purpose: an edit a debugger made while
-        stopped at a break is visible to the resumed word.
+        stopped at a break is visible to the resumed word, and so is a word it
+        wrote into IMEM (that write dropped the cached schedule).
         """
         pc = self.state.program_counter
-        inst = self.state.inst_mem[pc]
-        if inst is None:
-            self._run(pc, None, None)
-            return
-        self._take_snapshot()
-        if self._fast:
-            self._ipu._execute_cycle_fast(inst, pc, with_break=False)
-            return
-        self._run(pc, inst, schedule_word(inst))
+        inst, schedule = self._fetch(pc)
+        if schedule is not None:
+            self._take_snapshot()
+        self._run(pc, inst, schedule)
 
     def step(self, *, honour_break: bool = True) -> CycleOutcome:
         """Execute one word: :meth:`evaluate_break`, then :meth:`retire`.
@@ -270,16 +337,16 @@ class Cycle:
             else ``RETIRED``.
         """
         pc = self.state.program_counter
-        inst = self.state.inst_mem[pc]
-        if inst is None:
-            self._run(pc, None, None)
-            return CycleOutcome.RETIRED
-        self._take_snapshot()
-        if self._fast:
-            return self._ipu._execute_cycle_fast(inst, pc, with_break=honour_break)
-        schedule = schedule_word(inst)
-        if honour_break and self._evaluate_break(inst, schedule) is CycleOutcome.BREAK:
-            return CycleOutcome.BREAK
+        entry = self._schedules.get(pc)
+        inst, schedule = self._fetch(pc) if entry is None else entry
+        if schedule is not None:
+            self._take_snapshot()
+            if (
+                honour_break
+                and schedule.break_op is not None
+                and self._ipu.dispatch_op(schedule.break_op, inst) is CycleOutcome.BREAK
+            ):
+                return CycleOutcome.BREAK
         self._run(pc, inst, schedule)
         return CycleOutcome.RETIRED
 
@@ -290,7 +357,23 @@ class Cycle:
         for an old program survives.
         """
         self._source = None
-        self._ipu.forget_cycle_plans()
+        self._schedules.clear()
+
+    def _fetch(self, pc: int) -> tuple[Mapping[str, int] | None, Schedule | None]:
+        """The word at *pc* and its schedule, from the cache or built now."""
+        entry = self._schedules.get(pc)
+        if entry is not None:
+            return entry
+        inst = self.state.inst_mem[pc]
+        entry = (
+            inst,
+            None if inst is None else schedule_word(inst, skip_idle_nops=self._skip_idle_nops),
+        )
+        # The IMEM write observer reports non-negative PCs, so only those are
+        # cached (a negative PC is an error elsewhere, never a hot path).
+        if pc >= 0:
+            self._schedules[pc] = entry
+        return entry
 
     def _take_snapshot(self) -> None:
         regfile = self.state.regfile
@@ -327,15 +410,24 @@ class Cycle:
 
     def _run_slots(self, inst: Mapping[str, int], schedule: Schedule) -> None:
         dispatch_op = self._ipu.dispatch_op
+        stats = self.state.stats
         slot_ops = schedule.slot_ops
         lr_position = schedule.lr_position
         for op in slot_ops[:lr_position]:
-            dispatch_op(op, inst)
+            if op.operands is None:  # a skipped NOP, issued for its counter
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+            else:
+                dispatch_op(op, inst)
         if schedule.lr_conflict is not None:
             raise lr_conflict_error(schedule.lr_conflict)
+        # Every LR sub-slot resolves its reads before any of them writes, in
+        # both modes, so a read that raises leaves no LR written.
         self._ipu.dispatch_lr(schedule.lr_ops, inst)
         for op in slot_ops[lr_position:]:
-            dispatch_op(op, inst)
+            if op.operands is None:
+                setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
+            else:
+                dispatch_op(op, inst)
 
 
 # ``ipu_emu.ipu`` holds the decode tables (a plan holds its handler function) and
