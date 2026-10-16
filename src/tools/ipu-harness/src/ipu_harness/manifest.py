@@ -61,7 +61,10 @@ Schema
     ``ipu_kernels.reference``), not both; ``tolerance`` (format to a tier name
     of :data:`ipu_harness.tolerance.TIERS`, or ``{ tier = ..., rtol = ..., atol =
     ..., ulps = ..., why = "..." }`` overriding a tier's numbers, ``why`` required;
-    a format not listed is compared at ``EXACT``).
+    a key is a format the kernel runs in, or the accumulator format of one
+    (FP32, INT32) for an accumulator output; an override may set only what
+    ``compare`` reads for that format: ``ulps`` only for an 8-bit float, and
+    then not ``rtol``/``atol``; a format not listed is compared at ``EXACT``).
 
 Every declared name (parameter, tensor, derived value) is an identifier that
 does not start with ``_`` and is not ``cr``, ``lr`` or a reserved case key.
@@ -685,11 +688,11 @@ def _golden(
     tolerance: dict[ElementFormat, ToleranceTier] = {}
     if "tolerance" in table:
         tiers = r.table(table["tolerance"], ("golden", "tolerance"))
+        # An accumulator output is compared in its accumulator format (FP32 or INT32).
+        accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
         for fmt, tier in tiers.items():
             path = ("golden", "tolerance", fmt)
             key = r.format(fmt, path)
-            # An accumulator output is compared in its accumulator format (FP32 or INT32).
-            accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
             if key not in formats and key not in accumulated:
                 raise r.fail(
                     path,
