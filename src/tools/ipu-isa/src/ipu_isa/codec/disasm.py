@@ -1,10 +1,12 @@
 """Instruction words to assembly text, from the slot codec (E03-18).
 
-The one place disassembly text is made. ``disassemble`` writes every field of
-every slot, bound to an operand or not, in the format the assembler's
-``CompoundInst.decode`` always had; ``slot_operations`` writes each slot's
-mnemonic and its operands only, in assembly operand order, for the debugger's
-pipeline view.
+The one place disassembly text is made.
+
+* ``disassemble``: every slot instance in layout order (MSB first), each as
+  ``MNEMONIC f0 f1 ...`` with every union field, bound to an operand or not,
+  joined by ``SLOT_SEPARATOR`` and ended by ``WORD_END``.
+* ``slot_operations``: each slot's mnemonic and its operands only, in assembly
+  operand order, labelled by instance, for the debugger's pipeline view.
 """
 
 from __future__ import annotations
@@ -12,7 +14,8 @@ from __future__ import annotations
 from ipu_isa.codec.slot import DecodedSlot, codecs
 from ipu_isa.operand_types import OperandKind, OperandType
 from ipu_isa.reshape_mask import RESHAPE_MASK_LR_OFFSET
-from ipu_isa.view import Isa, Operand, isa
+from ipu_isa.view import Isa, Operand
+from ipu_isa.view import isa as default_isa
 
 #: Between two slots of one word, and after the last.
 SLOT_SEPARATOR = ";\n\t\t\t"
@@ -22,13 +25,22 @@ WORD_END = ";;"
 def type_text(operand_type: OperandType, value: int) -> str:
     """The assembly text of a field value of ``operand_type``.
 
+    Args:
+        operand_type: How to read the value.
+        value: The field's bits.
+
+    Returns:
+        The text:
+
     * REGISTER and ENUM: the member name (``lr3``, ``on_inv``); a value past
       the last member as ``<illegal_<type>_<value>>``.
     * ``LrOrReshapeMaskImmediate``: ``lr<n>`` from ``RESHAPE_MASK_LR_OFFSET``
       up, the number below it.
     * An immediate or label whose value range fits its field is stored from
       code 0 upward (``k - 1`` for ``INCR_MOD_POW2``), so the text adds the
-      range's low end back. Any other value is written as stored.
+      range's low end back. Any other value is written as stored. The width
+      is the type's declared ``bits``; every ranged type declares one, so it
+      equals the layout width ``ipu_isa.faults`` uses for the same rule.
     """
     domain = operand_type.domain
     if operand_type.kind in (OperandKind.REGISTER, OperandKind.ENUM):
@@ -48,7 +60,15 @@ def type_text(operand_type: OperandType, value: int) -> str:
 
 
 def operand_text(op: Operand, value: int) -> str:
-    """The assembly text of operand ``op`` holding the encoded ``value``."""
+    """The assembly text of an operand.
+
+    Args:
+        op: The operand.
+        value: Its encoded value.
+
+    Returns:
+        ``type_text`` of the operand's type.
+    """
     return type_text(op.type, value)
 
 
@@ -75,8 +95,7 @@ def slot_text(decoded: DecodedSlot, *, isa: Isa | None = None) -> str:
         isa: The ISA it was decoded with; default ``ipu_isa.isa()``.
 
     Returns:
-        The slot's text, unused fields included, as ``CompoundInst.decode``
-        always wrote it.
+        The slot's text, unused fields included.
     """
     view = _view(isa)
     return " ".join([decoded.instruction.mnemonic, *_field_texts(decoded, view)])
@@ -129,7 +148,7 @@ def slot_operations(word: int, *, isa: Isa | None = None) -> list[tuple[str, str
 
 
 def _view(view: Isa | None) -> Isa:
-    return isa() if view is None else view
+    return default_isa() if view is None else view
 
 
 def _slots(word: int, view: Isa) -> list[tuple[str, DecodedSlot]]:

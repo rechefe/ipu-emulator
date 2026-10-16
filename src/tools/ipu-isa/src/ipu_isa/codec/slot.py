@@ -194,9 +194,13 @@ class SlotCodec:
         return self._nop
 
     def field_values(self, value: int) -> tuple[int, ...]:
-        """The raw value of every union field of ``value``, field 0 first.
+        """The raw value of every union field of a slot value.
 
-        A field holds whatever is in its bits, bound to an operand or not.
+        Args:
+            value: The slot's bits.
+
+        Returns:
+            Each field's bits, field 0 first, bound to an operand or not.
         """
         return tuple((value >> field.shift) & ((1 << field.bits) - 1) for field in self._fields)
 

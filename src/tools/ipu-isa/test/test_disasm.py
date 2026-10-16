@@ -12,7 +12,7 @@ from ipu_isa.codec.disasm import (
     slot_operations,
     slot_text,
 )
-from ipu_isa.codec.slot import SLOT_CODECS, WORD_CODEC, ReservedEncoding
+from ipu_isa.codec.slot import SLOT_CODECS, WORD_CODEC, DecodedSlot, ReservedEncoding
 from ipu_isa.slots import Slot
 from ipu_isa.view import isa
 
@@ -33,7 +33,7 @@ NOP_SLOTS = [
 ]
 
 
-def _slot(slot: Slot, mnemonic: str, operands: list[int]):
+def _slot(slot: Slot, mnemonic: str, operands: list[int]) -> DecodedSlot:
     codec = SLOT_CODECS[slot]
     return codec.decode(codec.encode(mnemonic, operands))
 
@@ -108,6 +108,15 @@ def test_a_value_past_the_last_member_is_marked_illegal():
     # SET's src (CrIdx, 16 members) sits in the 8-bit field 0.
     value = (isa().instruction(Slot.LR, "SET").opcode << 16) | (200 << 8) | (1 << 4)
     assert slot_text(lr.decode(value)) == "SET <illegal_CrIdx_200> lr1 lr0"
+
+
+def test_an_illegal_mult_stage_names_its_type():
+    load = SLOT_CODECS[Slot.LOAD]
+    # LDR_MULT_REG's dest (MultStageReg, r0/r1) sits in the 4-bit field 2.
+    value = (isa().instruction(Slot.LOAD, "LDR_MULT_REG").opcode << 12) | 13
+    assert slot_text(load.decode(value)).endswith(" <illegal_MultStageReg_13>")
+    word = WORD_CODEC.pack({(Slot.LOAD, 0): value})
+    assert dict(slot_operations(word))["LOAD"].startswith("LDR_MULT_REG <illegal_MultStageReg_13>")
 
 
 def test_a_reserved_opcode_raises():

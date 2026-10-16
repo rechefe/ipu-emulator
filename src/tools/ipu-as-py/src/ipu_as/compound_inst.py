@@ -162,8 +162,15 @@ class CompoundInst:
 
     @classmethod
     def decode(cls, value: int) -> str:
-        """The assembly text of instruction word ``value``; kept until E05
-        retires ``CompoundInst``."""
+        """The assembly text of an instruction word; kept until E05 retires
+        ``CompoundInst``.
+
+        Args:
+            value: The instruction word.
+
+        Returns:
+            ``ipu_isa.codec.disasm.disassemble(value)``.
+        """
         return disassemble(value)
 
     @classmethod
