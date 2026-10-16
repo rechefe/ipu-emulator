@@ -51,6 +51,11 @@ jobs:
           restore-keys: |
             bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}-default-
 
+      # Every tracked .py file is in exactly one ruff_test (tools/lint.bzl) and
+      # //tools:lint lists them all. Needs git, so it runs outside the sandbox.
+      - name: Check ruff_test coverage
+        run: ./tools/check_lint_coverage.sh
+
       # `bazel test` builds everything it tests; there is no separate build step.
       # Tests whose inputs are unchanged report "(cached)" in the summary.
       - name: Run the default test tier

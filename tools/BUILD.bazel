@@ -1,9 +1,11 @@
-load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@ipu_as_deps//:requirements.bzl", "data_requirement", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
 
 exports_files([
     "requirements-tools.in",
+    "ruff_runner.py",
 ])
 
 # Refresh //:requirements_lock.txt from the four pyproject.toml files and
@@ -80,4 +82,46 @@ py_pytest_test(
         "coverage_summary_test.py",
     ],
     deps = [requirement("pytest")],
+)
+
+# The locked ruff (requirements_lock.txt), run in the workspace root:
+#
+#   bazel run //tools:ruff -- check --fix
+#   bazel run //tools:ruff -- format
+#   bazel run //tools:ruff -- --version
+py_binary(
+    name = "ruff",
+    srcs = ["ruff_runner.py"],
+    data = [data_requirement("ruff")],
+    main = "ruff_runner.py",
+    deps = [requirement("ruff")],
+)
+
+# Every ruff_test in the repository (tools/lint.bzl), one per package:
+# `bazel test //tools:lint`. Listed explicitly because a test_suite runs manual
+# tests only when it names them; tools/check_lint_coverage.sh checks that this
+# list matches the ruff_test targets. Tagged manual so `//...` does not pull in
+# the manual ruff tests through it before E01-10 enables them.
+test_suite(
+    name = "lint",
+    tags = ["manual"],
+    tests = [
+        "//:ruff",
+        "//docs:ruff",
+        "//src/tools/ipu-apps:ruff",
+        "//src/tools/ipu-as-py:ruff",
+        "//src/tools/ipu-emu-py:ruff",
+        "//src/tools/ipu-gen:ruff",
+        "//src/tools/ipu-isa:ruff",
+        "//tools:ruff_lint",
+        "//vscode-ipu-asm:ruff",
+    ],
+)
+
+# Ruff over this package's Python files (tools/lint.bzl). Named ruff_lint, not
+# ruff, because //tools:ruff is the runnable ruff above. Manual until E01-10.
+ruff_test(
+    name = "ruff_lint",
+    srcs = glob(["**/*.py"]),
+    tags = ["manual"],
 )

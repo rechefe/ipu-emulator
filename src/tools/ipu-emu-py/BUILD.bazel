@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:runtime_deps.bzl", "runtime_deps_manifest")
 load(":deps.bzl", "RUNTIME_DEPS")
+load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -251,4 +252,12 @@ py_pytest_test(
         ":timing_probes",
         requirement("pytest"),
     ],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+# Manual until E01-10 makes the repository pass; run with `bazel test //tools:lint`.
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+    tags = ["manual"],
 )

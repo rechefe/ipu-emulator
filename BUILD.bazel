@@ -1,8 +1,13 @@
 # Root BUILD file
 
+load("//tools:lint.bzl", "ruff_test")
+
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["requirements_lock.txt"])
+exports_files([
+    "requirements_lock.txt",
+    "ruff.toml",
+])
 
 # Prototyping mode: `bazel test --define=ipu_proto=1 //...` builds the emulator
 # with its opt-in fast paths on. They are bit-exact but are not a faithful model
@@ -20,3 +25,21 @@ exports_files([
     "README.md",
     "SKILL.md",
 ])
+
+# Ruff over the Python files that belong to no other package (none today; a new
+# directory without a BUILD.bazel lands here). Manual until E01-10; run with
+# `bazel test //tools:lint`.
+ruff_test(
+    name = "ruff",
+    srcs = glob(
+        ["**/*.py"],
+        allow_empty = True,
+        exclude = [
+            # Bazel's convenience symlinks into the output tree.
+            "bazel-*/**",
+            "**/.venv/**",
+            "playground/**",
+        ],
+    ),
+    tags = ["manual"],
+)

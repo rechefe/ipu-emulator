@@ -1,6 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("//tools:lint.bzl", "ruff_test")
 
 # All checked-in Markdown and static assets under docs/content/ (MkDocs docs_dir).
 filegroup(
@@ -270,4 +271,12 @@ py_pytest_test(
         "//:GLOSSARY.md",
     ],
     deps = [requirement("pytest")],
+)
+
+# Ruff lint and format over this package's Python files (tools/lint.bzl).
+# Manual until E01-10 makes the repository pass; run with `bazel test //tools:lint`.
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+    tags = ["manual"],
 )
