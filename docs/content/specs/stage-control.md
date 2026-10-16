@@ -242,9 +242,9 @@ the current cycle's VLIW, and the internal program counter (`PC`).
   ```text
   target_pc = (cond.op == BR) ? reg_value : label
   next_PC   = taken ? target_pc : (PC + 1)
-  PC      <= next_PC                       // every cycle
+  PC      <= next_PC                       // every cycle, except after HALT (§6.4)
   ```
-  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT.S`/`BGE.S`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
+  On non-branch cycles `taken = 0` always, so `PC <= PC + 1`. After a `HALT` word, `PC` holds (§6.4). On a branch cycle the cond evaluator's `taken` selects either the branch target `target_pc` (label target for `BEQ`/`BNE`/`BLT.S`/`BGE.S`, register target for `BR`) or the fall-through `PC + 1`. Either way, by the next clock edge `PC` points at exactly the instruction that has just been latched into `inst $`.
 - **Reset:** `rst` initialises `PC` to 0.
 - **Not externally visible:** `PC` is internal state of the controller-logic block; no CTRL port carries it. Externally, the *effect* of `PC` is seen on `imem_read_addr_a` (which is always `PC + 1`) and on `imem_read_addr_b` (which is the computed branch target on branch cycles, don't-care otherwise).
 
@@ -263,7 +263,7 @@ if inst$.cond.op == HALT:
     // hold and no further word issues. This word's other slots go down the
     // chain as usual; kernel_done rises when the word retires at the end of
     // the chain (IPU-EXEC-11), not here.
-    fetch_stopped <= 1
+    fetch_stopped <= 1   // cleared when the next kernel starts at PC 0 (IPU-EXEC-13)
 elif is_branch:
     // Issue BOTH speculative reads in parallel this cycle
     imem_read_a = PC + 1                        // fall-through candidate
@@ -277,7 +277,7 @@ else:
     inst $ <= imem_a                          // committed at end of cycle N
 ```
 
-The instruction at the new PC is **always ready in `inst $` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
+Except after a `HALT` word, the instruction at the new PC is **always ready in `inst $` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
 
 ## 7. Dispatch Buses
 
