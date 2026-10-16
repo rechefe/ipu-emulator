@@ -5,8 +5,6 @@ load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# Update requirements.txt from pyproject.toml by running:
-# bazel run //src/tools/ipu-as-py:update_requirements
 exports_files([
     "pyproject.toml",
 ])

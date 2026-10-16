@@ -33,8 +33,4 @@ bazel build //src/tools/ipu-common:ipu_common_lib
 
 ## Updating
 
-After modifying `pyproject.toml`, regenerate Bazel dependencies:
-
-```bash
-bazel run //src/tools/ipu-common:update_requirements
-```
+Python dependencies are declared in `pyproject.toml`; see the repository README for how the lockfile is refreshed.
