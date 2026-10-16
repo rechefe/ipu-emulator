@@ -154,6 +154,43 @@ S = 's    = { type = "float" }'
 
 # Each rule: an edit of the scale example (old -> new), the message, and the line it must name.
 RULES = [
+    # An input's range (E06-08): a non-empty [lo, hi], per format only for the kernel's formats.
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [1]',
+        "must be [lo, hi]",
+        "range = [1]",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [2, 2]',
+        "is empty",
+        "range = [2, 2]",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = { e5 = [0, 1] }',
+        "range for e5",
+        "range = { e5",
+    ),
+    (
+        '[outputs.y]\nshape = ["rows", 128]',
+        '[outputs.y]\nshape = ["rows", 128]\nrange = [0, 1]',
+        "unknown key 'range' in [outputs.y]",
+        "range = [0, 1]",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = { int8 = [0.2, 0.8] }',
+        "[0.2, 0.8] holds no int8 value",
+        "range = { int8",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [-500, 500]',
+        "[inputs.x] range [-500, 500] is outside int8's [-128, 127]",
+        "range = [-500, 500]",
+    ),
     ('s    = "CR5"', 's    = "CR1"', "[abi] binds CR1, a hardwired constant", 's    = "CR1"'),
     ('s    = "CR5"', 's    = "CR0"', "[abi] binds CR0, a hardwired constant", 's    = "CR0"'),
     ('s    = "CR5"', 's    = "CR16"', "is no CR or LR register", 's    = "CR16"'),
@@ -408,6 +445,23 @@ def test_formats_come_from_the_isa_enum(tmp_path):
     )
     toml = toml.replace('formats = ["fp32", "e4"]', 'formats = ["fp32"]')
     assert load_manifest(kernel(tmp_path, toml)).formats == tuple(ElementFormat)
+
+
+def test_an_input_range_is_per_format(tmp_path):
+    both = SCALE.replace(
+        'shape = ["rows", 128]\n\n[outputs', 'shape = ["rows", 128]\nrange = [-2, 2]\n\n[outputs'
+    )
+    x = load_manifest(kernel(tmp_path, both)).tensors["x"]
+    # A bare [lo, hi] holds in every format the kernel runs in.
+    kernel_formats = (ElementFormat.FP32, ElementFormat.INT8, ElementFormat.E4)
+    assert dict(x.value_range) == dict.fromkeys(kernel_formats, (-2.0, 2.0))
+    table = SCALE.replace(
+        'shape = ["rows", 128]\n\n[outputs',
+        'shape = ["rows", 128]\nrange = { int8 = [-3, 3] }\n\n[outputs',
+    )
+    assert dict(load_manifest(kernel(tmp_path, table, "t")).tensors["x"].value_range) == {
+        ElementFormat.INT8: (-3.0, 3.0)
+    }
 
 
 def test_derived_values_lr_presets_and_scratch(tmp_path):
