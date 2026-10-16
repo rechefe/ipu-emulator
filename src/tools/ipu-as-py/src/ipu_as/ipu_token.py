@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 #: Instruction-memory depth, as the assembler names it.
 MAX_PROGRAM_SIZE = INST_MEM_WORDS
 
+#: The number literals a number operand accepts: exactly the strings Python's
+#: ``int(v, 0)`` reads (NumberToken) among those the grammar's TOKEN matches, as
+#: a regex JavaScript reads too. The editor takes it from isa.json
+#: (``numberPattern``); test_isa_data.py holds it against ``int(v, 0)``.
+NUMBER_PATTERN = (
+    r"[+-]?(?:0[xX](?:_?[0-9a-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+"
+    r"|0(?:_?0)*|[1-9](?:_?[0-9])*)"
+)
+
 
 @dataclasses.dataclass
 class AnnotatedToken:

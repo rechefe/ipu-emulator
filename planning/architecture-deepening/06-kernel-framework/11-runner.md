@@ -95,12 +95,14 @@ Error handling:
 
 ## Tests
 
+- [ ] Before the program runs, every scratch region's rows hold its `fill` (0 by default): placement (E06-04) only reserves them.
 - [ ] `run_kernel` on `scale` returns `passed` for every case and format, with `cycles > 0` and `0 < mac_utilization <= 1`.
 - [ ] `--input x=...` overrides the generator, and `--output` writes `y.npy` even when the comparison fails.
 - [ ] `--trace` writes a file that validates against the E04 trace schema.
 - [ ] Not reaching `HALT` within `max_cycles` gives a clear error (the E04 cycle-limit fault).
 - [ ] A planted `AttributeError` in a generator exits 2 with a traceback.
 - [ ] The runner does not import `torch` when the case has an expected file and no reference.
+- [ ] A spy shows `plan_case` runs once per case run (E06-03).
 
 ## Acceptance Criteria
 

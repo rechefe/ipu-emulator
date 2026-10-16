@@ -58,6 +58,7 @@ def assemble(plan: CasePlan, session: AssemblySession) -> Program:
 - [ ] An undefined template name and an undeclared parameter each give a located error.
 - [ ] Two cases with the same template values assemble once (a session cache hit). Different `rows` values assemble once each, but only if the template uses `rows`.
 - [ ] `assemble_<name>` output equals the binary from the E02 asm digest for a migrated kernel (exercised by E07).
+- [ ] Assembly takes a `CasePlan` and re-checks nothing (E06-03's single seam).
 
 ## Acceptance Criteria
 

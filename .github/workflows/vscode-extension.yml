@@ -119,6 +119,15 @@ jobs:
             vscode-ipu-asm/data/isa.json parser-tokens.json rewrites.json
           bazel run //vscode-ipu-asm:check_rewrites -- "$PWD/rewrites.json"
 
+      # Both directions: the editor accepts a text exactly when the assembler does, over the
+      # corpus, mutations of it and the negative corpus (test/corpus/negative), but for the
+      # reviewed gaps in test/corpus/negative/allowed-gaps.json.
+      - name: Check the editor and the assembler agree on what assembles
+        run: |
+          node vscode-ipu-asm/test/verdicts.js \
+            vscode-ipu-asm/data/isa.json parser-tokens.json verdicts.json
+          bazel run //vscode-ipu-asm:check_verdicts -- "$PWD/verdicts.json"
+
       # Read by the extension at runtime; building it proves Bazel's targets and
       # the registry agree.
       - name: Build the kernel manifest

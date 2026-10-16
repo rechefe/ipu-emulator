@@ -32,7 +32,6 @@ from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.regfile import RegFile
-from ipu_emu.stats import RunStats
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
@@ -527,11 +526,6 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan
     )
 
 
-#: Stands in a prototyping cycle plan's slot list where the LR sub-slots run,
-#: so the fast path follows ``SLOT_EXECUTION_ORDER`` for LR as well.
-_LR_WORK = object()
-
-
 def _build_slot_plans():
     """Build the opcode-indexed plan tables. Called once, after ``Ipu`` exists.
 
@@ -592,10 +586,12 @@ class Ipu:
         # Prototyping mode's shortcuts, read once: the flag belongs to the run,
         # not to the cycle (see ipu_emu/prototyping.py).
         self._prototyping: bool = state.prototyping
-        # PC -> (instruction copy, work that instruction actually does), for
-        # prototyping's NOP-skipping cycle. The copied fields detect debugger
-        # replacements and in-place edits without penalising the faithful path.
-        self._cycle_cache: dict[int, tuple[dict[str, int], tuple]] = {}
+        # How read operands become register values. Prototyping reads LR and
+        # CR storage directly; the results are identical (E04-10 makes this
+        # the resolver adapter). The plain function, called with self: a
+        # bound method stored on self would make every engine a reference
+        # cycle, keeping its state alive until the cyclic collector runs.
+        self._resolve = Ipu._resolve_reads_prototype if self._prototyping else Ipu._resolve_reads
         self._profile = None
         if state.alias_profile is not None:
             from ipu_emu.alias_observer import ExecutionObserver
@@ -639,10 +635,6 @@ class Ipu:
             buffer: The snapshot the cycle refreshes at each cycle start.
         """
         self._snapshot_buffer = buffer
-
-    def forget_cycle_plans(self) -> None:
-        """Drop prototyping's cycle plans cached by PC. Called by :meth:`Cycle.reset`."""
-        self._cycle_cache.clear()
 
     def _require_snapshot(self) -> None:
         """A handler reading the cycle's snapshot runs inside a cycle, which takes it."""
@@ -1203,10 +1195,11 @@ class Ipu:
             ops: ``Schedule.lr_ops`` of the word.
             inst: The word, for the profiler's encoded operands.
         """
+        resolve = self._resolve
         pending = []
         for op in ops:
             kwargs = dict(op.operands)
-            self._resolve_reads(op.plan, kwargs)
+            resolve(self, op.plan, kwargs)
             pending.append((op, kwargs))
         for op, kwargs in pending:
             token = (
@@ -1963,7 +1956,8 @@ class Ipu:
         self, slot_type: str, plan: SlotPlan, kwargs: dict[str, Any], inst: dict[str, int]
     ) -> Any:
         # Auto-resolve 'read' operands to register values.
-        self._resolve_reads(plan, kwargs)
+        if plan.reads:
+            self._resolve(self, plan, kwargs)
 
         # Update run statistics
         if plan.stat is not None:
@@ -2164,115 +2158,6 @@ class Ipu:
         """Evaluate the current word's BREAK slot before side effects. See :meth:`Cycle.evaluate_break`."""
         return self.cycle.evaluate_break()
 
-    # Slots whose NOP handler is not a no-op (execute_cond_nop advances the PC).
-    _SLOTS_WITH_ACTIVE_NOP = frozenset({Slot.COND})
-
-    def _cycle_plan(self, pc: int, inst: dict[str, int]) -> tuple:
-        """The work this PC's instruction word does, cached (prototyping only).
-
-        Which slots hold something other than a NOP, the raw operand values they
-        read out of the word, and whether the LR sub-slots collide are all
-        properties of the *word*, so they are reused while that word is
-        unchanged. Comparing with a stored field copy also detects in-place
-        debugger edits before continuing from a break.
-        """
-        cached = self._cycle_cache.get(pc)
-        if cached is not None:
-            cached_inst, cached_plan = cached
-            if cached_inst == inst:
-                return cached_plan
-
-        schedule = schedule_word(inst)
-        break_op = schedule.break_op
-        break_work = None if break_op is None else (break_op.plan, break_op.operands)
-        lr_work = [(op.plan, op.operands) for op in schedule.lr_ops if op.plan.inst_name != "NOP"]
-        conflict = schedule.lr_conflict
-
-        # A NOP is skippable only where its handler does nothing. The cond
-        # slot's NOP is the exception: it advances the PC, so it always runs.
-        # A skipped NOP may still bump a counter (an idle mult slot is what
-        # ``mult_idle_cycles`` counts), so those bumps are collected here and
-        # applied without calling the handler.
-        # LR keeps its place in the declared order: the ``_LR_WORK`` marker
-        # stands where the LR sub-slots (and their conflict check) run.
-        slot_work: list = []
-        for index, op in enumerate(schedule.slot_ops):
-            if index == schedule.lr_position:
-                slot_work.append(_LR_WORK)
-            plan = op.plan
-            if plan.inst_name != "NOP" or op.slot in Ipu._SLOTS_WITH_ACTIVE_NOP:
-                slot_work.append((plan, op.operands))
-            elif plan.stat is not None:
-                # Kept in place with no operands: run it for the counter alone.
-                slot_work.append((plan, None))
-        if schedule.lr_position == len(schedule.slot_ops):
-            slot_work.append(_LR_WORK)
-
-        cycle_plan = (break_work, conflict, tuple(lr_work), tuple(slot_work))
-        self._cycle_cache[pc] = (dict(inst), cycle_plan)
-        return cycle_plan
-
-    def _run_plan(
-        self,
-        plan: SlotPlan,
-        raw_kwargs: dict[str, int],
-        stats: RunStats,
-        inst: dict[str, int] | None = None,
-    ) -> Any:
-        kwargs = dict(raw_kwargs)
-        if plan.reads:
-            self._resolve_reads_prototype(plan, kwargs)
-        if plan.stat is not None:
-            setattr(stats, plan.stat, getattr(stats, plan.stat) + 1)
-        # MAC accounting and alias classification describe the instruction, not
-        # the path that ran it, so the fast path keeps them — see
-        # dispatch_instruction, whose block this mirrors. Both guards are
-        # precomputed, so a plan that needs neither pays two attribute reads.
-        if plan.is_mult:
-            self._mult_cr_identity = bool(plan.scalar_kind) and self._mult_scalar_is_one(
-                plan.scalar_kind, kwargs[plan.scalar_operand]
-            )
-            self._mult_vector_identity = self._mult_vector_is_one(plan.inst_name, kwargs)
-            self._mult_identity = self._mult_cr_identity or self._mult_vector_identity
-            if self._mult_identity:
-                stats.mult_identity_cycles += 1
-        if plan.alias_checks and inst is not None:
-            self._record_alias(plan, kwargs, inst)
-        return plan.fn(self, **kwargs)
-
-    def _execute_cycle_fast(self, inst: dict[str, int], pc: int, *, with_break: bool):
-        """Prototyping mode's cycle: skip the slots that hold a NOP.
-
-        A NOP handler does nothing, so not calling it leaves identical state --
-        but the real machine still issues that slot, which is why this lives
-        behind the prototyping flag rather than in the faithful path.
-        """
-        break_work, conflict, lr_work, slot_work = self._cycle_plan(pc, inst)
-        stats = self.state.stats
-
-        if with_break and break_work is not None:
-            if self._run_plan(*break_work, stats) == BreakResult.BREAK:
-                return BreakResult.BREAK
-
-        for entry in slot_work:
-            if entry is _LR_WORK:
-                # Conflict detection runs before any LR write, as in the
-                # faithful path.
-                if conflict is not None:
-                    raise lr_conflict_error(conflict)
-                for plan, raw_kwargs in lr_work:
-                    self._run_plan(plan, raw_kwargs, stats)
-                continue
-            plan, raw_kwargs = entry
-            if raw_kwargs is None:
-                # A skipped NOP that still bumps a counter. Its slot keeps its
-                # place in the order so a later slot's exception truncates the
-                # cycle exactly where the faithful path would.
-                setattr(stats, plan.stat, getattr(stats, plan.stat) + 1)
-                continue
-            self._run_plan(plan, raw_kwargs, stats, inst)
-        return BreakResult.CONTINUE
-
     def execute_vliw_cycle(self) -> BreakResult:
         """Execute one VLIW cycle, honouring BREAK. See :meth:`Cycle.step`."""
         return self.cycle.step()
@@ -2324,7 +2209,7 @@ _check_execution_order_covers_plans()
 # ``Ipu`` builds its ``Cycle``, and the cycle module reads this module's decode
 # tables (``plans_for``). Each module imports the other last, so either can be
 # imported first (see the end of ``ipu_emu.cycle``).
-from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp, lr_conflict_error, schedule_word  # noqa: E402
+from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp  # noqa: E402
 
 #: The old name of :class:`CycleOutcome`, kept until E08 migrates the debuggers.
 BreakResult = CycleOutcome

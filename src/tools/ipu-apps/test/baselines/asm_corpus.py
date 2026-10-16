@@ -37,6 +37,11 @@ CORPUS_ROOTS = (
     "vscode-ipu-asm/test",
 )
 
+#: Directories under a corpus root that hold no programs: the editor's negative
+#: corpus, texts most of which do not assemble (vscode-ipu-asm check_verdicts;
+#: its asm_fixtures filegroup leaves it out under Bazel).
+NOT_PROGRAMS = ("vscode-ipu-asm/test/corpus/negative/",)
+
 #: Programs that only assemble when rendered with a Jinja context, and the
 #: contexts today's tests render them with. Each context is one corpus entry;
 #: these programs have no standalone entry (unrendered, ``chunk_widths`` is
@@ -136,6 +141,8 @@ def discover(root: Path) -> list[CorpusEntry]:
     for corpus_root in CORPUS_ROOTS:
         for asm in sorted((root / corpus_root).rglob("*.asm")):
             path = asm.relative_to(root).as_posix()
+            if path.startswith(NOT_PROGRAMS):
+                continue
             if path in RENDER_CONTEXTS:
                 entries.extend(CorpusEntry.rendered(path, c) for c in RENDER_CONTEXTS[path])
             else:

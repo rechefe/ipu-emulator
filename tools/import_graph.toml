@@ -59,8 +59,9 @@ ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 # The kernel framework (E06): the ISA, the assembler's session API and the
 # emulator's reference-model API. Not ipu_apps, nor ipu_debug until the
 # runner takes over launching the debugger (E06-12). Never ipu_kernels, not
-# even inside a function (Q62): the registry loader (E06-16) and the reference
-# lookup (E06-09) load kernel-side modules with importlib.import_module(name)
+# even inside a function (Q62): the registry loader (E06-16), the pack lookup
+# (E06-05) and the reference lookup (E06-09) load kernel-side modules with
+# importlib.import_module(name)
 # on a name read from registry data. That is plugin loading, not an edge, and
 # this test only sees literal names.
 ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu"]
@@ -68,8 +69,9 @@ ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu"]
 # Kernel-side shared code builds on the framework. No other row lists
 # ipu_kernels. Kernel tests and per-kernel .py files under kernels/ are outside
 # src/tools and not checked yet; the issue that adds the first one extends the
-# test to them.
-ipu_kernels = ["ipu_harness"]
+# test to them. The ISA too: element formats and geometry (a pack transform's
+# lanes, E06-05) come from ipu_isa, never a local constant.
+ipu_kernels = ["ipu_harness", "ipu_isa"]
 
 # A shared reference never imports the emulator, nor the framework or the rest
 # of ipu_kernels (both reach ipu_emu): one that does is a copy of the code under

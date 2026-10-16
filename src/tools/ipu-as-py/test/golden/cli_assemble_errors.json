@@ -178,5 +178,53 @@
     "exit_code": 0,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register.asm": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register_undefined.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - lr1 in token LabelToken\nIn Line 3, Column 7\nAdditional Information: Label lr1 not defined\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: NOP: all slots are already filled\nAt: Line 4, Column 60\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/overfull_word.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Too many instructions of type CondInst (max 1)\nAt: Line 3, Column 11\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals.asm": {
+    "exception": null,
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals_out_of_range.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - -0x1_0000_0000 in token AddbiImmediate\nIn Line 4, Column 16\nAdditional Information: Value -4294967296 out of range [-128, 255] for 8 bits\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/unknown_mnemonic.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'FROB' not found in any Inst subclass.\n"
   }
 }

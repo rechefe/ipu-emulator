@@ -1565,6 +1565,7 @@
     "token": "[+-]?[A-Za-z0-9_][A-Za-z0-9_\\.]*",
     "wordTerminator": ";;"
   },
+  "numberPattern": "[+-]?(?:0[xX](?:_?[0-9a-fA-F])+|0[oO](?:_?[0-7])+|0[bB](?:_?[01])+|0(?:_?0)*|[1-9](?:_?[0-9])*)",
   "operandTypes": {
     "ActivationFn": {
       "description": "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, **sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** (see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the **window** bounds a, b) is described in **Building Applications** (`docs/content/building-applications.md`).",
@@ -1996,6 +1997,7 @@
     "r0",
     "r1"
   ],
+  "schemaVersion": 1,
   "slotCount": {
     "aaq": 1,
     "acc": 1,
@@ -2006,6 +2008,69 @@
     "lr": 3,
     "mult": 1,
     "store": 1
+  },
+  "slotFill": {
+    "kinds": {
+      "ACC.ADD": "acc",
+      "ACC.ADD.FIRST": "acc",
+      "ACC.MAX": "acc",
+      "ACC.MAX.FIRST": "acc",
+      "ACC.RESHAPE": "acc",
+      "ACC.STRIDE": "acc",
+      "ACC.SUB": "acc",
+      "ACC.SUB.FIRST": "acc",
+      "ACTIVATE.QUANTIZE": "aaq",
+      "ADD": "lr",
+      "ADDB": "lr",
+      "ADDBI": "lr",
+      "AGG.MAX": "acc",
+      "AGG.MAX.FIRST": "acc",
+      "AGG.SUM": "acc",
+      "AGG.SUM.FIRST": "acc",
+      "B": "cond",
+      "BEQ": "cond",
+      "BGE": "cond",
+      "BGT": "cond",
+      "BKPT": "cond",
+      "BLE": "cond",
+      "BLT": "cond",
+      "BNE": "cond",
+      "BNZ": "cond",
+      "BR": "cond",
+      "BREAK": "break",
+      "BREAK.IFEQ": "break",
+      "BZ": "cond",
+      "DEC": "lr",
+      "INC": "lr",
+      "INCR_MOD_POW2": "lr",
+      "LDR_CYCLIC_MULT_REG": "load",
+      "LDR_MULT_MASK_REG": "load",
+      "LDR_MULT_REG": "load",
+      "MULT.EE": "mult",
+      "MULT.RC.VE": "mult",
+      "MULT.RC.VS": "mult",
+      "MULT.RC.VV": "mult",
+      "MULT.VE": "mult",
+      "SET": "lr",
+      "STR_ACC_REG": "acc_store",
+      "STR_POST_AAQ_REG": "store",
+      "SUB": "lr"
+    },
+    "order": [
+      "cond",
+      "lr",
+      "load",
+      "mult",
+      "acc",
+      "aaq",
+      "store",
+      "acc_store",
+      "break"
+    ],
+    "rule": "own-kind",
+    "wildcards": [
+      "nop"
+    ]
   },
   "slotOrder": [
     "cond",

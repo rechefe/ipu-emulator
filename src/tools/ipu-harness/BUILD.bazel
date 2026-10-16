@@ -1,4 +1,6 @@
-load("@rules_python//python:defs.bzl", "py_library")
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load("//tools:typecheck.bzl", "mypy_test")
 
@@ -27,6 +29,75 @@ py_library(
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("numpy"),
+        requirement("tomli"),  # tomllib before Python 3.11
+    ],
+)
+
+# //kernels:query (E06-16). With ipu_kernels for the families' layer adapters.
+# Each kernel's files reach its runfiles once E06-13's ipu_kernel() exports
+# them; until then the tree it routes over is empty.
+py_binary(
+    name = "query",
+    srcs = ["src/ipu_harness/query.py"],
+    data = ["//kernels:tree"],
+    main = "src/ipu_harness/query.py",
+    deps = [
+        ":ipu_harness_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_lib",
+    ],
+)
+
+# plan_case, the one parameter-validation seam (E06-03).
+py_pytest_test(
+    name = "test_params",
+    srcs = ["test/test_params.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Region placement (E06-04). ipu_apps only for the projections layouts that
+# placement must reproduce (guards E07-02).
+py_pytest_test(
+    name = "test_placement",
+    srcs = ["test/test_placement.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Cases, sweeps, seeded generators and user data (E06-08).
+py_pytest_test(
+    name = "test_cases",
+    srcs = ["test/test_cases.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# Routing as a value: Registry, resolve, layer adapters (E06-16).
+py_pytest_test(
+    name = "test_registry",
+    srcs = ["test/test_registry.py"],
+    data = ["//kernels:tree"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
+# kernel.toml: the schema, the loader and its errors (E06-02).
+py_pytest_test(
+    name = "test_manifest",
+    srcs = ["test/test_manifest.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
     ],
 )
 

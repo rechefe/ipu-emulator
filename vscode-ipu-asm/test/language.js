@@ -66,7 +66,7 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   }
   const ctx = contextAt(alternatives);
   eq([ctx.kind, ctx.others.before], ['mnemonic', ['MULT.VE']], 'the other branch is not in this word');
-  // CompoundInst._fill_instructions: in source order, NOP takes the first free slot in slotOrder -- cond.
+  // CompoundInst._fill_instructions: in source order, NOP takes the first free slot in order -- cond.
   eq([lang.fits(['NOP', 'BKPT']), lang.fits(['BKPT', 'NOP'])], [false, true]);
   // Operand types come from isa.json; accepts follows the domain, case and number bases.
   const t = lang.operandType('ACTIVATE.QUANTIZE', 0);
@@ -76,6 +76,44 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   assert(lang.accepts(lr, 'LR3') && !lang.accepts(lr, 'cr3'));
   const inc = isa.operandTypes.LrIncDecImmediate;
   assert(lang.accepts(inc, '0x10') && lang.accepts(inc, String(inc.max)) && !lang.accepts(inc, String(inc.max + 1)));
+});
+
+test('numbers and slot fill follow isa.json (schema 1); an isa.json without a version keeps the old rules', () => {
+  assert(isa.schemaVersion >= 1, 'isa.json carries schemaVersion');
+  const signed = { min: -100, max: 100 };
+  // The assembler reads literals with int(v, 0): a sign before a 0x / 0b / 0o prefix is fine.
+  for (const v of ['-0x10', '+0b101', '-0o17', '0X1F', '1_0', '-1_00', '0', '-0', '0_0'])
+    assert(lang.accepts(signed, v), `${v} accepted`);
+  for (const v of ['-0x65', '0x', '1__0', '_1', '1_', '007', '0x_', '+-1', '0b2', '1e3'])
+    assert(!lang.accepts(signed, v), `${v} rejected`);
+  // Past 2^53 the comparison is exact: 2^53 + 1 is not 2^53.
+  const big = { min: 0, max: 9007199254740992 };
+  assert(lang.accepts(big, '9007199254740992') && !lang.accepts(big, '9007199254740993'));
+  // In today's ISA only NOP has forms in several slots; this notices when a real case appears, so
+  // the made-up X.A / X.B below can become one.
+  const multi = Object.entries(isa.instructions)
+    .filter(([m, forms]) => !isa.slotFill.wildcards.includes(m.toLowerCase()) && new Set(forms.map((f) => f.slot)).size > 1);
+  eq(multi.map(([m]) => m), [], 'a real non-NOP mnemonic in several slots: test it here instead of X.A / X.B');
+  // A mnemonic with forms in two slots takes the slot the assembler gives it (slotFill.kinds),
+  // never the first free one. Two of them competing for that slot are an over-full word.
+  const twoSlots = (forms) => forms.map((slot) => ({ slot, operands: [], pseudo: false, opcode: 0 }));
+  const withMulti = new Language({
+    ...isa,
+    instructions: { ...isa.instructions, 'X.A': twoSlots(['cond', 'mult']), 'X.B': twoSlots(['cond', 'mult']) },
+    slotFill: { ...isa.slotFill, kinds: { ...isa.slotFill.kinds, 'X.A': 'mult', 'X.B': 'mult' } },
+  });
+  eq([withMulti.fits(['X.A']), withMulti.fits(['X.A', 'X.B']), withMulti.fits(['X.A', 'BKPT'])], [true, false, true]);
+  // Version 0 (no schemaVersion): the old rules, kept for an older checkout's bundled isa.json.
+  const { schemaVersion, numberPattern, slotFill, ...v0 } = isa;
+  const old = new Language({ ...v0, instructions: withMulti.isa.instructions });
+  assert(!old.accepts(signed, '-0x10') && old.accepts(signed, '-16'));
+  assert(old.fits(['X.A', 'X.B']), 'the old rule put a multi-form mnemonic in the first free slot');
+  // A mnemonic slotFill gives no kind does not fit (generator drift shows), and a fill rule this
+  // file does not know keeps the old rule.
+  const noKind = new Language({ ...isa, slotFill: { ...isa.slotFill, kinds: {} } });
+  assert(!noKind.fits(['BKPT']) && noKind.fits(['NOP']));
+  const unknownRule = new Language({ ...isa, instructions: withMulti.isa.instructions, slotFill: { ...withMulti.isa.slotFill, rule: 'later' } });
+  assert(unknownRule.fits(['X.A', 'X.B']), 'an unknown rule falls back to the version-0 rule');
 });
 
 // --- labels, Jinja names, rename, symbols, folding ---------------------------------------------
