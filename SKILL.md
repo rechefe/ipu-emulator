@@ -38,3 +38,4 @@ The rules agents must never break are in [CLAUDE.md](CLAUDE.md), under "Key Cons
 | Terms | [GLOSSARY.md](GLOSSARY.md) |
 | Design decisions | [docs/adr/](docs/adr/) |
 | Code conventions | [code-conventions.md](docs/content/code-conventions.md) |
+| Open or review a PR | [code-review.md](docs/content/code-review.md), [PR template](.github/pull_request_template.md) |

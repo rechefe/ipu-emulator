@@ -107,6 +107,7 @@ nav:
           - Attention: kernels/attention.md
           - MobileViT-S: kernels/mobilevit.md
       - Code conventions: code-conventions.md               # E01-12
+      - Code review: code-review.md                         # E01-13
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md

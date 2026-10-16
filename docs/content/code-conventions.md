@@ -2,7 +2,7 @@
 
 These rules say how code in this repository is written. Reviewers cite a rule by its section instead of a preference; people and agents read the same page.
 
-Each rule names what checks it. **Review** means no tool checks it: the reviewer owns it. The ISA rules (opcodes from position, one source of instruction metadata, handler argument names) and the docs conventions are in `CLAUDE.md`, "Key Constraints", and in [ADR 0001](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0001-isa-package-is-the-single-source-of-truth.md); this page does not repeat them.
+Each rule names what checks it. **Review** means no tool checks it: the reviewer owns it ([Code review](code-review.md)). The ISA rules (opcodes from position, one source of instruction metadata, handler argument names) and the docs conventions are in `CLAUDE.md`, "Key Constraints", and in [ADR 0001](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0001-isa-package-is-the-single-source-of-truth.md); this page does not repeat them.
 
 ## Modules
 
@@ -70,6 +70,8 @@ Run the heavy tier before review when a change touches code that only heavy-tier
 |---|---|---|
 | A refactor PR changes no output, and its description says how that is proven (golden tests, or the full suite with digests). | A reviewer cannot check by reading that a large refactor kept behaviour. | Golden tests; the PR template asks for the proof |
 | A behaviour change is its own PR, labelled `behaviour change`. | Mixed into a refactor, a behaviour change goes unnoticed. | Review; the PR template asks for the label |
+
+The [PR template](https://github.com/rechefe/ipu-emulator/blob/master/.github/pull_request_template.md) asks for both; [Code review](code-review.md) says what the author and the reviewer check.
 
 ## Words
 

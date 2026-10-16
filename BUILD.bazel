@@ -21,6 +21,7 @@ config_setting(
 
 # Read by the doc tests and the docs build in //docs.
 exports_files([
+    ".github/pull_request_template.md",
     "CLAUDE.md",
     "GLOSSARY.md",
     "README.md",
