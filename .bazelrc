@@ -3,9 +3,12 @@
 # Stamp generated artifacts (e.g. ipu_instr_pkg.sv) with the source commit
 build --workspace_status_command=tools/workspace_status.sh
 
-# Coverage support
+# Coverage (the nightly workflow runs `bazel coverage --config=full //...`).
+# One combined lcov report at bazel-out/_coverage/_coverage_report.dat.
+# Instrument the libraries, not the test files themselves.
 coverage --combined_report=lcov
-coverage --instrument_test_targets
+coverage --instrument_test_targets=false
+coverage --instrumentation_filter=^//src/tools[/:],^//docs[/:],^//tools[/:]
 
 # Test output
 test --test_output=errors

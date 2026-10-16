@@ -43,3 +43,20 @@ py_pytest_test(
         requirement("tomli"),
     ],
 )
+
+# Per-package line coverage of a combined lcov report, as a Markdown table.
+# Run by the nightly workflow after `bazel coverage --config=full //...`.
+py_binary(
+    name = "coverage_summary",
+    srcs = ["coverage_summary.py"],
+)
+
+py_pytest_test(
+    name = "coverage_summary_test",
+    size = "small",
+    srcs = [
+        "coverage_summary.py",
+        "coverage_summary_test.py",
+    ],
+    deps = [requirement("pytest")],
+)
