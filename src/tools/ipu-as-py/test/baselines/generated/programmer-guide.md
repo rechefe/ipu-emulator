@@ -2,9 +2,9 @@
 
 Pseudo-instructions are assembly mnemonics that the assembler expands into a real instruction at compile time. They never get an opcode and never appear in the binary, so they cost nothing at runtime — see [Adding a pseudo-instruction](adding-instruction.md#adding-a-pseudo-instruction) for how they're declared. This page is **generated** from `PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.
 
-### `BGT` — Branch if Greater Than (pseudo)
+### `BGT.S` — Branch if Greater Than (pseudo)
 
-**Syntax:** `BGT reg1 reg2 label`
+**Syntax:** `BGT.S reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -17,23 +17,23 @@ Pseudo-instructions are assembly mnemonics that the assembler expands into a rea
 **General description:**
 Branch if first register is greater than second.
 
-> Expands to `BLT reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.
+> Expands to `BLT.S reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.
 
 **Pseudo code:**
 `if (reg1 > reg2) PC = label`
 
 **Example of usage:**
 ```asm
-BGT LR0 LR1 bigger;;
+BGT.S LR0 LR1 bigger;;
 ```
 
-**Expands to:** `BLT` (cond slot), arguments `reg2, reg1, label`
+**Expands to:** `BLT.S` (cond slot), arguments `reg2, reg1, label`
 
 ---
 
-### `BLE` — Branch if Less or Equal (pseudo)
+### `BLE.S` — Branch if Less or Equal (pseudo)
 
-**Syntax:** `BLE reg1 reg2 label`
+**Syntax:** `BLE.S reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -46,17 +46,17 @@ BGT LR0 LR1 bigger;;
 **General description:**
 Branch if first register is less than or equal to second.
 
-> Expands to `BGE reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT expands to BLT. Identical encoding and runtime cost to a hand-written BGE.
+> Expands to `BGE.S reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.
 
 **Pseudo code:**
 `if (reg1 <= reg2) PC = label`
 
 **Example of usage:**
 ```asm
-BLE LR0 LR1 smaller_or_equal;;
+BLE.S LR0 LR1 smaller_or_equal;;
 ```
 
-**Expands to:** `BGE` (cond slot), arguments `reg2, reg1, label`
+**Expands to:** `BGE.S` (cond slot), arguments `reg2, reg1, label`
 
 ---
 

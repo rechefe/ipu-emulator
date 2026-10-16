@@ -123,7 +123,7 @@
 #   (correctness-first; a cycle-tuned version could cache
 #   it across all 8 stripes).
 #
-# Per-stripe DESTINATION row: STR_POST_AAQ_REG's base operand must be a CR,
+# Per-stripe DESTINATION row: ST.AAQ's base operand must be a CR,
 # not an LR (found when a first draft tried an LR base and the assembler
 # rejected it: "CrRegField" only accepts cr0..cr15). So the destination row
 # is CR13 (DST_BASE_ROW, fixed) + LR8, and LR8 is the running offset
@@ -175,7 +175,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157, inherited from fold_16x16x192): a
 # MULT.RC.VV instruction reads its Ra DATA (r0) from the start-of-cycle
-# snapshot, so it cannot consume a chunk loaded by an LDR_MULT_REG issued in
+# snapshot, so it cannot consume a chunk loaded by an LD.MULT issued in
 # the very same bundle -- co-issuing a load and a MULT in one bundle is fine
 # only when the MULT consumes a PREVIOUSLY loaded chunk. This kernel primes
 # the first load of EVERY stripe block (not just the very first, kernel-wide
@@ -188,7 +188,7 @@
 # CHANNEL's TL (never "the same channel again", since L3 has no second
 # stripe pass reusing the same 4 rows).
 #
-# STR_POST_AAQ_REG reads its offset operand LIVE -- never co-issue an ADD on
+# ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
 # the offset LR (lr8) in the same bundle as the store, or the row lands one
 # slot late. Here lr8 only advances in its own bundle at the very end of the
 # channel loop, well clear of the stripe's single store.
@@ -199,7 +199,7 @@
      ("BR", 33, "cr12", "cr9"),
    ] %}
 
-    LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
+    LD.MULT.CYCLIC lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
 
 {% for stripe in range(8) %}
 {%- set tg = stripe // 4 %}
@@ -219,7 +219,7 @@
     # (Re-)prime: stream TL row of this stripe's ch 0. Required at every
     # stripe boundary because lr6 just reset -- the snapshot-contract
     # rotation cannot carry a stale prefetch across the boundary.
-    LDR_MULT_REG        r0 lr6 cr9;;
+    LD.MULT        r0 lr6 cr9;;
 
 1:                                      # this stripe's channel loop (local label)
 
@@ -244,7 +244,7 @@
     # fold_16x16x192 documents for its lr6), so this ADD gets its own word.
     ADD                 lr6 lr6 lr7;;       # src offset: next channel (+2 rows: tg0,tg1)
 {%- endif %}
-    LDR_MULT_REG r0 lr6 {{ next_cr }};
+    LD.MULT r0 lr6 {{ next_cr }};
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply {{ name }} row (prefetch next stream)
     ACC.RESHAPE lrd2 lrd4 0;;               # call0: src[{{ src_base }}..{{ src_base+7 }}] -> dest[{{ dest_base }},{{ dest_base+2 }},..,{{ dest_base+14 }}]
     ADDBI               lrd2 8;
@@ -258,13 +258,13 @@
     ACC.RESHAPE lrd2 lrd4 0;;               # call3
 {% endfor %}
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr13;;     # stripe {{ stripe }} <- DST_BASE_ROW + (stripe*144 + ch)
+    ST.AAQ         lr8 cr13;;     # stripe {{ stripe }} <- DST_BASE_ROW + (stripe*144 + ch)
 
     # -- Advance pointers; loop within this stripe --------------------------
     ADD                 lr8 lr8 lr9;;       # dst offset: next row (running across the whole kernel)
     ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 1b;;                  # loop while ch < 144
+    BLT.S                 lr10 lr11 1b;;                  # loop while ch < 144
 {% endfor %}
 
 end:
-    BKPT;;
+    HALT;;

@@ -128,7 +128,7 @@ def _load_q_channel_major(state: IpuState, q_path: Path, head: int) -> None:
     """Stage the selected head's Q channel columns, one whole row each.
 
     Row ``p*D + c`` holds ``Q[p, 0:64, c]`` in its leading 64 lanes -- exactly
-    what one ``LDR_CYCLIC_MULT_REG`` pulls into R_CYCLIC as the vector operand.
+    what one ``LD.MULT.CYCLIC`` pulls into R_CYCLIC as the vector operand.
     Rows are never shared: the trailing 64 lanes are zero padding.
     """
     q = _read_head(q_path, head)  # [P, D, N]
@@ -142,7 +142,7 @@ def _load_k_keymajor(state: IpuState, k_path: Path, head: int) -> None:
     """Rearrange the selected head's K from channel-major into key-major rows.
 
     Row ``p*N + s`` holds ``K[p, s, 0:48]`` contiguously, which is what lets one
-    ``LDR_MULT_REG`` pull a key's whole head-channel vector into R0 (the scalar
+    ``LD.MULT`` pull a key's whole head-channel vector into R0 (the scalar
     operand, indexed by the contraction channel c).
     """
     k = _read_head(k_path, head)  # [P, D, N]

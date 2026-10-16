@@ -181,20 +181,20 @@ _SPEC: dict[Slot, dict[str, Any]] = {
         "debug_only": True,
         "title": "Accumulator store",
         "description": (
-            "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not "
+            "Simulation-only stores of R_ACC to external memory (ST.ACC). Not "
             "implemented in real IPU hardware."
         ),
         "doc_heading": "ACC_STORE Instructions",
         "doc_intro": (
             "Simulation-only slot for storing **R_ACC** to external memory "
-            "(`STR_ACC_REG`). Not implemented in real IPU hardware."
+            "(`ST.ACC`). Not implemented in real IPU hardware."
         ),
         "field_prefix": "acc_store_inst",
         "opcode_enum": "acc_store_inst_opcode",
         "sv_struct_base": "acc_store_slot",
         "asm_opcode_class": "AccStoreInstOpcode",
         "legend_colour": "#C0392B",
-        "legend_label": "AccStoreInst (STR_ACC_REG, simulation-only)",
+        "legend_label": "AccStoreInst (ST.ACC, simulation-only)",
     },
     Slot.MULT: {
         "count": 1,

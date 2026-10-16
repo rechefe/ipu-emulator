@@ -26,7 +26,7 @@
 #   MULT.RC.VE rc_idx=0, src=chan_index (=c → R0[c]) → mult_res[i] = Q[i,c]·K[s,c]
 #   c==0: ACC.ADD.FIRST  else: ACC.ADD   → R_ACC[i] += Q[i,c]·K[s,c]
 #   After 36 channels: R_ACC[i] = S[i,s] for the 128 queries of this group.
-#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#   ACTIVATE.QUANTIZE identity + ST.AAQ
 #     → 512 B (128 × int32/fp32) key-major score row.  No AGG.
 #
 # Counts/head: 256 keys × 2 groups × 36 channels = 18432 MULT+ACC bundles
@@ -50,7 +50,7 @@
 {% set q_ptr       = "lr4"  %}  {# byte offset into Q, walks head channels c #}
 {% set chan_index  = "lr5"  %}  {# head-channel index c -> selects K[s,c] in r0 #}
 {% set chan_bound  = "lr6"  %}  {# 34 = c-loop bound (first=0, width=36) #}
-{% set chan_last   = "lr11" %}  {# 35 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set chan_last   = "lr11" %}  {# 35 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr     = "lr7"  %}  {# byte offset into S, += 512 per store #}
 {% set key_ptr     = "lr8"  %}  {# byte offset into key-major K, += key_stride #}
 {% set key_index   = "lr9"  %}  {# key counter s #}
@@ -70,30 +70,30 @@
     # start-of-cycle snapshot (issue #157), so each Q channel column is loaded a
     # bundle before the MULT consuming it and chan_index's ADD moves into a
     # c_loop_*_pre block (MULT reads it LIVE and must name the channel just
-    # loaded). BLT reads the SNAPSHOT, so with that ADD a word earlier it sees an
+    # loaded). BLT.S reads the SNAPSHOT, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last channel
     # is dropped. Computed in-kernel so the harness's lr6 stays untouched.
     ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
 
 s_loop:
     ADD {{ key_ptr }} {{ key_ptr }} {{ key_stride }};;  # key byte offset += 128 (first live = 0)
-    LDR_MULT_REG r0 {{ key_ptr }} {{ K_BASE_KM }};;     # r0[0..127] = K[s, 0:35] + zeros
+    LD.MULT r0 {{ key_ptr }} {{ K_BASE_KM }};;     # r0[0..127] = K[s, 0:35] + zeros
 
     # -- query group 0 (queries 0..127) -------------------------------------
     SET {{ q_ptr }} {{ Q_START_G0 }};;                  # channel-column startup: -256
     SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
     # Prime c=0's Q column (the MULT below consumes it from the snapshot).
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
     B after_c_g0;;
 
 c_loop_g0_pre:
@@ -102,28 +102,28 @@ c_loop_g0_pre:
 c_loop_g0:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_g0_pre;;
 
 after_c_g0:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[0:128, s] (key-major row, g=0)
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[0:128, s] (key-major row, g=0)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     # -- query group 1 (queries 128..255) -----------------------------------
     SET {{ q_ptr }} {{ Q_START_G1 }};;                  # g=1 channel-column startup: -128 → first live = 128
     SET {{ chan_index }} {{ CHAN_START }};;             # fixed_idx c startup: -1
 
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
     B after_c_g1;;
 
 c_loop_g1_pre:
@@ -132,17 +132,17 @@ c_loop_g1_pre:
 c_loop_g1:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ q_ptr }} {{ Q_BASE }} {{ rc_slot0 }};
     ADD {{ q_ptr }} {{ q_ptr }} {{ chan_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_g1_pre;;
 
 after_c_g1:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store S[128:256, s] (key-major row, g=1)
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store S[128:256, s] (key-major row, g=1)
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # output ptr += 512
 
     ADD {{ key_index }} {{ key_index }} {{ ONE }};
-    BLT {{ key_index }} {{ key_limit }} s_loop;;  # next key
+    BLT.S {{ key_index }} {{ key_limit }} s_loop;;  # next key
 
 end:
-    BKPT;;
+    HALT;;

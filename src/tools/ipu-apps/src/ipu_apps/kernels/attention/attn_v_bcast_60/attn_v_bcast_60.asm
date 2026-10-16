@@ -42,13 +42,13 @@
 #   O channel-major: O[i,t] at OBASE + chan*OUT_STRIDE, lane i.
 #
 # VLIW timing:
-#   LR slot runs first; XMEM + MULT then read LR values LIVE (post-ADD); BLT reads
+#   LR slot runs first; XMEM + MULT then read LR values LIVE (post-ADD); BLT.S reads
 #   the SNAPSHOT (pre-ADD).  Single-cycle inner body:
-#     LDR_CYCLIC P[h,s_live]; ADD data ptr; MULT.RC.VE src=s_live; ACC.ADD; BLT
+#     LDR_CYCLIC P[h,s_live]; ADD data ptr; MULT.RC.VE src=s_live; ACC.ADD; BLT.S
 #   Startup offsets (one-cycle pipeline align):
 #     data ptr  p_ptr = first_row - KEY_STRIDE   (ADD -> live = first_row)
 #     key index key_index = -1                   (ADD +1 -> live s = 0)
-#     BLT bound KEY_BOUND = 14  (first_index=0, width=16 -> 0+16-2=14)
+#     BLT.S bound KEY_BOUND = 14  (first_index=0, width=16 -> 0+16-2=14)
 #
 # Registers are referred to below by the symbolic names defined in the
 # register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -59,7 +59,7 @@
 # Register assignments and their meanings are listed in the register-name
 # block below -- it is the single source of truth for this kernel.
 #
-# Loop bounds (BLT reads the pre-ADD snapshot; branch taken while snapshot < bound):
+# Loop bounds (BLT.S reads the pre-ADD snapshot; branch taken while snapshot < bound):
 #   KEY_BOUND   = 14          (key-loop bound: width 16, peeled + startup)
 #   CHAN_BOUND  = 59          (t-loop bound: 60 channels per head)
 #   HEAD_BOUND  = 3           (head-loop bound: 4 heads)
@@ -74,7 +74,7 @@
 {% set key_index     = "lr5"  %}  {# contraction key index s -> selects V[s,t] in r0 #}
 {% set head_index    = "lr6"  %}  {# head counter h #}
 {% set chan_index    = "lr7"  %}  {# head-channel counter t #}
-{% set key_last      = "lr8"  %}  {# 15 = KEY_BOUND + 1; BLT bound now that key_index's ADD sits a word ahead of the branch #}
+{% set key_last      = "lr8"  %}  {# 15 = KEY_BOUND + 1; BLT.S bound now that key_index's ADD sits a word ahead of the branch #}
 {% set v_ptr         = "lr10" %}  {# chan row offset -> r0 = V[0:15, chan] #}
 {% set p_head_base   = "lr12" %}  {# h*P_HEAD_STRIDE, P head base (rows) #}
 {% set out_ptr       = "lr14" %}  {# output row offset, += out_stride per store #}
@@ -95,7 +95,7 @@
     # start-of-cycle snapshot (issue #157), so each P key row is loaded a bundle
     # before the MULT consuming it and key_index's ADD moves into s_loop_pre
     # (the scalar operand is read LIVE from R0 and must name the key just
-    # loaded). BLT reads the SNAPSHOT, so with that ADD a word earlier it sees an
+    # loaded). BLT.S reads the SNAPSHOT, so with that ADD a word earlier it sees an
     # already-incremented index and needs the higher bound, or the last key is
     # dropped.
     SET     {{ key_last }} {{ KEY_BOUND }};;
@@ -112,7 +112,7 @@ h_loop:
 t_loop:
 
     # -- load V[:, chan] into R0 (all 16 keys fit in one row; no R1) ----------
-    LDR_MULT_REG r0 {{ v_ptr }} {{ V_BASE }};;                # R0 = V[0:15, chan]  (VBASE + chan*KEY_STRIDE)
+    LD.MULT r0 {{ v_ptr }} {{ V_BASE }};;                # R0 = V[0:15, chan]  (VBASE + chan*KEY_STRIDE)
 
     # -- key loop: s = 0..15 over the single 16-query group -------------------
     # P[h,s] row = PBASE + h*P_HEAD_STRIDE + s*KEY_STRIDE.  p_ptr = start - KEY_STRIDE.
@@ -122,39 +122,39 @@ t_loop:
     SET     {{ key_index }}  {{ KEY_START }};;                # key index startup = -1 (ADD +1 -> s=0)
 
     # Prime s=0's P row (the MULT below consumes it from the snapshot).
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.ADD.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
-    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
+    BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
 s_loop_pre:
     ADD     {{ key_index }} {{ key_index }} {{ ONE }};;       # name the key just loaded
 s_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
-    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
+    BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
 s_done:
 
     # -- store channel-major row O[0:16, chan] --------------------------------
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};;  # one whole FP32 row -> OBASE + chan*OUT_STRIDE
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};;  # one whole FP32 row -> OBASE + chan*OUT_STRIDE
     ADD     {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output-row offset
 
     ADD     {{ v_ptr }} {{ v_ptr }} {{ key_stride }};;        # next channel: R0 source += KEY_STRIDE
     ADD     {{ chan_index }}  {{ chan_index }}  {{ ONE }};
-    BLT {{ chan_index }} {{ CHAN_BOUND }} t_loop;;
+    BLT.S {{ chan_index }} {{ CHAN_BOUND }} t_loop;;
 
     ADD     {{ p_head_base }} {{ p_head_base }} {{ P_HEAD_STRIDE }};; # next head: P head base += stride
     ADD     {{ head_index }}  {{ head_index }}  {{ ONE }};
-    BLT {{ head_index }} {{ HEAD_BOUND }} h_loop;;
+    BLT.S {{ head_index }} {{ HEAD_BOUND }} h_loop;;
 
 end:
-    BKPT;;
+    HALT;;

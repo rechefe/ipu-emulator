@@ -486,20 +486,20 @@
         "slot": "cond"
       }
     ],
-    "BGE": [
+    "BGE.S": [
       {
         "doc": {
-          "example": "BGE LR0 CR1 ge;;",
+          "example": "BGE.S LR0 CR1 ge;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
             "label: Branch target label"
           ],
-          "operation": "if (reg1 >= reg2) PC = label",
-          "summary": "Branch if first register is greater than or equal to second.",
-          "syntax": "BGE reg1 reg2 label",
-          "title": "Branch if Greater or Equal"
+          "operation": "if (int32(reg1) >= int32(reg2)) PC = label  # signed 32-bit",
+          "summary": "Branch if first register is greater than or equal to second, as signed 32-bit integers.",
+          "syntax": "BGE.S reg1 reg2 label",
+          "title": "Branch if Greater or Equal (signed)"
         },
         "opcode": 3,
         "operands": [
@@ -522,11 +522,11 @@
         "slot": "cond"
       }
     ],
-    "BGT": [
+    "BGT.S": [
       {
         "doc": {
-          "example": "BGT LR0 LR1 bigger;;",
-          "notes": "Expands to `BLT reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.",
+          "example": "BGT.S LR0 LR1 bigger;;",
+          "notes": "Expands to `BLT.S reg2, reg1, label` at assemble time (operands swapped). Identical encoding and runtime cost to a hand-written BLT.S.",
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
@@ -534,10 +534,10 @@
           ],
           "operation": "if (reg1 > reg2) PC = label",
           "summary": "Branch if first register is greater than second.",
-          "syntax": "BGT reg1 reg2 label",
+          "syntax": "BGT.S reg1 reg2 label",
           "title": "Branch if Greater Than (pseudo)"
         },
-        "expandsTo": "BLT",
+        "expandsTo": "BLT.S",
         "operands": [
           {
             "name": "reg1",
@@ -556,28 +556,11 @@
         "slot": "cond"
       }
     ],
-    "BKPT": [
+    "BLE.S": [
       {
         "doc": {
-          "example": null,
-          "notes": null,
-          "operands": [],
-          "operation": "Halt execution (debugging)",
-          "summary": "Conditional breakpoint.",
-          "syntax": "BKPT",
-          "title": "Breakpoint"
-        },
-        "opcode": 5,
-        "operands": [],
-        "pseudo": false,
-        "slot": "cond"
-      }
-    ],
-    "BLE": [
-      {
-        "doc": {
-          "example": "BLE LR0 LR1 smaller_or_equal;;",
-          "notes": "Expands to `BGE reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT expands to BLT. Identical encoding and runtime cost to a hand-written BGE.",
+          "example": "BLE.S LR0 LR1 smaller_or_equal;;",
+          "notes": "Expands to `BGE.S reg2, reg1, label` at assemble time (operands swapped), exactly mirroring how BGT.S expands to BLT.S. Identical encoding and runtime cost to a hand-written BGE.S.",
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
@@ -585,10 +568,10 @@
           ],
           "operation": "if (reg1 <= reg2) PC = label",
           "summary": "Branch if first register is less than or equal to second.",
-          "syntax": "BLE reg1 reg2 label",
+          "syntax": "BLE.S reg1 reg2 label",
           "title": "Branch if Less or Equal (pseudo)"
         },
-        "expandsTo": "BGE",
+        "expandsTo": "BGE.S",
         "operands": [
           {
             "name": "reg1",
@@ -607,20 +590,20 @@
         "slot": "cond"
       }
     ],
-    "BLT": [
+    "BLT.S": [
       {
         "doc": {
-          "example": "BLT LR0 CR1 smaller;;",
+          "example": "BLT.S LR0 CR1 smaller;;",
           "notes": null,
           "operands": [
             "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
             "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",
             "label: Branch target label"
           ],
-          "operation": "if (reg1 < reg2) PC = label",
-          "summary": "Branch if first register is less than second.",
-          "syntax": "BLT reg1 reg2 label",
-          "title": "Branch if Less Than"
+          "operation": "if (int32(reg1) < int32(reg2)) PC = label  # signed 32-bit",
+          "summary": "Branch if first register is less than second, as signed 32-bit integers.",
+          "syntax": "BLT.S reg1 reg2 label",
+          "title": "Branch if Less Than (signed)"
         },
         "opcode": 2,
         "operands": [
@@ -839,6 +822,23 @@
         "slot": "lr"
       }
     ],
+    "HALT": [
+      {
+        "doc": {
+          "example": null,
+          "notes": null,
+          "operands": [],
+          "operation": "Halt execution (debugging)",
+          "summary": "Conditional breakpoint.",
+          "syntax": "HALT",
+          "title": "Breakpoint"
+        },
+        "opcode": 5,
+        "operands": [],
+        "pseudo": false,
+        "slot": "cond"
+      }
+    ],
     "INC": [
       {
         "doc": {
@@ -869,10 +869,10 @@
         "slot": "lr"
       }
     ],
-    "INCR_MOD_POW2": [
+    "INC.MODP2": [
       {
         "doc": {
-          "example": "INCR_MOD_POW2 LR2 LR3 4;;",
+          "example": "INC.MODP2 LR2 LR3 4;;",
           "notes": null,
           "operands": [
             "dest: Destination loop register (LR0–LR15); read and written",
@@ -881,7 +881,7 @@
           ],
           "operation": "dest <- (dest + step) & ((1 << k) - 1)",
           "summary": "Add a loop or configuration register into the destination loop register, then mask to k low bits (mod 2^k).",
-          "syntax": "INCR_MOD_POW2 dest step k",
+          "syntax": "INC.MODP2 dest step k",
           "title": "Increment Loop Register Modulo Power of Two"
         },
         "opcode": 3,
@@ -905,44 +905,7 @@
         "slot": "lr"
       }
     ],
-    "LDR_CYCLIC_MULT_REG": [
-      {
-        "doc": {
-          "example": null,
-          "notes": null,
-          "operands": [
-            "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR15), in XMEM rows.",
-            "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in narrow and wide-vector debug mode alike, and a load always replaces one whole 128-element slot."
-          ],
-          "operation": "R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
-          "summary": "Load with cyclic addressing into R_CYCLIC.",
-          "syntax": "LDR_CYCLIC_MULT_REG offset base index",
-          "title": "Load Cyclic Register"
-        },
-        "opcode": 1,
-        "operands": [
-          {
-            "name": "offset",
-            "read": "forwarded",
-            "type": "LrIdx"
-          },
-          {
-            "name": "base",
-            "read": "cycle_start",
-            "type": "CrIdx"
-          },
-          {
-            "name": "index",
-            "read": "forwarded",
-            "type": "LrIdx"
-          }
-        ],
-        "pseudo": false,
-        "slot": "load"
-      }
-    ],
-    "LDR_MULT_MASK_REG": [
+    "LD.MASK": [
       {
         "doc": {
           "example": null,
@@ -953,7 +916,7 @@
           ],
           "operation": "R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
           "summary": "Load mask data from memory.",
-          "syntax": "LDR_MULT_MASK_REG offset base",
+          "syntax": "LD.MASK offset base",
           "title": "Load Mask Register"
         },
         "opcode": 2,
@@ -973,10 +936,10 @@
         "slot": "load"
       }
     ],
-    "LDR_MULT_REG": [
+    "LD.MULT": [
       {
         "doc": {
-          "example": "SET LR0 CR1;;\nLDR_MULT_REG R0 LR0 CR0;;",
+          "example": "SET LR0 CR1;;\nLD.MULT R0 LR0 CR0;;",
           "notes": null,
           "operands": [
             "`dest`: **`R0`** | **`R1`** — mult-stage register to load (2-bit field; only these encodings are valid).",
@@ -985,7 +948,7 @@
           ],
           "operation": "dest = Memory[row(offset + base)]  # one row = 128 elements (128 B narrow, 512 B wide-vector debug)",
           "summary": "Load data from memory into a multiplication stage register.",
-          "syntax": "LDR_MULT_REG dest offset base",
+          "syntax": "LD.MULT dest offset base",
           "title": "Load Register"
         },
         "opcode": 0,
@@ -1004,6 +967,43 @@
             "name": "base",
             "read": "cycle_start",
             "type": "CrIdx"
+          }
+        ],
+        "pseudo": false,
+        "slot": "load"
+      }
+    ],
+    "LD.MULT.CYCLIC": [
+      {
+        "doc": {
+          "example": null,
+          "notes": null,
+          "operands": [
+            "offset: Offset register (LR0–LR15), in XMEM rows.",
+            "base: Base address register (CR0–CR15), in XMEM rows.",
+            "index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in narrow and wide-vector debug mode alike, and a load always replaces one whole 128-element slot."
+          ],
+          "operation": "R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
+          "summary": "Load with cyclic addressing into R_CYCLIC.",
+          "syntax": "LD.MULT.CYCLIC offset base index",
+          "title": "Load Cyclic Register"
+        },
+        "opcode": 1,
+        "operands": [
+          {
+            "name": "offset",
+            "read": "forwarded",
+            "type": "LrIdx"
+          },
+          {
+            "name": "base",
+            "read": "cycle_start",
+            "type": "CrIdx"
+          },
+          {
+            "name": "index",
+            "read": "forwarded",
+            "type": "LrIdx"
           }
         ],
         "pseudo": false,
@@ -1062,7 +1062,7 @@
           "example": "MULT.RC.VE LR0 LR3 0 LR2 CR15;;",
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
-            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
+            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
             "`src`: **`LR0`**…**`LR15`** | **`CR0`**…**`CR15`** — if an LR, its stored value selects the scalar from R0/R1 (0..127 → `R0[idx]`, 128..255 → `R1[idx - 128]`); if a CR, its low byte supplies the scalar directly.",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
@@ -1108,7 +1108,7 @@
           "example": "MULT.RC.VS LR0 0 LR2 CR15;;",
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
-            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
+            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
             "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly)."
@@ -1149,8 +1149,8 @@
           "example": "MULT.RC.VV LR0 R0 0 LR2 CR15;;",
           "notes": "Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
           "operands": [
-            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LDR_CYCLIC_MULT_REG`'s `index`).",
-            "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LDR_MULT_REG` into **`R0`**/**`R1`** is allowed).",
+            "`rc_idx`: **`LR0`**…**`LR15`** — base ELEMENT index into **`R_CYCLIC`** (cyclic, mod 512 elements; same unit as `LD.MULT.CYCLIC`'s `index`).",
+            "`ra`: **`R0`** | **`R1`** — multiplicand mult-stage register (same cycle as `LD.MULT` into **`R0`**/**`R1`** is allowed).",
             "`mask_offset`: immediate mask slot **`0`**…**`7`** — selects one of eight 128-bit masks in **`R_MASK`**.",
             "`mask_shift`: **`LR0`**…**`LR15`** — index ∈ [−3, +3] (values >3 clamp to 3, values <−3 clamp to −3) selecting one of seven masks via sequential shift-and-AND: positive indices use partition_vector (0 at group start), negative indices use inverse_partition_vector (0 at group end).",
             "`cr_idx`: **`CR0`**…**`CR15`** — dstructure register supplying the `partition` field used to build the partition vectors and the `pad_mode` field used to fill deactivated elements (must be given explicitly)."
@@ -1404,41 +1404,10 @@
         "slot": "lr"
       }
     ],
-    "STR_ACC_REG": [
+    "ST.AAQ": [
       {
         "doc": {
-          "example": "STR_ACC_REG LR0 CR1;;",
-          "notes": "This instruction lives in the simulation-only **acc_store** slot.",
-          "operands": [
-            "offset: Offset register (LR0–LR15), in XMEM rows.",
-            "base: Base address register (CR0–CR15), in XMEM rows."
-          ],
-          "operation": "Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
-          "summary": "Store **R_ACC** to external memory. **Simulation-only** — not implemented in real IPU hardware.",
-          "syntax": "STR_ACC_REG offset base",
-          "title": "Store Accumulator"
-        },
-        "opcode": 0,
-        "operands": [
-          {
-            "name": "offset",
-            "read": "forwarded",
-            "type": "LrIdx"
-          },
-          {
-            "name": "base",
-            "read": "cycle_start",
-            "type": "CrIdx"
-          }
-        ],
-        "pseudo": false,
-        "slot": "acc_store"
-      }
-    ],
-    "STR_POST_AAQ_REG": [
-      {
-        "doc": {
-          "example": "STR_POST_AAQ_REG LR0 CR0;;",
+          "example": "ST.AAQ LR0 CR0;;",
           "notes": null,
           "operands": [
             "offset: Offset register (LR0–LR15), in XMEM rows.",
@@ -1446,7 +1415,7 @@
           ],
           "operation": "Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
           "summary": "Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.",
-          "syntax": "STR_POST_AAQ_REG offset base",
+          "syntax": "ST.AAQ offset base",
           "title": "Store Post-AAQ register"
         },
         "opcode": 0,
@@ -1464,6 +1433,37 @@
         ],
         "pseudo": false,
         "slot": "store"
+      }
+    ],
+    "ST.ACC": [
+      {
+        "doc": {
+          "example": "ST.ACC LR0 CR1;;",
+          "notes": "This instruction lives in the simulation-only **acc_store** slot.",
+          "operands": [
+            "offset: Offset register (LR0–LR15), in XMEM rows.",
+            "base: Base address register (CR0–CR15), in XMEM rows."
+          ],
+          "operation": "Memory[row(offset + base)] = R_ACC (512 bytes, both modes -- width does not scale with element width)",
+          "summary": "Store **R_ACC** to external memory. **Simulation-only** — not implemented in real IPU hardware.",
+          "syntax": "ST.ACC offset base",
+          "title": "Store Accumulator"
+        },
+        "opcode": 0,
+        "operands": [
+          {
+            "name": "offset",
+            "read": "forwarded",
+            "type": "LrIdx"
+          },
+          {
+            "name": "base",
+            "read": "cycle_start",
+            "type": "CrIdx"
+          }
+        ],
+        "pseudo": false,
+        "slot": "acc_store"
       }
     ],
     "SUB": [
@@ -1666,7 +1666,7 @@
       "relative_max": 1023
     },
     "LcrIdx": {
-      "description": "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INCR_MOD_POW2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte is the scalar directly).",
+      "description": "LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte is the scalar directly).",
       "kind": "enum",
       "values": [
         "lr0",
@@ -1732,7 +1732,7 @@
       "min": 0
     },
     "LrModPow2KImmediate": {
-      "description": "Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic **k ∈ [1, 9]** as **(k − 1)** in the word.",
+      "description": "Four-bit immediate for **`INC.MODP2`**: encodes exponent **k** with semantic **k ∈ [1, 9]** as **(k − 1)** in the word.",
       "kind": "number",
       "max": 9,
       "min": 1
@@ -1774,7 +1774,7 @@
       "min": 0
     },
     "MultStageReg": {
-      "description": "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LDR_MULT_REG` and as the **`ra`** operand of `MULT.RC.VV`.",
+      "description": "Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LD.MULT` and as the **`ra`** operand of `MULT.RC.VV`.",
       "kind": "enum",
       "values": [
         "r0",
@@ -2029,11 +2029,10 @@
       "AGG.SUM.FIRST": "acc",
       "B": "cond",
       "BEQ": "cond",
-      "BGE": "cond",
-      "BGT": "cond",
-      "BKPT": "cond",
-      "BLE": "cond",
-      "BLT": "cond",
+      "BGE.S": "cond",
+      "BGT.S": "cond",
+      "BLE.S": "cond",
+      "BLT.S": "cond",
       "BNE": "cond",
       "BNZ": "cond",
       "BR": "cond",
@@ -2041,19 +2040,20 @@
       "BREAK.IFEQ": "break",
       "BZ": "cond",
       "DEC": "lr",
+      "HALT": "cond",
       "INC": "lr",
-      "INCR_MOD_POW2": "lr",
-      "LDR_CYCLIC_MULT_REG": "load",
-      "LDR_MULT_MASK_REG": "load",
-      "LDR_MULT_REG": "load",
+      "INC.MODP2": "lr",
+      "LD.MASK": "load",
+      "LD.MULT": "load",
+      "LD.MULT.CYCLIC": "load",
       "MULT.EE": "mult",
       "MULT.RC.VE": "mult",
       "MULT.RC.VS": "mult",
       "MULT.RC.VV": "mult",
       "MULT.VE": "mult",
       "SET": "lr",
-      "STR_ACC_REG": "acc_store",
-      "STR_POST_AAQ_REG": "store",
+      "ST.AAQ": "store",
+      "ST.ACC": "acc_store",
       "SUB": "lr"
     },
     "order": [
@@ -2093,7 +2093,7 @@
       "hardware": true
     },
     "acc_store": {
-      "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware.",
+      "description": "Simulation-only stores of R_ACC to external memory (ST.ACC). Not implemented in real IPU hardware.",
       "hardware": false
     },
     "break": {

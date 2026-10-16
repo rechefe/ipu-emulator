@@ -240,10 +240,10 @@ _COUNTING = list(range(1, LANES + 1))
 _BRANCH = """
     SET LR0 CR2 ; {branch} taken ;;
     SET LR7 CR3 ;;
-    BKPT ;;
+    HALT ;;
 taken:
     SET LR7 CR4 ;;
-    BKPT ;;
+    HALT ;;
 """
 _BRANCH_CR = {2: 5, 3: 1, 4: 2}
 
@@ -252,10 +252,10 @@ _SIGNED_BRANCH = """
     SET LR0 CR2 ;;
     {branch} LR0 CR0 taken ;;
     SET LR7 CR3 ;;
-    BKPT ;;
+    HALT ;;
 taken:
     SET LR7 CR4 ;;
-    BKPT ;;
+    HALT ;;
 """
 _SIGNED_BRANCH_CR = {2: 0xFFFFFFFF, 3: 1, 4: 2}
 
@@ -279,118 +279,118 @@ PROBES: dict[str, Probe] = {
     # ---- E02-05: LR views ----------------------------------------------------
     # LR ALU sources: LR1 is 5 at cycle start and 100 once sub-slot 0 writes it.
     "lr_alu_add": Probe(
-        "SET LR1 CR2 ;;\nSET LR1 CR3 ; ADD LR2 LR1 CR1 ;;\nBKPT ;;", cr={2: 5, 3: 100}
+        "SET LR1 CR2 ;;\nSET LR1 CR3 ; ADD LR2 LR1 CR1 ;;\nHALT ;;", cr={2: 5, 3: 100}
     ),
     "lr_alu_sub": Probe(
-        "SET LR1 CR2 ;;\nSET LR1 CR3 ; SUB LR2 LR1 CR1 ;;\nBKPT ;;", cr={2: 5, 3: 100}
+        "SET LR1 CR2 ;;\nSET LR1 CR3 ; SUB LR2 LR1 CR1 ;;\nHALT ;;", cr={2: 5, 3: 100}
     ),
     "lr_alu_incr_mod_pow2": Probe(
-        "SET LR1 CR2 ;;\nSET LR1 CR3 ; INCR_MOD_POW2 LR2 LR1 4 ;;\nBKPT ;;", cr={2: 5, 3: 100}
+        "SET LR1 CR2 ;;\nSET LR1 CR3 ; INC.MODP2 LR2 LR1 4 ;;\nHALT ;;", cr={2: 5, 3: 100}
     ),
     "lr_alu_addb": Probe(
-        "SET LR1 CR2 ;;\nSET LR1 CR3 ; ADDB LRD2 LR1 ;;\nBKPT ;;", cr={2: 5, 3: 100}
+        "SET LR1 CR2 ;;\nSET LR1 CR3 ; ADDB LRD2 LR1 ;;\nHALT ;;", cr={2: 5, 3: 100}
     ),
-    "lr_subslots": Probe("INC LR0 1 ; ADD LR1 LR0 CR1 ;;\nBKPT ;;"),
-    "lr_inc_own_dest": Probe("SET LR0 CR2 ;;\nINC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}),
-    "lr_dec_own_dest": Probe("SET LR0 CR2 ;;\nDEC LR0 3 ; ADD LR1 LR0 CR0 ;;\nBKPT ;;", cr={2: 10}),
+    "lr_subslots": Probe("INC LR0 1 ; ADD LR1 LR0 CR1 ;;\nHALT ;;"),
+    "lr_inc_own_dest": Probe("SET LR0 CR2 ;;\nINC LR0 3 ; ADD LR1 LR0 CR0 ;;\nHALT ;;", cr={2: 10}),
+    "lr_dec_own_dest": Probe("SET LR0 CR2 ;;\nDEC LR0 3 ; ADD LR1 LR0 CR0 ;;\nHALT ;;", cr={2: 10}),
     "cond_beq": Probe(_BRANCH.format(branch="BEQ LR0 CR0"), cr=_BRANCH_CR),
     "cond_bne": Probe(_BRANCH.format(branch="BNE LR0 CR0"), cr=_BRANCH_CR),
-    "cond_blt": Probe(_BRANCH.format(branch="BLT LR0 CR1"), cr=_BRANCH_CR),
-    "cond_bge": Probe(_BRANCH.format(branch="BGE LR0 CR1"), cr=_BRANCH_CR),
+    "cond_blt": Probe(_BRANCH.format(branch="BLT.S LR0 CR1"), cr=_BRANCH_CR),
+    "cond_bge": Probe(_BRANCH.format(branch="BGE.S LR0 CR1"), cr=_BRANCH_CR),
     # BR LR0: LR0 holds 4 at cycle start and 6 once the same word writes it.
     "cond_br": Probe(
         """
         SET LR0 CR5 ;;
         SET LR0 CR6 ; BR LR0 ;;
-        BKPT ;;
-        BKPT ;;
+        HALT ;;
+        HALT ;;
         SET LR7 CR3 ;;
-        BKPT ;;
+        HALT ;;
         SET LR7 CR4 ;;
-        BKPT ;;
+        HALT ;;
         """,
         cr={3: 1, 4: 2, 5: 4, 6: 6},
     ),
     # Word 0 writes LR0 = 5 and tests it; word 1 tests it again.
     "break_ifeq": Probe(
-        "SET LR0 CR2 ; BREAK.IFEQ LR0 5 ;;\nBREAK.IFEQ LR0 5 ;;\nBKPT ;;", cr={2: 5}
+        "SET LR0 CR2 ; BREAK.IFEQ LR0 5 ;;\nBREAK.IFEQ LR0 5 ;;\nHALT ;;", cr={2: 5}
     ),
     # Loads: LR0 (offset) is 0 at cycle start and 1 once written; row ROW
     # holds 1s, row ROW + 1 holds 2s.
     "load_mult_offset": Probe(
-        "SET LR0 CR2 ; LDR_MULT_REG R0 LR0 CR3 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; LD.MULT R0 LR0 CR3 ;;\nHALT ;;",
         cr={2: 1, 3: ROW},
         setup=_setup(_row(ROW, _ONES), _row(ROW + 1, _TWOS)),
     ),
     "load_cyclic_offset": Probe(
-        "SET LR0 CR2 ; LDR_CYCLIC_MULT_REG LR0 CR3 LR1 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; LD.MULT.CYCLIC LR0 CR3 LR1 ;;\nHALT ;;",
         cr={2: 1, 3: ROW},
         setup=_setup(_row(ROW, _ONES), _row(ROW + 1, _TWOS)),
     ),
     # LR1 (index) is 0 at cycle start and 128 once written.
     "load_cyclic_index": Probe(
-        "SET LR1 CR4 ; LDR_CYCLIC_MULT_REG LR0 CR3 LR1 ;;\nBKPT ;;",
+        "SET LR1 CR4 ; LD.MULT.CYCLIC LR0 CR3 LR1 ;;\nHALT ;;",
         cr={3: ROW, 4: 128},
         setup=_row(ROW, _ONES),
     ),
     "load_mask_offset": Probe(
-        "SET LR0 CR2 ; LDR_MULT_MASK_REG LR0 CR3 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; LD.MASK LR0 CR3 ;;\nHALT ;;",
         cr={2: 1, 3: ROW},
         setup=_setup(_row(ROW, [0x11] * LANES), _row(ROW + 1, [0x22] * LANES)),
     ),
     # Stores: LR0 (offset) is 0 at cycle start and 8 once written.
     "store_post_aaq_offset": Probe(
-        "SET LR0 CR2 ; STR_POST_AAQ_REG LR0 CR3 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; ST.AAQ LR0 CR3 ;;\nHALT ;;",
         cr={2: 8, 3: ROW},
         setup=_post_aaq([7] * LANES),
     ),
     "store_acc_offset": Probe(
-        "SET LR0 CR2 ; STR_ACC_REG LR0 CR3 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; ST.ACC LR0 CR3 ;;\nHALT ;;",
         cr={2: 8, 3: ROW},
         setup=_lanes("r_acc", [7] * LANES),
     ),
     # MULT LR operands. rc_idx: LR0 is 0, then 128; R_CYCLIC is 1s then 2s.
     "mult_rc_idx": Probe(
-        "SET LR0 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nHALT ;;",
         cr={2: 128},
         setup=_r_cyclic(_ONES + _TWOS),
     ),
     # ra_idx: LR0 is 0, then 128; R0 is 1s, R1 is 2s; CR1 = 1 is the scalar.
     "mult_ra_idx": Probe(
-        "SET LR0 CR2 ; MULT.VE LR0 CR1 0 LR1 CR15 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; MULT.VE LR0 CR1 0 LR1 CR15 ;;\nHALT ;;",
         cr={2: 128},
         setup=_ra(_ONES + _TWOS),
     ),
     # mask_shift: LR1 is 0, then 1; a shift of 1 masks lane 0 (padded with 0).
     "mult_mask_shift": Probe(
-        "SET LR1 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nBKPT ;;",
+        "SET LR1 CR2 ; MULT.RC.VS LR0 0 LR1 CR15 ;;\nHALT ;;",
         cr={2: 1},
         setup=_r_cyclic(_THREES),
     ),
     # MULT.RC.VE src as an LR: LR2 is 0, then 5; it selects Ra element 0 (3)
     # or element 5 (7) as the scalar; R_CYCLIC is 1s.
     "mult_rc_ve_src": Probe(
-        "SET LR2 CR2 ; MULT.RC.VE LR0 LR2 0 LR1 CR15 ;;\nBKPT ;;",
+        "SET LR2 CR2 ; MULT.RC.VE LR0 LR2 0 LR1 CR15 ;;\nHALT ;;",
         cr={2: 5},
         setup=_setup(_ra([3, 0, 0, 0, 0, 7]), _r_cyclic(_ONES)),
     ),
     # ACC.STRIDE offset: LR0 is 0, then 1 (start lane 0 or 32); MULT_RES[i] = i + 1.
     # The horizontal stride halves the row to 64 lanes, so lane 32 + 64 fits.
     "acc_stride_offset": Probe(
-        "SET LR0 CR2 ; ACC.STRIDE 16 on off LR0 ;;\nBKPT ;;",
+        "SET LR0 CR2 ; ACC.STRIDE 16 on off LR0 ;;\nHALT ;;",
         cr={2: 1},
         setup=_lanes("mult_res", _COUNTING),
     ),
     # ACC.RESHAPE mask as an LR: LR6 is 0 (all 8 elements move), then 8 (none).
     "reshape_mask_lr": Probe(
-        "SET LR6 CR2 ; ACC.RESHAPE LRD0 LRD2 LR6 ;;\nBKPT ;;",
+        "SET LR6 CR2 ; ACC.RESHAPE LRD0 LRD2 LR6 ;;\nHALT ;;",
         cr={2: 8},
         setup=_lanes("mult_res", _COUNTING),
     ),
     # AGG dest_slot: LR0 is 0, then 5; MULT_RES is all 1s.
     **{
         f"agg_dest_slot_{name}": Probe(
-            f"SET LR0 CR2 ; {op} LR0 CR15 ;;\nBKPT ;;",
+            f"SET LR0 CR2 ; {op} LR0 CR15 ;;\nHALT ;;",
             cr={2: 5},
             setup=_lanes("mult_res", _ONES),
         )
@@ -400,20 +400,20 @@ PROBES: dict[str, Probe] = {
     # source byte is LR1's top byte and its dest byte LR3's; each is 0, then 5.
     # MULT_RES[i] = i + 1.
     "reshape_source": Probe(
-        "SET LR1 CR2 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nBKPT ;;",
+        "SET LR1 CR2 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nHALT ;;",
         cr={2: 0x05000000},
         setup=_lanes("mult_res", _COUNTING),
     ),
     "reshape_dest": Probe(
-        "SET LR3 CR2 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nBKPT ;;",
+        "SET LR3 CR2 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nHALT ;;",
         cr={2: 0x05000000},
         setup=_lanes("mult_res", _COUNTING),
     ),
-    "lr_conflict_same_lr": Probe("SET LR0 CR1 ; SET LR0 CR2 ;;\nBKPT ;;"),
-    "lr_conflict_lrd_overlap": Probe("ADDB LRD0 CR1 ; SET LR1 CR2 ;;\nBKPT ;;"),
+    "lr_conflict_same_lr": Probe("SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;"),
+    "lr_conflict_lrd_overlap": Probe("ADDB LRD0 CR1 ; SET LR1 CR2 ;;\nHALT ;;"),
     # Sub-slot 0 writes LR1; sub-slot 1's source read raises.
     "lr_subslot_exception": Probe(
-        "SET LR1 CR2 ; SET LR2 CR3 ;;\nBKPT ;;",
+        "SET LR1 CR2 ; SET LR2 CR3 ;;\nHALT ;;",
         cr={2: 5, 3: 6},
         edit=_break_lr_subslot_1_source,
     ),
@@ -421,27 +421,27 @@ PROBES: dict[str, Probe] = {
     # R0 is 1s at cycle start; the same word loads 2s into it. MULT.VE reads Ra
     # inside its handler; MULT.RC.VV reads it through the ``ra`` operand.
     "mult_ra_operand": Probe(
-        "LDR_MULT_REG R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nBKPT ;;",
+        "LD.MULT R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_ra(_ONES), _row(ROW, _TWOS), _r_cyclic(_ONES)),
         modes=(Mode.NARROW, Mode.WIDE_FP32),
     ),
     "mult_r0_r1": Probe(
-        "LDR_MULT_REG R0 LR0 CR2 ; MULT.VE LR0 CR1 0 LR0 CR15 ;;\nBKPT ;;",
+        "LD.MULT R0 LR0 CR2 ; MULT.VE LR0 CR1 0 LR0 CR15 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_ra(_ONES), _row(ROW, _TWOS)),
         modes=(Mode.NARROW, Mode.WIDE_FP32),
     ),
     # R_CYCLIC is 1s at cycle start; the same word loads 3s into it.
     "mult_r_cyclic": Probe(
-        "LDR_CYCLIC_MULT_REG LR0 CR2 LR0 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nBKPT ;;",
+        "LD.MULT.CYCLIC LR0 CR2 LR0 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_r_cyclic(_ONES), _row(ROW, _THREES)),
         modes=(Mode.NARROW, Mode.WIDE_FP32),
     ),
     # R_MASK is all ones at reset; the same word loads an all-zero mask.
     "mult_r_mask": Probe(
-        "LDR_MULT_MASK_REG LR0 CR2 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nBKPT ;;",
+        "LD.MASK LR0 CR2 ; MULT.RC.VS LR0 0 LR0 CR15 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_r_cyclic(_THREES),
         modes=(Mode.NARROW, Mode.WIDE_FP32),
@@ -450,7 +450,7 @@ PROBES: dict[str, Probe] = {
     # (R_CYCLIC 3s squared).
     **{
         f"acc_mult_res_{name}": Probe(
-            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} ;;\nBKPT ;;",
+            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} ;;\nHALT ;;",
             setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
             modes=(Mode.NARROW, Mode.WIDE_FP32),
         )
@@ -458,55 +458,55 @@ PROBES: dict[str, Probe] = {
     },
     **{
         f"agg_mult_res_{name}": Probe(
-            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} LR0 CR15 ;;\nBKPT ;;",
+            f"MULT.RC.VS LR0 0 LR0 CR15 ; {op} LR0 CR15 ;;\nHALT ;;",
             setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
         )
         for name, op in _AGG_OPS.items()
     },
     "reshape_mult_res": Probe(
-        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nBKPT ;;",
+        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.RESHAPE LRD0 LRD2 7 ;;\nHALT ;;",
         setup=_setup(_r_cyclic(_THREES), _lanes("mult_res", _ONES)),
     ),
     # R_ACC is 5s at cycle start; the multiply makes MULT_RES 9s.
     "acc_old_r_acc": Probe(
-        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.ADD ;;\nBKPT ;;",
+        "MULT.RC.VS LR0 0 LR0 CR15 ; ACC.ADD ;;\nHALT ;;",
         setup=_setup(_r_cyclic(_THREES), _lanes("r_acc", [5] * LANES)),
     ),
     # R_ACC is 2s at cycle start; MULT_RES is 7s, so ACC makes R_ACC 7s or 9s.
     "activate_r_acc_add_first": Probe(
-        "ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15 ;;\nBKPT ;;",
+        "ACC.ADD.FIRST ; ACTIVATE.QUANTIZE identity CR15 ;;\nHALT ;;",
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [2] * LANES)),
     ),
     "activate_r_acc_add": Probe(
-        "ACC.ADD ; ACTIVATE.QUANTIZE identity CR15 ;;\nBKPT ;;",
+        "ACC.ADD ; ACTIVATE.QUANTIZE identity CR15 ;;\nHALT ;;",
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [2] * LANES)),
     ),
     # POST_AAQ_REG is 1s at cycle start; ACTIVATE makes it 7s (R_ACC 7s).
     "store_post_aaq": Probe(
-        "ACTIVATE.QUANTIZE identity CR15 ; STR_POST_AAQ_REG LR0 CR2 ;;\nBKPT ;;",
+        "ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR2 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_lanes("r_acc", [7] * LANES), _post_aaq([1] * LANES)),
     ),
     # R_ACC is 1s at cycle start; ACC.ADD.FIRST makes it 7s (MULT_RES 7s).
     "acc_store_r_acc": Probe(
-        "ACC.ADD.FIRST ; STR_ACC_REG LR0 CR2 ;;\nBKPT ;;",
+        "ACC.ADD.FIRST ; ST.ACC LR0 CR2 ;;\nHALT ;;",
         cr={2: ROW},
         setup=_setup(_lanes("mult_res", [7] * LANES), _lanes("r_acc", [1] * LANES)),
     ),
-    # One word: an LR write, a store of POST_AAQ_REG (7s) and BKPT; word 1
+    # One word: an LR write, a store of POST_AAQ_REG (7s) and HALT; word 1
     # would overwrite LR0 if it ran.
-    "bkpt": Probe(
-        "SET LR0 CR2 ; STR_POST_AAQ_REG LR1 CR3 ; BKPT ;;\nSET LR0 CR4 ;;\nBKPT ;;",
+    "halt": Probe(
+        "SET LR0 CR2 ; ST.AAQ LR1 CR3 ; HALT ;;\nSET LR0 CR4 ;;\nHALT ;;",
         cr={2: 5, 3: ROW, 4: 9},
         setup=_post_aaq([7] * LANES),
     ),
-    "signed_blt": Probe(_SIGNED_BRANCH.format(branch="BLT"), cr=_SIGNED_BRANCH_CR),
-    "signed_bge": Probe(_SIGNED_BRANCH.format(branch="BGE"), cr=_SIGNED_BRANCH_CR),
+    "signed_blt": Probe(_SIGNED_BRANCH.format(branch="BLT.S"), cr=_SIGNED_BRANCH_CR),
+    "signed_bge": Probe(_SIGNED_BRANCH.format(branch="BGE.S"), cr=_SIGNED_BRANCH_CR),
     # A BREAK word that also writes LR0 = CR2.
-    "break_resume": Probe("SET LR0 CR2 ; BREAK ;;\nBKPT ;;", cr={2: 5}),
+    "break_resume": Probe("SET LR0 CR2 ; BREAK ;;\nHALT ;;", cr={2: 5}),
     # Word 1 is an empty instruction-memory entry.
     "idle_word": Probe(
-        "SET LR0 CR2 ;;\nSET LR1 CR2 ;;\nBKPT ;;", cr={2: 5}, edit=_idle_second_word
+        "SET LR0 CR2 ;;\nSET LR1 CR2 ;;\nHALT ;;", cr={2: 5}, edit=_idle_second_word
     ),
 }
 

@@ -30,7 +30,7 @@
 # Loop nest:  for h in 0..3 { for t in 0..35 { for g in 0..1 {
 #                 chunk 0 (keys 0..127):   for local 0..127: load P; MULT; AGG.SUM.FIRST
 #                 chunk 1 (keys 128..255): for local 0..127: load P; MULT; AGG.SUM
-#                 ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE identity + ST.AAQ
 #                   -> O[g*128 .. g*128+127, t]  (512B FP32 column segment)
 #             }}}
 #
@@ -41,20 +41,20 @@
 #   head P offset head_p_off advances by 512 rows per head.
 #
 # Inner-loop pipeline (live-read offsets, per matmul template):
-#   LDR_MULT_REG offset is read LIVE -> ADD p_ptr +256 co-issues; start p_ptr at
+#   LD.MULT offset is read LIVE -> ADD p_ptr +256 co-issues; start p_ptr at
 #   (first P row addr - 256) so the first live load hits the first row.
 #   AGG dest_slot is read from SNAPSHOT; INC agg_slot co-issues -> AGG sees 0,1,..,127.
-#   BLT reads SNAPSHOT -> bound 127 gives exactly 128 bundles (dest 0..127).
+#   BLT.S reads SNAPSHOT -> bound 127 gives exactly 128 bundles (dest 0..127).
 #
 #   MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its R0 DATA from the
 #   start-of-cycle snapshot, so it cannot consume a P chunk loaded by
-#   LDR_MULT_REG in its own bundle -- it would see the previous R0. Each of the
+#   LD.MULT in its own bundle -- it would see the previous R0. Each of the
 #   four inner loops therefore primes query 0's P chunk before the loop, and
 #   every bundle multiplies the chunk loaded last cycle while prefetching the
 #   next query's. Only R0 needed shifting: the V chunk in R_CYCLIC is loaded by
-#   LDR_CYCLIC_MULT_REG two bundles ahead of the loop and never reloaded inside
+#   LD.MULT.CYCLIC two bundles ahead of the loop and never reloaded inside
 #   it, so it was already snapshot-safe.
-#   agg_slot is unaffected -- both of its readers (AGG and BLT) take the
+#   agg_slot is unaffected -- both of its readers (AGG and BLT.S) take the
 #   SNAPSHOT, so INC stays co-issued and the dest sequence is still 0..127.
 #
 # Output O is FP32 (R_ACC) stored one group per row, like the transformer
@@ -119,87 +119,87 @@ t_loop:
     # ===================== group g = 0 (queries 0..127) =====================
     # ---- chunk 0: keys 0..127 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ ZERO }};;                    # V chunk0 offset = chan
-    LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..127, t]   (base VBASE)
+    LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..127, t]   (base VBASE)
     SUB {{ p_ptr }} {{ group_p_off }} {{ p_query_stride }};;       # P inner start = group P off - 2 rows
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c0_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} g0c0_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} g0c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ CHUNK_OFF }};;               # V chunk1 offset = chan + 1 row
-    LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[128..255, t]
+    LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[128..255, t]
     ADD {{ p_ptr }} {{ group_p_off }} {{ CHUNK_OFF }};;            # P chunk1 base = group P off + 1 row
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g0c1_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} g0c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ ZERO }};;            # O g=0 offset = O chan offset
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;  # O[0..127, t] = R_ACC   (base OBASE)
+    ST.AAQ {{ out_chunk }} {{ OUT_BASE }};;  # O[0..127, t] = R_ACC   (base OBASE)
 
     # ===================== group g = 1 (queries 128..255) ===================
     # ---- chunk 0: keys 0..127 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ ZERO }};;                    # V chunk0 offset = chan (same channel)
-    LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;
+    LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;
     ADD {{ p_ptr }} {{ group_p_off }} {{ P_GROUP_STRIDE }};;       # g=1 P base = group P off + 256 rows
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c0_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} g1c0_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} g1c0_loop;;
 
     # ---- chunk 1: keys 128..255 ----
     ADD {{ v_ptr }} {{ chan_off }} {{ CHUNK_OFF }};;               # V chunk1 offset = chan + 1 row
-    LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;
+    LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;
     ADD {{ p_ptr }} {{ group_p_off }} {{ P_GROUP_STRIDE }};;       # g=1 P base
     ADD {{ p_ptr }} {{ p_ptr }} {{ CHUNK_OFF }};;                  # + 1 row (chunk1)
     SUB {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;             # minus 2 rows startup
     SET {{ agg_slot }} {{ ZERO }};;
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P chunk
 g1c1_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} g1c1_loop;;
 
     ADD {{ out_chunk }} {{ out_chan_off }} {{ OUT_GROUP_STRIDE }};; # O g=1 offset = O chan offset + 1 row
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_chunk }} {{ OUT_BASE }};;  # O[128..255, t] = R_ACC
+    ST.AAQ {{ out_chunk }} {{ OUT_BASE }};;  # O[128..255, t] = R_ACC
 
     # ----- next t: advance value-channel offset (+2 rows) and O offset (+2 rows), t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # chan += 2 rows
     ADD {{ out_chan_off }} {{ out_chan_off }} {{ OUT_CHAN_STRIDE }};; # O chan offset += 2 rows
     INC {{ chan_index }} 1;;                                       # t++
-    BLT {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
+    BLT.S {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
 
     # ----- next head: head P offset += 512 rows, head++ -----
     ADD {{ head_p_off }} {{ head_p_off }} {{ P_HEAD_STRIDE }};;    # head P offset += 512 rows
     INC {{ head_index }} 1;;
-    BLT {{ head_index }} {{ HEAD_COUNT }} head_loop;;
+    BLT.S {{ head_index }} {{ HEAD_COUNT }} head_loop;;
 
 end:
-    BKPT;;
+    HALT;;

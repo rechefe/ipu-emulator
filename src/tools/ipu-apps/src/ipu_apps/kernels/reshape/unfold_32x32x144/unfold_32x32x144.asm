@@ -22,7 +22,7 @@
 #
 # Pass-through multiply: MULT.RC.VV (post-merge; was MULT.EE, itself replacing
 #   MULT.EV mem_bypass removed in PR #69).
-#   stripe row in r0 (via LDR_MULT_REG r0), ones preloaded into r_cyclic once.
+#   stripe row in r0 (via LD.MULT r0), ones preloaded into r_cyclic once.
 #              MULT.RC.VV acc_slot0 r0 0 acc_slot0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
 #   r_cyclic[0..127] = 1.0 (loaded once at startup, never overwritten in the loop).
 #   RESET_ACC removed: the 4 ACC.STRIDE calls direct-write all 4 r_acc slots.
@@ -101,7 +101,7 @@
    MULT SNAPSHOT CONTRACT (issue #157)
 
    MULT.RC.VV reads its r0 DATA from the start-of-cycle snapshot, so a MULT
-   cannot consume a chunk loaded by an LDR_MULT_REG in its own bundle -- it
+   cannot consume a chunk loaded by an LD.MULT in its own bundle -- it
    would see the PREVIOUS contents of r0. `;
    ;
    ` ends one VLIW word = one cycle;;
@@ -133,9 +133,9 @@
    ] %}
 {% set slots = [acc_slot0, acc_slot1, acc_slot2, acc_slot3] %}
 
-    LDR_CYCLIC_MULT_REG {{ acc_slot0 }} {{ ONES_BASE }} {{ acc_slot0 }};;  # r_cyclic[0..127] = 1.0 (dtype-specific)
+    LD.MULT.CYCLIC {{ acc_slot0 }} {{ ONES_BASE }} {{ acc_slot0 }};;  # r_cyclic[0..127] = 1.0 (dtype-specific)
 
-    LDR_MULT_REG        r0 {{ src_off }} {{ STRIPE0_TG0 }};;               # prime: stripe 0, tg=0 of ch 0
+    LD.MULT        r0 {{ src_off }} {{ STRIPE0_TG0 }};;               # prime: stripe 0, tg=0 of ch 0
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..143)
@@ -158,17 +158,17 @@ ch_loop:
     # src_off must advance in the word BEFORE it (LR slots precede LOAD).
     ADD                 {{ src_off }} {{ src_off }} {{ src_stride }};;     # src offset: next channel (+128)
 {%- endif %}
-    LDR_MULT_REG r0 {{ src_off }} {{ nstripe }};
+    LD.MULT r0 {{ src_off }} {{ nstripe }};
     MULT.RC.VV {{ acc_slot0 }} r0 0 {{ acc_slot0 }} {{ DSTRUCT }};
     ACC.STRIDE 32 {{ g[1] }} {{ g[2] }} {{ slots[s] }};;
 {%- endfor %}
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;  # {{ g[0] }} {{ g[3] }}
+    ST.AAQ    {{ g[3] == "tg0" and dst_off_tg0 or dst_off_tg1 }} {{ g[4] }};;  # {{ g[0] }} {{ g[3] }}
 {% endfor %}
     ADD                 {{ dst_off_tg0 }} {{ dst_off_tg0 }} {{ dst_stride }};
     ADD {{ dst_off_tg1 }} {{ dst_off_tg1 }} {{ dst_stride }};;  # dst offsets: +1024 per channel
     ADD                 {{ ch_index }} {{ ch_index }} {{ ONE }};;
-    BLT                 {{ ch_index }} {{ ch_limit }} ch_loop;;            # loop while ch < 144
+    BLT.S                 {{ ch_index }} {{ ch_limit }} ch_loop;;            # loop while ch < 144
 
 end:
-    BKPT;;
+    HALT;;

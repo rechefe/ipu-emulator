@@ -35,7 +35,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 #
 # Prerequisites (R_CYCLIC replicated into all 4 slots per packed chunk;
 # R_MASK's 8 slots pre-built with mask_offset=p_out => bits
-# [16p_out,16p_out+16) set, loaded once via LDR_MULT_MASK_REG). Same
+# [16p_out,16p_out+16) set, loaded once via LD.MASK). Same
 # IPC-fix-style pre-increment bias for the in-partition accumulation
 # (rc_idx_reg/k_idx seeded one step behind so the co-issued advance ADDs are
 # visible to the SAME bundle's MULT).
@@ -72,7 +72,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 # shapes (240, 480) both qualify.
 #
 # CROSS-KERNEL R_MASK HAZARD: this kernel loads a one-hot 8-slot R_MASK
-# (one 16-lane window per output partition) via LDR_MULT_MASK_REG and never
+# (one 16-lane window per output partition) via LD.MASK and never
 # restores an all-ones R_MASK before halting. A downstream kernel in the
 # same IpuState that relies on R_MASK's all-ones default (e.g.
 # asm_packed_residual_add_240x16.asm) will silently read back zeros in
@@ -115,7 +115,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 {#- SEED_CR[p_out] holds (512 - 16*p_out - 16) % 512, the pre-increment-biased
     rc_idx seed for output partition p_out (harness-loaded constant).
     W_CHUNKS is NOT a CR -- chunk_widths' length is a compile-time (Jinja
-    render-time) constant, baked directly into the BLT comparisons below, so
+    render-time) constant, baked directly into the BLT.S comparisons below, so
     no CR slot is spent on it (CR budget is otherwise exactly full: 14
     values in cr2-cr15). #}
 
@@ -123,18 +123,18 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
     SET {{ chunk_base }} {{ DATA_BASE }};;
     ADD {{ chunk_base }} {{ chunk_base }} {{ chunk_ctr }};;
     SET {{ slot_lr }} {{ ZERO }};;
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 128;;
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 255;;
     INC {{ slot_lr }} 1;;
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
     SET {{ slot_lr }} {{ ZERO }};;
     INC {{ slot_lr }} 255;;
     INC {{ slot_lr }} 129;;
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
 {% endmacro %}
 
 {% macro accumulate_chunk(first) %}
@@ -155,7 +155,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
         running sum after their own p_out's accumulation). #}
     ADD {{ w_row_ptr }} {{ w_ptr }} {{ ZERO }};;
     {%- for p_out in range(8) %}
-    LDR_MULT_REG r0 {{ w_row_ptr }} {{ ZERO }};;
+    LD.MULT r0 {{ w_row_ptr }} {{ ZERO }};;
     SET {{ rc_idx_reg }} {{ SEED_CR[p_out] }};;
     ADD {{ k_idx }} {{ k_base }} {{ ZERO }};;
     DEC {{ k_idx }} 1;;
@@ -175,7 +175,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 {% set chunk0_pc_count = chunk0_width // 8 %}
 
     SET {{ mask_off_lr }} {{ ZERO }};;
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
     SET {{ out_ptr }} {{ OUTPUT_BASE }};;
     SET {{ w_ptr }} {{ WEIGHTS_BASE }};;
     SET {{ chunk_ctr }} {{ ZERO }};;
@@ -198,7 +198,7 @@ wc0_pc_loop:
     {{ accumulate_chunk(false) }}
     INC {{ chunk_ctr }} 1;;
     INC {{ k_base }} 8;;
-    BLT {{ pc_idx }} {{ pc_bound }} wc0_pc_loop_inc;;
+    BLT.S {{ pc_idx }} {{ pc_bound }} wc0_pc_loop_inc;;
     B wc0_pc_loop_exit;;
 wc0_pc_loop_inc:
     INC {{ pc_idx }} 1;;
@@ -217,7 +217,7 @@ wc0_pc_loop_exit:
     SET {{ wc_bound }} {{ ZERO }};;
     INC {{ wc_bound }} {{ chunk_widths | length }};;
     {#- wc_bound = W_CHUNKS (not W_CHUNKS-1): the loop-continue check below
-        is "BLT wc_idx wc_bound", testing whether there's still a weight-
+        is "BLT.S wc_idx wc_bound", testing whether there's still a weight-
         chunk left to process AFTER incrementing wc_idx post-loop-body, so
         it must compare against the total count, not count-1 -- an earlier
         draft used W_CHUNKS-1 (matching a "last valid index" convention that
@@ -227,13 +227,13 @@ wc0_pc_loop_exit:
         chunk counter directly since the resulting error (9.14) didn't
         obviously point at a dropped chunk. #}
     {#- wc_bound (a compile-time constant, chunk_widths|length - 1) loaded
-        into an LR via INC immediate: BLT's reg2 operand is LcrIdx
+        into an LR via INC immediate: BLT.S's reg2 operand is LcrIdx
         (LR/CR-only, no raw immediate), and every CR slot (cr2-cr15) is
         already spoken for by DATA_BASE/WEIGHTS_BASE/.../8 SEED_CRs -- see
         the CR budget note above. wc_num (a per-weight-chunk compile-time
         index, used below in the pc_bound_skip comparison) has the SAME
         constraint: an earlier draft passed the raw Jinja integer wc_num
-        directly as BLT's reg2, which only happened not to fail because
+        directly as BLT.S's reg2, which only happened not to fail because
         chunk_widths[1:] had exactly one element (K in {16,240}, 2 total
         weight-chunks) so that branch's guard never actually rendered --
         K=480 (4 weight-chunks) would have hit it. Fixed by loading each
@@ -249,13 +249,13 @@ wc_loop:
         weight-chunk?" (wc_idx == wc_num) and branch past the remaining
         candidates if so. The LAST entry needs no check at all -- reaching
         it by fall-through already proves it's the only one left, so it
-        unconditionally sets its own bound (avoids a BLT whose "taken" path
+        unconditionally sets its own bound (avoids a BLT.S whose "taken" path
         would otherwise skip past setting pc_bound entirely, the bug an
         earlier draft had: routing the last entry's match case straight to
         pc_bound_done without ever executing its own SET/INC). #}
     SET {{ pc_bound }} {{ ZERO }};;
     INC {{ pc_bound }} {{ wc_num }};;
-    BGT {{ wc_idx }} {{ pc_bound }} pc_bound_skip_{{ wc_num }};;
+    BGT.S {{ wc_idx }} {{ pc_bound }} pc_bound_skip_{{ wc_num }};;
     {%- endif %}
     SET {{ pc_bound }} {{ ZERO }};;
     INC {{ pc_bound }} {{ (chunk_width // 8) - 1 }};;
@@ -272,7 +272,7 @@ wc_pc_loop:
     {{ accumulate_chunk(false) }}
     INC {{ chunk_ctr }} 1;;
     INC {{ k_base }} 8;;
-    BLT {{ pc_idx }} {{ pc_bound }} wc_pc_loop_inc;;
+    BLT.S {{ pc_idx }} {{ pc_bound }} wc_pc_loop_inc;;
     B wc_pc_loop_exit;;
 wc_pc_loop_inc:
     INC {{ pc_idx }} 1;;
@@ -280,7 +280,7 @@ wc_pc_loop_inc:
 wc_pc_loop_exit:
 
     INC {{ wc_idx }} 1;;
-    BLT {{ wc_idx }} {{ wc_bound }} wc_loop_continue;;
+    BLT.S {{ wc_idx }} {{ wc_bound }} wc_loop_continue;;
     B wc_loop_exit;;
 wc_loop_continue:
     INC {{ w_ptr }} 8;;
@@ -289,7 +289,7 @@ wc_loop_exit:
     {%- endif %}
 
     ACTIVATE.QUANTIZE silu {{ DSTRUCT_STORE }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;
+    ST.AAQ {{ out_ptr }} {{ ZERO }};;
 
 end:
-    BKPT;;
+    HALT;;

@@ -2,7 +2,7 @@
 
 Adds two FP32 tensors element-wise and stores the result as FP32, running the
 emulator in **wide-vector debug mode**. In that mode every lane is FP32, so
-each channel occupies one full XMEM row of 128 FP32 lanes and ``STR_ACC_REG``
+each channel occupies one full XMEM row of 128 FP32 lanes and ``ST.ACC``
 writes the full 128-lane accumulator.
 
 Layout (per tensor, input and output alike): ``num_channels`` consecutive
@@ -49,15 +49,15 @@ WIDE_CHUNK_BYTES = LANES_PER_CHUNK * 4  # 512: one channel, 128 FP32 lanes
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA: XMEM offset/base operands on LDR_CYCLIC_MULT_REG
-# (offset+base) / STR_ACC_REG are ROW numbers, not byte addresses. This app
+# Row-addressed ISA: XMEM offset/base operands on LD.MULT.CYCLIC
+# (offset+base) / ST.ACC are ROW numbers, not byte addresses. This app
 # runs EXCLUSIVELY in wide-vector debug mode (SPEC.execution) -- there is no
 # narrow-mode variant to preserve -- so its native row size is always
 # WIDE_CHUNK_BYTES (512), and one channel is always exactly one row. *_BASE
 # below stay as byte constants for host-side xmem pokes (write_address/
 # read_address are byte-granular); *_BASE_ROW = *_BASE // WIDE_CHUNK_BYTES
 # feeds the CR registers the asm actually loads/stores through. R_CYCLIC's
-# `index` operand on LDR_CYCLIC_MULT_REG is always LR0 (=0, the single-slot
+# `index` operand on LD.MULT.CYCLIC is always LR0 (=0, the single-slot
 # write index used in wide mode).
 
 INPUT_A_BASE = 0x00000

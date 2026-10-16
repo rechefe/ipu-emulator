@@ -436,7 +436,7 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <rect x="80" y="590.0" width="12" height="12" fill="#E74C3C" stroke="black" stroke-width="1" opacity="0.85"/>
   <text x="100" y="602.0" class="field-label" style="font-size: 9px;">StoreInst (Memory Store)</text>
   <rect x="80" y="605.0" width="12" height="12" fill="#C0392B" stroke="black" stroke-width="1" opacity="0.85"/>
-  <text x="100" y="617.0" class="field-label" style="font-size: 9px;">AccStoreInst (STR_ACC_REG, simulation-only)</text>
+  <text x="100" y="617.0" class="field-label" style="font-size: 9px;">AccStoreInst (ST.ACC, simulation-only)</text>
   <rect x="80" y="620.0" width="12" height="12" fill="#4ECDC4" stroke="black" stroke-width="1" opacity="0.85"/>
   <text x="100" y="632.0" class="field-label" style="font-size: 9px;">MultInst (Multiply)</text>
   <rect x="80" y="635.0" width="12" height="12" fill="#45B7D1" stroke="black" stroke-width="1" opacity="0.85"/>
@@ -474,39 +474,39 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <text x="406" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="147" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="156" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="170" font-size="8.5" font-family="monospace" fill="#222">BGE</text>
+  <text x="28" y="170" font-size="8.5" font-family="monospace" fill="#222">BGE.S</text>
   <rect x="134" y="161" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
   <rect x="352" y="161" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="406" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="161" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="170" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="184" font-size="8.5" font-family="monospace" fill="#222">BKPT</text>
-  <rect x="134" y="175" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="243" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="352" y="175" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="461" y="175" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="548" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="198" font-size="8.5" font-family="monospace" fill="#222">BLT</text>
+  <text x="28" y="184" font-size="8.5" font-family="monospace" fill="#222">BLT.S</text>
+  <rect x="134" y="175" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <rect x="352" y="175" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
+  <rect x="461" y="175" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="184" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
+  <text x="28" y="198" font-size="8.5" font-family="monospace" fill="#222">BNE</text>
   <rect x="134" y="189" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
   <rect x="352" y="189" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="406" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
   <rect x="461" y="189" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="198" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="212" font-size="8.5" font-family="monospace" fill="#222">BNE</text>
-  <rect x="134" y="203" width="218" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="243" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">label</text>
+  <text x="28" y="212" font-size="8.5" font-family="monospace" fill="#222">BR</text>
+  <rect x="134" y="203" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="243" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="352" y="203" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg1</text>
-  <rect x="461" y="203" width="175" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="548" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg2</text>
-  <text x="28" y="226" font-size="8.5" font-family="monospace" fill="#222">BR</text>
+  <text x="406" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="461" y="203" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="548" y="212" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="226" font-size="8.5" font-family="monospace" fill="#222">HALT</text>
   <rect x="134" y="217" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="243" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <rect x="352" y="217" width="109" height="12" fill="#98D8C855" stroke="#bbb" stroke-width="0.5"/>
-  <text x="406" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">reg</text>
+  <rect x="352" y="217" width="109" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="406" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="461" y="217" width="175" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="548" y="226" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <text x="28" y="240" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
@@ -564,7 +564,7 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <text x="384" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">dest</text>
   <rect x="434" y="433" width="202" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="535" y="442" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="456" font-size="8.5" font-family="monospace" fill="#222">INCR_MOD_POW2</text>
+  <text x="28" y="456" font-size="8.5" font-family="monospace" fill="#222">INC.MODP2</text>
   <rect x="134" y="447" width="200" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
   <text x="234" y="456" text-anchor="middle" font-size="7.5" font-family="Arial">step:LcrIdx</text>
   <rect x="334" y="447" width="100" height="12" fill="#FFA07A55" stroke="#bbb" stroke-width="0.5"/>
@@ -605,27 +605,27 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <rect x="459" y="564" width="177" height="64" fill="#FF6B6B" stroke="#333" stroke-width="1" rx="3"/>
   <text x="547" y="592" text-anchor="middle" font-size="9" font-weight="bold" font-family="Arial">LrIdx</text>
   <text x="547" y="606" text-anchor="middle" font-size="8" font-family="Arial">4b</text>
-  <text x="28" y="644" font-size="8.5" font-family="monospace" fill="#222">LDR_CYCLIC_MULT_REG</text>
+  <text x="28" y="644" font-size="8.5" font-family="monospace" fill="#222">LD.MASK</text>
   <rect x="134" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="635" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
-  <rect x="418" y="635" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">index</text>
-  <text x="28" y="658" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_MASK_REG</text>
+  <rect x="418" y="635" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="644" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
+  <text x="28" y="658" font-size="8.5" font-family="monospace" fill="#222">LD.MULT</text>
   <rect x="134" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="649" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
-  <rect x="418" y="649" width="218" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="672" font-size="8.5" font-family="monospace" fill="#222">LDR_MULT_REG</text>
+  <rect x="418" y="649" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
+  <text x="527" y="658" text-anchor="middle" font-size="7.5" font-family="Arial">dest:MultStageReg</text>
+  <text x="28" y="672" font-size="8.5" font-family="monospace" fill="#222">LD.MULT.CYCLIC</text>
   <rect x="134" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="276" y="663" width="142" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="347" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">offset</text>
   <rect x="418" y="663" width="218" height="12" fill="#FF6B6B55" stroke="#bbb" stroke-width="0.5"/>
-  <text x="527" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">dest:MultStageReg</text>
+  <text x="527" y="672" text-anchor="middle" font-size="7.5" font-family="Arial">index</text>
   <text x="28" y="686" font-size="8.5" font-family="monospace" fill="#222">NOP</text>
   <rect x="134" y="677" width="142" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="205" y="686" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
@@ -886,7 +886,7 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <text x="245" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="357" y="1513" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="496" y="1522" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="1536" font-size="8.5" font-family="monospace" fill="#222">STR_POST_AAQ_REG</text>
+  <text x="28" y="1536" font-size="8.5" font-family="monospace" fill="#222">ST.AAQ</text>
   <rect x="134" y="1527" width="223" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
   <text x="245" y="1536" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="357" y="1527" width="279" height="12" fill="#E74C3C55" stroke="#bbb" stroke-width="0.5"/>
@@ -906,7 +906,7 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
   <text x="245" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
   <rect x="357" y="1673" width="279" height="12" fill="#F8F8F8" stroke="#bbb" stroke-width="0.5"/>
   <text x="496" y="1682" text-anchor="middle" font-size="7.5" font-family="Arial">—</text>
-  <text x="28" y="1696" font-size="8.5" font-family="monospace" fill="#222">STR_ACC_REG</text>
+  <text x="28" y="1696" font-size="8.5" font-family="monospace" fill="#222">ST.ACC</text>
   <rect x="134" y="1687" width="223" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>
   <text x="245" y="1696" text-anchor="middle" font-size="7.5" font-family="Arial">base</text>
   <rect x="357" y="1687" width="279" height="12" fill="#C0392B55" stroke="#bbb" stroke-width="0.5"/>

@@ -122,4 +122,4 @@ def test_operand_errors_are_checked_before_the_next_instruction_is_placed():
 
 def test_a_simulation_only_slot_warns():
     with pytest.warns(UserWarning, match="simulation-only acc_store slot"):
-        AssemblySession("STR_ACC_REG LR0 CR0;;").assemble()
+        AssemblySession("ST.ACC LR0 CR0;;").assemble()

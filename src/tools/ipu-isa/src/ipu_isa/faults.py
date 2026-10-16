@@ -129,7 +129,7 @@ FAULTS: Mapping[FaultId, FaultInfo] = MappingProxyType(
             _fault(FaultId.F3, "Two LR lanes of one word write the same LR.", Detector.CTRL),
             _fault(
                 FaultId.F4,
-                "The index of `LDR_CYCLIC_MULT_REG` is not 0, 128, 256 or 384.",
+                "The index of `LD.MULT.CYCLIC` is not 0, 128, 256 or 384.",
                 Detector.CTRL,
             ),
             _fault(
@@ -206,7 +206,7 @@ def reserved_operand_codes(operand_type: OperandType, bits: int) -> tuple[int, .
       ``reserved...``.
     * IMMEDIATE and LABEL with a value range narrower than the field: the codes
       past the range's size. The range is encoded from code 0 upward
-      (``INCR_MOD_POW2`` stores ``k - 1``), so codes ``size`` and above are
+      (``INC.MODP2`` stores ``k - 1``), so codes ``size`` and above are
       reserved. A range as wide as the field, or wider (both signed and
       unsigned spellings accepted), reserves nothing.
     * An immediate without a range (its width set by union packing) reserves

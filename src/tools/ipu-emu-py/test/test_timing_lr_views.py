@@ -34,7 +34,7 @@ def _lr(probe: str, index: int) -> int:
     ],
 )
 def test_lr_alu_sources_read_cycle_start(probe, expected):
-    """ADD, SUB, INCR_MOD_POW2 and ADDB read their LR sources at cycle start.
+    """ADD, SUB, INC.MODP2 and ADDB read their LR sources at cycle start.
 
     SET reads only a CR, and no instruction writes a CR, so it has no probe.
     The ADDB probe's dest is LRD2, the pair LR2:LR3; LR2 is checked.
@@ -66,7 +66,7 @@ def test_inc_dec_read_own_dest_at_cycle_start(probe, own):
     ],
 )
 def test_cond_operands_read_cycle_start(probe, marker):
-    """BEQ, BNE, BLT, BGE and BR read their LR operands at cycle start."""
+    """BEQ, BNE, BLT.S, BGE.S and BR read their LR operands at cycle start."""
     assert _lr(probe, 7) == marker
 
 
@@ -77,7 +77,7 @@ def test_break_ifeq_reads_cycle_start():
 
 
 def test_load_offset_and_index_read_forwarded():
-    """LDR_MULT_REG, LDR_CYCLIC_MULT_REG and LDR_MULT_MASK_REG read their
+    """LD.MULT, LD.MULT.CYCLIC and LD.MASK read their
     offset and index LRs forwarded."""
     assert ra_element(run(PROBES["load_mult_offset"]).state, 0) == 2
     assert r_cyclic_element(run(PROBES["load_cyclic_offset"]).state, 0) == 2
@@ -87,7 +87,7 @@ def test_load_offset_and_index_read_forwarded():
 
 
 def test_store_offsets_read_forwarded():
-    """STR_POST_AAQ_REG and STR_ACC_REG read their offset LR forwarded: the data
+    """ST.AAQ and ST.ACC read their offset LR forwarded: the data
     lands at row ROW + 8, not ROW."""
     state = run(PROBES["store_post_aaq_offset"]).state
     assert (state.xmem.read_address(ROW * 128, 1), state.xmem.read_address((ROW + 8) * 128, 1)) == (

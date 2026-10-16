@@ -87,7 +87,7 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
     "test_lr_alu_sources_read_cycle_start": (
         Reads(Slot.LR, "ADD", "lr", "src_a", CS),
         Reads(Slot.LR, "SUB", "lr", "src_a", CS),
-        Reads(Slot.LR, "INCR_MOD_POW2", "lr", "step", CS),
+        Reads(Slot.LR, "INC.MODP2", "lr", "step", CS),
         Reads(Slot.LR, "ADDB", "lr", "src_b", CS),
     ),
     "test_lr_subslots_read_cycle_start": (Reads(Slot.LR, "ADD", "lr", "src_a", CS),),
@@ -97,19 +97,19 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
         Reads(Slot.LR, "ADD", "lr", "src_a", CS),
     ),
     "test_cond_operands_read_cycle_start": (
-        *_reads(Slot.COND, ("BEQ", "BNE", "BLT", "BGE"), "lr", "reg1", CS),
+        *_reads(Slot.COND, ("BEQ", "BNE", "BLT.S", "BGE.S"), "lr", "reg1", CS),
         Reads(Slot.COND, "BR", "lr", "reg", CS),
     ),
     "test_break_ifeq_reads_cycle_start": (Reads(Slot.BREAK, "BREAK.IFEQ", "lr", "reg", CS),),
     "test_load_offset_and_index_read_forwarded": (
-        Reads(Slot.LOAD, "LDR_MULT_REG", "lr", "offset", FW),
-        Reads(Slot.LOAD, "LDR_CYCLIC_MULT_REG", "lr", "offset", FW),
-        Reads(Slot.LOAD, "LDR_CYCLIC_MULT_REG", "lr", "index", FW),
-        Reads(Slot.LOAD, "LDR_MULT_MASK_REG", "lr", "offset", FW),
+        Reads(Slot.LOAD, "LD.MULT", "lr", "offset", FW),
+        Reads(Slot.LOAD, "LD.MULT.CYCLIC", "lr", "offset", FW),
+        Reads(Slot.LOAD, "LD.MULT.CYCLIC", "lr", "index", FW),
+        Reads(Slot.LOAD, "LD.MASK", "lr", "offset", FW),
     ),
     "test_store_offsets_read_forwarded": (
-        Reads(Slot.STORE, "STR_POST_AAQ_REG", "lr", "offset", FW),
-        Reads(Slot.ACC_STORE, "STR_ACC_REG", "lr", "offset", FW),
+        Reads(Slot.STORE, "ST.AAQ", "lr", "offset", FW),
+        Reads(Slot.ACC_STORE, "ST.ACC", "lr", "offset", FW),
     ),
     "test_mult_lr_operands_read_forwarded": (
         Reads(Slot.MULT, "MULT.RC.VS", "lr", "rc_idx", FW),
@@ -150,11 +150,9 @@ EXERCISES: dict[str, tuple[Declaration, ...]] = {
         Reads(Slot.AAQ, "ACTIVATE.QUANTIZE", "r_acc", None, FW),
     ),
     "test_store_reads_this_cycle_post_aaq": (
-        Reads(Slot.STORE, "STR_POST_AAQ_REG", "post_aaq_reg", None, FW),
+        Reads(Slot.STORE, "ST.AAQ", "post_aaq_reg", None, FW),
     ),
-    "test_acc_store_reads_this_cycle_r_acc": (
-        Reads(Slot.ACC_STORE, "STR_ACC_REG", "r_acc", None, FW),
-    ),
+    "test_acc_store_reads_this_cycle_r_acc": (Reads(Slot.ACC_STORE, "ST.ACC", "r_acc", None, FW),),
     "test_bkpt_halts_after_whole_word_retires": (Position(Slot.COND, -1),),
     "test_branches_compare_signed": (NotTiming("branch comparison semantics"),),
     "test_break_has_no_side_effects_and_resume_rereads": (Position(Slot.BREAK, 0),),

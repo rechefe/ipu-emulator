@@ -22,6 +22,7 @@ from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.faults import reserved_operand_codes
+from ipu_isa.mnemonics import RESERVED_MNEMONICS
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.view import isa
 
@@ -76,6 +77,12 @@ def _operand_classes(slot: Slot, mnemonic: str) -> tuple[type[ipu_token.IpuToken
 
 def _slot_of(opcode: ipu_token.AnnotatedToken) -> Slot:
     slot = OPCODE_SLOT.get(opcode.token.value.upper())
+    if slot is None and opcode.token.value.upper() in RESERVED_MNEMONICS:
+        raise SlotError(
+            f"Opcode '{opcode.token.value}' is reserved, not implemented.",
+            location=opcode.location(),
+            token=opcode.token.value,
+        )
     if slot is None:
         raise SlotError(
             f"Opcode '{opcode.token.value}' not found in any Inst subclass.",

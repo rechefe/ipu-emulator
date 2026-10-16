@@ -108,7 +108,7 @@ def xmem_row_size_bytes(state: IpuState) -> int:
 
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * _WIDE_ELEMENT_WIDTH_BYTES)
 
-# R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
+# R_CYCLIC is divided into four 128-byte slots; LD.MULT.CYCLIC's index
 # must land exactly on a slot boundary — no implicit wraparound.
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
@@ -679,7 +679,7 @@ class Ipu:
 
         This only translates and range-checks the row itself; the resulting
         address's actual payload (which may span more than one row's worth of
-        bytes, e.g. STR_ACC_REG's fixed 512-byte R_ACC) is bounds-checked by
+        bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
         ``XMem.read_address``/``write_address`` against the allocation.
         """
         if row < 0:
@@ -790,7 +790,7 @@ class Ipu:
         """Scale an r_cyclic ELEMENT index to a byte offset (mode-dependent width).
 
         ``rc_idx`` (MULT.RC.* operand) addresses r_cyclic the same way
-        ``LDR_CYCLIC_MULT_REG``'s ``index`` operand does -- in elements, not
+        ``LD.MULT.CYCLIC``'s ``index`` operand does -- in elements, not
         bytes -- so reads and writes to the same register share one unit. A
         no-op in narrow mode (1 byte/element); scales by 4 in wide-vector
         debug mode. See issue #182's follow-up: rc_idx used to be a raw byte
@@ -1043,8 +1043,8 @@ class Ipu:
         """Execute NOP in acc_store slot: No operation."""
         pass
 
-    def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
-        """Execute STR_ACC_REG: Store accumulator to memory (debug only).
+    def execute_st_acc(self, *, offset: int, base: int) -> None:
+        """Execute ST.ACC: Store accumulator to memory (debug only).
 
         Stores all 512 bytes of R_ACC (128 elements x 32-bit accumulator
         width) unconditionally in both modes -- R_ACC's width does not scale
@@ -1054,7 +1054,7 @@ class Ipu:
         since this is a debug-only instruction by nature (see warning above).
         """
         warnings.warn(
-            "[DEBUG ONLY] STR_ACC_REG is not a hardware instruction and is available "
+            "[DEBUG ONLY] ST.ACC is not a hardware instruction and is available "
             "for emulator debugging purposes only",
             DebugOnlyInstructionWarning,
             stacklevel=2,
@@ -1063,10 +1063,10 @@ class Ipu:
         acc_data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, acc_data)
 
-    def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
-        """Execute LDR_MULT_REG: Load data from memory into a mult stage register."""
+    def execute_ld_mult(self, *, dest: int, offset: int, base: int) -> None:
+        """Execute LD.MULT: Load data from memory into a mult stage register."""
         if dest not in (0, 1):
-            raise EmulatorError(f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}")
+            raise EmulatorError(f"LD.MULT: dest must be 0 (r0) or 1 (r1); got {dest}")
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
@@ -1081,8 +1081,8 @@ class Ipu:
         if self.state.xmem.is_constant_ones(addr, data):
             self.state.regfile.mark_constant_ones(reg_name, elem_idx * len(data), len(data))
 
-    def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
-        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic.
+    def execute_ld_mult_cyclic(self, *, offset: int, base: int, index: int) -> None:
+        """Execute LD.MULT.CYCLIC: Load with cyclic addressing into r_cyclic.
 
         ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
         land on one of the four slot boundaries (0/128/256/384) in both modes
@@ -1093,7 +1093,7 @@ class Ipu:
         addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
             raise EmulatorError(
-                f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
+                f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
                 f"(R_CYCLIC slot boundaries); got {index}"
             )
         byte_idx = index * self._element_width_bytes()
@@ -1106,8 +1106,8 @@ class Ipu:
             name = "r_cyclic_wide_debug" if self._wide_vector_active() else "r_cyclic"
             self.state.regfile.mark_constant_ones(name, byte_idx, len(data))
 
-    def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
-        """Execute LDR_MULT_MASK_REG: Load mask data from memory.
+    def execute_ld_mask(self, *, offset: int, base: int) -> None:
+        """Execute LD.MASK: Load mask data from memory.
 
         Reads only the START of the row -- 128 bytes (8 x 128-bit slots) in
         both modes. The mask is 1 bit per element and does not scale with
@@ -1163,8 +1163,8 @@ class Ipu:
         """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte elements."""
         self._addb_broadcast(dest, imm)
 
-    def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
-        """INCR_MOD_POW2: dest <- (dest + step) mod 2^k.
+    def execute_lr_inc_modp2(self, *, dest: int, step: int, k: int) -> None:
+        """INC.MODP2: dest <- (dest + step) mod 2^k.
 
         Old dest is taken from the cycle-start snapshot (read-before-write). Step is
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
@@ -1173,7 +1173,7 @@ class Ipu:
         self._require_snapshot()
         if k > LR_MOD_POW2_K_ENCODED_MAX:
             raise EmulatorError(
-                f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
+                f"INC.MODP2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
             )
         k_exp = k + LR_MOD_POW2_K_MIN
         cur = self._snapshot_buffer.get_lr(dest)
@@ -1229,7 +1229,7 @@ class Ipu:
         if src < LR_REG_COUNT:
             # The LR holds an INDEX into Ra -> read it LIVE (same-cycle LR writes
             # are visible, like other mult index operands).  Only the Ra DATA is
-            # snapshot (issue #157): a same-cycle LDR_MULT_REG is not yet visible.
+            # snapshot (issue #157): a same-cycle LD.MULT is not yet visible.
             idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
             r_buf = self._snapshot_buffer.raw_readonly(
                 "r"
@@ -1242,7 +1242,7 @@ class Ipu:
         """Wide-vector counterpart of ``_mult_resolve_lcr_scalar``."""
         if src < LR_REG_COUNT:
             # Ra/Rc are read from the START-OF-CYCLE SNAPSHOT like every other
-            # register, so a same-cycle LDR_MULT_REG is not visible to the
+            # register, so a same-cycle LD.MULT is not visible to the
             # consuming mult (issue #157: the load lands a cycle later).
             return self._wide_ra_lane(self.state.regfile.get_lr(src) % (2 * LANES))
         cr_idx = src - LR_REG_COUNT
@@ -1843,7 +1843,7 @@ class Ipu:
             result[i] = max(-128, min(127, int(round(y)))) & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
+    def execute_st_aaq(self, *, offset: int, base: int) -> None:
         """Store **POST_AAQ_REG** (512 bytes) to XMEM.
 
         POST_AAQ_REG's width does not scale with the active element width
@@ -1874,14 +1874,14 @@ class Ipu:
             return value - (1 << LR_CR_SCALAR_BITS)
         return value
 
-    def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute BLT: Branch if less than (signed comparison)."""
+    def execute_blt_s(self, *, reg1: int, reg2: int, label: int) -> None:
+        """Execute BLT.S: Branch if less than (signed comparison)."""
         s1 = self._to_signed_reg(reg1)
         s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
-    def execute_bge(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute BGE: Branch if greater or equal (signed comparison)."""
+    def execute_bge_s(self, *, reg1: int, reg2: int, label: int) -> None:
+        """Execute BGE.S: Branch if greater or equal (signed comparison)."""
         s1 = self._to_signed_reg(reg1)
         s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
@@ -1890,8 +1890,8 @@ class Ipu:
         """Execute BR: Branch to register value."""
         self.state.program_counter = reg
 
-    def execute_bkpt(self) -> None:
-        """Execute BKPT: Breakpoint (halt execution)."""
+    def execute_halt(self) -> None:
+        """Execute HALT: Breakpoint (halt execution)."""
         self.state.program_counter = INST_MEM_SIZE  # halt
 
     def execute_cond_nop(self) -> None:

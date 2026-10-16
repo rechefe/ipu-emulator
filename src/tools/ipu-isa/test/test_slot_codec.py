@@ -74,11 +74,11 @@ def test_encode_errors_name_the_problem():
 def test_reserved_operand_codes_are_rejected():
     lr = SLOT_CODECS[Slot.LR]
     # k is stored as k - 1 and ranges over 1..9: codes 0..8 mean something, 9..15 do not.
-    assert lr.decode(lr.encode("INCR_MOD_POW2", [0, 0, 8])).operands == (0, 0, 8)
+    assert lr.decode(lr.encode("INC.MODP2", [0, 0, 8])).operands == (0, 0, 8)
     with pytest.raises(EncodeError, match="operand k = 9 is a reserved code"):
-        lr.encode("INCR_MOD_POW2", [0, 0, 9])
+        lr.encode("INC.MODP2", [0, 0, 9])
     with pytest.raises(EncodeError, match="operand k = 15 is a reserved code"):
-        lr.encode("INCR_MOD_POW2", [0, 0, 15])
+        lr.encode("INC.MODP2", [0, 0, 15])
     # HorizontalStride: off, on, on_inv, reserved3.
     acc = SLOT_CODECS[Slot.ACC]
     acc.encode("ACC.STRIDE", [0, 2, 0, 0])
@@ -158,7 +158,7 @@ def test_word_pack_rejects_unknown_instances_and_wide_values():
 
 def test_opcode_slot():
     assert OPCODE_SLOT["ADD"] is Slot.LR
-    assert OPCODE_SLOT["STR_ACC_REG"] is Slot.ACC_STORE
+    assert OPCODE_SLOT["ST.ACC"] is Slot.ACC_STORE
     assert "NOP" not in OPCODE_SLOT
     assert codecs() is codecs()
 

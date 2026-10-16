@@ -1,5 +1,5 @@
 // Auto-generated from instruction_spec.py — do not edit.
-// Content: sha256:def7d943cb053bf46e97f4ea7417bc278b2a9e8b1c4827f373450eabe3184b9d
+// Content: sha256:2b8c37ea3701dd69f0f46efdbcb4176f7fcaf3c430aca84fe758b4b53bbc784b
 //
 // Opcode/operand enums and per-slot structs/unions are generated from
 // instruction_spec.py (union field layout in SLOT_UNIONS).
@@ -9,19 +9,19 @@ package ipu_instr_pkg;
   // Enumerations (EnumToken descriptors — opcodes, registers, immediates)
   // -------------------------------------------------------------------------
   typedef enum logic [1:0] {
-    LOAD_INST_OPCODE_LDR_MULT_REG = 2'd0,
-    LOAD_INST_OPCODE_LDR_CYCLIC_MULT_REG = 2'd1,
-    LOAD_INST_OPCODE_LDR_MULT_MASK_REG = 2'd2,
+    LOAD_INST_OPCODE_LD_MULT = 2'd0,
+    LOAD_INST_OPCODE_LD_MULT_CYCLIC = 2'd1,
+    LOAD_INST_OPCODE_LD_MASK = 2'd2,
     LOAD_INST_OPCODE_NOP = 2'd3
   } load_inst_opcode_t;
 
   typedef enum logic [0:0] {
-    STORE_INST_OPCODE_STR_POST_AAQ_REG = 1'd0,
+    STORE_INST_OPCODE_ST_AAQ = 1'd0,
     STORE_INST_OPCODE_NOP = 1'd1
   } store_inst_opcode_t;
 
   typedef enum logic [0:0] {
-    ACC_STORE_INST_OPCODE_STR_ACC_REG = 1'd0,
+    ACC_STORE_INST_OPCODE_ST_ACC = 1'd0,
     ACC_STORE_INST_OPCODE_NOP = 1'd1
   } acc_store_inst_opcode_t;
 
@@ -29,7 +29,7 @@ package ipu_instr_pkg;
     LR_INST_OPCODE_SET = 4'd0,
     LR_INST_OPCODE_ADD = 4'd1,
     LR_INST_OPCODE_SUB = 4'd2,
-    LR_INST_OPCODE_INCR_MOD_POW2 = 4'd3,
+    LR_INST_OPCODE_INC_MODP2 = 4'd3,
     LR_INST_OPCODE_INC = 4'd4,
     LR_INST_OPCODE_DEC = 4'd5,
     LR_INST_OPCODE_ADDB = 4'd6,
@@ -70,10 +70,10 @@ package ipu_instr_pkg;
   typedef enum logic [2:0] {
     COND_INST_OPCODE_BEQ = 3'd0,
     COND_INST_OPCODE_BNE = 3'd1,
-    COND_INST_OPCODE_BLT = 3'd2,
-    COND_INST_OPCODE_BGE = 3'd3,
+    COND_INST_OPCODE_BLT_S = 3'd2,
+    COND_INST_OPCODE_BGE_S = 3'd3,
     COND_INST_OPCODE_BR = 3'd4,
-    COND_INST_OPCODE_BKPT = 3'd5,
+    COND_INST_OPCODE_HALT = 3'd5,
     COND_INST_OPCODE_NOP = 3'd6
   } cond_inst_opcode_t;
 
@@ -240,17 +240,17 @@ package ipu_instr_pkg;
       lr_reg_field_t offset_1; // LrIdx
       logic [2:0] padding_2; // padding
       mult_stage_reg_field_t dest_2; // MultStageReg
-    } ldr_mult_reg;
+    } ld_mult;
     struct packed {
       cr_reg_field_t base_0; // CrIdx
       lr_reg_field_t offset_1; // LrIdx
       lr_reg_field_t index_2; // LrIdx
-    } ldr_cyclic_mult_reg;
+    } ld_mult_cyclic;
     struct packed {
       cr_reg_field_t base_0; // CrIdx
       lr_reg_field_t offset_1; // LrIdx
       logic [3:0] padding_2; // padding
-    } ldr_mult_mask_reg;
+    } ld_mask;
     struct packed {
       logic [11:0] padding; // padding
     } nop;
@@ -270,7 +270,7 @@ package ipu_instr_pkg;
     struct packed {
       cr_reg_field_t base_0; // CrIdx
       lr_reg_field_t offset_1; // LrIdx
-    } str_post_aaq_reg;
+    } st_aaq;
     struct packed {
       logic [7:0] padding; // padding
     } nop;
@@ -290,7 +290,7 @@ package ipu_instr_pkg;
     struct packed {
       cr_reg_field_t base_0; // CrIdx
       lr_reg_field_t offset_1; // LrIdx
-    } str_acc_reg;
+    } st_acc;
     struct packed {
       logic [7:0] padding; // padding
     } nop;
@@ -330,7 +330,7 @@ package ipu_instr_pkg;
       lcr_reg_field_t step_0; // LcrIdx
       lr_reg_field_t dest_1; // LrIdx
       logic [3:0] k_2; // LrModPow2KImmediate
-    } incr_mod_pow2;
+    } inc_modp2;
     struct packed {
       logic [7:0] imm_0; // LrIncDecImmediate
       lr_reg_field_t dest_1; // LrIdx
@@ -531,12 +531,12 @@ package ipu_instr_pkg;
       logic [9:0] label_0; // Label
       lcr_reg_field_t reg1_1; // LcrIdx
       lcr_reg_field_t reg2_2; // LcrIdx
-    } blt;
+    } blt_s;
     struct packed {
       logic [9:0] label_0; // Label
       lcr_reg_field_t reg1_1; // LcrIdx
       lcr_reg_field_t reg2_2; // LcrIdx
-    } bge;
+    } bge_s;
     struct packed {
       logic [9:0] padding_0; // padding
       lcr_reg_field_t reg_1; // LcrIdx
@@ -544,7 +544,7 @@ package ipu_instr_pkg;
     } br;
     struct packed {
       logic [19:0] padding; // padding
-    } bkpt;
+    } halt;
     struct packed {
       logic [19:0] padding; // padding
     } nop;

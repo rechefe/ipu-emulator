@@ -14,8 +14,8 @@ from ipu_as.session import AssemblySession
 from ipu_as.template import TemplateInputs
 
 ABI = {"cr": {"data_base": "CR2"}, "lr": {"data_ptr": "LR0"}}
-SOURCE = "SET {{ lr.data_ptr }} {{ cr.data_base }};;\nBKPT;;\n"
-LITERAL = "SET LR0 CR2;;\nBKPT;;\n"
+SOURCE = "SET {{ lr.data_ptr }} {{ cr.data_base }};;\nHALT;;\n"
+LITERAL = "SET LR0 CR2;;\nHALT;;\n"
 
 
 def test_names_render_to_their_registers_and_assemble_like_literals() -> None:

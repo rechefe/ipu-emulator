@@ -102,7 +102,7 @@ def test_every_instruction_assembles_from_completion_values(mnemonic, form):
     # End to end: an instruction written purely from what completion offers
     # must pass the same check the editor's squiggles run.
     operands = " ".join(_operand_text(op["type"]) for op in form["operands"])
-    source = f"{mnemonic} {operands};;\nBKPT;;\n"
+    source = f"{mnemonic} {operands};;\nHALT;;\n"
     assert check(source) == [], source
 
 
@@ -112,8 +112,8 @@ def test_lexical_facts_match_the_grammar_and_the_assembler():
     assert lexical["token"] == terminals["TOKEN"]
     assert set(lexical["comments"]) == {terminals["COMMENT_LINE"], terminals["COMMENT_HASH"]}
     assert lexical["caseInsensitive"] == {"mnemonics": True, "registers": True, "labels": False}
-    assert check("Loop:\n    B Loop;;\nBKPT;;\n") == []
-    assert check("Loop:\n    B loop;;\nBKPT;;\n") != []
+    assert check("Loop:\n    B Loop;;\nHALT;;\n") == []
+    assert check("Loop:\n    B loop;;\nHALT;;\n") != []
 
 
 def test_every_register_is_described_by_its_definition():
@@ -197,5 +197,5 @@ def test_slot_fill_is_the_assemblers():
     same_kind = [m for m, k in fill["kinds"].items() if k == one_slot]
     assert len(same_kind) >= 2, f"the {one_slot} slot has fewer than two mnemonics"
     first, second = same_kind[:2]
-    assert check(f"{_word(first)}; {_word(second)};;\nBKPT;;\n") != []
-    assert check(f"{_word(first)}; NOP;;\nBKPT;;\n") == []
+    assert check(f"{_word(first)}; {_word(second)};;\nHALT;;\n") != []
+    assert check(f"{_word(first)}; NOP;;\nHALT;;\n") == []

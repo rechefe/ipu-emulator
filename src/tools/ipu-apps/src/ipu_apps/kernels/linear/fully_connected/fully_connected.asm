@@ -3,7 +3,7 @@
     SET                 lr2 cr8 ;;
 
 input_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LD.MULT        r0 lr0 cr0;;
 
     SET                 lr5 cr10 ;;
     SET                 lr6 cr11 ;;
@@ -24,13 +24,13 @@ input_loop:
         element lr5 was just advanced to. -#}
     SET                 lr14 cr9 ;;                         {#- lr14 = -128 -#}
     ADD                 lr14 lr14 cr3 ;;                    {#- lr14 = element 0's offset (0) -#}
-    LDR_CYCLIC_MULT_REG lr14 cr13 lr15 ;;                   {#- load row 0 (lr14 unchanged this word) -#}
+    LD.MULT.CYCLIC lr14 cr13 lr15 ;;                   {#- load row 0 (lr14 unchanged this word) -#}
     ADD                 lr14 lr14 cr3 ;
     ADD                 lr5  lr5  cr4 ;;                     {#- lr14 -> element 1's offset; lr5 -> 0 -#}
 
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr14 cr13 lr15;
+    LD.MULT.CYCLIC lr14 cr13 lr15;
     BNE                 lr5 lr6 element_loop_pre;;
     B                   after_element_loop;;
 
@@ -41,17 +41,17 @@ element_loop_pre:
 element_loop:
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr14 cr13 lr15;
+    LD.MULT.CYCLIC lr14 cr13 lr15;
     BNE                 lr5 lr6 element_loop_pre;;
 
 after_element_loop:
-    STR_ACC_REG         lr7 cr2;;
+    ST.ACC         lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
 
     BREAK;;
 
-    BLT                 lr0 lr1 input_loop;;
+    BLT.S                 lr0 lr1 input_loop;;
 
 end:
-    BKPT;;
+    HALT;;

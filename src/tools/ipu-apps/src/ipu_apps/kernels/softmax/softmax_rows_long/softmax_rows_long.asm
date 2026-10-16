@@ -57,21 +57,21 @@
 group_loop:
 {#- ---- exact group size: lr_bound = min(128, total_rows - rows_done) ------ -#}
     SUB {{lr_bound}} {{lr_total}} {{lr_done}} ;;       {#- remaining = total - done (>=1) -#}
-    BLT {{lr_bound}} cr9 group_size_set ;;             {#- remaining < 128 -> keep it ... -#}
+    BLT.S {{lr_bound}} cr9 group_size_set ;;             {#- remaining < 128 -> keep it ... -#}
     SET {{lr_bound}} cr9 ;;                            {#- ... else cap at 128 -#}
 group_size_set:
 
 {#- ===================================================================== -#}
 {#- PASS 1 -- maxvec[r] = max over the row's N elements (cross-chunk).      -#}
 {#- ===================================================================== -#}
-    LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT.CYCLIC {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
     SET {{lr_row}}   cr0 ;
     ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;               {#- start at this group's base -#}
 
 p1_row:
     {#- first full chunk: AGG.MAX.FIRST seeds r_acc[row] -#}
     ADD {{lr_off}} {{lr_rbase}} cr0 ;;
-    LDR_MULT_REG  r0 {{lr_off}} cr10 ;;                {#- R0 = x[r,chunk0] (snapshot) -#}
+    LD.MULT  r0 {{lr_off}} cr10 ;;                {#- R0 = x[r,chunk0] (snapshot) -#}
     MULT.RC.VV    {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;     {#- c*x -#}
     AGG.MAX.FIRST {{lr_row}} cr15 ;;                    {#- r_acc[r] = max chunk0 -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -79,8 +79,8 @@ p1_row:
 
 p1_full:
     {#- remaining full chunks: running AGG.MAX into r_acc[row] -#}
-    BGE {{lr_chunk}} cr12 p1_tail ;;                    {#- no more full chunks -> tail -#}
-    LDR_MULT_REG r0 {{lr_off}} cr10 ;;
+    BGE.S {{lr_chunk}} cr12 p1_tail ;;                    {#- no more full chunks -> tail -#}
+    LD.MULT r0 {{lr_off}} cr10 ;;
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;
     AGG.MAX      {{lr_row}} cr15 ;;                     {#- running max -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -89,23 +89,23 @@ p1_full:
 
 p1_tail:
     {#- tail chunk: running AGG.MAX over the first `tail` elements (CR8) -#}
-    LDR_MULT_REG r0 {{lr_off}} cr10 ;;
+    LD.MULT r0 {{lr_off}} cr10 ;;
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr8 ;
     AGG.MAX      {{lr_row}} cr8 ;;                      {#- running max, valid_elements=tail -#}
 
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;               {#- next row base -#}
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} p1_row ;;
+    BLT.S {{lr_row}} {{lr_bound}} p1_row ;;
 
     ACTIVATE.QUANTIZE identity cr15 ;                  {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;
+    ST.AAQ {{lr_cyc}} cr5 ;;
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[r,c] = 2^(c*x - maxvec[r]).  Writes NUM region.          -#}
 {#-   maxvec[r] is the SAME for every chunk of row r (subtract via ACC.SUB).-#}
 {#- ===================================================================== -#}
-    LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
-    LDR_MULT_REG r1 {{lr_cyc}} cr5 ;;                  {#- R1 = maxvec (elem r) -#}
+    LD.MULT.CYCLIC {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT r1 {{lr_cyc}} cr5 ;;                  {#- R1 = maxvec (elem r) -#}
     SET {{lr_row}}   cr0 ;
     ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;
     SET {{lr_max_idx}} cr9 ;;                          {#- 128 + 0 = maxvec[0] -#}
@@ -116,14 +116,14 @@ p2_row:
     SET {{lr_chunk}} cr0 ;;
 
 p2_chunk:
-    BGE {{lr_chunk}} cr13 p2_row_done ;;               {#- all cpr chunks done -#}
-    LDR_MULT_REG r0 {{lr_off}} cr10 ;;                 {#- R0 = x[r,c] (snapshot) -#}
+    BGE.S {{lr_chunk}} cr13 p2_row_done ;;               {#- all cpr chunks done -#}
+    LD.MULT r0 {{lr_off}} cr10 ;;                 {#- R0 = x[r,c] (snapshot) -#}
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;     {#- c*x -#}
     acc.add.first ;;
     MULT.EE {{lr_max_idx}} cr1 0 {{lr_cyc}} cr15 ;     {#- maxvec[r]*1.0 -#}
     acc.sub ;                                          {#- r_acc = c*x - maxvec[r] -#}
     ACTIVATE.QUANTIZE exp2 cr15 ;                       {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_wr}} cr4 ;;
+    ST.AAQ {{lr_wr}} cr4 ;;
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_wr}}  {{lr_wr}}  cr7 ;
@@ -134,7 +134,7 @@ p2_row_done:
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_max_idx}} {{lr_max_idx}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} p2_row ;;
+    BLT.S {{lr_row}} {{lr_bound}} p2_row ;;
 
 {#- ===================================================================== -#}
 {#- PASS 3 -- sumvec[r] = SUM over row's N num values; rvec = 1/sum.        -#}
@@ -145,15 +145,15 @@ p2_row_done:
 p3_row:
     ADD {{lr_off}} {{lr_rbase}} cr0 ;;
     {#- first full chunk: AGG.SUM.FIRST seeds r_acc[row] -#}
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;   {#- r_cyclic = num[r,0] -#}
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;   {#- r_cyclic = num[r,0] -#}
     MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;   {#- num*1.0 -#}
     AGG.SUM.FIRST {{lr_row}} cr15 ;;
     ADD {{lr_off}} {{lr_off}} cr7 ;
     SET {{lr_chunk}} cr1 ;;
 
 p3_full:
-    BGE {{lr_chunk}} cr12 p3_tail ;;
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;
+    BGE.S {{lr_chunk}} cr12 p3_tail ;;
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;
     MULT.RC.VE {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;
     AGG.SUM    {{lr_row}} cr15 ;;                       {#- running sum -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
@@ -161,21 +161,21 @@ p3_full:
     B p3_full ;;
 
 p3_tail:
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;
     MULT.RC.VE {{lr_cyc}} cr1 0 {{lr_cyc}} cr8 ;
     AGG.SUM    {{lr_row}} cr8 ;;                        {#- running sum, valid_elements=tail -#}
 
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} p3_row ;;
+    BLT.S {{lr_row}} {{lr_bound}} p3_row ;;
 
     ACTIVATE.QUANTIZE reciprocal cr15 ;                {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;
+    ST.AAQ {{lr_cyc}} cr6 ;;
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[r,c] = num[r,c] * rvec[r].  Writes OUTPUT region.         -#}
 {#- ===================================================================== -#}
-    LDR_MULT_REG r0 {{lr_cyc}} cr6 ;;                  {#- R0 = rvec (elem r) -#}
+    LD.MULT r0 {{lr_cyc}} cr6 ;;                  {#- R0 = rvec (elem r) -#}
     SET {{lr_row}}   cr0 ;
     ADD {{lr_rbase}} {{lr_gbase}} cr0 ;;
 
@@ -184,12 +184,12 @@ p4_row:
     SET {{lr_chunk}} cr0 ;;
 
 p4_chunk:
-    BGE {{lr_chunk}} cr13 p4_row_done ;;
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;   {#- r_cyclic = num[r,c] -#}
+    BGE.S {{lr_chunk}} cr13 p4_row_done ;;
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;   {#- r_cyclic = num[r,c] -#}
     MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} cr15 ;  {#- num*rvec[r] -#}
     acc.add.first ;
     ACTIVATE.QUANTIZE identity cr15 ;                   {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_off}} cr2 ;;
+    ST.AAQ {{lr_off}} cr2 ;;
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
@@ -198,14 +198,14 @@ p4_chunk:
 p4_row_done:
     ADD {{lr_rbase}} {{lr_rbase}} cr14 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} p4_row ;;
+    BLT.S {{lr_row}} {{lr_bound}} p4_row ;;
 
 {#- ---- advance: rows_done += bound; loop while done < total --------------- -#}
 {#- Pass 4 stepped lr_rbase once per row, so it now equals gbase + bound*CR14 -#}
 {#- -- exactly the next group's base. Copy it; the LR slot has no multiply.   -#}
     ADD {{lr_done}}  {{lr_done}} {{lr_bound}} ;
     ADD {{lr_gbase}} {{lr_rbase}} cr0 ;;
-    BLT {{lr_done}} {{lr_total}} group_loop ;;
+    BLT.S {{lr_done}} {{lr_total}} group_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

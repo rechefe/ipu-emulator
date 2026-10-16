@@ -51,7 +51,7 @@ partition boundary, so it can't substitute either.
    (placed the row immediately after RVEC, since no CR slot was free for a
    new base address -- its row number is derived in the `.asm` as
    `cr6 (RVEC row) + 1`).
-2. **`.asm`**: `LDR_MULT_MASK_REG` loads the whole 8-slot image once per
+2. **`.asm`**: `LD.MASK` loads the whole 8-slot image once per
    Pass-4 entry. Since P (and thus the number of unrolled iterations) is
    only known at runtime, but `mask_offset` must be a literal per
    instruction, the per-partition body is unrolled via Jinja
@@ -115,7 +115,7 @@ to `softmax_rows_long` (which had the identical single-group limit).
 - Negative-slide repack into r_acc elements p*ps, full-width ACTIVATE drain,
   now correctly masked per-partition (see fix above).
 - #157 fused loads; read-only CR0/CR1; CR8=128 maxvec-select base.
-- rc_idx (MULT.RC.* operand) is ELEMENT-indexed, matching LDR_CYCLIC_MULT_REG's
+- rc_idx (MULT.RC.* operand) is ELEMENT-indexed, matching LD.MULT.CYCLIC's
   index (issue #182/PR #196) -- confirmed correct in this app's CR11/CR12
   (RING_ELEMENTS=512, partition stride=ps, not the old byte-scaled constants).
 

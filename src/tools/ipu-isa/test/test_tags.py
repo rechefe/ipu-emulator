@@ -76,7 +76,7 @@ def test_a_debug_only_slot_must_be_emulator():
 @pytest.mark.parametrize(
     "slot, mnemonic, tag",
     [
-        ("acc_store", "STR_ACC_REG", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR instructions
+        ("acc_store", "ST.ACC", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR instructions
         ("lr", "ADD", Tag.EMULATOR),  # no EMULATOR instruction in a HARDWARE slot (yet)
         ("lr", "ADD", Tag.ASSEMBLER),
         ("lr", "ADD", "hardware"),
@@ -91,7 +91,7 @@ def test_an_instruction_has_its_slot_tag(slot, mnemonic, tag):
 
 def test_an_instruction_may_state_its_slot_tag():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
-    spec["acc_store"]["STR_ACC_REG"]["tag"] = Tag.EMULATOR
+    spec["acc_store"]["ST.ACC"]["tag"] = Tag.EMULATOR
     validate_instruction_spec(spec, SLOT_METADATA)
 
 

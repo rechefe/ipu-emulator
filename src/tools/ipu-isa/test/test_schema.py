@@ -11,6 +11,7 @@ import dataclasses
 
 import pytest
 
+from ipu_isa import RESERVED_MNEMONICS
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -155,6 +156,49 @@ def test_mnemonics_unique_after_upper_case():
     spec = _spec()
     spec["lr"]["Nop"] = spec["lr"]["NOP"]
     _rejects(spec, r"lr: duplicate mnemonic \(compared in upper case\) 'NOP'")
+
+
+# The mnemonic standard (E03-19).
+
+
+def test_mnemonic_may_not_contain_an_underscore():
+    spec = _spec()
+    spec["load"]["LD_MULT"] = spec["load"].pop("LD.MULT")
+    _rejects(spec, r"load\.LD_MULT: mnemonic 'LD_MULT' must be upper-case words joined by dots")
+
+
+def test_mnemonic_must_be_upper_case():
+    spec = _spec()
+    spec["lr"]["Inc"] = spec["lr"].pop("INC")
+    _rejects(spec, r"lr\.Inc: mnemonic 'Inc' must be upper-case words")
+
+
+def test_datapath_mnemonic_needs_a_dot():
+    spec = _spec()
+    spec["store"]["STAAQ"] = spec["store"].pop("ST.AAQ")
+    _rejects(spec, r"store\.STAAQ: datapath mnemonic 'STAAQ' must be UNIT\.OP")
+
+
+def test_control_mnemonic_needs_no_dot():
+    spec = _spec()
+    spec["lr"]["INCMOD"] = spec["lr"].pop("INC.MODP2")
+    validate_instruction_spec(spec, SLOT_METADATA)
+
+
+def test_reserved_mnemonic_may_not_be_defined():
+    spec = _spec()
+    spec["cond"]["BLT.U"] = copy.deepcopy(spec["cond"]["BLT.S"])
+    _rejects(spec, r"cond\.BLT\.U: mnemonic 'BLT\.U' is reserved")
+
+
+def test_reserved_pseudo_may_not_be_defined():
+    pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
+    pseudo["BGT.U"] = pseudo.pop("BGT.S")
+    _rejects_pseudo(pseudo, r"pseudo\.BGT\.U: mnemonic 'BGT\.U' is reserved")
+
+
+def test_reserved_mnemonics_are_the_unsigned_branches():
+    assert RESERVED_MNEMONICS == {"BLT.U", "BGE.U", "BGT.U", "BLE.U"}
 
 
 def test_exactly_one_nop_per_slot():

@@ -35,7 +35,7 @@ for (const name of ['spawn', 'execFile']) {
 /** An IPU checkout (a Bazel workspace holding the assembler's package) with one kernel. */
 function checkout(parent, name) {
   const dir = path.join(parent, name);
-  for (const [file, text] of [['MODULE.bazel', ''], ['src/tools/ipu-as-py/BUILD.bazel', ''], ['k/demo/demo.asm', 'BKPT;;\n']]) {
+  for (const [file, text] of [['MODULE.bazel', ''], ['src/tools/ipu-as-py/BUILD.bazel', ''], ['k/demo/demo.asm', 'HALT;;\n']]) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), text);
   }
@@ -60,7 +60,7 @@ test('in Restricted Mode nothing runs, and the status says why; trusting the wor
   const ext = fake.install({ trusted: false, folders: [root], settings });
   spawned.length = 0;
   const api = await ext.activate();
-  ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'BKPT;;\n');
+  ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'HALT;;\n');
   await ext.vscode.commands.executeCommand('ipuAsm.check');
   await ext.vscode.commands.executeCommand('ipuAsm.runKernel', 'demo');
   await sleep(500);
@@ -112,7 +112,7 @@ async function window(...names) {
 test('a check that failed is run again for the same text, once the toolchain is back', async () => {
   const w = await window('repo');
   fs.writeFileSync(path.join(w.roots[0], 'broken'), '');
-  const doc = w.ext.open(w.kernel(w.roots[0]), 'BKPT;;\n');
+  const doc = w.ext.open(w.kernel(w.roots[0]), 'HALT;;\n');
   await until(() => w.api.checkerError(), 'the check to fail');
   assert.match(w.ext.statusItem.text, /checks off/);
   fs.rmSync(path.join(w.roots[0], 'broken'));
@@ -130,9 +130,9 @@ test('each checkout has its own status: a broken toolchain in one does not show 
   const w = await window('a', 'b');
   const [a, b] = w.roots;
   fs.writeFileSync(path.join(a, 'broken'), '');
-  const docA = w.ext.open(w.kernel(a), 'BKPT;;\n');
+  const docA = w.ext.open(w.kernel(a), 'HALT;;\n');
   await until(() => w.api.checkerError(docA.uri), 'the check in a to fail');
-  const docB = w.ext.open(w.kernel(b), 'BKPT;;\n');
+  const docB = w.ext.open(w.kernel(b), 'HALT;;\n');
   await until(() => w.ext.statusItem.text === '$(check) IPU', 'b to check');
   assert.deepStrictEqual(w.check.runs(), [a, b], 'each checked in its own checkout');
   assert.strictEqual(w.api.checkerError(docB.uri), null);
@@ -147,19 +147,19 @@ test('each checkout has its own status: a broken toolchain in one does not show 
 
 test('an unsaved buffer is checked in the window\'s only checkout, and in none when there are two', async () => {
   const one = await window('repo');
-  one.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
+  one.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'HALT;;\n');
   await until(() => one.check.runs().length, 'the unsaved buffer to be checked');
   assert.deepStrictEqual(one.check.runs(), one.roots);
   one.done();
 
   const two = await window('a', 'b');
   await until(() => two.api.kernels.indexes.size === 2, 'both checkouts');
-  two.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
-  two.ext.open(new fake.Uri('vscode-vfs', '/a/k/demo/demo.asm'), 'BKPT;;\n'); // no file on disk
+  two.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'HALT;;\n');
+  two.ext.open(new fake.Uri('vscode-vfs', '/a/k/demo/demo.asm'), 'HALT;;\n'); // no file on disk
   await sleep(500);
   assert.deepStrictEqual(two.check.runs(), [], 'nothing checked');
   // A git diff view's side is the working-tree file's: checked in its own checkout.
-  two.ext.open(new fake.Uri('git', path.join(two.roots[1], 'k/demo/demo.asm')), 'BKPT;;\n');
+  two.ext.open(new fake.Uri('git', path.join(two.roots[1], 'k/demo/demo.asm')), 'HALT;;\n');
   await until(() => two.check.runs().length, 'the git side to be checked');
   assert.deepStrictEqual(two.check.runs(), [two.roots[1]]);
   two.done();
@@ -169,7 +169,7 @@ test('activating, finding the checkout, loading its kernels and the first check 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
   const root = checkout(temp, 'repo');
   const ext = fake.install({ folders: [root], settings });
-  const doc = { uri: fake.Uri.file(path.join(root, 'k/demo/demo.asm')), languageId: 'ipu-asm', version: 1, isClosed: false, getText: () => 'BKPT;;\n' };
+  const doc = { uri: fake.Uri.file(path.join(root, 'k/demo/demo.asm')), languageId: 'ipu-asm', version: 1, isClosed: false, getText: () => 'HALT;;\n' };
   ext.vscode.workspace.textDocuments.push(doc);
   ext.show(doc);
   // Every synchronous fs call throws, and is noted in case the code swallows it.
@@ -217,7 +217,7 @@ test('the checker binary is used while its sources are unchanged; a change to th
     // The open folder is a subfolder of the checkout: the assembler's sources are outside it.
     const ext = fake.install({ folders: [path.join(root, 'k')], settings: { manifestCommand: settings.manifestCommand } });
     const api = await ext.activate();
-    const doc = ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'BKPT;;\n');
+    const doc = ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'HALT;;\n');
     await until(() => ran().length, 'the first check');
     const check = async (n) => {
       await ext.vscode.commands.executeCommand('ipuAsm.check');

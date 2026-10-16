@@ -51,7 +51,7 @@ class LrModPow2KImmediate(ipu_token.IpuToken):
         low, high = self.value_range()
         if not (low <= self.int <= high):
             self._raise_error(
-                f"Value {self.int} out of range [{low}, {high}] for INCR_MOD_POW2 k operand"
+                f"Value {self.int} out of range [{low}, {high}] for INC.MODP2 k operand"
             )
 
     def encode(self) -> int:

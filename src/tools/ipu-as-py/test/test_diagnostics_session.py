@@ -28,7 +28,7 @@ def test_consecutive_checks_with_the_same_labels_do_not_interfere() -> None:
 
 
 def test_defines_reach_the_template() -> None:
-    source = "{#- ipu:params\nrows: int\n-#}\n{% for _ in range(rows) %}NOP;;\n{% endfor %}BKPT;;\n"
+    source = "{#- ipu:params\nrows: int\n-#}\n{% for _ in range(rows) %}NOP;;\n{% endfor %}HALT;;\n"
     assert diagnostics.check(source, defines={"rows": 2}) == []
     (found,) = diagnostics.check(source)
     assert found.stage == "template"

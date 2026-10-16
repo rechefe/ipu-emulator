@@ -19,7 +19,7 @@ from ipu_emu.ipu_state import INST_MEM_SIZE
 from ipu_isa.errors import IpuError
 from ipu_isa.types import RegDtype
 
-PROGRAM = "SET lr0 cr8;;\nBKPT;;"
+PROGRAM = "SET lr0 cr8;;\nHALT;;"
 
 
 @pytest.fixture

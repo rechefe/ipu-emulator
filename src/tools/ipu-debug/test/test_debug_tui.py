@@ -241,7 +241,7 @@ class TestLayout:
     def test_mnemonics_share_one_column_across_every_slot(self, monkeypatch):
         monkeypatch.setattr(
             "ipu_debug.session.disassemble_at",
-            lambda _state, pc: f"PC {pc}: ADD lr0 lr1\nSTR_ACC_REG lr2 lr3",
+            lambda _state, pc: f"PC {pc}: ADD lr0 lr1\nST.ACC lr2 lr3",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
 
@@ -250,7 +250,7 @@ class TestLayout:
         operands = {
             x + text.index("lr")
             for _, x, text, _ in screen.writes
-            if text.startswith(("ADD ", "STR_ACC_REG "))
+            if text.startswith(("ADD ", "ST.ACC "))
         }
         assert len(operands) == 1
 
@@ -270,7 +270,7 @@ class TestLayout:
 
     def test_operands_line_up_under_a_padded_mnemonic(self, monkeypatch):
         def disassemble(_state, pc):
-            mnemonic = "STR_ACC_REG" if pc % 2 else "ADD"
+            mnemonic = "ST.ACC" if pc % 2 else "ADD"
             return f"PC {pc}: {mnemonic} lr0 lr1"
 
         monkeypatch.setattr("ipu_debug.session.disassemble_at", disassemble)
@@ -2568,7 +2568,7 @@ class TestPipelineStageView:
     def test_trace_tracks_actual_branch_pc_and_does_not_record_stops(self):
         from ipu_emu.emulator import run_with_debug
 
-        state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; HALT;;")
         control = debug_tui.DebugControl()
         stops = []
 
@@ -2584,7 +2584,7 @@ class TestPipelineStageView:
     def test_trace_follows_pc_edits_and_resets_for_a_new_run(self):
         from ipu_emu.emulator import run_with_debug
 
-        state = self.program("NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        state = self.program("NOP;; NOP;; SET lr2 cr1;; HALT;;")
         control = debug_tui.DebugControl()
 
         def paused(state, cycle):

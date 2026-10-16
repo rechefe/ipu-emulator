@@ -37,7 +37,7 @@ def type_text(operand_type: OperandType, value: int) -> str:
     * ``LrOrReshapeMaskImmediate``: ``lr<n>`` from ``RESHAPE_MASK_LR_OFFSET``
       up, the number below it.
     * An immediate or label whose value range fits its field is stored from
-      code 0 upward (``k - 1`` for ``INCR_MOD_POW2``), so the text adds the
+      code 0 upward (``k - 1`` for ``INC.MODP2``), so the text adds the
       range's low end back. Any other value is written as stored. The width
       is the type's declared ``bits``; every ranged type declares one, so it
       equals the layout width ``ipu_isa.faults`` uses for the same rule.

@@ -152,7 +152,7 @@ class Fold32x32x144App(IpuApp):
         # constant LRs preset here (SET requires a CR source;
         # set_lr in the harness has no such restriction).
         #
-        # STR_POST_AAQ_REG's base operand must be a CR, not an LR (the
+        # ST.AAQ's base operand must be a CR, not an LR (the
         # assembler accepts only CR0..CR15 there). So the destination row address is CR13 (DST_BASE_ROW, fixed) + LR8
         # (running offset), and LR8 accumulates the FULL stripe*C + ch offset
         # across the ENTIRE kernel (0 .. N_STRIPES*C - 1) rather than

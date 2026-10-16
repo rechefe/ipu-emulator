@@ -846,11 +846,11 @@ def test_convolution_case_tensors_share_no_values(kernel, case_name, monkeypatch
     assert not np.isin(bias, weights).any()
 
 
-# -- case_tests and the emulator-only STR_ACC_REG warning ----------------
+# -- case_tests and the emulator-only ST.ACC warning ----------------
 
 _TOY_PROGRAMS = {
-    "uses_str_acc_reg": "SET lr0 cr8;;\nSTR_ACC_REG lr0 cr0;;\nBKPT;;",
-    "hardware_only": "SET lr0 cr8;;\nBKPT;;",
+    "uses_str_acc_reg": "SET lr0 cr8;;\nST.ACC lr0 cr0;;\nHALT;;",
+    "hardware_only": "SET lr0 cr8;;\nHALT;;",
 }
 
 

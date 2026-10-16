@@ -44,7 +44,7 @@ def _slot(slot: Slot, mnemonic: str, operands: list[int]) -> DecodedSlot:
         # Fields: src_b (LcrIdx), dest, src_a.
         (Slot.LR, "ADD", [1, 2, 3], "ADD lr3 lr1 lr2", "ADD lr1 lr2 lr3"),
         # k is stored as k - 1.
-        (Slot.LR, "INCR_MOD_POW2", [4, 5, 2], "INCR_MOD_POW2 lr5 lr4 3", "INCR_MOD_POW2 lr4 lr5 3"),
+        (Slot.LR, "INC.MODP2", [4, 5, 2], "INC.MODP2 lr5 lr4 3", "INC.MODP2 lr4 lr5 3"),
         # reshape_mask 9 is LR1; LrdIdx 1 is lrd2; field 3 is unbound.
         (
             Slot.ACC,
@@ -72,7 +72,7 @@ def test_slot_text_and_operations(slot, mnemonic, operands, text, operation):
 
 
 def test_operand_text():
-    k = isa().instruction(Slot.LR, "INCR_MOD_POW2").operands[2]
+    k = isa().instruction(Slot.LR, "INC.MODP2").operands[2]
     assert operand_text(k, 0) == "1"
     assert operand_text(k, 8) == "9"
     addbi = isa().instruction(Slot.LR, "ADDBI").operands[1]  # range -128..255, stored as is
@@ -112,11 +112,11 @@ def test_a_value_past_the_last_member_is_marked_illegal():
 
 def test_an_illegal_mult_stage_names_its_type():
     load = SLOT_CODECS[Slot.LOAD]
-    # LDR_MULT_REG's dest (MultStageReg, r0/r1) sits in the 4-bit field 2.
-    value = (isa().instruction(Slot.LOAD, "LDR_MULT_REG").opcode << 12) | 13
+    # LD.MULT's dest (MultStageReg, r0/r1) sits in the 4-bit field 2.
+    value = (isa().instruction(Slot.LOAD, "LD.MULT").opcode << 12) | 13
     assert slot_text(load.decode(value)).endswith(" <illegal_MultStageReg_13>")
     word = WORD_CODEC.pack({(Slot.LOAD, 0): value})
-    assert dict(slot_operations(word))["LOAD"].startswith("LDR_MULT_REG <illegal_MultStageReg_13>")
+    assert dict(slot_operations(word))["LOAD"].startswith("LD.MULT <illegal_MultStageReg_13>")
 
 
 def test_a_reserved_opcode_raises():

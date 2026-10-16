@@ -5,9 +5,9 @@
 #
 # See DESIGN.md (sibling file) for the structural overview.
 #
-# Row-addressed ISA (issue #179): XMEM offset/base operands on LDR_MULT_REG /
-# LDR_CYCLIC_MULT_REG's offset+base / LDR_MULT_MASK_REG / STR_POST_AAQ_REG are
-# ROW numbers, not byte addresses. LDR_CYCLIC_MULT_REG's `index` (3rd operand,
+# Row-addressed ISA (issue #179): XMEM offset/base operands on LD.MULT /
+# LD.MULT.CYCLIC's offset+base / LD.MASK / ST.AAQ are
+# ROW numbers, not byte addresses. LD.MULT.CYCLIC's `index` (3rd operand,
 # selecting the R_CYCLIC write slot) and MULT.RC.VE's `rc_idx` operand stay
 # ELEMENT-indexed (0/128/256/384) -- the ring is 512 elements in both modes
 # and is unaffected by row addressing. This app has NO spatial taps (1x1
@@ -22,7 +22,7 @@
 # step (128 lanes) for Half B, which is lane/element space and mode-blind.
 #
 # lr6/lr8/lr9 are also overloaded: as the 3rd (index) operand to
-# LDR_CYCLIC_MULT_REG and the rc_idx operand to MULT.RC.VE they are ELEMENT
+# LD.MULT.CYCLIC and the rc_idx operand to MULT.RC.VE they are ELEMENT
 # values (128/256/384). They are NOT added into lr0/lr13/lr14 to form the
 # NEXT XMEM read address -- in row addressing 128 elements == 1 row, not 128
 # rows. The one-shot "+2 rows" / "+3 rows" computations are built from
@@ -75,7 +75,7 @@
 # ===========================================================================
 
     SET                 lr7 cr0;
-    ldr_mult_mask_reg   lr7 cr2;
+    ld.mask   lr7 cr2;
     add                 lr5 lr7 cr1;;    # lr5 = 1 (output row stride)
 
     add                 lr6 lr7 cr12;;   # lr6 = 128 (r_cyclic ELEMENT index)
@@ -97,16 +97,16 @@
 row_loop:
 
     # Pre-load first 4 input channels into r_cyclic S0..S3
-    ldr_cyclic_mult_reg lr0 cr0 lr7;;
+    ld.mult.cyclic lr0 cr0 lr7;;
 
     add                 lr14 lr0 cr1;    # lr14 = lr0 + 1 row (channel 1's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr6;;
+    ld.mult.cyclic lr14 cr0 lr6;;
 
     add                 lr14 lr14 cr1;;  # lr14 = lr0 + 2 rows (channel 2's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr8;;
+    ld.mult.cyclic lr14 cr0 lr8;;
 
     add                 lr14 lr14 cr1;;  # lr14 = lr0 + 3 rows (channel 3's row)
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ld.mult.cyclic lr14 cr0 lr9;;
 
     SET                 lr3 cr0;
     SET                 lr12 cr0;;       # lr3 = OC counter, lr12 = kernel offset
@@ -121,14 +121,14 @@ oc_pair_loop:
 # Half A — process OC = lr3 using r0
 # ---------------------------------------------------------------------------
 
-    ldr_mult_reg        r0 lr12 cr14;;     # load OC's pass-0 weights into r0
+    ld.mult        r0 lr12 cr14;;     # load OC's pass-0 weights into r0
 
     SET                 lr4 cr0;
     add                 lr10 lr7 cr11;
     add                 lr13 lr0 lr7;;    # lr13 = lr0 (pass 0 input base)
 
     # Choose first-pass W1: full vs tail (single-pass case)
-    blt                 lr7 lr10 W1_FULL_A;;
+    blt.s                 lr7 lr10 W1_FULL_A;;
 
     # num_passes == 1 (only the tail pass)
     # lr14 = lr0 + 3 rows (channel 3's row); chained cr1 adds since ADD's
@@ -140,7 +140,7 @@ oc_pair_loop:
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add.first;;
 
-    blt                 lr4 lr15 PIPELINE_BODY_A;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
 
 W1_FULL_A:
@@ -159,35 +159,35 @@ PIPELINE_BODY_A:
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr7;
+    ld.mult.cyclic lr14 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ld.mult.cyclic lr14 cr0 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
-    blt                 lr4 lr15 PIPELINE_BODY_A;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_A;;
 
 # ---------------------------------------------------------------------------
 # Post-body: decide which epilogue to enter (LAST = end-of-OC, MID = more passes)
 # ---------------------------------------------------------------------------
 
 POST_BODY_A:
-    blt                 lr7 lr10 MID_EPILOGUE_A;;   # lr10 > 0 → more passes
+    blt.s                 lr7 lr10 MID_EPILOGUE_A;;   # lr10 > 0 → more passes
 
 # ---------------------------------------------------------------------------
 # LAST_EPILOGUE_A: this pass is the OC's last. Reload cyclic from lr0
@@ -197,20 +197,20 @@ POST_BODY_A:
 LAST_EPILOGUE_A:
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr0 cr0 lr7;
+    ld.mult.cyclic lr0 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr0 + 2 rows; needs its own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -225,17 +225,17 @@ LAST_EPILOGUE_A:
     # so ACTIVATE rides here rather than fusing
     # into the final acc's word above (which has only 1 free LR slot — not
     # enough room to also relocate this preload).  Fusing further would need
-    # LR-slot reshuffling; not attempted here. STR_POST_AAQ_REG (next word)
+    # LR-slot reshuffling; not attempted here. ST.AAQ (next word)
     # also reads live, but this word's LR slots are already full, so the
     # store stays separate too.
     INC                 lr4 1;
     add                 lr1 lr1 lr5;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ld.mult.cyclic lr14 cr0 lr9;
     ACTIVATE.QUANTIZE identity cr15;;
 
     INC                 lr3 1;
     add                 lr12 lr12 cr1;
-    STR_POST_AAQ_REG    lr1 cr3;;
+    ST.AAQ    lr1 cr3;;
 
     # Fall through to Half B section
 
@@ -245,18 +245,18 @@ LAST_EPILOGUE_A:
 
     # Bounds check: skip B half if no more OCs
     add                 lr14 lr7 cr7;;
-    blt                 lr3 lr14 HALF_B_GO;;
+    blt.s                 lr3 lr14 HALF_B_GO;;
     b                   END_ROW_GROUP_CHECK;;
 
 HALF_B_GO:
 
-    ldr_mult_reg        r1 lr12 cr14;;
+    ld.mult        r1 lr12 cr14;;
 
     add                 lr4 lr7 cr12;
     add                 lr10 lr7 cr11;
     add                 lr13 lr0 lr7;;    # lr13 = lr0 (pass 0 input base)
 
-    blt                 lr7 lr10 W1_FULL_B;;
+    blt.s                 lr7 lr10 W1_FULL_B;;
 
     add                 lr14 lr0 cr1;
     add                 lr15 lr4 cr9;;
@@ -265,7 +265,7 @@ HALF_B_GO:
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add.first;;
 
-    blt                 lr4 lr15 PIPELINE_BODY_B;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
 
 W1_FULL_B:
@@ -280,49 +280,49 @@ PIPELINE_BODY_B:
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr7;
+    ld.mult.cyclic lr14 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr14 cr1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ld.mult.cyclic lr14 cr0 lr9;
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;
-    blt                 lr4 lr15 PIPELINE_BODY_B;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_B;;
 
 POST_BODY_B:
-    blt                 lr7 lr10 MID_EPILOGUE_B;;
+    blt.s                 lr7 lr10 MID_EPILOGUE_B;;
 
 LAST_EPILOGUE_B:
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr0 cr0 lr7;
+    ld.mult.cyclic lr0 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr0 cr1;      # lr14 = lr0 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr0 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
@@ -338,13 +338,13 @@ LAST_EPILOGUE_B:
     # LR slot) — rides here.  See Half A's identical note.
     INC                 lr4 1;
     add                 lr1 lr1 lr5;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;
+    ld.mult.cyclic lr14 cr0 lr9;
     ACTIVATE.QUANTIZE identity cr15;;
 
     # Store the quantized 128 INT8 bytes to XMEM.
     INC                 lr3 1;
     add                 lr12 lr12 cr1;
-    STR_POST_AAQ_REG    lr1 cr3;;
+    ST.AAQ    lr1 cr3;;
 
 # ---------------------------------------------------------------------------
 # End of OC-pair: check if more OCs in this row-group
@@ -353,7 +353,7 @@ LAST_EPILOGUE_B:
 END_ROW_GROUP_CHECK:
 
     add                 lr14 lr7 cr7;;
-    blt                 lr3 lr14 oc_pair_loop;;
+    blt.s                 lr3 lr14 oc_pair_loop;;
 
 # ---------------------------------------------------------------------------
 # Advance to next row-group
@@ -362,10 +362,10 @@ END_ROW_GROUP_CHECK:
     add                 lr0 lr0 cr8;
     INC                 lr2 1;;
 
-    blt                 lr2 lr11 row_loop;;
+    blt.s                 lr2 lr11 row_loop;;
 
 end:
-    bkpt;;
+    halt;;
 
 # ===========================================================================
 # MID epilogues (more passes follow): reload cyclic from NEXT-pass base,
@@ -411,39 +411,39 @@ MID_EPILOGUE_A:
 
     # E1-E4 with reloads from lr13 (next pass's ich0..ich3)
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr13 cr0 lr7;
+    ld.mult.cyclic lr13 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 3 rows; own word, same reason.
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ld.mult.cyclic lr14 cr0 lr9;;
 
     # Transition: advance kernel pointer + decrement pass counter + load r0
     add                 lr12 lr12 cr1;
     sub                 lr10 lr10 cr1;;     # pass_counter -= 1
 
-    ldr_mult_reg        r0 lr12 cr14;;
+    ld.mult        r0 lr12 cr14;;
 
     # Reset lr4 = 0
     SET                 lr4 cr0;;
 
     # Select pipeline_limit: full or tail
-    blt                 lr7 lr10 MP_A_FULL;;
+    blt.s                 lr7 lr10 MP_A_FULL;;
 
     # Last pass for this OC: use tail limit
     add                 lr14 lr13 cr1;
@@ -453,7 +453,7 @@ MID_EPILOGUE_A:
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
-    blt                 lr4 lr15 PIPELINE_BODY_A;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_A;;
     b                   POST_BODY_A;;
 
 MP_A_FULL:
@@ -471,36 +471,36 @@ MID_EPILOGUE_B:
     add                 lr13 lr13 cr13;;
 
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr13 cr0 lr7;
+    ld.mult.cyclic lr13 cr0 lr7;
     MULT.RC.VE          lr6 lr4 0 lr7 cr15 ;
     acc.add;;
 
     INC                 lr4 1;
     add                 lr14 lr13 cr1;      # lr14 = lr13 + 1 row
-    ldr_cyclic_mult_reg lr14 cr0 lr6;
+    ld.mult.cyclic lr14 cr0 lr6;
     MULT.RC.VE          lr8 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 2 rows; own word (ADD src_a reads snapshot).
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr8;
+    ld.mult.cyclic lr14 cr0 lr8;
     MULT.RC.VE          lr9 lr4 0 lr7 cr15 ;
     acc.add;;
 
     # lr14 = lr13 + 3 rows; own word, same reason.
     add                 lr14 lr14 cr1;;
     INC                 lr4 1;
-    ldr_cyclic_mult_reg lr14 cr0 lr9;;
+    ld.mult.cyclic lr14 cr0 lr9;;
 
     add                 lr12 lr12 cr1;
     sub                 lr10 lr10 cr1;;
 
-    ldr_mult_reg        r1 lr12 cr14;;
+    ld.mult        r1 lr12 cr14;;
 
     add                 lr4 lr7 cr12;;       # lr4 = 128
 
-    blt                 lr7 lr10 MP_B_FULL;;
+    blt.s                 lr7 lr10 MP_B_FULL;;
 
     add                 lr14 lr13 cr1;
     add                 lr15 lr4 cr9;;
@@ -509,7 +509,7 @@ MID_EPILOGUE_B:
     MULT.RC.VE          lr7 lr4 0 lr7 cr15 ;
     acc.add;;
 
-    blt                 lr4 lr15 PIPELINE_BODY_B;;
+    blt.s                 lr4 lr15 PIPELINE_BODY_B;;
     b                   POST_BODY_B;;
 
 MP_B_FULL:

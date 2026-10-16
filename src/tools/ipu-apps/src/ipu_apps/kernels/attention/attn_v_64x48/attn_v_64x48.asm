@@ -46,7 +46,7 @@
 # Loop nest:  for b in 0..15 { for t in 0..47 {
 #                 load V channel -> R_CYCLIC
 #                 for i in 0..63: load P row; MULT.RC.VV; AGG.SUM.FIRST i
-#                 ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE identity + ST.AAQ
 #             }}
 #
 # Addressing is split offset(LR) + base(CR):
@@ -56,20 +56,20 @@
 #   p_block_off advances by 64 rows per block.
 #
 # Inner-loop pipeline (per the matmul template):
-#   LDR_MULT_REG offset is read LIVE -> ADD p_ptr +1 row co-issues; start p_ptr
+#   LD.MULT offset is read LIVE -> ADD p_ptr +1 row co-issues; start p_ptr
 #     at (first P row - 1) so the first live load hits the first row.
 #   AGG dest_slot is read from SNAPSHOT; INC agg_slot co-issues -> AGG sees
 #     0,1,..,63.
-#   BLT reads SNAPSHOT -> bound 63 gives exactly 64 bundles (dest 0..63).
+#   BLT.S reads SNAPSHOT -> bound 63 gives exactly 64 bundles (dest 0..63).
 #
 #   MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its R0 DATA from the
 #   start-of-cycle snapshot, so it cannot consume a P row loaded by
-#   LDR_MULT_REG in its own bundle -- it would see the previous R0. The inner
+#   LD.MULT in its own bundle -- it would see the previous R0. The inner
 #   loop therefore primes query 0's P row before the loop, and every bundle
 #   multiplies the row loaded last cycle while prefetching the next query's.
 #   The V channel in R_CYCLIC is loaded two bundles ahead of the loop and never
 #   reloaded inside it, so it is already snapshot-safe.
-#   agg_slot is unaffected -- both of its readers (AGG and BLT) take the
+#   agg_slot is unaffected -- both of its readers (AGG and BLT.S) take the
 #   SNAPSHOT, so INC stays co-issued and the dest sequence is still 0..63.
 #
 # Registers are referred to below by the symbolic names defined in the
@@ -117,32 +117,32 @@ blk_loop:
 
 t_loop:
     # V channel -> R_CYCLIC (loaded once, reused by all 64 queries).
-    LDR_CYCLIC_MULT_REG {{ chan_off }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[b, 0..63, t]
+    LD.MULT.CYCLIC {{ chan_off }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[b, 0..63, t]
     SUB {{ p_ptr }} {{ p_block_off }} {{ p_query_stride }};;       # P inner start = block base - 1 row
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 
 i_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} i_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} i_loop;;
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
+    ST.AAQ {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
 
     # ----- next t: advance the shared V/O channel row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ OUT_CHAN_STRIDE }};;      # channel row += 1
     INC {{ chan_index }} 1;;                                       # t++
-    BLT {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
+    BLT.S {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
 
     # ----- next block: P block offset += 64 rows, b++ -----
     ADD {{ p_block_off }} {{ p_block_off }} {{ P_BLOCK_STRIDE }};;
     INC {{ blk_index }} 1;;
-    BLT {{ blk_index }} {{ BLOCK_COUNT }} blk_loop;;
+    BLT.S {{ blk_index }} {{ BLOCK_COUNT }} blk_loop;;
 
 end:
-    BKPT;;
+    HALT;;

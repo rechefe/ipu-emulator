@@ -184,8 +184,8 @@ def test_forwarded_read_of_a_same_slot_producer_is_rejected():
 
 def test_forwarded_cr_read_is_rejected():
     spec = _spec()
-    _operand(spec, "load", "LDR_MULT_REG", "base")["read"] = "forwarded"
-    _rejects(spec, r"load\.LDR_MULT_REG: cr via 'base': a CR read is at cycle start")
+    _operand(spec, "load", "LD.MULT", "base")["read"] = "forwarded"
+    _rejects(spec, r"load\.LD\.MULT: cr via 'base': a CR read is at cycle start")
 
 
 def test_forwarded_control_slot_read_is_rejected():

@@ -22,5 +22,5 @@ def test_the_bazel_target_equals_the_cli_with_the_same_define_and_include(tmp_pa
     assert result.exit_code == 0, result.stdout
     built = Path("src/tools/ipu-as-py/asm_rule_defines.bin").read_bytes()
     assert built == output.read_bytes()
-    # Three SETs (cpr=3, not the header default 1) and the included BKPT.
+    # Three SETs (cpr=3, not the header default 1) and the included HALT.
     assert len(built) == 4 * instruction_aligned_bytes_len()

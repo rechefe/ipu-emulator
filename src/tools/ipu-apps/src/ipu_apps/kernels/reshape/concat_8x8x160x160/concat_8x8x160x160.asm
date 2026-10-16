@@ -60,14 +60,14 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157, same as fold/unfold/residual_add):
 # MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle snapshot, so it
-# cannot consume a row loaded by LDR_CYCLIC_MULT_REG issued in the SAME
+# cannot consume a row loaded by LD.MULT.CYCLIC issued in the SAME
 # bundle -- `;;` ends one VLIW word = one cycle = one snapshot, so a load and
 # a MULT co-issued in one bundle both see that cycle's PRE-load r_cyclic
 # state. Each load therefore runs one bundle ahead of the MULT that consumes
 # it; verified empirically against this exact kernel before trusting the
 # pipelining below.
 #
-# STR_POST_AAQ_REG reads its offset operand LIVE -- never co-issue an ADD on
+# ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
 # the store's offset LR in the same bundle as the store itself, or the row
 # lands one slot late (same hazard documented in fold_16x16x192.asm and
 # residual_add_16x240.asm).
@@ -78,7 +78,7 @@
 # convention residual_add_16x240 uses); every OTHER nonzero/non-one base or
 # count avoids cr0/cr1.
 #
-# Two independent BLT-driven loops (NOT hand-unrolled -- C_A/C_B are up to
+# Two independent BLT.S-driven loops (NOT hand-unrolled -- C_A/C_B are up to
 # 160 in this family, unlike fold's small fixed 4x4 structure): loop 1 copies
 # A's C_A rows to output rows [0, C_A); loop 2 copies B's C_B rows to output
 # rows [C_A, C_A+C_B). The two loops share the register file (loop 2 reuses
@@ -118,7 +118,7 @@
 # Pass 1: copy A's C_A rows -> output rows [OUT_A_BASE, OUT_A_BASE + C_A)
 #
 # out_ptr is a 0-based ROW COUNTER for this pass, not an absolute row number:
-# STR_POST_AAQ_REG's address is offset + base (ipu.py execute_str_post_aaq_reg),
+# ST.AAQ's address is offset + base (ipu.py execute_str_post_aaq_reg),
 # so the pass's absolute output base lives entirely in the STR's `base`
 # operand (OUT_A_BASE here, OUT_B_BASE in pass 2) and out_ptr only ever
 # counts 0, 1, 2, ... within the pass -- no separate ADD needed to fold a
@@ -131,7 +131,7 @@
     SET                 {{ row_limit }} {{ C_A_COUNT }};;
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
-    LDR_CYCLIC_MULT_REG {{ src_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ src_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
 
 a_loop:
@@ -139,22 +139,22 @@ a_loop:
     #   Co-issued load prefetches A[ch+1] for the next iteration's cycle 1.
     MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ src_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ src_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
     # Cycle 2: stage r_acc into post_aaq_reg and store it (ACTIVATE.QUANTIZE
-    #   identity + STR_POST_AAQ_REG co-issue in one VLIW word; in-word slot
+    #   identity + ST.AAQ co-issue in one VLIW word; in-word slot
     #   order CTRL -> MULT -> ACC -> AaQ -> STR means STR consumes this
     #   cycle's AaQ result -- same free-store pattern residual_add_16x240
     #   uses). Advance the row counter in the same cycle (it does not feed
     #   this cycle's STR offset, which is out_ptr, not row_index).
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_A_BASE }};
+    ST.AAQ {{ out_ptr }} {{ OUT_A_BASE }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};;
-    # Cycle 3: advance output ptr; BLT reads the snapshot row_index, which is
+    # Cycle 3: advance output ptr; BLT.S reads the snapshot row_index, which is
     #   already incremented (set the cycle before, per the live/snapshot
     #   convention every kernel in this family follows).
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ row_stride }};
-    BLT {{ row_index }} {{ row_limit }} a_loop;;
+    BLT.S {{ row_index }} {{ row_limit }} a_loop;;
 
 # ---------------------------------------------------------------------------
 # Pass 2: copy B's C_B rows -> output rows [OUT_B_BASE, OUT_B_BASE + C_B)
@@ -164,19 +164,19 @@ a_loop:
     SET                 {{ row_index }} {{ ZERO }};;
     SET                 {{ row_limit }} {{ C_B_COUNT }};;
     # Prime the pipeline: load B[0].
-    LDR_CYCLIC_MULT_REG {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
 
 b_loop:
     MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ src_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ src_ptr }} {{ src_ptr }} {{ row_stride }};;
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_B_BASE }};
+    ST.AAQ {{ out_ptr }} {{ OUT_B_BASE }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};;
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ row_stride }};
-    BLT {{ row_index }} {{ row_limit }} b_loop;;
+    BLT.S {{ row_index }} {{ row_limit }} b_loop;;
 
 end:
-    BKPT;;
+    HALT;;

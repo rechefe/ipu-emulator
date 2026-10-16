@@ -29,15 +29,15 @@
 #   *** Each row carries 64 valid FP32 tokens (256 bytes); the upper 256 bytes
 #   *** are STALE r_acc lanes 64..127 and must be ignored by consumers.
 #   A stream contributes 2 × 32 = 64 tokens, which half-fills r_acc, and
-#   STR_POST_AAQ_REG unconditionally writes all 512 bytes of post_aaq_reg, and
+#   ST.AAQ unconditionally writes all 512 bytes of post_aaq_reg, and
 #   ACTIVATE.QUANTIZE identity stages all 128 lanes of r_acc into it (DSTRUCT
 #   carries the default valid_elements=128), so lanes 64..127 carry the same
-#   stale r_acc values STR_ACC_REG would write.
+#   stale r_acc values ST.ACC would write.
 #   This is the deliberate per-stream layout; a packed [k][p·n] variant
 #   that would use the full row is not implemented.
 #
 # Pass-through multiply: MULT.RC.VV with r_cyclic preloaded to dtype-1.0,
-#   stripe row in r0 (via LDR_MULT_REG r0):
+#   stripe row in r0 (via LD.MULT r0):
 #     MULT.RC.VV lr0 r0 0 lr0: r0[i] × r_cyclic[i] = stripe[i] × 1.0 = stripe[i].
 #   r_cyclic[0..127] = 1.0 (loaded once at startup, never overwritten).
 #
@@ -55,14 +55,14 @@
 #   horizontal: on=1 (even cols), on_inv=2 (odd cols)
 #   vertical:   on=1 (even rows), on_inv=2 (odd rows)
 #
-# STR_POST_AAQ_REG reads its offset LIVE — never co-issue an ADD on the offset LR in
+# ST.AAQ reads its offset LIVE — never co-issue an ADD on the offset LR in
 # the same bundle as the store, or the row lands one slot late.
 # Here the dst pointer lr8 advances in its own bundle at the end of the channel
 # loop, well clear of every store.
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its r0 DATA from the
 # start-of-cycle snapshot, so a MULT cannot consume a chunk loaded by an
-# LDR_MULT_REG in its own bundle — it would see the PREVIOUS contents of r0.
+# LD.MULT in its own bundle — it would see the PREVIOUS contents of r0.
 # `;;` ends one VLIW word = one cycle = one snapshot, so a load and a MULT in
 # the same bundle always execute in the same cycle regardless of textual order;
 # co-issuing them is fine, consuming the same-cycle load is not.
@@ -100,13 +100,13 @@
 #   DST:  4 × 192 × 512 B = 393,216 B  (0x30000..0x8FFFF)
 #         stream0 0x30000  stream1 0x48000  stream2 0x60000  stream3 0x78000
 
-    LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
+    LD.MULT.CYCLIC lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..191)
 # ---------------------------------------------------------------------------
 
-    LDR_MULT_REG        r0 lr4 cr0;;        # prime: stripe 0 of ch 0 (TL slot 0)
+    LD.MULT        r0 lr4 cr0;;        # prime: stripe 0 of ch 0 (TL slot 0)
 
 ch_loop:
 
@@ -114,52 +114,52 @@ ch_loop:
     # the chunk the NEXT bundle will multiply (snapshot contract, see header).
 
     # -- Stream TL  (h=on=even cols, v=on=even rows) -------------------------
-    LDR_MULT_REG r0 lr4 cr13;
+    LD.MULT r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LD.MULT r0 lr4 cr0;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on lr1;;
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr9;;  # TL → DST_TL + ch×512 (lanes 0..63 valid)
+    ST.AAQ         lr8 cr9;;  # TL → DST_TL + ch×512 (lanes 0..63 valid)
 
     # -- Stream TR  (h=on_inv=odd cols, v=on=even rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr13;
+    LD.MULT r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LD.MULT r0 lr4 cr0;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on lr1;;
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr10;;  # TR
+    ST.AAQ         lr8 cr10;;  # TR
 
     # -- Stream BL  (h=on=even cols, v=on_inv=odd rows) ----------------------
-    LDR_MULT_REG r0 lr4 cr13;
+    LD.MULT r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on_inv lr0;;
-    LDR_MULT_REG r0 lr4 cr0;
+    LD.MULT r0 lr4 cr0;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on on_inv lr1;;
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr11;;  # BL
+    ST.AAQ         lr8 cr11;;  # BL
 
     # -- Stream BR  (h=on_inv=odd cols, v=on_inv=odd rows) -------------------
-    LDR_MULT_REG r0 lr4 cr13;
+    LD.MULT r0 lr4 cr13;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on_inv lr0;;
     # lr4 must advance BEFORE the load that uses the next channel's offset: LR
     # sub-slots run ahead of LOAD within a word, so this ADD gets its own word.
     ADD                 lr4 lr4 lr5;;       # src offset: next channel (+128)
-    LDR_MULT_REG r0 lr4 cr0;
+    LD.MULT r0 lr4 cr0;
     MULT.RC.VV lr0 r0 0 lr0 cr15;
     ACC.STRIDE 16 on_inv on_inv lr1;;
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr12;;  # BR
+    ST.AAQ         lr8 cr12;;  # BR
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 lr8 lr8 lr6;;       # dst offset: next channel (+512)
     ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 ch_loop;; # loop while ch < 192
+    BLT.S                 lr10 lr11 ch_loop;; # loop while ch < 192
 
 end:
-    BKPT;;
+    HALT;;

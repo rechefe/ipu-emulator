@@ -121,8 +121,8 @@ class AttnVBcast60App(IpuApp):
         state.regfile.set_cr(4, OBASE_ROW)
         state.regfile.set_cr(6, -1)  # key-index startup
         state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
-        # Loop bounds are count-1: the counter ADD and the BLT share one bundle,
-        # so BLT reads the pre-ADD snapshot (branch taken while snapshot < bound).
+        # Loop bounds are count-1: the counter ADD and the BLT.S share one bundle,
+        # so BLT.S reads the pre-ADD snapshot (branch taken while snapshot < bound).
         state.regfile.set_cr(8, N_TOK - 2)  # 14: key-loop bound (width 16, peeled+startup)
         state.regfile.set_cr(9, D - 1)  # 59: t-loop bound (60 channels)
         state.regfile.set_cr(10, N_HEAD - 1)  # 3: head-loop bound (4 heads)

@@ -200,7 +200,7 @@ class IpuState:
 
     # Debug/test conveniences, not on any instruction execution path. Each
     # takes a ROW number and mirrors its instruction in the active mode:
-    # LDR_MULT_REG, LDR_CYCLIC_MULT_REG, STR_ACC_REG, LDR_MULT_MASK_REG.
+    # LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK.
 
     def _row_address(self, xmem_row: int) -> int:
         return xmem_row * _ipu().xmem_row_size_bytes(self)
@@ -232,7 +232,7 @@ class IpuState:
         """Load one row from XMEM into r_cyclic at *slot_element_idx*.
 
         An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
-        for LDR_CYCLIC_MULT_REG. Defaults to slot 0.
+        for LD.MULT.CYCLIC. Defaults to slot 0.
         """
         ipu = _ipu()
         if slot_element_idx not in ipu.R_CYCLIC_VALID_INDICES:

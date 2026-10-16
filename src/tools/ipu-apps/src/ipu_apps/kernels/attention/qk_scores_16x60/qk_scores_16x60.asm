@@ -27,7 +27,7 @@
 #     loaded as ONE chunk into r_cyclic).
 #   Q is STAGED query-major by the harness (gather of the strided channels):
 #     QROW[i] = Q[i, 0..59] contiguous at QROW_BASE + i*QROW_STRIDE.
-#     This lets r0 hold one query's 60 channels with a single LDR_MULT_REG,
+#     This lets r0 hold one query's 60 channels with a single LD.MULT,
 #     exactly the matmul broadcast template (scalar from r0 indexed by c).
 #
 # Broadcast template (mirrors matmul k-loop1, width 60):
@@ -37,7 +37,7 @@
 #                   -> mult_res[s] = Q[i,c] * K[s,c]
 #                 ACC.ADD.FIRST (c=0) / ACC.ADD  -> R_ACC[s] += Q[i,c] * K[s,c]
 #   after 60 channels R_ACC[s] = S[i, s] for the 16 keys.
-#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#   ACTIVATE.QUANTIZE identity + ST.AAQ
 #                 -> S[i] (one whole row, first 16 lanes live, query-major)
 #
 # No AGG. The store goes through the standard quantize boundary, same as every
@@ -47,7 +47,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
-# consume a K column loaded by LDR_CYCLIC_MULT_REG in its own bundle -- it
+# consume a K column loaded by LD.MULT.CYCLIC in its own bundle -- it
 # would see the previous column. `;;` ends one VLIW word = one cycle = one
 # snapshot, so a load and a MULT in the same bundle always run in the same
 # cycle regardless of textual order; co-issuing is fine, consuming the
@@ -59,8 +59,8 @@
 #   bundle ahead, k_ptr naturally addresses the NEXT channel's column.
 #   chan_index (the r0 scalar selector) is read LIVE by MULT and must name the
 #   channel just loaded, so its ADD moves into a c_loop_pre block that falls
-#   through into the loop body. That changes what BLT sees: with the ADD in the
-#   same word, BLT read the pre-ADD snapshot; with the ADD one word earlier it
+#   through into the loop body. That changes what BLT.S sees: with the ADD in the
+#   same word, BLT.S read the pre-ADD snapshot; with the ADD one word earlier it
 #   reads the already-incremented value and would exit a channel early. The
 #   loop bound is therefore raised by one, in-kernel, into chan_last
 #   (= chan_bound + 1 = D-1 = 59), leaving the harness's lr6 untouched.
@@ -83,7 +83,7 @@
 {% set k_ptr       = "lr4"  %}  {# row offset into K, walks head channels c #}
 {% set chan_index  = "lr5"  %}  {# head-channel index c -> selects Q[i,c] in r0 #}
 {% set chan_bound  = "lr6"  %}  {# 58 = contraction bound (first=0, width=60) #}
-{% set chan_last   = "lr11" %}  {# 59 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set chan_last   = "lr11" %}  {# 59 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr     = "lr7"  %}  {# row offset into S, += out_stride per query #}
 {% set q_ptr       = "lr8"  %}  {# row offset into staged QROW, += qrow_stride #}
 {% set q_index     = "lr9"  %}  {# query counter i #}
@@ -99,12 +99,12 @@
 {% set DSTRUCT     = "cr15" %}  {# dstructure register: valid_elements = 16 #}
 
     # chan_last = chan_bound + 1 (= D-1 = 59). See the snapshot note in the
-    # header: chan_index's ADD now sits one word ahead of the BLT, so the branch
+    # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
     ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
 
 q_loop:
-    LDR_MULT_REG r0 {{ q_ptr }} {{ QROW_BASE }};;                                               # r0 = QROW[i] = Q[i, 0..59] (rest pad)
+    LD.MULT r0 {{ q_ptr }} {{ QROW_BASE }};;                                               # r0 = QROW[i] = Q[i, 0..59] (rest pad)
 
     # -- the single key group (keys 0..15) -----------------------------------
     SET {{ k_ptr }} {{ K_START }};;                                                             # K-data startup: -1 row
@@ -112,16 +112,16 @@ q_loop:
 
     # Prime c=0's K column: MULT reads r_cyclic from the snapshot, so the column
     # it consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.ADD.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
     B after_c;;
 
 c_loop_pre:
@@ -130,18 +130,18 @@ c_loop_pre:
 c_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store one row -> S[i, keys 0..15]
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store one row -> S[i, keys 0..15]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr (+1 row)
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};
     ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query: Q ptr += 1 row, i++
-    BLT {{ q_index }} {{ q_limit }} q_loop;;
+    BLT.S {{ q_index }} {{ q_limit }} q_loop;;
 
 end:
-    BKPT;;
+    HALT;;

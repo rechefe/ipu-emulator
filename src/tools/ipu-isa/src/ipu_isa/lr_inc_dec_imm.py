@@ -2,7 +2,7 @@
 
 The field width is not hardcoded here. The union solver packs the
 ``LrIncDecImmediate`` operand into a shared LR field (same bin as ``LcrIdx``
-for ``ADD``/``SUB`` ``src_b`` and ``INCR_MOD_POW2`` ``step``), and
+for ``ADD``/``SUB`` ``src_b`` and ``INC.MODP2`` ``step``), and
 :func:`lr_inc_dec_imm_bits` reads that field's width from
 :func:`ipu_isa.layout.isa_layout`.
 

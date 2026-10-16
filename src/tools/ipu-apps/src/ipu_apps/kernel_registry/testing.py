@@ -11,7 +11,7 @@ A sweep of the default case over other sizes is declared, not written::
 
     test_case = case_tests(__package__, sweep=[dict(rows=8, n=200), ...])
 
-A kernel whose program contains an emulator-only instruction (``STR_ACC_REG``)
+A kernel whose program contains an emulator-only instruction (``ST.ACC``)
 must emit ``DebugOnlyInstructionWarning`` in every case; any other kernel fails
 if the warning appears. Tests that run kernels outside ``case_tests`` say which
 they expect with :func:`debug_only_warning`.

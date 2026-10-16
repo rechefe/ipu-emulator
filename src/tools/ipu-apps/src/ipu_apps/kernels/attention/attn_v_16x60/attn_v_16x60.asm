@@ -43,7 +43,7 @@
 #
 # Loop nest:  for h in 0..3 { for t in 0..59 {
 #                 for local 0..15: load P; MULT.RC.VV; AGG.SUM.FIRST
-#                 ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE identity + ST.AAQ
 #                   -> O[0..15, t]  (one whole row, 16 live FP32 lanes)
 #             }}
 #
@@ -54,19 +54,19 @@
 #   head P offset head_p_off advances by P_HEAD_STRIDE per head.
 #
 # Inner-loop pipeline (live-read offsets, per matmul template):
-#   LDR_MULT_REG offset is read LIVE -> ADD p_ptr co-issues; start p_ptr at
+#   LD.MULT offset is read LIVE -> ADD p_ptr co-issues; start p_ptr at
 #   (first P row - PV_STRIDE) so the first live load hits the first row.
 #   AGG dest_slot is read from SNAPSHOT; INC agg_slot co-issues -> AGG sees
-#   0,1,..,15.  BLT reads SNAPSHOT -> bound 15 gives exactly 16 bundles.
+#   0,1,..,15.  BLT.S reads SNAPSHOT -> bound 15 gives exactly 16 bundles.
 #
 #   MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its R0 DATA from the
 #   start-of-cycle snapshot, so it cannot consume a P row loaded by
-#   LDR_MULT_REG in its own bundle -- it would see the previous R0. The inner
+#   LD.MULT in its own bundle -- it would see the previous R0. The inner
 #   loop therefore primes query 0's P row before the loop, and every bundle
 #   multiplies the row loaded last cycle while prefetching the next query's.
-#   The V row in R_CYCLIC is loaded by LDR_CYCLIC_MULT_REG two bundles ahead of
+#   The V row in R_CYCLIC is loaded by LD.MULT.CYCLIC two bundles ahead of
 #   the loop and never reloaded inside it, so it was already snapshot-safe.
-#   agg_slot is unaffected -- both of its readers (AGG and BLT) take the
+#   agg_slot is unaffected -- both of its readers (AGG and BLT.S) take the
 #   SNAPSHOT, so INC stays co-issued and the dest sequence is still 0..15.
 #
 # Registers are referred to below by the symbolic names defined in the
@@ -120,32 +120,32 @@ head_loop:
 t_loop:
     # ---- the single key chunk (keys 0..15), single query group ----
     ADD {{ v_ptr }} {{ chan_off }} {{ ZERO }};;                    # V row offset = current channel
-    LDR_CYCLIC_MULT_REG {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..15, t]
+    LD.MULT.CYCLIC {{ v_ptr }} {{ V_BASE }} {{ rc_slot0 }};;  # R_CYCLIC = V[0..15, t]
     SUB {{ p_ptr }} {{ group_p_off }} {{ p_query_stride }};;       # P inner start = group P off - stride
     SET {{ agg_slot }} {{ ZERO }};;                                # dest/inner counter = 0
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};;  # prime query 0's P row
 inner_loop:
     MULT.RC.VV {{ rc_slot0 }} r0 0 {{ rc_slot0 }} {{ DSTRUCT }};
     AGG.SUM.FIRST {{ agg_slot }} {{ DSTRUCT }};
-    LDR_MULT_REG r0 {{ p_ptr }} {{ P_BASE }};
+    LD.MULT r0 {{ p_ptr }} {{ P_BASE }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ p_query_stride }};
     INC {{ agg_slot }} 1;
-    BLT {{ agg_slot }} {{ INNER_BOUND }} inner_loop;;
+    BLT.S {{ agg_slot }} {{ INNER_BOUND }} inner_loop;;
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_chan_off }} {{ OUT_BASE }};;  # O[0..15, t] = R_ACC
+    ST.AAQ {{ out_chan_off }} {{ OUT_BASE }};;  # O[0..15, t] = R_ACC
 
     # ----- next t: advance V channel row offset and O row offset, t++ -----
     ADD {{ chan_off }} {{ chan_off }} {{ P_QUERY_STRIDE }};;       # V chan row offset += PV_STRIDE
     ADD {{ out_chan_off }} {{ out_chan_off }} {{ OUT_CHAN_STRIDE }};; # O chan row offset += O_CHAN_ROWS
     INC {{ chan_index }} 1;;                                       # t++
-    BLT {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
+    BLT.S {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
 
     # ----- next head: head P row offset += P_HEAD_STRIDE, head++ -----
     ADD {{ head_p_off }} {{ head_p_off }} {{ P_HEAD_STRIDE }};;    # head P row offset += stride
     INC {{ head_index }} 1;;
-    BLT {{ head_index }} {{ HEAD_COUNT }} head_loop;;
+    BLT.S {{ head_index }} {{ HEAD_COUNT }} head_loop;;
 
 end:
-    BKPT;;
+    HALT;;
