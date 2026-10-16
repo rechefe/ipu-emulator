@@ -127,6 +127,26 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_formats",
+    srcs = ["test/test_formats.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_timing",
+    srcs = ["test/test_timing.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_view",
     srcs = ["test/test_view.py"],
     data = ["test/fixtures/spec_snapshot.json"],

@@ -24,6 +24,23 @@ A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped 
 
 No operation. Every slot accepts `NOP`. The assembler fills any omitted slot with `NOP` automatically. When written explicitly in a compound instruction, `NOP` is assigned to the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).
 
+## Element formats
+
+The element format is selected at run time. It sets the element width, and from it the XMEM row width, the register element widths and the accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. `EMULATOR` formats exist only in the emulator. A float element is 1 sign bit, the exponent bits and the stored mantissa bits.
+
+| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |
+|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|
+| `INT8` | `HARDWARE` | 8 | 0 | 0 | 128 | `INT32` |
+| `E1` | `HARDWARE` | 8 | 1 | 6 | 128 | `FP32` |
+| `E2` | `HARDWARE` | 8 | 2 | 5 | 128 | `FP32` |
+| `E3` | `HARDWARE` | 8 | 3 | 4 | 128 | `FP32` |
+| `E4` | `HARDWARE` | 8 | 4 | 3 | 128 | `FP32` |
+| `E5` | `HARDWARE` | 8 | 5 | 2 | 128 | `FP32` |
+| `E6` | `HARDWARE` | 8 | 6 | 1 | 128 | `FP32` |
+| `E7` | `HARDWARE` | 8 | 7 | 0 | 128 | `FP32` |
+| `FP32` | `EMULATOR` | 32 | 8 | 23 | 512 | `FP32` |
+| `INT32` | `EMULATOR` | 32 | 0 | 0 | 512 | `INT32` |
+
 ## Compound Instruction Layout
 
 The compound (VLIW) instruction word is shown two ways below.
@@ -1718,7 +1735,7 @@ Scatter MULT_RES elements into R_ACC: for each of the trailing (8 - reshape_mask
 > reshape_mask skips the lowest-indexed elements 0..reshape_mask-1; the rest participate. Example: reshape_mask = 2 skips elements 0, 1; elements 2-7 participate. Example: reshape_mask = 5 skips elements 0-4; elements 5-7 participate.
 
 **Pseudo code:**
-`mult_res = MULT_RES (pre-instruction snapshot)
+`mult_res = MULT_RES (cycle-start value)
 mask = reshape_mask if immediate else LR[reshape_mask]
 if mask > 8: raise error
 for i in mask..7:
@@ -1748,7 +1765,7 @@ Activation and quantization: apply activation to R_ACC elements and write quanti
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly) |
 
 **General description:**
-Read active elements from ``r_acc`` (snapshot), apply the selected element-wise activation, clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to the leading active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. ``r_acc`` is not modified. Requires INT8 mode. The active element count is taken from ``cr_idx``'s dstructure ``valid_elements`` field (any CR0–CR15; must be named explicitly). Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), ``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), ``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11), ``window`` (12).
+Read active elements from the forwarded R_ACC (this cycle's ACC result), apply the selected element-wise activation, clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to the leading active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. ``r_acc`` is not modified. Requires INT8 mode. The active element count is taken from ``cr_idx``'s dstructure ``valid_elements`` field (any CR0–CR15; must be named explicitly). Available activation functions: ``identity`` (0), ``relu`` (1), ``relu6`` (2), ``sigmoid`` (3), ``tanh`` (4), ``gelu`` (5), ``softplus`` (6), ``elu`` (7), ``exp2`` (8), ``reciprocal`` (9), ``rsqrt`` (10), ``silu`` (11), ``window`` (12).
 
 **Pseudo code:**
 `Requires INT8 mode (IpuState.dtype == DType.INT8). Let n = min(CR[cr_idx].valid_elements, 128) and k = encoded activation index. For i in [0, n): POST_AAQ_REG[i] = clamp(round(activation_k(R_ACC[i])), -128, 127). POST_AAQ_REG[n..511] = 0. R_ACC is not modified. Clamping is a placeholder until a full per-element requantize is implemented. The selector uses four bits; encodings outside the thirteen named activations behave as identity. window(x) = 1 for a <= x < b and 0 otherwise. α for elu and the window bounds a, b are not ISA operands; see docs/content/building-applications.md#activations-emulator.`

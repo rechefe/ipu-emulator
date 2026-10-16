@@ -6,7 +6,9 @@ is the one function that reads them: it checks them against the schema
 an :class:`Isa` and reads records, not string-keyed dicts.
 
 Later issues add fields to these records as they add keys to the schema:
-implicit reads and writes (E03-14), formats and faults (E03-13, E03-15).
+formats and faults (E03-13, E03-15). E03-14 added the register accesses
+(``Operand.write``, ``Instruction.implicit_reads`` / ``implicit_writes``) and
+checks them against the timing contract (``ipu_isa.timing``).
 """
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ from __future__ import annotations
 import functools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
@@ -29,20 +30,12 @@ from ipu_isa.instruction_spec import (
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, SlotInfo
 from ipu_isa.tags import Tag
+from ipu_isa.timing import OPERAND_REGISTERS, RegisterAccess, View, validate_timing
 from ipu_isa.union_layout import IsaLayout, compute_layout
 
-
-class Read(str, Enum):
-    """When an operand's register is read (the authored ``"read"`` values).
-
-    E03-14 renames the spellings with the timing contract.
-    """
-
-    CYCLE_START = "snapshot"
-    FORWARDED = "live"
-
-    def __str__(self) -> str:
-        return self.value
+#: When an operand's register is read (the authored ``"read"`` values): the
+#: timing contract's :class:`ipu_isa.timing.View`.
+Read = View
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +45,7 @@ class Operand:
     name: str  # becomes the SV field <name>_<column>: wire format
     type: OperandType
     read: Read | None
+    write: bool = False  # the register the instruction writes (E03-14)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +59,31 @@ class Instruction:
     tag: Tag
     doc: InstructionDoc
     execute_fn: str
+    # Registers read or written that are not read/write operands (E03-14).
+    implicit_reads: tuple[RegisterAccess, ...] = ()
+    implicit_writes: tuple[RegisterAccess, ...] = ()
+
+    def reads(self) -> tuple[RegisterAccess, ...]:
+        """Every register this instruction reads, with its view: the ``read``
+        operands (an ``LcrIdx`` names LR and CR), then :attr:`implicit_reads`."""
+        operand_reads = tuple(
+            RegisterAccess(register, operand.name, operand.read)
+            for operand in self.operands
+            if operand.read is not None
+            for register in OPERAND_REGISTERS[operand.type.name]
+        )
+        return operand_reads + self.implicit_reads
+
+    def writes(self) -> tuple[RegisterAccess, ...]:
+        """Every register this instruction writes: the ``write`` operands, then
+        :attr:`implicit_writes`."""
+        operand_writes = tuple(
+            RegisterAccess(register, operand.name)
+            for operand in self.operands
+            if operand.write
+            for register in OPERAND_REGISTERS[operand.type.name]
+        )
+        return operand_writes + self.implicit_writes
 
     @property
     def syntax(self) -> str:
@@ -159,13 +178,25 @@ class Isa:
 
 
 def _operands(
-    entries: list[dict[str, str]], operand_types: Mapping[str, OperandType]
+    entries: list[dict[str, Any]], operand_types: Mapping[str, OperandType]
 ) -> tuple[Operand, ...]:
     return tuple(
         Operand(
             name=entry["name"],
             type=operand_types[entry["type"]],
             read=Read(entry["read"]) if "read" in entry else None,
+            write=bool(entry.get("write", False)),
+        )
+        for entry in entries
+    )
+
+
+def _accesses(entries: list[dict[str, Any]]) -> tuple[RegisterAccess, ...]:
+    return tuple(
+        RegisterAccess(
+            register=entry["register"],
+            via_operand=entry.get("via_operand"),
+            view=View(entry["view"]) if "view" in entry else None,
         )
         for entry in entries
     )
@@ -191,6 +222,7 @@ def load_isa(
     validate_pseudo_instruction_spec(
         dict(pseudo_spec), dict(instruction_spec), slots=slots, operand_types=operand_types
     )
+    validate_timing(instruction_spec, slots)
     layout = compute_layout(instruction_spec, operand_types, slots, layout_order)
 
     instructions: dict[Slot, tuple[Instruction, ...]] = {}
@@ -205,6 +237,8 @@ def load_isa(
                 tag=entry.get("tag", slots[slot].tag),
                 doc=entry["doc"],
                 execute_fn=entry["execute_fn"],
+                implicit_reads=_accesses(entry.get("implicit_reads", [])),
+                implicit_writes=_accesses(entry.get("implicit_writes", [])),
             )
             for opcode, (mnemonic, entry) in enumerate(entries.items())
         )
@@ -250,9 +284,14 @@ def isa() -> Isa:
 # ---------------------------------------------------------------------------
 
 
-def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict[str, str]]:
+def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict[str, Any]]:
     return [
-        {"name": op.name, "type": op.type.name, **({"read": op.read.value} if op.read else {})}
+        {
+            "name": op.name,
+            "type": op.type.name,
+            **({"read": op.read.value} if op.read else {}),
+            **({"write": True} if op.write else {}),
+        }
         for op in operands
     ]
 

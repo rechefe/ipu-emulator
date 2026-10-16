@@ -120,13 +120,13 @@ def test_unknown_operand_type():
 
 def test_bad_read_source():
     spec = _spec()
-    _operand(spec, "lr", "ADD", "src_a")["read"] = "cycle_start"
-    _rejects(spec, r"lr\.ADD\.operands\[src_a\]\.read: 'cycle_start' is not one of")
+    _operand(spec, "lr", "ADD", "src_a")["read"] = "snapshot"
+    _rejects(spec, r"lr\.ADD\.operands\[src_a\]\.read: 'snapshot' is not one of")
 
 
 def test_read_on_a_non_register_operand():
     spec = _spec()
-    _operand(spec, "aaq", "ACTIVATE.QUANTIZE", "activation_fn")["read"] = "snapshot"
+    _operand(spec, "aaq", "ACTIVATE.QUANTIZE", "activation_fn")["read"] = "cycle_start"
     _rejects(
         spec,
         r"aaq\.ACTIVATE\.QUANTIZE\.operands\[activation_fn\]\.read: "

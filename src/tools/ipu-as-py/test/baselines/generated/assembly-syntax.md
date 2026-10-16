@@ -40,7 +40,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
-- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **LOAD**, **MULT**, **ACC**, **AAQ**, **STORE**, **ACC_STORE**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`). Same-cycle **load** + **store**: load resolves before store.
+- The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
 - The **acc_store** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
 
 **Example (parallel slots):**
@@ -93,6 +93,86 @@ A label made of decimal digits only, such as `1:`, is a **local label** (the GNU
     BKPT;;
 ```
 
+
+## Execution order and timing
+
+This section is **generated** from `ipu_isa.timing` and the register accesses each instruction declares in `instruction_spec.py`.
+
+The slots of one instruction word execute in this order: **BREAK** → **LR** → **LOAD** → **MULT** → **ACC** → **AAQ** → **STORE** → **ACC_STORE** → **COND**. **BREAK** is evaluated before any slot writes (it may halt the word); the **LR** sub-slots all read before any of them writes.
+
+A register read sees one of two values: the value at **cycle start** (when the word began), or the **forwarded** value (after the writes of earlier slots of the same word). The timing contract is four rules:
+
+1. The Control stage (**LR**, **COND**) reads LRs at cycle start; every other stage reads LRs after the LR writes of the same word.
+2. **MULT** reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` at cycle start.
+3. `MULT_RES` is forwarded to **ACC** (including AGG and RESHAPE); `R_ACC` is forwarded to **AAQ**.
+4. LR sub-slots read cycle-start values.
+
+Any other read is forwarded when every slot that writes the register runs earlier in the word, and at cycle start otherwise. CRs are never written during a run, so CR reads are at cycle start.
+
+### Register reads and writes
+
+`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.
+
+| Instruction | Slot | Reads at cycle start | Reads forwarded | Writes |
+|-------------|------|----------------------|-----------------|--------|
+| `BREAK` | `BREAK` | — | — | — |
+| `BREAK.IFEQ` | `BREAK` | `LR` via `reg` | — | — |
+| `SET` | `LR` | `CR` via `src` | — | `LR` via `reg` |
+| `ADD` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
+| `SUB` | `LR` | `LR` via `src_a`, `LR` via `src_b`, `CR` via `src_b` | — | `LR` via `dest` |
+| `INCR_MOD_POW2` | `LR` | `LR` via `step`, `CR` via `step`, `LR` via `dest` | — | `LR` via `dest` |
+| `INC` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
+| `DEC` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
+| `ADDB` | `LR` | `LR` via `src_b`, `CR` via `src_b`, `LR` via `dest` | — | `LR` via `dest` |
+| `ADDBI` | `LR` | `LR` via `dest` | — | `LR` via `dest` |
+| `LDR_MULT_REG` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R` via `dest` |
+| `LDR_CYCLIC_MULT_REG` | `LOAD` | `CR` via `base` | `LR` via `offset`, `LR` via `index` | `R_CYCLIC` |
+| `LDR_MULT_MASK_REG` | `LOAD` | `CR` via `base` | `LR` via `offset` | `R_MASK` |
+| `MULT.RC.VV` | `MULT` | `R` via `ra`, `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
+| `MULT.RC.VE` | `MULT` | `CR` via `src`, `R`, `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `LR` via `src`, `R_MASK` | `MULT_RES` |
+| `MULT.RC.VS` | `MULT` | `R_CYCLIC`, `CR` via `cr_idx` | `LR` via `rc_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
+| `MULT.VE` | `MULT` | `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
+| `MULT.EE` | `MULT` | `CR` via `cr_idx`, `R`, `CR` via `dstructure_cr_idx` | `LR` via `ra_idx`, `LR` via `mask_shift`, `R_MASK` | `MULT_RES` |
+| `ACC.ADD` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
+| `ACC.ADD.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
+| `ACC.MAX` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
+| `ACC.MAX.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
+| `ACC.SUB` | `ACC` | `R_ACC` | `MULT_RES` | `R_ACC` |
+| `ACC.SUB.FIRST` | `ACC` | — | `MULT_RES` | `R_ACC` |
+| `ACC.STRIDE` | `ACC` | — | `LR` via `offset`, `MULT_RES` | `R_ACC` |
+| `AGG.SUM.FIRST` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx` | `MULT_RES` | `R_ACC` |
+| `AGG.SUM` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC` | `MULT_RES` | `R_ACC` |
+| `AGG.MAX.FIRST` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx` | `MULT_RES` | `R_ACC` |
+| `AGG.MAX` | `ACC` | `LR` via `dest_slot`, `CR` via `cr_idx`, `R_ACC` | `MULT_RES` | `R_ACC` |
+| `ACC.RESHAPE` | `ACC` | `LR` via `source`, `LR` via `dest`, `MULT_RES` | `LR` via `reshape_mask` | `R_ACC` |
+| `ACTIVATE.QUANTIZE` | `AAQ` | `CR` via `cr_idx` | `R_ACC` | `POST_AAQ_REG` |
+| `STR_POST_AAQ_REG` | `STORE` | `CR` via `base` | `LR` via `offset`, `POST_AAQ_REG` | — |
+| `STR_ACC_REG` | `ACC_STORE` | `CR` via `base` | `LR` via `offset`, `R_ACC` | — |
+| `BEQ` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
+| `BNE` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
+| `BLT` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
+| `BGE` | `COND` | `LR` via `reg1`, `CR` via `reg1`, `LR` via `reg2`, `CR` via `reg2` | — | — |
+| `BR` | `COND` | `LR` via `reg`, `CR` via `reg` | — | — |
+| `BKPT` | `COND` | — | — | — |
+
+### Known deviations
+
+Where the emulator differs from the contract today. Each row is removed by the issue named in the last column.
+
+| Instruction | Read | Today | Contract | Fixed by |
+|-------------|------|-------|----------|----------|
+| `AGG.SUM.FIRST` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
+| `AGG.SUM` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
+| `AGG.MAX.FIRST` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
+| `AGG.MAX` | `LR` via `dest_slot` | cycle start | forwarded | E04-25 |
+| `ACC.RESHAPE` | `LR` via `source` | cycle start | forwarded | E04-25 |
+| `ACC.RESHAPE` | `LR` via `dest` | cycle start | forwarded | E04-25 |
+| `ACC.RESHAPE` | `MULT_RES` | cycle start | forwarded | E04-26 |
+| `MULT.RC.VV` | `R_MASK` | forwarded | cycle start | E04-27 |
+| `MULT.RC.VE` | `R_MASK` | forwarded | cycle start | E04-27 |
+| `MULT.RC.VS` | `R_MASK` | forwarded | cycle start | E04-27 |
+| `MULT.VE` | `R_MASK` | forwarded | cycle start | E04-27 |
+| `MULT.EE` | `R_MASK` | forwarded | cycle start | E04-27 |
 
 ## Masking
 
