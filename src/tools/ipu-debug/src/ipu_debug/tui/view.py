@@ -484,8 +484,14 @@ def run_debug_tui(
         # status line). curses has restored the terminal by now, so the
         # traceback can be kept and pointed at before the error goes on.
         session.active = False
-        path = _log_crash(traceback.format_exc())
-        print(f"ipu-debug: the debugger failed; traceback in {path}", file=sys.stderr)
+        text = traceback.format_exc()
+        try:
+            path = _log_crash(text)
+        except OSError:
+            # No log file, but the error itself must still be the one raised.
+            print(f"ipu-debug: the debugger failed:\n{text}", file=sys.stderr)
+        else:
+            print(f"ipu-debug: the debugger failed; traceback in {path}", file=sys.stderr)
         raise
 
 

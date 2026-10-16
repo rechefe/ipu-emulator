@@ -1306,7 +1306,7 @@ class TestMouseAndTerminalFallbacks:
         assert "OSError: no terminal" in log.read_text()
         assert str(log) in capsys.readouterr().err
 
-    def test_a_pane_that_raises_is_logged_and_propagates(self, monkeypatch, tmp_path):
+    def test_a_pane_that_raises_is_logged_and_propagates(self, monkeypatch, tmp_path, capsys):
         state = IpuState()
 
         def broken_render(self, *args, **kwargs):
@@ -1321,6 +1321,20 @@ class TestMouseAndTerminalFallbacks:
             run_debug_tui(state, 0, session=session)
         (log,) = tmp_path.glob("ipu-debug-*.log")
         assert "a bug in a pane" in log.read_text()
+        assert str(log) in capsys.readouterr().err
+
+    def test_an_unwritable_log_still_raises_the_original_error(self, monkeypatch, capsys):
+        state = IpuState()
+
+        def in_terminal(body):
+            raise ValueError("the real failure")
+
+        monkeypatch.setattr(debug_tui, "run_in_terminal", in_terminal)
+        monkeypatch.setattr(tempfile, "tempdir", "/nonexistent/ipu-debug-test")
+        session = new_debug_view_session(state)
+        with pytest.raises(ValueError, match="the real failure"):
+            run_debug_tui(state, 0, session=session)
+        assert "the real failure" in capsys.readouterr().err
 
     def test_wrapper_restores_terminal_when_view_raises(self, monkeypatch, tmp_path):
         state = IpuState()
