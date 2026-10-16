@@ -40,8 +40,6 @@ from ipu_debug.pipeline import (
 from ipu_debug.session import DebugSession
 from ipu_debug.tui.draw import (
     BITS_PER_REGISTER,
-    PANE_CONTENT_INDENT,
-    PANE_CONTENT_MARGIN,
     SCROLLBAR_COLUMNS,
     Canvas,
     Glyphs,
@@ -81,7 +79,15 @@ from ipu_debug.tui.pane import (
     Rect,
     Reply,
 )
+from ipu_debug.tui.panes import registers as registers_pane
 from ipu_debug.tui.panes import xmem as xmem_pane
+from ipu_debug.tui.panes.registers import (
+    DEFAULT_REGISTER_ROWS,
+    REGISTER_GRID_ROWS,
+    REGISTER_NON_CONTENT_ROWS,
+    RegistersPane,
+    RegisterTab,
+)
 from ipu_debug.tui.panes.xmem import XMEM_NON_CONTENT_ROWS, XmemPane, XmemTab
 from ipu_debug.tui.screen import (
     Input,
@@ -93,7 +99,6 @@ from ipu_debug.tui.screen import (
     terminal_available,
 )
 from ipu_debug.tui.tabs import TabSet
-from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
@@ -114,18 +119,8 @@ MIN_PIPELINE_COLUMNS = 42
 # reading from the same numbers.
 PIPELINE_NON_CONTENT_ROWS = 3
 DISASSEMBLY_NON_CONTENT_ROWS = 4
-REGISTER_NON_CONTENT_ROWS = 4
-_SCALAR_REGISTER_COUNTS = {
-    descriptor.name: descriptor.count
-    for descriptor in REGFILE_SCHEMA
-    if descriptor.name in ("lr", "cr")
-}
-_REGISTERS_PER_GROUP = max(_SCALAR_REGISTER_COUNTS.values())
-# The register grid reflows to the height it is given: every shape divides the
-# 16 registers of a group exactly, so no column is ever ragged.  The tallest
-# shape that fits wins, because it also needs the fewest columns.
-REGISTER_GRID_ROWS = (16, 8, 4)
-DEFAULT_REGISTER_ROWS = 8
+# The top panes default to the height of the register grid's middle shape and
+# never shrink below its smallest.
 TOP_PANE_ROWS = DEFAULT_REGISTER_ROWS + REGISTER_NON_CONTENT_ROWS - 1
 MIN_TOP_PANE_ROWS = min(REGISTER_GRID_ROWS) + REGISTER_NON_CONTENT_ROWS
 MIN_MEMORY_ROWS = 6
@@ -138,10 +133,6 @@ MOUSE_WHEEL_LINES = 3
 MAX_COALESCED_KEYS = 64
 FOOTER_ROWS = 1
 EDITOR_HEIGHT = 7
-REGISTER_LABEL_WIDTH = len("L00 ")
-REGISTER_MIN_GUTTER = 2
-REGISTER_MAX_GUTTER = 4
-REGISTER_GROUPS = ("lr", "cr")
 PIPELINE_PAGE_FRACTION_NUMERATOR = 2
 PIPELINE_PAGE_FRACTION_DENOMINATOR = 5
 EMPTY_DISASSEMBLY_OPERATIONS = ("<nop>", "<NOP>", "NOP")
@@ -151,15 +142,7 @@ DISASSEMBLY_PARALLEL_MARKER = "||"
 DISASSEMBLY_PREFIX_WIDTH = len("> 0000  ")
 # Panes paint in this order, so a later one wins any shared cell.
 PANE_DRAW_ORDER: tuple[PaneId, ...] = ("disassembly", "registers", "xmem", "pipeline")
-PANE_TITLES = {
-    "disassembly": "Disassembly",
-    "registers": "LR / CR",
-    "xmem": "XMEM",
-    "pipeline": "Pipeline register",
-}
-SCALAR_REGISTER_FORMATS = ("hex", "u32", "int32", "f32", "bits")
 DISASSEMBLY_FORMATS = ("compact", "full", "stages")
-REGISTER_TAB_GROUPS = ("all", "lr", "cr")
 PIPELINE_REGISTER_FORMATS = (
     "hex",
     "int8",
@@ -170,13 +153,6 @@ PIPELINE_REGISTER_FORMATS = (
     "f32",
     "bits",
 )
-_SCALAR_FORMAT_VALUE_WIDTHS = {
-    "hex": 8,
-    "u32": 10,
-    "int32": 11,
-    "f32": F32_DISPLAY_WIDTH,
-    "bits": BITS_PER_REGISTER,
-}
 
 
 # Border cells are accumulated as a bit mask of the line segments that leave
@@ -186,14 +162,6 @@ BORDER_UP = 1
 BORDER_RIGHT = 2
 BORDER_DOWN = 4
 BORDER_LEFT = 8
-
-
-def register_grid_rows(content_rows: int) -> int:
-    """The tallest register-grid shape that fits in *content_rows*."""
-    for rows in REGISTER_GRID_ROWS:
-        if rows <= content_rows:
-            return rows
-    return min(REGISTER_GRID_ROWS)
 
 
 FOOTER_PANE_LABELS = {
@@ -241,21 +209,6 @@ class DisassemblyTab:
     def title(self) -> str:
         target = "current" if self.target is None else str(self.target)
         return f"{target} {self.fmt}"
-
-
-@dataclass
-class RegisterTab:
-    """One filtered scalar-register view."""
-
-    group: str = "all"
-    fmt: str = "hex"
-    cursor: int = 0
-    column_scroll: int = 0
-    baseline: dict[tuple[str, int], int] | None = None
-
-    @property
-    def title(self) -> str:
-        return f"{self.group} {self.fmt}"
 
 
 @dataclass
@@ -380,9 +333,7 @@ class DebugViewSession:
                 DisassemblyTab(fmt=fmt) for fmt in (DISASSEMBLY_FORMATS if fresh else ("compact",))
             )
         if not self.registers.tabs:
-            self.registers.tabs.extend(
-                RegisterTab(group=group) for group in (("all", "lr", "cr") if fresh else ("all",))
-            )
+            self.registers.tabs.extend(registers_pane.default_tabs(fresh))
         if not self.pipeline.tabs:
             self.pipeline.tabs.extend(
                 PipelineTab(register_key=spec.key, fmt=_default_pipeline_format(state, spec))
@@ -390,18 +341,9 @@ class DebugViewSession:
             )
         self.initialized = True
 
-    def snapshot_registers(self, state: IpuState) -> dict[tuple[str, int], int]:
-        snapshot: dict[tuple[str, int], int] = {}
-        for name in ("lr", "cr"):
-            for index in range(_SCALAR_REGISTER_COUNTS[name]):
-                snapshot[(name, index)] = state.regfile.get_scalar(name, index)
-        return snapshot
-
     def commit_baseline(self, state: IpuState) -> None:
         debug = DebugSession(state)
-        register_snapshot = self.snapshot_registers(state)
-        for tab in self.registers:
-            tab.baseline = register_snapshot.copy()
+        registers_pane.commit_baselines(debug, self.registers)
         for tab in self.pipeline:
             spec = _pipeline_spec(tab.register_key)
             tab.baseline_key = spec.key
@@ -539,6 +481,7 @@ class CursesDebugView:
         self._sink: Callable[[int, int, str, int], None] = self.screen.draw
         self.panes: dict[str, Pane] = self._legacy_panes()
         self.panes["xmem"] = XmemPane(self.theme)
+        self.panes["registers"] = RegistersPane(self.theme)
         self._commands = self._command_table()
 
     @property
@@ -587,21 +530,6 @@ class CursesDebugView:
         self.scroll_origin = None
         self.last_value_click = None
 
-    def _natural_register_columns(self, top_rows: int) -> int:
-        """The width the active LR/CR tab needs at the grid shape it will use."""
-        tab = self.session.register_tab()
-        grid_rows = register_grid_rows(max(1, top_rows - REGISTER_NON_CONTENT_ROWS))
-        groups = self._register_groups(tab)
-        columns = len(groups) * _REGISTERS_PER_GROUP // grid_rows
-        column_width = REGISTER_LABEL_WIDTH + _SCALAR_FORMAT_VALUE_WIDTHS[tab.fmt]
-        return (
-            columns * column_width
-            + (columns - 1) * REGISTER_MAX_GUTTER
-            + 2
-            + PANE_CONTENT_INDENT
-            + PANE_CONTENT_MARGIN
-        )
-
     def _clamped_register_columns(self, columns: int, top_rows: int) -> int:
         """Clamp the visible width without discarding the preferred size.
 
@@ -611,7 +539,10 @@ class CursesDebugView:
         taller pane therefore also returns width to the disassembly.
         """
         requested = self.session.register_pane_columns or min(
-            max(self._natural_register_columns(top_rows), columns * 2 // 5),
+            max(
+                registers_pane.natural_width(self.session.register_tab(), top_rows),
+                columns * 2 // 5,
+            ),
             max(MIN_REGISTER_COLUMNS, columns // 2),
         )
         width = max(
@@ -661,7 +592,7 @@ class CursesDebugView:
         self.session.register_pane_columns = current - delta
         width = self._clamped_register_columns(columns, top_rows)
         self.session.register_pane_columns = width
-        self.session.set_message(f"LR / CR pane width: {width} columns")
+        self.session.set_message(f"{registers_pane.LABEL} pane width: {width} columns")
 
     def _resize_horizontal_split(self, delta: int) -> None:
         if self._single_pane():
@@ -813,7 +744,6 @@ class CursesDebugView:
         }
         draws: dict[str, Callable[[Rect], None]] = {
             "disassembly": self._draw_disassembly,
-            "registers": self._draw_registers,
             "pipeline": self._draw_pipeline_register,
         }
         return {
@@ -1172,143 +1102,6 @@ class CursesDebugView:
         for index, (line, attr) in enumerate(lines[first : first + visible]):
             self._add(rect.y + 3 + index, rect.x + 1, line, attr, width)
 
-    def _draw_registers(self, rect: Rect) -> None:
-        tab = self.session.register_tab()
-        groups = self._register_groups(tab)
-        grid_rows = register_grid_rows(max(1, rect.height - REGISTER_NON_CONTENT_ROWS))
-        column_count = len(groups) * _REGISTERS_PER_GROUP // grid_rows
-        value_width = _SCALAR_FORMAT_VALUE_WIDTHS[tab.fmt]
-        column_width = REGISTER_LABEL_WIDTH + value_width
-        # The indent and margin are padding, not a budget: a wide format such
-        # as ``bits`` gives them up rather than truncating a register value.
-        inner_width = max(1, rect.width - 2)
-        padded_width = max(
-            1,
-            inner_width - PANE_CONTENT_INDENT - PANE_CONTENT_MARGIN,
-        )
-        if padded_width < column_width <= inner_width:
-            content_x = rect.x + 1
-            content_width = inner_width
-        else:
-            content_x = rect.x + 1 + PANE_CONTENT_INDENT
-            content_width = padded_width
-        visible_columns = max(
-            1,
-            min(
-                column_count,
-                (content_width + REGISTER_MIN_GUTTER) // (column_width + REGISTER_MIN_GUTTER),
-            ),
-        )
-        gaps = visible_columns - 1
-        spare = content_width - visible_columns * column_width
-        gutter = (
-            REGISTER_MIN_GUTTER
-            if gaps <= 0
-            else max(REGISTER_MIN_GUTTER, min(REGISTER_MAX_GUTTER, spare // gaps))
-        )
-        stride = column_width + gutter
-
-        tab.cursor = max(
-            0,
-            min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1),
-        )
-        cursor_column = tab.cursor // grid_rows
-        if cursor_column < tab.column_scroll:
-            tab.column_scroll = cursor_column
-        elif cursor_column >= tab.column_scroll + visible_columns:
-            tab.column_scroll = cursor_column - visible_columns + 1
-        tab.column_scroll = max(
-            0,
-            min(tab.column_scroll, column_count - visible_columns),
-        )
-
-        limit = content_x + content_width
-        for visible_column in range(visible_columns):
-            column = tab.column_scroll + visible_column
-            if column >= column_count:
-                break
-            x = content_x + visible_column * stride
-            first = column * grid_rows
-            name = groups[first // _REGISTERS_PER_GROUP]
-            first_index = first % _REGISTERS_PER_GROUP
-            self._add(
-                rect.y + 2,
-                x,
-                f"{name.upper()} {first_index:02d}-{first_index + grid_rows - 1:02d}",
-                self.colors.border,
-                min(column_width, limit - x),
-            )
-            for row in range(grid_rows):
-                index = first_index + row
-                if index >= _SCALAR_REGISTER_COUNTS[name]:
-                    continue
-                self._draw_register_cell(
-                    rect.y + 3 + row,
-                    x,
-                    min(column_width, limit - x),
-                    name,
-                    index,
-                    tab,
-                    first + row,
-                    value_width,
-                )
-        readout = (
-            f" cols {tab.column_scroll + 1}-{tab.column_scroll + visible_columns}/{column_count} "
-            if column_count > visible_columns
-            else ""
-        )
-        self._draw_top_pane_header(
-            rect,
-            ["4 CR / LR"],
-            readout,
-            focused=self.session.focus == "registers",
-        )
-
-    @staticmethod
-    def _register_groups(tab: RegisterTab) -> tuple[str, ...]:
-        return REGISTER_GROUPS if tab.group == "all" else (tab.group,)
-
-    def _register_grid(self, tab: RegisterTab) -> tuple[int, int]:
-        """The ``(rows, columns)`` shape the register pane is drawing now."""
-        rows = register_grid_rows(max(1, self.registers_rect.height - REGISTER_NON_CONTENT_ROWS))
-        groups = self._register_groups(tab)
-        return rows, len(groups) * _REGISTERS_PER_GROUP // rows
-
-    def _draw_register_cell(
-        self,
-        y: int,
-        x: int,
-        width: int,
-        name: str,
-        index: int,
-        tab: RegisterTab,
-        visual_index: int,
-        value_width: int,
-    ) -> None:
-        if width <= 0:
-            return
-        value = self.state.regfile.get_scalar(name, index)
-        changed = tab.baseline is not None and tab.baseline[(name, index)] != value
-        label = f"{name[0].upper()}{index:02d} "
-        label_attr = self.colors.border
-        value_attr = self.colors.changed if changed else self._value_attr(not value)
-        if tab.cursor == visual_index:
-            cursor_attr = self._cursor_attr("registers")
-            label_attr = overlay_style(label_attr, cursor_attr)
-            value_attr = overlay_style(value_attr, cursor_attr)
-        self.value_hits.setdefault("registers", []).append((Rect(y, x, 1, width), visual_index))
-        self._add(y, x, label, label_attr, min(len(label), width))
-        remaining = width - len(label)
-        if remaining <= 0:
-            return
-        self._add_value(
-            y,
-            x + len(label),
-            self._format_scalar_value(value, tab.fmt, value_width),
-            value_attr,
-            remaining,
-        )
-
     def _cursor_attr(self, pane: str) -> int:
         """The cursor highlight for *pane*, muted while it is not focused."""
         return self.colors.cursor_for(self.session.focus == pane)
@@ -1320,22 +1113,6 @@ class CursesDebugView:
     def _add_value(self, y: int, x: int, text: str, attr: int, max_width: int) -> None:
         """Draw a numeric value with its leading zeros dimmed."""
         self._canvas().add_value(y, x, text, attr, max_width)
-
-    @staticmethod
-    def _format_scalar_value(value: int, fmt: str, width: int) -> str:
-        unsigned = value & 0xFFFFFFFF
-        if fmt == "hex":
-            text = f"{unsigned:08x}"
-        elif fmt == "u32":
-            text = f"{unsigned:0{U32_DECIMAL_WIDTH}d}"
-        elif fmt == "int32":
-            text = str(struct.unpack("<i", struct.pack("<I", unsigned))[0])
-        elif fmt == "f32":
-            value = struct.unpack("<f", struct.pack("<I", unsigned))[0]
-            text = f"{value:>{F32_DISPLAY_WIDTH}.{F32_SIGNIFICANT_DIGITS}g}"
-        else:
-            text = format_bits(unsigned)
-        return text.rjust(width)[:width]
 
     def _draw_pipeline_register(self, rect: Rect) -> None:
         tab = self.session.pipeline_tab()
@@ -2139,7 +1916,7 @@ class CursesDebugView:
             rows - HEADER_ROWS - FOOTER_ROWS - self._clamped_top_pane_rows(rows) + 1,
         )
         self.session.register_pane_columns = width
-        self.session.set_message(f"LR / CR pane width: {width} columns")
+        self.session.set_message(f"{registers_pane.LABEL} pane width: {width} columns")
 
     def _handle_click(self, y: int, x: int, *, double: bool = False) -> None:
         previous_click = self.last_value_click
@@ -2219,9 +1996,6 @@ class CursesDebugView:
             tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = payload - base
-            return
-        if pane == "registers":
-            self.session.register_tab().cursor = payload
             return
         self.session.pipeline_tab().cursor = payload
 
@@ -2314,12 +2088,6 @@ class CursesDebugView:
                     return None, f"PC must be between 0 and {INST_MEM_SIZE - 1}"
             fmt = existing.fmt if isinstance(existing, DisassemblyTab) else "compact"
             return DisassemblyTab(target=target, fmt=fmt), None
-        if pane == "registers":
-            group = command.strip().lower()
-            if group not in REGISTER_TAB_GROUPS:
-                return None, "expected all, lr, or cr"
-            fmt = existing.fmt if isinstance(existing, RegisterTab) else "hex"
-            return RegisterTab(group=group, fmt=fmt), None
         token = command.strip().lower()
         spec = next(
             (
@@ -2336,9 +2104,6 @@ class CursesDebugView:
         return PipelineTab(register_key=spec.key, fmt=fmt), None
 
     def _begin_value_editor(self) -> None:
-        if self.session.focus == "registers":
-            self._begin_scalar_editor()
-            return
         tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
         fmt = tab.fmt or _pipeline_format(self.state, spec)
@@ -2363,17 +2128,6 @@ class CursesDebugView:
         )
         self._apply(value_editor(self.debug, "pipeline", value, write))
 
-    def _begin_scalar_editor(self) -> None:
-        """Edit the LR / CR under the cursor."""
-        tab = self.session.register_tab()
-        groups = self._register_groups(tab)
-        position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
-        register = f"{groups[position // _REGISTERS_PER_GROUP]}{position % _REGISTERS_PER_GROUP}"
-        desc, index = self.debug.resolve_register(register)
-        current = self.state.regfile.get_scalar(desc.name, index)
-        hint = "Register masking applies; CR0 and CR1 are read-only"
-        self._apply(scalar_editor(self.debug, "registers", register, current, hint))
-
     # The tab editor of each pane still drawn here: its label, hints and
     # default target.
     _TAB_EDITORS: dict[str, tuple[str, tuple[str, str], str]] = {
@@ -2381,11 +2135,6 @@ class CursesDebugView:
             "Disassembly",
             ("Target: current or PC", "Range: 0 through instruction memory size - 1"),
             "current",
-        ),
-        "registers": (
-            "LR / CR",
-            ("Group: all, lr, or cr", "Format is retained independently per tab"),
-            "all",
         ),
         "pipeline": (
             "Pipeline",
@@ -2405,8 +2154,6 @@ class CursesDebugView:
         if mode == "edit":
             if pane == "disassembly":
                 command = "current" if tab.target is None else str(tab.target)
-            elif pane == "registers":
-                command = tab.group
             else:
                 command = _pipeline_spec(tab.register_key).label
 
@@ -2450,16 +2197,6 @@ class CursesDebugView:
             tab = self.session.disassembly_tab()
             tab.fmt = self._next_format(tab.fmt, DISASSEMBLY_FORMATS, delta)
             self.session.set_message(f"Disassembly format: {tab.fmt}")
-            return
-        if pane == "registers":
-            tab = self.session.register_tab()
-            tab.fmt = self._next_format(
-                tab.fmt,
-                SCALAR_REGISTER_FORMATS,
-                delta,
-            )
-            tab.column_scroll = 0
-            self.session.set_message(f"LR / CR format: {tab.fmt}")
             return
         tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
@@ -2517,15 +2254,6 @@ class CursesDebugView:
                 min(maximum, tab.cursor_offset + dy),
             )
             return
-        if self.session.focus == "registers":
-            tab = self.session.register_tab()
-            grid_rows, column_count = self._register_grid(tab)
-            row = min(grid_rows - 1, tab.cursor % grid_rows)
-            column = tab.cursor // grid_rows
-            row = max(0, min(grid_rows - 1, row + dy))
-            column = max(0, min(column_count - 1, column + dx))
-            tab.cursor = column * grid_rows + row
-            return
         self._move_pipeline_cursor(dx, dy)
 
     def _jump_focused_cursor(self, *, end: bool) -> None:
@@ -2534,11 +2262,6 @@ class CursesDebugView:
             tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = (INST_MEM_SIZE - 1 - base) if end else -base
-            return
-        if self.session.focus == "registers":
-            tab = self.session.register_tab()
-            groups = self._register_groups(tab)
-            tab.cursor = len(groups) * _REGISTERS_PER_GROUP - 1 if end else 0
             return
         tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
@@ -2571,9 +2294,7 @@ class CursesDebugView:
                 (0, self.disassembly_rect.height, 0),
             )
             return max(1, shown)
-        if self.session.focus == "pipeline":
-            return max(1, self.pipeline_rect.height - PIPELINE_NON_CONTENT_ROWS)
-        return max(1, self.xmem_rect.height - XMEM_NON_CONTENT_ROWS)
+        return max(1, self.pipeline_rect.height - PIPELINE_NON_CONTENT_ROWS)
 
     def _execution_action(self, action: DebugAction) -> DebugAction:
         self.session.commit_baseline(self.state)

@@ -12,13 +12,13 @@
   ``curses`` (``CursesScreen``, and ``FakeScreen`` for tests).
 """
 
+from ipu_debug.tui.panes.registers import RegisterTab
 from ipu_debug.tui.panes.xmem import XmemTab
 from ipu_debug.tui.view import (
     CursesDebugView,
     DebugViewSession,
     DisassemblyTab,
     PipelineTab,
-    RegisterTab,
     new_debug_view_session,
     run_debug_tui,
 )

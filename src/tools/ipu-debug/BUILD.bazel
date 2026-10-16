@@ -91,6 +91,19 @@ py_pytest_test(
     ],
 )
 
+# The registers pane rendered on its own: no screen, no view (E08-10).
+py_pytest_test(
+    name = "test_tui_registers_pane",
+    srcs = ["test/test_tui_registers_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
 # DebugSession on real states: parse, resolve, read and disassemble.
 py_pytest_test(
     name = "test_session",
