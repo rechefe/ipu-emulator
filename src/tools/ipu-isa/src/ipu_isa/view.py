@@ -5,8 +5,9 @@ is the one function that reads them: it checks them against the schema
 (E03-03 rules) and builds frozen records. Every consumer asks :func:`isa` for
 an :class:`Isa` and reads records, not string-keyed dicts.
 
-Later issues add fields to these records as they add keys to the schema:
-formats and faults (E03-13, E03-15). E03-14 added the register accesses
+Later issues add fields to these records as they add keys to the schema.
+The fault list and F-1's reserved encodings (E03-15) are in
+``ipu_isa.faults``, derived from an :class:`Isa`. E03-14 added the register accesses
 (``Operand.write``, ``Instruction.implicit_reads`` / ``implicit_writes``) and
 checks them against the timing contract (``ipu_isa.timing``).
 """

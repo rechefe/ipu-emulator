@@ -147,6 +147,28 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_faults",
+    srcs = ["test/test_faults.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+# The hand-written requirements page agrees with ipu_isa.faults (E03-15).
+py_pytest_test(
+    name = "test_faults_docs",
+    srcs = ["test/test_faults_docs.py"],
+    data = ["//docs:doc_sources"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_view",
     srcs = ["test/test_view.py"],
     data = ["test/fixtures/spec_snapshot.json"],
