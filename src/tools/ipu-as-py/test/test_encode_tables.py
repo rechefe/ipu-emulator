@@ -53,7 +53,7 @@ def test_no_table_is_rebuilt_per_instruction() -> None:
 
 
 def test_cached_tables_encode_like_fresh_ones() -> None:
-    """Clearing every cache and assembling again gives the same words."""
+    """Clearing the token caches and assembling again gives the same words."""
     expected = _assemble(PROGRAM)
     ipu_token._REVERSE_MAPS.clear()
     Opcode._class_by_opcode = None

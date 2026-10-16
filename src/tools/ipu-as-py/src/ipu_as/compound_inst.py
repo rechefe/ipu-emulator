@@ -24,7 +24,9 @@ class CompoundInst:
         """Place and encode ``instructions`` (one entry of ``ASTBuilder``'s output).
 
         Raises:
-            SlotError, OperandError or LabelError, as ``encode.encode_word``.
+            SlotError: an unknown mnemonic or a full slot.
+            OperandError: a wrong operand count or an invalid operand.
+            LabelError: an undefined label.
         """
         self._word = encode_word(instructions)
 

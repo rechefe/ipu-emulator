@@ -22,6 +22,7 @@ from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.codec.word import WORD_LAYOUT, DecodedWord, FieldSpec
+from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.view import isa
 
@@ -55,7 +56,13 @@ LEGACY_SLOT_NAME: Mapping[Slot, str] = MappingProxyType(
 
 @dataclass(frozen=True)
 class Placed:
-    """One instruction of a compound, in the slot instance it takes."""
+    """One instruction of a compound, in the slot instance it takes.
+
+    Attributes:
+        slot: The slot.
+        instance: Which copy of the slot (LR has several).
+        instruction: The parsed instruction (``ASTBuilder``'s opcode and operands).
+    """
 
     slot: Slot
     instance: int
@@ -132,6 +139,12 @@ def assign_slots(compound: dict) -> tuple[Placed, ...]:
     An instruction takes the first free instance of its slot; ``NOP`` takes the
     first free instance of any slot.
 
+    Args:
+        compound: One entry of ``ASTBuilder``'s output.
+
+    Returns:
+        The placements, in source order.
+
     Raises:
         SlotError: an unknown mnemonic, or more instructions than the slot has
             instances.
@@ -155,8 +168,55 @@ def _operand_values(placed: Placed) -> tuple[int, ...]:
     return tuple(token.encode() for token in tokens)
 
 
+@functools.cache
+def _reserved_codes(slot: Slot, mnemonic: str) -> tuple[frozenset[int], ...]:
+    """The reserved codes of each operand of ``mnemonic`` (``ipu_isa.faults``)."""
+    view = isa()
+    instruction = SLOT_CODECS[slot].instruction(mnemonic)
+    return tuple(
+        frozenset(reserved_operand_codes(op.type, view.layout.operand_bits[op.type.name]))
+        for op in instruction.operands
+    )
+
+
+@functools.cache
+def _operand_shift(slot: Slot, mnemonic: str, index: int) -> int:
+    """Where the codec places operand ``index``: the bit its value 1 sets."""
+    codec = SLOT_CODECS[slot]
+    arity = len(codec.instruction(mnemonic).operands)
+    zero = codec.encode(mnemonic, (0,) * arity)
+    one = codec.encode(mnemonic, tuple(int(i == index) for i in range(arity)))
+    return (one ^ zero).bit_length() - 1
+
+
+def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
+    """The slot value, a reserved operand code included.
+
+    A reserved code (``ACC.STRIDE``'s ``reserved3``) assembles: hardware
+    faults (F-1) when it runs, and fault tests rely on writing one. The codec
+    refuses it, so it encodes the instruction with 0 there and the code is
+    placed where the codec puts that operand.
+    """
+    reserved = [
+        i for i, codes in enumerate(_reserved_codes(slot, mnemonic)) if operands[i] in codes
+    ]
+    if not reserved:
+        return SLOT_CODECS[slot].encode(mnemonic, operands)
+    cleared = tuple(0 if i in reserved else value for i, value in enumerate(operands))
+    value = SLOT_CODECS[slot].encode(mnemonic, cleared)
+    for i in reserved:
+        value |= operands[i] << _operand_shift(slot, mnemonic, i)
+    return value
+
+
 def encode_word(compound: dict) -> int:
-    """The instruction word of one parsed compound (from ``ASTBuilder``).
+    """The instruction word of one parsed compound.
+
+    Args:
+        compound: One entry of ``ASTBuilder``'s output.
+
+    Returns:
+        The word; a slot instance no instruction takes is NOP.
 
     Raises:
         SlotError: see ``assign_slots``.
@@ -171,8 +231,8 @@ def encode_word(compound: dict) -> int:
         operands = _operand_values(placed)
         opcode = placed.instruction["opcode"]
         try:
-            values[(placed.slot, placed.instance)] = SLOT_CODECS[placed.slot].encode(
-                opcode.token.value, operands
+            values[(placed.slot, placed.instance)] = _encode_slot(
+                placed.slot, opcode.token.value.upper(), operands
             )
         except CodecError as error:
             raise OperandError(
@@ -234,6 +294,13 @@ def _instance_text(fields: DecodedWord, key: tuple[Slot, int]) -> str:
 
 def disassemble_word(word: int) -> str:
     """The assembly text of one word: every slot instance, NOP and unused fields included.
+
+    Args:
+        word: An instruction word.
+
+    Returns:
+        One ``MNEMONIC field...`` group per slot instance, most significant
+        first, joined by ``;`` and ending in ``;;``.
 
     Raises:
         IndexError: a slot holds an opcode no instruction uses.

@@ -127,11 +127,21 @@ check_operand_type_map(OPERAND_TYPE_MAP)
 
 
 def render_slot_docs(slot: str, view: Isa | None = None) -> str:
-    """The reference section of ``slot``: heading, intro and one entry per
-    documented instruction of ``view`` (default: ``isa()``).
+    """The reference section of one slot, in Markdown.
 
     The heading and intro come from the slot registry (``SlotInfo.doc_heading``,
-    ``doc_intro``)."""
+    ``doc_intro``), then one entry per documented instruction.
+
+    Args:
+        slot: The slot name, e.g. ``"lr"``.
+        view: The ISA; default ``isa()``.
+
+    Returns:
+        The section text.
+
+    Raises:
+        ValueError: ``slot`` is no slot.
+    """
     view = isa() if view is None else view
     info = view.slots[Slot(slot)]
     heading, intro = info.doc_heading, info.doc_intro
