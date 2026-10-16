@@ -38,6 +38,18 @@ py_pytest_test(
     ],
 )
 
+# Region placement (E06-04). ipu_apps only for the projections layouts that
+# placement must reproduce (guards E07-02).
+py_pytest_test(
+    name = "test_placement",
+    srcs = ["test/test_placement.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        requirement("pytest"),
+    ],
+)
+
 # kernel.toml: the schema, the loader and its errors (E06-02).
 py_pytest_test(
     name = "test_manifest",
