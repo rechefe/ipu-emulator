@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipu-kernels"
+version = "0.1.0"
+description = "Kernel-side Python shared across IPU kernels: references, pack transforms, family code"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.2.6",
+]
+
+[project.optional-dependencies]
+# PyTorch is test-only (Q74b): the shared references and the kernel tests use
+# it; no library depends on it. The CPU wheel, from PyTorch's CPU index (PyPI's
+# Linux wheel brings the CUDA stack).
+dev = [
+    "pytest>=9.0.1",
+    "torch==2.14.1",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.uv]
+package = true
