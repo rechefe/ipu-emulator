@@ -19,7 +19,7 @@ from types import MappingProxyType
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError, SlotError
 from ipu_as.inst import OPERAND_TYPE_MAP
-from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
+from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC, DecodedSlot
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.codec.word import WORD_LAYOUT, DecodedWord, FieldSpec
 from ipu_isa.faults import reserved_operand_codes
@@ -33,8 +33,10 @@ __all__ = [
     "WILDCARD_OPCODES",
     "Placed",
     "assign_slots",
+    "disassemble_fields",
     "disassemble_word",
     "encode_word",
+    "operation_text",
     "target_tag",
 ]
 
@@ -366,6 +368,41 @@ def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
     target = target_tag(target)
     if target is Tag.HARDWARE:
         word <<= isa().layout.word_bits(Tag.EMULATOR)  # the emulator slots are the low bits
-    fields = DecodedWord.from_word(word)
-    instances = _TARGET_INSTANCES[target]
+    return disassemble_fields(DecodedWord.from_word(word), target)
+
+
+def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) -> str:
+    """``disassemble_word`` of a word already split into its fields (``DecodedWord``).
+
+    Args:
+        fields: Wire field name -> value; a missing field is 0.
+        target: Which slots to print: every slot, or the hardware slots.
+
+    Returns:
+        As ``disassemble_word``.
+
+    Raises:
+        IndexError: a slot holds an opcode no instruction uses.
+    """
+    fields = fields if isinstance(fields, DecodedWord) else DecodedWord(fields)
+    instances = _TARGET_INSTANCES[target_tag(target)]
     return ";\n\t\t\t".join(_instance_text(fields, key) for key in instances) + ";;"
+
+
+def operation_text(decoded: DecodedSlot) -> str:
+    """One slot's instruction as written in assembly: the mnemonic, then its operands.
+
+    Unlike the disassembly text, operands are in assembly order and fields the
+    instruction does not use are left out.
+
+    Args:
+        decoded: A slot value decoded by its ``SlotCodec``.
+
+    Returns:
+        ``"ADD lr0 lr1 lr2"``; a bare ``"NOP"``.
+    """
+    texts = (
+        OPERAND_TYPE_MAP[op.type.name].decode(value)
+        for op, value in zip(decoded.instruction.operands, decoded.operands, strict=True)
+    )
+    return " ".join((decoded.instruction.mnemonic, *texts))
