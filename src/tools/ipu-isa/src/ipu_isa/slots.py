@@ -92,9 +92,22 @@ class SlotInfo:
 #: The keys each authored entry holds (all required).
 ENTRY_KEYS = schema.Keys(
     frozenset(
-        {"count", "pad_to_bits", "tag", "debug_only", "title", "description",
-         "doc_heading", "doc_intro", "field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class",
-         "legend_colour", "legend_label"}
+        {
+            "count",
+            "pad_to_bits",
+            "tag",
+            "debug_only",
+            "title",
+            "description",
+            "doc_heading",
+            "doc_intro",
+            "field_prefix",
+            "opcode_enum",
+            "sv_struct_base",
+            "asm_opcode_class",
+            "legend_colour",
+            "legend_label",
+        }
     )
 )
 
@@ -269,8 +282,7 @@ _SPEC: dict[Slot, dict] = {
         "debug_only": False,
         "title": "Conditional",
         "description": (
-            "Conditional and unconditional branches; control flow based on register "
-            "comparisons."
+            "Conditional and unconditional branches; control flow based on register comparisons."
         ),
         "doc_heading": "Conditional Branch Instructions",
         "doc_intro": (
@@ -317,7 +329,7 @@ def _load(spec: Mapping[Slot, dict], layout_order: tuple[Slot, ...]) -> Mapping[
             raise schema.SpecError(f"{path}.debug_only: only an EMULATOR slot can be debug-only")
         records[slot] = SlotInfo(slot=slot, **entry)
     tags = [records[slot].tag for slot in layout_order]
-    if Tag.EMULATOR in tags and Tag.HARDWARE in tags[tags.index(Tag.EMULATOR):]:
+    if Tag.EMULATOR in tags and Tag.HARDWARE in tags[tags.index(Tag.EMULATOR) :]:
         late = layout_order[len(tags) - 1 - tags[::-1].index(Tag.HARDWARE)]
         raise schema.SpecError(
             f"LAYOUT_ORDER: HARDWARE slot {late.value!r} follows an EMULATOR slot; "

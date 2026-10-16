@@ -358,9 +358,7 @@ class Inst:
             if instruction_format.doc is None:
                 continue
             spec_ops = INSTRUCTION_SPEC[slot][opcode]["operands"]
-            lines.extend(
-                cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops)
-            )
+            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops))
             lines.append("")
 
         return "\n".join(lines).rstrip()

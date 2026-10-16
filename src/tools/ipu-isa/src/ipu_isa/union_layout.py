@@ -167,12 +167,14 @@ def compute_slot_layout(
                             break
                         count += 1
 
-        fields.append(UnionField(
-            index=bin_idx,
-            canonical_type=canonical,
-            bits=max_width,
-            users=MappingProxyType(users_map),
-        ))
+        fields.append(
+            UnionField(
+                index=bin_idx,
+                canonical_type=canonical,
+                bits=max_width,
+                users=MappingProxyType(users_map),
+            )
+        )
 
     # ------------------------------------------------------------------ #
     # Step 7: build opcode_bindings                                       #
@@ -216,9 +218,7 @@ def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
             actual_type == "LrModPow2KImmediate"
             for _opcode, (_operand_name, actual_type) in slot_field.users.items()
         ):
-            padded = replace(field, bits=field.bits + deficit)
-            fields = tuple(padded if f is field else f for f in su.fields)
+            padded = replace(slot_field, bits=slot_field.bits + deficit)
+            fields = tuple(padded if f is slot_field else f for f in su.fields)
             return replace(su, fields=fields)
-    raise ValueError(
-        f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})"
-    )
+    raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")

@@ -44,8 +44,8 @@ from ipu_isa.instruction_spec import (
     syntax,
 )
 from ipu_isa.operand_types import operand_type
-from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.types import RegKind
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"

@@ -15,7 +15,6 @@ from ipu_isa.instruction_spec import (
     SLOT_COUNT,
 )
 from ipu_isa.layout import SLOT_UNIONS
-from ipu_gen.union_layout_svg import render_union_layout_svg
 
 
 def _render() -> str:

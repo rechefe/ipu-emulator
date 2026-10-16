@@ -11,7 +11,7 @@ from ipu_isa.instruction_spec import (
     SLOT_METADATA,
 )
 from ipu_isa.schema import SpecError
-from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, _load, _SPEC
+from ipu_isa.slots import _SPEC, LAYOUT_ORDER, SLOTS, Slot, _load
 
 
 def test_layout_order_covers_every_slot_once():
@@ -25,7 +25,9 @@ def test_instance_labels():
     assert SLOTS[Slot.LR].field_prefixes() == ("lr_inst_0", "lr_inst_1", "lr_inst_2")
 
 
-@pytest.mark.parametrize("key", ["field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class"])
+@pytest.mark.parametrize(
+    "key", ["field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class"]
+)
 def test_wire_names_are_unique(key):
     values = [getattr(info, key) for info in SLOTS.values()]
     assert len(values) == len(set(values))
@@ -33,11 +35,26 @@ def test_wire_names_are_unique(key):
 
 def test_derived_views_equal_the_old_literals():
     assert SLOT_COUNT == {
-        "break": 1, "load": 1, "store": 1, "acc_store": 1, "mult": 1,
-        "acc": 1, "aaq": 1, "lr": 3, "cond": 1,
+        "break": 1,
+        "load": 1,
+        "store": 1,
+        "acc_store": 1,
+        "mult": 1,
+        "acc": 1,
+        "aaq": 1,
+        "lr": 3,
+        "cond": 1,
     }
     assert COMPOUND_LAYOUT_SLOT_ORDER == [
-        "cond", "lr", "load", "mult", "acc", "aaq", "store", "acc_store", "break",
+        "cond",
+        "lr",
+        "load",
+        "mult",
+        "acc",
+        "aaq",
+        "store",
+        "acc_store",
+        "break",
     ]
     assert SLOT_METADATA["acc_store"] == {"description": SLOTS[Slot.ACC_STORE].description}
 

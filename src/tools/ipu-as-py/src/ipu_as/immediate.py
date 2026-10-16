@@ -21,7 +21,6 @@ from ipu_isa.mult_mask_offset import (
 )
 from ipu_isa.operand_types import operand_type
 from ipu_isa.reshape_mask import (
-    RESHAPE_ELEMENT_COUNT,
     RESHAPE_MASK_LR_OFFSET,
     reshape_mask_field_bits,
     reshape_mask_field_max,

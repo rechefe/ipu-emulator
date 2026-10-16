@@ -72,4 +72,3 @@ def test_no_ipu_isa_module_sets_attributes_on_another():
         if name.endswith(".py"):
             with open(os.path.join(root, name)) as f:
                 assert "setattr(" not in f.read(), name
-

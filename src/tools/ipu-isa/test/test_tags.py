@@ -105,9 +105,7 @@ def test_a_pseudo_must_expand_to_a_real_instruction():
     pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
     name, pseudo_def = next(iter(pseudo.items()))
     target = pseudo_def["expands_to"]
-    real = next(
-        n for n in spec[target["slot"]] if n.upper() == target["instruction"].upper()
-    )
+    real = next(n for n in spec[target["slot"]] if n.upper() == target["instruction"].upper())
     spec[target["slot"]][real]["tag"] = Tag.ASSEMBLER
     with pytest.raises(SpecError, match=rf"pseudo\.{name}\.expands_to\.instruction"):
         validate_pseudo_instruction_spec(pseudo, spec)

@@ -78,4 +78,3 @@ def test_all_slots_present():
     """All expected slots are computed."""
     expected = {"load", "store", "acc_store", "lr", "mult", "acc", "aaq", "cond", "break"}
     assert set(SLOT_UNIONS.keys()) == expected
-
