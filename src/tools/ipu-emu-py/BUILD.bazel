@@ -227,6 +227,17 @@ py_pytest_test(
 )
 
 py_pytest_test(
+    name = "test_issue",
+    srcs = ["test/test_issue.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
     name = "test_stats",
     srcs = ["test/test_stats.py"],
     imports = ["src"],

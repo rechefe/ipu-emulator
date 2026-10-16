@@ -105,6 +105,19 @@ py_pytest_test(
     ],
 )
 
+# --target hardware (E05-15).
+py_pytest_test(
+    name = "test_target",
+    srcs = ["test/test_target.py"],
+    data = ["test/golden/ipu_instr_pkg.sv"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("pytest"),
+    ],
+)
+
 # Template render API: params, defines, rooted loader (E05-09).
 py_pytest_test(
     name = "test_template",
@@ -136,11 +149,19 @@ assemble_asm(
     includes = ["test/asm_rule/lib/body.asm.j2"],
 )
 
+assemble_asm(
+    name = "asm_rule_hardware",
+    src = "test/asm_rule/hardware.asm",
+    target = "hardware",
+)
+
 py_pytest_test(
     name = "test_asm_rule",
     srcs = ["test/test_asm_rule.py"],
     data = [
         ":asm_rule_defines",
+        ":asm_rule_hardware",
+        "test/asm_rule/hardware.asm",
         "test/asm_rule/lib/body.asm.j2",
         "test/asm_rule/template.asm",
     ],

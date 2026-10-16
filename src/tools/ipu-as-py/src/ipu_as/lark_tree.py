@@ -6,11 +6,11 @@ never print or exit: a bad source raises an `AssemblerError` subclass. Only
 `ipu_as.cli` turns errors into text and exit codes.
 """
 
-from ipu_as import session
+from ipu_as import encode, session
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
-from ipu_isa.codec import disasm
-from ipu_isa.codec.word import unpack_words
+from ipu_isa.codec.word import unpack_words, word_bytes
+from ipu_isa.tags import Tag
 
 __all__ = [
     "ASTBuilder",
@@ -49,24 +49,37 @@ def assemble_to_bin_file(text: str, output_path: str):
         f.write(result.to_bin())
 
 
-def disassemble(program: list[int]) -> list[str]:
-    disassembled_instructions = []
-    for i, encoded_inst in enumerate(program):
-        disassembled_instructions.append(f"{i:04x}:\t\t{disasm.disassemble(encoded_inst)}")
-    return disassembled_instructions
+def disassemble(program: list[int], target: str = "emulator") -> list[str]:
+    """One `<index>:\t\t<text>` line per word; `target` says which word they are."""
+    return [
+        f"{i:04x}:\t\t{encode.disassemble_word(word, target)}" for i, word in enumerate(program)
+    ]
 
 
-def disassemble_from_mem_file(input_path: str, output_path: str):
+def _write_lines(output_path: str, lines: list[str]) -> None:
+    with open(output_path, "w") as f:
+        for line in lines:
+            f.write(f"{line}\n")
+
+
+def disassemble_from_mem_file(input_path: str, output_path: str, target: str = "emulator"):
     with open(input_path) as f:
         program = [int(line.strip(), 0) for line in f.readlines()]
-    with open(output_path, "w") as f:
-        for line in disassemble(program):
-            f.write(f"{line}\n")
+    _write_lines(output_path, disassemble(program, target))
 
 
-def disassemble_from_bin_file(input_path: str, output_path: str):
+def _bin_words(data: bytes, target: str) -> list[int]:
+    """The words of a `.bin` file of `target` words; a trailing partial word is ignored."""
+    if encode.target_tag(target) is Tag.EMULATOR:
+        return unpack_words(data)
+    width = word_bytes(Tag.HARDWARE)
+    return [
+        int.from_bytes(data[offset : offset + width], "little")
+        for offset in range(0, len(data) - width + 1, width)
+    ]
+
+
+def disassemble_from_bin_file(input_path: str, output_path: str, target: str = "emulator"):
     with open(input_path, "rb") as f:
-        program = unpack_words(f.read())
-    with open(output_path, "w") as f:
-        for line in disassemble(program):
-            f.write(f"{line}\n")
+        program = _bin_words(f.read(), target)
+    _write_lines(output_path, disassemble(program, target))

@@ -11,7 +11,7 @@ from ipu_as.cli import cli
 
 
 def test_a_plain_value_error_in_the_encoder_is_internal_not_assemble(monkeypatch) -> None:
-    def broken(compound):
+    def broken(compound, target):
         raise ValueError("a bug in the encoder")
 
     monkeypatch.setattr(encode, "encode_word", broken)

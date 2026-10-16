@@ -896,11 +896,13 @@ class CursesDebugView:
     def _disassembly(self, pc: int) -> str:
         text = self._disassembly_cache.get(pc)
         if text is None:
-            line = self.debug.disassemble(pc, 1)
-            text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
-            if line and self.state.inst_mem[pc] is not None:
-                operations = stage_operations(self.state.inst_mem[pc])
-                text = f"PC {pc}: " + ";\n".join(op for _, op in operations) + ";;"
+            instruction = self.state.inst_mem[pc] if 0 <= pc < INST_MEM_SIZE else None
+            if instruction is None:
+                line = self.debug.disassemble(pc, 1)
+                text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
+            else:
+                operations = (operation for _, operation in stage_operations(instruction))
+                text = f"PC {pc}: " + ";\n".join(operations) + ";;"
             self._disassembly_cache[pc] = text
         return text
 

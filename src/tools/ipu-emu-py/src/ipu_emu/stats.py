@@ -2,7 +2,7 @@
 
 Tracks mult/accumulate stage occupancy and memory access counts over a
 single emulator run.  An instance is held on ``IpuState.stats`` and updated
-by ``Ipu.dispatch_instruction`` during execution.
+by the issue step (``ipu_emu.issue.Issuer``) during execution.
 
 ``mult_active_cycles`` counts *cycles*, which is not the same as MAC work: a
 multiply against a constant 1.0 is how kernels emulate the vector move, add and
