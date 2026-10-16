@@ -2,8 +2,8 @@
 localparam matches the table below (E02-03).
 
 A downstream RTL repo vendors ``ipu_instr_pkg.sv`` verbatim, so any change to
-the rendered text is a change to what they get. The golden is rendered with the
-commit unstamped (``source_commit="unknown"``); regenerate it with
+the rendered text is a change to what they get. Its header names a hash of its
+body, so it changes only with its content; regenerate it with
 ``bazel run //src/tools/ipu-as-py:update_sv_golden``. Every ``*_WIDTH`` is wire
 format: changing one means editing ``EXPECTED_LOCALPARAMS`` by hand and calling
 the change out in the PR as breaking (CLAUDE.md, decision D6).

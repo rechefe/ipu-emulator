@@ -727,10 +727,12 @@ def _run_full_l5_layer_stack_agrees(
         x_ref = expected
 
     label = "L5 scaled" if scale_q else "L5"
-    print(f"{label} {chain_name} per-layer error trace: {['%.3e' % e for e in per_layer_errors]}")
+    print(
+        f"{label} {chain_name} per-layer error trace: {[format(e, '.3e') for e in per_layer_errors]}"
+    )
     print(
         f"{label} {chain_name} per-layer max_rel trace: "
-        f"{['%.3e' % s['max_rel'] for s in per_layer_stats]}"
+        f"{[format(s['max_rel'], '.3e') for s in per_layer_stats]}"
     )
 
     for layer_idx, err in enumerate(per_layer_errors):

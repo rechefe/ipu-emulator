@@ -214,7 +214,7 @@ py_binary(
     deps = [":decode_snapshots"],
 )
 
-# SV package golden (E02-03): the rendered ipu_instr_pkg.sv (commit unstamped)
+# SV package golden (E02-03): the rendered ipu_instr_pkg.sv
 # and every *_WIDTH localparam pinned by name. `bazel run :update_sv_golden`
 # rewrites the golden file; the localparam table is edited by hand.
 py_binary(
@@ -266,9 +266,7 @@ py_binary(
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
-# Manual until E01-10 makes the repository pass; run with `bazel test //tools:lint`.
 ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
-    tags = ["manual"],
 )

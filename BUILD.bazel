@@ -27,8 +27,7 @@ exports_files([
 ])
 
 # Ruff over the Python files that belong to no other package (none today; a new
-# directory without a BUILD.bazel lands here). Manual until E01-10; run with
-# `bazel test //tools:lint`.
+# directory without a BUILD.bazel lands here).
 ruff_test(
     name = "ruff",
     srcs = glob(
@@ -41,5 +40,4 @@ ruff_test(
             "playground/**",
         ],
     ),
-    tags = ["manual"],
 )

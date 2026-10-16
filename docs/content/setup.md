@@ -176,6 +176,25 @@ refresh it by hand:
 bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/release-log.md"
 ```
 
+## Lint, Format and `git blame`
+
+Every Python file is checked by ruff with the repository's `ruff.toml`. The
+checks are Bazel tests in the default tier, so `bazel test //...` runs them;
+`bazel test //tools:lint` runs only them. Fix findings with the locked ruff:
+
+```bash
+bazel run //tools:ruff -- check --fix
+bazel run //tools:ruff -- format
+```
+
+Commits that only reformat code are listed in `.git-blame-ignore-revs`. GitHub
+reads that file on its own; tell your local git to skip those commits in
+`git blame` too:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
 ## Common Issues
 
 ### Bazel build fails with "external repository not found"

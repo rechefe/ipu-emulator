@@ -268,9 +268,7 @@ py_pytest_test(
 )
 
 # Ruff lint and format over this package's Python files (tools/lint.bzl).
-# Manual until E01-10 makes the repository pass; run with `bazel test //tools:lint`.
 ruff_test(
     name = "ruff",
     srcs = glob(["**/*.py"]),
-    tags = ["manual"],
 )

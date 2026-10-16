@@ -13,14 +13,13 @@ from ipu_isa.union_layout import compute_slot_layouts, get_operand_type_bits
 
 def test_solver_is_deterministic():
     """Running the solver twice produces identical results."""
-    type_bits = get_operand_type_bits()
     first = compute_slot_layouts(INSTRUCTION_SPEC)
     second = compute_slot_layouts(INSTRUCTION_SPEC)
     for slot in first:
         su1, su2 = first[slot], second[slot]
         assert su1.opcode_bits == su2.opcode_bits
         assert len(su1.fields) == len(su2.fields)
-        for f1, f2 in zip(su1.fields, su2.fields):
+        for f1, f2 in zip(su1.fields, su2.fields, strict=True):
             assert f1.canonical_type == f2.canonical_type
             assert f1.bits == f2.bits
 

@@ -19,9 +19,8 @@ UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_sv_golden"
 
 
 def render() -> str:
-    """The package as the downstream repo gets it, with the commit unstamped."""
-    context = gen_codegen.build_codegen_context(gen_codegen.UNKNOWN_SOURCE_COMMIT)
-    return gen_codegen.render_template("ipu_instr_pkg.sv.j2", context)
+    """The package exactly as the downstream repo gets it."""
+    return gen_codegen.render_sv_package()
 
 
 def main() -> int:

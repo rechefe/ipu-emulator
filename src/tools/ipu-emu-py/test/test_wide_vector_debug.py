@@ -41,7 +41,7 @@ BKPT;;
         state.regfile.set_cr(8, 0)
         load_program(state, assemble_program(asm))
         run_until_complete(state)
-        acc = state.regfile.raw("r_acc")
+        acc = state.regfile.mutable("r_acc")
         for i in range(128):
             v = struct.unpack_from("<f", acc, i * 4)[0]
             assert v == pytest.approx(6.0), f"lane {i}"
@@ -119,7 +119,7 @@ BKPT;;
         state.regfile.set_cr(8, 0)
         load_program(state, assemble_program(asm))
         run_until_complete(state)
-        acc = state.regfile.raw("r_acc")
+        acc = state.regfile.mutable("r_acc")
         expected = (70000 * 70000) & 0xFFFFFFFF
         if expected >= 0x80000000:
             expected -= 0x100000000
@@ -161,7 +161,7 @@ BKPT;;
 """
             load_program(st, assemble_program(asm))
             run_until_complete(st)
-            return struct.unpack_from("<f", st.regfile.raw("r_acc"), 0)[0]
+            return struct.unpack_from("<f", st.regfile.view("r_acc"), 0)[0]
 
         assert run_mult("r0") == pytest.approx(2.0)
         assert run_mult("r1") == pytest.approx(198.0)
@@ -240,7 +240,7 @@ BKPT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
+        mult_res = st.regfile.mutable("mult_res")
         for i in range(32):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
         for i in range(32, 128):
@@ -272,7 +272,7 @@ BKPT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
+        mult_res = st.regfile.mutable("mult_res")
         for i in range(32):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(6.0), f"lane {i}"
         for i in range(32, 128):
@@ -306,7 +306,7 @@ BKPT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
+        mult_res = st.regfile.mutable("mult_res")
         # Lanes [0, k) read the ring's stale tail (zero); lanes [k, 128) wrap
         # around to the real data written at element 0.
         for i in range(k):
@@ -331,7 +331,7 @@ BKPT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        mult_res = st.regfile.raw("mult_res")
+        mult_res = st.regfile.mutable("mult_res")
         for i in range(128):
             assert struct.unpack_from("<f", mult_res, i * 4)[0] == pytest.approx(4.0), f"lane {i}"
 
@@ -352,7 +352,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
         st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.INT32, mult_res)
-        raw = st.regfile.raw("r_acc")
+        raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
 
     def test_agg_sum_first_fp32_wide(self) -> None:
@@ -360,7 +360,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
         st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
-        raw = st.regfile.raw("r_acc")
+        raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
     def test_agg_sum_int32_wide_running(self) -> None:
@@ -371,10 +371,10 @@ class TestWideVectorAgg:
         st.regfile.set_mult_res_bytes(mult_res)
         st.set_cr_dstructure(128)
         st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
-        struct.pack_into("<i", st.regfile.raw("r_acc"), 127 * 4, 1000)
+        struct.pack_into("<i", st.regfile.mutable("r_acc"), 127 * 4, 1000)
         load_program(st, assemble_program("AGG.SUM LR0 cr15;;\nBKPT;;\n"))
         run_until_complete(st)
-        raw = st.regfile.raw("r_acc")
+        raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 1512
 
     def test_agg_max_first_fp32_wide(self) -> None:
@@ -383,7 +383,7 @@ class TestWideVectorAgg:
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)
         st = self._run_agg("AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
-        raw = st.regfile.raw("r_acc")
+        raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
 
 
@@ -522,7 +522,7 @@ class TestWindowActivationFp32:
         """Default bounds [0.0, 0.1): 0.0 and 0.05 are inside; -0.01 and 0.1 are not."""
         state = new_state(fmt=ElementFormat.FP32, wide_vector_quantize_output=True)
         state.set_cr_dstructure(4)
-        acc = state.regfile.raw("r_acc")
+        acc = state.regfile.mutable("r_acc")
         for i, x in enumerate((0.0, 0.05, -0.01, 0.1)):
             struct.pack_into("<f", acc, i * 4, x)
         load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n"))
@@ -539,7 +539,7 @@ class TestWindowActivationFp32:
         state = new_state(fmt=ElementFormat.FP32, wide_vector_quantize_output=True)
         state.set_activation_alphas(window_a=0.25, window_b=0.75)
         state.set_cr_dstructure(3)
-        acc = state.regfile.raw("r_acc")
+        acc = state.regfile.mutable("r_acc")
         for i, x in enumerate((0.2, 0.25, 0.75)):
             struct.pack_into("<f", acc, i * 4, x)
         load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n"))
@@ -567,21 +567,21 @@ class TestWideVectorStoreOverflow:
         acc = [1.0] * LANES
         mult = [2.0] * LANES
         acc[k] = mult[k] = 3e38  # 6e38 does not fit float32
-        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
-        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
+        state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
+        state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
         with np.errstate(all="raise"):
             with pytest.raises(OverflowError, match="float too large to pack with f format"):
                 Ipu(state).execute_vliw_cycle()
 
         expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
-        assert state.regfile.raw("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
+        assert state.regfile.view("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
         # and the lane-by-lane reference, run on a fresh copy, agrees byte for byte
         ref = bytearray(struct.pack(f"<{LANES}f", *acc))
         with pytest.raises(OverflowError):
             for i in range(LANES):
                 struct.pack_into("<f", ref, i * 4, acc[i] + mult[i])
-        assert state.regfile.raw("r_acc")[:] == ref
+        assert state.regfile.view("r_acc")[:] == ref
 
 
 class TestWideVectorNumpyErrorPolicy:
@@ -589,23 +589,25 @@ class TestWideVectorNumpyErrorPolicy:
 
     def test_acc_invalid_ignores_caller_seterr(self) -> None:
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.FP32)
-        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *([float("inf")] * LANES))
-        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *([float("-inf")] * LANES))
+        state.regfile.mutable("r_acc")[:] = struct.pack(f"<{LANES}f", *([float("inf")] * LANES))
+        state.regfile.mutable("mult_res")[:] = struct.pack(f"<{LANES}f", *([float("-inf")] * LANES))
         with np.errstate(all="raise"):
             Ipu(state).execute_vliw_cycle()
 
         expected_lane = struct.pack("<f", float("inf") + float("-inf"))
-        assert state.regfile.raw("r_acc") == expected_lane * LANES
+        assert state.regfile.view("r_acc") == expected_lane * LANES
 
     def test_mult_invalid_ignores_caller_seterr(self) -> None:
         # LR0 is 0 at reset: rc index 0, mask shift 0.
         state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ;;", fmt=ElementFormat.FP32)
-        state.regfile.raw("r_wide_debug")[: LANES * 4] = struct.pack(f"<{LANES}f", *([0.0] * LANES))
-        state.regfile.raw("r_cyclic_wide_debug")[: LANES * 4] = struct.pack(
+        state.regfile.mutable("r_wide_debug")[: LANES * 4] = struct.pack(
+            f"<{LANES}f", *([0.0] * LANES)
+        )
+        state.regfile.mutable("r_cyclic_wide_debug")[: LANES * 4] = struct.pack(
             f"<{LANES}f", *([float("inf")] * LANES)
         )
         with np.errstate(all="raise"):
             Ipu(state).execute_vliw_cycle()
 
         expected_lane = struct.pack("<f", float("inf") * 0.0)
-        assert state.regfile.raw("mult_res") == expected_lane * LANES
+        assert state.regfile.view("mult_res") == expected_lane * LANES

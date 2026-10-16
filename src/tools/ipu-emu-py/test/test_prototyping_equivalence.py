@@ -276,8 +276,8 @@ def _wide_fp32_activation_state(
         dstructure={"valid_elements": 128},
         prototyping=prototyping,
     )
-    state.regfile.raw("r_acc")[:] = payload
-    state.regfile.raw("post_aaq_reg")[:] = b"\xa5" * 512
+    state.regfile.mutable("r_acc")[:] = payload
+    state.regfile.mutable("post_aaq_reg")[:] = b"\xa5" * 512
     return state, Ipu(state)
 
 

@@ -647,8 +647,8 @@ def _read_pipeline_register(
         if state.wide_vector_debug and spec.wide_backing is not None
         else spec.backing
     )
-    descriptor = state.regfile._desc(backing)
-    raw = state.regfile.raw(backing)
+    descriptor = state.regfile.descriptor(backing)
+    raw = state.regfile.view(backing)
     start = spec.index * descriptor.size_bytes
     return bytes(raw[start : start + descriptor.size_bytes])
 
@@ -972,7 +972,9 @@ class CursesDebugView:
                     curses.mouseinterval(0)
                 except curses.error:
                     pass
-        except (AttributeError, curses.error if curses else Exception):
+        # curses is None when the module is unavailable; the conditional still
+        # evaluates to an exception class.
+        except (AttributeError, curses.error if curses else Exception):  # noqa: B030
             pass
 
     def _natural_register_columns(self, top_rows: int) -> int:
@@ -1446,7 +1448,7 @@ class CursesDebugView:
                     slot_labels[pc] = (
                         [
                             name
-                            for name, op in zip(SLOT_LABELS, ops)
+                            for name, op in zip(SLOT_LABELS, ops, strict=False)
                             if tab.fmt == "full" or op.upper().split(" ", 1)[0] != "NOP"
                         ]
                         if self.state.inst_mem[pc] is not None
@@ -1542,7 +1544,7 @@ class CursesDebugView:
         for stage, commands in pipeline_occupancy(instruction):
             if not commands:
                 lines.append((f"{stage:<10} IDLE", self.colors.border))
-            for index, (slot, operation) in enumerate(commands):
+            for index, (_slot, operation) in enumerate(commands):
                 name = stage if index == 0 else ""
                 text = f"{name:<10} {display_operation(operation)}"
                 lines.extend(
@@ -3016,10 +3018,6 @@ class CursesDebugView:
             tab = self.session.selected_pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
-            items_per_line = self._pipeline_items_per_line(
-                fmt,
-                self.pipeline_rect,
-            )
             item_size, _ = self._pipeline_value_geometry(fmt)
             items = len(_read_pipeline_register(self.state, spec)) // item_size
             rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
@@ -3133,10 +3131,10 @@ class CursesDebugView:
                 if self.state.wide_vector_debug and spec.wide_backing
                 else spec.backing
             )
-            register_size = self.state.regfile._desc(backing).size_bytes
+            register_size = self.state.regfile.descriptor(backing).size_bytes
             tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
             offset = spec.index * register_size + tab.cursor * size
-            raw = bytes(self.state.regfile.raw(backing)[offset : offset + size])
+            raw = bytes(self.state.regfile.view(backing)[offset : offset + size])
             label = f"{spec.label}[{tab.cursor}]"
         else:
             tab = self.session.selected_tab()
@@ -3191,10 +3189,9 @@ class CursesDebugView:
             if backing is None:
                 self.state.xmem.write_address(offset, raw)
             else:
-                buffer = self.state.regfile.raw(backing)
-                if offset < 0 or offset + size > len(buffer):
+                if offset < 0 or offset + size > len(self.state.regfile.view(backing)):
                     raise ValueError("Selected value is out of range")
-                buffer[offset : offset + size] = raw
+                self.state.regfile.mutable(backing, offset, size)[:] = raw
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
             return _NO_OUTCOME

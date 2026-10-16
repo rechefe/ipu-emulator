@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from ipu_apps.kernel_registry.cases import case_options, load_cases, run_case
+from ipu_isa.errors import IpuError
 
 
 def _user_path(text: str) -> Path:
@@ -84,6 +85,7 @@ def main(argv=None):
         if args.alias_report:
             args.alias_report.write_text(profile.to_json(indent=2) + "\n")
     except (
+        IpuError,
         ValueError,
         OSError,
         RuntimeError,

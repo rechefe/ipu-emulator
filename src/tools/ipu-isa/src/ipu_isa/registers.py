@@ -272,7 +272,7 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
     enums = {}
 
     # First pass: collect values for each encoding class
-    for name, metadata in REGISTER_DEFINITIONS.items():
+    for metadata in REGISTER_DEFINITIONS.values():
         if "encoding_class" not in metadata:
             continue
 
@@ -309,7 +309,7 @@ def validate_register_definitions() -> None:
     try:
         schema = create_regfile_schema()
     except Exception as e:
-        raise ValueError(f"Failed to create regfile schema: {e}")
+        raise ValueError(f"Failed to create regfile schema: {e}") from e
 
     if not schema:
         raise ValueError("Register schema is empty!")
@@ -317,7 +317,7 @@ def validate_register_definitions() -> None:
     try:
         enums = create_assembler_reg_enums()
     except Exception as e:
-        raise ValueError(f"Failed to create assembler enums: {e}")
+        raise ValueError(f"Failed to create assembler enums: {e}") from e
 
     # Check for duplicate enum values across different classes
     # (except LcrRegField which is a composite of LR and CR)
