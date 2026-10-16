@@ -13,6 +13,9 @@ hooks:
 
 plugins:
   - search
+  # When a page moves, map its old path to the new one here so old URLs keep working.
+  - redirects:
+      redirect_maps: {}
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -46,6 +49,7 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.expand
     - navigation.top
     - navigation.tracking
@@ -63,51 +67,70 @@ theme:
 
 nav:
   - Home: index.md
-  - Getting Started:
-      - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
+  - Getting started:
+      - getting-started/index.md
       - Setup: setup.md
-      - Debugging: debugging.md
-  - Programming the IPU:
-      - Building Applications: building-applications.md
-      - IPU Configuration: ipu-configuration.md
-      - Wide-vector debug mode: wide-vector-debug-mode.md
-      - Prototyping mode: prototyping-mode.md
-  - Kernels:
-      - Overview: kernels/index.md
-      - Softmax: kernels/softmax.md
-      - Convolutions: kernels/convolutions.md
-      - Linear Layers: kernels/linear-layers.md
-      - Normalization and Shaping: kernels/normalization-and-shaping.md
-      - Attention: kernels/attention.md
-      - MobileViT-S: kernels/mobilevit.md
-      - Application Coverage: app-coverage.md
-      - Adding Applications: adding-applications.md
-      - ISA Alias Catalogue: isa-alias-catalogue.md
-  - Contributing:
-      - Adding Instructions: adding-instruction.md
-  - Assembly:
-      - Instruction format: instruction-format.md
-      - Assembly Syntax: assembly-syntax.md
-      - Operand types: operand-types.md
-      - Instruction Reference: instructions.md
-      - Programmer's Guide: programmer-guide.md
-  - Specs:
-      - Cache Unit Specification: specs/cache-unit.md
-      - AaQ Stage Specification: specs/stage-aaq-str.md
-      - Accumulator Stage Specification: specs/stage-accumulator.md
-      - Control Stage Specification: specs/stage-control.md
-      - RISC-V Host Integration: specs/riscv-host-integration.md
-  - HW Requirements:
-      - Overview and goals: requirements/index.md
-      - Architecture and pipeline: requirements/architecture.md
-      - External interfaces: requirements/interfaces.md
-      - Execution flow: requirements/execution-flow.md
-      - Memory access: requirements/memory-access.md
-      - Faults: requirements/faults.md
-      - Debug: requirements/debug.md
-      - Host registers: requirements/host-registers.md
-      - Open questions: requirements/open-questions.md
-  - Release Log: release-log.md
+      - Getting Started guide (PDF): https://github.com/rechefe/ipu-emulator/releases/download/guide-latest/getting-started.pdf
+  - How-to:
+      - how-to/index.md
+      - Write a kernel: building-applications.md            # E09-09
+      - Register a kernel: adding-applications.md           # E09-09 merges it
+      - Add an instruction: adding-instruction.md           # E09-11
+      - Debug a kernel: debugging.md                        # E09-12; the Cycle Inspector page (E08) goes here
+      - Use the reference model from cocotb: how-to/reference-model-cocotb.md   # placeholder, E09-13
+  - Reference:
+      - reference/index.md
+      - ISA:
+          - Instructions: instructions.md
+          - Operand types: operand-types.md
+          - Assembly syntax: assembly-syntax.md
+          - Instruction format: instruction-format.md
+          - Programmer's guide: programmer-guide.md
+          - IPU configuration: ipu-configuration.md         # E09-14 folds it in
+      - Command-line tools: reference/cli.md                # placeholder, E09-15
+      - Reference model API: reference/reference-model-api.md   # placeholder, E09-16
+      - Kernels:                                            # E06/E07 generate these
+          - kernels/index.md
+          - Softmax: kernels/softmax.md
+          - Convolutions: kernels/convolutions.md
+          - Linear layers: kernels/linear-layers.md
+          - Normalization and shaping: kernels/normalization-and-shaping.md
+          - Attention: kernels/attention.md
+          - MobileViT-S: kernels/mobilevit.md
+      # Code conventions: the E01-12 page is linked here when it exists.
+      - Glossary: reference/glossary.md
+  - Explanation:
+      - explanation/index.md
+      - Architecture: explanation/architecture.md           # placeholder, E09-17
+      - Prototyping mode: prototyping-mode.md               # E09-17 folds it in
+      - Timing model: explanation/timing-model.md           # placeholder, E09-18
+      - Element formats: wide-vector-debug-mode.md          # E09-19 replaces it
+      - ISA idioms: isa-alias-catalogue.md                  # E09-10
+      - Kernel coverage: app-coverage.md                    # E09-10
+  - Specs and requirements:
+      - Specs:
+          - Cache Unit Specification: specs/cache-unit.md
+          - AaQ Stage Specification: specs/stage-aaq-str.md
+          - Accumulator Stage Specification: specs/stage-accumulator.md
+          - Control Stage Specification: specs/stage-control.md
+          - RISC-V Host Integration: specs/riscv-host-integration.md
+      - HW requirements:
+          - Overview and goals: requirements/index.md
+          - Architecture and pipeline: requirements/architecture.md
+          - External interfaces: requirements/interfaces.md
+          - Execution flow: requirements/execution-flow.md
+          - Memory access: requirements/memory-access.md
+          - Faults: requirements/faults.md
+          - Debug: requirements/debug.md
+          - Host registers: requirements/host-registers.md
+  - Open questions: requirements/open-questions.md
+  - Release log: release-log.md
+
+# A page added without a nav entry shows a warning.
+validation:
+  nav:
+    omitted_files: warn
+
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -121,7 +144,11 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      # GLOSSARY.md sits at the repository root, one level above docs/ (the Bazel
+      # docs build links it into the same place relative to its temp tree).
+      base_path: [".."]
+      check_paths: true
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:

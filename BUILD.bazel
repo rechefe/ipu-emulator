@@ -11,9 +11,10 @@ config_setting(
     values = {"define": "ipu_proto=1"},
 )
 
-# Read by the doc tests in //docs.
+# Read by the doc tests and the docs build in //docs.
 exports_files([
     "CLAUDE.md",
+    "GLOSSARY.md",
     "README.md",
     "SKILL.md",
 ])

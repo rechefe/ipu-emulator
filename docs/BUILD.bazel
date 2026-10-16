@@ -99,6 +99,7 @@ py_binary(
         requirement("mkdocs"),
         requirement("mkdocs-material"),
         requirement("mkdocs-git-revision-date-localized-plugin"),
+        requirement("mkdocs-redirects"),
     ],
     python_version = "PY3",
 )
@@ -112,6 +113,7 @@ genrule(
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
         ":generate_release_log",
+        "//:GLOSSARY.md",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -162,6 +164,10 @@ genrule(
         ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
 
         ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
+
+        # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
+        # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
+        ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
 
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
