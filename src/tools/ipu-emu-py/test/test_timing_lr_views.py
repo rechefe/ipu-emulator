@@ -16,6 +16,7 @@ import struct
 import pytest
 
 from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, ra_element, run
+from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import Ipu
 
 
@@ -85,7 +86,6 @@ def test_load_offset_and_index_read_forwarded():
     assert run(PROBES["load_mask_offset"]).state.regfile.raw("r_mask")[0] == 0x22
 
 
-@pytest.mark.filterwarnings("ignore::UserWarning")
 def test_store_offsets_read_forwarded():
     """STR_POST_AAQ_REG and STR_ACC_REG read their offset LR forwarded: the data
     lands at row ROW + 8, not ROW."""
@@ -94,7 +94,8 @@ def test_store_offsets_read_forwarded():
         b"\x00",
         b"\x07",
     )
-    state = run(PROBES["store_acc_offset"]).state
+    with pytest.warns(DebugOnlyInstructionWarning):
+        state = run(PROBES["store_acc_offset"]).state
     assert state.xmem.read_address(ROW * 128, 4) == bytes(4)
     assert struct.unpack("<i", state.xmem.read_address((ROW + 8) * 128, 4))[0] == 7
 

@@ -16,6 +16,7 @@ import struct
 import pytest
 
 from timing_probes import PROBES, ROW, Mode, lane, prepare, run
+from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE
 
@@ -111,10 +112,10 @@ def test_store_reads_this_cycle_post_aaq():
     assert state.xmem.read_address(ROW * 128, 1) == b"\x07"
 
 
-@pytest.mark.filterwarnings("ignore::UserWarning")
 def test_acc_store_reads_this_cycle_r_acc():
     """STR_ACC_REG stores this cycle's R_ACC (7, not 1)."""
-    state = run(PROBES["acc_store_r_acc"]).state
+    with pytest.warns(DebugOnlyInstructionWarning):
+        state = run(PROBES["acc_store_r_acc"]).state
     assert struct.unpack("<i", state.xmem.read_address(ROW * 128, 4))[0] == 7
 
 

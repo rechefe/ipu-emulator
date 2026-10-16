@@ -148,9 +148,6 @@ py_pytest_test(
     ],
 )
 
-# In a flagged build, runs every program through faithful and prototyping
-# engines in lockstep and compares complete state after every cycle. In a
-# default build, verifies that runtime controls cannot bypass the build gate.
 # The MAC-alias catalogue (ipu_emu/isa_alias_spec.py) against INSTRUCTION_SPEC.
 py_pytest_test(
     name = "test_isa_alias_spec",
@@ -162,6 +159,9 @@ py_pytest_test(
     ],
 )
 
+# In a flagged build, runs every program through faithful and prototyping
+# engines in lockstep and compares complete state after every cycle. In a
+# default build, verifies that runtime controls cannot bypass the build gate.
 py_pytest_test(
     name = "test_prototyping_equivalence",
     srcs = ["test/test_prototyping_equivalence.py"],

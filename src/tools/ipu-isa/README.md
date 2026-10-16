@@ -10,7 +10,6 @@ catalogue live in `ipu_emu`, and generators live in `ipu_gen`.
 
 - **Instructions** (`instruction_spec.py`): every slot, instruction and operand
 - **Errors** (`errors.py`): `IpuError`, the root of every IPU tooling error
-
 - **Register descriptors** (`RegDescriptor`): Metadata for all IPU registers
 - **Data types** (`RegDtype`): Register storage formats (uint8, int8, uint32, int32, uint128)
 - **Register kinds** (`RegKind`): Pipeline stages (mult, acc, lr, cr, misc)
