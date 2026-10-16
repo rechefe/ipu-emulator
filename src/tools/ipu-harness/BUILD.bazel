@@ -104,6 +104,18 @@ py_pytest_test(
     ],
 )
 
+# Assembly with the case as template values (E06-07). The kernel library's
+# sources are data for the no-jinja2 check.
+py_pytest_test(
+    name = "test_assembly",
+    srcs = ["test/test_assembly.py"],
+    data = ["//src/tools/ipu-kernels:py_sources"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
 # kernel.toml: the schema, the loader and its errors (E06-02).
 py_pytest_test(
     name = "test_manifest",
