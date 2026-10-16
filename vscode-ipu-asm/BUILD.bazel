@@ -33,7 +33,8 @@ filegroup(
 
 # The assembly fixtures, for the assembled-binary baseline in
 # //src/tools/ipu-apps:test_asm_digests. Not the negative corpus: texts the
-# editor and the assembler judge (check_verdicts), most of which do not assemble.
+# editor and the assembler judge (check_verdicts), most of which do not assemble
+# (asm_corpus.NOT_PROGRAMS leaves it out of a checkout's corpus too).
 filegroup(
     name = "asm_fixtures",
     srcs = glob(

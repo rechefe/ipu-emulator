@@ -185,6 +185,12 @@
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register_undefined.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - lr1 in token LabelToken\nIn Line 3, Column 7\nAdditional Information: Label lr1 not defined\n"
+  },
   "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
     "exception": null,
     "exit_code": 1,
@@ -202,6 +208,12 @@
     "exit_code": 0,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals_out_of_range.asm": {
+    "exception": null,
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - -0x1_0000_0000 in token AddbiImmediate\nIn Line 4, Column 16\nAdditional Information: Value -4294967296 out of range [-128, 255] for 8 bits\n"
   },
   "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": {
     "exception": null,

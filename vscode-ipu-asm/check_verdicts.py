@@ -19,18 +19,16 @@ import pathlib
 import sys
 import warnings
 
-from ipu_as.diagnostics import check
+import ipu_as.diagnostics as diagnostics
 
-GAPS = (
-    pathlib.Path(__file__).resolve().parent / "test" / "corpus" / "negative" / "allowed-gaps.json"
-)
+GAPS = pathlib.Path(__file__).parent / "test" / "corpus" / "negative" / "allowed-gaps.json"
 
 
 def assembler_reasons(text):
     """The first line of each diagnostic the assembler gives ``text``."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # simulation-only slot notices
-        return [d.message.splitlines()[0] for d in check(text)]
+        return [d.message.splitlines()[0] for d in diagnostics.check(text)]
 
 
 def main(argv):
@@ -38,7 +36,11 @@ def main(argv):
         print("usage: check_verdicts.py <verdicts.json>", file=sys.stderr)
         return 2
     cases = json.loads(pathlib.Path(argv[0]).read_text(encoding="utf-8"))
-    gaps = {gap["case"]: gap for gap in json.loads(GAPS.read_text(encoding="utf-8"))}
+    listed = json.loads(GAPS.read_text(encoding="utf-8"))
+    gaps = {gap["case"]: gap for gap in listed}
+    if len(gaps) != len(listed):
+        print(f"{GAPS.name} lists a case more than once", file=sys.stderr)
+        return 1
     failures, gapped, rejected = [], set(), 0
     for case in cases:
         editor, assembler = case["reasons"], assembler_reasons(case["text"])

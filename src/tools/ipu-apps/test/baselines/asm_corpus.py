@@ -38,7 +38,8 @@ CORPUS_ROOTS = (
 )
 
 #: Directories under a corpus root that hold no programs: the editor's negative
-#: corpus, texts most of which do not assemble (vscode-ipu-asm check_verdicts).
+#: corpus, texts most of which do not assemble (vscode-ipu-asm check_verdicts;
+#: its asm_fixtures filegroup leaves it out under Bazel).
 NOT_PROGRAMS = ("vscode-ipu-asm/test/corpus/negative/",)
 
 #: Programs that only assemble when rendered with a Jinja context, and the

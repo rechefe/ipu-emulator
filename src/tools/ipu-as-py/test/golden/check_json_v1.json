@@ -123,6 +123,10 @@
     "exit_code": 0,
     "stdout": "[]\n"
   },
+  "vscode-ipu-asm/test/corpus/negative/label_shadows_register_undefined.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 6, \"end_line\": 2, \"end_column\": 7, \"message\": \"Invalid token value - lr1 in token LabelToken Additional Information: Label lr1 not defined\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
   "vscode-ipu-asm/test/corpus/negative/multi_form_collision.asm": {
     "exit_code": 1,
     "stdout": "[{\"line\": 3, \"column\": 59, \"end_line\": 3, \"end_column\": 60, \"message\": \"NOP: all slots are already filled\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
@@ -134,6 +138,10 @@
   "vscode-ipu-asm/test/corpus/negative/signed_literals.asm": {
     "exit_code": 0,
     "stdout": "[]\n"
+  },
+  "vscode-ipu-asm/test/corpus/negative/signed_literals_out_of_range.asm": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 3, \"column\": 15, \"end_line\": 3, \"end_column\": 16, \"message\": \"Invalid token value - -0x1_0000_0000 in token AddbiImmediate Additional Information: Value -4294967296 out of range [-128, 255] for 8 bits\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
   },
   "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": {
     "exit_code": 1,

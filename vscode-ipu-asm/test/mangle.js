@@ -15,6 +15,9 @@ function mangle(lang, raw) {
   return out.map((o) => o.text).join('\n');
 }
 
+/** How many rewrites mutations() makes of one word, at most. */
+const MUTATIONS_PER_WORD = 4;
+
 /** Rewrites that may change whether a text assembles, for both sides to judge with one verdict
  *  rule (verdicts.js, check_verdicts.py). Seeded by position, so a run is reproducible: in up to
  *  `limit` words spread over the text, the word's first instruction copied into it (a slot kind
@@ -25,7 +28,7 @@ function mutations(lang, text, limit = 4) {
   const step = Math.max(1, Math.floor(words.length / limit));
   const out = [];
   const splice = (start, end, insert) => text.slice(0, start) + insert + text.slice(end);
-  for (let k = 0; k < words.length && out.length < 4 * limit; k += step) {
+  for (let k = 0; k < words.length && out.length < MUTATIONS_PER_WORD * limit; k += step) {
     const w = words[k];
     const ins = w.instructions[0];
     const end = ins.operands.length ? ins.operands[ins.operands.length - 1].end : ins.mnemonic.end;
@@ -37,7 +40,7 @@ function mutations(lang, text, limit = 4) {
     }
     const number = ins.operands.find((op) => !op.templated && lang.numberRe.test(op.text));
     if (number) {
-      const value = BigInt(number.text.replace(/_/g, '').replace(/^[+-]/, '')) * (number.text.startsWith('-') ? -1n : 1n);
+      const value = lang.numberValue(number.text);
       const hex = (n) => `${n < 0n ? '+' : '-'}0x${(n < 0n ? -n : n).toString(16)}`;
       out.push({ name: `${at}: ${number.text} negated`, text: splice(number.start, number.end, hex(value)) });
       out.push({ name: `${at}: ${number.text} too wide`, text: splice(number.start, number.end, `0x1${'0'.repeat(20)}`) });

@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { Language } = require('../language');
-const { mutations } = require('./mangle');
+const { mangle, mutations } = require('./mangle');
 const { verdict } = require('./verdict');
 
 const [isaPath, corpusPath, outPath] = process.argv.slice(2);
@@ -24,21 +24,25 @@ if (!outPath) {
 const lang = new Language(JSON.parse(fs.readFileSync(isaPath, 'utf8')));
 const judged = (name, text) => ({ name, text, reasons: verdict(lang, text) });
 
+// Names are repo-relative paths, so allowed-gaps.json keys are unique.
+const repo = path.resolve(__dirname, '..', '..');
 const cases = [];
 const negative = path.join(__dirname, 'corpus', 'negative');
 for (const file of fs.readdirSync(negative).filter((f) => f.endsWith('.asm')).sort()) {
-  cases.push(judged(`negative/${file}`, fs.readFileSync(path.join(negative, file), 'utf8')));
+  cases.push(judged(path.relative(repo, path.join(negative, file)), fs.readFileSync(path.join(negative, file), 'utf8')));
 }
 const corpus = JSON.parse(fs.readFileSync(corpusPath, 'utf8'));
 let mutated = 0;
 for (const { file, text } of corpus) {
-  const name = path.basename(file);
-  // The rendered text: what the assembler accepted, with no Jinja left to render.
-  cases.push(judged(name, text));
+  const name = path.relative(repo, path.resolve(repo, file));
+  // The rendered text: what the assembler accepted, with no Jinja left to render; and its layout
+  // stripped (mangle.js), which must still assemble.
+  cases.push(judged(name, text), judged(`${name}: mangled`, mangle(lang, text)));
   for (const m of mutations(lang, text)) {
     cases.push(judged(`${name}: ${m.name}`, m.text));
     mutated++;
   }
 }
 fs.writeFileSync(outPath, JSON.stringify(cases));
-console.log(`Wrote ${cases.length} verdicts: ${corpus.length} corpus files, ${mutated} mutations of them and ${cases.length - corpus.length - mutated} negative cases.`);
+console.log(`Wrote ${cases.length} verdicts: ${corpus.length} corpus files, mangled and as is, ${mutated} mutations of them `
+  + `and ${cases.length - 2 * corpus.length - mutated} negative cases.`);

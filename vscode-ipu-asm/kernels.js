@@ -616,7 +616,7 @@ function register(context) {
   return {
     indexes, tree, view, editorContext, ready,
     kernelOfFile: (uri) => kernels.kernelOfFile(uri),
-    terminalIdle: (terminal) => isIdle(terminal),
+    terminalIdle: isIdle,
     runQuery: (op, params) => runQuery([...indexes.values()].find((i) => i.manifest), op, params, kernels.output),
   };
 }

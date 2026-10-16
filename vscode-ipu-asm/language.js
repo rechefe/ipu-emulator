@@ -607,11 +607,16 @@ class Language {
       const n = Number(v.replace(/_/g, ''));
       return n >= domain.min && n <= domain.max;
     }
-    // Exactly, as Python's int(v, 0) reads it: BigInt takes no sign before a 0x/0o/0b prefix.
     // (The bounds are JSON numbers, exact while every operand range stays within 2^53.)
-    const digits = v.replace(/_/g, '').replace(/^[+-]/, '');
-    const n = (v.startsWith('-') ? -1n : 1n) * BigInt(digits);
+    const n = this.numberValue(v);
     return n >= BigInt(domain.min) && n <= BigInt(domain.max);
+  }
+
+  /** A number literal `numberRe` matches, as a BigInt: exactly as Python's int(v, 0) reads it
+   *  (BigInt takes no sign before a 0x/0o/0b prefix, so the sign is applied after). */
+  numberValue(v) {
+    const n = BigInt(v.replace(/_/g, '').replace(/^[+-]/, ''));
+    return v.startsWith('-') ? -n : n;
   }
 
   // --- Labels ---

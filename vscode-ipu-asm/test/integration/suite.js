@@ -191,8 +191,9 @@ async function typeIn(start, text, done, at) {
 /** Whether Enter's formatting as you type has nothing left to do at the cursor: it is the one
  *  source of a late edit (an empty line between words), so no edit from it means none will come. */
 async function noLateEdit(editor) {
+  const { tabSize, insertSpaces } = editor.options;
   const edits = (await exec('vscode.executeFormatOnTypeProvider', editor.document.uri, editor.selection.active, '\n',
-    { tabSize: 4, insertSpaces: true })) || [];
+    { tabSize, insertSpaces })) || [];
   return edits.every((e) => editor.document.getText(e.range) === e.newText);
 }
 
@@ -255,7 +256,7 @@ async function idleTerminal() {
   const pid = await first.processId;
   if ((await runs.atPrompt(pid)) === null) return null;
   // Idle as a run decides it: not while a just-sent command may not have started yet.
-  await until(() => api().kernels.terminalIdle(first), 'the command to end', 120000);
+  await until(() => api().terminalIdle(first), 'the command to end', 120000);
   return first;
 }
 /** The kernel terminals once `commands`, run on the kernel together, have sent their runs. */
