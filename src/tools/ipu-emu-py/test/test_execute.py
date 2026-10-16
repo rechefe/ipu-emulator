@@ -2194,7 +2194,7 @@ class TestDebuggerStops:
             return DebugAction.QUIT if termination == "quit" else DebugAction.CONTINUE
 
         if termination in ("limit", "error"):
-            with pytest.raises(RuntimeError if termination == "limit" else ValueError):
+            with pytest.raises(EmulatorFault if termination == "limit" else ValueError):
                 run_with_debug(state, callback, max_cycles=1, control=control)
         else:
             run_with_debug(state, callback, control=control)

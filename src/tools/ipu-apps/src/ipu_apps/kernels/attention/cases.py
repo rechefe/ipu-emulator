@@ -137,7 +137,8 @@ def run_poked(kernel: str, workspace, poke, **options):
         state=state,
     )
     if not state.is_halted or cycles <= 0:
-        raise RuntimeError(f"{kernel} did not complete within {case.max_cycles} cycles")
+        # The cycle limit is fault F-9, raised by the run.
+        raise RuntimeError(f"{kernel} returned before its program halted, or ran no cycles")
     return state
 
 

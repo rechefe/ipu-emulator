@@ -33,6 +33,9 @@ from ipu_isa.geometry import INST_MEM_WORDS
 #: Instruction-memory depth, as the emulator names it.
 INST_MEM_SIZE = INST_MEM_WORDS
 
+#: Cycles a run may take before it faults F-9 (L3). 0 disables the check.
+DEFAULT_CYCLE_LIMIT = 1_000_000
+
 
 def _ipu():
     """The ``ipu`` module, for its register sizes and row geometry.
@@ -84,6 +87,8 @@ class IpuState:
         quit_requested:  The debugger quit the last run before it finished.
         halt:            Set when a HALT word retires or a word faults; ``None``
                          while the program runs. Cleared when a run starts.
+        cycle_limit:     Cycles a run may take before it faults F-9; 0 means
+                         no limit. A runner's ``max_cycles`` sets it.
         program_length:  Words of the loaded program: a fetch at or past it
                          is fault F-2. ``load_program`` sets it; a state whose
                          IMEM is written directly keeps all of IMEM.
@@ -107,6 +112,7 @@ class IpuState:
         self.program_counter: int = 0
         self.halt: HaltRecord | None = None
         self.program_length: int = INST_MEM_SIZE
+        self.cycle_limit: int = DEFAULT_CYCLE_LIMIT
         self.stats = RunStats()
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
