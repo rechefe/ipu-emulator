@@ -17,7 +17,7 @@ Schema
     ``int32``). ``asm`` (path): the program, default ``<folder>.asm``.
     ``stages`` (``"file.py:fn"``): a multi-program pipeline (E06-14).
     ``cost``: what routing (E06-16) minimises among the kernels that accept a
-    query: a non-negative number, or an expression in the shape grammar over
+    query: a number (negative to prefer a kernel), or an expression in the shape grammar over
     integer parameter and derived names; default 0.
 
 ``[params.<name>]`` (or ``<name> = { ... }`` under ``[params]``)
@@ -661,8 +661,6 @@ def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
         r.function(directory, table["stages"], ("kernel", "stages")) if "stages" in table else None
     )
     cost = r.typed(table.get("cost", 0), (int, float, str), ("kernel", "cost"))
-    if not isinstance(cost, str) and cost < 0:
-        raise r.fail(("kernel", "cost"), f"[kernel] cost {cost} must not be negative")
     return _KernelTable(op, formats, asm, stages, cost)
 
 

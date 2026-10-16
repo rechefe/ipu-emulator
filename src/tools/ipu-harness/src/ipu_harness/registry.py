@@ -4,22 +4,23 @@ A :class:`Registry` is built from ``kernel.toml`` files (:meth:`Registry.load`)
 or from manifests in hand (:meth:`Registry.of`, the test seam). It holds no
 per-operation knowledge: :meth:`Registry.resolve` asks every kernel of the op
 whether it accepts the parameters, with the same checks ``plan_case`` runs
-(``check_params``, E06-03), and picks the cheapest that does. Equal costs are
-an error, never settled by discovery order: the answer must not change because
-a folder was renamed.
+(``check_params``, E06-03), and picks the cheapest that does. Two accepting
+kernels at the same lowest cost are an error, never settled by name or
+discovery order: the answer must not change because a folder was renamed.
 
 Loading parses TOML only; no kernel Python is imported to route a query. Layer
-adapters (``LAYER_ADAPTERS = {"Conv2d": fn, ...}`` in a family's
-``layers.py``) are found at load and imported only when :meth:`from_layer`
-first needs one. Nothing here is module-level mutable state; the one cached
-value is :func:`default_registry`.
+adapters (``LAYER_ADAPTERS = {"Conv2d": fn, ...}`` in
+``ipu_kernels.<family>.layers``) are imported by name, as plugins (Q62), only
+when :meth:`from_layer` first needs one. Nothing here is module-level mutable
+state; the one cached value is :func:`default_registry`.
 """
 
 from __future__ import annotations
 
 import functools
-import importlib.util
-from collections.abc import Callable, Iterable, Iterator, Mapping
+import importlib
+import os
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -31,7 +32,14 @@ from ipu_harness.manifest import TOML_NAME, KernelManifest, load_manifest
 from ipu_harness.params import ParamCheck, PlanError, Value, check_params
 from ipu_isa.formats import ElementFormat
 
-__all__ = ["LayerAdapter", "Registry", "UnsupportedLayer", "Verdict", "default_registry"]
+__all__ = [
+    "LayerAdapter",
+    "Registry",
+    "UnsupportedLayer",
+    "Verdict",
+    "default_registry",
+    "kernel_tree",
+]
 
 #: A layer adapter: ``(layer, input_shape) -> (op, params)``.
 LayerAdapter = Callable[[Any, tuple[int, ...]], tuple[str, Mapping[str, object]]]
@@ -40,7 +48,7 @@ LayerAdapter = Callable[[Any, tuple[int, ...]], tuple[str, Mapping[str, object]]
 ADAPTERS_NAME = "LAYER_ADAPTERS"
 
 
-class UnsupportedLayer(ValueError):
+class UnsupportedLayer(ConfigurationError):
     """No adapter translates this layer type into a query."""
 
 
@@ -68,7 +76,7 @@ class Verdict:
         return self.supported
 
     @property
-    def app_name(self) -> str | None:
+    def kernel_name(self) -> str | None:
         """The chosen kernel's name."""
         return self.kernel.name if self.kernel else None
 
@@ -83,12 +91,18 @@ class Verdict:
         return [f"runs in {', '.join(f.value for f in self.formats)}"] if self.kernel else []
 
     def to_dict(self) -> dict[str, Any]:
-        """The same answer as :meth:`describe`, for tools (``query --json``); the
-        keys of ``ipu_apps``' verdict, ``use`` naming the kernel's target."""
+        """The same answer as :meth:`describe`, for tools (``query --json``).
+
+        Returns:
+            The keys of ``ipu_apps``' verdict, so a tool reads both: ``app`` is
+            the kernel's name, ``use`` its Bazel label, ``kwargs`` its
+            parameters; ``shapes`` is always None (a kernel query has no shape
+            bundle) and ``notes`` names the formats.
+        """
         return {
             "supported": self.supported,
             "reason": self.reason,
-            "app": self.app_name,
+            "app": self.kernel_name,
             "use": self.label,
             "kwargs": {k: repr(v) for k, v in self.params.items()},
             "shapes": None,
@@ -101,7 +115,7 @@ class Verdict:
         lines = [f"{'SUPPORTED' if self.supported else 'NOT SUPPORTED'}: {self.reason}"]
         if self.kernel:
             args = ", ".join(f"{k}={v!r}" for k, v in self.params.items())
-            lines.append(f"  app:  {self.app_name}")
+            lines.append(f"  app:  {self.kernel_name}")
             lines.append(f"  use:  {self.label} ({args})")
         lines.extend(f"  note: {note}" for note in self._notes())
         if self.alternatives:
@@ -110,44 +124,63 @@ class Verdict:
 
 
 class _LayerAdapters(Mapping[str, LayerAdapter]):
-    """The adapters of the families' ``layers.py`` files, imported on first use."""
+    """The adapters of the families' ``layers`` modules, imported on first use.
 
-    def __init__(self, files: Iterable[Path]) -> None:
-        self._files = tuple(files)
-        self._loaded: dict[str, LayerAdapter] | None = None
+    A failure is kept and raised again, so a broken ``layers.py`` is imported
+    (and its side effects run) once.
+    """
 
-    def _table(self) -> dict[str, LayerAdapter]:
-        if self._loaded is None:
-            table: dict[str, LayerAdapter] = {}
-            for path in self._files:
-                for name, adapter in _adapters_in(path).items():
-                    if name in table:
-                        raise ConfigurationError(f"{path}: {name} has an adapter in two families")
-                    table[name] = adapter
-            self._loaded = table
-        return self._loaded
+    def __init__(self, modules: Iterable[str]) -> None:
+        self._modules = tuple(modules)
+        self._table: dict[str, LayerAdapter] | None = None
+        self._failure: ConfigurationError | None = None
+
+    def _loaded(self) -> dict[str, LayerAdapter]:
+        if self._failure is not None:
+            raise self._failure
+        if self._table is None:
+            try:
+                self._table = _collect(self._modules)
+            except ConfigurationError as error:
+                self._failure = error
+                raise
+        return self._table
 
     def __getitem__(self, name: str) -> LayerAdapter:
-        return self._table()[name]
+        return self._loaded()[name]
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._table())
+        return iter(self._loaded())
 
     def __len__(self) -> int:
-        return len(self._table())
+        return len(self._loaded())
 
 
-def _adapters_in(path: Path) -> dict[str, LayerAdapter]:
-    """``LAYER_ADAPTERS`` of one ``layers.py``, loaded from its file."""
-    spec = importlib.util.spec_from_file_location(f"_ipu_layers_{path.parent.name}", path)
-    if spec is None or spec.loader is None:
-        raise ConfigurationError(f"{path}: cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    adapters = getattr(module, ADAPTERS_NAME, None)
-    if not isinstance(adapters, Mapping) or not all(callable(a) for a in adapters.values()):
-        raise ConfigurationError(f"{path}: {ADAPTERS_NAME} must map layer names to functions")
-    return dict(adapters)
+def _collect(modules: Iterable[str]) -> dict[str, LayerAdapter]:
+    """``LAYER_ADAPTERS`` of each ``layers`` module that exists, merged."""
+    table: dict[str, LayerAdapter] = {}
+    origin: dict[str, str] = {}
+    for name in modules:
+        try:
+            module = importlib.import_module(name)
+        except ModuleNotFoundError as error:
+            if error.name is not None and (name + ".").startswith(error.name + "."):
+                continue  # this family (or the package) declares no adapters
+            raise ConfigurationError(f"{name}: cannot be imported: {error}") from error
+        except Exception as error:
+            raise ConfigurationError(
+                f"{name}: cannot be imported: {type(error).__name__}: {error}"
+            ) from error
+        adapters = getattr(module, ADAPTERS_NAME, None)
+        if not isinstance(adapters, Mapping) or not all(callable(a) for a in adapters.values()):
+            raise ConfigurationError(f"{name}: {ADAPTERS_NAME} must map layer names to functions")
+        for layer, adapter in adapters.items():
+            if layer in table:
+                raise ConfigurationError(
+                    f"{layer} has an adapter in both {origin[layer]} and {name}"
+                )
+            table[layer], origin[layer] = adapter, name
+    return table
 
 
 def _cost(manifest: KernelManifest, check: ParamCheck) -> float:
@@ -159,20 +192,6 @@ def _cost(manifest: KernelManifest, check: ParamCheck) -> float:
         k: v for k, v in check.params.items() if isinstance(v, int) and not isinstance(v, bool)
     }
     return float(evaluate(manifest.cost, {**names, **check.derived}))
-
-
-def _check_ties(manifests: Iterable[KernelManifest]) -> None:
-    """Two kernels of one op with the same constant cost: no query could choose."""
-    seen: dict[tuple[str, float], str] = {}
-    for m in sorted(manifests, key=lambda m: m.name):
-        if isinstance(m.cost, str):
-            continue
-        other = seen.setdefault((m.op, float(m.cost)), m.name)
-        if other != m.name:
-            raise ConfigurationError(
-                f"{m.directory / TOML_NAME}: {other} and {m.name} both compute {m.op} at cost "
-                f"{m.cost}; give one a different [kernel] cost (ties are never settled by name)"
-            )
 
 
 def _distinct(refusals: list[tuple[str, str]], candidates: int) -> list[str]:
@@ -212,28 +231,31 @@ class Registry:
         root: Path,
         *,
         families: Iterable[str] | None = None,
-        layers: Path | None = None,
+        package: str = "ipu_kernels",
     ) -> Registry:
         """The kernels under ``root`` (``<root>/<family>/<name>/kernel.toml``).
 
         Args:
             root: The kernel tree.
             families: Only these families (a per-kernel test, E06-18).
-            layers: The directory holding ``<family>/layers.py`` (the
-                ``ipu_kernels`` package); none, no adapters.
+            package: The package whose ``<family>.layers`` modules hold the
+                layer adapters (imported on first use; a family without one
+                has none).
 
         Returns:
             The registry; a ``kernel.toml`` that fails to load is kept in
             ``invalid``, not raised.
 
         Raises:
-            ConfigurationError: Two kernels share a name, or two of one op a
-                constant cost.
+            ConfigurationError: ``root`` is no directory, or two kernels share a
+                name.
         """
+        if not root.is_dir():
+            raise ConfigurationError(f"{root}: no kernel tree there")
         wanted = None if families is None else set(families)
         manifests: dict[str, KernelManifest] = {}
         invalid: dict[Path, ConfigurationError] = {}
-        family_dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+        family_dirs = sorted(p for p in root.iterdir() if p.is_dir())
         for family in family_dirs:
             if wanted is not None and family.name not in wanted:
                 continue
@@ -249,14 +271,9 @@ class Registry:
                         f"{manifests[manifest.name].directory / TOML_NAME}"
                     )
                 manifests[manifest.name] = manifest
-        _check_ties(manifests.values())
-        files = []
-        if layers is not None:
-            names = [f.name for f in family_dirs if wanted is None or f.name in wanted]
-            files = [
-                layers / n / "layers.py" for n in names if (layers / n / "layers.py").is_file()
-            ]
-        return cls(MappingProxyType(manifests), MappingProxyType(invalid), _LayerAdapters(files))
+        names = [f.name for f in family_dirs if wanted is None or f.name in wanted]
+        adapters = _LayerAdapters(f"{package}.{n}.layers" for n in names)
+        return cls(MappingProxyType(manifests), MappingProxyType(invalid), adapters)
 
     @classmethod
     def of(
@@ -267,15 +284,13 @@ class Registry:
         """A registry of ``manifests`` and ``adapters`` (the test seam).
 
         Raises:
-            ConfigurationError: Two kernels share a name, or two of one op a
-                constant cost.
+            ConfigurationError: Two kernels share a name.
         """
         by_name: dict[str, KernelManifest] = {}
         for m in manifests:
             if m.name in by_name:
                 raise ConfigurationError(f"kernel {m.name} is given twice")
             by_name[m.name] = m
-        _check_ties(by_name.values())
         return cls(MappingProxyType(by_name), adapters=MappingProxyType(dict(adapters or {})))
 
     def kernel(self, name: str) -> KernelManifest:
@@ -362,11 +377,20 @@ class Registry:
             alternatives=tuple(m.name for _, m, _ in accepted[1:]),
         )
 
-    def from_layer(self, layer: object, shape: Iterable[int]) -> Verdict:
+    def from_layer(self, layer: object, shape: Sequence[int]) -> Verdict:
         """Route ``layer`` applied to an input of ``shape``, through its adapter.
+
+        Args:
+            layer: A framework layer, matched by its class name.
+            shape: The shape of the tensor it is applied to.
+
+        Returns:
+            The verdict for the query the adapter makes of them.
 
         Raises:
             UnsupportedLayer: No adapter takes the layer's type.
+            ConfigurationError: The adapter returned something other than
+                ``(op, params)``.
         """
         name = type(layer).__name__
         adapter = self.adapters.get(name)
@@ -376,21 +400,35 @@ class Registry:
                 f"no adapter for layer type {name!r} (layers with one: {known}); add it to "
                 f"{ADAPTERS_NAME} in the layers.py of the family that implements it"
             )
-        op, params = adapter(layer, tuple(int(d) for d in shape))
-        query: dict[str, Any] = dict(params)  # may name a format, like any query
+        made = adapter(layer, tuple(int(d) for d in shape))
+        if not (
+            isinstance(made, tuple)
+            and len(made) == 2
+            and isinstance(made[0], str)
+            and isinstance(made[1], Mapping)
+        ):
+            raise ConfigurationError(f"the {name} adapter returned {made!r}, not (op, params)")
+        op, params = made
+        query: dict[str, Any] = dict(params)  # it may name a format, as any query may
         return self.resolve(op, **query)
 
 
-#: The checkout or runfiles root: ``src/tools/ipu-harness/src/ipu_harness/`` is five down.
-_ROOT = Path(__file__).parents[5]
+def kernel_tree() -> Path:
+    """The ``kernels/`` tree: in Bazel's runfiles when run by Bazel, else in the
+    checkout this package is in (``src/tools/ipu-harness/src/ipu_harness``)."""
+    runfiles = os.environ.get("RUNFILES_DIR")
+    if runfiles and (Path(runfiles) / "_main" / "kernels").is_dir():
+        return Path(runfiles) / "_main" / "kernels"
+    return Path(__file__).parents[5] / "kernels"
 
 
 @functools.cache
 def default_registry() -> Registry:
-    """The registry of the ``kernels/`` tree beside this package (a checkout or
-    Bazel's runfiles), with the ``ipu_kernels`` package's layer adapters if it is
-    importable. Built once."""
-    spec = importlib.util.find_spec("ipu_kernels")
-    locations = list(spec.submodule_search_locations or []) if spec else []
-    layers = Path(locations[0]) if locations else None
-    return Registry.load(_ROOT / "kernels", layers=layers)
+    """The registry of :func:`kernel_tree`, with ``ipu_kernels``' layer adapters.
+    Built once.
+
+    Raises:
+        ConfigurationError: There is no kernel tree (a binary without the
+            ``//kernels:tree`` data).
+    """
+    return Registry.load(kernel_tree())

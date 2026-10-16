@@ -7,13 +7,18 @@ Usage::
     bazel run //kernels:query -- scale rows=n --sweep n=1..200
     bazel run //kernels:query -- scale rows=7 --json
 
-The same arguments and output as ``//src/tools/ipu-apps:query``, over the
-``kernel.toml`` tree (:func:`~ipu_harness.registry.default_registry`).
-Parameters are ``NAME=VALUE``: an integer is an int, a number with a point a
-float, ``true``/``false`` a bool, anything else a string; ``format=e4`` limits
-the answer to one element format. ``--sweep NAME=START..END`` substitutes each
-integer for ``NAME`` in the one parameter that mentions it and prints where the
-winning kernel changes.
+The arguments of ``//src/tools/ipu-apps:query``, over the ``kernel.toml`` tree
+(:func:`~ipu_harness.registry.default_registry`), and its output layout, with
+what a kernel query has instead of an app's: the reason is the routing
+decision, ``use`` the kernel's Bazel label with its parameters, a note its
+formats, and no shapes (IMPLEMENTATION-DECISIONS, "Routing registry").
+Parameters are ``NAME=VALUE``: a value with a comma is a tuple (``shape=300,``
+is 1-D), an integer is an int, a number with a point a float, ``true``/
+``false`` a bool, anything else a string; ``format=e4`` limits the answer to one
+element format. ``--sweep NAME=START..END`` substitutes each integer for
+``NAME`` in the one parameter that mentions it and prints where the winning
+kernel changes. ``Boundary`` and ``boundaries`` repeat ``ipu_apps``' coverage
+helpers, which go with that registry in E07.
 
 Exits 0 when the query is covered (for a sweep: every value), 1 when not.
 """
@@ -28,11 +33,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from ipu_harness.registry import Registry, default_registry
+from ipu_isa.formats import ElementFormat
 
 
-def _value(text: str, sweep: str | None = None, at: int | None = None) -> Any:
-    """One parameter value, ``at`` substituted for the ``sweep`` token."""
-    token = text.strip()
+class _Usage(ValueError):
+    """A command line the tool cannot read (argparse reports it, exit 2)."""
+
+
+def _tokens(text: str) -> list[str]:
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _scalar(token: str, sweep: str | None, at: int | None) -> Any:
     if sweep is not None and token == sweep:
         return at
     if token.lower() in ("true", "false"):
@@ -45,6 +57,13 @@ def _value(text: str, sweep: str | None = None, at: int | None = None) -> Any:
     return token
 
 
+def _value(text: str, sweep: str | None = None, at: int | None = None) -> Any:
+    """One parameter value (a tuple if it has a comma), ``at`` for the ``sweep`` token."""
+    if "," in text:
+        return tuple(_scalar(t, sweep, at) for t in _tokens(text))
+    return _scalar(text.strip(), sweep, at)
+
+
 @dataclass(frozen=True)
 class Boundary:
     """A run of swept values one kernel (or none) takes."""
@@ -54,6 +73,7 @@ class Boundary:
     kernel: str | None
 
     def render(self, param: str) -> str:
+        """One line of the routing table: the span of ``param``, then the kernel."""
         span = (
             f"{param} = {self.start}"
             if self.start == self.end
@@ -65,11 +85,21 @@ class Boundary:
 def boundaries(
     registry: Registry, op: str, values: Sequence[int], query: Callable[[int], dict[str, Any]]
 ) -> tuple[Boundary, ...]:
-    """Route ``op`` with ``query(value)`` at each value; collapse runs of the same winner."""
+    """Route ``op`` with ``query(value)`` at each value; collapse runs of the same winner.
+
+    Args:
+        registry: The kernels.
+        op: The operation.
+        values: Consecutive integers to sweep.
+        query: The parameters at one value.
+
+    Returns:
+        Each run of values one kernel (or none) takes, in order.
+    """
     runs: list[Boundary] = []
     for value in values:
         verdict = registry.resolve(op, **query(value))
-        winner = verdict.app_name if verdict.supported else None
+        winner = verdict.kernel_name if verdict.supported else None
         if runs and runs[-1].kernel == winner and runs[-1].end == value - 1:
             runs[-1] = Boundary(runs[-1].start, value, winner)
         else:
@@ -78,7 +108,14 @@ def boundaries(
 
 
 def report(registry: Registry) -> str:
-    """The coverage report: every op and its kernels, and every kernel.toml that did not load."""
+    """The coverage report.
+
+    Args:
+        registry: The kernels.
+
+    Returns:
+        Markdown: every op and its kernels, and every kernel.toml that did not load.
+    """
     ops = registry.operations()
     lines = ["# Kernel coverage", "", f"Operations: {', '.join(ops) if ops else '(none)'}"]
     lines += [f"Kernels:    {len(registry.manifests)}", ""]
@@ -100,13 +137,13 @@ def _sweep(registry: Registry, op: str, params: dict[str, str], spec: str) -> in
     name, _, span = spec.partition("=")
     start, dots, end = span.partition("..")
     if not (name and dots and start.isdigit() and end.isdigit()):
-        raise ValueError(f"--sweep takes NAME=START..END, got {spec!r}")
+        raise _Usage(f"--sweep takes NAME=START..END, got {spec!r}")
     if int(start) > int(end):
-        raise ValueError(f"--sweep {spec!r}: START must not exceed END")
-    swept = [p for p, text in params.items() if text.strip() == name]
+        raise _Usage(f"--sweep {spec!r}: START must not exceed END")
+    swept = [p for p, text in params.items() if name in _tokens(text)]
     if len(swept) != 1:
-        raise ValueError(
-            f"--sweep {name}: exactly one parameter must be {name!r}, found {len(swept)}"
+        raise _Usage(
+            f"--sweep {name}: exactly one parameter must mention {name!r}, found {len(swept)}"
         )
     template = params.pop(swept[0])
     fixed = {p: _value(text) for p, text in params.items()}
@@ -145,12 +182,17 @@ def main(argv: Sequence[str] | None = None, registry: Registry | None = None) ->
         if not (name and sep and text.strip()):
             parser.error(f"expected NAME=VALUE, got {item!r}")
         params[name] = text
+    if "format" in params and params["format"].strip() not in {f.value for f in ElementFormat}:
+        valid = ", ".join(f.value for f in ElementFormat)
+        parser.error(f"format={params['format']}: no such element format; valid: {valid}")
+    # Only the command line's own mistakes are usage errors; a kernel's broken
+    # cost or a tie between kernels propagates as the bug it is.
     try:
         if args.sweep:
             return _sweep(registry, args.op, params, args.sweep)
-        verdict = registry.resolve(args.op, **{n: _value(t) for n, t in params.items()})
-    except ValueError as error:
+    except _Usage as error:
         parser.error(str(error))
+    verdict = registry.resolve(args.op, **{n: _value(t) for n, t in params.items()})
     print(json.dumps(verdict.to_dict(), indent=2) if args.json else verdict.describe())
     return 0 if verdict.supported else 1
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import itertools
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,7 @@ import pytest
 from ipu_emu.errors import ConfigurationError
 from ipu_harness.expressions import ExpressionError
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
-from ipu_harness.registry import Registry, UnsupportedLayer, default_registry
+from ipu_harness.registry import Registry, UnsupportedLayer, default_registry, kernel_tree
 
 TOML = """\
 [kernel]
@@ -66,10 +65,10 @@ def test_resolve_picks_the_cheapest_accepting_kernel_whatever_the_order(tmp_path
     found = manifests(tmp_path)
     for order in itertools.permutations(found):
         registry = Registry.of(order)
-        assert registry.resolve("scale", rows=4).app_name == "rows4"
-        assert registry.resolve("scale", rows=6).app_name == "small"
+        assert registry.resolve("scale", rows=4).kernel_name == "rows4"
+        assert registry.resolve("scale", rows=6).kernel_name == "small"
         verdict = registry.resolve("scale", rows=100)
-        assert verdict.app_name == "wide" and verdict.alternatives == ()
+        assert verdict.kernel_name == "wide" and verdict.alternatives == ()
     v = Registry.of(found).resolve("scale", rows=6)
     assert v.alternatives == ("wide",) and dict(v.params) == {"rows": 6, "s": 1.0}
     assert v.label == "//kernels/elementwise/small"
@@ -102,25 +101,35 @@ def test_a_cost_expression_is_evaluated_and_a_crash_in_it_propagates(tmp_path):
     cheap_when_small = load_manifest(kernel(tmp_path, "tiled", cost="rows * 2"))
     flat = load_manifest(kernel(tmp_path, "flat", cost=20))
     registry = Registry.of([cheap_when_small, flat])
-    assert registry.resolve("scale", rows=3).app_name == "tiled"  # 6 < 20
-    assert registry.resolve("scale", rows=30).app_name == "flat"  # 60 > 20
+    assert registry.resolve("scale", rows=3).kernel_name == "tiled"  # 6 < 20
+    assert registry.resolve("scale", rows=30).kernel_name == "flat"  # 60 > 20
     broken = load_manifest(kernel(tmp_path / "b", "broken", cost="100 // (rows - 4)"))
     with pytest.raises(ExpressionError, match="division by zero"):
         Registry.of([broken]).resolve("scale", rows=4)
 
 
-def test_equal_costs_are_an_error_never_a_choice_by_name(tmp_path):
-    a = load_manifest(kernel(tmp_path, "a"))
-    b = load_manifest(kernel(tmp_path, "b"))
-    with pytest.raises(ConfigurationError, match="a and b both compute scale at cost 0"):
-        Registry.of([a, b])
-    # Expressions can only tie on a query.
+def test_equal_lowest_costs_on_a_query_are_an_error_never_a_choice_by_name(tmp_path):
+    # Equal constant costs are fine while no query is accepted by both.
+    low = load_manifest(kernel(tmp_path, "low", hi=8))
+    high = load_manifest(kernel(tmp_path, "high", lo=9))
+    registry = Registry.of([low, high])
+    assert registry.resolve("scale", rows=3).kernel_name == "low"
+    assert registry.resolve("scale", rows=30).kernel_name == "high"
+    both = load_manifest(kernel(tmp_path, "both"))
+    with pytest.raises(
+        ConfigurationError, match="both and low both accept this scale query at cost 0"
+    ):
+        Registry.of([low, high, both]).resolve("scale", rows=3)
     c = load_manifest(kernel(tmp_path / "e", "c", cost="rows"))
     d = load_manifest(kernel(tmp_path / "e", "d", cost=4))
-    registry = Registry.of([c, d])
     with pytest.raises(ConfigurationError, match="c and d both accept this scale query at cost 4"):
-        registry.resolve("scale", rows=4)
-    assert registry.resolve("scale", rows=3).app_name == "c"
+        Registry.of([c, d]).resolve("scale", rows=4)
+
+
+def test_a_negative_cost_prefers_a_kernel(tmp_path):
+    preferred = load_manifest(kernel(tmp_path, "preferred", cost=-1))
+    plain = load_manifest(kernel(tmp_path, "plain"))
+    assert Registry.of([plain, preferred]).resolve("scale", rows=2).kernel_name == "preferred"
 
 
 def test_load_reads_the_tree_keeps_invalid_tomls_and_scopes_to_families(tmp_path):
@@ -168,20 +177,62 @@ LAYER_ADAPTERS = {{"Conv2d": conv}}
 """
 
 
-def test_layer_adapters_are_collected_and_imported_only_when_used(tmp_path):
+def adapter_package(tmp_path: Path, monkeypatch, name: str, files: dict[str, str]) -> None:
+    """A package ``name`` on the import path, its ``<family>/layers.py`` files given."""
+    base = tmp_path / "site" / name
+    base.mkdir(parents=True)
+    (base / "__init__.py").write_text("")
+    for family, text in files.items():
+        (base / family).mkdir()
+        (base / family / "__init__.py").write_text("")
+        (base / family / "layers.py").write_text(text)
+    monkeypatch.syspath_prepend(str(tmp_path / "site"))
+
+
+def test_layer_adapters_are_imported_by_name_and_only_when_used(tmp_path, monkeypatch):
     root = tmp_path / "kernels"
     kernel(root, "small", hi=8, cost=1)
     kernel(root, "wide", cost=10)
-    layers = tmp_path / "ipu_kernels"
-    (layers / "elementwise").mkdir(parents=True)
+    kernel(root, "rows4", family="softmax", lo=4, hi=4, cost=0)  # a family with no layers
     marker = tmp_path / "imported"
-    (layers / "elementwise" / "layers.py").write_text(LAYERS.format(marker=str(marker)))
-    registry = Registry.load(root, layers=layers)
+    adapter_package(
+        tmp_path, monkeypatch, "kernels_a", {"elementwise": LAYERS.format(marker=str(marker))}
+    )
+    registry = Registry.load(root, package="kernels_a")
     registry.resolve("scale", rows=4)
     assert not marker.exists(), "routing a query imports no kernel Python"
-    assert registry.from_layer(Conv2d(2), (3, 128)).app_name == "small"  # rows = 6
+    assert registry.from_layer(Conv2d(2), (3, 128)).kernel_name == "small"  # rows = 6
     assert marker.exists()
-    assert registry.from_layer(Conv2d(20), [3, 128]).app_name == "wide"
+    assert registry.from_layer(Conv2d(20), [3, 128]).kernel_name == "wide"
+
+
+def test_a_broken_layers_module_is_a_configuration_error_raised_once(tmp_path, monkeypatch):
+    root = tmp_path / "kernels"
+    kernel(root, "small", cost=1)
+    marker = tmp_path / "runs"
+    broken = f"from pathlib import Path\nPath({str(marker)!r}).open('a').write('x')\nraise RuntimeError('boom')\n"
+    adapter_package(tmp_path, monkeypatch, "kernels_b", {"elementwise": broken})
+    registry = Registry.load(root, package="kernels_b")
+    for _ in range(2):
+        with pytest.raises(
+            ConfigurationError,
+            match="kernels_b.elementwise.layers: cannot be imported: RuntimeError: boom",
+        ):
+            registry.from_layer(Conv2d(1), (1,))
+    assert marker.read_text() == "x"
+
+
+def test_one_layer_adapted_by_two_families_is_an_error_naming_both(tmp_path, monkeypatch):
+    root = tmp_path / "kernels"
+    kernel(root, "small", cost=1)
+    kernel(root, "other", family="conv", op="conv", cost=1)
+    adapter = "LAYER_ADAPTERS = {'Conv2d': lambda layer, shape: ('scale', {})}\n"
+    adapter_package(tmp_path, monkeypatch, "kernels_c", {"conv": adapter, "elementwise": adapter})
+    with pytest.raises(
+        ConfigurationError,
+        match="Conv2d has an adapter in both kernels_c.conv.layers and kernels_c.elementwise.layers",
+    ):
+        Registry.load(root, package="kernels_c").from_layer(Conv2d(1), (1,))
 
 
 def test_a_layer_without_an_adapter_names_the_known_ones(tmp_path):
@@ -190,12 +241,16 @@ def test_a_layer_without_an_adapter_names_the_known_ones(tmp_path):
         registry.from_layer(Conv2d(1), (1,))
 
 
-def test_the_default_registry_imports_no_kernel_module():
-    before = {m for m in sys.modules if m.startswith("ipu_kernels")}
-    registry = default_registry()
-    assert registry is default_registry()  # built once
-    assert {m for m in sys.modules if m.startswith("ipu_kernels")} == before
-    assert registry.invalid == {}
+def test_the_default_registry_reads_the_kernel_tree_once():
+    # The tree is in the test's runfiles (//kernels:tree); E06-13 adds kernels to it.
+    assert (kernel_tree() / "BUILD.bazel").is_file()
+    assert default_registry() is default_registry()
+    assert default_registry().invalid == {}
+
+
+def test_a_missing_tree_is_an_error_not_an_empty_registry(tmp_path):
+    with pytest.raises(ConfigurationError, match="no kernel tree there"):
+        Registry.load(tmp_path / "nowhere")
 
 
 # --- //kernels:query ----------------------------------------------------------------------
@@ -222,7 +277,7 @@ def test_query_answers_a_query_a_sweep_and_the_report(tmp_path, capsys):
         "alternatives",
     }
     assert query.main(["scale", "rows=n", "--sweep", "n=3..10"], registry) == 0
-    assert capsys.readouterr().out.split("\n")[:4] == [
+    assert capsys.readouterr().out.splitlines() == [
         f"{'n = 3':<28} small",
         f"{'n = 4':<28} rows4",
         f"{'n 5..8':<28} small",
@@ -233,3 +288,17 @@ def test_query_answers_a_query_a_sweep_and_the_report(tmp_path, capsys):
     assert (
         "Operations: scale" in report and "- **rows4** -- `//kernels/elementwise/rows4`" in report
     )
+
+
+def test_query_reports_its_own_usage_errors_and_lets_kernel_bugs_through(tmp_path):
+    from ipu_harness import query
+
+    registry = Registry.of(manifests(tmp_path))
+    with pytest.raises(SystemExit) as usage:
+        query.main(["scale", "rows=4", "format=e9"], registry)
+    assert usage.value.code == 2
+    with pytest.raises(SystemExit):
+        query.main(["scale", "rows=n", "--sweep", "n=5..2"], registry)
+    broken = load_manifest(kernel(tmp_path / "b", "broken", cost="100 // (rows - 4)"))
+    with pytest.raises(ExpressionError):
+        query.main(["scale", "rows=4"], Registry.of([broken]))

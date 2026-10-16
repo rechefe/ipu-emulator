@@ -5,7 +5,16 @@
 # Which kernel computes an op, and why (E06-16): the routing registry over the
 # kernel.toml tree, as //src/tools/ipu-apps:query answers over the app tree.
 #   bazel run //kernels:query -- scale rows=7
+# The tree's root in runfiles, for ipu_harness.registry.kernel_tree(): each
+# kernel's own files join it through E06-13's ipu_kernel().
+filegroup(
+    name = "tree",
+    srcs = ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
 alias(
     name = "query",
     actual = "//src/tools/ipu-harness:query",
+    visibility = ["//visibility:public"],
 )
