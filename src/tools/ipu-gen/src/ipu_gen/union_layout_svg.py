@@ -14,20 +14,11 @@ picture matches what an encoded VLIW word looks like in memory.
 
 from __future__ import annotations
 
+from ipu_isa.slots import SLOTS
 from ipu_isa.union_layout import SlotUnion
 
-# Slot palette — one stable colour per slot for cross-slot recognisability.
-_SLOT_COLORS: dict[str, str] = {
-    "cond": "#98D8C8",
-    "lr": "#FFA07A",
-    "load": "#FF6B6B",
-    "store": "#E74C3C",
-    "acc_store": "#C0392B",
-    "mult": "#4ECDC4",
-    "acc": "#45B7D1",
-    "aaq": "#9B59B6",
-    "break": "#FFD93D",
-}
+# Slot palette, from the slot registry: one stable colour per slot.
+_SLOT_COLORS: dict[str, str] = {slot.value: info.legend_colour for slot, info in SLOTS.items()}
 _OPCODE_FILL = "#D3D3D3"
 _UNUSED_FILL = "#F8F8F8"
 
@@ -144,7 +135,7 @@ def render_union_layout_svg(
     """Render a per-slot union layout diagram and return the SVG source.
 
     Args:
-        slot_unions: ``{slot_name: SlotUnion}`` from ``compute_slot_layouts``.
+        slot_unions: ``{slot_name: SlotUnion}`` (``ipu_isa.layout.SLOT_UNIONS``).
         slot_order: Slot names in the order they should appear top-to-bottom
             (typically the MSB → LSB order of the compound instruction).
         slot_counts: Optional ``{slot_name: count}`` for slots that appear

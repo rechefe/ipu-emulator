@@ -5,6 +5,12 @@ load("//tools:lint.bzl", "ruff_test")
 
 package(default_visibility = ["//visibility:public"])
 
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
 # Generators that render artifacts from the ISA. E08 moves the docs, SV and
 # VS Code generators here.
 py_library(

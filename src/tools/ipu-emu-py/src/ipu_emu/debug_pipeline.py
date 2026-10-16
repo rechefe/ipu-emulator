@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    SLOT_COUNT,
-    SLOT_UNIONS,
-    is_hardware_slot,
-)
+from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT
+from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 
+#: One label per slot instance, in layout order; ``*`` marks debug-only slots.
 SLOT_LABELS = tuple(
-    (
-        slot.upper()
-        + (str(index) if SLOT_COUNT[slot] > 1 else "")
-        + ("*" if not is_hardware_slot(slot) else "")
-    )
-    for slot in COMPOUND_LAYOUT_SLOT_ORDER
-    for index in range(SLOT_COUNT[slot])
+    label + ("*" if SLOTS[slot].debug_only else "")
+    for slot in LAYOUT_ORDER
+    for label in SLOTS[slot].instance_labels()
 )
 
 
@@ -65,7 +59,7 @@ def semantic_operations(operations: list[str]) -> list[str]:
 
 # Physical stages group execution slots; LOAD is the XMEM sideband.
 PIPELINE_STAGES = (
-    ("CTRL", ("LR0", "LR1", "LR2", "COND", "BREAK")),
+    ("CTRL", (*SLOTS[Slot.LR].instance_labels(), "COND", "BREAK")),
     ("MULT", ("MULT",)),
     ("ACC", ("ACC",)),
     ("AAQ", ("AAQ",)),

@@ -57,6 +57,27 @@ py_library(
     visibility = ["//:__pkg__"],
 )
 
+# Each first-party package imports only the packages its row in
+# import_graph.toml allows. A new package adds its row there and its
+# :py_sources here.
+py_pytest_test(
+    name = "test_import_graph",
+    size = "small",
+    srcs = ["test_import_graph.py"],
+    data = [
+        "import_graph.toml",
+        "//src/tools/ipu-apps:py_sources",
+        "//src/tools/ipu-as-py:py_sources",
+        "//src/tools/ipu-emu-py:py_sources",
+        "//src/tools/ipu-gen:py_sources",
+        "//src/tools/ipu-isa:py_sources",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
+)
+
 # Per-package line coverage of a combined lcov report, as a Markdown table.
 # Run by the nightly workflow after `bazel coverage --config=full //...`.
 py_binary(

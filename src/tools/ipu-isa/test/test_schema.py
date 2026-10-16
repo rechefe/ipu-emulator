@@ -158,6 +158,12 @@ def test_exactly_one_nop_per_slot():
     _rejects(spec, r"break: must have exactly one NOP, has 0")
 
 
+def test_spec_slots_must_be_the_registered_slots():
+    spec = _spec()
+    del spec["aaq"]
+    _rejects(spec, "INSTRUCTION_SPEC: slots .* do not match the slot registry")
+
+
 def test_slot_metadata_covers_every_slot():
     metadata = copy.deepcopy(SLOT_METADATA)
     del metadata["aaq"]
