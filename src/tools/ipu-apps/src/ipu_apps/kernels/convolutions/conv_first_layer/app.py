@@ -56,7 +56,7 @@ params=..., bindings=...)``)::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -78,11 +78,11 @@ KERNEL_SIZE = 3
 STRIDE = 2
 
 # Row-interleaved input: (row r, channel ch) at element (r*IN_CHANNELS + ch)*IN_COLS.
-IN_ROW_GROUP = IN_CHANNELS * IN_COLS   # 768 elements: one spatial row, all 3 channels
-CHANNEL_STRIDE = IN_COLS               # 256: ch-to-ch step within a row group
+IN_ROW_GROUP = IN_CHANNELS * IN_COLS  # 768 elements: one spatial row, all 3 channels
+CHANNEL_STRIDE = IN_COLS  # 256: ch-to-ch step within a row group
 
-TAPS_PER_CHANNEL = KERNEL_SIZE * KERNEL_SIZE          # 9
-TAPS_PER_FILTER = IN_CHANNELS * TAPS_PER_CHANNEL      # 27
+TAPS_PER_CHANNEL = KERNEL_SIZE * KERNEL_SIZE  # 9
+TAPS_PER_FILTER = IN_CHANNELS * TAPS_PER_CHANNEL  # 27
 
 # Row-interleaved output: (row r, filter f) at element (r*OUT_CHANNELS + f)*OUT_COLS.
 OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16 filters
@@ -96,11 +96,11 @@ OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16
 # loads through. This app runs FP32 wide-vector only, so ROW_BYTES is always
 # 512.
 
-INPUT_BASE_ADDR = 0x000000    # 256 rows * 768 elements * 4 B
-KERNEL_BASE_ADDR = 0x100000   # 16 filters x 128-element block * 4 B
-MASK_BASE_ADDR = 0x104000     # 128-byte mask blob (8 slots x 16 bytes, 1 bit per lane)
-TEMP_BASE_ADDR = 0x104400     # 256 elements: temp0[0..127] (slot0 half) + temp1[128..255]
-OUTPUT_BASE_ADDR = 0x140000   # 128 rows * 2048 elements * 4 B
+INPUT_BASE_ADDR = 0x000000  # 256 rows * 768 elements * 4 B
+KERNEL_BASE_ADDR = 0x100000  # 16 filters x 128-element block * 4 B
+MASK_BASE_ADDR = 0x104000  # 128-byte mask blob (8 slots x 16 bytes, 1 bit per lane)
+TEMP_BASE_ADDR = 0x104400  # 256 elements: temp0[0..127] (slot0 half) + temp1[128..255]
+OUTPUT_BASE_ADDR = 0x140000  # 128 rows * 2048 elements * 4 B
 
 CHUNK_ELEMENTS = 128
 ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
@@ -117,9 +117,9 @@ FILTER_BLOCK_ELEMENTS = 128
 
 # -- Mask slots (polarity: bit 1 = KEEP, bit 0 = ZERO) -----------------------
 
-MASK_SLOT_KEEP = 0    # all ones: interior taps, kc=0
-MASK_SLOT_LEFT = 1    # zero lane 0:   kc=-1 on slot 0 (col 0 has no left nbr)
-MASK_SLOT_RIGHT = 2   # zero lane 127: kc=+1 on slot 1 (col 255 has no right nbr)
+MASK_SLOT_KEEP = 0  # all ones: interior taps, kc=0
+MASK_SLOT_LEFT = 1  # zero lane 0:   kc=-1 on slot 0 (col 0 has no left nbr)
+MASK_SLOT_RIGHT = 2  # zero lane 127: kc=+1 on slot 1 (col 255 has no right nbr)
 
 
 def _build_mask_data() -> bytes:
@@ -138,7 +138,7 @@ def _build_mask_data() -> bytes:
     for slot in (MASK_SLOT_KEEP, MASK_SLOT_LEFT, MASK_SLOT_RIGHT):
         for bit in range(128):
             mask[slot * 16 + bit // 8] |= 1 << (bit % 8)
-    mask[MASK_SLOT_LEFT * 16 + 0] &= ~(1 << 0)              # slot 1: zero lane 0
+    mask[MASK_SLOT_LEFT * 16 + 0] &= ~(1 << 0)  # slot 1: zero lane 0
     mask[MASK_SLOT_RIGHT * 16 + 127 // 8] &= ~(1 << (127 % 8))  # slot 2: zero lane 127
     return bytes(mask)
 
@@ -166,8 +166,8 @@ class ConvFirstLayerApp(IpuApp):
         self,
         *,
         input_path: str | Path,
-        kernel: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
+        kernel: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -196,9 +196,7 @@ class ConvFirstLayerApp(IpuApp):
         raw = self.kernel_path.read_bytes()
         expected = OUT_CHANNELS * IN_CHANNELS * 9 * 4
         if len(raw) != expected:
-            raise ValueError(
-                f"kernel_path file has {len(raw)} bytes, expected {expected}"
-            )
+            raise ValueError(f"kernel_path file has {len(raw)} bytes, expected {expected}")
         return np.frombuffer(raw, dtype=np.float32).reshape(OUT_CHANNELS, IN_CHANNELS, 9)
 
     def _build_kernel_data(self) -> bytes:
@@ -212,22 +210,21 @@ class ConvFirstLayerApp(IpuApp):
         for f in range(OUT_CHANNELS):
             dst = f * FILTER_BLOCK_ELEMENTS
             packed[dst] = self._bias_array[f]
-            packed[dst + BIAS_ELEMENT_OFFSET:dst + BIAS_ELEMENT_OFFSET + TAPS_PER_FILTER] = (
-                taps[f].reshape(-1)
-            )
+            packed[dst + BIAS_ELEMENT_OFFSET : dst + BIAS_ELEMENT_OFFSET + TAPS_PER_FILTER] = taps[
+                f
+            ].reshape(-1)
         return packed.tobytes()
 
     # -- state / setup ------------------------------------------------------
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE [in_channels, height, width] float32
         # tensor -- repack to row-interleaved-by-channel on-device layout.
         raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         expected = IN_CHANNELS * IN_ROWS * IN_COLS
         if raw.size != expected:
             raise ValueError(
-                f"input has {raw.size} elements, expected {expected} "
-                f"(3 ch * 256 rows * 256 cols)"
+                f"input has {raw.size} elements, expected {expected} (3 ch * 256 rows * 256 cols)"
             )
         input_chw = raw.reshape(IN_CHANNELS, IN_ROWS, IN_COLS)
         input_data = np.ascontiguousarray(
@@ -237,7 +234,8 @@ class ConvFirstLayerApp(IpuApp):
             INPUT_BASE_ROW * ROW_BYTES, input_data.astype(np.float32).tobytes()
         )
         state.xmem.write_address(
-            KERNEL_BASE_ROW * ROW_BYTES, self._build_kernel_data(),
+            KERNEL_BASE_ROW * ROW_BYTES,
+            self._build_kernel_data(),
         )
         # The mask blob does NOT widen (1 bit/lane regardless of mode) -- only
         # its row address scales.
@@ -251,27 +249,34 @@ class ConvFirstLayerApp(IpuApp):
         state.regfile.set_cr(3, KERNEL_BASE_ROW)
         state.regfile.set_cr(4, MASK_BASE_ROW)
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(6, CHANNEL_STRIDE // CHUNK_ELEMENTS)     # 2: ch-to-ch step, rows
-        state.regfile.set_cr(7, IN_ROW_GROUP // CHUNK_ELEMENTS)       # 6: one input spatial row (3 ch), rows
-        state.regfile.set_cr(8, FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS)  # 1: chunk / slot size, rows
-        state.regfile.set_cr(9, 2 * IN_ROW_GROUP // CHUNK_ELEMENTS)   # 12: input advance per OUTPUT row (stride 2), rows
-        state.regfile.set_cr(10, INPUT_BASE_ROW)                  # input base row
-        state.regfile.set_cr(11, OUT_ROWS)                        # 128: output-row loop bound (not XMEM-space)
-        state.regfile.set_cr(12, OUT_CHANNELS * FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS)  # 16: kernel limit / output row group, rows
-        state.regfile.set_cr(13, TEMP_BASE_ROW)                   # temp0 (slot0 half) at +0, temp1 at +128
+        state.regfile.set_cr(6, CHANNEL_STRIDE // CHUNK_ELEMENTS)  # 2: ch-to-ch step, rows
+        state.regfile.set_cr(
+            7, IN_ROW_GROUP // CHUNK_ELEMENTS
+        )  # 6: one input spatial row (3 ch), rows
+        state.regfile.set_cr(
+            8, FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS
+        )  # 1: chunk / slot size, rows
+        state.regfile.set_cr(
+            9, 2 * IN_ROW_GROUP // CHUNK_ELEMENTS
+        )  # 12: input advance per OUTPUT row (stride 2), rows
+        state.regfile.set_cr(10, INPUT_BASE_ROW)  # input base row
+        state.regfile.set_cr(11, OUT_ROWS)  # 128: output-row loop bound (not XMEM-space)
+        state.regfile.set_cr(
+            12, OUT_CHANNELS * FILTER_BLOCK_ELEMENTS // CHUNK_ELEMENTS
+        )  # 16: kernel limit / output row group, rows
+        state.regfile.set_cr(13, TEMP_BASE_ROW)  # temp0 (slot0 half) at +0, temp1 at +128
         # CR14 = 128: R_CYCLIC ELEMENT slot1 index, kept separate from CR8
         # (the XMEM filter-block ROW stride = 1).
         state.regfile.set_cr(14, 128)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_elements = OUT_ROWS * OUT_ROW_GROUP  # 128 * 2048 = 262144
-            raw = state.xmem.read_address(
-                OUTPUT_BASE_ROW * ROW_BYTES, total_elements * 4
-            )
+            raw = state.xmem.read_address(OUTPUT_BASE_ROW * ROW_BYTES, total_elements * 4)
             out = np.frombuffer(raw, dtype=np.float32).reshape(OUT_ROWS, OUT_CHANNELS, OUT_COLS)
             out_chw = np.ascontiguousarray(out.transpose(1, 0, 2))  # -> [filter, row, col]
             Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
+
 
 # -- registry declaration ---------------------------------------------------
 # Fixed shape: 256x256x3 -> 128x128x16, stride 2, padding 1, kernel_size 3.
@@ -293,7 +298,12 @@ def _supports(q):
         return "this kernel always applies ReLU"
     if not q.has_bias:
         return "this kernel requires bias (folded)"
-    if (q.in_channels, q.out_channels, q.height, q.width) != (IN_CHANNELS, OUT_CHANNELS, IN_ROWS, IN_COLS):
+    if (q.in_channels, q.out_channels, q.height, q.width) != (
+        IN_CHANNELS,
+        OUT_CHANNELS,
+        IN_ROWS,
+        IN_COLS,
+    ):
         return (
             f"fixed-shape kernel: only in_channels={IN_CHANNELS}, "
             f"out_channels={OUT_CHANNELS}, height={IN_ROWS}, width={IN_COLS} "

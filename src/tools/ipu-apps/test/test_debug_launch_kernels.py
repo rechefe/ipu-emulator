@@ -4,17 +4,17 @@ One Bazel target per kernel (``ipu_per_kernel_test``): IPU_KERNEL selects the
 kernel; unset, every kernel.
 """
 
-from io import StringIO
 import os
 import sys
+from io import StringIO
 
 import pytest
 
+import ipu_emu.debug_tui as tui
 from ipu_apps.kernel_registry import kernels
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
 from ipu_emu.emulator import DebugAction
-import ipu_emu.debug_tui as tui
 
 KERNEL = os.environ.get("IPU_KERNEL")
 KERNELS = [spec.name for spec in kernels() if KERNEL in (None, spec.name)]

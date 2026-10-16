@@ -61,11 +61,9 @@ from __future__ import annotations
 import math
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from ipu_as.lark_tree import assemble_to_bin_file
 
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.convolutions.app import (
@@ -75,6 +73,7 @@ from ipu_apps.kernels.convolutions.app import (
     render_asm,
     universal_spec,
 )
+from ipu_as.lark_tree import assemble_to_bin_file
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -141,7 +140,7 @@ def _pack_conv_weights_dense_fp32(weights: np.ndarray) -> bytes:
                 if ic >= in_ch:
                     break
                 dst = block_base + s * 9
-                packed[dst:dst + 9] = taps[f, ic]
+                packed[dst : dst + 9] = taps[f, ic]
     return packed.tobytes()
 
 
@@ -177,8 +176,8 @@ class ConvUniversalWide384App(IpuApp):
         rows: int,
         in_channels: int,
         out_channels: int,
-        kernel: Optional[np.ndarray] = None,
-        kernel_path: Optional[str | Path] = None,
+        kernel: np.ndarray | None = None,
+        kernel_path: str | Path | None = None,
         **kwargs,
     ) -> None:
         # The bound inst_path is kept but not run: this app renders and
@@ -226,12 +225,14 @@ class ConvUniversalWide384App(IpuApp):
         # with out_channels*in_channels). No guard-band shift is needed here
         # (unlike conv_universal): this app writes input data straight to its
         # region's own base.
-        self._regions = allocate_regions([
-            ("input", in_channels * rows * self.cpr * CHUNK_ELEMENTS),
-            ("kernel", self.total_kernel_rows * CHUNK_ELEMENTS),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", rows * out_channels * self.cpr * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", in_channels * rows * self.cpr * CHUNK_ELEMENTS),
+                ("kernel", self.total_kernel_rows * CHUNK_ELEMENTS),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", rows * out_channels * self.cpr * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.input_base_addr = self._regions["input"] * 4
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
@@ -257,24 +258,22 @@ class ConvUniversalWide384App(IpuApp):
                     f"kernel_path file has {len(raw)} bytes, expected {expected} "
                     "(out_ch * in_ch * 9 * 4 B float32)"
                 )
-            weights = (
-                np.frombuffer(raw, dtype=np.float32)
-                .reshape(self.out_channels, self.in_channels, 3, 3)
+            weights = np.frombuffer(raw, dtype=np.float32).reshape(
+                self.out_channels, self.in_channels, 3, 3
             )
         return _pack_conv_weights_dense_fp32(weights)
 
     def _render_asm(self) -> str:
         return render_asm(kernel_asm("conv_universal_wide384"), cpr=self.cpr, rows=self.rows)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE [in_channels, rows, width] float32
         # tensor -- repack to the channel-interleaved-per-row on-device layout.
         raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         expected = self.in_channels * self.rows * self.width
         if raw.size != expected:
             raise ValueError(
-                f"input has {raw.size} elements, expected {expected} "
-                "(in_channels * rows * width)"
+                f"input has {raw.size} elements, expected {expected} (in_channels * rows * width)"
             )
         input_chw = raw.reshape(self.in_channels, self.rows, self.width)
         # row(r, ic, cc) = (r * in_channels + ic) * cpr + cc, i.e. transpose
@@ -313,20 +312,20 @@ class ConvUniversalWide384App(IpuApp):
         state.regfile.set_cr(13, self.total_kernel_rows)
         state.regfile.set_cr(14, self.blocks_per_filter)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_outputs = self.rows * self.out_channels * self.cpr
             total_elements = total_outputs * CHUNK_ELEMENTS
-            raw = state.xmem.read_address(
-                self.output_base_row * ROW_BYTES, total_elements * 4
-            )
+            raw = state.xmem.read_address(self.output_base_row * ROW_BYTES, total_elements * 4)
             out = np.frombuffer(raw, dtype=np.float32).reshape(
-                self.rows, self.out_channels, self.width,
+                self.rows,
+                self.out_channels,
+                self.width,
             )
             out_chw = np.ascontiguousarray(out.transpose(1, 0, 2))
             Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
-    def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple["IpuState", int]:
+    def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple[IpuState, int]:
         bound = self.inst_path
         with tempfile.TemporaryDirectory(prefix="conv_universal_wide384_") as tmp:
             bin_path = Path(tmp) / "conv_universal_wide384.bin"
@@ -371,8 +370,10 @@ SPEC = universal_spec(
     variant="wide384",
     supports=_supports,
     build=lambda q: {
-        "width": q.width, "rows": q.height,
-        "in_channels": q.in_channels, "out_channels": q.out_channels,
+        "width": q.width,
+        "rows": q.height,
+        "in_channels": q.in_channels,
+        "out_channels": q.out_channels,
     },
     explain=lambda q: (
         "kernel_size=3, groups=1, stride=1, padding=1, width%128==0 and "

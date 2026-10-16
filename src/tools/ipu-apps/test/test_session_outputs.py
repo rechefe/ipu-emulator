@@ -11,6 +11,7 @@ from pathlib import Path
 import asm_corpus
 import jinja2
 import pytest
+
 from ipu_as.session import AssemblySession
 
 ROOT = Path.cwd()

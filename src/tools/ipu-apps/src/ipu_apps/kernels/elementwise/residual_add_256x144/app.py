@@ -14,17 +14,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.elementwise.app import residual_add_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK  = 256                 # tokens
-N_CH   = 144                 # channels
-N_ROWS = 288                 # 256 tokens x 144 channels -> 288 vector rows
+N_TOK = 256  # tokens
+N_CH = 144  # channels
+N_ROWS = 288  # 256 tokens x 144 channels -> 288 vector rows
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -35,21 +34,21 @@ N_ROWS = 288                 # 256 tokens x 144 channels -> 288 vector rows
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # One R_ACC store is 512 B = exactly one row in wide mode.
-OUTPUT_ROW_BYTES   = 512
+OUTPUT_ROW_BYTES = 512
 OUTPUT_STRIDE_ROWS = 1
-ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
+ROW_STRIDE_ROWS = 1  # one A/B vector row per XMEM row
 
-A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+A_BASE_ROW = 0
+B_BASE_ROW = A_BASE_ROW + N_ROWS
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
-A_BASE      = A_BASE_ROW * ROW_BYTES
-B_BASE      = B_BASE_ROW * ROW_BYTES
+A_BASE = A_BASE_ROW * ROW_BYTES
+B_BASE = B_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
@@ -61,7 +60,7 @@ class ResidualAdd256x144App(IpuApp):
         self.input_a_path = Path(self.input_a_path)
         self.input_b_path = Path(self.input_b_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
         state.xmem.write_address(A_BASE, bytearray(raw_a))
@@ -73,10 +72,10 @@ class ResidualAdd256x144App(IpuApp):
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
-        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row
+        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)  # A/B ptr startup: -1 row
         state.regfile.set_cr(6, N_ROWS)
-        state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
-        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
+        state.regfile.set_cr(7, ROW_STRIDE_ROWS)  # A/B row stride (rows)
+        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)  # output row stride (rows)
         # MULT.RC.VE multiplies R_CYCLIC by this CR scalar, so A[r]/B[r] pass
         # through unchanged.
         # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
@@ -84,11 +83,14 @@ class ResidualAdd256x144App(IpuApp):
         # pass-through multiplier.
         state.regfile.set_cr(10, 1)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_ROWS,
+                state,
+                self.output_path,
+                OUTPUT_BASE,
+                OUTPUT_ROW_BYTES,
+                N_ROWS,
             )
 
 

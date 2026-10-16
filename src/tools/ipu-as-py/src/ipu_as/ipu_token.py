@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import lark
 import dataclasses
 from typing import TYPE_CHECKING
-from ipu_as.errors import LabelError, OperandError, SourceLocation
+
+import lark
+
 import ipu_as.utils as utils
+from ipu_as.errors import LabelError, OperandError, SourceLocation
 from ipu_isa.geometry import MAX_PROGRAM_SIZE
 from ipu_isa.operand_types import operand_type
 
@@ -74,10 +76,12 @@ class NumberToken(IpuToken):
             self._raise_error(f"Value {self.token.value} is not a valid integer")
         min_val, max_val = self.value_range()
         if not (min_val <= self.int <= max_val):
-            self._raise_error(f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits")
+            self._raise_error(
+                f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits"
+            )
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("NUMBER", "0"), 0))
 
     @classmethod
@@ -104,10 +108,8 @@ class EnumToken(IpuToken):
         super().__init__(token)
         if self.token.value.lower() not in {n.lower() for n in self.enum_array()}:
             self._raise_error(
-                (
-                    f"Value {self.token.value} not in enum options\n"
-                    f"Available options: {self.enum_array()}"
-                )
+                f"Value {self.token.value} not in enum options\n"
+                f"Available options: {self.enum_array()}"
             )
 
     def __len__(self):
@@ -115,12 +117,10 @@ class EnumToken(IpuToken):
 
     @classmethod
     def enum_array(cls) -> list[str]:
-        raise NotImplementedError(
-            "enum_array property must be implemented by subclasses"
-        )
+        raise NotImplementedError("enum_array property must be implemented by subclasses")
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("ENUM", cls.enum_array()[0]), 0))
 
     @classmethod
@@ -184,15 +184,16 @@ class LabelToken(IpuToken):
             try:
                 offset = int(self.token.value, 0)
             except ValueError:
-                self._raise_error(
-                    f"Relative label value {self.token.value} is not a valid integer"
-                )
+                self._raise_error(f"Relative label value {self.token.value} is not a valid integer")
             target_address = self.instr_id + offset
             if not (0 <= target_address < MAX_PROGRAM_SIZE):
                 self._raise_error(
                     f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
                 )
-        elif self.annotated_token.symbols is None or self.token.value not in self.annotated_token.symbols:
+        elif (
+            self.annotated_token.symbols is None
+            or self.token.value not in self.annotated_token.symbols
+        ):
             raise LabelError(
                 self._invalid_value_message(f"Label {self.token.value} not defined"),
                 location=self.annotated_token.location(),
@@ -200,7 +201,7 @@ class LabelToken(IpuToken):
             )
 
     @classmethod
-    def default(cls) -> "IpuToken":
+    def default(cls) -> IpuToken:
         return cls(AnnotatedToken(lark.Token("LABEL", "+0"), 0))
 
     @classmethod

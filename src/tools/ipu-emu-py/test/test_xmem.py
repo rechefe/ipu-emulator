@@ -2,12 +2,12 @@
 
 import pytest
 
-from ipu_emu.xmem import XMem, align_addr, words_needed_for_bytes, XMEM_SIZE_BYTES
-
+from ipu_emu.xmem import XMEM_SIZE_BYTES, XMem, align_addr, words_needed_for_bytes
 
 # ---------------------------------------------------------------------------
 # align_addr / words_needed_for_bytes helpers
 # ---------------------------------------------------------------------------
+
 
 class TestAlignAddr:
     def test_already_aligned(self):
@@ -30,6 +30,7 @@ class TestAlignAddr:
 # ---------------------------------------------------------------------------
 # XMem — port of test_xmem.cpp tests
 # ---------------------------------------------------------------------------
+
 
 class TestXMem:
     def test_initialize_zeroed(self):
@@ -127,6 +128,7 @@ class TestXMem:
 # Ranged writes through indexing
 # ---------------------------------------------------------------------------
 
+
 class TestXMemIndexing:
     def test_contiguous_slice_write(self):
         xmem = XMem()
@@ -147,6 +149,7 @@ class TestXMemIndexing:
 # ---------------------------------------------------------------------------
 # Registered observers and ranged events
 # ---------------------------------------------------------------------------
+
 
 class TestXMemObservers:
     def test_two_observers_both_receive_events(self):
@@ -213,7 +216,7 @@ class TestXMemPaged:
         address = 3 * PAGE_BYTES - 100
         xmem.write_address(address, data)
         assert xmem.read_address(address, len(data)) == data
-        assert xmem[address:address + len(data)] == data
+        assert xmem[address : address + len(data)] == data
         assert [base for base, _ in xmem.touched_pages()] == [2 * PAGE_BYTES, 3 * PAGE_BYTES]
 
     def test_zero_write_to_absent_page_allocates_nothing(self):
@@ -258,7 +261,7 @@ class TestXMemPaged:
     def test_touched_pages_are_read_only(self):
         xmem = XMem()
         xmem.write_address(0, b"\x01")
-        (_, view), = xmem.touched_pages()
+        ((_, view),) = xmem.touched_pages()
         with pytest.raises(TypeError):
             view[0] = 2
 

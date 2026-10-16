@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 import lark
+
 from ipu_isa.errors import IpuError
 
 

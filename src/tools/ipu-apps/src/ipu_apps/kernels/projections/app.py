@@ -61,12 +61,18 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry import (
-    OUTPUT, WEIGHT, ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
+    OUTPUT,
+    WEIGHT,
+    ExecutionConfig,
+    ShapeBundle,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
 )
 from ipu_apps.kernel_registry.base import IpuApp
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -80,12 +86,12 @@ N_STREAM = 4  # pixel-streams every kernel in this family processes per call
 # rationale (elements are 4 B, a row is LANES*4 = 512 B, XMEM .asm operands
 # are ROW numbers, region bases are derived from row counts).
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
-FULL_BOUND = LANES - 2                       # 126: bound for any full width-128 chunk
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
+FULL_BOUND = LANES - 2  # 126: bound for any full width-128 chunk
 
-OUTPUT_ROW_BYTES   = 512    # one store = one row = one output channel
+OUTPUT_ROW_BYTES = 512  # one store = one row = one output channel
 OUTPUT_STRIDE_ROWS = 1
 
 
@@ -106,10 +112,10 @@ class ProjectionLayout:
       ``OUTPUT_BASE_ROW + p*OUTPUT_ROWS_PER_STREAM + tg*N_OUT + j``.
     """
 
-    k: int                # input channels
-    n_out: int            # output channels
-    n_tok: int            # tokens per group (padded to LANES in XMEM)
-    n_tg: int = 1         # token groups (L3: 256 tokens = 2 x 128)
+    k: int  # input channels
+    n_out: int  # output channels
+    n_tok: int  # tokens per group (padded to LANES in XMEM)
+    n_tg: int = 1  # token groups (L3: 256 tokens = 2 x 128)
 
     @property
     def w_stride_rows(self) -> int:
@@ -128,7 +134,7 @@ class ProjectionLayout:
 
     @property
     def data_rows_per_stream(self) -> int:
-        return self.k * self.n_tg                   # one row per (k, tg)
+        return self.k * self.n_tg  # one row per (k, tg)
 
     @property
     def weight_rows(self) -> int:
@@ -183,7 +189,7 @@ class ProjectionP4App(IpuApp):
         self.input_path = Path(input_path)
         self.weights_path = Path(weights_path)
 
-    def _load_data(self, state: "IpuState") -> None:
+    def _load_data(self, state: IpuState) -> None:
         """Stage every stream's D block, tg-interleaved per channel and padded to whole rows."""
         lo = self.layout
         raw = self.input_path.read_bytes()
@@ -195,10 +201,10 @@ class ProjectionP4App(IpuApp):
             )
         d = np.frombuffer(raw, dtype="<f4").reshape(lo.input_shape)
         rows = np.zeros((N_STREAM, lo.k, lo.n_tg, LANES), dtype="<f4")
-        rows[..., :lo.n_tok] = d.transpose(0, 2, 1, 3)        # file (p, tg, k) -> row (p, k, tg)
+        rows[..., : lo.n_tok] = d.transpose(0, 2, 1, 3)  # file (p, tg, k) -> row (p, k, tg)
         state.xmem.write_address(lo.data_base_row * ROW_BYTES, rows.tobytes())
 
-    def _load_weights(self, state: "IpuState") -> None:
+    def _load_weights(self, state: IpuState) -> None:
         """Stage the shared W, padding each output channel's K elements to whole rows."""
         lo = self.layout
         raw = self.weights_path.read_bytes()
@@ -207,10 +213,10 @@ class ProjectionP4App(IpuApp):
             raise ValueError(f"{self.weights_path}: expected >= {expected} B, got {len(raw)}")
         w = np.frombuffer(raw[:expected], dtype="<f4").reshape(lo.n_out, lo.k)
         rows = np.zeros((lo.n_out, lo.w_stride_rows * LANES), dtype="<f4")
-        rows[:, :lo.k] = w
+        rows[:, : lo.k] = w
         state.xmem.write_address(lo.weights_base_row * ROW_BYTES, rows.tobytes())
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         lo = self.layout
         self._load_data(state)
         self._load_weights(state)
@@ -218,28 +224,30 @@ class ProjectionP4App(IpuApp):
         # CR0 (=0) and CR1 (=1) are read-only hardwired constants -- writing
         # anything else raises EmulatorError. ZERO is already CR0's hardwired
         # value, so no write is needed here.
-        state.regfile.set_cr(2, lo.data_base_row)               # DATA_BASE (stream 0)
-        state.regfile.set_cr(3, lo.weights_base_row)            # WEIGHTS_BASE (shared)
-        state.regfile.set_cr(4, lo.output_base_row)             # OUTPUT_BASE (stream 0, tg=0 sub-block)
-        state.regfile.set_cr(5, -1)                             # NEG_ONE
-        state.regfile.set_cr(6, FULL_BOUND)                     # FULL_BOUND (126)
-        state.regfile.set_cr(7, lo.tail_bound)                  # TAIL_BOUND (shape-specific)
-        state.regfile.set_cr(8, lo.w_stride_rows)               # W_STRIDE (rows per output channel)
-        state.regfile.set_cr(9, lo.n_out)                       # N_OUT_CR (j-loop limit, tg1 output offset)
-        state.regfile.set_cr(10, lo.chunk_count)                # CHUNK_COUNT
-        state.regfile.set_cr(11, lo.chunk_count - 1)            # LAST_CHUNK_IDX
-        state.regfile.set_cr(12, lo.data_rows_per_stream)       # DATA_STREAM_STR
-        state.regfile.set_cr(13, lo.output_rows_per_stream)     # OUT_STREAM_STR
-        state.regfile.set_cr(14, N_STREAM)                      # STREAM_COUNT
+        state.regfile.set_cr(2, lo.data_base_row)  # DATA_BASE (stream 0)
+        state.regfile.set_cr(3, lo.weights_base_row)  # WEIGHTS_BASE (shared)
+        state.regfile.set_cr(4, lo.output_base_row)  # OUTPUT_BASE (stream 0, tg=0 sub-block)
+        state.regfile.set_cr(5, -1)  # NEG_ONE
+        state.regfile.set_cr(6, FULL_BOUND)  # FULL_BOUND (126)
+        state.regfile.set_cr(7, lo.tail_bound)  # TAIL_BOUND (shape-specific)
+        state.regfile.set_cr(8, lo.w_stride_rows)  # W_STRIDE (rows per output channel)
+        state.regfile.set_cr(9, lo.n_out)  # N_OUT_CR (j-loop limit, tg1 output offset)
+        state.regfile.set_cr(10, lo.chunk_count)  # CHUNK_COUNT
+        state.regfile.set_cr(11, lo.chunk_count - 1)  # LAST_CHUNK_IDX
+        state.regfile.set_cr(12, lo.data_rows_per_stream)  # DATA_STREAM_STR
+        state.regfile.set_cr(13, lo.output_rows_per_stream)  # OUT_STREAM_STR
+        state.regfile.set_cr(14, N_STREAM)  # STREAM_COUNT
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         # Every stream's C block is contiguous and the blocks are back to back,
         # so the output is one run of N_STREAM * N_TG * N_OUT rows.
         if self.output_path is not None:
             lo = self.layout
             dump_xmem_to_binary(
-                state, self.output_path,
-                lo.output_base_row * ROW_BYTES, OUTPUT_ROW_BYTES,
+                state,
+                self.output_path,
+                lo.output_base_row * ROW_BYTES,
+                OUTPUT_ROW_BYTES,
                 N_STREAM * lo.output_rows_per_stream,
             )
 
@@ -266,8 +274,9 @@ class ProjectionQuery:
     bundle: ShapeBundle
 
 
-def projection_query(*, k: int, n_out: int, n_streams: int = N_STREAM,
-                     activation: str = "none") -> ProjectionQuery:
+def projection_query(
+    *, k: int, n_out: int, n_streams: int = N_STREAM, activation: str = "none"
+) -> ProjectionQuery:
     """Normalise the raw params into the form every projection kernel routes on.
 
     Raises:
@@ -279,14 +288,18 @@ def projection_query(*, k: int, n_out: int, n_streams: int = N_STREAM,
         derived={OUTPUT: (int(n_streams), int(n_out))}
     )
     return ProjectionQuery(
-        k=int(k), n_out=int(n_out), n_streams=int(n_streams),
-        activation=activation, bundle=bundle,
+        k=int(k),
+        n_out=int(n_out),
+        n_streams=int(n_streams),
+        activation=activation,
+        bundle=bundle,
     )
 
 
 def _query(params) -> ProjectionQuery:
     return projection_query(
-        k=params["k"], n_out=params["n_out"],
+        k=params["k"],
+        n_out=params["n_out"],
         n_streams=params.get("n_streams", N_STREAM),
         activation=params.get("activation", "none"),
     )
@@ -311,10 +324,7 @@ def exact_shape_reason(q: ProjectionQuery, k: int, n_out: int) -> str | None:
     count. A mismatch here is always a routing miss, never a partial fit.
     """
     if q.k != k or q.n_out != n_out:
-        return (
-            f"handles exactly k={k}, n_out={n_out}; this query is "
-            f"k={q.k}, n_out={q.n_out}"
-        )
+        return f"handles exactly k={k}, n_out={n_out}; this query is k={q.k}, n_out={q.n_out}"
     if q.n_streams != N_STREAM:
         return (
             f"handles exactly {N_STREAM} pixel-streams per invocation; "
@@ -352,8 +362,9 @@ def projection_spec(app_class: type[ProjectionP4App], *, activation: str = "none
         q = _query(params)
         reason = positive_dims(q) or exact_shape_reason(q, lo.k, lo.n_out)
         if reason is None and q.activation != activation:
-            reason = (f"fuses activation={activation!r} into its store; "
-                      f"query asks for {q.activation!r}")
+            reason = (
+                f"fuses activation={activation!r} into its store; query asks for {q.activation!r}"
+            )
         return no(reason) if reason else yes()
 
     act = "" if activation == "none" else f" with fused {activation}"

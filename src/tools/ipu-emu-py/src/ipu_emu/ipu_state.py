@@ -6,16 +6,11 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 
 from __future__ import annotations
 
-from enum import Enum
 import struct
+from enum import Enum
 from typing import Any
 
-from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
-from ipu_emu.regfile import RegFile
-from ipu_emu.stats import RunStats
-from ipu_emu.xmem import XMem
 from ipu_emu import activations as _activations
-from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import (
     CR_DSTRUCTURE_REG_INDEX,
     DEFAULT_DSTRUCTURE,
@@ -25,6 +20,11 @@ from ipu_emu.ipu_config import (
     decode_dstructure,
     encode_dstructure,
 )
+from ipu_emu.ipu_math import DType
+from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
+from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
+from ipu_emu.xmem import XMem
 
 # Matches C: #define IPU__INST_MEM_SIZE 1024
 INST_MEM_SIZE = 1024
@@ -38,6 +38,7 @@ def _ipu():
     from ipu_emu import ipu
 
     return ipu
+
 
 class WideVectorArithmetic(str, Enum):
     """How 128-element wide-vector debug math is performed (emulator-only; issue #33).
@@ -140,7 +141,9 @@ class IpuState:
         """Write dstructure configuration fields to ``cr_idx`` (CR15 by default)."""
         self.regfile.set_cr(
             cr_idx,
-            encode_dstructure(valid_elements=valid_elements, partition=partition, pad_mode=pad_mode),
+            encode_dstructure(
+                valid_elements=valid_elements, partition=partition, pad_mode=pad_mode
+            ),
         )
 
     def set_activation_alphas(
@@ -183,6 +186,7 @@ class IpuState:
             data = struct.pack(fmt, 1) * lanes
         else:
             from ipu_emu.ipu_math import dtype_one_byte
+
             data = bytes([dtype_one_byte(self.dtype)]) * lanes
         self.xmem.write_address(xmem_addr, data)
         self.xmem.mark_constant_ones(xmem_addr, data)
@@ -210,8 +214,11 @@ class IpuState:
 
     def store_r_reg_to_xmem(self, xmem_row: int, r_index: int) -> None:
         """Store R register *r_index* (one row) to XMEM."""
-        data = (self.regfile.get_r_wide_debug(r_index) if self.wide_vector_debug
-                else self.regfile.get_r(r_index))
+        data = (
+            self.regfile.get_r_wide_debug(r_index)
+            if self.wide_vector_debug
+            else self.regfile.get_r(r_index)
+        )
         self.xmem.write_address(self._row_address(xmem_row), data)
 
     def load_r_cyclic_from_xmem(self, xmem_row: int, slot_element_idx: int = 0) -> None:
@@ -222,8 +229,10 @@ class IpuState:
         """
         ipu = _ipu()
         if slot_element_idx not in ipu.R_CYCLIC_VALID_INDICES:
-            raise ValueError(f"slot_element_idx must be one of {ipu.R_CYCLIC_VALID_INDICES}; "
-                             f"got {slot_element_idx}")
+            raise ValueError(
+                f"slot_element_idx must be one of {ipu.R_CYCLIC_VALID_INDICES}; "
+                f"got {slot_element_idx}"
+            )
         addr = self._row_address(xmem_row)
         data = self.xmem.read_address(addr, ipu.xmem_row_size_bytes(self))
         byte_idx = slot_element_idx * ipu.xmem_element_width_bytes(self)
@@ -239,7 +248,8 @@ class IpuState:
     def load_r_mask_from_xmem(self, xmem_row: int) -> None:
         """Load the mask register (R_REG_SIZE bytes in both modes: 1 bit per lane)."""
         self.regfile.set_r_mask(
-            self.xmem.read_address(self._row_address(xmem_row), _ipu().R_REG_SIZE))
+            self.xmem.read_address(self._row_address(xmem_row), _ipu().R_REG_SIZE)
+        )
 
     # -- state queries ------------------------------------------------------
 

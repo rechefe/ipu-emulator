@@ -116,8 +116,9 @@ def attn_v_bcast_query(*, d: int, n_tok: int | None = None) -> AttnVBcastQuery:
     return AttnVBcastQuery(d=int(d), n_tok=None if n_tok is None else int(n_tok))
 
 
-def attention_spec(app_class, *, op: str, n_tok: int, d: int, explain: str,
-                   bundle, heads: int | None = None):
+def attention_spec(
+    app_class, *, op: str, n_tok: int, d: int, explain: str, bundle, heads: int | None = None
+):
     """KernelSpec for a fixed ``(n_tok, d)`` attention kernel of operation ``op``.
 
     ``supports`` is the single source of truth for the kernel's exact-match
@@ -162,7 +163,8 @@ def attention_spec(app_class, *, op: str, n_tok: int, d: int, explain: str,
         requires=("d",) if bcast else ("n_tok", "d"),
         tags=("fp32-wide", CHAIN_OF[op]),
         supports=supports,
-        build=(lambda **params: {"head": params.get("head", 0)}) if heads is not None
+        build=(lambda **params: {"head": params.get("head", 0)})
+        if heads is not None
         else (lambda **params: {}),
         explain=lambda **params: explain,
         bundle=bundle,

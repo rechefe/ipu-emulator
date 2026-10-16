@@ -22,8 +22,8 @@ import pytest
 from ipu_emu.ipu_math import (
     DType,
     _float32_to_fp8_scalar,
-    fp32_to_fp8_bytes,
     fp8_bytes_to_fp32,
+    fp32_to_fp8_bytes,
 )
 
 FORMATS = [DType.E1, DType.E2, DType.E3, DType.E4, DType.E5, DType.E6, DType.E7]
@@ -33,6 +33,7 @@ FORMATS = [DType.E1, DType.E2, DType.E3, DType.E4, DType.E5, DType.E6, DType.E7]
 # Independent reference
 # ---------------------------------------------------------------------------
 
+
 def _fields(e: int) -> tuple[int, int]:
     """Return (mantissa bits, bias) of format e(e)."""
     return 7 - e, 2 ** (e - 1) - 1
@@ -40,7 +41,7 @@ def _fields(e: int) -> tuple[int, int]:
 
 def ref_is_nan(code: int, e: int) -> bool:
     m, _ = _fields(e)
-    return ((code >> m) & (2 ** e - 1)) == 2 ** e - 1
+    return ((code >> m) & (2**e - 1)) == 2**e - 1
 
 
 def ref_decode(code: int, e: int) -> Fraction | None:
@@ -51,14 +52,14 @@ def ref_decode(code: int, e: int) -> Fraction | None:
     """
     m, bias = _fields(e)
     sign = -1 if code & 0x80 else 1
-    exp_field = (code >> m) & (2 ** e - 1)
-    man_field = code & (2 ** m - 1)
-    if exp_field == 2 ** e - 1:
+    exp_field = (code >> m) & (2**e - 1)
+    man_field = code & (2**m - 1)
+    if exp_field == 2**e - 1:
         return None
     if exp_field == 0:
-        mag = Fraction(man_field, 2 ** m) * Fraction(2) ** (1 - bias)
+        mag = Fraction(man_field, 2**m) * Fraction(2) ** (1 - bias)
     else:
-        mag = (1 + Fraction(man_field, 2 ** m)) * Fraction(2) ** (exp_field - bias)
+        mag = (1 + Fraction(man_field, 2**m)) * Fraction(2) ** (exp_field - bias)
     return sign * mag
 
 
@@ -144,6 +145,7 @@ def _check_encode(x: float, e: int) -> None:
 # Decode
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_decode_exhaustive(dtype):
     e = int(dtype)
@@ -161,6 +163,7 @@ def test_decode_exhaustive(dtype):
 # ---------------------------------------------------------------------------
 # Encode
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("dtype", FORMATS, ids=lambda d: d.name)
 def test_encode_round_trip(dtype):
@@ -196,8 +199,8 @@ def test_encode_subnormal_to_normal_gap_dense(dtype):
     """Every float32 sample in [max_subnormal, min_normal) rounds to nearest."""
     e = int(dtype)
     m, _ = _fields(e)
-    max_sub = float(ref_decode(2 ** m - 1, e))
-    min_norm = float(ref_decode(2 ** m, e))
+    max_sub = float(ref_decode(2**m - 1, e))
+    min_norm = float(ref_decode(2**m, e))
     for x in np.linspace(max_sub, min_norm, 4097, dtype=np.float32)[:-1]:
         _check_encode(float(x), e)
         _check_encode(-float(x), e)
@@ -230,12 +233,14 @@ _GAP_REGRESSION = [
 ]
 
 
-@pytest.mark.parametrize("dtype,expected", _GAP_REGRESSION, ids=lambda p: getattr(p, "name", hex(p)))
+@pytest.mark.parametrize(
+    "dtype,expected", _GAP_REGRESSION, ids=lambda p: getattr(p, "name", hex(p))
+)
 def test_subnormal_carry_regression(dtype, expected):
     e = int(dtype)
     m, _ = _fields(e)
-    max_sub = float(ref_decode(2 ** m - 1, e))
-    min_norm = float(ref_decode(2 ** m, e))
+    max_sub = float(ref_decode(2**m - 1, e))
+    min_norm = float(ref_decode(2**m, e))
     v = _f32((max_sub + min_norm) / 2 * 1.0001)
     assert _float32_to_fp8_scalar(v, e) == expected
     assert _float32_to_fp8_scalar(-v, e) == 0x80 | expected

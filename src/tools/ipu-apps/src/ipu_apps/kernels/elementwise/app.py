@@ -33,7 +33,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_apps.kernel_registry import (
-    ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
+    ExecutionConfig,
+    ShapeBundle,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
 )
 
 RESIDUAL_ADD_OP = "residual_add"
@@ -64,9 +69,7 @@ def residual_add_query(shape) -> ResidualAddQuery:
     """Normalise ``shape`` into the form every residual-add kernel routes on."""
     dims = tuple(int(d) for d in shape)
     if len(dims) != 2:
-        raise ValueError(
-            f"residual_add shape must be rank-2 (tokens, channels); got {dims}"
-        )
+        raise ValueError(f"residual_add shape must be rank-2 (tokens, channels); got {dims}")
     tokens, channels = dims
     bundle = ShapeBundle.of(input=dims).with_shapes(derived={"output": dims})
     return ResidualAddQuery(tokens=tokens, channels=channels, bundle=bundle)

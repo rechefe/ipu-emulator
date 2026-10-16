@@ -38,13 +38,19 @@ def _diagnostics_test_sources() -> list[str]:
     found: list[str] = []
 
     def literal(node: ast.AST) -> None:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value not in found:
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value not in found
+        ):
             found.append(node.value)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "check" and node.args:
             literal(node.args[0])
-        elif isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "source" for t in node.targets):
+        elif isinstance(node, ast.Assign) and any(
+            getattr(t, "id", None) == "source" for t in node.targets
+        ):
             literal(node.value)
         elif isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "parametrize":
             names, values = node.args[0], node.args[1]
@@ -54,7 +60,11 @@ def _diagnostics_test_sources() -> list[str]:
             if argnames[0] != "source":
                 continue
             for element in values.elts:
-                literal(element.elts[0] if len(argnames) > 1 and isinstance(element, ast.Tuple) else element)
+                literal(
+                    element.elts[0]
+                    if len(argnames) > 1 and isinstance(element, ast.Tuple)
+                    else element
+                )
     return found
 
 
@@ -77,9 +87,12 @@ def _check(source: str, *options: str) -> tuple[int, str]:
 def _validate(output: object, version: int) -> None:
     """Validate against version *version*'s schema; v2 refers to v1's by file name."""
     schemas = {
-        path.name: json.loads(path.read_text(encoding="utf-8")) for path in SCHEMAS.glob("check-json-v*.schema.json")
+        path.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in SCHEMAS.glob("check-json-v*.schema.json")
     }
-    registry = Registry().with_resources((name, Resource.from_contents(schema)) for name, schema in schemas.items())
+    registry = Registry().with_resources(
+        (name, Resource.from_contents(schema)) for name, schema in schemas.items()
+    )
     schema = schemas[f"check-json-v{version}.schema.json"]
     jsonschema.validators.validator_for(schema)(schema, registry=registry).validate(output)
 
@@ -98,7 +111,9 @@ def test_v1_output_is_unchanged():
     if actual != expected:
         outputs = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR")
         if outputs:
-            Path(outputs, GOLDEN.name).write_text(json.dumps(actual, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            Path(outputs, GOLDEN.name).write_text(
+                json.dumps(actual, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
     assert actual == expected
 
 
@@ -139,13 +154,17 @@ def test_explicit_version_1_is_the_default():
 
 
 def test_a_json_version_without_json_is_a_usage_error():
-    result = CliRunner().invoke(cli, ["check", "--json-version", "2", "--input", "-"], input="BKPT;;\n")
+    result = CliRunner().invoke(
+        cli, ["check", "--json-version", "2", "--input", "-"], input="BKPT;;\n"
+    )
     assert result.exit_code == 2
     assert "--json-version" in result.output
 
 
 def test_an_unknown_version_is_a_usage_error():
-    result = CliRunner().invoke(cli, ["check", "--json", "--json-version", "3", "--input", "-"], input="BKPT;;\n")
+    result = CliRunner().invoke(
+        cli, ["check", "--json", "--json-version", "3", "--input", "-"], input="BKPT;;\n"
+    )
     assert result.exit_code == 2
     assert "Usage:" in result.output and "--json-version" in result.output
 
@@ -154,6 +173,7 @@ def test_supported_versions_are_listed():
     result = CliRunner().invoke(cli, ["check", "--json-versions"])
     assert result.exit_code == 0
     assert json.loads(result.stdout) == [1, 2]
-    schemas = sorted(int(p.name.split("-v")[1].split(".")[0]) for p in SCHEMAS.glob("check-json-v*.schema.json"))
+    schemas = sorted(
+        int(p.name.split("-v")[1].split(".")[0]) for p in SCHEMAS.glob("check-json-v*.schema.json")
+    )
     assert schemas == [1, 2], "a schema for every version printed"
-

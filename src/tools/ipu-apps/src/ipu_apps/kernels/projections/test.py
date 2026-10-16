@@ -42,7 +42,8 @@ def _kernel(name):
 def test_the_family_has_all_twelve_kernels():
     assert KERNELS == sorted(
         f"proj_{role}_{d}_p4"
-        for role in ("qkv", "outproj", "ffn1", "ffn2") for d in (144, 192, 240)
+        for role in ("qkv", "outproj", "ffn1", "ffn2")
+        for d in (144, 192, 240)
     )
 
 
@@ -68,7 +69,7 @@ def test_the_wrong_activation_is_refused(name):
     assert not verdict, verdict.describe()
     assert f"fuses activation={activation!r}" in verdict.reason
     if activation == "silu":
-        assert not resolve(OP, k=layout.k, n_out=layout.n_out)   # activation defaults to "none"
+        assert not resolve(OP, k=layout.k, n_out=layout.n_out)  # activation defaults to "none"
 
 
 def test_ffn1_kernels_are_exactly_the_silu_kernels():
@@ -165,7 +166,10 @@ def test_proj_p4_weight_row_is_not_stuck_at_channel_zero(name, tmp_path) -> None
                 # pointer-freeze bug could in principle vary by token.
                 for j in range(n_out):
                     np.testing.assert_allclose(
-                        g[j], expected_per_channel[j], rtol=1e-4, atol=1e-3,
+                        g[j],
+                        expected_per_channel[j],
+                        rtol=1e-4,
+                        atol=1e-3,
                         err_msg=(
                             f"{name} stream {p} channel {j}: got {g[j, 0]:.6f}, "
                             f"expected {expected_per_channel[j]:.6f} (channel 0's expected "

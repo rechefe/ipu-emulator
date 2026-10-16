@@ -1,6 +1,5 @@
 """Tests for docs/update_release_log.py (no network access)."""
 
-import socket
 from email.message import Message
 from urllib.error import HTTPError, URLError
 
@@ -22,7 +21,7 @@ def _pr(number, title, merged_at, updated_at=None):
 _NETWORK_ERRORS = [
     URLError("Name or service not known"),
     TimeoutError("timed out"),
-    socket.timeout("read timed out"),
+    TimeoutError("read timed out"),
     HTTPError("https://api.github.com", 403, "rate limited", Message(), None),
     ConnectionResetError("reset by peer"),
 ]
@@ -95,14 +94,24 @@ def test_merge_rows_adds_new_pr_newest_first():
     merged = rl.merge_rows(_three_row_log(), [_pr(40, "Fourth", "2024-04-01T12:00:00Z")])
     rows = rl.parse_rows(merged)
     assert len(rows) == 4
-    numbers = [int(line.split("[#")[1].split("]")[0]) for line in merged.splitlines() if line.startswith("| [#")]
+    numbers = [
+        int(line.split("[#")[1].split("]")[0])
+        for line in merged.splitlines()
+        if line.startswith("| [#")
+    ]
     assert numbers == [40, 30, 20, 10]
     assert merged.startswith(rl.HEADER)
 
 
 def test_merge_rows_sorts_by_merge_time_not_insertion():
-    merged = rl.merge_rows(_three_row_log(), [_pr(15, "Late number, mid date", "2024-01-15T00:00:00Z")])
-    numbers = [int(line.split("[#")[1].split("]")[0]) for line in merged.splitlines() if line.startswith("| [#")]
+    merged = rl.merge_rows(
+        _three_row_log(), [_pr(15, "Late number, mid date", "2024-01-15T00:00:00Z")]
+    )
+    numbers = [
+        int(line.split("[#")[1].split("]")[0])
+        for line in merged.splitlines()
+        if line.startswith("| [#")
+    ]
     assert numbers == [30, 20, 15, 10]
 
 

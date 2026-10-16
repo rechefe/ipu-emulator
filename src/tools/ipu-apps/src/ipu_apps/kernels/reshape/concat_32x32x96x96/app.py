@@ -21,20 +21,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import dump_xmem_to_binary
-
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.reshape.app import concat_spec
+from ipu_emu.emulator import dump_xmem_to_binary
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
 # -- Dimensions -------------------------------------------------------------
 
-H   = 32    # spatial height
-W   = 32    # spatial width
-C_A = 96    # channels in input A (residual branch)
-C_B = 96    # channels in input B (fold-branch features)
+H = 32  # spatial height
+W = 32  # spatial width
+C_A = 96  # channels in input A (residual branch)
+C_B = 96  # channels in input B (fold-branch features)
 C_OUT = C_A + C_B
 
 # -- Memory map ---------------------------------------------------------
@@ -42,16 +41,16 @@ C_OUT = C_A + C_B
 # Wide-vector FP32 only, same convention as fold/unfold/residual_add: an
 # XMEM row is LANES * 4 = 512 bytes unconditionally, and .asm XMEM operands
 # are ROW numbers, not byte offsets. One channel = one row.
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-A_BASE_ROW   = 0
-B_BASE_ROW   = A_BASE_ROW + C_A
+A_BASE_ROW = 0
+B_BASE_ROW = A_BASE_ROW + C_A
 OUT_BASE_ROW = B_BASE_ROW + C_B
 
-A_BASE   = A_BASE_ROW * ROW_BYTES
-B_BASE   = B_BASE_ROW * ROW_BYTES
+A_BASE = A_BASE_ROW * ROW_BYTES
+B_BASE = B_BASE_ROW * ROW_BYTES
 OUT_BASE = OUT_BASE_ROW * ROW_BYTES
 
 
@@ -70,7 +69,7 @@ class Concat32x32x96x96App(IpuApp):
         self.input_a_path = Path(self.input_a_path)
         self.input_b_path = Path(self.input_b_path)
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         raw_a = Path(self.input_a_path).read_bytes()
         raw_b = Path(self.input_b_path).read_bytes()
         if len(raw_a) != C_A * ROW_BYTES:
@@ -88,21 +87,24 @@ class Concat32x32x96x96App(IpuApp):
         # the hardwired one. A_BASE_ROW is 0 here, so CR0 already holds the
         # correct value without any write; the .asm's ``ZERO`` alias for CR0
         # relies on the hardwired value, not on this setup() writing it.
-        state.regfile.set_cr(2, -1)                 # PTR_START: src ptr startup (-1 row)
-        state.regfile.set_cr(3, 1)                  # ROW_STRIDE
-        state.regfile.set_cr(4, 1)                  # DTYPE_ONE: 1.0 in wide FP32 (low byte -> float)
+        state.regfile.set_cr(2, -1)  # PTR_START: src ptr startup (-1 row)
+        state.regfile.set_cr(3, 1)  # ROW_STRIDE
+        state.regfile.set_cr(4, 1)  # DTYPE_ONE: 1.0 in wide FP32 (low byte -> float)
         state.regfile.set_cr(5, A_BASE_ROW)
         state.regfile.set_cr(6, B_BASE_ROW)
-        state.regfile.set_cr(7, OUT_BASE_ROW)                # OUT_A_BASE
-        state.regfile.set_cr(8, OUT_BASE_ROW + C_A)          # OUT_B_BASE
-        state.regfile.set_cr(9, C_A)                 # C_A_COUNT
-        state.regfile.set_cr(10, C_B)                # C_B_COUNT
+        state.regfile.set_cr(7, OUT_BASE_ROW)  # OUT_A_BASE
+        state.regfile.set_cr(8, OUT_BASE_ROW + C_A)  # OUT_B_BASE
+        state.regfile.set_cr(9, C_A)  # C_A_COUNT
+        state.regfile.set_cr(10, C_B)  # C_B_COUNT
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUT_BASE, ROW_BYTES, C_OUT,
+                state,
+                self.output_path,
+                OUT_BASE,
+                ROW_BYTES,
+                C_OUT,
             )
 
 

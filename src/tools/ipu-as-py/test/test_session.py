@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import warnings
 
-import ipu_as.template as template
 import pytest
+
+import ipu_as.template as template
 from ipu_as import session
 from ipu_as.errors import LabelError, ParseError, TemplateError
 from ipu_as.session import AssemblySession

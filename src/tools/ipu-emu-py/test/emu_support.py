@@ -15,12 +15,11 @@ import enum
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
+from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complete
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
-
-from ipu_as.lark_tree import assemble
 
 __all__ = [
     "ElementFormat",

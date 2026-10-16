@@ -14,16 +14,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ipu_emu.ipu_state import IpuState
-from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.emulator import (
-    load_binary_to_xmem,
+    DebugAction,
     dump_xmem_to_binary,
+    load_binary_to_xmem,
     load_fp32_as_fp8_to_xmem,
     run_test,
-    DebugAction,
 )
-
+from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes
+from ipu_emu.ipu_state import IpuState
 
 # ---------------------------------------------------------------------------
 # Binary I/O unit tests
@@ -51,7 +50,7 @@ class TestLoadBinaryToXmem:
     def test_max_chunks_limit(self, tmp_path: Path) -> None:
         """Respect *max_chunks* even if more data is available."""
         f = tmp_path / "data.bin"
-        f.write_bytes(b"\xAA" * 512)
+        f.write_bytes(b"\xaa" * 512)
 
         state = IpuState()
         loaded = load_binary_to_xmem(state, f, 0, 128, max_chunks=2)
@@ -60,7 +59,7 @@ class TestLoadBinaryToXmem:
     def test_partial_trailing_data_ignored(self, tmp_path: Path) -> None:
         """Trailing bytes smaller than chunk_size are ignored."""
         f = tmp_path / "data.bin"
-        f.write_bytes(b"\xBB" * (128 * 3 + 50))
+        f.write_bytes(b"\xbb" * (128 * 3 + 50))
 
         state = IpuState()
         loaded = load_binary_to_xmem(state, f, 0, 128)
@@ -83,9 +82,7 @@ class TestDumpXmemToBinary:
         state = IpuState()
         pattern = bytes(range(256)) * 2  # 512 bytes = 4 chunks of 128
         for i in range(4):
-            state.xmem.write_address(
-                0x2000 + i * 128, pattern[i * 128 : (i + 1) * 128]
-            )
+            state.xmem.write_address(0x2000 + i * 128, pattern[i * 128 : (i + 1) * 128])
 
         out = tmp_path / "dump.bin"
         written = dump_xmem_to_binary(state, out, 0x2000, 128, 4)

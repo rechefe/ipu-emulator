@@ -27,7 +27,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ipu_apps.kernel_registry import (
-    ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes,
+    ExecutionConfig,
+    ShapeBundle,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
 )
 
 OP = "layernorm"
@@ -60,9 +65,7 @@ def layernorm_query(shape) -> LayerNormQuery:
     """Normalise ``shape`` into the form every layernorm kernel routes on."""
     dims = tuple(int(d) for d in shape)
     if len(dims) != 2:
-        raise ValueError(
-            f"layernorm shape must be rank-2 (channels, tokens); got {dims}"
-        )
+        raise ValueError(f"layernorm shape must be rank-2 (channels, tokens); got {dims}")
     channels, tokens = dims
     bundle = ShapeBundle.of(input=dims).with_shapes(derived={"output": dims})
     return LayerNormQuery(channels=channels, tokens=tokens, bundle=bundle)

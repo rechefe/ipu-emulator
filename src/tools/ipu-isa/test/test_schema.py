@@ -179,9 +179,7 @@ def test_pseudo_unknown_expansion_key():
 def test_pseudo_literal_must_be_a_valid_register():
     pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
     pseudo["BZ"]["expands_to"]["args"][1] = "CR16"
-    _rejects_pseudo(
-        pseudo, r"pseudo\.BZ\.expands_to\.args\[reg2\]: literal 'CR16' is neither"
-    )
+    _rejects_pseudo(pseudo, r"pseudo\.BZ\.expands_to\.args\[reg2\]: literal 'CR16' is neither")
 
 
 def test_pseudo_literal_may_be_any_register_in_the_target_domain():

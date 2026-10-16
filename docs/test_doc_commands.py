@@ -13,9 +13,9 @@ from pathlib import Path
 
 import click
 import pytest
-from ipu_as.cli import cli
 
 from docs.doc_files import doc_files
+from ipu_as.cli import cli
 
 # `ipu-as <sub>` or `ipu-as -- <sub>` (as after `bazel run ...:ipu-as`); not
 # `ipu-as-py` or `ipu-asm`.

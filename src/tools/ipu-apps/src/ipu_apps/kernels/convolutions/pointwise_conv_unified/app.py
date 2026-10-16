@@ -95,13 +95,9 @@ class PointwiseConvUnifiedApp(IpuApp):
         self.kernel_path = Path(self.kernel_path)
 
         if in_channels % 8 != 0 or in_channels < 8:
-            raise ValueError(
-                f"in_channels ({in_channels}) must be a positive multiple of 8"
-            )
+            raise ValueError(f"in_channels ({in_channels}) must be a positive multiple of 8")
         if out_channels % 4 != 0 or out_channels < 4:
-            raise ValueError(
-                f"out_channels ({out_channels}) must be a positive multiple of 4"
-            )
+            raise ValueError(f"out_channels ({out_channels}) must be a positive multiple of 4")
         if height < 1:
             raise ValueError(f"height must be >= 1, got {height}")
         if width < 1:
@@ -151,12 +147,14 @@ class PointwiseConvUnifiedApp(IpuApp):
         input_rows = self.row_groups * in_channels
         kernel_rows = out_channels * num_passes
         output_rows = self.row_groups * out_channels
-        self._regions = allocate_regions([
-            ("input", input_rows * CHUNK_ELEMENTS),
-            ("kernel", kernel_rows * CHUNK_ELEMENTS),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", output_rows * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", input_rows * CHUNK_ELEMENTS),
+                ("kernel", kernel_rows * CHUNK_ELEMENTS),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", output_rows * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
         self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
@@ -189,13 +187,13 @@ class PointwiseConvUnifiedApp(IpuApp):
                 ics_in_pass = 128 if p < P - 1 else self.tail_size
                 dst_base = (oc * P + p) * CHUNK_ELEMENTS
                 src_base = oc * in_ch + pass_start_ic
-                packed[dst_base:dst_base + ics_in_pass] = (
-                    raw_kernel_f32[src_base:src_base + ics_in_pass]
-                )
+                packed[dst_base : dst_base + ics_in_pass] = raw_kernel_f32[
+                    src_base : src_base + ics_in_pass
+                ]
                 # elements [ics_in_pass..128) stay zero (padding)
         return packed.tobytes()
 
-    def setup(self, state: "IpuState") -> None:
+    def setup(self, state: IpuState) -> None:
         # input_path holds the TRUE (unpadded) [in_channels, height, width]
         # float32 tensor -- pad + chunk-pack to the on-device layout here,
         # internal to this method (see the class docstring's file-layout
@@ -203,7 +201,7 @@ class PointwiseConvUnifiedApp(IpuApp):
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
         padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.float32)
-        padded[:, :self.height, :self.width] = input_chw
+        padded[:, : self.height, : self.width] = input_chw
         input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_base_row * ROW_BYTES, input_data)
 
@@ -262,15 +260,14 @@ class PointwiseConvUnifiedApp(IpuApp):
         # from the INT8 quantize path.
         state.set_cr_dstructure(valid_elements=128)
 
-    def teardown(self, state: "IpuState") -> None:
+    def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
             total_rows = self.row_groups * self.out_channels
-            raw = state.xmem.read_address(
-                self.output_base_addr, total_rows * ROW_BYTES
-            )
+            raw = state.xmem.read_address(self.output_base_addr, total_rows * ROW_BYTES)
             padded_out = unpack_output_chunked(raw, self.out_channels, self.rows, self.cols)
-            out = padded_out[:, :self.height, :self.width]
+            out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
 
 # -- registry declaration ---------------------------------------------------
 # `supports` is the single source of truth for this kernel's domain:
@@ -311,8 +308,10 @@ SPEC = universal_spec(
     variant="pointwise",
     supports=_supports,
     build=lambda q: {
-        "height": q.height, "width": q.width,
-        "in_channels": q.in_channels, "out_channels": q.out_channels,
+        "height": q.height,
+        "width": q.width,
+        "in_channels": q.in_channels,
+        "out_channels": q.out_channels,
     },
     explain=lambda q: (
         f"kernel_size=1, groups=1, stride=1, padding=0: the unified pointwise "

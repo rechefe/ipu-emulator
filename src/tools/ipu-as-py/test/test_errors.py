@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import lark
 import pytest
+
 from ipu_as.errors import (
     AssemblerError,
     EncodeError,

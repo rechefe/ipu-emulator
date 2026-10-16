@@ -11,11 +11,11 @@ and the debug CLI auto-generates read/write commands from the same schema.
 
 from __future__ import annotations
 
-# Import types from ipu-isa
-from ipu_isa.types import RegDtype, RegKind, RegDescriptor
-
 # Import register schema generator from ipu-isa
 from ipu_isa.registers import create_regfile_schema
+
+# Import types from ipu-isa
+from ipu_isa.types import RegDescriptor, RegDtype, RegKind
 
 # Re-export for backward compatibility
 __all__ = ["RegDtype", "RegKind", "RegDescriptor", "REGFILE_SCHEMA"]

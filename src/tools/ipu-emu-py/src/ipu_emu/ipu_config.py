@@ -25,8 +25,8 @@ LR_CR_SCALAR_BITS = 32
 LR_CR_SCALAR_VALUE_MASK = (1 << LR_CR_SCALAR_BITS) - 1
 
 DSTRUCTURE_VALID_ELEMENTS_BITS = 8
-DSTRUCTURE_PARTITION_BITS = 5                                    # P16=16 requires 5 bits
-DSTRUCTURE_PAD_MODE_BITS = 2                                     # 3 pad modes need 2 bits
+DSTRUCTURE_PARTITION_BITS = 5  # P16=16 requires 5 bits
+DSTRUCTURE_PAD_MODE_BITS = 2  # 3 pad modes need 2 bits
 DSTRUCTURE_VALID_ELEMENTS_MASK = (1 << DSTRUCTURE_VALID_ELEMENTS_BITS) - 1
 DSTRUCTURE_PARTITION_MASK = (1 << DSTRUCTURE_PARTITION_BITS) - 1
 DSTRUCTURE_PAD_MODE_MASK = (1 << DSTRUCTURE_PAD_MODE_BITS) - 1
@@ -38,18 +38,20 @@ DEFAULT_VALID_ELEMENTS = 128
 
 class Partition(IntEnum):
     """Valid CR15.partition values. Controls how the 128 elements are grouped for mask shifts."""
-    P0  = 0   # no partitioning — all 128 lanes in one group
-    P2  = 2   # 2 groups of 64 lanes
-    P4  = 4   # 4 groups of 32 lanes
-    P8  = 8   # 8 groups of 16 lanes
+
+    P0 = 0  # no partitioning — all 128 lanes in one group
+    P2 = 2  # 2 groups of 64 lanes
+    P4 = 4  # 4 groups of 32 lanes
+    P8 = 8  # 8 groups of 16 lanes
     P16 = 16  # 16 groups of 8 lanes
 
 
 class PadMode(IntEnum):
     """Fill value written into mask-deactivated MULT_RES elements (see `_mult_mask_and_shift`)."""
-    ZERO     = 0   # lane is zeroed (default, matches historical behavior)
-    POS_INF  = 1   # lane is set to +infinity in the active float dtype
-    NEG_INF  = 2   # lane is set to -infinity in the active float dtype
+
+    ZERO = 0  # lane is zeroed (default, matches historical behavior)
+    POS_INF = 1  # lane is set to +infinity in the active float dtype
+    NEG_INF = 2  # lane is set to -infinity in the active float dtype
 
 
 DEFAULT_PARTITION = Partition.P0
@@ -88,8 +90,8 @@ def encode_dstructure(
     pad_mode: PadMode | int = DEFAULT_PAD_MODE,
 ) -> int:
     """Pack dstructure fields into a CR register value."""
-    partition = Partition(partition)   # validates and converts; raises ValueError if invalid
-    pad_mode = PadMode(pad_mode)       # validates and converts; raises ValueError if invalid
+    partition = Partition(partition)  # validates and converts; raises ValueError if invalid
+    pad_mode = PadMode(pad_mode)  # validates and converts; raises ValueError if invalid
     valid = int(valid_elements) & DSTRUCTURE_VALID_ELEMENTS_MASK
     part = int(partition) & DSTRUCTURE_PARTITION_MASK
     pad = int(pad_mode) & DSTRUCTURE_PAD_MODE_MASK
@@ -104,4 +106,3 @@ def decode_dstructure(value: int) -> DStructureConfig:
         partition=Partition((word >> DSTRUCTURE_PARTITION_SHIFT) & DSTRUCTURE_PARTITION_MASK),
         pad_mode=PadMode((word >> DSTRUCTURE_PAD_MODE_SHIFT) & DSTRUCTURE_PAD_MODE_MASK),
     )
-

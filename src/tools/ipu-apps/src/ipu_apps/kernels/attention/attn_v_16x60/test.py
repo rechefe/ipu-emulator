@@ -4,6 +4,7 @@ AGG.SUM.FIRST reduces across lanes, so the trailing 112 padding lanes of every
 P and V row must be excluded by valid_elements, not by relying on the
 harness's zero-fill.
 """
+
 import numpy as np
 
 from ipu_apps.kernel_registry.testing import case_tests
@@ -22,7 +23,8 @@ def test_padding_is_inert(tmp_path):
         for raw in padded_runs("attn_v_16x60", tmp_path, (0.0, 1e3))
     )
     np.testing.assert_array_equal(
-        garbage_padded, zero_padded,
+        garbage_padded,
+        zero_padded,
         err_msg=(
             "attn_v_16x60 output changed when padding lanes were filled with "
             "garbage -- AGG reduction is not structurally isolated from "

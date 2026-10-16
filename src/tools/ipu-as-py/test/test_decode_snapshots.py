@@ -6,9 +6,9 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
+import decode_snapshots
 import pytest
 
-import decode_snapshots
 from ipu_as import reg
 
 # Bazel runs the test from the runfiles root of the main repository.
@@ -28,9 +28,7 @@ def test_snapshot_matches(name):
                 f"{name} (current code)",
             )
         )
-        pytest.fail(
-            f"{name} changed. If intended, run {decode_snapshots.UPDATE_COMMAND}\n{diff}"
-        )
+        pytest.fail(f"{name} changed. If intended, run {decode_snapshots.UPDATE_COMMAND}\n{diff}")
 
 
 def test_word_is_186_bits():

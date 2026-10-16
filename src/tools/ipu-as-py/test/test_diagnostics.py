@@ -123,8 +123,8 @@ def test_legal_constructs_are_not_flagged(source):
 @pytest.mark.parametrize(
     "source",
     [
-        '{{ 1 + "a" }}\nBKPT;;\n',   # TypeError
-        "{{ 1 / 0 }}\nBKPT;;\n",     # ZeroDivisionError
+        '{{ 1 + "a" }}\nBKPT;;\n',  # TypeError
+        "{{ 1 / 0 }}\nBKPT;;\n",  # ZeroDivisionError
         "{{ (1).missing() }}\nBKPT;;\n",  # AttributeError via UndefinedError
     ],
 )
@@ -154,10 +154,7 @@ def test_empty_program_is_reported_not_crashed(source):
 def test_encode_column_is_not_a_rendered_offset():
     # The line was remapped to the source but the column was left pointing into
     # the rendered text, while still claiming to be exact.
-    source = (
-        '{%- set pad = "                         " -%}\n'
-        "    ADD lr0 lr0 1.5;;\n"
-    )
+    source = '{%- set pad = "                         " -%}\n    ADD lr0 lr0 1.5;;\n'
     (found,) = check(source)
     line = source.splitlines()[found.line]
     assert line.lstrip().startswith("ADD")
