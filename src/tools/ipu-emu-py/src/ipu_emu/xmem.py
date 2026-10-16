@@ -27,6 +27,14 @@ def words_needed_for_bytes(n: int) -> int:
     return align_addr(n) // XMEM_WIDTH_BYTES
 
 
+def _contiguous_range(idx: slice) -> tuple[int, int]:
+    """Resolve a step-1 slice to ``(start, stop)``; strided slices raise."""
+    if idx.step not in (None, 1):
+        raise TypeError(f"XMEM slices must be contiguous (step 1), got step {idx.step}")
+    start, stop, _ = idx.indices(XMEM_SIZE_BYTES)
+    return start, max(start, stop)
+
+
 class XMem:
     """512 MiB flat byte-addressable external memory.
 
@@ -63,7 +71,7 @@ class XMem:
             )
         result = bytearray(self._data[address : address + size])
         if self._profile_observer is not None:
-            self._profile_observer("read", address, result)
+            self._profile_observer("read", address, size, result)
         return result
 
     def write_address(self, address: int, data: bytes | bytearray) -> None:
@@ -77,7 +85,7 @@ class XMem:
         self._invalidate_constants(address, address + size)
         self._data[address : address + size] = data
         if self._profile_observer is not None:
-            self._profile_observer("write", address, data)
+            self._profile_observer("write", address, size, data)
 
     # -- bulk helpers (mirror C API) ----------------------------------------
 
@@ -111,19 +119,34 @@ class XMem:
     def clear(self) -> None:
         """Zero the entire memory."""
         self._constant_ones.clear()
+        self._data[:] = bytes(XMEM_SIZE_BYTES)
         if self._profile_observer is not None:
-            self._profile_observer("write", 0, self._data)
-        self._data[:] = b"\x00" * XMEM_SIZE_BYTES
+            self._profile_observer("clear", 0, XMEM_SIZE_BYTES, None)
 
     def __getitem__(self, idx: int | slice) -> int | bytearray:
         return self._data[idx]
 
     def __setitem__(self, idx: int | slice, val: int | bytes | bytearray) -> None:
-        # Indexing supports arbitrary strides; conservatively drop declarations.
-        self._constant_ones.clear()
-        if self._profile_observer is not None:
-            self._profile_observer("write", 0, self._data)
-        self._data[idx] = val
+        """Write one byte (int index) or a contiguous range (slice, step 1).
+
+        A slice must be replaced by exactly as many bytes as it covers: XMEM
+        has a fixed size and never shifts. Strided slices raise ``TypeError``.
+        """
+        if isinstance(idx, slice):
+            start, stop = _contiguous_range(idx)
+            data = bytes(val)
+            if len(data) != stop - start:
+                raise ValueError(
+                    f"XMEM slice assignment must keep the size: slice covers "
+                    f"{stop - start} bytes, value has {len(data)}"
+                )
+            self.write_address(start, data)
+        elif isinstance(idx, int):
+            if idx < 0:
+                idx += XMEM_SIZE_BYTES
+            self.write_address(idx, bytes((val,)))
+        else:
+            raise TypeError(f"XMEM indices must be int or slice, not {type(idx).__name__}")
 
     def __len__(self) -> int:
         return XMEM_SIZE_BYTES

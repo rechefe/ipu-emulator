@@ -121,3 +121,24 @@ class TestXMem:
         out = xmem.read_address(0, 3)
         out[0] = 99  # mutate the copy
         assert xmem.read_address(0, 1)[0] == 1  # original unchanged
+
+
+# ---------------------------------------------------------------------------
+# Ranged writes through indexing
+# ---------------------------------------------------------------------------
+
+class TestXMemIndexing:
+    def test_contiguous_slice_write(self):
+        xmem = XMem()
+        xmem[256:260] = b"abcd"
+        assert xmem.read_address(256, 4) == b"abcd"
+
+    def test_strided_setitem_raises(self):
+        xmem = XMem()
+        with pytest.raises(TypeError):
+            xmem[0:8:2] = b"abcd"
+
+    def test_slice_write_cannot_resize(self):
+        xmem = XMem()
+        with pytest.raises(ValueError):
+            xmem[0:4] = b"ab"
