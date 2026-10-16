@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
-from ipu_harness.manifest import load_manifest
+from ipu_apps.kernels.projections.app import ProjectionLayout
+from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
 from ipu_harness.placement import Placement, default_rows, place
 from ipu_isa.formats import ElementFormat as F
@@ -40,7 +43,7 @@ s = 2.0
 """
 
 
-def manifest(tmp_path: Path, toml: str, name: str = "scale"):
+def manifest(tmp_path: Path, toml: str, name: str = "scale") -> KernelManifest:
     directory = tmp_path / name
     directory.mkdir()
     (directory / f"{name}.asm").write_text("HALT ;;\n")
@@ -67,9 +70,32 @@ def test_a_pinned_region_keeps_its_row_and_the_rest_fill_around_it(tmp_path):
 
 
 def test_placement_is_deterministic(tmp_path):
-    m = manifest(tmp_path, SCALE.format(x_pin="row = 7\n", y_extra=""))
-    plan = plan_case(m, {"rows": 5, "s": 2.0}, F.INT8)
-    assert bases(place(plan)) == bases(place(plan))
+    toml = SCALE.format(x_pin="row = 7\n", y_extra="")
+    first = plan_case(manifest(tmp_path, toml, "a"), {"rows": 5, "s": 2.0}, F.INT8)
+    second = plan_case(manifest(tmp_path, toml, "b"), {"rows": 5, "s": 2.0}, F.INT8)
+    assert bases(place(first)) == bases(place(second)) == {"x": (7, 5), "y": (0, 5)}
+
+
+def test_a_free_region_fills_the_gap_between_two_pins(tmp_path):
+    toml = SCALE.format(
+        x_pin="row = 6\n", y_extra="row = 0\n[scratch.t]\nshape = [3, 128]\n"
+    ).replace('s    = "CR5"', 's    = "CR5"\nt    = "CR6"')
+    # y at 0..1 and x at 6..7 leave rows 2..5: the 3-row scratch fits there, not after x.
+    assert bases(place(plan_case(manifest(tmp_path, toml), {"rows": 2, "s": 2.0}, F.FP32))) == {
+        "x": (6, 2),
+        "y": (0, 2),
+        "t": (2, 3),
+    }
+
+
+def test_scratch_is_placed_after_inputs_and_outputs(tmp_path):
+    toml = SCALE.format(x_pin="", y_extra="[scratch.t]\nshape = [3, 128]\nfill = 0.0\n").replace(
+        's    = "CR5"', 's    = "CR5"\nt    = "CR6"'
+    )
+    m = manifest(tmp_path, toml)
+    placement = place(plan_case(m, {"rows": 4, "s": 2.0}, F.FP32))
+    assert bases(placement) == {"x": (0, 4), "y": (4, 4), "t": (8, 3)}
+    assert placement.region("t").role == "scratch"
 
 
 def test_overlapping_pins_name_both_regions(tmp_path):
@@ -80,19 +106,37 @@ def test_overlapping_pins_name_both_regions(tmp_path):
     assert "y (rows 3..6) overlaps x (rows 0..3)" in str(error.value)
 
 
-def test_a_pin_or_regions_past_capacity_are_errors(tmp_path):
-    capacity = addressable_rows(F.FP32)
-    m = manifest(tmp_path, SCALE.format(x_pin=f"row = {capacity - 2}\n", y_extra=""))
+CAPACITY = addressable_rows(F.FP32)
+
+
+def test_a_pin_past_capacity_is_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin=f"row = {CAPACITY - 2}\n", y_extra=""))
     with pytest.raises(
-        PlanError, match=f"x pinned at row {capacity - 2} needs 4 rows, past the {capacity} rows"
-    ):
-        place(plan_case(m, {"rows": 4, "s": 2.0}, F.FP32))
-    m2 = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""), "big")
-    with pytest.raises(
-        PlanError, match=f"y needs rows {capacity}..{2 * capacity - 1}, past the {capacity} rows"
+        PlanError, match=f"x pinned at row {CAPACITY - 2} needs 4 rows, past the {CAPACITY} rows"
     ) as error:
-        place(plan_case(m2, {"rows": capacity, "s": 2.0}, F.FP32))
+        place(plan_case(m, {"rows": 4, "s": 2.0}, F.FP32))
+    assert error.value.key == "inputs.x.row"
+
+
+def test_regions_that_do_not_fit_are_an_error(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    with pytest.raises(
+        PlanError, match=f"y needs rows {CAPACITY}..{2 * CAPACITY - 1}, past the {CAPACITY} rows"
+    ) as error:
+        place(plan_case(m, {"rows": CAPACITY, "s": 2.0}, F.FP32))
     assert error.value.key == "outputs.y.row"
+
+
+def test_a_pin_at_the_end_of_xmem_pushes_a_free_region_past_capacity(tmp_path):
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=f"row = {CAPACITY - 4}\n"))
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    assert bases(place(plan, {"x": CAPACITY - 4})) == {
+        "x": (0, CAPACITY - 4),
+        "y": (CAPACITY - 4, 4),
+    }
+    with pytest.raises(PlanError, match=f"x needs rows {CAPACITY}..") as error:
+        place(plan, {"x": CAPACITY - 3})
+    assert error.value.key == "inputs.x.row"
 
 
 def test_rows_are_the_same_in_every_format_while_capacity_differs(tmp_path):
@@ -116,8 +160,20 @@ def test_row_counts_from_packing_win_and_must_name_tensors(tmp_path):
     plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
     assert bases(place(plan, {"x": 9})) == {"x": (0, 9), "y": (9, 4)}
     assert default_rows(plan, m.tensors["x"]) == 4
-    with pytest.raises(PlanError, match="row count for 'z', which is no tensor"):
+    with pytest.raises(ValueError, match="row count for 'z', which is no tensor"):
         place(plan, {"z": 1})
+    with pytest.raises(ValueError, match="row count 0 for 'x'"):
+        place(plan, {"x": 0})
+
+
+def test_place_takes_the_plan_as_checked(tmp_path):
+    """The one seam is plan_case (E06-03): place re-checks no parameter, so a plan
+    whose values plan_case would refuse still places. (test_params.py's source
+    scan keeps the checks out of this module.)"""
+    m = manifest(tmp_path, SCALE.format(x_pin="", y_extra=""))
+    plan = plan_case(m, {"rows": 4, "s": 2.0}, F.FP32)
+    unchecked = dataclasses.replace(plan, params=MappingProxyType({"rows": -1, "s": "?"}))
+    assert bases(place(unchecked)) == bases(place(plan))
 
 
 PROJECTIONS = [
@@ -156,13 +212,20 @@ out     = "CR4"
 
 @pytest.mark.parametrize("name", PROJECTIONS)
 def test_projection_layouts_come_out_of_declaration_order(tmp_path, name):
-    """Guards E07-02: with no pins, placement reproduces ProjectionLayout's bases."""
+    """Guards E07-02: with no pins, placement reproduces ProjectionLayout's bases.
+
+    The shapes are today's XMEM layout with default_rows, not the logical shapes:
+    E06-05/E07-02 re-run this with the packing's row counts, and the ipu_apps
+    dependency goes when E07 deletes ProjectionLayout.
+    """
     app = importlib.import_module(f"ipu_apps.kernels.projections.{name}.app")
-    layout = next(
+    layouts = [
         v.layout
         for v in vars(app).values()
-        if isinstance(v, type) and v.__module__ == app.__name__ and hasattr(v, "layout")
-    )
+        if isinstance(getattr(v, "layout", None), ProjectionLayout)
+    ]
+    assert len(layouts) == 1, f"{name}: expected one app class with a ProjectionLayout"
+    (layout,) = layouts
     toml = PROJECTION_TOML.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg)
     placement = place(plan_case(manifest(tmp_path, toml, name), {}, F.FP32))
     assert placement.region("data").base_row == layout.data_base_row

@@ -95,6 +95,7 @@ Error handling:
 
 ## Tests
 
+- [ ] Before the program runs, every scratch region's rows hold its `fill` (0 by default): placement (E06-04) only reserves them.
 - [ ] `run_kernel` on `scale` returns `passed` for every case and format, with `cycles > 0` and `0 < mac_utilization <= 1`.
 - [ ] `--input x=...` overrides the generator, and `--output` writes `y.npy` even when the comparison fails.
 - [ ] `--trace` writes a file that validates against the E04 trace schema.

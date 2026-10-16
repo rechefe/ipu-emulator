@@ -5,7 +5,8 @@ base row: pinned regions (``row = N``) first, then the rest in declaration
 order (inputs, outputs, scratch), each at the lowest free row it fits. The same
 plan always gives the same bases, so a migrated kernel reproduces its old
 layout (E07 proves it against the E02 digests). Bases reach the program only
-through ``[abi]`` (E06-06); no kernel computes one.
+through ``[abi]`` (E06-06); no kernel computes one. Placement only reserves
+rows: the runner writes a scratch region's ``fill`` (E06-11).
 
 Rows, not bytes (Q50): an element tensor needs the same rows in every format,
 because a row is 128 elements wide whatever their size; only the capacity in
@@ -21,9 +22,8 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
 
-from ipu_harness.manifest import SECTION_OF, TensorDecl
+from ipu_harness.manifest import Role, TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, addressable_rows
 from ipu_isa.geometry import LANES
@@ -41,7 +41,7 @@ class Region:
     """
 
     name: str
-    role: Literal["input", "output", "scratch"]
+    role: Role
     base_row: int
     rows: int
 
@@ -66,15 +66,26 @@ class Placement:
     capacity: int
 
     def region(self, name: str) -> Region:
-        """The region of tensor ``name``."""
+        """The region of tensor ``name``.
+
+        Raises:
+            KeyError: ``name`` is no tensor of the case.
+        """
         return self.regions[name]
 
 
 def default_rows(plan: CasePlan, tensor: TensorDecl) -> int:
-    """Rows a tensor occupies when packing (E06-05) does not say: one row per
-    128 elements of its last dimension, for each index of the others; an
-    accumulator-stored output takes ``accumulator_bytes / element_bytes`` rows
-    per 128-element vector."""
+    """The rows a tensor occupies when packing (E06-05) does not say.
+
+    Args:
+        plan: The checked case.
+        tensor: One of its tensors.
+
+    Returns:
+        One row per 128 elements of the last dimension, for each index of the
+        others; times ``accumulator_bytes x 128 / row_bytes`` for an output
+        stored from the accumulator.
+    """
     shape = plan.shapes[tensor.name]
     vectors = math.prod(shape[:-1]) * -(-shape[-1] // LANES)
     if tensor.store == "accumulator":
@@ -83,8 +94,23 @@ def default_rows(plan: CasePlan, tensor: TensorDecl) -> int:
     return vectors
 
 
-def _key(region: Region) -> str:
-    return f"{SECTION_OF[region.role]}.{region.name}.row"
+def _key(tensor: TensorDecl) -> str:
+    return f"{tensor.section}.{tensor.name}.row"
+
+
+def _check_fits(plan: CasePlan, tensor: TensorDecl, region: Region, capacity: int) -> None:
+    if region.end_row <= capacity:
+        return
+    where = (
+        f"pinned at row {region.base_row} needs {region.rows} rows"
+        if tensor.row is not None
+        else f"needs rows {region.base_row}..{region.end_row - 1}"
+    )
+    raise PlanError(
+        plan.manifest,
+        _key(tensor),
+        f"{region.name} {where}, past the {capacity} rows of XMEM in {plan.format.value}",
+    )
 
 
 def _pinned(plan: CasePlan, rows: Mapping[str, int], capacity: int) -> list[Region]:
@@ -93,18 +119,12 @@ def _pinned(plan: CasePlan, rows: Mapping[str, int], capacity: int) -> list[Regi
         if tensor.row is None:
             continue
         region = Region(tensor.name, tensor.role, tensor.row, rows[tensor.name])
-        if region.end_row > capacity:
-            raise PlanError(
-                plan.manifest,
-                _key(region),
-                f"{region.name} pinned at row {region.base_row} needs {region.rows} rows, "
-                f"past the {capacity} rows of XMEM in {plan.format.value}",
-            )
+        _check_fits(plan, tensor, region, capacity)
         for other in pins:
             if region.base_row < other.end_row and other.base_row < region.end_row:
                 raise PlanError(
                     plan.manifest,
-                    _key(region),
+                    _key(tensor),
                     f"{region.name} (rows {region.base_row}..{region.end_row - 1}) overlaps "
                     f"{other.name} (rows {other.base_row}..{other.end_row - 1})",
                 )
@@ -122,48 +142,47 @@ def _first_fit(taken: list[Region], rows: int) -> int:
     return base
 
 
+def _row_counts(plan: CasePlan, row_counts: Mapping[str, int] | None) -> dict[str, int]:
+    counts = dict(row_counts or {})
+    for name, count in counts.items():
+        if name not in plan.manifest.tensors:
+            raise ValueError(f"row count for {name!r}, which is no tensor")
+        if count < 1:
+            raise ValueError(f"row count {count} for {name!r}; a region takes at least 1 row")
+    return {
+        name: counts.get(name, default_rows(plan, tensor))
+        for name, tensor in plan.manifest.tensors.items()
+    }
+
+
 def place(plan: CasePlan, row_counts: Mapping[str, int] | None = None) -> Placement:
-    """Place every tensor of ``plan``.
+    """Place every tensor of ``plan``. Takes the plan as checked; checks no parameter.
 
     Args:
         plan: The checked case.
-        row_counts: Rows per tensor, from packing (E06-05); a tensor left out
-            takes :func:`default_rows`.
+        row_counts: Rows each tensor occupies as stored, from packing (E06-05),
+            an accumulator output's stride included; a tensor left out takes
+            :func:`default_rows`.
 
     Returns:
         The placement, deterministic for the plan.
 
     Raises:
         PlanError: Pins overlap or run past capacity, or the regions do not fit.
+        ValueError: ``row_counts`` names no tensor, or gives one fewer than 1 row.
     """
-    counts = dict(row_counts or {})
-    unknown = sorted(set(counts) - set(plan.manifest.tensors))
-    if unknown:
-        raise PlanError(
-            plan.manifest, unknown[0], f"row count for {unknown[0]!r}, which is no tensor"
-        )
-    rows = {
-        name: counts.get(name, default_rows(plan, t)) for name, t in plan.manifest.tensors.items()
-    }
+    rows = _row_counts(plan, row_counts)
     capacity = addressable_rows(plan.format)
     taken = _pinned(plan, rows, capacity)
     for tensor in plan.manifest.tensors.values():
         if tensor.row is None:
-            region = Region(
-                tensor.name, tensor.role, _first_fit(taken, rows[tensor.name]), rows[tensor.name]
-            )
-            if region.end_row > capacity:
-                raise PlanError(
-                    plan.manifest,
-                    _key(region),
-                    f"{region.name} needs rows {region.base_row}..{region.end_row - 1}, "
-                    f"past the {capacity} rows of XMEM in {plan.format.value}",
-                )
+            need = rows[tensor.name]
+            region = Region(tensor.name, tensor.role, _first_fit(taken, need), need)
+            _check_fits(plan, tensor, region, capacity)
             taken.append(region)
     by_name = {r.name: r for r in taken}
-    ordered = {name: by_name[name] for name in plan.manifest.tensors}
     return Placement(
-        regions=MappingProxyType(ordered),
+        regions=MappingProxyType({name: by_name[name] for name in plan.manifest.tensors}),
         rows_used=max((r.end_row for r in taken), default=0),
         capacity=capacity,
     )
