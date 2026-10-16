@@ -258,7 +258,13 @@ Per cycle CTRL resolves the *next-cycle* value of `inst $`:
 
 is_branch = inst$.cond.op is one of {BEQ, BNE, BLT.S, BGE.S, BR}
 
-if is_branch:
+if inst$.cond.op == HALT:
+    // The last word of the kernel (IPU-EXEC-10): fetch stops. PC and inst $
+    // hold and no further word issues. This word's other slots go down the
+    // chain as usual; kernel_done rises when the word retires at the end of
+    // the chain (IPU-EXEC-11), not here.
+    fetch_stopped <= 1
+elif is_branch:
     // Issue BOTH speculative reads in parallel this cycle
     imem_read_a = PC + 1                        // fall-through candidate
     branch_target = (inst$.cond.op == BR) ? reg_target_from_cond_slot : label_from_cond_slot
@@ -269,11 +275,6 @@ else:
     // Single sequential read; PC update is just +1
     imem_read_a = PC + 1
     inst $ <= imem_a                          // committed at end of cycle N
-
-if inst$.cond.op == HALT:
-    // The word's other slots retire as usual; then the kernel is done
-    // (IPU-ARCH-5, IPU-DBG-8). No further word issues from this kernel.
-    kernel_done <= 1
 ```
 
 The instruction at the new PC is **always ready in `inst $` at the start of cycle N+1**, so the controller logic never sees a stall or bubble caused by a branch.
@@ -606,7 +607,7 @@ branch_taken = taken
 - **Summary:** End the kernel after every slot of this word has retired.
 - **Syntax:** `HALT`
 - **Operands:** none.
-- **Operation:** unconditional. The word's other slots (LR, MULT, ACC, AAQ, STORE, LOAD) retire as usual; then the kernel is done and no further word of it issues (IPU-ARCH-5, IPU-DBG-8). `HALT` uses the COND opcode the instruction reference assigns it (`3'd5`, `COND_INST_OPCODE_HALT`).
+- **Operation:** unconditional. CTRL fetches no word after it (§6.4). Every other slot of the word goes down the chain and retires as usual; the kernel is done when the word retires (IPU-ARCH-5, IPU-EXEC-10, IPU-EXEC-11, IPU-DBG-8). `HALT` uses the COND opcode the instruction reference assigns it (`3'd5`, `COND_INST_OPCODE_HALT`).
 - **Not for debugging:** to stop for inspection, use `BREAK` (emulator-only BREAK slot).
 - **Example:** `HALT;;`.
 

@@ -1210,12 +1210,12 @@ INSTRUCTION_SPEC = {
                 title="Halt",
                 summary="End the kernel after every slot of this word has retired.",
                 operands=[],
-                operation="pc stops; kernel done",
+                operation="no further fetch; kernel done when this word retires",
                 example="HALT;;",
                 notes=(
                     "Unconditional. The other slots of the same word retire first; then the "
-                    "kernel is done (IPU-ARCH-5, IPU-DBG-8). To stop for debugging, use "
-                    "**`BREAK`** (emulator-only) instead."
+                    "kernel is done. To stop for debugging, use **`BREAK`** (emulator-only) "
+                    "instead. Not the host's `HALT` command, which stops a running kernel."
                 ),
             ),
             "execute_fn": "execute_halt",

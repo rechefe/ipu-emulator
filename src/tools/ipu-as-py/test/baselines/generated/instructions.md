@@ -1104,10 +1104,10 @@ Branch to address in register.
 **General description:**
 End the kernel after every slot of this word has retired.
 
-> Unconditional. The other slots of the same word retire first; then the kernel is done (IPU-ARCH-5, IPU-DBG-8). To stop for debugging, use **`BREAK`** (emulator-only) instead.
+> Unconditional. The other slots of the same word retire first; then the kernel is done. To stop for debugging, use **`BREAK`** (emulator-only) instead. Not the host's `HALT` command, which stops a running kernel.
 
 **Pseudo code:**
-`pc stops; kernel done`
+`no further fetch; kernel done when this word retires`
 
 **Example of usage:**
 ```asm

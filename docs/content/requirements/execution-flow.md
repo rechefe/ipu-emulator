@@ -36,7 +36,7 @@ stateDiagram-v2
 | `IDLE` | No kernel runs. The pipeline is empty. Both contexts are unlocked. |
 | `RUNNING_UNARMED` | A kernel runs. No kernel is armed. |
 | `RUNNING_ARMED` | A kernel runs. The kernel in the inactive context starts when the running kernel is done. |
-| `HALTED` | The kernel stands at a word boundary. The pipeline is empty. The armed flag keeps its value. The `HALT` instruction does not enter this state: it ends the kernel (IPU-DBG-8; to confirm, [OQ-31](open-questions.md)). |
+| `HALTED` | The kernel stands at a word boundary. The pipeline is empty. The armed flag keeps its value. The `HALT` instruction does not enter this state: it ends the kernel (IPU-EXEC-11; to confirm, [OQ-31](open-questions.md)). The `HALT` command does. |
 
 `ARM` and `DISARM` in `HALTED` change the armed flag only. The diagram omits them.
 
@@ -73,8 +73,8 @@ A command written in a state that does not accept it has no effect and returns a
 
 | ID | Requirement |
 |---|---|
-| IPU-EXEC-10 | The word that holds `END` shall be the last word of the kernel. Its other slots execute. CTRL fetches no word after it. |
-| IPU-EXEC-11 | A kernel is done when its `END` word retires. |
+| IPU-EXEC-10 | The word that holds the `HALT` instruction shall be the last word of the kernel. Its other slots execute. CTRL fetches no word after it. |
+| IPU-EXEC-11 | A kernel is done when its `HALT` word retires. |
 | IPU-EXEC-12 | When a kernel is done and the armed flag is clear, the IPU shall go to `IDLE`. `active_ctx` keeps its value. |
 | IPU-EXEC-13 | When a kernel is done and the armed flag is set, the IPU shall start the armed kernel in the same clock cycle. It flips `active_ctx`, sets PC = 0 and clears the armed flag. |
 | IPU-EXEC-14 | The first word of the next kernel shall enter the pipeline only after the previous kernel is done. |
@@ -93,7 +93,7 @@ A command written in a state that does not accept it has no effect and returns a
 | IPU-EXEC-23 | `RESUME` shall return to `RUNNING_ARMED` when the armed flag is set and to `RUNNING_UNARMED` when it is clear. |
 | IPU-EXEC-24 | On `ABORT`, the cache agent shall stop accepting words. Accepted words retire. The IPU then enters `IDLE`. |
 | IPU-EXEC-25 | On entering `IDLE` after `ABORT`, the IPU shall clear the armed flag and pulse `kernel_abort`. `active_ctx` keeps its value. |
-| IPU-EXEC-26 | When the cache agent has accepted the `END` word before a halt takes effect, the kernel shall be done first. |
+| IPU-EXEC-26 | When the cache agent has accepted the `HALT` word before a halt takes effect, the kernel shall be done first. |
 | IPU-EXEC-27 | After IPU-EXEC-26 with the armed flag clear, the IPU shall go to `IDLE` and drop the halt. With the armed flag set, it shall enter `HALTED` at PC 0 of the next kernel. |
 | IPU-EXEC-28 | The IPU shall evaluate a command against the run state that follows any kernel done of the same cycle. |
 | IPU-EXEC-29 | A write that sets more than one command bit shall have no effect and shall return an AXI error. |
@@ -126,8 +126,8 @@ sequenceDiagram
     C-->>A: bank_pub
     Note over A: Release stall
     Note over I,A: Kernel N executes<br/>one word per cycle on hits
-    Note over I: END word fetched<br/>fetch stops, pipeline drains
-    Note over I: END word retires
+    Note over I: HALT word fetched<br/>fetch stops, pipeline drains
+    Note over I: HALT word retires
     I->>C: kernel_done
     Note over I: IDLE
     I-->>H: irq KERNEL_DONE
@@ -155,7 +155,7 @@ sequenceDiagram
     I->>C: ctx_locked[1] = 1
     Note over I,C: Context 1 is locked: IMEM bank 1, CR bank 1<br/>and table set 1 reject host writes
     Note over I,A: Kernel N keeps executing<br/>and hits only on banks tagged ctx 0
-    Note over I: END word of kernel N retires
+    Note over I: HALT word of kernel N retires
     I->>C: active_ctx = 1, kernel_done, kernel_start
     Note over I,C: Same cycle: IMEM, CR and table set switch to context 1<br/>PC = 0, RUNNING_UNARMED, kernel N+1
     I-->>H: irq KERNEL_DONE (N) and KERNEL_START (N+1)
@@ -193,6 +193,6 @@ The handoff is coherent because:
 |---|---|
 | SW-1 | Before `ARM`, the host writes the kernel to the IMEM bank and the CR bank of the inactive context. |
 | SW-2 | Before `ARM`, the host writes and commits the table set of the inactive context. |
-| SW-3 | Every path through a kernel reaches an `END` word. |
+| SW-3 | Every path through a kernel reaches a `HALT` word. |
 | SW-4 | A kernel does not read LR or vector register values left by an earlier kernel. |
 | SW-5 | The two table sets do not claim the same XMEM bank at the same time. See [OQ-11](open-questions.md). |

@@ -22,6 +22,9 @@ The upper-case name of an instruction. Control-stage instructions use plain name
 **Pseudo-instruction**:
 A mnemonic the assembler expands into real instructions (`B`, `BZ`, `BNZ`, `BGT.S`, `BLE.S`). It has no opcode.
 
+**`HALT` instruction**:
+The COND instruction that ends a kernel: the kernel is done when the word that holds it retires. Not the host's `HALT` command, which stops a running kernel in the `HALTED` state.
+
 **Hardware word**:
 The part of the instruction word that real hardware decodes: every slot tagged hardware.
 _Avoid_: RTL word
