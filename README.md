@@ -71,6 +71,12 @@ stacks below. A failed nightly run opens a "Nightly failure" issue (label
 `nightly`), which the next green run closes. Start it by hand from the
 Actions tab (workflow_dispatch).
 
+After the tests, the nightly `benchmarks` job records import time, assemble
+time, emulator cycles/s, peak memory and CI wall times on the
+`benchmark-data` branch, as a history with no gate. Run them locally with
+`bazel run //tools/bench:bench -- --quick`; see
+[tools/bench/README.md](tools/bench/README.md).
+
 `manual` targets (for example the `test_full_*` MobileViT stacks) are in
 neither tier. Run them by name with `--config=full`, for example
 `bazel test --config=full //src/tools/ipu-apps:test_full_layer_l4`. The same

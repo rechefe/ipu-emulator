@@ -9,11 +9,13 @@ name: Nightly
 # - `stacks`: the `manual` MobileViT whole-model stacks (`test_full_*`), which
 #   take hours each and are never part of `//...` (IMPLEMENTATION-DECISIONS.md:
 #   they run in the nightly heavy tier instead of a weekly schedule).
+# - `benchmarks`: after `full` (so test load does not disturb the timings),
+#   host-side benchmarks and CI wall times (E01-14, tools/bench/README.md),
+#   uploaded as an artifact and appended to the `benchmark-data` branch. No
+#   gate: an alert above 120 % only shows in the job summary.
 # - `report`: on a scheduled run (or a dispatch with `report_issue`), opens or
 #   updates the "Nightly failure" issue when a job failed, and closes it when
 #   every job passed.
-#
-# Benchmarks (E01-14) are added to this workflow as their own job.
 
 on:
   schedule:
@@ -180,6 +182,104 @@ jobs:
             bazel-testlogs/**/test.xml
           retention-days: 14
           if-no-files-found: ignore
+
+  benchmarks:
+    needs: full
+    # Also after a failed `full`: the benchmarks do not depend on its result.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # append to the benchmark-data branch
+      actions: read # job timings of this run and of ci.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: ./tools/bootstrap.sh
+
+      - name: Restore repository cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock', 'requirements_lock.txt') }}
+
+      - name: Run the benchmarks
+        run: |
+          bazel run -c opt --repository_cache=~/.cache/bazel-repo //tools/bench:bench -- \
+            --out "$RUNNER_TEMP/bench"
+
+      # ci/full_suite_wall_s (this run's `full` job) and ci/default_tier_wall_s
+      # (the latest successful ci.yml run on master). Skips what is missing.
+      - name: Record CI wall times
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          bazel run -c opt --repository_cache=~/.cache/bazel-repo //tools/bench:ci_times -- \
+            --out "$RUNNER_TEMP/bench" --run-id "${{ github.run_id }}"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: benchmarks
+          path: ${{ runner.temp }}/bench/bench-*.json
+          retention-days: 90
+          if-no-files-found: error
+
+      # github-action-benchmark appends to an existing branch; create it once.
+      - name: Create the benchmark-data branch if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --heads origin benchmark-data >/dev/null; then
+            exit 0
+          fi
+          dir=$(mktemp -d)
+          git -C "$dir" init -q -b benchmark-data
+          printf '%s\n' "# Benchmark history" "" \
+            "Written by the nightly workflow (tools/bench/README.md). Chart: dev/bench/index.html." \
+            > "$dir/README.md"
+          git -C "$dir" add README.md
+          git -C "$dir" -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Start the benchmark history"
+          git -C "$dir" push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            benchmark-data
+
+      - name: Store times and memory (smaller is better)
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: Times and memory (smaller is better)
+          tool: customSmallerIsBetter
+          output-file-path: ${{ runner.temp }}/bench/bench-smaller.json
+          gh-pages-branch: benchmark-data
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ github.token }}
+          auto-push: true
+          alert-threshold: "120%"
+          comment-on-alert: false
+          fail-on-alert: false
+          summary-always: true
+
+      - name: Store rates (bigger is better)
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: Rates (bigger is better)
+          tool: customBiggerIsBetter
+          output-file-path: ${{ runner.temp }}/bench/bench-bigger.json
+          gh-pages-branch: benchmark-data
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ github.token }}
+          auto-push: true
+          alert-threshold: "120%"
+          comment-on-alert: false
+          fail-on-alert: false
+          summary-always: true
 
   report:
     needs: [full, stacks]

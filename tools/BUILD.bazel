@@ -94,6 +94,7 @@ test_suite(
         "//src/tools/ipu-gen:ruff",
         "//src/tools/ipu-isa:ruff",
         "//tools:ruff_lint",
+        "//tools/bench:ruff",
         "//vscode-ipu-asm:ruff",
     ],
 )

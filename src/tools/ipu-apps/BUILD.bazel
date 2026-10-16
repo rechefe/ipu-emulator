@@ -72,6 +72,13 @@ ipu_benchmarks_from_kernels(
     deps = [":ipu_apps_lib"],
 )
 
+# Every kernel .asm, for //tools/bench (assemble/all_kernels and the kernel
+# speed cases).
+filegroup(
+    name = "kernel_sources",
+    srcs = glob(["src/ipu_apps/kernels/**/*.asm"]),
+)
+
 # `bazel run :query -- softmax shape=32,300 dim=1`: which kernel handles a
 # computation, for any operation. With no arguments, the coverage report.
 py_binary(
