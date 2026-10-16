@@ -1,6 +1,6 @@
 # `diagnostics.check` runs on the session and reads error locations
 
-Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-07 · Size M · Depends on: E05-05, E05-08 (contract snapshot) · Behaviour change: none
+Part of [Epic: Assembler as a deep module](00-epic.md) · ID E05-07 · Size M · Depends on: E05-05, E05-08 (contract snapshot) · Behaviour change: two `check --json` columns move to the offending token (see the E05-07 commits)
 
 ## Goal
 

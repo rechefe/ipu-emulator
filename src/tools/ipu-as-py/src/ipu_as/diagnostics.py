@@ -124,7 +124,7 @@ def _location_offset(error: EncodeError, rendered: str) -> int | None:
     # A synthetic token (an instruction the assembler made up) has line 0: no position.
     if location is None or location.line < 1 or location.column < 1:
         return None
-    return linecol_to_offset(rendered, error.location.line - 1, error.location.column - 1)
+    return linecol_to_offset(rendered, location.line - 1, location.column - 1)
 
 
 def _humanize(terminal_names) -> str:
