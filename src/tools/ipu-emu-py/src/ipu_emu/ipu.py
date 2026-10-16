@@ -52,7 +52,7 @@ from ipu_isa.constants import (
 )
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
 from ipu_isa.registers import (
     REGISTER_DEFINITIONS,
     get_mult_stage_map,
@@ -227,9 +227,8 @@ _TYPE_FIELD_SUFFIX = {
 
 # Field prefix of each single-instance slot type (wire format, from the slot
 # registry). LR's sub-slots are "lr_inst_0", "lr_inst_1", ...
-_SLOT_FIELD_PREFIX = {
-    slot.value: info.field_prefix for slot, info in SLOTS.items() if info.count == 1
-}
+# Keyed by Slot (a str Enum, so a plain slot-name string finds it too).
+_SLOT_FIELD_PREFIX = {slot: info.field_prefix for slot, info in SLOTS.items() if info.count == 1}
 
 
 def _build_field_map_for_instruction_union(
@@ -313,14 +312,14 @@ _INSTRUCTION_READ_TYPES = _build_read_operand_types()
 # comparison. All of that is a function of (slot_type, opcode) alone.
 # ---------------------------------------------------------------------------
 
-# How a "read" operand resolves to a register value. The three common cases are
-# handled inline in the dispatcher; anything else falls back to
-# ``Ipu._resolve_operand``.
+# How a "read" operand resolves to a register value. LR, CR and LCR reads are
+# handled inline in the dispatcher (and a wide-mode mult-stage read in
+# prototyping mode); anything else falls back to ``Ipu._resolve_operand``.
 _READ_LR = 0
 _READ_CR = 1
 _READ_LCR = 2
-_READ_OTHER = 3
-_READ_MULT_STAGE = 4
+_READ_MULT_STAGE = 3
+_READ_OTHER = 4
 
 # Register bank of each register name the assembler accepts ("lr3" -> "lr").
 _BANK_OF_NAME = {
@@ -486,8 +485,15 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
     if slot is Slot.LR:
         for op in instruction.operands:
             if op.name in ("dest", "reg") and op.read is None:
-                # An LRD pair names no single register bank.
-                write_operand, write_is_lrd = op.name, None in _banks(op.type)
+                # An LR write target is an LR or an LRD pair; a pair's names
+                # (lrd0, lrd2, ...) belong to no single register bank.
+                banks = _banks(op.type)
+                if op.type.kind is not OperandKind.REGISTER or banks not in (
+                    frozenset({"lr"}),
+                    frozenset({None}),
+                ):
+                    raise RuntimeError(f"{slot}/{inst_name}.{op.name}: not an LR or LRD target")
+                write_operand, write_is_lrd = op.name, banks == frozenset({None})
                 break
     try:
         fn = getattr(Ipu, instruction.execute_fn)

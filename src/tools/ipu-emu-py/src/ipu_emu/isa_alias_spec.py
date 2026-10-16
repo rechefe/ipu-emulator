@@ -101,7 +101,7 @@ _ACC_REDUCE = ("AGG.SUM", "AGG.SUM.FIRST", "AGG.MAX", "AGG.MAX.FIRST", "ACC.MAX"
 # Every mult form that takes a scalar multiplicand, and the operand carrying it.
 # The emulator reads this too, to know which operand to probe for a constant
 # 1.0 — keep it the only place that mapping is written down. The operand's
-# *type* is not restated here; it is read from INSTRUCTION_SPEC.
+# *type* is not restated here; it is read from the ISA view (``isa()``).
 SCALAR_MULT_OPERANDS: dict[str, str] = {
     "MULT.RC.VE": "src",
     "MULT.VE": "cr_idx",
