@@ -57,3 +57,13 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_syntax",
+    srcs = ["test/test_syntax.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)

@@ -140,6 +140,12 @@ def test_doc_operand_names_must_match():
     _rejects(spec, r"lr\.ADD\.doc\.operands: names \['dst', .*\] do not match")
 
 
+def test_example_has_no_comma():
+    spec = _spec()
+    spec["lr"]["ADD"]["doc"].example = "ADD LR0, LR1, LR2;;"
+    _rejects(spec, r"lr\.ADD\.doc\.example: separate operands with spaces")
+
+
 def test_mnemonics_unique_after_upper_case():
     spec = _spec()
     spec["lr"]["Nop"] = spec["lr"]["NOP"]

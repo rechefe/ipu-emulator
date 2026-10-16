@@ -40,7 +40,6 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="My New Operation",
                 summary="Performs a custom operation on two source registers.",
-                syntax="MY_NEW_INSTRUCTION dest src_a src_b",
                 operands=[
                     "dest: Destination mult-stage register (R0 or R1)",
                     "src_a: First source mult-stage register",
@@ -64,7 +63,7 @@ The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_s
 - An instruction has exactly the keys `operands`, `doc` and `execute_fn`, and an operand has `name`, `type` and optionally `read`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
 - Operand names are unique within the instruction and match `[a-z][a-z0-9_]*`.
 - `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
-- Each `doc.operands` line starts with its operand's name, in operand order.
+- Each `doc.operands` line starts with its operand's name, in operand order, and `doc.example` has no comma.
 - Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
 - A pseudo-instruction has exactly `operands`, `expands_to` and `doc`, and its `expands_to` has exactly `slot`, `instruction` and `args`. Each argument is one of the pseudo's own operand names or a register valid for the target operand's type (`CR0` for an `LcrIdx`).
 
@@ -91,10 +90,12 @@ A failure raises `SpecError` with the path of the entry, for example `mult.MY_NE
 - **`doc`**: `InstructionDoc` with:
   - `title` — Short human-readable name
   - `summary` — What the instruction does
-  - `syntax` — Assembly syntax example
-  - `operands` — Description of each operand (type and meaning)
+  - `operands` — Description of each operand (type and meaning), each line starting with the operand's name
   - `operation` — Pseudo-code showing the operation
-  - `example` — Code example
+  - `example` — Code example that assembles: operands separated by spaces, no commas
+
+  There is no syntax line to write: the generated docs and editor hover derive
+  it from the mnemonic and the operand names (`MY_NEW_INSTRUCTION dest src_a src_b`).
 
 - **`execute_fn`**: Name of the Python method in the `Ipu` class that executes this instruction (e.g., `"execute_my_new_instruction"`)
 
@@ -283,7 +284,6 @@ PSEUDO_INSTRUCTION_SPEC: dict[str, dict] = {
         "doc": InstructionDoc(
             title="Branch if Greater Than (pseudo)",
             summary="Branch if first register is greater than second.",
-            syntax="BGT reg1 reg2 label",
             operands=[
                 "reg1: First register to compare (LR0–LR15 or CR0–CR15)",
                 "reg2: Second register to compare (LR0–LR15 or CR0–CR15)",

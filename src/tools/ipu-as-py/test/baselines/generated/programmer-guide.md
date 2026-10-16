@@ -4,7 +4,7 @@ Pseudo-instructions are assembly mnemonics that the assembler expands into a rea
 
 ### `BGT` — Branch if Greater Than (pseudo)
 
-**Syntax:** `BGT reg1, reg2, label`
+**Syntax:** `BGT reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -24,7 +24,7 @@ Branch if first register is greater than second.
 
 **Example of usage:**
 ```asm
-BGT LR0, LR1, bigger;;
+BGT LR0 LR1 bigger;;
 ```
 
 **Expands to:** `BLT` (cond slot), arguments `reg2, reg1, label`
@@ -33,7 +33,7 @@ BGT LR0, LR1, bigger;;
 
 ### `BLE` — Branch if Less or Equal (pseudo)
 
-**Syntax:** `BLE reg1, reg2, label`
+**Syntax:** `BLE reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -53,7 +53,7 @@ Branch if first register is less than or equal to second.
 
 **Example of usage:**
 ```asm
-BLE LR0, LR1, smaller_or_equal;;
+BLE LR0 LR1 smaller_or_equal;;
 ```
 
 **Expands to:** `BGE` (cond slot), arguments `reg2, reg1, label`
@@ -62,7 +62,7 @@ BLE LR0, LR1, smaller_or_equal;;
 
 ### `BZ` — Branch if Zero (pseudo)
 
-**Syntax:** `BZ reg, label`
+**Syntax:** `BZ reg label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -81,7 +81,7 @@ Branch if register is zero. Assumes CR0 always holds zero.
 
 **Example of usage:**
 ```asm
-BZ LR0, done;;
+BZ LR0 done;;
 ```
 
 **Expands to:** `BEQ` (cond slot), arguments `reg, CR0, label`
@@ -90,7 +90,7 @@ BZ LR0, done;;
 
 ### `BNZ` — Branch if Not Zero (pseudo)
 
-**Syntax:** `BNZ reg, label`
+**Syntax:** `BNZ reg label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -109,7 +109,7 @@ Branch if register is not zero. Assumes CR0 always holds zero.
 
 **Example of usage:**
 ```asm
-BNZ LR0, loop;;
+BNZ LR0 loop;;
 ```
 
 **Expands to:** `BNE` (cond slot), arguments `reg, CR0, label`

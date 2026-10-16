@@ -973,7 +973,7 @@ Control flow instructions for branching based on conditions or unconditionally.
 
 ### `BEQ` — Branch if Equal
 
-**Syntax:** `BEQ reg1, reg2, label`
+**Syntax:** `BEQ reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -991,12 +991,12 @@ Branch if two registers are equal.
 
 **Example of usage:**
 ```asm
-BEQ LR0, LR1, end;;
+BEQ LR0 LR1 end;;
 ```
 
 ### `BNE` — Branch if Not Equal
 
-**Syntax:** `BNE reg1, reg2, label`
+**Syntax:** `BNE reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1014,12 +1014,12 @@ Branch if two registers are not equal.
 
 **Example of usage:**
 ```asm
-BNE LR0, CR0, loop;;
+BNE LR0 CR0 loop;;
 ```
 
 ### `BLT` — Branch if Less Than
 
-**Syntax:** `BLT reg1, reg2, label`
+**Syntax:** `BLT reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1037,12 +1037,12 @@ Branch if first register is less than second.
 
 **Example of usage:**
 ```asm
-BLT LR0, CR1, smaller;;
+BLT LR0 CR1 smaller;;
 ```
 
 ### `BGE` — Branch if Greater or Equal
 
-**Syntax:** `BGE reg1, reg2, label`
+**Syntax:** `BGE reg1 reg2 label`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1060,7 +1060,7 @@ Branch if first register is greater than or equal to second.
 
 **Example of usage:**
 ```asm
-BGE LR0, CR1, ge;;
+BGE LR0 CR1 ge;;
 ```
 
 ### `BR` — Branch Register
@@ -1098,7 +1098,7 @@ Loop register manipulation instructions for controlling loop counters and addres
 
 ### `SET` — Set Loop Register
 
-**Syntax:** `SET reg, src`
+**Syntax:** `SET reg src`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1115,12 +1115,12 @@ Copy a 32-bit value from a configuration register into a loop register.
 
 **Example of usage:**
 ```asm
-SET LR0, CR1;;
+SET LR0 CR1;;
 ```
 
 ### `ADD` — Add
 
-**Syntax:** `ADD dest, src_a, src_b`
+**Syntax:** `ADD dest src_a src_b`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1138,13 +1138,13 @@ Add two register sources and store the result in the destination LR.
 
 **Example of usage:**
 ```asm
-ADD LR0, LR1, LR2;;
-ADD LR3, LR1, CR5;;
+ADD LR0 LR1 LR2;;
+ADD LR3 LR1 CR5;;
 ```
 
 ### `SUB` — Subtract
 
-**Syntax:** `SUB dest, src_a, src_b`
+**Syntax:** `SUB dest src_a src_b`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1162,13 +1162,13 @@ Subtract the second source from the first and store the result in the destinatio
 
 **Example of usage:**
 ```asm
-SUB LR0, LR1, LR2;;
-SUB LR3, LR1, CR5;;
+SUB LR0 LR1 LR2;;
+SUB LR3 LR1 CR5;;
 ```
 
 ### `INCR_MOD_POW2` — Increment Loop Register Modulo Power of Two
 
-**Syntax:** `INCR_MOD_POW2 dst, step, k`
+**Syntax:** `INCR_MOD_POW2 dest step k`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1186,12 +1186,12 @@ Add a loop or configuration register into the destination loop register, then ma
 
 **Example of usage:**
 ```asm
-INCR_MOD_POW2 LR2, LR3, 4;;
+INCR_MOD_POW2 LR2 LR3 4;;
 ```
 
 ### `INC` — Increment
 
-**Syntax:** `INC dest, imm`
+**Syntax:** `INC dest imm`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1208,12 +1208,12 @@ Add an unsigned immediate to the destination LR (read-modify-write).
 
 **Example of usage:**
 ```asm
-INC LR0, 7;;
+INC LR0 7;;
 ```
 
 ### `DEC` — Decrement
 
-**Syntax:** `DEC dest, imm`
+**Syntax:** `DEC dest imm`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1230,12 +1230,12 @@ Subtract an unsigned immediate from the destination LR (read-modify-write).
 
 **Example of usage:**
 ```asm
-DEC LR0, 3;;
+DEC LR0 3;;
 ```
 
 ### `ADDB` — Add Byte (Broadcast, Register)
 
-**Syntax:** `ADDB dest, src_b`
+**Syntax:** `ADDB dest src_b`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1255,13 +1255,13 @@ for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)`
 
 **Example of usage:**
 ```asm
-ADDB LRD0, LR3;;
-ADDB LRD2, CR5;;
+ADDB LRD0 LR3;;
+ADDB LRD2 CR5;;
 ```
 
 ### `ADDBI` — Add Byte Immediate (Broadcast)
 
-**Syntax:** `ADDBI dest, imm`
+**Syntax:** `ADDBI dest imm`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1281,8 +1281,8 @@ for i in 0..7: dest_byte[i] = clamp(dest_byte[i] + byte_val, 0, 255)`
 
 **Example of usage:**
 ```asm
-ADDBI LRD0, 200;;
-ADDBI LRD2, 7;;
+ADDBI LRD0 200;;
+ADDBI LRD2 7;;
 ```
 
 ---
@@ -1293,7 +1293,7 @@ First-stage memory loads that feed the multiply unit (mult-stage registers, cycl
 
 ### `LDR_MULT_REG` — Load Register
 
-**Syntax:** `LDR_MULT_REG dest, offset, base`
+**Syntax:** `LDR_MULT_REG dest offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1311,20 +1311,20 @@ Load data from memory into a multiplication stage register.
 
 **Example of usage:**
 ```asm
-SET LR0, CR1;;
-LDR_MULT_REG R0, LR0, CR0;;
+SET LR0 CR1;;
+LDR_MULT_REG R0 LR0 CR0;;
 ```
 
 ### `LDR_CYCLIC_MULT_REG` — Load Cyclic Register
 
-**Syntax:** `LDR_CYCLIC_MULT_REG offset, base, index`
+**Syntax:** `LDR_CYCLIC_MULT_REG offset base index`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](operand-types.md#lridx) | offset: Offset register (LR0–LR15), in XMEM rows. |
-| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR14), in XMEM rows. |
+| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR15), in XMEM rows. |
 | `index` | [`LrIdx`](operand-types.md#lridx) | index: Index inside cyclic register (LR0–LR15); must hold 0, 128, 256, or 384 — the four R_CYCLIC slot boundaries, counted in **elements**. Any other value raises an error. All four are valid in **both** modes: R_CYCLIC is a 512-element ring in narrow and wide-vector debug mode alike, and a load always replaces one whole 128-element slot. |
 
 **General description:**
@@ -1336,14 +1336,14 @@ Load with cyclic addressing into R_CYCLIC.
 
 ### `LDR_MULT_MASK_REG` — Load Mask Register
 
-**Syntax:** `LDR_MULT_MASK_REG offset, base, mask_idx`
+**Syntax:** `LDR_MULT_MASK_REG offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](operand-types.md#lridx) | offset: Offset register (LR0–LR15), in XMEM rows. |
-| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR14), in XMEM rows. |
+| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR15), in XMEM rows. |
 
 **General description:**
 Load mask data from memory.
@@ -1360,7 +1360,7 @@ The multiplication result (`mult_result`) is forwarded to the ACC stage in the C
 
 ### `MULT.RC.VV` — RC Vector × Ra Vector Multiply
 
-**Syntax:** `MULT.RC.VV rc_idx, ra, mask_offset, mask_shift, cr_idx`
+**Syntax:** `MULT.RC.VV rc_idx ra mask_offset mask_shift cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1382,12 +1382,12 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by Ra (R0 or R1) element-wise. The partitio
 
 **Example of usage:**
 ```asm
-MULT.RC.VV LR0, R0, 0, LR2, CR15;;
+MULT.RC.VV LR0 R0 0 LR2 CR15;;
 ```
 
 ### `MULT.RC.VE` — RC Vector × Scalar Multiply
 
-**Syntax:** `MULT.RC.VE rc_idx, src, mask_offset, mask_shift, cr_idx`
+**Syntax:** `MULT.RC.VE rc_idx src mask_offset mask_shift cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1409,12 +1409,12 @@ Multiply R_CYCLIC[rc_idx:rc_idx+128] by a scalar, element-wise. The scalar is ei
 
 **Example of usage:**
 ```asm
-MULT.RC.VE LR0, LR3, 0, LR2, CR15;;
+MULT.RC.VE LR0 LR3 0 LR2 CR15;;
 ```
 
 ### `MULT.RC.VS` — RC Vector Self-Multiply (Square)
 
-**Syntax:** `MULT.RC.VS rc_idx, mask_offset, mask_shift, cr_idx`
+**Syntax:** `MULT.RC.VS rc_idx mask_offset mask_shift cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1435,12 +1435,12 @@ Square R_CYCLIC[rc_idx:rc_idx+128] element-wise. The partition used by mask_shif
 
 **Example of usage:**
 ```asm
-MULT.RC.VS LR0, 0, LR2, CR15;;
+MULT.RC.VS LR0 0 LR2 CR15;;
 ```
 
 ### `MULT.VE` — Ra Vector × CR Scalar Multiply
 
-**Syntax:** `MULT.VE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx`
+**Syntax:** `MULT.VE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1462,12 +1462,12 @@ Multiply Ra[ra_idx:ra_idx+128] (combined R0/R1) by a CR scalar, element-wise. Th
 
 **Example of usage:**
 ```asm
-MULT.VE LR0, CR3, 0, LR2, CR15;;
+MULT.VE LR0 CR3 0 LR2 CR15;;
 ```
 
 ### `MULT.EE` — Ra Element × CR Scalar Multiply (broadcast)
 
-**Syntax:** `MULT.EE ra_idx, cr_idx, mask_offset, mask_shift, dstructure_cr_idx`
+**Syntax:** `MULT.EE ra_idx cr_idx mask_offset mask_shift dstructure_cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1489,7 +1489,7 @@ Multiply a single Ra element by a CR scalar; broadcast the product to all 128 el
 
 **Example of usage:**
 ```asm
-MULT.EE LR0, CR3, 0, LR2, CR15;;
+MULT.EE LR0 CR3 0 LR2 CR15;;
 ```
 
 ---
@@ -1590,7 +1590,7 @@ ACC.SUB.FIRST;;
 
 ### `ACC.STRIDE` — Accumulator Stride
 
-**Syntax:** `ACC.STRIDE elements_in_row, horizontal_stride, vertical_stride, offset`
+**Syntax:** `ACC.STRIDE elements_in_row horizontal_stride vertical_stride offset`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1609,12 +1609,12 @@ Reorder the multiplication result into R_ACC using horizontal/vertical stride de
 
 **Example of usage:**
 ```asm
-ACC.STRIDE 16, off, off, LR0;;
+ACC.STRIDE 16 off off LR0;;
 ```
 
 ### `AGG.SUM.FIRST` — Aggregate Sum (First)
 
-**Syntax:** `AGG.SUM.FIRST dest_slot, cr_idx`
+**Syntax:** `AGG.SUM.FIRST dest_slot cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1624,19 +1624,19 @@ ACC.STRIDE 16, off, off, LR0;;
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly) |
 
 **General description:**
-Sum active MULT_RES elements and write the result into R_ACC at the slot given by LR. The current value at the destination slot is NOT included in the sum (clean initialisation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
+Sum active MULT_RES elements and write the result into R_ACC at the slot given by LR. The current value at the destination slot is NOT included in the sum (clean initialisation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
 
 **Pseudo code:**
 `Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = sum(MULT_RES[0..n-1]).`
 
 **Example of usage:**
 ```asm
-AGG.SUM.FIRST LR0, CR3;;
+AGG.SUM.FIRST LR0 CR3;;
 ```
 
 ### `AGG.SUM` — Aggregate Sum
 
-**Syntax:** `AGG.SUM dest_slot, cr_idx`
+**Syntax:** `AGG.SUM dest_slot cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1646,19 +1646,19 @@ AGG.SUM.FIRST LR0, CR3;;
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly) |
 
 **General description:**
-Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR (running cross-cycle accumulation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
+Sum active MULT_RES elements and ADD the result to R_ACC at the slot given by LR (running cross-cycle accumulation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
 
 **Pseudo code:**
 `Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = sum(MULT_RES[0..n-1]) + R_ACC[dest].`
 
 **Example of usage:**
 ```asm
-AGG.SUM LR0, CR3;;
+AGG.SUM LR0 CR3;;
 ```
 
 ### `AGG.MAX.FIRST` — Aggregate Max (First)
 
-**Syntax:** `AGG.MAX.FIRST dest_slot, cr_idx`
+**Syntax:** `AGG.MAX.FIRST dest_slot cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1668,19 +1668,19 @@ AGG.SUM LR0, CR3;;
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly) |
 
 **General description:**
-Find the maximum of active MULT_RES elements and write it into R_ACC at the slot given by LR. The current value at the destination slot is NOT used as a seed (clean initialisation). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
+Find the maximum of active MULT_RES elements and write it into R_ACC at the slot given by LR. The current value at the destination slot is NOT used as a seed (clean initialisation). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
 
 **Pseudo code:**
 `Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = max(MULT_RES[0..n-1]); when n = 0 the identity seed (INT32_MIN for integer elements, -inf for float elements) is written.`
 
 **Example of usage:**
 ```asm
-AGG.MAX.FIRST LR0, CR3;;
+AGG.MAX.FIRST LR0 CR3;;
 ```
 
 ### `AGG.MAX` — Aggregate Max
 
-**Syntax:** `AGG.MAX dest_slot, cr_idx`
+**Syntax:** `AGG.MAX dest_slot cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1690,19 +1690,19 @@ AGG.MAX.FIRST LR0, CR3;;
 | `cr_idx` | [`DstructureCrIdx`](operand-types.md#dstructurecridx) | cr_idx: CR0…CR15 supplying valid_elements (must be given explicitly) |
 
 **General description:**
-Find the maximum of active MULT_RES elements seeded with the current destination slot value (running cross-cycle max). The active element count and partition come from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
+Find the maximum of active MULT_RES elements seeded with the current destination slot value (running cross-cycle max). Only the active element count (``valid_elements``) is read from ``cr_idx``'s dstructure configuration (any CR0-CR15; must be named explicitly).
 
 **Pseudo code:**
 `Let n = min(CR[cr_idx].valid_elements, 128). dest = LR[dest_slot] % 128. R_ACC[dest] = max(MULT_RES[0..n-1], R_ACC[dest]).`
 
 **Example of usage:**
 ```asm
-AGG.MAX LR0, CR3;;
+AGG.MAX LR0 CR3;;
 ```
 
 ### `ACC.RESHAPE` — Reshape
 
-**Syntax:** `ACC.RESHAPE source, dest, reshape_mask`
+**Syntax:** `ACC.RESHAPE source dest reshape_mask`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1727,7 +1727,7 @@ for i in mask..7:
 
 **Example of usage:**
 ```asm
-ACC.RESHAPE LRD0, LRD2, 0;;
+ACC.RESHAPE LRD0 LRD2 0;;
 ```
 
 ---
@@ -1738,7 +1738,7 @@ Activation and quantization: apply activation to R_ACC elements and write quanti
 
 ### `ACTIVATE.QUANTIZE` — Activate and Quantize
 
-**Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`
+**Syntax:** `ACTIVATE.QUANTIZE activation_fn cr_idx`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1755,7 +1755,7 @@ Read active elements from ``r_acc`` (snapshot), apply the selected element-wise 
 
 **Example of usage:**
 ```asm
-ACTIVATE.QUANTIZE relu, CR15;;
+ACTIVATE.QUANTIZE relu CR15;;
 ```
 
 ---
@@ -1766,14 +1766,14 @@ Last-stage memory stores that drain **POST_AAQ_REG** to external memory after ac
 
 ### `STR_POST_AAQ_REG` — Store Post-AAQ register
 
-**Syntax:** `STR_POST_AAQ_REG offset, base`
+**Syntax:** `STR_POST_AAQ_REG offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](operand-types.md#lridx) | offset: Offset register (LR0–LR15), in XMEM rows. |
-| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR14), in XMEM rows. |
+| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR15), in XMEM rows. |
 
 **General description:**
 Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the buffer is **512 bytes** (128×32-bit elements) until quantization export is finalized.
@@ -1783,7 +1783,7 @@ Write **512 bytes** of **`POST_AAQ_REG`** to external memory. **Interim:** the b
 
 **Example of usage:**
 ```asm
-STR_POST_AAQ_REG LR0, CR0;;
+STR_POST_AAQ_REG LR0 CR0;;
 ```
 
 ---
@@ -1796,14 +1796,14 @@ Simulation-only slot for storing **R_ACC** to external memory (`STR_ACC_REG`). N
 
 ### `STR_ACC_REG` — Store Accumulator
 
-**Syntax:** `STR_ACC_REG offset, base`
+**Syntax:** `STR_ACC_REG offset base`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
 |------|------|---------|
 | `offset` | [`LrIdx`](operand-types.md#lridx) | offset: Offset register (LR0–LR15), in XMEM rows. |
-| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR14), in XMEM rows. |
+| `base` | [`CrIdx`](operand-types.md#cridx) | base: Base address register (CR0–CR15), in XMEM rows. |
 
 **General description:**
 Store **R_ACC** to external memory. **Simulation-only** — not implemented in real IPU hardware.
@@ -1815,7 +1815,7 @@ Store **R_ACC** to external memory. **Simulation-only** — not implemented in r
 
 **Example of usage:**
 ```asm
-STR_ACC_REG LR0, CR1;;
+STR_ACC_REG LR0 CR1;;
 ```
 
 ---
@@ -1837,7 +1837,7 @@ Unconditional break.
 
 ### `BREAK.IFEQ` — Break if Equal
 
-**Syntax:** `BREAK.IFEQ reg, value`
+**Syntax:** `BREAK.IFEQ reg value`
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -1854,7 +1854,7 @@ Break execution if register equals value.
 
 **Example of usage:**
 ```asm
-BREAK.IFEQ LR0, 10;;
+BREAK.IFEQ LR0 10;;
 ```
 
 ---

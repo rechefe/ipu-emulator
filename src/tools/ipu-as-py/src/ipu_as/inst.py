@@ -11,6 +11,7 @@ from ipu_isa.instruction_spec import (
     InstructionDoc,
     SLOT_UNIONS,
     is_hardware_slot,
+    syntax,
 )
 
 
@@ -314,7 +315,8 @@ class Inst:
         spec_operands: list[dict],
     ) -> list[str]:
         lines = [f"### `{opcode}` — {doc.title}", ""]
-        lines.append(f"**Syntax:** `{doc.syntax}`")
+        names = [operand["name"] for operand in spec_operands]
+        lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
         lines.append("")
 
         if spec_operands:
