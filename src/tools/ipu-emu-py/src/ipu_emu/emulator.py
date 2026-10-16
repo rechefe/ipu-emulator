@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from ipu_emu.cycle import CycleOutcome
-from ipu_emu.errors import ConfigurationError
+from ipu_emu.errors import ConfigurationError, EmulatorFault
 from ipu_emu.execute import (
     Ipu,
     load_binary_instructions,
@@ -50,19 +50,24 @@ DEFAULT_MAX_CYCLES = 1_000_000
 
 
 def _begin_run(state: IpuState) -> None:
-    """Start a run: stats describe this run only, and no quit is pending."""
+    """Start a run: stats describe this run only, and no quit or halt is pending."""
     state.stats.reset()
     state.quit_requested = False
+    state.halt = None
 
 
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
-    """Load decoded instruction dicts into the state's instruction memory."""
+    """Load decoded instruction dicts into the state's instruction memory.
+
+    Sets ``state.program_length``: fetching past the last word is fault F-2.
+    """
     if len(instructions) > INST_MEM_SIZE:
         raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions (max {INST_MEM_SIZE})"
         )
     for i, inst in enumerate(instructions):
         state.inst_mem[i] = inst
+    state.program_length = len(instructions)
 
 
 def load_program_from_binary(state: IpuState, path: str | Path) -> None:
@@ -72,13 +77,19 @@ def load_program_from_binary(state: IpuState, path: str | Path) -> None:
     load_program(state, instructions)
 
 
-def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) -> int:
+def run_until_complete(
+    state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES, *, raise_on_fault: bool = True
+) -> int:
     """Run the program ignoring breakpoints until it halts.
 
     Returns the number of cycles executed. ``state.stats`` describes this run
-    only; its ``total_cycles`` is set even when the run raises.
+    only; its ``total_cycles`` is set even when the run raises. ``state.halt``
+    says how the run ended.
 
-    Raises ``RuntimeError`` if *max_cycles* is exceeded (likely infinite loop).
+    Raises ``EmulatorFault`` when a word faults (the faulting word is not
+    counted), unless *raise_on_fault* is false: the run then returns, and
+    ``state.halt`` holds the fault. Raises ``RuntimeError`` if *max_cycles*
+    is exceeded (likely infinite loop; F-9 with E04-21).
     """
     cycles = 0
     # One engine for the whole run: it carries no per-cycle state beyond the
@@ -98,6 +109,9 @@ def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) ->
             if ipu.execute_vliw_cycle() == CycleOutcome.BREAK:
                 ipu.execute_vliw_cycle_skip_break()
             cycles += 1
+    except EmulatorFault:
+        if raise_on_fault:
+            raise
     finally:
         state.stats.total_cycles = cycles
     return cycles

@@ -18,6 +18,7 @@ from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, 
 
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import Ipu
+from ipu_isa.faults import FaultId
 
 
 def _lr(probe: str, index: int) -> int:
@@ -153,9 +154,10 @@ def test_reshape_source_dest_read_cycle_start(probe):
 @pytest.mark.parametrize("probe", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
 def test_lr_write_conflict_raises(probe):
     """Two LR sub-slots writing one LR (directly, or through an ADDB LRD pair)
-    raise before any LR is written. Becomes fault F-3 in E04-19."""
-    with pytest.raises(RAISES[probe], match="LR conflict"):
+    fault F-3 before any LR is written."""
+    with pytest.raises(RAISES[probe], match="LR conflict") as caught:
         run(PROBES[probe])
+    assert caught.value.fault is FaultId.F3
 
 
 def test_lr_subslot_exception_leaves_no_partial_write():

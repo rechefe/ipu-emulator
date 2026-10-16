@@ -15,9 +15,11 @@ from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu.cycle import Cycle, CycleOutcome, decode_word, schedule_word
 from ipu_emu.emulator import load_program
+from ipu_emu.errors import EmulatorFault
 from ipu_emu.execute import BreakResult, Ipu
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.regfile import RegFile
+from ipu_isa.faults import FaultId
 
 # Every slot kind, a BREAK in the middle and a branch back: loads, multiplies,
 # accumulates, aggregation, a store, LR arithmetic and the cond slot.
@@ -303,8 +305,9 @@ def test_the_observer_brackets_each_retired_word_and_not_a_break():
 
 def test_an_lr_conflict_raises_before_any_lr_write():
     state = make_state("SET LR0 CR8 ; SET LR0 CR9 ; INC LR3 1 ;;\nBKPT ;;", cr={8: 5, 9: 6})
-    with pytest.raises(RuntimeError, match=r"LR conflict.*targets: \[0, 0, 3\]"):
+    with pytest.raises(EmulatorFault, match=r"F-3 at PC 0: LR conflict.*targets: \[0, 0, 3\]"):
         _cycle(state).step()
+    assert state.halt == HaltRecord("fault", 0, FaultId.F3)
     assert state.regfile.get_lr(0) == 0
     assert state.regfile.get_lr(3) == 0
 

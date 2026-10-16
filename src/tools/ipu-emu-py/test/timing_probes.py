@@ -23,7 +23,7 @@ from enum import Enum
 
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import RegisterIndexError
+from ipu_emu.errors import EmulatorFault, RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 
@@ -512,7 +512,7 @@ PROBES: dict[str, Probe] = {
 
 #: Probes whose program raises in faithful mode, with the exception type.
 RAISES: dict[str, type[Exception]] = {
-    "lr_conflict_same_lr": RuntimeError,
-    "lr_conflict_lrd_overlap": RuntimeError,
+    "lr_conflict_same_lr": EmulatorFault,  # F-3
+    "lr_conflict_lrd_overlap": EmulatorFault,
     "lr_subslot_exception": RegisterIndexError,
 }

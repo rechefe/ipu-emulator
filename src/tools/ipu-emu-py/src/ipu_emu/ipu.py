@@ -27,9 +27,14 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from ipu_emu.activations import apply_activation
-from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.errors import (
+    ConfigurationError,
+    DebugOnlyInstructionWarning,
+    EmulatorError,
+    EmulatorFault,
+)
 from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import INST_MEM_SIZE, HaltRecord, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.regfile import RegFile
 from ipu_emu.xmem import XMEM_SIZE_BYTES
@@ -49,6 +54,7 @@ from ipu_isa.constants import (
     PadMode,
     Partition,
 )
+from ipu_isa.faults import FaultId
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
@@ -636,6 +642,11 @@ class Ipu:
         """
         self._snapshot_buffer = buffer
 
+    def _fault(self, fault: FaultId, detail: str) -> EmulatorFault:
+        """Fault ``fault`` at the current word. Every slot but COND runs
+        before the PC moves, so the PC is the faulting word's."""
+        return EmulatorFault(fault, self.state.program_counter, detail)
+
     def _require_snapshot(self) -> None:
         """A handler reading the cycle's snapshot runs inside a cycle, which takes it."""
         if self._snapshot_buffer is None:
@@ -683,18 +694,20 @@ class Ipu:
         ``XMem.read_address``/``write_address`` against the allocation.
         """
         if row < 0:
-            raise EmulatorError(f"XMEM row must be non-negative; got {row}")
+            raise self._fault(FaultId.F6, f"XMEM row must be non-negative; got {row}")
         if not self._wide_vector_active() and row >= NARROW_MAX_ROW:
-            raise EmulatorError(
+            raise self._fault(
+                FaultId.F6,
                 f"XMEM row {row} is out of range for narrow mode "
                 f"(rows 0..{NARROW_MAX_ROW - 1}, the first "
-                f"{NARROW_MAX_ROW * self._row_size_bytes() >> 20} MB of XMEM)"
+                f"{NARROW_MAX_ROW * self._row_size_bytes() >> 20} MB of XMEM)",
             )
         addr = row * self._row_size_bytes()
         if addr >= XMEM_SIZE_BYTES:
-            raise EmulatorError(
+            raise self._fault(
+                FaultId.F6,
                 f"XMEM row {row} is out of range: byte address {addr} exceeds "
-                f"the {XMEM_SIZE_BYTES}-byte allocation"
+                f"the {XMEM_SIZE_BYTES}-byte allocation",
             )
         return addr
 
@@ -840,8 +853,8 @@ class Ipu:
                 return source.get_cr(raw_value - LR_REG_COUNT)
         elif code == _READ_MULT_STAGE:
             if raw_value > 1:
-                raise EmulatorError(
-                    f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw_value}"
+                raise self._fault(
+                    FaultId.F1, f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw_value}"
                 )
             if self._wide_vector_active():
                 # Mult handlers read wide lanes via _wide_ra_lanes(raw_value),
@@ -1066,7 +1079,9 @@ class Ipu:
     def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
         """Execute LDR_MULT_REG: Load data from memory into a mult stage register."""
         if dest not in (0, 1):
-            raise EmulatorError(f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}")
+            raise self._fault(
+                FaultId.F1, f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}"
+            )
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
@@ -1092,9 +1107,10 @@ class Ipu:
         """
         addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
-            raise EmulatorError(
+            raise self._fault(
+                FaultId.F4,
                 f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
-                f"(R_CYCLIC slot boundaries); got {index}"
+                f"(R_CYCLIC slot boundaries); got {index}",
             )
         byte_idx = index * self._element_width_bytes()
         data = self.state.xmem.read_address(addr, self._row_size_bytes())
@@ -1172,8 +1188,9 @@ class Ipu:
         """
         self._require_snapshot()
         if k > LR_MOD_POW2_K_ENCODED_MAX:
-            raise EmulatorError(
-                f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
+            raise self._fault(
+                FaultId.F1,
+                f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})",
             )
         k_exp = k + LR_MOD_POW2_K_MIN
         cur = self._snapshot_buffer.get_lr(dest)
@@ -1611,18 +1628,20 @@ class Ipu:
         else:
             mask = reshape_mask
         if mask > RESHAPE_ELEMENT_COUNT:
-            raise EmulatorError(
+            raise self._fault(
+                FaultId.F5,
                 f"ACC.RESHAPE reshape_mask value {mask} exceeds RESHAPE_ELEMENT_COUNT "
-                f"({RESHAPE_ELEMENT_COUNT})"
+                f"({RESHAPE_ELEMENT_COUNT})",
             )
 
         mult_res = self._read_forgetting_provenance(self._snapshot_buffer, "mult_res")
         writes = []
         for i in range(mask, RESHAPE_ELEMENT_COUNT):
             if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
-                raise EmulatorError(
+                raise self._fault(
+                    FaultId.F5,
                     f"ACC.RESHAPE element {i}: source={src_bytes[i]}, dest={dst_bytes[i]} "
-                    f"must both be in [0, {LANES - 1}]"
+                    f"must both be in [0, {LANES - 1}]",
                 )
             writes.append((dst_bytes[i], struct.unpack_from("<I", mult_res, src_bytes[i] * 4)[0]))
         for dest_idx, value in writes:
@@ -1891,8 +1910,10 @@ class Ipu:
         self.state.program_counter = reg
 
     def execute_bkpt(self) -> None:
-        """Execute BKPT: Breakpoint (halt execution)."""
-        self.state.program_counter = INST_MEM_SIZE  # halt
+        """Execute BKPT (HALT): record the halt at this word, then move the PC
+        past IMEM. COND runs last, so the rest of the word has retired."""
+        self.state.halt = HaltRecord("halt", self.state.program_counter, None)
+        self.state.program_counter = INST_MEM_SIZE
 
     def execute_cond_nop(self) -> None:
         """Execute NOP in cond slot: No operation; advance PC."""
@@ -2143,8 +2164,8 @@ class Ipu:
                         kwargs[read.name] = source.get_cr(cr_idx)
             elif code == _READ_MULT_STAGE and self._wide_vector_active():
                 if raw > 1:
-                    raise EmulatorError(
-                        f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}"
+                    raise self._fault(
+                        FaultId.F1, f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}"
                     )
                 # Wide handlers consume the encoded R0/R1 index directly.
             else:

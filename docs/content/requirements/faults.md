@@ -49,6 +49,22 @@ Reserved encodings for F-1, from the instruction reference:
 
 The fault list and this table are mirrored as data in `ipu_isa.faults`, which derives the reserved encodings from the ISA. A test (`//src/tools/ipu-isa:test_faults_docs`) checks that both tables state the same as that data.
 
+## In the emulator
+
+The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A HALT word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
+
+| Fault | In the emulator |
+|---|---|
+| F-1 | An opcode the ISA does not define, at fetch. A handler raises it for a `MultStageReg` other than `R0` or `R1`, and for an `INCR_MOD_POW2` `k` encoding above 8. |
+| F-2 | A fetch at or past `IpuState.program_length`, which `load_program` sets. A state whose IMEM is written directly keeps all of IMEM. |
+| F-3 | Two LR sub-slots write the same LR, detected before any LR write. |
+| F-4 | An `LDR_CYCLIC_MULT_REG` index that is not a slot boundary. |
+| F-5 | An `ACC.RESHAPE` mask above 8, or an index of 128 or more. |
+| F-6 | An XMEM row beyond the address space, or an access past the XMEM allocation. There is no table model yet, so the row is checked against XMEM. |
+| F-7 | Not modelled. The emulator has no table configuration, so no table is read-only or write-only. |
+| F-8 | Not modelled. The emulator has no stall model (Q59, [OQ-28](open-questions.md#emulator-and-isa)). |
+| F-9 | The cycle limit of the run (E04-21). Until then, exceeding it raises `RuntimeError`. |
+
 ## Arithmetic events
 
 Status: **Proposed**. Owner: Yuval Harary.

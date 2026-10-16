@@ -7,8 +7,9 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 from __future__ import annotations
 
 import struct
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from ipu_emu import activations as _activations
 from ipu_emu.inst_mem import InstMem
@@ -26,6 +27,7 @@ from ipu_isa.constants import (
     decode_dstructure,
     encode_dstructure,
 )
+from ipu_isa.faults import FaultId
 from ipu_isa.geometry import INST_MEM_WORDS
 
 #: Instruction-memory depth, as the emulator names it.
@@ -53,6 +55,21 @@ class WideVectorArithmetic(str, Enum):
     INT32 = "int32"
 
 
+@dataclass(frozen=True)
+class HaltRecord:
+    """Why and where the program stopped (IPU-FLT-4).
+
+    Attributes:
+        reason: ``"halt"`` for a HALT word, ``"fault"`` for a fault.
+        pc: The PC of the HALT or faulting word.
+        fault: The fault, or ``None`` for a HALT.
+    """
+
+    reason: Literal["halt", "fault"]
+    pc: int
+    fault: FaultId | None
+
+
 class IpuState:
     """Complete IPU processor state.
 
@@ -65,6 +82,11 @@ class IpuState:
         dtype:           Arithmetic data type (not stored in CR; emulator-only).
         prototyping:     Whether the opt-in fast paths are active (emulator-only).
         quit_requested:  The debugger quit the last run before it finished.
+        halt:            Set when a HALT word retires or a word faults; ``None``
+                         while the program runs. Cleared when a run starts.
+        program_length:  Words of the loaded program: a fetch at or past it
+                         is fault F-2. ``load_program`` sets it; a state whose
+                         IMEM is written directly keeps all of IMEM.
     """
 
     def __init__(
@@ -83,6 +105,8 @@ class IpuState:
         self.regfile = RegFile()
         self.xmem = XMem()
         self.program_counter: int = 0
+        self.halt: HaltRecord | None = None
+        self.program_length: int = INST_MEM_SIZE
         self.stats = RunStats()
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
@@ -268,8 +292,9 @@ class IpuState:
 
     @property
     def is_halted(self) -> bool:
-        """True if PC has run past instruction memory."""
-        return self.program_counter >= INST_MEM_SIZE
+        """True once a HALT word retired or a word faulted (``halt`` is set),
+        or the PC is past instruction memory (where a debugger's quit moves it)."""
+        return self.halt is not None or self.program_counter >= INST_MEM_SIZE
 
     # -- serialisation ------------------------------------------------------
 

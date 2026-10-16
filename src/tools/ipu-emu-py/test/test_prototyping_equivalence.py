@@ -20,11 +20,12 @@ import pytest
 import timing_probes
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
-from ipu_emu.emulator import load_program
-from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
+from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorFault, RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
+from ipu_isa.faults import FaultId
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"
@@ -357,13 +358,35 @@ def test_an_lr_conflict_still_raises():
     exceptions = []
     for prototyping in (False, True):
         state = make_state(asm, prototyping=prototyping)
-        with pytest.raises(RuntimeError, match="LR conflict") as caught:
+        with pytest.raises(EmulatorFault, match="LR conflict") as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
         exceptions.append(caught.value)
 
     assert type(exceptions[0]) is type(exceptions[1])
     assert exceptions[0].args == exceptions[1].args
+    assert states[0].halt == states[1].halt == HaltRecord("fault", 0, FaultId.F3)
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(
+    ("asm", "fault", "pc"),
+    [
+        ("INC LR0 1 ;;\nINC LR0 1 ;;", FaultId.F2, 2),
+        ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nBKPT ;;", FaultId.F5, 1),
+    ],
+)
+def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
+    states = []
+    for prototyping in (False, True):
+        state = make_state(asm, prototyping=prototyping)
+        state.regfile.set_lr(4, 9)
+        with pytest.raises(EmulatorFault) as caught:
+            run_until_complete(state)
+        assert (caught.value.fault, caught.value.pc) == (fault, pc)
+        states.append(state)
+    assert states[0].halt == states[1].halt == HaltRecord("fault", pc, fault)
     _assert_states_identical(*states)
 
 
