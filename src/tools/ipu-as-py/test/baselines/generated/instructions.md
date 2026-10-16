@@ -1097,15 +1097,22 @@ Branch to address in register.
 `PC = reg`
 
 
-### `HALT` — Breakpoint
+### `HALT` — Halt
 
 **Syntax:** `HALT`
 
 **General description:**
-Conditional breakpoint.
+End the kernel after every slot of this word has retired.
+
+> Unconditional. The other slots of the same word retire first; then the kernel is done. To stop for debugging, use **`BREAK`** (emulator-only) instead. Not the host's `HALT` command, which stops a running kernel.
 
 **Pseudo code:**
-`Halt execution (debugging)`
+`no further fetch; kernel done when this word retires`
+
+**Example of usage:**
+```asm
+HALT;;
+```
 
 ---
 

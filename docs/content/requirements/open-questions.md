@@ -63,11 +63,13 @@ Questions OQ-18 onwards concern the emulator and the ISA definition, not only th
 | OQ-28 | How is F-8 (word stall limit) checked when the emulator has no stall model? | The emulator executes one word per cycle and never stalls, so [F-8](faults.md#fault-list) can never fire. E04 models the other faults with their IDs and enable bits. | List F-8 as "not modelled" in the emulator and in the reference-model contract, until a cache-agent timing model exists. | Yuval Harary |
 | OQ-29 | When, and how, does the reference model move to ETISS? | Out of scope for the architecture-deepening program. The reference contract is language-neutral: a versioned JSON commit-record and trace schema plus a conformance suite stored as data ([ADR 0004](https://github.com/rechefe/ipu-emulator/blob/master/docs/adr/0004-stable-reference-model-api.md)), so another implementation can be checked against the same suite. | Keep the contract language-neutral. Decide timing and scope (whole model or fast path only) later. | Unassigned |
 | OQ-30 | Where does the ELU α default come from, and how is it changed? | `apply_activation` and `IpuState` read the private `_ELU_ALPHA`, bound to `DEFAULT_ELU_ALPHA` at import (`activations.py:62`, `:106`; `ipu_state.py:107`), so patching `DEFAULT_ELU_ALPHA` has no effect. On hardware α is baked into the loaded LUT (OQ-25). | Decide with OQ-20 and OQ-25. Until then, set α through `IpuState(elu_alpha=...)`. | Unassigned |
+| OQ-31 | After the `HALT` instruction retires, does the IPU hand off (kernel done: `IDLE`, or the armed kernel starts) or enter `HALTED`? | IPU-DBG-8 and IPU-EXEC-11 say the kernel is done; the [execution flow](execution-flow.md) lists halt requests (the `HALT` command), breakpoints, step done and faults as the causes that enter `HALTED`, not the `HALT` instruction. The emulator ends the run. | Kernel done, as IPU-DBG-8 says. The requirements owner confirms. | Unassigned |
+| OQ-32 | Does the RTL repository use `BRANCH_COND_COUNT` as a parameter name? | The control spec keeps `BRANCH_COND_COUNT = 5` (the branches) and adds `COND_OP_COUNT = 6` (branches plus `HALT`) rather than renaming it. | Keep both until the RTL owner says which one the RTL uses. | Unassigned |
 
 ## Actions on other documents
 
 | ID | Action | Owner |
 |---|---|---|
-| A-1 | Rename the stop instruction. Done by E03-19: it is `HALT` (Q45). | E03-19 |
+| A-1 | Name the stop instruction. Done: it is `HALT` (Q45, E03-19), a COND instruction that ends the kernel after its word retires (E03-20; IPU-ARCH-5, IPU-DBG-8). | Done (E03-20) |
 | A-2 | Update the control stage specification. The cache agent issues XMEM reads and stalls CTRL. LR writes commit when the cache agent accepts the word. The host port is AXI4. | Unassigned |
 | A-3 | Update the cache unit specification with two table sets, the context bit in tags, `tables_valid`, `ctx_locked`, the bank events and every `CU` expected behaviour. | Cache unit owner |

@@ -825,13 +825,13 @@
     "HALT": [
       {
         "doc": {
-          "example": null,
-          "notes": null,
+          "example": "HALT;;",
+          "notes": "Unconditional. The other slots of the same word retire first; then the kernel is done. To stop for debugging, use **`BREAK`** (emulator-only) instead. Not the host's `HALT` command, which stops a running kernel.",
           "operands": [],
-          "operation": "Halt execution (debugging)",
-          "summary": "Conditional breakpoint.",
+          "operation": "no further fetch; kernel done when this word retires",
+          "summary": "End the kernel after every slot of this word has retired.",
           "syntax": "HALT",
-          "title": "Breakpoint"
+          "title": "Halt"
         },
         "opcode": 5,
         "operands": [],

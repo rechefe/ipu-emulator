@@ -84,7 +84,7 @@ flowchart LR
 | IPU-ARCH-2 | The `COND` and `LR` slots shall read CR and LR values from before the word. |
 | IPU-ARCH-3 | The `LOAD`, `MULT`, `ACC`, `AAQ` and `STORE` slots shall read LR values from after the LR writes of the same word. See [OQ-10](open-questions.md). |
 | IPU-ARCH-4 | The IPU shall implement every ISA slot except `ACC_STORE` and `BREAK`. |
-| IPU-ARCH-5 | The `COND` slot shall provide `END`. `END` uses the opcode that the instruction reference assigns to `HALT`. |
+| IPU-ARCH-5 | The `COND` slot shall provide `HALT`, at the opcode the instruction reference assigns it. `HALT` ends the kernel after every slot of its word has retired. |
 | IPU-ARCH-6 | Instruction semantics shall follow the instruction reference. See [OQ-5](open-questions.md) and [OQ-6](open-questions.md). |
 
 ## Pipeline
