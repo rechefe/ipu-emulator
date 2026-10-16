@@ -45,8 +45,9 @@ py_library(
     name = "ipu_emu_lib",
     srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],
     imports = ["src"],
+    # The ISA, numpy and the standard library only: the assembler and the
+    # debugger build on the emulator, never the other way (E04-18).
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -272,7 +273,10 @@ py_library(
         "test/timing_probes.py",
     ],
     imports = ["test"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+    ],
 )
 
 py_pytest_test(
