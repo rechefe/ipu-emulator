@@ -118,20 +118,43 @@ class AssemblySession:
         return self._rendered
 
     def parse(self) -> list[dict]:
-        """The compound instructions, with every label defined. Raises ParseError or LabelError."""
+        """The compound instructions of the rendered source, parsed once.
+
+        Raises:
+            TemplateError, ParseError, or the LabelError / OperandError found
+            while building the instruction list.
+        """
         if self._parsed is None:
-            rendered = self.render()
-            try:
-                self._parsed = ASTBuilder(self.symbols).transform(parse_tree(rendered))
-            except lark.exceptions.VisitError as error:
-                # lark wraps whatever the AST builder raises; a LabelError or
-                # OperandError found while building is reported as itself.
-                if isinstance(error.orig_exc, AssemblerError):
-                    raise error.orig_exc from error
-                raise ParseError(str(error)) from error
-            except lark.exceptions.LarkError as error:
-                raise ParseError(str(error), location=_lark_location(error)) from error
+            self._parsed = self.parse_rendered(self.render())
         return self._parsed
+
+    def parse_rendered(self, rendered: str) -> list[dict]:
+        """Parse text that is already rendered, into a fresh symbol table.
+
+        The stage `parse` runs on this session's own render; diagnostics passes
+        an instrumented render instead.
+
+        Raises:
+            ParseError, or the LabelError / OperandError found while building
+            the instruction list.
+        """
+        self.symbols = SymbolTable()
+        try:
+            return ASTBuilder(self.symbols).transform(parse_tree(rendered))
+        except lark.exceptions.VisitError as error:
+            # lark wraps whatever the AST builder raises: an assembler error is
+            # reported as itself, anything else is a bug and raised as itself.
+            raise error.orig_exc from error
+        except lark.exceptions.LarkError as error:
+            raise ParseError(str(error), location=_lark_location(error)) from error
+
+    def encode(self, parsed: list[dict]) -> tuple[int, ...]:
+        """The instruction words of `parsed` (from `parse` or `parse_rendered`).
+
+        Raises:
+            EncodeError: an operand, slot or label error.
+        """
+        return tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
 
     def assemble(self) -> AssemblyResult:
         """Encode every instruction word and raise the encoder's warnings.
@@ -149,7 +172,7 @@ class AssemblySession:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             try:
-                words = tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
+                words = self.encode(parsed)
                 failure = None
             except AssemblerError as error:
                 failure = error

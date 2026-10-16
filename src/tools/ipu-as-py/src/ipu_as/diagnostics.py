@@ -12,8 +12,8 @@ first failure (a template that will not render cannot be parsed, and a program
 that will not parse cannot be encoded):
 
 1. Jinja rendering   -> TemplateSyntaxError
-2. Parsing           -> lark.exceptions.LarkError
-3. Encoding          -> ValueError from CompoundInst
+2. Parsing           -> ParseError
+3. Encoding          -> EncodeError (LabelError, OperandError, SlotError)
 
 Positions are 0-based, matching LSP and the VS Code API.
 """
@@ -26,24 +26,31 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import jinja2
-import lark
 
-import ipu_as.compound_inst as compound_inst
 import ipu_as.template as template
-from ipu_as.errors import TemplateError
-from ipu_as.lark_tree import ASTBuilder, get_parser
+from ipu_as.errors import EncodeError, ParseError, TemplateError
+from ipu_as.session import AssemblySession
+from ipu_as.source_map import (
+    MAIN,
+    column_in_source,
+    disable_whitespace_control,
+    include_note,
+    instrument,
+    instrument_template,
+    linecol_to_offset,
+    offset_to_linecol,
+    same_tokens,
+    source_line_at,
+    token_at,
+)
+from ipu_as.syntax import get_parser
 
-#: Assembly-stage errors embed their position in the message text (see
-#: AnnotatedToken.get_location_string). Line/column are 1-based there.
-_LOCATION_RE = re.compile(r"Line (\d+), Column (\d+)")
-
-#: Some encode errors name the offending token in quotes but carry no position
-#: (e.g. "Opcode 'mac.ee' not found"); this recovers the name so it can be
-#: located in the source.
-_QUOTED_NAME_RE = re.compile(r"'([^']+)'")
+#: The tests check these two through their historical names.
+_instrument = instrument
+_disable_whitespace_control = disable_whitespace_control
 
 #: Jinja is a preprocessing layer, so a template marker means the parser sees
-#: different text than the editor shows. See _instrument.
+#: different text than the editor shows. See instrument.
 _JINJA_MARKERS = ("{{", "{%", "{#")
 
 
@@ -65,157 +72,15 @@ class Diagnostic:
         return asdict(self)
 
 
-def _offset_to_linecol(text: str, offset: int) -> tuple[int, int]:
-    """0-based (line, column) for a byte offset."""
-    prefix = text[:offset]
-    line = prefix.count("\n")
-    column = offset - (prefix.rfind("\n") + 1)
-    return line, column
-
-
-#: Appended to each template line so the rendered output carries where it came
-#: from. `#` starts a comment in this grammar, so a marker is invisible to the
-#: parser — it changes the text Lark sees only by adding comments.
-_LINE_MARKER = "#@ipu-src-line:"
-_MARKER_RE = re.compile(re.escape(_LINE_MARKER) + r"(\d+)")
-#: The marker in an included template: `#@ipu-src:<template name>:<line>`.
-_INCLUDE_PREFIX = "#@ipu-src:"
-_INCLUDE_MARKER_RE = re.compile(re.escape(_INCLUDE_PREFIX) + r"(?P<name>[^\s:]+):(?P<line>\d+)")
-_ANY_MARKER_RE = re.compile(f"{_MARKER_RE.pattern}|{_INCLUDE_MARKER_RE.pattern}")
-#: The open file's name in template.render, so the transform tells it from an include.
-_MAIN = "<asm>"
-
-
-def _instrument_template(name: str, text: str) -> str:
-    """template.render transform: tag each line of the open file or of an included template."""
-    prefix = _LINE_MARKER if name == _MAIN else f"{_INCLUDE_PREFIX}{name}:"
-    return _instrument(text, prefix) or text
-
-
-def _include_note(rendered: str, offset: int) -> str:
-    """ " (in <template>:<line>)" when the text at `offset` came from an included template."""
-    match = _ANY_MARKER_RE.search(rendered, offset)
-    if match is None or match.group("name") is None:
-        return ""
-    return f" (in {match.group('name')}:{match.group('line')})"
-
-
-def _instrument(source: str, prefix: str = _LINE_MARKER) -> str | None:
-    """Tag every template line with its own line number.
-
-    Jinja renders a template into different text — loops repeat lines,
-    conditionals drop them, whitespace control joins them — so a byte offset in
-    the rendered output has no general relationship to the file on screen.
-    Rather than guess afterwards by matching line content, mark each line before
-    rendering and let Jinja carry the marks through whatever it does.
-
-    A marker is only safe at a point where no Jinja construct is open: appending
-    to the middle of a multi-line ``{% ... %}`` would be a syntax error. Lines
-    inside a construct are left unmarked, and the marker that follows the
-    construct still bounds them.
-
-    Returns None if the template cannot be scanned coherently.
-    """
-    openers = {"{%": "%}", "{{": "}}", "{#": "#}"}
-    out: list[str] = []
-    closer: str | None = None
-    line = 1
-    i = 0
-
-    while i < len(source):
-        pair = source[i : i + 2]
-        if closer is None:
-            if pair in openers:
-                closer = openers[pair]
-                out.append(pair)
-                i += 2
-                continue
-            if source[i] == "\n":
-                out.append(f" {prefix}{line}\n")
-                line += 1
-                i += 1
-                continue
-        else:
-            if pair == closer:
-                closer = None
-                out.append(pair)
-                i += 2
-                continue
-            if source[i] == "\n":
-                line += 1
-        out.append(source[i])
-        i += 1
-
-    if closer is not None:
-        return None  # unterminated construct; let Jinja report it normally
-    return "".join(out)
-
-
-def _linecol_to_offset(text: str, line: int, column: int) -> int | None:
-    """Byte offset for a 0-based (line, column), or None if out of range."""
-    lines = text.splitlines(keepends=True)
-    if line >= len(lines):
-        return None
-    return sum(len(source_line) for source_line in lines[:line]) + column
-
-
-def _source_line_at(rendered: str, offset: int) -> int | None:
-    """0-based source line for an offset in the instrumented render.
-
-    The first marker at or after the offset is the line the offending text came
-    from: markers sit at end of line, so anything before one belongs to it.
-    """
-    match = _MARKER_RE.search(rendered, offset)
-    if not match:
-        return None
-    return max(int(match.group(1)) - 1, 0)
-
-
-def _source_line(raw: str, line: int) -> str:
-    lines = raw.splitlines()
-    return lines[line] if 0 <= line < len(lines) else ""
-
-
-def _rendered_line(rendered: str, line: int) -> str:
-    lines = rendered.splitlines()
-    return lines[line] if 0 <= line < len(lines) else ""
-
-
-def _token_at(text: str, offset: int) -> str:
-    """The identifier-ish run of characters starting at an offset."""
-    match = re.compile(r"[+-]?[A-Za-z0-9_][A-Za-z0-9_.]*").match(text, offset)
-    return match.group(0) if match else ""
-
-
-def _column_in_source(raw: str, line: int, needle: str) -> int:
-    """Column of `needle` on a source line, or 0 if it is not found there."""
-    lines = raw.splitlines()
-    if line >= len(lines) or not needle:
-        return 0
-    found = lines[line].find(needle)
-    return found if found >= 0 else 0
-
-
 def _with_expected(found: str, expected) -> str:
     if not expected:
         return found
     return f"{found}; expected one of: {_humanize(expected)}"
 
 
-#: Jinja's whitespace-control dashes. `-#}` deletes the whitespace *after* the
-#: tag, including the newline, which can fuse the last token of one line with
-#: the first of the next (`cr4` + `MULT.RC.VE` -> `cr4MULT.RC.VE`). An origin
-#: marker placed between them would prevent that fusion — a different program —
-#: so markers get rejected and the position is lost.
-_WS_CONTROL_RE = re.compile(r"(\{[%#])-|-([%#]\})")
-
-
-def _disable_whitespace_control(source: str) -> str:
-    """Strip the `-` from Jinja's whitespace-control tags."""
-    return _WS_CONTROL_RE.sub(lambda m: m.group(1) or m.group(2), source)
-
-
-def _recover_line_without_fusion(text: str) -> tuple[str, int] | None:
+def _recover_line_without_fusion(
+    text: str, inputs: template.TemplateInputs
+) -> tuple[str, int] | None:
     """Recover an error's source line by rendering without whitespace control.
 
     The fused render is what the assembler really sees, so it is what gets
@@ -226,73 +91,42 @@ def _recover_line_without_fusion(text: str) -> tuple[str, int] | None:
     That variant is a slightly different program, so only its *line* is used,
     and only when it fails at the same stage. Returns (stage, 0-based line).
     """
-    instrumented = _instrument(_disable_whitespace_control(text))
-    if instrumented is None:
+    variant = disable_whitespace_control(text)
+    if instrument(variant) is None:
         return None
     try:
-        rendered = template.render(instrumented)
-    except Exception:
+        rendered = template.render(variant, inputs, source_name=MAIN, transform=instrument_template)
+    except TemplateError:
         return None
-
+    # A fresh session: this variant's labels must not meet the real check's.
+    stages = AssemblySession(variant)
     try:
-        tree = get_parser().parse(rendered)
-    except lark.exceptions.LarkError as error:
-        token = getattr(error, "token", None)
-        offset = (
-            token.start_pos
-            if token is not None and getattr(token, "start_pos", None) is not None
-            else getattr(error, "pos_in_stream", None)
-        )
-        line = _source_line_at(rendered, offset) if offset is not None else None
+        stages.encode(stages.parse_rendered(rendered))
+    except ParseError as error:
+        offset = _parse_offset(error)
+        line = source_line_at(rendered, offset) if offset is not None else None
         return ("parse", line) if line is not None else None
-
-    try:
-        for instruction in ASTBuilder().transform(tree):
-            compound_inst.CompoundInst(instruction).encode()
-    except (lark.exceptions.VisitError, ValueError) as error:
-        original = getattr(error, "orig_exc", error)
-        location = _LOCATION_RE.search(str(original))
-        if not location:
-            return None
-        offset = _linecol_to_offset(
-            rendered,
-            max(int(location.group(1)) - 1, 0),
-            max(int(location.group(2)) - 1, 0),
-        )
-        line = _source_line_at(rendered, offset) if offset is not None else None
+    except EncodeError as error:
+        offset = _location_offset(error, rendered)
+        line = source_line_at(rendered, offset) if offset is not None else None
         return ("assemble", line) if line is not None else None
-
     return None
 
 
-def _squeeze(text: str) -> str:
-    """Text with all whitespace removed; whitespace is only a separator here."""
-    return re.sub(r"\s+", "", text)
+def _parse_offset(error: ParseError) -> int | None:
+    """Offset in the rendered text where the parser stopped (from the lark exception)."""
+    cause = error.__cause__
+    token = getattr(cause, "token", None)
+    if token is not None and getattr(token, "start_pos", None) is not None:
+        return token.start_pos
+    return getattr(cause, "pos_in_stream", None)
 
 
-def _same_tokens(a: str, b: str) -> bool:
-    """True when two renders lex to the same tokens.
-
-    Comparing text would reject a valid instrumentation: whitespace control
-    (`-%}`, `-#}`) strips whitespace *after* a tag, so a marker legitimately
-    changes the whitespace — the plain render joins `;;` and `SET` into `;;SET`
-    where the marked one does not. The lexer ignores whitespace and comments,
-    so its token stream is the equivalence that actually matters.
-    """
-    parser = get_parser()
-    try:
-        return [(t.type, str(t)) for t in parser.lex(a)] == [
-            (t.type, str(t)) for t in parser.lex(b)
-        ]
-    except lark.exceptions.LarkError:
-        # The text being compared does not lex — which is the normal case here,
-        # since a diagnostic is only being produced because something is wrong.
-        # Fall back to comparing with whitespace removed entirely: whitespace
-        # control legitimately differs between the two renders (`-#}` joins `;;`
-        # and `SET` into `;;SET` without a marker in the way), and whitespace is
-        # only ever a separator in this grammar. Comparing `.split()` here threw
-        # the markers away for every erroring file — exactly when they matter.
-        return _squeeze(_ANY_MARKER_RE.sub("", a)) == _squeeze(b)
+def _location_offset(error: EncodeError, rendered: str) -> int | None:
+    """Offset in the rendered text of an error's location (1-based line and column)."""
+    if error.location is None:
+        return None
+    return linecol_to_offset(rendered, error.location.line - 1, error.location.column - 1)
 
 
 def _humanize(terminal_names) -> str:
@@ -343,7 +177,9 @@ def _template_diagnostic(error: jinja2.TemplateSyntaxError) -> Diagnostic:
     )
 
 
-def _parse_diagnostic(error: lark.exceptions.LarkError, raw: str, rendered: str):
+def _parse_diagnostic(parse_error: ParseError, raw: str, rendered: str) -> Diagnostic:
+    # The lark exception carries the offending token and the expected terminals.
+    error = parse_error.__cause__
     token = getattr(error, "token", None)
     if token is not None and getattr(token, "start_pos", None) is not None:
         start = token.start_pos
@@ -359,15 +195,15 @@ def _parse_diagnostic(error: lark.exceptions.LarkError, raw: str, rendered: str)
         expected = getattr(error, "allowed", set()) or set()
         found = f"unexpected {rendered[start:end]!r}"
 
-    line, column = _offset_to_linecol(rendered, start)
-    end_line, end_column = _offset_to_linecol(rendered, end)
+    line, column = offset_to_linecol(rendered, start)
+    end_line, end_column = offset_to_linecol(rendered, end)
     needle = rendered[start:end]
 
     if raw == rendered:
         # No Jinja: rendered offsets are source offsets.
         mapped, exact = line, True
     else:
-        marked = _source_line_at(rendered, start)
+        marked = source_line_at(rendered, start)
         if marked is None:
             # Without a marker there is nothing honest to report but the top of
             # the file. Guessing by matching line content used to fill this gap
@@ -383,12 +219,12 @@ def _parse_diagnostic(error: lark.exceptions.LarkError, raw: str, rendered: str)
                 approximate=True,
             )
         mapped, exact = marked, True
-        column = _column_in_source(raw, marked, needle)
+        column = column_in_source(raw, marked, needle)
         end_line, end_column = mapped, column + max(len(needle), 1)
 
     message = _with_expected(found, expected)
     if raw != rendered:
-        message += _include_note(rendered, start)
+        message += include_note(rendered, start)
 
     return Diagnostic(
         line=mapped,
@@ -421,44 +257,22 @@ def _tidy(message: str) -> str:
     return " ".join(without_location.split())
 
 
-def _encode_diagnostic(error: ValueError, raw: str, rendered: str) -> Diagnostic:
-    message = str(error)
-    # Initialized up front so every path below has a defined result. An earlier
-    # version left these unbound when a Jinja file had no usable marker, which
-    # raised UnboundLocalError out of the checker — the CLI then printed a
-    # traceback instead of JSON and the editor showed no error at all.
+def _encode_diagnostic(error: EncodeError, raw: str, rendered: str) -> Diagnostic:
+    """The diagnostic for an encode error, placed by its location and token."""
     mapped, column, exact = 0, 0, False
-
-    location = _LOCATION_RE.search(message)
-    quoted = _QUOTED_NAME_RE.search(message)
-
-    # Locate the offending text in the rendered program. Most encode errors
-    # carry "Line N, Column M"; those that do not ("Opcode 'mac.ee' not found")
-    # name the token in quotes instead.
-    offset = None
-    if location:
-        offset = _linecol_to_offset(
-            rendered,
-            max(int(location.group(1)) - 1, 0),
-            max(int(location.group(2)) - 1, 0),
-        )
-    if offset is None and quoted:
-        found = rendered.find(quoted.group(1))
-        offset = found if found >= 0 else None
-
     note = ""
+    offset = _location_offset(error, rendered)
     if offset is not None:
-        note = _include_note(rendered, offset) if raw != rendered else ""
-        marked = _source_line_at(rendered, offset)
+        note = include_note(rendered, offset) if raw != rendered else ""
+        marked = source_line_at(rendered, offset)
         if marked is not None:
             # The line comes from the marker. The column cannot: it indexes the
             # rendered line, which Jinja may have rewritten, so find the token
             # in the source instead of carrying a number that points elsewhere.
             mapped, exact = marked, True
-            needle = quoted.group(1) if quoted else _token_at(rendered, offset)
-            column = _column_in_source(raw, mapped, needle)
+            column = column_in_source(raw, mapped, error.token or token_at(rendered, offset))
         elif raw == rendered:
-            mapped, column = _offset_to_linecol(rendered, offset)
+            mapped, column = offset_to_linecol(rendered, offset)
             exact = True
 
     return Diagnostic(
@@ -466,14 +280,14 @@ def _encode_diagnostic(error: ValueError, raw: str, rendered: str) -> Diagnostic
         column=column if exact else 0,
         end_line=mapped,
         end_column=(column + 1) if exact else 0,
-        message=_tidy(message) + note,
+        message=_tidy(str(error)) + note,
         severity="error",
         stage="assemble",
         approximate=not exact,
     )
 
 
-def _recover(diagnostic: Diagnostic, text: str) -> Diagnostic:
+def _recover(diagnostic: Diagnostic, text: str, inputs: template.TemplateInputs) -> Diagnostic:
     """Last resort: give an approximate diagnostic a real line if one exists.
 
     Only whitespace-control fusion lands here (see
@@ -483,7 +297,7 @@ def _recover(diagnostic: Diagnostic, text: str) -> Diagnostic:
     if not diagnostic.approximate:
         return diagnostic
 
-    recovered = _recover_line_without_fusion(text)
+    recovered = _recover_line_without_fusion(text, inputs)
     if recovered is None or recovered[0] != diagnostic.stage:
         return diagnostic
 
@@ -505,7 +319,7 @@ def _template_failure(wrapped: TemplateError) -> Diagnostic:
     error = wrapped.__cause__
     location = wrapped.location
     note = ""
-    if location is not None and location.source != _MAIN:
+    if location is not None and location.source != MAIN:
         note = f" (in {location.source}:{location.line})"
     if error is None:
         # A bad define or ipu:params header: the error itself carries the line.
@@ -545,64 +359,65 @@ def _template_failure(wrapped: TemplateError) -> Diagnostic:
     )
 
 
+def _render_for_diagnosis(
+    text: str, inputs: template.TemplateInputs
+) -> tuple[str, Diagnostic | None]:
+    """(The text to diagnose, or the template-stage diagnostic if rendering fails).
+
+    The text is the instrumented render when it lexes like the plain one, so
+    each position maps back to its source line; otherwise the plain render.
+    """
+    if not any(marker in text for marker in _JINJA_MARKERS):
+        return text, None
+    # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
+    # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.
+    try:
+        rendered = template.render(text, inputs, source_name=MAIN)
+    except TemplateError as wrapped:
+        return text, _template_failure(wrapped)
+    if instrument(text) is None:
+        return rendered, None
+    try:
+        marked = template.render(text, inputs, source_name=MAIN, transform=instrument_template)
+    except TemplateError:
+        return rendered, None
+    return (marked if same_tokens(marked, rendered) else rendered), None
+
+
 def check(
     text: str,
     *,
+    defines: Mapping[str, object] | None = None,
     search_path: Sequence[Path] = (),
     abi: Mapping[str, Mapping[str, str]] | None = None,
 ) -> list[Diagnostic]:
     """Return diagnostics for one assembly source. Empty means it assembles.
 
-    `search_path` holds the roots `{% include %}` and `{% import %}` resolve in, and
-    `abi` the `cr` / `lr` names the template reads.
-    An error inside an included template is reported at the open file's
-    include line, and its message names the template and line.
+    It runs the stages of an `AssemblySession` and reports the first
+    `AssemblerError` from its location and token. Any other exception is a bug
+    and propagates (the CLI reports it as an `internal` diagnostic).
+
+    Args:
+        text: The source, as the editor shows it.
+        defines: Template values, as for the assembler.
+        search_path: Roots `{% include %}` and `{% import %}` resolve in. An
+            error inside an included template is reported at the open file's
+            include line, and its message names the template and line.
+        abi: The `cr` / `lr` names the template reads.
     """
-    rendered = text
     inputs = template.TemplateInputs(
-        search_path=tuple(Path(p) for p in search_path), namespaces=abi or {}
+        defines=dict(defines or {}),
+        search_path=tuple(Path(p) for p in search_path),
+        namespaces=abi or {},
     )
-    if any(marker in text for marker in _JINJA_MARKERS):
-        # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
-        # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.
-        try:
-            rendered = template.render(text, inputs, source_name=_MAIN)
-        except TemplateError as wrapped:
-            return [_template_failure(wrapped)]
-
-        # Render again with origin markers, so a diagnostic can name the source
-        # line exactly instead of guessing. Only used if it renders identically
-        # modulo the markers; anything else falls back to the plain render.
-        if _instrument(text) is not None:
-            try:
-                marked = template.render(
-                    text, inputs, source_name=_MAIN, transform=_instrument_template
-                )
-            except TemplateError:
-                marked = None
-            if marked is not None and _same_tokens(marked, rendered):
-                rendered = marked
-
+    rendered, failed = _render_for_diagnosis(text, inputs)
+    if failed is not None:
+        return [failed]
+    stages = AssemblySession(text)
     try:
-        tree = get_parser().parse(rendered)
-    except lark.exceptions.LarkError as error:
-        return [_recover(_parse_diagnostic(error, text, rendered), text)]
-
-    try:
-        ast = ASTBuilder().transform(tree)
-    except lark.exceptions.VisitError as error:
-        # lark wraps anything a transformer raises in VisitError, which is
-        # itself a LarkError — so without unwrapping, an encode error carrying
-        # an exact location gets misreported as a parse error at offset 0.
-        original = error.orig_exc
-        if isinstance(original, ValueError):
-            return [_recover(_encode_diagnostic(original, text, rendered), text)]
-        raise
-
-    try:
-        for instruction in ast:
-            compound_inst.CompoundInst(instruction).encode()
-    except ValueError as error:
-        return [_recover(_encode_diagnostic(error, text, rendered), text)]
-
+        stages.encode(stages.parse_rendered(rendered))
+    except ParseError as error:
+        return [_recover(_parse_diagnostic(error, text, rendered), text, inputs)]
+    except EncodeError as error:
+        return [_recover(_encode_diagnostic(error, text, rendered), text, inputs)]
     return []

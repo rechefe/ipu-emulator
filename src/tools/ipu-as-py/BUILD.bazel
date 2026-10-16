@@ -193,6 +193,17 @@ py_pytest_test(
     ],
 )
 
+# diagnostics.check on the AssemblySession stages (E05-07).
+py_pytest_test(
+    name = "test_diagnostics_session",
+    srcs = ["test/test_diagnostics_session.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # CLI error output over the check corpus, against a golden (E05-06).
 py_pytest_test(
     name = "test_cli_errors",
