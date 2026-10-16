@@ -31,18 +31,33 @@ Part of [Epic E04: Emulator core](00-epic.md) · ID E04-08 · Size M · Depends 
 
 ## Tests
 
-- [ ] New: writing IMEM at PC p invalidates only p's schedule; `Cycle.reset()` clears all.
-- [ ] New `test_lr_subslot_exception_atomicity`: inject a resolver error in LR sub-slot 2 and show neither mode wrote LR sub-slot 1's target (both modes, compared in lockstep).
-- [ ] New: a profiled prototyping run and a profiled faithful run give identical alias profiles and stats.
-- [ ] Output-identical proof: `test_prototyping_equivalence.py` (per-cycle lockstep of registers, XMEM and stats) under `--define=ipu_proto=1`, including `test_an_lr_conflict_still_raises` (test_prototyping_equivalence.py:317); E02 kernel output digests in both modes; debugger tests that edit IMEM at a break.
-- [ ] E04-02 benchmark before/after for both modes.
+- [x] New: writing IMEM at PC p invalidates only p's schedule; `Cycle.reset()` clears all.
+- [x] New `test_lr_subslot_exception_atomicity`: inject a resolver error in LR sub-slot 2 and show neither mode wrote LR sub-slot 1's target (both modes, compared in lockstep).
+- [x] New: a profiled prototyping run and a profiled faithful run give identical alias profiles and stats.
+- [x] Output-identical proof: `test_prototyping_equivalence.py` (per-cycle lockstep of registers, XMEM and stats) under `--define=ipu_proto=1`, including `test_an_lr_conflict_still_raises` (test_prototyping_equivalence.py:317); E02 kernel output digests in both modes; debugger tests that edit IMEM at a break.
+- [x] E04-02 benchmark before/after for both modes.
 
 ## Acceptance Criteria
 
-- [ ] One schedule builder, one cache, used by both modes.
-- [ ] `_execute_cycle_fast`, `_cycle_plan`, `_run_plan` and `_SLOTS_WITH_ACTIVE_NOP`'s duplicate logic are gone.
-- [ ] Prototyping differs from faithful only in `skip_idle_nops=True` (and, after E04-10, the resolver adapter).
-- [ ] Faithful-path cycles/s improves or stays within 5 %; number recorded.
+- [x] One schedule builder, one cache, used by both modes.
+- [x] `_execute_cycle_fast`, `_cycle_plan`, `_run_plan` and `_SLOTS_WITH_ACTIVE_NOP`'s duplicate logic are gone.
+- [x] Prototyping differs from faithful only in `skip_idle_nops=True` (and, after E04-10, the resolver adapter).
+- [x] Faithful-path cycles/s improves or stays within 5 %; number recorded.
+
+## Benchmark (E04-02)
+
+`bazel run [--config=proto] //src/tools/ipu-emu-py:bench_emulator` (full run, best of 5), before = aae1d794, after = this change, same machine, same Bazel cache. Cycles/s, higher is better.
+
+| Build | Mode | Workload | Before | After | Change |
+|---|---|---|---:|---:|---:|
+| default | faithful | matmul_384x192_x128 | 8 695 | 10 135 | +16.6 % |
+| default | faithful | fully_connected.int8 | 9 820 | 11 930 | +21.5 % |
+| `--config=proto` | faithful | matmul_384x192_x128 | 8 764 | 10 164 | +16.0 % |
+| `--config=proto` | faithful | fully_connected.int8 | 10 065 | 11 865 | +17.9 % |
+| `--config=proto` | prototyping | matmul_384x192_x128 | 12 712 | 12 220 | -3.9 % |
+| `--config=proto` | prototyping | fully_connected.int8 | 13 628 | 12 968 | -4.8 % |
+
+The faithful path is 16-22 % faster, which meets the acceptance criterion. Prototyping is 4-5 % slower. It now resolves every LR sub-slot before any LR write, and it runs through `Cycle.retire()` and its observer hooks instead of the deleted `_execute_cycle_fast`. That cost buys identical partial state on a fault (plan-01 Q5, option a). The issue sets no speed target for prototyping, and it is still 20-25 % faster than faithful.
 
 ## Risks
 

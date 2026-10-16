@@ -1,7 +1,7 @@
 """Prototyping mode must change speed and nothing else.
 
-Its shortcuts (skipping NOP slots, caching per-PC dispatch work, short-circuiting
-an all-ones multiply mask) are only defensible if the state they leave behind is
+Its shortcuts (schedules that skip idle NOP slots, direct LR/CR operand reads,
+short-circuiting an all-ones multiply mask) are only defensible if the state they leave behind is
 *identical* to the faithful path's — not close, identical. In a flagged build,
 every program runs through faithful and prototype engines in lockstep; every
 register, all 512 MiB of XMEM, snapshots, cycle outcomes and run statistics are
@@ -24,12 +24,7 @@ from ipu_emu.emulator import load_program
 from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
-from ipu_emu.prototyping import (
-    # TODO(E04-08): prototyping becomes an adapter; test its env parsing publicly.
-    _env_requests_prototyping,
-    build_enabled,
-    default_enabled,
-)
+from ipu_emu.prototyping import build_enabled, default_enabled, env_requests_prototyping
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
     not build_enabled(), reason="requires --define=ipu_proto=1"
@@ -213,10 +208,6 @@ def test_timing_probes_are_identical(name, mode):
     _assert_states_identical(faithful, fast)
 
 
-#: Raising probes whose two modes are known to end in different states.
-_KNOWN_DIVERGENT = {"lr_subslot_exception"}
-
-
 def _run_until_raise(name: str):
     """Run a probe that raises in both modes; return each mode's exception and
     final state."""
@@ -233,7 +224,7 @@ def _run_until_raise(name: str):
 
 
 @_REQUIRES_PROTO_BUILD
-@pytest.mark.parametrize("name", sorted(set(timing_probes.RAISES) - _KNOWN_DIVERGENT))
+@pytest.mark.parametrize("name", sorted(timing_probes.RAISES))
 def test_raising_timing_probes_are_identical(name):
     states, exceptions = _run_until_raise(name)
     assert type(exceptions[0]) is type(exceptions[1])
@@ -242,14 +233,9 @@ def test_raising_timing_probes_are_identical(name):
 
 
 @_REQUIRES_PROTO_BUILD
-@pytest.mark.xfail(
-    strict=True, raises=AssertionError, reason="E04-07 closes the LR sub-slot divergence"
-)
 def test_lr_subslot_exception_partial_state_matches():
-    """When an LR sub-slot's operand read raises, faithful mode has written no
-    LR; prototyping mode runs sub-slots one at a time and has already written
-    sub-slot 0's LR1. E04-07 makes the two agree; the strict xfail then fails
-    and that PR removes the marker."""
+    """When an LR sub-slot's operand read raises, neither mode has written an
+    LR: both resolve every sub-slot before any writes (E04-08)."""
     states, _ = _run_until_raise("lr_subslot_exception")
     _assert_states_identical(*states)
 
@@ -408,26 +394,25 @@ def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
 
 @pytest.mark.parametrize("raw", ["FALSE", "False", "false", "NO", "Off", " 0 ", ""])
 def test_env_false_values_are_case_insensitive(raw):
-    assert _env_requests_prototyping(raw) is False
+    assert env_requests_prototyping(raw) is False
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "YES", "on", " On "])
 def test_env_true_values_are_case_insensitive(raw):
-    assert _env_requests_prototyping(raw) is True
+    assert env_requests_prototyping(raw) is True
 
 
 @pytest.mark.parametrize("raw", ["maybe", "2", "enable"])
 def test_env_unrecognised_value_raises(raw, monkeypatch):
     with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
-        _env_requests_prototyping(raw)
+        env_requests_prototyping(raw)
     monkeypatch.setenv("IPU_EMU_PROTOTYPING", raw)
     with pytest.raises(ValueError, match="IPU_EMU_PROTOTYPING"):
         IpuState()
 
 
 @_REQUIRES_PROTO_BUILD
-@pytest.mark.parametrize("patch_style", ["replace", "in_place"])
-def test_debug_instruction_patch_invalidates_cached_plan(patch_style):
+def test_debug_instruction_patch_invalidates_cached_plan():
     """Continuing from BREAK must execute the debugger's current instruction."""
     break_inst = assemble_program("BREAK ;;\n")[0]
     replacement = assemble_program("SET LR0 CR2 ;;\n")[0]
@@ -443,11 +428,11 @@ def test_debug_instruction_patch_invalidates_cached_plan(patch_style):
         assert retained is not None
         retained_bytes = _regfile_bytes(retained)
 
-        if patch_style == "replace":
-            state.inst_mem[0] = dict(replacement)
-        else:
+        # A fetched word is frozen: an in-place edit cannot slip past the
+        # cached schedule. The debugger writes a new word instead.
+        with pytest.raises((TypeError, AttributeError)):
             state.inst_mem[0].clear()
-            state.inst_mem[0].update(replacement)
+        state.inst_mem[0] = dict(replacement)
 
         ipu.execute_vliw_cycle_skip_break()
         assert state.regfile.get_lr(0) == 99
@@ -456,3 +441,36 @@ def test_debug_instruction_patch_invalidates_cached_plan(patch_style):
         states.append(state)
 
     _assert_states_identical(*states)
+
+
+def _profiled_run(asm: str, prototyping: bool, seed: int = 5):
+    from ipu_emu.alias_profile import AliasProfile
+
+    state = new_state(
+        prototyping=prototyping,
+        alias_profile=AliasProfile(),
+        setup=_seed(ElementFormat.INT8, seed),
+    )
+    load_program(state, assemble_program(asm))
+    return state, Ipu(state)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(PROGRAMS))
+def test_profiled_runs_give_identical_profiles(name):
+    """The profiler observes prototyping runs too (E04-08). Skipped NOP slots
+    are idle in both profiles, so the two reports are identical."""
+    runs = [_profiled_run(PROGRAMS[name], prototyping) for prototyping in (False, True)]
+    states = [state for state, _ in runs]
+    while not states[0].is_halted:
+        outcomes = [engine.execute_vliw_cycle() for _, engine in runs]
+        assert outcomes[0] == outcomes[1]
+        if outcomes[0] == BreakResult.BREAK:
+            for _, engine in runs:
+                engine.execute_vliw_cycle_skip_break()
+        _assert_states_identical(*states)
+    assert states[1].is_halted
+    reports = [state.alias_profile.to_dict() for state in states]
+    assert reports[0]["totals"]["cycles"] > 0
+    assert reports[0] == reports[1]
+    assert states[0].stats.format_summary() == states[1].stats.format_summary()

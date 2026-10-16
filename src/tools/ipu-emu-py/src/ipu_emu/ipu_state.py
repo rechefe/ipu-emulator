@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any
 
 from ipu_emu import activations as _activations
+from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.ipu_math import DType
 from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
@@ -59,7 +60,8 @@ class IpuState:
         regfile:         The live register file.
         xmem:            External memory (512 MiB, mode-independent allocation).
         program_counter: Current instruction address.
-        inst_mem:        Instruction memory (list of decoded instruction dicts).
+        inst_mem:        Instruction memory: frozen decoded words, written
+                         through ``inst_mem[pc] = word`` (see ``InstMem``).
         dtype:           Arithmetic data type (not stored in CR; emulator-only).
         prototyping:     Whether the opt-in fast paths are active (emulator-only).
         quit_requested:  The debugger quit the last run before it finished.
@@ -84,7 +86,7 @@ class IpuState:
         self.stats = RunStats()
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
-        self.inst_mem: list[dict[str, Any] | None] = [None] * INST_MEM_SIZE
+        self._inst_mem = InstMem(INST_MEM_SIZE)
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -257,6 +259,12 @@ class IpuState:
         )
 
     # -- state queries ------------------------------------------------------
+
+    @property
+    def inst_mem(self) -> InstMem:
+        """Instruction memory. Read-only attribute: write words into it, never
+        replace it, so the cycle's per-PC schedules see every write."""
+        return self._inst_mem
 
     @property
     def is_halted(self) -> bool:

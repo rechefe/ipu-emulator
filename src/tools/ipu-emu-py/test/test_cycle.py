@@ -174,12 +174,12 @@ def test_an_edit_made_at_a_break_is_visible_to_the_resumed_word():
 
 
 def test_reset_empties_the_schedule_cache_and_recopies_the_register_file(monkeypatch):
-    state = make_state("SET LR0 CR8 ;;\nBKPT ;;", cr={8: 1})
+    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nBKPT ;;", cr={8: 1})
     ipu = Ipu(state)
     ipu.cycle.step()
-    # TODO(E04-08): the per-word plan cache moves into Cycle; assert through it.
-    ipu._cycle_plan(0, state.inst_mem[0])
-    assert ipu._cycle_cache
+    ipu.cycle.step()
+    assert ipu.cycle.cached_schedule(0) is not None
+    assert ipu.cycle.cached_schedule(1) is not None
 
     copies = []
     real_snapshot = RegFile.snapshot
@@ -191,9 +191,102 @@ def test_reset_empties_the_schedule_cache_and_recopies_the_register_file(monkeyp
     monkeypatch.setattr(RegFile, "snapshot", counting_snapshot)
     ipu.cycle.reset()
 
-    assert not ipu._cycle_cache
+    assert ipu.cycle.cached_schedule(0) is None
+    assert ipu.cycle.cached_schedule(1) is None
     ipu.cycle.step()
     assert copies == [state.regfile]
+
+
+def test_a_word_is_scheduled_once_per_pc(monkeypatch):
+    import ipu_emu.cycle as cycle_mod
+
+    state = make_state("loop:\nINC LR0 1 ;;\nBLT LR0 CR8 loop ;;\nBKPT ;;", cr={8: 5})
+    scheduled = []
+    real = cycle_mod.schedule_word
+
+    def counting(inst, **kw):
+        scheduled.append(dict(inst))
+        return real(inst, **kw)
+
+    monkeypatch.setattr(cycle_mod, "schedule_word", counting)
+    cycle = _cycle(state)
+    while not state.is_halted:
+        cycle.step()
+
+    assert state.regfile.get_lr(0) == 5
+    # Five loop iterations, but each of the three words is decoded once.
+    assert len(scheduled) == 3
+
+
+def test_writing_imem_drops_only_that_pcs_schedule():
+    state = make_state("SET LR0 CR8 ;;\nSET LR1 CR8 ;;\nSET LR2 CR8 ;;\nBKPT ;;", cr={8: 4})
+    cycle = _cycle(state)
+    for _ in range(3):
+        cycle.step()
+    kept = [cycle.cached_schedule(pc) for pc in (0, 2)]
+    assert cycle.cached_schedule(1) is not None
+
+    state.inst_mem[1] = assemble_program("SET LR3 CR8 ;;")[0]
+
+    assert cycle.cached_schedule(1) is None
+    assert all(cycle.cached_schedule(pc) is old for pc, old in zip((0, 2), kept, strict=True))
+    state.program_counter = 1
+    cycle.step()
+    assert state.regfile.get_lr(3) == 4
+
+
+def test_imem_words_are_frozen_and_writes_are_versioned():
+    state = make_state("SET LR0 CR8 ;;", cr={8: 4})
+    word = state.inst_mem[0]
+    version = state.inst_mem.version(0)
+    with pytest.raises(TypeError):
+        word["anything"] = 1  # type: ignore[index]
+
+    state.inst_mem[0] = dict(word)
+
+    assert state.inst_mem.version(0) == version + 1
+    assert state.inst_mem.version(1) == 0
+    assert state.inst_mem[0] == word
+
+
+def test_imem_write_observers_are_called_and_removed():
+    state = new_state()
+    seen = []
+    remove = state.inst_mem.add_write_observer(seen.append)
+    state.inst_mem[3] = None
+    state.inst_mem[-1] = None
+    remove()
+    remove()
+    state.inst_mem[4] = None
+    assert seen == [3, len(state.inst_mem) - 1]
+
+
+def test_imem_does_not_keep_a_cycle_alive():
+    import gc
+    import weakref
+
+    state = make_state("SET LR0 CR8 ;;", cr={8: 4})
+    ipu = Ipu(state)
+    cycle = Cycle(state, ipu)
+    cycle.step()
+    ref = weakref.ref(cycle)
+    del cycle
+    gc.collect()
+    assert ref() is None
+    state.inst_mem[0] = None  # the dead cycle's observer is gone, not called
+
+
+def test_a_debugger_word_written_at_a_break_is_retired():
+    state = make_state("SET LR0 CR8 ; BREAK ;;\nBKPT ;;", cr={8: 5, 9: 6})
+    cycle = _cycle(state)
+    assert cycle.evaluate_break() is CycleOutcome.BREAK
+
+    state.inst_mem[0] = assemble_program("SET LR1 CR9 ;;")[0]
+    cycle.retire()
+
+    assert state.regfile.get_lr(0) == 0
+    assert state.regfile.get_lr(1) == 6
+    assert state.program_counter == 1
 
 
 def test_the_observer_brackets_each_retired_word_and_not_a_break():
@@ -246,3 +339,83 @@ def test_a_nop_break_slot_is_not_scheduled_and_conflicts_are_found_once():
 def test_break_result_is_an_alias_of_cycle_outcome():
     assert BreakResult is CycleOutcome
     assert BreakResult.CONTINUE is CycleOutcome.RETIRED
+
+
+def test_skipping_idle_nops_keeps_counters_and_the_cond_nop_in_place():
+    word = assemble_program("SET LR0 CR1 ; ACC.ADD ;;")[0]
+
+    faithful = schedule_word(word)
+    skipping = schedule_word(word, skip_idle_nops=True)
+
+    assert skipping.break_op is faithful.break_op is None
+    assert [op.plan.inst_name for op in skipping.lr_ops] == ["SET"]
+    kept = [(op.slot, op.plan.inst_name, op.operands is None) for op in skipping.slot_ops]
+    # The idle multiplier stays as a counter-only op, the cond NOP (it advances
+    # the PC) is issued, ACC.ADD is issued; every other NOP is gone.
+    assert ("mult", "NOP", True) in kept
+    assert ("cond", "NOP", False) in kept
+    assert ("acc", "ACC.ADD", False) in kept
+    assert all(name != "NOP" or slot in ("mult", "cond") for slot, name, _ in kept)
+    # Whatever is kept keeps the faithful order, LR included.
+    order = [op.slot for op in faithful.slot_ops]
+    assert [op.slot for op in skipping.slot_ops] == [
+        slot for slot in order if slot in {op.slot for op in skipping.slot_ops}
+    ]
+    lr_before = {op.slot for op in faithful.slot_ops[: faithful.lr_position]}
+    assert {op.slot for op in skipping.slot_ops[: skipping.lr_position]} <= lr_before
+
+
+def _lockstep_modes(program: list, **kw) -> list[tuple[IpuState, Cycle]]:
+    """A faithful and a NOP-skipping cycle on twin states. The second is a real
+    prototyping state (its resolver too) in a ``--define=ipu_proto=1`` build."""
+    from ipu_emu.prototyping import build_enabled
+
+    runs = []
+    for skip in (False, True):
+        state = new_state(prototyping=skip and build_enabled(), **kw)
+        load_program(state, program)
+        runs.append((state, Cycle(state, Ipu(state), skip_idle_nops=skip)))
+    return runs
+
+
+def test_both_modes_agree_cycle_by_cycle():
+    runs = []
+    for skip in (False, True):
+        state = _program_state()
+        runs.append((state, Cycle(state, Ipu(state), skip_idle_nops=skip)))
+    while not runs[0][0].is_halted:
+        outcomes = [cycle.step() for _, cycle in runs]
+        assert outcomes[0] is outcomes[1]
+        if outcomes[0] is CycleOutcome.BREAK:
+            for _, cycle in runs:
+                cycle.retire()
+        assert _observable(runs[0][0]) == _observable(runs[1][0])
+    assert runs[1][0].is_halted
+
+
+def test_lr_subslot_exception_atomicity():
+    """A read that raises in LR sub-slot 2 leaves sub-slot 1's target unwritten,
+    in both modes, compared in lockstep."""
+    from ipu_emu.errors import RegisterIndexError
+
+    program = assemble_program("SET LR1 CR2 ; SET LR2 CR3 ; SET LR4 CR5 ;;\nBKPT ;;")
+    word = program[0]
+    # SET's source shares the ADDBI immediate's union column: point sub-slot
+    # 2's source at a CR that does not exist, so its resolver raises.
+    source = next(
+        name for name in word if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
+    )
+    assert word[source] == 3
+    word[source] = 999
+    runs = _lockstep_modes(program, cr={2: 5, 3: 6, 5: 7})
+
+    failures = []
+    for state, cycle in runs:
+        with pytest.raises(RegisterIndexError) as caught:
+            cycle.step()
+        failures.append((type(caught.value), caught.value.args))
+        assert state.regfile.get_lr(1) == 0  # sub-slot 1's target
+        assert state.regfile.get_lr(4) == 0
+
+    assert failures[0] == failures[1]
+    assert _observable(runs[0][0]) == _observable(runs[1][0])
