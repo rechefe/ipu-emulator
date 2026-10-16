@@ -2,7 +2,7 @@
  "default": {
   "cycles": 36,
   "output_sha256": "77ce25bdb6ee341f5141b1a863e58bdb2523179da8e5d07a37770a2bd73fe2ee",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 0, 4, 6, 1, 2, 1, 2, 1, 128, 4, 0, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -15,7 +15,7 @@
  "tile_boundary": {
   "cycles": 143,
   "output_sha256": "dc884db764cf6c6d319a2fa46da238128cd99cb4bcd38f3fb1d22e91ed1e6ac6",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 0, 30, 38, 3, 6, 2, 2, 2, 128, 15, 1, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

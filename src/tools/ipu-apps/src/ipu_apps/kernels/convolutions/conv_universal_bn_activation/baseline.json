@@ -2,7 +2,7 @@
  "default": {
   "cycles": 1266,
   "output_sha256": "2a302f2546e6c33a34bfeb8529d16c752cdc99ca4906192a3c0e43f3fe753bcb",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 57, 56, 16, 48, 16, 28, 8, 384, 0, 32, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -15,7 +15,7 @@
  "in_channels=10,out_channels=4,height=16,width=16": {
   "cycles": 834,
   "output_sha256": "004c4c136b96023a30f94a4aa817b4e0c5784c7b1ff48d8f73db70df5a96b578",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 39, 38, 16, 30, 10, 28, 8, 384, 0, 20, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -28,7 +28,7 @@
  "in_channels=16,out_channels=4,height=8,width=128": {
   "cycles": 5052,
   "output_sha256": "ecd50ad4c1fb2b68ce72fce376d5131809d9d1ed462b56829b8e2ce4d348d7aa",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 153, 152, 128, 144, 16, 28, 8, 384, 0, 128, 128, 2, 126, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -41,7 +41,7 @@
  "in_channels=16,out_channels=8,height=32,width=32": {
   "cycles": 10076,
   "output_sha256": "30c352cbb1ebd2d27fdc095d240c77b8a09a47482fedc6218536bf156c605adc",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 161, 160, 32, 144, 16, 28, 16, 384, 0, 128, 128, 2, 318, 1152],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -54,7 +54,7 @@
  "in_channels=28,out_channels=4,height=16,width=16": {
   "cycles": 2130,
   "output_sha256": "3f2fb7210f43636d75f52320a6175cc32a24329bd7e9bb162a421255571f0c68",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 93, 92, 16, 84, 28, 28, 8, 384, 0, 56, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -67,7 +67,7 @@
  "in_channels=3,out_channels=5,height=4,width=127": {
   "cycles": 816,
   "output_sha256": "a3f545b0f6d7992175140201b723ac303bad3b43ff2e54cc5c89f0c472e2ebf1",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 26, 25, 128, 15, 3, 28, 10, 384, 0, 12, 128, 2, 126, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -80,7 +80,7 @@
  "in_channels=4,out_channels=2,height=5,width=5": {
   "cycles": 206,
   "output_sha256": "da6ef9a915d6cb73c0d74fdbc4e3c837401af75d70e6b96c700169b3b038ea18",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 17, 16, 16, 12, 4, 28, 4, 384, 0, 8, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -93,7 +93,7 @@
  "in_channels=4,out_channels=2,height=8,width=128": {
   "cycles": 812,
   "output_sha256": "64cb4d8c4dd00c98bb2ff9cf460a9dd87ed36f511afde588d6d87efa96b449ba",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 41, 40, 128, 36, 4, 28, 4, 384, 0, 32, 128, 2, 126, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -106,7 +106,7 @@
  "in_channels=4,out_channels=2,height=8,width=8": {
   "cycles": 206,
   "output_sha256": "d4eebed7fad69cc2df593efde47ff62ba7481e9b08679d07bf63901375787a17",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 17, 16, 16, 12, 4, 28, 4, 384, 0, 8, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -119,7 +119,7 @@
  "in_channels=56,out_channels=4,height=16,width=16": {
   "cycles": 4226,
   "output_sha256": "5ea2f4ecaf812694c4946eb4f235536860498bc2bbfbc0e825945d9c9f0dbd58",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 185, 184, 16, 168, 56, 28, 16, 384, 0, 112, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -132,7 +132,7 @@
  "negative_bias": {
   "cycles": 350,
   "output_sha256": "e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 29, 28, 16, 24, 8, 28, 4, 384, 0, 16, 128, 2, 350, 2176],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

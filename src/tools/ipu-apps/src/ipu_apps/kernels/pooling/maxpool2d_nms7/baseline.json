@@ -2,7 +2,7 @@
  "default": {
   "cycles": 235,
   "output_sha256": "775aea6d8e6007e4d84b4fafcbd6e6d2d1eb6b33845fa3f7a9743ab81b52e97a",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 0, 10, 128, 1, 10, 4, 1, 0, 0, 0, 0, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -15,7 +15,7 @@
  "single_pixel": {
   "cycles": 64,
   "output_sha256": "ccdb28804e9d4a1ce8388990faf90e2b3aaa3419576790b5cb7b6f5847f4714d",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 0, 7, 128, 1, 7, 1, 1, 0, 0, 0, 0, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -28,7 +28,7 @@
  "tile_boundary": {
   "cycles": 676,
   "output_sha256": "fd47b87d11cf1c81cb524e426057dbfd5ecfa1ea0ac99a88223b6440ea9000cd",
-  "stages": [
+  "programs": [
    {
     "cr": [0, 1, 0, 36, 128, 2, 18, 3, 2, 0, 0, 0, 0, 0, 0, 128],
     "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

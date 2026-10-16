@@ -7,8 +7,9 @@ import json
 
 import pytest
 
-from ipu_apps.kernel_registry import baseline
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+
+from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.registry import kernel_spec
 from ipu_apps.kernel_registry.testing import check_baseline
@@ -24,7 +25,7 @@ def _record(**options) -> baseline.CaseRecord:
 
 def test_the_recorded_run_matches():
     record = _record()
-    assert len(record.stages) == 1
+    assert len(record.programs) == 1
     baseline.check(_KERNEL, "default", record)
 
 
@@ -69,10 +70,10 @@ def test_a_case_without_a_record_names_the_update_command():
 
 
 def test_differences_list_each_field():
-    stage = baseline.StageRecord("p", [0] * 16, [0] * 16, "x")
-    old = baseline.CaseRecord([stage], "o", "s", 10)
+    program = baseline.ProgramRecord("p", [0] * 16, [0] * 16, "x")
+    old = baseline.CaseRecord([program], "o", "s", 10)
     new = baseline.CaseRecord(
-        [baseline.StageRecord("p", [0] * 15 + [1], [2] + [0] * 15, "y")], None, "s", 11
+        [baseline.ProgramRecord("p", [0] * 15 + [1], [2] + [0] * 15, "y")], None, "s", 11
     )
     assert baseline.differences(old, new) == [
         "xmem_setup_sha256: x -> y",
@@ -93,3 +94,8 @@ def test_the_update_command_writes_the_kernel_folder(monkeypatch, tmp_path):
     assert path.as_posix().endswith("kernels/reshape/identity/baseline.json")
     written = json.loads(path.read_text())
     assert baseline.CaseRecord.from_json(written["default"]) == record
+
+
+def test_a_run_outside_run_until_complete_is_refused():
+    with pytest.raises(RuntimeError, match="ran no program"):
+        baseline.Recorder().finish(state=None, cycles=0)

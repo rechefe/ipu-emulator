@@ -5,7 +5,8 @@ result by one ulp passes it. The baseline makes every case also prove
 "bit-identical to the recorded run": for each case, ``<kernel folder>/baseline.json``
 records
 
-* for every program the case runs (one per stage; most kernels have one stage),
+* for every program the case runs (most kernels run one; the multi-stage
+  ``depthwise_conv_stride2_*`` kernels run two),
   the digest of the program as loaded, the CR and LR values right after the
   harness's ``setup``, and the digest of XMEM at that point;
 * the digest of the case's output file, if it has one;
@@ -17,8 +18,8 @@ passes. ``bazel run //src/tools/ipu-apps:update_kernel_baselines -- [<kernel> ..
 rewrites the files after an intended change.
 
 The capture hooks ``ipu_emu.emulator.run_until_complete``, which ``run_test``
-calls right after ``setup``; every stage of every kernel reaches the emulator
-through ``run_test``, so no harness needs to change.
+calls right after ``setup``; every program of every kernel reaches the
+emulator through ``run_test``, so no harness needs to change.
 
 Fields that differ between faithful and prototyping mode would be listed in
 ``MODE_DEPENDENT_FIELDS``; none do (run statistics are not recorded), so a
@@ -62,8 +63,8 @@ _REGISTER_COUNT = 16
 
 
 @dataclass(frozen=True)
-class StageRecord:
-    """One program run: what was loaded and set up before it started."""
+class ProgramRecord:
+    """One program a case runs: what was loaded and set up before it started."""
 
     program_sha256: str
     cr: list[int]
@@ -73,7 +74,7 @@ class StageRecord:
 
 @dataclass(frozen=True)
 class CaseRecord:
-    stages: list[StageRecord]
+    programs: list[ProgramRecord]
     output_sha256: str | None
     state_sha256: str
     cycles: int
@@ -84,7 +85,7 @@ class CaseRecord:
     @staticmethod
     def from_json(data: dict) -> CaseRecord:
         return CaseRecord(
-            stages=[StageRecord(**stage) for stage in data["stages"]],
+            programs=[ProgramRecord(**program) for program in data["programs"]],
             output_sha256=data["output_sha256"],
             state_sha256=data["state_sha256"],
             cycles=data["cycles"],
@@ -123,8 +124,8 @@ def state_sha256(state: IpuState) -> str:
     return digest.hexdigest()
 
 
-def _stage(state: IpuState) -> StageRecord:
-    return StageRecord(
+def _program(state: IpuState) -> ProgramRecord:
+    return ProgramRecord(
         program_sha256=program_sha256(state),
         cr=[state.regfile.get_cr(i) for i in range(_REGISTER_COUNT)],
         lr=[state.regfile.get_lr(i) for i in range(_REGISTER_COUNT)],
@@ -136,7 +137,7 @@ class Recorder:
     """Captures one case run: ``watch()`` around the run, then ``finish``."""
 
     def __init__(self) -> None:
-        self.stages: list[StageRecord] = []
+        self.programs: list[ProgramRecord] = []
         self.record: CaseRecord | None = None
 
     @contextmanager
@@ -144,7 +145,7 @@ class Recorder:
         original = emulator.run_until_complete
 
         def run_until_complete(state, *args, **kwargs):
-            self.stages.append(_stage(state))
+            self.programs.append(_program(state))
             return original(state, *args, **kwargs)
 
         emulator.run_until_complete = run_until_complete
@@ -154,20 +155,25 @@ class Recorder:
             emulator.run_until_complete = original
 
     def finish(self, state: IpuState, cycles: int, output_path=None) -> CaseRecord:
+        if not self.programs:
+            raise RuntimeError(
+                "the case ran no program through ipu_emu.emulator.run_until_complete, "
+                "so the baseline recorder saw nothing (debugger runs are not recorded)"
+            )
         output = None
         if output_path is not None and Path(output_path).is_file():
             output = hashlib.sha256(Path(output_path).read_bytes()).hexdigest()
-        self.record = CaseRecord(list(self.stages), output, state_sha256(state), cycles)
+        self.record = CaseRecord(list(self.programs), output, state_sha256(state), cycles)
         return self.record
 
 
 def differences(expected: CaseRecord, actual: CaseRecord) -> list[str]:
     """One line per field that differs; CR/LR changes name each register."""
     lines = []
-    if len(expected.stages) != len(actual.stages):
-        lines.append(f"stages: {len(expected.stages)} -> {len(actual.stages)}")
-    for index, (old, new) in enumerate(zip(expected.stages, actual.stages)):
-        where = f"stage {index} " if len(actual.stages) > 1 else ""
+    if len(expected.programs) != len(actual.programs):
+        lines.append(f"programs: {len(expected.programs)} -> {len(actual.programs)}")
+    for index, (old, new) in enumerate(zip(expected.programs, actual.programs)):
+        where = f"program {index} " if len(actual.programs) > 1 else ""
         for name in ("program_sha256", "xmem_setup_sha256"):
             if getattr(old, name) != getattr(new, name):
                 lines.append(f"{where}{name}: {getattr(old, name)} -> {getattr(new, name)}")
