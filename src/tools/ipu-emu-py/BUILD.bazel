@@ -35,6 +35,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 py_library(
     name = "ipu_emu_lib",
     srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],
@@ -157,7 +163,7 @@ py_pytest_test(
     ],
 )
 
-# The MAC-alias catalogue (ipu_emu/isa_alias_spec.py) against INSTRUCTION_SPEC.
+# The MAC-alias catalogue (ipu_emu/isa_alias_spec.py) against the ISA view (isa()).
 py_pytest_test(
     name = "test_isa_alias_spec",
     srcs = ["test/test_isa_alias_spec.py"],

@@ -21,6 +21,12 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
 # Generators that render artifacts from the ISA: the SystemVerilog package
 # (E08-13) and the union layout SVG. E08-14 and E08-15 move the docs and
 # VS Code generators here.

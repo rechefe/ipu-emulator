@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from ipu_gen.union_layout_svg import render_union_layout_svg
 from ipu_isa.registers import create_assembler_reg_enums
 from ipu_isa.view import Isa, isa
 
@@ -16,7 +17,7 @@ def _operand_slug(typ: str) -> str:
 
 def generate_operand_types_md(output_path: Path, view: Isa | None = None) -> None:
     """Write operand-types.md (linked from the instruction reference)."""
-    view = view or isa()
+    view = isa() if view is None else view
     lines: list[str] = [
         "# Operand types",
         "",
@@ -363,8 +364,9 @@ def _generate_slots_section(view: Isa) -> str:
 def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> None:
     """Generate instruction reference documentation.
 
-    The slots table reads ``view``; the per-opcode sections and layout diagrams
-    come from the assembler's instruction classes, built from ``isa()``.
+    Every section reads ``view`` (default: ``isa()``), except the whole-word
+    bit diagram: it is drawn from the assembler's token classes, which are
+    built from ``isa()``, so for any other view it is replaced by a note.
     """
     from ipu_as.compound_inst import CompoundInst
     from ipu_as.inst import Inst
@@ -376,7 +378,9 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
         "[operand type reference](operand-types.md).\n"
     )
 
-    content.append(_generate_slots_section(view or isa()))
+    default = view is None or view is isa()
+    view = isa() if view is None else view
+    content.append(_generate_slots_section(view))
 
     content.append("## Compound Instruction Layout\n")
     content.append(
@@ -390,13 +394,22 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
         "opcode field sharing comes from.\n"
     )
     content.append("\n### Whole-word bit layout\n")
-    content.append(CompoundInst.generate_struct_layout_svg())
+    if default:
+        content.append(CompoundInst.generate_struct_layout_svg())
+    else:
+        content.append("*(Drawn for the repository's ISA only.)*")
     content.append("\n### Per-slot union layout\n")
-    content.append(CompoundInst.generate_union_layout_svg())
+    content.append(
+        render_union_layout_svg(
+            view.layout.unions,
+            slot_order=[slot.value for slot in view.layout.layout_order],
+            slot_counts={slot.value: info.count for slot, info in view.slots.items()},
+        )
+    )
     content.append("\n---\n\n")
 
-    for inst_class in Inst.get_all_instruction_classes():
-        content.append(inst_class.description())
+    for slot in view.layout.layout_order:
+        content.append(Inst._render_instruction_docs(slot.value, view))
         content.append("\n---\n")
 
     output_path.write_text("\n".join(content))
@@ -469,7 +482,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
         "`PSEUDO_INSTRUCTION_SPEC` in `instruction_spec.py`.\n"
     )
 
-    for pseudo in (view or isa()).pseudos():
+    for pseudo in (isa() if view is None else view).pseudos():
         target = pseudo.expands_to
         lines = Inst._render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
         lines.append("")

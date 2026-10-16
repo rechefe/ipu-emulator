@@ -11,6 +11,7 @@ implicit reads and writes (E03-14), formats and faults (E03-13, E03-15).
 
 from __future__ import annotations
 
+import copy
 import functools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -241,6 +242,13 @@ def load_isa(
         _instructions=MappingProxyType(instructions),
         _pseudos=pseudos,
     )
+
+
+def authoring_copies() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Deep copies of ``(instruction spec, pseudo spec)``, to edit and pass to
+    :func:`load_isa` (tests and E03-24's one-edit check). The originals stay
+    private to ``ipu_isa``."""
+    return copy.deepcopy(INSTRUCTION_SPEC), copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
 
 
 @functools.cache

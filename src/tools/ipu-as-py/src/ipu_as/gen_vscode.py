@@ -329,7 +329,7 @@ def build_tmlanguage(view: Isa | None = None) -> dict:
     # to it — so they are enumerated from the spec instead.
     repository["mnemonic"] = {
         "name": "keyword.other.mnemonic.ipu-asm",
-        "match": _keyword_pattern(_mnemonics(view or isa())),
+        "match": _keyword_pattern(_mnemonics(isa() if view is None else view)),
     }
     repository["register"] = {
         "name": "variable.language.register.ipu-asm",
@@ -450,7 +450,7 @@ def build_hover_data(emulator: dict | None = None, view: Isa | None = None) -> d
     A mnemonic can occupy more than one slot — NOP exists in all nine, each with
     its own summary — so each entry keeps every form rather than flattening.
     """
-    view = view or isa()
+    view = isa() if view is None else view
     instructions: dict[str, list[dict]] = {}
 
     for slot in view.slots:

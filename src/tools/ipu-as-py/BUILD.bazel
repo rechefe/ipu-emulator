@@ -67,6 +67,24 @@ filegroup(
     srcs = glob(["src/**/*.py"]),
 )
 
+# The package's test sources, for //tools:test_import_graph's private-name check.
+filegroup(
+    name = "py_test_sources",
+    srcs = glob(["test/**/*.py"], allow_empty = True),
+)
+
+# Each generator renders the ISA it is given (E03-11).
+py_pytest_test(
+    name = "test_generators_take_a_view",
+    srcs = ["test/test_generators_take_a_view.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        requirement("pytest"),
+    ],
+)
+
 # Derived operand widths are right whatever is imported first (E03-08).
 py_pytest_test(
     name = "test_import_order",

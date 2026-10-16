@@ -134,8 +134,8 @@ def syntax(mnemonic: str, operand_names: Sequence[str]) -> str:
     return " ".join([mnemonic, *operand_names])
 
 
-# The binary layout (SLOT_UNIONS, SLOT_BINARY_LAYOUT, word widths) is derived
-# from INSTRUCTION_SPEC by ipu_isa.layout, which imports this module. Slots are
+# The binary layout (each slot's union fields, word widths) is derived from
+# INSTRUCTION_SPEC by ipu_isa.view.load_isa (isa().layout). Slots are
 # tagged HARDWARE or EMULATOR in ipu_isa.slots; until E03-22 the generated SV
 # package still renders every slot, the EMULATOR ones (acc_store, break)
 # included.

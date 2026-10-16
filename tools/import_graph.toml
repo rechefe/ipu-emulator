@@ -20,6 +20,10 @@
 #
 # Edges marked "temporary" are today's code, not the target design; the
 # issue named beside each one removes it, and that change deletes the edge.
+#
+# [private] names, per module, the names no other package may use; the check
+# also reads each distribution's test/ directory (its :py_test_sources), so a
+# new package adds that filegroup to the test's data too.
 
 [allowed]
 # The ISA is the root: it depends on no other package (Q31, Q62).
@@ -83,7 +87,8 @@ ipu_kernels = ["ipu_harness"]
 ipu_harness = ["torch"]
 
 [private]
-# Names a module keeps to its own package: no source in another package may
-# import them or read them as an attribute (E03-11). The authoring dicts are
+# Names a module keeps to its own package: no source or test of another
+# package may import them (or `import *` the module) or read them as an
+# attribute (E03-11). The authoring dicts are
 # read only by ipu_isa's loader; everything else reads the typed view, isa().
 "ipu_isa.instruction_spec" = ["INSTRUCTION_SPEC", "PSEUDO_INSTRUCTION_SPEC"]

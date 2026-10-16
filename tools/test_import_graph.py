@@ -168,20 +168,28 @@ def violations(
 
 def private_name_uses(packages: Mapping[str, Path], private: Table) -> list[str]:
     """One line per use of a ``[private]`` name outside its module's package:
-    ``from module import NAME`` or any ``<expr>.NAME``."""
+    ``from module import NAME`` (or ``*``), or any ``<expr>.NAME``. A package's
+    sources and its distribution's ``test/`` directory both count as the
+    package."""
     found = []
     names = {name: module for module, members in private.items() for name in members}
     for package, directory in sorted(packages.items()):
-        for path in sorted(directory.rglob("*.py")):
+        tests = directory.parent.parent / "test"
+        paths = sorted(directory.rglob("*.py")) + sorted(tests.rglob("*.py"))
+        for path in paths:
             for node in ast.walk(ast.parse(path.read_text(), str(path))):
                 if isinstance(node, ast.ImportFrom) and node.module in private:
-                    used = [a.name for a in node.names if a.name in private[node.module]]
+                    used = [
+                        a.name if a.name != "*" else "*"
+                        for a in node.names
+                        if a.name in private[node.module] or a.name == "*"
+                    ]
                 elif isinstance(node, ast.Attribute) and node.attr in names:
                     used = [node.attr]
                 else:
                     continue
                 for name in used:
-                    owner = names[name]
+                    owner = node.module if name == "*" else names[name]
                     if owner.split(".")[0] != package:
                         found.append(f"{path}:{node.lineno}: uses {owner}.{name}")
     return found
@@ -256,18 +264,22 @@ def test_private_names_stay_in_their_package():
         "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
         "def f():\n    from ipu_isa.instruction_spec import PSEUDO_INSTRUCTION_SPEC\n",
         "import ipu_isa.instruction_spec as spec\nx = spec.INSTRUCTION_SPEC\n",
+        "from ipu_isa.instruction_spec import *\n",
     ],
 )
-def test_a_planted_private_name_use_is_reported(tmp_path, text):
+@pytest.mark.parametrize("where", ["as/src/ipu_as/mod.py", "as/test/test_mod.py"])
+def test_a_planted_private_name_use_is_reported(tmp_path, text, where):
     packages = _plant(
         tmp_path,
         {
-            "as/src/ipu_as/mod.py": text,
+            "as/src/ipu_as/__init__.py": "",
+            where: text,
             "isa/src/ipu_isa/view.py": "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
+            "isa/test/test_view.py": "from ipu_isa.instruction_spec import INSTRUCTION_SPEC\n",
         },
     )
     [found] = private_name_uses(packages, PRIVATE_ROWS)
-    assert found.startswith(str(tmp_path / "as/src/ipu_as/mod.py"))
+    assert found.startswith(str(tmp_path / where))
     assert "ipu_isa.instruction_spec." in found
 
 

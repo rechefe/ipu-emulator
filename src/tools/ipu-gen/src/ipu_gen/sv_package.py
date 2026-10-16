@@ -354,7 +354,7 @@ def enum_descriptors(view: Isa | None = None) -> dict[str, list[tuple[int, str]]
         ``_t``. Opcodes are in spec order (position = opcode); operand members
         in their domain's encoding order.
     """
-    view = view or isa()
+    view = isa() if view is None else view
     enums: dict[str, list[tuple[int, str]]] = {}
     for slot in view.spec_slot_order:
         enums[view.slots[slot].opcode_enum] = _members(
@@ -409,7 +409,7 @@ def _compound_slot_order(view: Isa) -> str:
 
 def build_codegen_context(view: Isa | None = None) -> dict[str, Any]:
     """Build the Jinja render context from the ISA view (default: ``isa()``)."""
-    view = view or isa()
+    view = isa() if view is None else view
     enum_list = _enum_descriptors_for_templates(view)
     typedef_bits = {e["sv_type"]: e["width"] for e in enum_list}
     return {
@@ -457,6 +457,8 @@ def render_sv_package(context: dict[str, Any] | None = None, view: Isa | None = 
 
     Rendered from *context* if given, else from *view* (default: ``isa()``).
     """
+    if context is not None and view is not None:
+        raise TypeError("render_sv_package takes a context or a view, not both")
     body = render_template(
         SV_PACKAGE_TEMPLATE, context if context is not None else build_codegen_context(view)
     )

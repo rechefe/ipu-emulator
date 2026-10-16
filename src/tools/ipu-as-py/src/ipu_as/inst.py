@@ -23,8 +23,8 @@ from ipu_isa.instruction_spec import (
     syntax,
 )
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
-from ipu_isa.slots import SLOTS, Slot
-from ipu_isa.view import Operand, isa
+from ipu_isa.slots import Slot
+from ipu_isa.view import Isa, Operand, isa
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -379,8 +379,11 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, slot: str) -> str:
-        info = SLOTS[Slot(slot)]
+    def _render_instruction_docs(cls, slot: str, view: Isa | None = None) -> str:
+        """The reference section of ``slot``: heading, intro and one entry per
+        documented instruction of ``view`` (default: ``isa()``)."""
+        view = isa() if view is None else view
+        info = view.slots[Slot(slot)]
         heading, intro = info.doc_heading, info.doc_intro
         lines = [f"## {heading}", ""]
         if info.debug_only:
@@ -393,14 +396,14 @@ class Inst:
             lines.append(intro.strip())
             lines.append("")
 
-        for opcode in cls.struct_by_opcode_table():
-            if opcode == "NOP":
+        for instruction in view.instructions(info.slot):
+            if instruction.mnemonic == "NOP":
                 continue  # documented once globally in the Slots section
-            instruction_format = cls._struct_entry(opcode)
-            if instruction_format.doc is None:
+            if instruction.doc is None:
                 continue
-            operands = isa().instruction(info.slot, opcode).operands
-            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc, operands))
+            lines.extend(
+                cls._render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands)
+            )
             lines.append("")
 
         return "\n".join(lines).rstrip()
