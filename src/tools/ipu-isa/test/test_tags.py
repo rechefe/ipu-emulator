@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 
 import pytest
-
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -64,6 +63,11 @@ def test_a_slot_cannot_be_assembler():
         _load(_with(Slot.MULT, "tag", Tag.ASSEMBLER), LAYOUT_ORDER)
 
 
+def test_a_slot_tag_must_be_a_tag():
+    with pytest.raises(SpecError, match=r"SLOTS\.mult\.tag"):
+        _load(_with(Slot.MULT, "tag", "hardware"), LAYOUT_ORDER)
+
+
 def test_a_debug_only_slot_must_be_emulator():
     with pytest.raises(SpecError, match=r"SLOTS\.mult\.debug_only"):
         _load(_with(Slot.MULT, "debug_only", True), LAYOUT_ORDER)
@@ -105,9 +109,7 @@ def test_a_pseudo_must_expand_to_a_real_instruction():
     pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
     name, pseudo_def = next(iter(pseudo.items()))
     target = pseudo_def["expands_to"]
-    real = next(
-        n for n in spec[target["slot"]] if n.upper() == target["instruction"].upper()
-    )
+    real = next(n for n in spec[target["slot"]] if n.upper() == target["instruction"].upper())
     spec[target["slot"]][real]["tag"] = Tag.ASSEMBLER
     with pytest.raises(SpecError, match=rf"pseudo\.{name}\.expands_to\.instruction"):
         validate_pseudo_instruction_spec(pseudo, spec)

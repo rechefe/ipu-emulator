@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.layout import SLOT_BINARY_LAYOUT, SLOT_UNIONS, compute_layout, isa_layout
 from ipu_isa.operand_types import OPERAND_TYPES
@@ -64,7 +63,7 @@ def test_a_modified_spec_gets_its_own_layout():
 
 
 def test_no_ipu_isa_module_sets_attributes_on_another():
-    """No ``setattr(module, ...)`` and no global left as a placeholder."""
+    """No ``ipu_isa`` module writes into another with ``setattr``."""
     import ipu_isa
 
     root = os.path.dirname(ipu_isa.__file__)
@@ -72,4 +71,3 @@ def test_no_ipu_isa_module_sets_attributes_on_another():
         if name.endswith(".py"):
             with open(os.path.join(root, name)) as f:
                 assert "setattr(" not in f.read(), name
-

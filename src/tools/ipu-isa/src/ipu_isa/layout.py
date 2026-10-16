@@ -88,6 +88,11 @@ def compute_layout(
     layout_order: tuple[Slot, ...] = LAYOUT_ORDER,
 ) -> IsaLayout:
     """Solve the layout of ``spec``. Pure: equal inputs give equal results."""
+    if set(spec) != set(slots) or sorted(layout_order) != sorted(slots):
+        raise SpecError(
+            f"compute_layout: spec slots {sorted(spec)}, slot registry {sorted(slots)} and "
+            f"layout order {sorted(layout_order)} must name the same slots"
+        )
     type_bits = {name: record.bits or 0 for name, record in operand_types.items()}
     unions = {
         Slot(slot): compute_slot_layout(
@@ -105,7 +110,11 @@ def compute_layout(
 
 @functools.cache
 def isa_layout() -> IsaLayout:
-    """The layout of the default spec."""
+    """The layout of the default spec.
+
+    Cached: ``INSTRUCTION_SPEC`` is never modified in place (a test that
+    needs a different spec copies it and calls :func:`compute_layout`).
+    """
     return compute_layout(INSTRUCTION_SPEC, OPERAND_TYPES, SLOTS)
 
 
