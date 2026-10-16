@@ -91,6 +91,19 @@ py_pytest_test(
     ],
 )
 
+# Registers from [abi] (E06-06). ipu_apps only for the projections' CRs it
+# reproduces (guards E07-02, which deletes that harness).
+py_pytest_test(
+    name = "test_abi",
+    srcs = ["test/test_abi.py"],
+    deps = [
+        ":ipu_harness_lib",
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 # kernel.toml: the schema, the loader and its errors (E06-02).
 py_pytest_test(
     name = "test_manifest",
