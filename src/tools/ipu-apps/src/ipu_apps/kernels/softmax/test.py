@@ -397,6 +397,10 @@ _OPEN_ENDED_PROBE = 512
 
 
 def _documented_runs() -> list[tuple[str, int, int | None, str]]:
+    # The doc is checked in and is data of every family test: if it is not
+    # found, the target fails (at collection) rather than skipping.
+    if _DOC is None:
+        raise FileNotFoundError("docs/content/kernels/softmax.md is not in the runfiles")
     runs = []
     # Fences carry an optional info string (```python), so match that too --
     # pairing a closing fence with the next opening one finds nothing.
@@ -416,7 +420,6 @@ def _documented_runs() -> list[tuple[str, int, int | None, str]]:
     return runs
 
 
-@pytest.mark.skipif(_DOC is None, reason="docs/content/kernels/softmax.md is not in the runfiles")
 def test_the_doc_actually_contains_routing_tables():
     """Guards the parser: a doc rewrite that drops the fences must not turn
     this file into a test that silently checks nothing."""
@@ -425,7 +428,7 @@ def test_the_doc_actually_contains_routing_tables():
     assert {param for param, *_ in runs} == {"n", "width"}
 
 
-@pytest.mark.parametrize("param,start,end,kernel", _documented_runs() if _DOC else [])
+@pytest.mark.parametrize("param,start,end,kernel", _documented_runs())
 def test_documented_routing_matches_the_registry(param, start, end, kernel):
     dim, build = _AXIS[param]
     probes = {start, end if end is not None else _OPEN_ENDED_PROBE}
@@ -438,7 +441,7 @@ def test_documented_routing_matches_the_registry(param, start, end, kernel):
         )
 
 
-@pytest.mark.parametrize("param,start,end,kernel", _documented_runs() if _DOC else [])
+@pytest.mark.parametrize("param,start,end,kernel", _documented_runs())
 def test_documented_boundaries_are_real_boundaries(param, start, end, kernel):
     """A run that claims to start at ``start`` must actually change hands
     there -- otherwise the table describes a boundary the kernels do not have."""

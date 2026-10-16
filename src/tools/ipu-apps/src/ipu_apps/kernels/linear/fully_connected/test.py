@@ -10,10 +10,7 @@ test_case = case_tests(__package__)
 
 
 def _run(name):
-    try:
-        state, cycles = run_case("fully_connected", CASES[name])
-    except MissingInputFixture as exc:
-        pytest.skip(str(exc))
+    state, cycles = run_case("fully_connected", CASES[name])
     assert cycles > 0
     return state
 
@@ -27,9 +24,11 @@ def test_mac_accounting_and_alias_hits(name):
     assert state.stats.alias_hits == {"A16_STR_ACC_REG": 10}
 
 
-def test_missing_input_fixture_is_skipped(monkeypatch, tmp_path):
+def test_missing_input_fixture_fails(monkeypatch, tmp_path):
+    # The input fixtures are checked in: a packaging mistake that drops one
+    # must fail the target, not turn every case into a skip.
     monkeypatch.setitem(prepare.__globals__, "DATA", tmp_path)
-    with pytest.raises(pytest.skip.Exception, match="missing fully connected fixture"):
+    with pytest.raises(MissingInputFixture, match="missing fully connected fixture"):
         _run("int8")
 
 

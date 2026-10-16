@@ -19,8 +19,6 @@
 
 from __future__ import annotations
 
-from importlib.resources import files
-
 import numpy as np
 import pytest
 
@@ -715,14 +713,8 @@ def test_seam_km_bcast_48_row_pitch_mismatch_is_caught(inst, tmp_path):
 # softmax? The softmax harnesses take a dense row-major (rows x cols) file and
 # refuse any other size, so verbatim it is rejected rather than silently read
 # as garbage; cropped to the live lanes (the consumer-crops convention) it
-# gives the right softmax. Softmax kernels live in another family, so these
-# need its .asm files as data of this target.
-
-_SOFTMAX_ASM = [files(f"ipu_apps.kernels.softmax.{k}").joinpath(f"{k}.asm")
-                for k in ("softmax_rows_partial", "softmax_columns_packed")]
-needs_softmax = pytest.mark.skipif(
-    not all(p.is_file() for p in _SOFTMAX_ASM),
-    reason="the softmax kernels' .asm files are not in this target's runfiles")
+# gives the right softmax. Softmax kernels live in another family; every
+# family test gets every kernel's .asm as data, so a missing one fails here.
 
 
 def _softmax(x, axis):
@@ -730,7 +722,6 @@ def _softmax(x, axis):
     return z / z.sum(axis=axis, keepdims=True)
 
 
-@needs_softmax
 def test_query_major_scores_feed_softmax_rows(inst, tmp_path):
     from ipu_apps.kernels.softmax.cases import run_array
     from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartialApp
@@ -755,7 +746,6 @@ def test_query_major_scores_feed_softmax_rows(inst, tmp_path):
     assert err < 1e-4, f"softmax of cropped qk_scores_16x60 output: max abs error {err:.3e}"
 
 
-@needs_softmax
 def test_key_major_scores_feed_softmax_columns(inst, tmp_path):
     from ipu_apps.kernels.softmax.cases import run_array
     from ipu_apps.kernels.softmax.softmax_columns_packed.app import SoftmaxColumnsPackedApp
