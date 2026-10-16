@@ -36,3 +36,6 @@ bazel-testlogs/
 
 # macOS Finder metadata
 .DS_Store
+
+# Local benchmark results (bazel run //tools/bench:bench)
+bench-results/

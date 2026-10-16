@@ -1,0 +1,55 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
+load("//tools:lint.bzl", "ruff_test")
+
+exports_files(["README.md"])
+
+# Host-side benchmarks (E01-14): import time, assemble time, emulator cycles/s
+# and peak memory, tracked nightly with history and no gate. README.md.
+py_library(
+    name = "ipu_bench",
+    srcs = glob(["ipu_bench/**/*.py"]),
+    # Every kernel .asm: assemble/all_kernels assembles them all.
+    data = ["//src/tools/ipu-apps:kernel_sources"],
+    imports = ["."],
+    deps = [
+        "//src/tools/ipu-apps:ipu_apps_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+    ],
+)
+
+#   bazel run //tools/bench:bench -- --quick             # before/after numbers for a PR
+#   bazel run -c opt //tools/bench:bench -- --out DIR    # the nightly `benchmarks` job
+py_binary(
+    name = "bench",
+    srcs = ["ipu_bench/bench.py"],
+    main = "ipu_bench/bench.py",
+    deps = [":ipu_bench"],
+)
+
+# Adds the CI wall times to the nightly result files (needs gh, GH_TOKEN, GH_REPO).
+py_binary(
+    name = "ci_times",
+    srcs = ["ipu_bench/ci_times.py"],
+    main = "ipu_bench/ci_times.py",
+    deps = [":ipu_bench"],
+)
+
+# Every benchmark module with quick=True and a tiny budget, so none can rot;
+# plus the result format and the CI wall-time parsing.
+py_pytest_test(
+    name = "bench_smoke_test",
+    size = "small",
+    srcs = ["bench_smoke_test.py"],
+    deps = [
+        ":ipu_bench",
+        requirement("pytest"),
+    ],
+)
+
+ruff_test(
+    name = "ruff",
+    srcs = glob(["**/*.py"]),
+)
