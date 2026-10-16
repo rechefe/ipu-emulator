@@ -323,8 +323,10 @@ def _load(spec: Mapping[Slot, dict], layout_order: tuple[Slot, ...]) -> Mapping[
         schema.check_keys(path, entry, ENTRY_KEYS)
         if not isinstance(entry["count"], int) or entry["count"] < 1:
             raise schema.SpecError(f"{path}.count: must be a positive int")
-        if entry["tag"] not in (Tag.HARDWARE, Tag.EMULATOR):
+        if not isinstance(entry["tag"], Tag) or entry["tag"] is Tag.ASSEMBLER:
             raise schema.SpecError(f"{path}.tag: a slot is Tag.HARDWARE or Tag.EMULATOR")
+        if not isinstance(entry["debug_only"], bool):
+            raise schema.SpecError(f"{path}.debug_only: must be a bool")
         if entry["debug_only"] and entry["tag"] is not Tag.EMULATOR:
             raise schema.SpecError(f"{path}.debug_only: only an EMULATOR slot can be debug-only")
         records[slot] = SlotInfo(slot=slot, **entry)

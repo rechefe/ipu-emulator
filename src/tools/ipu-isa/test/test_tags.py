@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 
 import pytest
-
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     PSEUDO_INSTRUCTION_SPEC,
@@ -62,6 +61,11 @@ def test_an_emulator_slot_before_a_hardware_slot_is_rejected():
 def test_a_slot_cannot_be_assembler():
     with pytest.raises(SpecError, match=r"SLOTS\.mult\.tag"):
         _load(_with(Slot.MULT, "tag", Tag.ASSEMBLER), LAYOUT_ORDER)
+
+
+def test_a_slot_tag_must_be_a_tag():
+    with pytest.raises(SpecError, match=r"SLOTS\.mult\.tag"):
+        _load(_with(Slot.MULT, "tag", "hardware"), LAYOUT_ORDER)
 
 
 def test_a_debug_only_slot_must_be_emulator():
