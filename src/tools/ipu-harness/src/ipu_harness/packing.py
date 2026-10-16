@@ -19,19 +19,15 @@ its file), then in ``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack``
 
 from __future__ import annotations
 
-import functools
-import hashlib
-import importlib
-import importlib.util
 import math
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Protocol, TypeVar, cast
 
 import numpy as np
 
 from ipu_harness._codec import Array, decode, encode
+from ipu_harness._plugins import import_named, load_file
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
@@ -107,32 +103,15 @@ def _named(source: object, name: str, where: str) -> PackTransform | None:
     return cast(PackTransform, found)
 
 
-@functools.lru_cache(maxsize=64)
-def _load_local(path: Path, digest: str) -> ModuleType:
-    """A kernel folder's ``pack.py``, executed once per content (``digest``)."""
-    spec = importlib.util.spec_from_file_location(f"_ipu_pack_{path.parent.name}", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"no loader for {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _local(path: Path, name: str) -> PackTransform | None:
     """Transform ``name`` from a kernel folder's ``pack.py``, if it defines one."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    return _named(_load_local(path, digest), name, str(path))
+    return _named(load_file(path), name, str(path))
 
 
 def _shared(module: str, name: str) -> PackTransform | None:
     """Transform ``name`` from ``module``, if the module exists and defines one."""
-    try:
-        found = importlib.import_module(module)
-    except ModuleNotFoundError as error:
-        if error.name is not None and (module + ".").startswith(error.name + "."):
-            return None
-        raise
-    return _named(found, name, module)
+    found = import_named(module)
+    return None if found is None else _named(found, name, module)
 
 
 def transform_for(
