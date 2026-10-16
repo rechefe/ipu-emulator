@@ -38,11 +38,32 @@ py_library(
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
+# Shared by every emulator test: conftest.py (autouse fixtures), the
+# assemble-load-run helpers and pytest.ini (warning filters). pytest finds
+# conftest.py and pytest.ini through the runfiles tree, so they are not test srcs:
+# rules_python_pytest passes every src to pytest as a file to collect.
+py_library(
+    name = "emu_test_support",
+    testonly = True,
+    srcs = [
+        "test/conftest.py",
+        "test/emu_support.py",
+    ],
+    data = ["pytest.ini"],
+    imports = ["test"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_xmem",
     srcs = ["test/test_xmem.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -54,6 +75,7 @@ py_pytest_test(
     srcs = ["test/test_ipu_math.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("ml-dtypes"),
         requirement("pytest"),
@@ -65,6 +87,7 @@ py_pytest_test(
     srcs = ["test/test_regfile.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -75,6 +98,7 @@ py_pytest_test(
     srcs = ["test/test_execute.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -85,6 +109,7 @@ py_pytest_test(
     srcs = ["test/test_debug_cli.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -95,6 +120,7 @@ py_pytest_test(
     srcs = ["test/test_debug_tui.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -105,6 +131,7 @@ py_pytest_test(
     srcs = ["test/test_emulator_e2e.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -115,6 +142,7 @@ py_pytest_test(
     srcs = ["test/test_wide_vector_debug.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -139,6 +167,7 @@ py_pytest_test(
     srcs = ["test/test_prototyping_equivalence.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         ":timing_probes",
         requirement("pytest"),
@@ -150,6 +179,7 @@ py_pytest_test(
     srcs = ["test/test_alias_tracking.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -160,6 +190,7 @@ py_pytest_test(
     srcs = ["test/test_stats.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],
@@ -170,6 +201,7 @@ py_pytest_test(
     srcs = ["test/test_alias_profile.py"],
     imports = ["src"],
     deps = [
+        ":emu_test_support",
         ":ipu_emu_lib",
         requirement("pytest"),
     ],

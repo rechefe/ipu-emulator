@@ -312,6 +312,7 @@ statistic, not execution or issue cost.
 Only one `R_ACC` exists, so only one output channel can be in flight, and a kernel
 re-streams its whole input block once per output channel.
 
+<!-- asm-fragment: shows only the loop head; "..." stands for the rest of the body -->
 ```asm
 j_loop:
     SET LR2 CR2 ;;                     # rewind data pointer EVERY j

@@ -21,7 +21,7 @@ Today's illegal-program errors, mapped to the fault list:
 | F-5 | ACC.RESHAPE mask above 8, or index of 128 or more | `EmulatorError` (ipu.py:1598, 1607) |
 | F-6 | load/store row beyond the table | XMEM row checks: `EmulatorError` (ipu.py:666-680); `XMem` bounds: `ValueError` (xmem.py:60, 73) |
 | F-7 | access to a read-only/write-only table | not modelled (the emulator has no table configuration) |
-| F-8 | stall above a limit | not modelled (Q59: no stall model) |
+| F-8 | stall above a limit | not modelled (Q59: no stall model; [OQ-28](../../../docs/content/requirements/open-questions.md#emulator-and-isa)) |
 | F-9 | cycle limit | `RuntimeError` in `run_until_complete`/`run_with_debug` (emulator.py:76, 122); E04-21 |
 
 All 89 `.asm` files under `src/tools/ipu-apps/src/ipu_apps` end with BKPT (HALT after E03's rename), so F-2 does not affect kernels. Emulator unit tests that run off the end do.
@@ -45,7 +45,7 @@ All 89 `.asm` files under `src/tools/ipu-apps/src/ipu_apps` end with BKPT (HALT 
    - `pad_mode` that needs floating-point lanes under an integer format (ipu.py:983): F-1 (reserved operand encoding) or a configuration error?
    - Wide-mode R_CYCLIC alignment (ipu.py:681-686): does it become F-4 under element formats?
    - F-6/F-7 need a table model. Until one exists, F-6 covers "row beyond the XMEM address space"; F-7 is never raised.
-   - `ACTIVATE.QUANTIZE requires INT8 mode` (ipu.py:1815) is AaQ: record in E09 open questions.
+   - `ACTIVATE.QUANTIZE requires INT8 mode` (ipu.py:1815) is AaQ: recorded as [OQ-20](../../../docs/content/requirements/open-questions.md#emulator-and-isa).
 7. Update the tests that expect `RuntimeError`/`ValueError`/`IndexError` for these cases to expect `EmulatorFault` with the right ID. Add HALT to emulator unit-test programs that rely on running off the end (the E04-01 helper can append it).
 
 ## Tests

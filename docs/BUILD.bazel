@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
@@ -99,6 +99,7 @@ py_binary(
         requirement("mkdocs"),
         requirement("mkdocs-material"),
         requirement("mkdocs-git-revision-date-localized-plugin"),
+        requirement("mkdocs-redirects"),
     ],
     python_version = "PY3",
 )
@@ -112,6 +113,7 @@ genrule(
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
         ":generate_release_log",
+        "//:GLOSSARY.md",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
         "overrides/main.html",
@@ -163,6 +165,10 @@ genrule(
 
         ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
 
+        # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
+        # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
+        ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
+
         # Generated C header and SystemVerilog package (downloadable; not in git)
         mkdir -p "$(@D)/docs_temp/content/assets"
         for artifact in $(locations :generate_instruction_format_artifacts); do \
@@ -191,4 +197,81 @@ py_binary(
     data = [":build_docs"],
     main = "serve_docs_wrapper.py",
     python_version = "PY3",
+)
+
+# Doc tests: every `asm` block in the hand-written docs assembles, and every
+# documented `ipu-as` command uses only declared options. Default tier.
+py_library(
+    name = "doc_blocks",
+    srcs = [
+        "doc_blocks.py",
+        "doc_files.py",
+    ],
+)
+
+py_pytest_test(
+    name = "doc_blocks_test",
+    size = "small",
+    srcs = ["doc_blocks_test.py"],
+    deps = [
+        ":doc_blocks",
+        requirement("pytest"),
+    ],
+)
+
+_DOC_TEST_DATA = [
+    ":doc_sources",
+    "//:CLAUDE.md",
+    "//:README.md",
+    "//:SKILL.md",
+]
+
+py_pytest_test(
+    name = "test_doc_asm_blocks",
+    size = "small",
+    srcs = ["test_doc_asm_blocks.py"],
+    data = _DOC_TEST_DATA,
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_doc_commands",
+    size = "small",
+    srcs = ["test_doc_commands.py"],
+    data = _DOC_TEST_DATA,
+    deps = [
+        ":doc_blocks",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_history_link",
+    size = "small",
+    srcs = [
+        "hooks/history_link.py",
+        "hooks/test_history_link.py",
+    ],
+    deps = [requirement("pytest")],
+)
+
+filegroup(
+    name = "adr_sources",
+    srcs = glob(["adr/*.md"]),
+)
+
+py_pytest_test(
+    name = "test_doc_links",
+    size = "small",
+    srcs = ["test_doc_links.py"],
+    data = _DOC_TEST_DATA + [
+        ":adr_sources",
+        "//:GLOSSARY.md",
+    ],
+    deps = [requirement("pytest")],
 )

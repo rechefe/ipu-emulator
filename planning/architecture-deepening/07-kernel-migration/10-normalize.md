@@ -20,7 +20,7 @@ Paths are under `src/tools/ipu-apps/src/ipu_apps/kernels/normalize/`.
 - **The golden** is `normalize/cases.py:26` `reference_layernorm`. Its docstring
   (`cases.py:16`) says it uses no epsilon, to match the rsqrt activation. The
   full-layer MobileViT tests use eps = 1e-5 (cluster plan 07c). Q57 picks one
-  reference matching the kernel (no eps), to be revisited when AaQ is designed.
+  reference matching the kernel (no eps), to be revisited when AaQ is designed ([OQ-27](../../../docs/content/requirements/open-questions.md#emulator-and-isa)).
 - `cases.py:61` `check_not_degenerate` guards against trivially passing data.
   Keep it as a family `test_*.py` or a generator property.
 - **`l2_normalize_channels`** (14-line `app.py`) is MemoryApp. Its image is

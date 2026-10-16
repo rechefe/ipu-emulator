@@ -13,21 +13,23 @@ fast paths cannot be selected; only a flagged build executes the two-mode cases.
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pytest
 
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import RegisterIndexError
-from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
-from ipu_emu.ipu_math import DType
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
+from ipu_emu.execute import BreakResult, Ipu
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.prototyping import (
+    # TODO(E04-08): prototyping becomes an adapter; test its env parsing publicly.
     _env_requests_prototyping,
     build_enabled,
     default_enabled,
 )
 
-from ipu_as.lark_tree import assemble
+from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
 
 import timing_probes
 
@@ -79,126 +81,89 @@ PROGRAMS = {
 }
 
 
-def _state(*, wide: bool, arithmetic, prototyping: bool, seed: int) -> IpuState:
-    if wide:
-        state = IpuState(
-            wide_vector_debug=True,
-            wide_vector_arithmetic=arithmetic,
-            wide_vector_quantize_output=False,
-            prototyping=prototyping,
-        )
-    else:
-        state = IpuState(prototyping=prototyping)
-    state.dtype = DType.INT8
+def _seed(fmt: ElementFormat, seed: int):
+    """Return a setup callback that fills XMEM and the CRs the programs read."""
+    wide = fmt in (ElementFormat.FP32, ElementFormat.INT32)
 
-    rng = np.random.RandomState(seed)
-    row = 512 if wide else 128
-    if wide and arithmetic == WideVectorArithmetic.FP32:
-        payload = rng.randn(128 * 6).astype(np.float32).tobytes()
-    elif wide:
-        payload = rng.randint(-2000, 2000, 128 * 6).astype(np.int32).tobytes()
-    else:
-        payload = bytes(rng.randint(0, 256, 128 * 6, dtype=np.uint8))
-    state.xmem.write_address(0x10000, payload)
+    def setup(state: IpuState) -> None:
+        rng = np.random.RandomState(seed)
+        row = 512 if wide else 128
+        if fmt == ElementFormat.FP32:
+            payload = rng.randn(128 * 6).astype(np.float32).tobytes()
+        elif wide:
+            payload = rng.randint(-2000, 2000, 128 * 6).astype(np.int32).tobytes()
+        else:
+            payload = bytes(rng.randint(0, 256, 128 * 6, dtype=np.uint8))
+        state.xmem.write_address(0x10000, payload)
 
-    state.regfile.set_cr(2, 0x10000 // row)          # R0 source row
-    state.regfile.set_cr(3, 0x10000 // row + 1)      # cyclic source row
-    state.regfile.set_cr(4, 0x30000 // row)          # post-AAQ store row
-    state.regfile.set_cr(6, 0x10000 // row + 2)      # mask row
-    state.regfile.set_cr(7, 5)                       # loop bound
-    state.set_cr_dstructure(valid_elements=128, partition=4)
-    return state
+        state.regfile.set_cr(2, 0x10000 // row)          # R0 source row
+        state.regfile.set_cr(3, 0x10000 // row + 1)      # cyclic source row
+        state.regfile.set_cr(4, 0x30000 // row)          # post-AAQ store row
+        state.regfile.set_cr(6, 0x10000 // row + 2)      # mask row
+        state.regfile.set_cr(7, 5)                       # loop bound
+        state.set_cr_dstructure(valid_elements=128, partition=4)
+
+    return setup
+
+
+def _regfile_bytes(regfile) -> dict[str, bytes]:
+    return {name: regfile.raw_readonly(name) for name in regfile.register_names}
 
 
 def _assert_regfiles_identical(regfile_a, regfile_b) -> None:
-    assert regfile_a._storage.keys() == regfile_b._storage.keys()
-    for name, buf in regfile_a._storage.items():
-        assert bytes(buf) == bytes(regfile_b._storage[name]), name
+    assert _regfile_bytes(regfile_a) == _regfile_bytes(regfile_b)
 
 
 def _assert_states_identical(state_a: IpuState, state_b: IpuState) -> None:
     assert state_a.program_counter == state_b.program_counter
     _assert_regfiles_identical(state_a.regfile, state_b.regfile)
+    # TODO(E04-05): compare with XMem.__eq__ instead of the private buffer.
     assert state_a.xmem._data == state_b.xmem._data
     assert state_a.stats == state_b.stats
 
 
-def _run_both(asm: str, *, wide: bool, arithmetic=None, seed: int = 5):
-    decoded = [decode_instruction_word(word) for word in assemble(asm)]
-    states = [
-        _state(wide=wide, arithmetic=arithmetic, prototyping=mode, seed=seed)
-        for mode in (False, True)
-    ]
-    for state in states:
-        load_program(state, [dict(inst) for inst in decoded])
-    return _lockstep(states)
+def _cycle_comparer():
+    """An ``on_cycle`` callback for ``run_both``: the two states must be
+    identical after every cycle, and a snapshot handed out by the prototyping
+    engine must stay unchanged by later cycles."""
+    retained = {}
 
-
-def _lockstep(states: list[IpuState]):
-    """Run a faithful and a prototyping state, both loaded, in lockstep to the
-    end, comparing everything after every cycle."""
-    engines = [Ipu(state) for state in states]
-
-    retained_snapshot = None
-    retained_bytes = None
-    cycles = 0
-    while not states[0].is_halted:
-        assert not states[1].is_halted
-        outcomes = [engine.execute_vliw_cycle() for engine in engines]
-        assert outcomes[0] == outcomes[1]
-        if outcomes[0] == BreakResult.BREAK:
-            for engine in engines:
-                engine.execute_vliw_cycle_skip_break()
-
-        cycles += 1
-        if cycles >= 100_000:
-            raise RuntimeError("equivalence program exceeded 100000 cycles")
-        _assert_states_identical(*states)
-
+    def compare(engines) -> None:
+        _assert_states_identical(*(engine.state for engine in engines))
         snapshots = [engine.snapshot for engine in engines]
         assert (snapshots[0] is None) == (snapshots[1] is None)
-        if snapshots[0] is not None:
-            _assert_regfiles_identical(*snapshots)
-            if retained_snapshot is None:
-                retained_snapshot = snapshots[1]
-                retained_bytes = {
-                    name: bytes(buf)
-                    for name, buf in retained_snapshot._storage.items()
-                }
-            else:
-                assert all(
-                    bytes(retained_snapshot._storage[name]) == original
-                    for name, original in retained_bytes.items()
-                )
+        if snapshots[0] is None:
+            return
+        _assert_regfiles_identical(*snapshots)
+        if not retained:
+            retained["snapshot"] = snapshots[1]
+            retained["bytes"] = _regfile_bytes(snapshots[1])
+        else:
+            assert _regfile_bytes(retained["snapshot"]) == retained["bytes"]
 
-    assert states[1].is_halted
-    for state in states:
-        state.stats.total_cycles = cycles
-    _assert_states_identical(*states)
-    return [(states[0], cycles), (states[1], cycles)]
+    return compare
 
 
-def _assert_identical(faithful, fast) -> None:
-    (state_a, cycles_a), (state_b, cycles_b) = faithful, fast
-    assert cycles_a == cycles_b
-    _assert_states_identical(state_a, state_b)
+def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
+    """Run *asm* faithful and prototyping in lockstep; compare after every cycle."""
+    faithful, fast = run_both(
+        asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer()
+    )
+    _assert_states_identical(faithful, fast)
+    return faithful, fast
 
 
 @_REQUIRES_PROTO_BUILD
 @pytest.mark.parametrize("name", sorted(PROGRAMS))
 def test_narrow_int8_programs_are_identical(name):
-    faithful, fast = _run_both(PROGRAMS[name], wide=False)
-    _assert_identical(faithful, fast)
+    _run_equivalence(PROGRAMS[name])
 
 
 @_REQUIRES_PROTO_BUILD
 @pytest.mark.parametrize("name", sorted(PROGRAMS))
-@pytest.mark.parametrize(
-    "arithmetic", [WideVectorArithmetic.FP32, WideVectorArithmetic.INT32]
-)
-def test_wide_vector_programs_are_identical(name, arithmetic):
-    faithful, fast = _run_both(PROGRAMS[name], wide=True, arithmetic=arithmetic)
-    _assert_identical(faithful, fast)
+@pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.INT32])
+def test_wide_vector_programs_are_identical(name, fmt):
+    _run_equivalence(PROGRAMS[name], fmt=fmt)
 
 
 # The timing probes (E02-05, E02-06): one minimal program per row of the
@@ -211,6 +176,12 @@ _PROBE_RUNS = [
 ]
 
 
+_PROBE_FORMATS = {
+    timing_probes.Mode.NARROW: ElementFormat.INT8,
+    timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
+}
+
+
 def _probe_states(name: str, mode) -> list[IpuState]:
     return [
         timing_probes.prepare(timing_probes.PROBES[name], mode, prototyping=prototyping)
@@ -218,10 +189,34 @@ def _probe_states(name: str, mode) -> list[IpuState]:
     ]
 
 
+def _probe_setup(probe):
+    def setup(state: IpuState) -> None:
+        for index, value in probe.cr.items():
+            state.regfile.set_cr(index, value)
+        probe.setup(state)
+
+    return setup
+
+
 @_REQUIRES_PROTO_BUILD
 @pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
 def test_timing_probes_are_identical(name, mode):
-    _lockstep(_probe_states(name, mode))
+    probe = timing_probes.PROBES[name]
+    # STR_ACC_REG is emulator-only and says so on every run.
+    expected = (
+        pytest.warns(DebugOnlyInstructionWarning)
+        if "STR_ACC_REG" in probe.asm
+        else contextlib.nullcontext()
+    )
+    with expected:
+        faithful, fast = run_both(
+            program=timing_probes.decoded_program(probe),
+            fmt=_PROBE_FORMATS[mode],
+            dstructure={"valid_elements": timing_probes.LANES},
+            setup=_probe_setup(probe),
+            on_cycle=_cycle_comparer(),
+        )
+    _assert_states_identical(faithful, fast)
 
 
 #: Raising probes whose two modes are known to end in different states.
@@ -274,29 +269,21 @@ def test_the_cond_slots_nop_still_advances_the_pc():
     does not skip it.
     """
     asm = "SET LR0 CR1 ;;\nADD LR0 LR0 CR1 ;;\nBKPT ;;"
-    faithful, fast = _run_both(asm, wide=False)
-    _assert_identical(faithful, fast)
-    assert fast[1] == 3
+    _, fast = _run_equivalence(asm)
+    assert fast.stats.total_cycles == 3
 
 
 def _wide_fp32_activation_state(
     activation: str, payload: bytes, prototyping: bool
 ) -> tuple[IpuState, Ipu]:
-    state = IpuState(
-        wide_vector_debug=True,
-        wide_vector_arithmetic=WideVectorArithmetic.FP32,
-        wide_vector_quantize_output=False,
+    state = make_state(
+        f"ACTIVATE.QUANTIZE {activation} CR15 ;;\n",
+        fmt=ElementFormat.FP32,
+        dstructure={"valid_elements": 128},
         prototyping=prototyping,
     )
-    state.dtype = DType.INT8
-    state.set_cr_dstructure(valid_elements=128)
     state.regfile.raw("r_acc")[:] = payload
     state.regfile.raw("post_aaq_reg")[:] = b"\xa5" * 512
-    decoded = [
-        decode_instruction_word(word)
-        for word in assemble(f"ACTIVATE.QUANTIZE {activation} CR15 ;;\n")
-    ]
-    load_program(state, decoded)
     return state, Ipu(state)
 
 
@@ -367,7 +354,7 @@ def test_full_row_fp32_activation_exception_state_is_bit_exact(
 
 @_REQUIRES_PROTO_BUILD
 def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
-    inst = decode_instruction_word(assemble("SET LR0 CR1 ;;\n")[0])
+    inst = assemble_program("SET LR0 CR1 ;;\n")[0]
     cr_field = next(
         name
         for name in inst
@@ -378,7 +365,7 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
     exceptions = []
 
     for prototyping in (False, True):
-        state = IpuState(prototyping=prototyping)
+        state = new_state(prototyping=prototyping)
         load_program(state, [dict(inst)])
         with pytest.raises(RegisterIndexError) as caught:
             Ipu(state).execute_vliw_cycle()
@@ -394,12 +381,10 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
 def test_an_lr_conflict_still_raises():
     """Conflict detection is precomputed per PC; it must still fire every time."""
     asm = "SET LR0 CR1 ; SET LR0 CR2 ;;\nBKPT ;;"
-    decoded = [decode_instruction_word(word) for word in assemble(asm)]
     states = []
     exceptions = []
     for prototyping in (False, True):
-        state = IpuState(prototyping=prototyping)
-        load_program(state, [dict(inst) for inst in decoded])
+        state = make_state(asm, prototyping=prototyping)
         with pytest.raises(RuntimeError, match="LR conflict") as caught:
             Ipu(state).execute_vliw_cycle()
         states.append(state)
@@ -460,22 +445,19 @@ def test_env_unrecognised_value_raises(raw, monkeypatch):
 @pytest.mark.parametrize("patch_style", ["replace", "in_place"])
 def test_debug_instruction_patch_invalidates_cached_plan(patch_style):
     """Continuing from BREAK must execute the debugger's current instruction."""
-    break_inst = decode_instruction_word(assemble("BREAK ;;\n")[0])
-    replacement = decode_instruction_word(assemble("SET LR0 CR2 ;;\n")[0])
+    break_inst = assemble_program("BREAK ;;\n")[0]
+    replacement = assemble_program("SET LR0 CR2 ;;\n")[0]
     states = []
 
     for prototyping in (False, True):
-        state = IpuState(prototyping=prototyping)
-        state.regfile.set_cr(2, 99)
+        state = new_state(prototyping=prototyping, cr={2: 99})
         state.inst_mem[0] = dict(break_inst)
         ipu = Ipu(state)
 
         assert ipu.execute_vliw_cycle() == BreakResult.BREAK
         retained = ipu.snapshot
         assert retained is not None
-        retained_bytes = {
-            name: bytes(buf) for name, buf in retained._storage.items()
-        }
+        retained_bytes = _regfile_bytes(retained)
 
         if patch_style == "replace":
             state.inst_mem[0] = dict(replacement)
@@ -486,10 +468,7 @@ def test_debug_instruction_patch_invalidates_cached_plan(patch_style):
         ipu.execute_vliw_cycle_skip_break()
         assert state.regfile.get_lr(0) == 99
         assert state.program_counter == 1
-        assert all(
-            bytes(retained._storage[name]) == original
-            for name, original in retained_bytes.items()
-        )
+        assert _regfile_bytes(retained) == retained_bytes
         states.append(state)
 
     _assert_states_identical(*states)

@@ -76,7 +76,7 @@ Halts execution only when `lr0` equals `5`. Useful for breaking on specific loop
 
 ### No-Op Break
 
-```asm
+```text
 break_nop ;;
 ```
 

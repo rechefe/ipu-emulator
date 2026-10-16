@@ -12,3 +12,11 @@ config_setting(
     name = "prototyping_on",
     values = {"define": "ipu_proto=1"},
 )
+
+# Read by the doc tests and the docs build in //docs.
+exports_files([
+    "CLAUDE.md",
+    "GLOSSARY.md",
+    "README.md",
+    "SKILL.md",
+])

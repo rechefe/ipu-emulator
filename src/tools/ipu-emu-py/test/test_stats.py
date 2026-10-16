@@ -10,34 +10,14 @@ import pytest
 from ipu_emu.emulator import (
     DEFAULT_MAX_CYCLES,
     DebugAction,
-    load_program,
     run_test,
     run_until_complete,
     run_with_debug,
 )
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
-from ipu_emu.execute import decode_instruction_word
-from ipu_emu.ipu_state import IpuState
 from ipu_emu.stats import RunStats
 
-from ipu_as.lark_tree import assemble
-
-
-# ---------------------------------------------------------------------------
-# Helpers (mirrored from test_execute.py)
-# ---------------------------------------------------------------------------
-
-
-def _run(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
-    encoded = assemble(asm_code)
-    decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState()
-    if cr:
-        for idx, val in cr.items():
-            state.regfile.set_cr(idx, val)
-    load_program(state, decoded)
-    run_until_complete(state)
-    return state
+from emu_support import make_state, run
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +65,7 @@ class TestRunStatsProperties:
 class TestStatsCountedDuringExecution:
     def test_nop_program_has_zero_active_cycles(self):
         # All NOPs: no mult, acc, or xmem activity
-        state = _run("BKPT;;")
+        state = run("BKPT;;")
         assert state.stats.mult_active_cycles == 0
         assert state.stats.acc_active_cycles == 0
         assert state.stats.xmem_reads == 0
@@ -93,7 +73,7 @@ class TestStatsCountedDuringExecution:
 
     def test_total_cycles_matches_instruction_count(self):
         # BKPT halts but counts as one cycle
-        state = _run("BKPT;;")
+        state = run("BKPT;;")
         assert state.stats.total_cycles == 1
 
     def test_mult_active_counted(self):
@@ -104,11 +84,8 @@ SET lr0 cr0;;
 LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
 BKPT;;
 """
-        state = IpuState()
-        encoded = assemble(asm)
-        decoded = [decode_instruction_word(w) for w in encoded]
+        state = make_state(asm)
         state.xmem.write_address(0, bytearray(128))
-        load_program(state, decoded)
         run_until_complete(state)
         assert state.stats.mult_active_cycles >= 1
 
@@ -117,7 +94,7 @@ BKPT;;
 ACC.ADD;;
 BKPT;;
 """
-        state = _run(asm)
+        state = run(asm)
         assert state.stats.acc_active_cycles >= 1
 
     def test_xmem_read_counted(self):
@@ -127,12 +104,9 @@ SET lr0 cr0;;
 LDR_MULT_REG r0 lr0 cr2;;
 BKPT;;
 """
-        state = IpuState()
-        encoded = assemble(asm)
-        decoded = [decode_instruction_word(w) for w in encoded]
+        state = make_state(asm)
         state.regfile.set_cr(2, 0x1000 // 128)  # row number
         state.xmem.write_address(0x1000, bytearray(128))
-        load_program(state, decoded)
         run_until_complete(state)
         assert state.stats.xmem_reads == 1
         assert state.stats.xmem_writes == 0
@@ -143,12 +117,9 @@ BKPT;;
 STR_ACC_REG lr0 cr2;;
 BKPT;;
 """
-        state = IpuState()
-        encoded = assemble(asm)
-        decoded = [decode_instruction_word(w) for w in encoded]
+        state = make_state(asm)
         state.regfile.set_lr(0, 0)
         state.regfile.set_cr(2, 0x1000 // 128)  # row number
-        load_program(state, decoded)
         with pytest.warns(DebugOnlyInstructionWarning):
             run_until_complete(state)
         assert state.stats.xmem_writes == 1
@@ -162,7 +133,7 @@ ACC.ADD;;
 ACC.ADD;;
 BKPT;;
 """
-        state = _run(asm)
+        state = run(asm)
         assert state.stats.total_cycles == 4
         assert state.stats.acc_active_cycles == 3
 
@@ -174,7 +145,7 @@ ADD lr1 lr0 cr1;;
 ADD lr2 lr1 cr1;;
 BKPT;;
 """
-        state = _run(asm)
+        state = run(asm)
         assert state.stats.mult_active_cycles == 0
         assert state.stats.acc_active_cycles == 0
         assert state.stats.xmem_reads == 0
@@ -208,14 +179,6 @@ BKPT;;
 """
 
 
-def _loaded(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
-    state = IpuState()
-    for idx, val in (cr or {}).items():
-        state.regfile.set_cr(idx, val)
-    load_program(state, [decode_instruction_word(w) for w in assemble(asm_code)])
-    return state
-
-
 def _counters(stats: RunStats) -> dict:
     return {f.name: getattr(stats, f.name) for f in dataclasses.fields(stats)
             if f.name != "alias_profile"}
@@ -234,7 +197,7 @@ _RUNNERS = {
 class TestStatsPerRun:
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_second_run_reports_only_itself(self, runner):
-        state = _loaded(_MULT_ACC_PROGRAM)
+        state = make_state(_MULT_ACC_PROGRAM)
         _RUNNERS[runner](state)
         first = _counters(state.stats)
         assert first["mult_active_cycles"] > 0 and first["acc_active_cycles"] > 0
@@ -246,7 +209,7 @@ class TestStatsPerRun:
 
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_cycle_limit_sets_total_cycles(self, runner):
-        state = _loaded(_ENDLESS_PROGRAM)
+        state = make_state(_ENDLESS_PROGRAM)
         state.stats.total_cycles = 12345  # stale value from an earlier run
         with pytest.raises(RuntimeError, match="Exceeded 10 cycles"):
             _RUNNERS[runner](state, max_cycles=10)
@@ -254,7 +217,7 @@ class TestStatsPerRun:
 
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_emulator_error_sets_total_cycles(self, runner):
-        state = _loaded(_FAULTING_PROGRAM, cr={8: 160, 9: 64})
+        state = make_state(_FAULTING_PROGRAM, cr={8: 160, 9: 64})
         state.stats.total_cycles = 12345
         with pytest.raises(EmulatorError):
             _RUNNERS[runner](state)
@@ -262,7 +225,7 @@ class TestStatsPerRun:
 
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_normal_halt_sets_total_cycles(self, runner):
-        state = _loaded(_MULT_ACC_PROGRAM)
+        state = make_state(_MULT_ACC_PROGRAM)
         cycles = _RUNNERS[runner](state)
         assert state.stats.total_cycles == cycles == 5
 
@@ -294,8 +257,7 @@ class TestRunStatsArithmetic:
         from ipu_emu.alias_profile import AliasProfile
 
         profile = AliasProfile()
-        state = IpuState(alias_profile=profile)
-        load_program(state, [decode_instruction_word(w) for w in assemble("BKPT;;")])
+        state = make_state("BKPT;;", alias_profile=profile)
         run_until_complete(state)
         assert state.stats.alias_profile is profile
 
