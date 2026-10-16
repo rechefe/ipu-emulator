@@ -18,7 +18,7 @@ One-way package dependencies (Q62, Q69): `ipu_emu` imports `ipu_isa`, numpy and 
 1. Replace `CompoundInst` decoding in `execute.py` with the binary codec E03 moves into `ipu_isa` (`decode_word`/`decode_program`).
 2. After E08 has moved the debuggers, remove `ipu_as_lib` from `ipu_emu_lib` deps in `BUILD.bazel`. If E08 has not landed, do step 1 now and file the BUILD change as the last step of E08.
 3. Curate `ipu_emu/__init__.py`'s exports: `IpuState`, `Ipu`, `RunStats`, `load_program`, `run_until_complete`, the error classes. No debugger import.
-4. Add `ipu_emu` to the import-graph test (owned by E01/E03) with the allowed set `{ipu_isa}`.
+4. Check that the `ipu_emu` row of `tools/import_graph.toml` (`//tools:test_import_graph`) is `["ipu_isa"]`; E03-18 deletes its temporary `ipu_as` edge.
 
 ## Tests
 

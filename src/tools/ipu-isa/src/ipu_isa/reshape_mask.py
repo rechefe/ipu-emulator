@@ -6,22 +6,27 @@ elements of each LRD pair to participate (elements mask..RESHAPE_ELEMENT_COUNT-1
 
 The field supports both an immediate (0..RESHAPE_ELEMENT_COUNT-1, encoded as
 itself) and an LR register (encoded as LR_index + RESHAPE_MASK_LR_OFFSET). The
-field width is not hardcoded: after ``compute_slot_layouts`` runs, the union
-solver writes ``RESHAPE_MASK_FIELD_BITS`` from the shared union field that
-carries the ``LrOrReshapeMaskImmediate`` operand (same bin as
-``DstructureCrIdx``/``ElementsInRow`` in the ``acc`` slot). The number of LR
-registers encodable is therefore whatever room remains above
+field width is not hardcoded: the union solver packs the
+``LrOrReshapeMaskImmediate`` operand into a shared ``acc`` field (same bin as
+``DstructureCrIdx``/``ElementsInRow``), and :func:`reshape_mask_field_bits`
+reads that field's width from :func:`ipu_isa.layout.isa_layout`. The number of
+LR registers encodable is therefore whatever room remains above
 RESHAPE_MASK_LR_OFFSET.
 """
+
+from __future__ import annotations
+
+from ipu_isa.layout import isa_layout
 
 RESHAPE_ELEMENT_COUNT = 8
 RESHAPE_MASK_LR_OFFSET = 8
 
-RESHAPE_MASK_FIELD_BITS: int = 0
+
+def reshape_mask_field_bits() -> int:
+    """Width of the reshape_mask field."""
+    return isa_layout().operand_bits["LrOrReshapeMaskImmediate"]
 
 
 def reshape_mask_field_max() -> int:
     """Return the maximum encodable value (inclusive) of the reshape_mask field."""
-    if RESHAPE_MASK_FIELD_BITS <= 0:
-        raise RuntimeError("RESHAPE_MASK_FIELD_BITS is unset; union layout must be computed first")
-    return (1 << RESHAPE_MASK_FIELD_BITS) - 1
+    return (1 << reshape_mask_field_bits()) - 1

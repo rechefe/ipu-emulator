@@ -1,20 +1,24 @@
 """INC/DEC immediate operand — bit width derived from the LR slot union layout.
 
-The field width is not hardcoded here.  After ``compute_slot_layouts`` runs, the
-union solver writes ``LR_INC_DEC_IMM_FIELD_BITS`` from the shared union field
-that carries the ``LrIncDecImmediate`` operand (same bin as ``LcrIdx`` for
-``ADD``/``SUB`` ``src_b`` and ``INCR_MOD_POW2`` ``step``).
+The field width is not hardcoded here. The union solver packs the
+``LrIncDecImmediate`` operand into a shared LR field (same bin as ``LcrIdx``
+for ``ADD``/``SUB`` ``src_b`` and ``INCR_MOD_POW2`` ``step``), and
+:func:`lr_inc_dec_imm_bits` reads that field's width from
+:func:`ipu_isa.layout.isa_layout`.
 
-Valid immediates are unsigned: ``0`` .. ``(1 << LR_INC_DEC_IMM_FIELD_BITS) - 1``.
+Valid immediates are unsigned: ``0`` .. ``lr_inc_dec_imm_max()``.
 """
 
-LR_INC_DEC_IMM_FIELD_BITS: int = 0
+from __future__ import annotations
+
+from ipu_isa.layout import isa_layout
+
+
+def lr_inc_dec_imm_bits() -> int:
+    """Width of the INC/DEC immediate field."""
+    return isa_layout().operand_bits["LrIncDecImmediate"]
 
 
 def lr_inc_dec_imm_max() -> int:
     """Return the maximum unsigned immediate value (inclusive)."""
-    if LR_INC_DEC_IMM_FIELD_BITS <= 0:
-        raise RuntimeError(
-            "LR_INC_DEC_IMM_FIELD_BITS is unset; union layout must be computed first"
-        )
-    return (1 << LR_INC_DEC_IMM_FIELD_BITS) - 1
+    return (1 << lr_inc_dec_imm_bits()) - 1

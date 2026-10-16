@@ -48,10 +48,9 @@ from ipu_isa.activations import (
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
-    SLOT_COUNT,
-    SLOT_UNIONS,
     get_opcode_for_instruction,
 )
+from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.registers import (
     get_lane_count,
@@ -59,6 +58,7 @@ from ipu_isa.registers import (
     get_register_sizes,
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
+from ipu_isa.slots import SLOTS, Slot
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa
@@ -222,17 +222,10 @@ _TYPE_FIELD_SUFFIX = {
     name: operand_type.field_suffix for name, operand_type in OPERAND_TYPES.items()
 }
 
-# Field prefix for each slot type (matches compound_inst naming)
+# Field prefix of each single-instance slot type (wire format, from the slot
+# registry). LR's sub-slots are "lr_inst_0", "lr_inst_1", ...
 _SLOT_FIELD_PREFIX = {
-    "load": "load_inst",
-    "store": "store_inst",
-    "acc_store": "acc_store_inst",
-    "mult": "mult_inst",
-    "acc": "acc_inst",
-    "aaq": "aaq_inst",
-    "cond": "cond_inst",
-    "break": "break_inst",
-    # LR is special: "lr_inst_0", "lr_inst_1", ... (count from SLOT_COUNT["lr"])
+    slot.value: info.field_prefix for slot, info in SLOTS.items() if info.count == 1
 }
 
 
@@ -270,8 +263,7 @@ def _build_all_instruction_field_maps() -> dict[tuple, dict[str, str]]:
     # LR has multiple sub-slots with different field prefixes
     lr_slot_union = SLOT_UNIONS["lr"]
     for inst_name in INSTRUCTION_SPEC["lr"]:
-        for slot_idx in range(SLOT_COUNT["lr"]):
-            prefix = f"lr_inst_{slot_idx}"
+        for slot_idx, prefix in enumerate(SLOTS[Slot.LR].field_prefixes()):
             result[("lr", inst_name, slot_idx)] = _build_field_map_for_instruction_union(
                 prefix, lr_slot_union, inst_name
             )
@@ -391,7 +383,7 @@ _SLOT_STAT = {
 
 def _opcode_field(slot_type: str) -> str:
     """Name of the field carrying a slot's opcode in a decoded instruction word."""
-    return f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{slot_type}_inst_opcode"
+    return f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{SLOTS[Slot(slot_type)].opcode_enum}"
 
 
 def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, ...]:
@@ -510,10 +502,11 @@ def _build_slot_plans():
             _build_plan("lr", inst_name, spec, _INSTRUCTION_FIELD_MAP[("lr", inst_name, slot_idx)])
             for inst_name, spec in INSTRUCTION_SPEC["lr"].items()
         )
-        for slot_idx in range(SLOT_COUNT["lr"])
+        for slot_idx, _ in enumerate(SLOTS[Slot.LR].field_prefixes())
     )
     lr_opcode_fields = tuple(
-        f"lr_inst_{slot_idx}_token_0_lr_inst_opcode" for slot_idx in range(SLOT_COUNT["lr"])
+        f"{prefix}_token_0_{SLOTS[Slot.LR].opcode_enum}"
+        for prefix in SLOTS[Slot.LR].field_prefixes()
     )
     return opcode_fields, plans, lr_plans, lr_opcode_fields
 

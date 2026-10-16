@@ -18,9 +18,10 @@ from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     INSTRUCTION_SPEC,
     SLOT_COUNT,
-    SLOT_UNIONS,
 )
+from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import operand_type
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import get_operand_type_bits
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -86,18 +87,6 @@ _SV_RESERVED_STRUCT_NAMES = frozenset(
         "set",
     }
 )
-
-_SLOT_META: dict[str, tuple[str, str]] = {
-    "cond": ("cond_inst_opcode", "cond_slot"),
-    "lr": ("lr_inst_opcode", "lr_slot"),
-    "load": ("load_inst_opcode", "load_slot"),
-    "store": ("store_inst_opcode", "store_slot"),
-    "acc_store": ("acc_store_inst_opcode", "acc_store_slot"),
-    "mult": ("mult_inst_opcode", "mult_slot"),
-    "acc": ("acc_inst_opcode", "acc_slot"),
-    "aaq": ("aaq_inst_opcode", "aaq_slot"),
-    "break": ("break_inst_opcode", "break_slot"),
-}
 
 
 def _sanitize_enum_member(name: str) -> str:
@@ -235,7 +224,8 @@ def _slot_union_descriptors(typedef_bits: dict[str, int]) -> list[dict[str, Any]
     slots: list[dict[str, Any]] = []
 
     for slot_name, slot_union in SLOT_UNIONS.items():
-        opcode_key, struct_base = _SLOT_META[slot_name]
+        info = SLOTS[Slot(slot_name)]
+        opcode_key, struct_base = info.opcode_enum, info.sv_struct_base
         opcode_enum = f"{opcode_key}_t"
         fields: list[dict[str, Any]] = []
         for uf in slot_union.fields:
@@ -301,7 +291,7 @@ def _compound_members() -> list[dict[str, Any]]:
 
     for inst_cls in compound_inst.CompoundInst.instruction_types():
         slot = inst_cls._slot_type_name()
-        _, struct_base = _SLOT_META[slot]
+        struct_base = SLOTS[Slot(slot)].sv_struct_base
         sv_type = f"{struct_base}_t"
 
         count = type_counts.get(slot, 0)

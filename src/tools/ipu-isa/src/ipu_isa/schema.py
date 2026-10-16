@@ -31,10 +31,10 @@ class Keys:
     optional: frozenset[str] = frozenset()
 
 
-INSTRUCTION = Keys(frozenset({"operands", "doc", "execute_fn"}))
+INSTRUCTION = Keys(frozenset({"operands", "doc", "execute_fn"}), frozenset({"tag"}))
 OPERAND = Keys(frozenset({"name", "type"}), frozenset({"read"}))
-SLOT_METADATA_ENTRY = Keys(frozenset({"description"}), frozenset({"hardware"}))
-PSEUDO_INSTRUCTION = Keys(frozenset({"operands", "expands_to", "doc"}))
+SLOT_METADATA_ENTRY = Keys(frozenset({"description"}))
+PSEUDO_INSTRUCTION = Keys(frozenset({"operands", "expands_to", "doc"}), frozenset({"tag"}))
 EXPANSION = Keys(frozenset({"slot", "instruction", "args"}))
 
 #: Values of an operand's ``read`` key.

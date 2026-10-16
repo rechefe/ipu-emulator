@@ -18,6 +18,12 @@ runtime_deps_manifest(
     runtime_deps = RUNTIME_DEPS,
 )
 
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
 py_library(
     name = "ipu_isa_lib",
     srcs = glob([
@@ -73,6 +79,36 @@ py_pytest_test(
 py_pytest_test(
     name = "test_operand_types",
     srcs = ["test/test_operand_types.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_slots",
+    srcs = ["test/test_slots.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_tags",
+    srcs = ["test/test_tags.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_layout",
+    srcs = ["test/test_layout.py"],
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",

@@ -1,0 +1,39 @@
+# Which first-party packages each package may import (E03-02 follow-up).
+#
+# //tools:test_import_graph reads every Python source under
+# src/tools/*/src/<package>/ and fails on an import of a first-party package
+# that its row does not list. A package imports itself freely. A new package
+# (ipu_harness, ipu_debug) adds its row here and its :py_sources to the test's
+# data in the change that creates it; until then the test fails on a package
+# with sources and no row, and on any import of an ipu_* package it has no
+# sources for.
+#
+# Rows are per top-level package. "Nothing imports X except Y" is a row
+# matter: list X only in Y's row. Finer rules (a subpackage such as
+# ipu_kernels.reference, or "not at module level") extend this schema in the
+# issue that needs them (E06-01).
+#
+# Edges marked "temporary" are today's code, not the target design; the
+# issue named beside each one removes it, and that change deletes the edge.
+
+[allowed]
+# The ISA is the root: it depends on no other package (Q31, Q62).
+ipu_isa = []
+
+# Artifact generators. E08 moves the docs, SV and VS Code generators here
+# from ipu_as (E08-13, E08-14); they read the assembler's token classes, so
+# those issues add ipu_as here.
+ipu_gen = ["ipu_isa"]
+
+ipu_as = [
+    "ipu_isa",
+    "ipu_gen",  # temporary: compound_inst renders the layout SVG (E08-14 removes it)
+]
+
+ipu_emu = [
+    "ipu_isa",
+    "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it; E04-18 checks)
+]
+
+# ipu_isa is allowed but not imported today.
+ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu"]

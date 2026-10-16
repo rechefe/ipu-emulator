@@ -18,6 +18,12 @@ runtime_deps_manifest(
     runtime_deps = RUNTIME_DEPS,
 )
 
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
 py_library(
     name = "ipu_apps_lib",
     # Test modules stay out of the library: each kernel and family target lists
