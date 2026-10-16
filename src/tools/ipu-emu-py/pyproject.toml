@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
-    "ml-dtypes>=0.5.0",
     "ipu-as-py",
     "ipu-common",
 ]
@@ -22,6 +21,8 @@ ipu-common = { path = "../ipu-common", editable = true }
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1",
+    # test_ipu_math cross-checks the FP8 codec; the emulator does not import it.
+    "ml-dtypes>=0.5.0",
 ]
 
 [tool.setuptools]

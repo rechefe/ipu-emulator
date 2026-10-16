@@ -19,6 +19,9 @@ test --test_size_filters=-enormous
 build:ci --build_tag_filters=-docs
 test:ci --test_tag_filters=-docs
 test:ci --build_tests_only
+# CI caches (restored and saved by .github/workflows/ci.yml).
+build:ci --repository_cache=~/.cache/bazel-repo
+build:ci --disk_cache=~/.cache/bazel-disk
 
 # Full: every non-manual test, including the heavy tier (run nightly).
 test:full --test_size_filters=
