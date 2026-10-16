@@ -123,3 +123,24 @@ py_binary(
     main = "test/baselines/update_decode_snapshots.py",
     deps = [":decode_snapshots"],
 )
+
+# SV package golden (E02-03): the rendered ipu_instr_pkg.sv (commit unstamped)
+# and every *_WIDTH localparam pinned by name. `bazel run :update_sv_golden`
+# rewrites the golden file; the localparam table is edited by hand.
+py_binary(
+    name = "update_sv_golden",
+    srcs = ["test/golden/update_sv_golden.py"],
+    main = "test/golden/update_sv_golden.py",
+    deps = [":ipu_as_lib"],
+)
+
+py_pytest_test(
+    name = "test_sv_package_golden",
+    srcs = [
+        "test/golden/update_sv_golden.py",
+        "test/test_sv_package_golden.py",
+    ],
+    data = ["test/golden/ipu_instr_pkg.sv"],
+    imports = ["test/golden"],
+    deps = [":ipu_as_lib", requirement("pytest")],
+)
