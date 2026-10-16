@@ -20,7 +20,8 @@ the two together.
 What a word does is a :class:`Schedule`, built once per PC by
 :func:`schedule_word` and cached until that IMEM entry is written (E04-08).
 Prototyping mode is an adapter on this one cycle: its schedules skip the idle
-NOP slots (``skip_idle_nops=True``) and nothing else differs.
+NOP slots (``skip_idle_nops=True``) and its reads go through the packed operand
+resolver (:func:`resolver_for`); nothing else differs.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from enum import IntEnum
 from functools import lru_cache
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
+from ipu_emu.resolver import FaithfulResolver, OperandResolver, PackedResolver
 from ipu_isa.registers import lrd_pair
 from ipu_isa.slots import Slot
 from ipu_isa.timing import SLOT_EXECUTION_ORDER
@@ -214,6 +216,15 @@ def schedule_word(inst: Mapping[str, int], *, skip_idle_nops: bool = False) -> S
         lr_position=lr_position,
         lr_conflict=tuple(targets) if len(targets) != len(set(targets)) else None,
     )
+
+
+def resolver_for(state: IpuState) -> OperandResolver:
+    """The operand resolver adapter for *state*: packed when prototyping, else faithful.
+
+    Both return equal operands (:mod:`ipu_emu.resolver`); the packed one reads
+    LR and CR words from packed bank views instead of calling an accessor per read.
+    """
+    return PackedResolver(state) if state.prototyping else FaithfulResolver(state)
 
 
 class Cycle:

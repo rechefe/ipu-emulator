@@ -64,6 +64,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",  # assembles the programs it views
         requirement("pytest"),
     ],
 )
@@ -110,6 +111,32 @@ py_pytest_test(
 py_pytest_test(
     name = "test_tui_registers_pane",
     srcs = ["test/test_tui_registers_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The disassembly pane rendered on its own: no screen, no view (E08-11).
+py_pytest_test(
+    name = "test_tui_disassembly_pane",
+    srcs = ["test/test_tui_disassembly_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The pipeline-register pane rendered on its own: no screen, no view (E08-11).
+py_pytest_test(
+    name = "test_tui_pipeline_pane",
+    srcs = ["test/test_tui_pipeline_pane.py"],
     data = ["pytest.ini"],
     imports = ["src"],
     deps = [

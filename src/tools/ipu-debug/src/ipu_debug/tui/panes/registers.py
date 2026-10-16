@@ -373,7 +373,8 @@ class RegistersPane:
 
     # -- pointer --------------------------------------------------------------
 
-    def place_cursor(self, view: TabSet[RegisterTab], payload: Any) -> None:
+    def place_cursor(self, session: DebugSession, view: TabSet[RegisterTab], payload: Any) -> None:
+        del session
         tab = view.current()
         if tab is not None:
             tab.cursor = payload

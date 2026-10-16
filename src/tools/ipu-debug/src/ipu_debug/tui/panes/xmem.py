@@ -523,7 +523,8 @@ class XmemPane:
 
     # -- pointer --------------------------------------------------------------
 
-    def place_cursor(self, view: TabSet[XmemTab], payload: Any) -> None:
+    def place_cursor(self, session: DebugSession, view: TabSet[XmemTab], payload: Any) -> None:
+        del session
         tab = view.current()
         if tab is not None:
             tab.cursor_line, tab.cursor_column = payload

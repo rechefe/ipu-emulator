@@ -303,18 +303,20 @@ class CursesScreen:
         self._configure()
 
     def _configure(self) -> None:
-        # timeout()/nodelay() do not bound ncurses escape-sequence decoding.
+        # timeout()/nodelay() do not bound ncurses escape-sequence decoding;
+        # set_escdelay does, where the curses build has it (Python 3.9+ on ncurses).
+        if hasattr(curses, "set_escdelay"):
+            try:
+                curses.set_escdelay(ESCAPE_DELAY_MS)
+            except curses.error:
+                pass
+        self._window.keypad(True)
+        self._window.nodelay(False)
+        self._window.timeout(INPUT_POLL_MS)
         try:
-            curses.set_escdelay(ESCAPE_DELAY_MS)
-        except (AttributeError, curses.error):
-            pass
-        try:
-            self._window.keypad(True)
-            self._window.nodelay(False)
-            self._window.timeout(INPUT_POLL_MS)
             curses.curs_set(0)
-        except (AttributeError, curses.error):
-            pass
+        except curses.error:
+            pass  # Not every terminal can hide its cursor.
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | getattr(curses, "REPORT_MOUSE_POSITION", 0))
             curses.mouseinterval(0)
@@ -386,7 +388,8 @@ class CursesScreen:
         try:
             terminal = os.get_terminal_size(sys.stdin.fileno())
             dimensions = (terminal.lines, terminal.columns)
-        except (AttributeError, OSError, ValueError):
+        except (OSError, ValueError):
+            # stdin is not a terminal (or is closed): trust curses.
             dimensions = self.size()
         if min(dimensions) <= 0 or dimensions == self._last_size:
             return False

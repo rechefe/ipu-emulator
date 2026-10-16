@@ -45,8 +45,9 @@ py_library(
     name = "ipu_emu_lib",
     srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],
     imports = ["src"],
+    # The ISA, numpy and the standard library only: the assembler and the
+    # debugger build on the emulator, never the other way (E04-18).
     deps = [
-        "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
@@ -149,6 +150,7 @@ py_pytest_test(
     deps = [
         ":emu_test_support",
         ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -174,6 +176,7 @@ py_pytest_test(
     deps = [
         ":emu_test_support",
         ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
         requirement("pytest"),
     ],
 )
@@ -237,6 +240,19 @@ py_pytest_test(
     ],
 )
 
+# Faithful and packed operand resolvers agree on every plan (E04-10).
+py_pytest_test(
+    name = "test_resolver",
+    srcs = ["test/test_resolver.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_stats",
     srcs = ["test/test_stats.py"],
@@ -272,7 +288,10 @@ py_library(
         "test/timing_probes.py",
     ],
     imports = ["test"],
-    deps = [":ipu_emu_lib"],
+    deps = [
+        ":ipu_emu_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+    ],
 )
 
 py_pytest_test(

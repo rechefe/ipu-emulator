@@ -3,7 +3,8 @@
 Each function returns the :class:`~ipu_debug.tui.pane.Reply` that opens one
 :class:`~ipu_debug.tui.pane.Editor`; the editor's ``submit`` parses the text,
 mutates through the given callables or the ``DebugSession``, and replies
-with the status line text. The view only draws the editor and passes Enter on.
+with the status line text. The view's prompt (``ipu_debug.tui.prompt``) only
+draws the editor and passes Enter on.
 """
 
 from __future__ import annotations
