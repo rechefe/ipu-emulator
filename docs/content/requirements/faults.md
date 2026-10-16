@@ -63,7 +63,7 @@ The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception ca
 | F-6 | An XMEM row beyond the address space, or an access past the XMEM allocation. There is no table model yet, so the row is checked against XMEM. |
 | F-7 | Not modelled. The emulator has no table configuration, so no table is read-only or write-only. |
 | F-8 | Not modelled. The emulator has no stall model (Q59, [OQ-28](open-questions.md#emulator-and-isa)). |
-| F-9 | A run reaches `IpuState.cycle_limit` (default 1 000 000; a runner's `max_cycles` sets it; 0 disables the check). The fault's PC is the word that would have run next. |
+| F-9 | A run reaches `IpuState.cycle_limit` (default 1 000 000; a runner's `max_cycles` replaces it for that run; 0 disables the check). The fault's PC is the word that would have run next. |
 
 ## Arithmetic events
 

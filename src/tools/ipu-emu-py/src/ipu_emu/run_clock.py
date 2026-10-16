@@ -21,15 +21,19 @@ class RunClock:
 
     Args:
         state: The machine state the run executes on.
+        limit: ``state.cycle_limit`` for this run only (restored by
+            :meth:`end_run`); ``None`` keeps the state's own.
 
     Attributes:
         cycles: Cycles this run has completed.
     """
 
-    def __init__(self, state: IpuState) -> None:
+    def __init__(self, state: IpuState, limit: int | None = None) -> None:
         self.state = state
         self.cycles = 0
         self._earlier = 0  # total_cycles carried in when stats accumulate
+        self._limit = limit
+        self._own_limit = state.cycle_limit
 
     def begin_run(self, *, reset_stats: bool = True) -> None:
         """Start a run: no halt or quit pending, no cycles counted.
@@ -46,6 +50,9 @@ class RunClock:
         state.quit_requested = False
         state.halt = None
         self.cycles = 0
+        self._own_limit = state.cycle_limit
+        if self._limit is not None:
+            state.cycle_limit = self._limit
 
     def admit(self) -> None:
         """Allow one more cycle, or fault F-9 at the PC it would run.
@@ -65,5 +72,7 @@ class RunClock:
         self.cycles += 1
 
     def end_run(self) -> None:
-        """Write ``total_cycles``; called when the run ends, faulted or not."""
+        """Write ``total_cycles`` and restore the state's own cycle limit;
+        called when the run ends, faulted or not."""
         self.state.stats.total_cycles = self._earlier + self.cycles
+        self.state.cycle_limit = self._own_limit

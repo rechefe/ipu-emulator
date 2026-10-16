@@ -310,9 +310,9 @@ suites. Bazel remains the supported build and test workflow.
 
 Every run populates `state.stats` (a `RunStats` instance) with counters useful for spotting bottlenecks. They are updated automatically by `run_until_complete` / `run_with_debug` — no opt-in flag is required.
 
-The stats describe one run. Both runners reset `state.stats` before the first cycle, so running a second program on the same state reports only the second program. `total_cycles` is set even when the run raises (cycle limit or emulator error). To report several runs together, add them: `stage1_stats + state.stats` (the `depthwise_conv_stride2_*` harnesses do this for their two stages).
+The stats describe one run. Both runners reset `state.stats` before the first cycle, so running a second program on the same state reports only the second program; pass `reset_stats=False` to add a run to the earlier ones instead. `total_cycles` is set even when the run raises (a fault, the cycle limit included, or an emulator error). To report separate runs together, add them: `stage1_stats + state.stats` (the `depthwise_conv_stride2_*` harnesses do this for their two stages).
 
-Every run entry point (`run_until_complete`, `run_with_debug`, `run_test`, `IpuApp.run`, `KernelCase`) defaults to the same cycle limit, `ipu_emu.DEFAULT_MAX_CYCLES` (1 000 000).
+A run that reaches its cycle limit faults F-9 (`EmulatorFault`), with the PC of the word that would have run next. The limit is `state.cycle_limit`, which defaults to `ipu_emu.DEFAULT_MAX_CYCLES` (1 000 000); 0 disables it. A runner's `max_cycles` replaces it for that run only, and every run entry point (`run_until_complete`, `run_with_debug`, `run_test`, `IpuApp.run`, `KernelCase`) defaults to the same limit.
 
 Available fields:
 

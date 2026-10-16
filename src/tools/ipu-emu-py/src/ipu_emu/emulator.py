@@ -79,7 +79,7 @@ def load_program_from_binary(state: IpuState, path: str | Path) -> None:
 
 def run_until_complete(
     state: IpuState,
-    max_cycles: int = DEFAULT_MAX_CYCLES,
+    max_cycles: int | None = None,
     *,
     raise_on_fault: bool = True,
     reset_stats: bool = True,
@@ -89,7 +89,8 @@ def run_until_complete(
     Returns the number of cycles executed. ``state.stats`` describes this run
     only, unless *reset_stats* is false (then it accumulates); its
     ``total_cycles`` is set even when the run raises. ``state.halt`` says how
-    the run ended. *max_cycles* sets ``state.cycle_limit`` (0: no limit).
+    the run ended. *max_cycles*, when given, is ``state.cycle_limit`` for this
+    run (0: no limit); else the state's own limit holds.
 
     Raises ``EmulatorFault`` when a word faults (the faulting word is not
     counted), including F-9 at the cycle limit, unless *raise_on_fault* is
@@ -98,8 +99,7 @@ def run_until_complete(
     # One engine for the whole run: it carries no per-cycle state beyond the
     # snapshot buffer it reuses, and building one per cycle was pure overhead.
     ipu = Ipu(state)
-    state.cycle_limit = max_cycles
-    clock = RunClock(state)
+    clock = RunClock(state, max_cycles)
     clock.begin_run(reset_stats=reset_stats)
     try:
         # Until a HALT or a fault: a PC past the program, IMEM included, is
@@ -123,7 +123,7 @@ def run_until_complete(
 def run_with_debug(
     state: IpuState,
     debug_callback: DebugCallback,
-    max_cycles: int = DEFAULT_MAX_CYCLES,
+    max_cycles: int | None = None,
     *,
     control: RunControl | None = None,
     break_on_entry: bool = False,
@@ -148,14 +148,14 @@ def run_with_debug(
     ``break_on_entry`` stops at the prepared PC before the first instruction.
 
     ``state.stats`` describes this run only, unless *reset_stats* is false;
-    its ``total_cycles`` is set even when the run raises. *max_cycles* sets
-    ``state.cycle_limit`` (0: no limit); reaching it faults F-9.
+    its ``total_cycles`` is set even when the run raises. *max_cycles*, when
+    given, is ``state.cycle_limit`` for this run (0: no limit); reaching the
+    limit faults F-9.
     """
     stepping = False
     ipu = Ipu(state)
     cycle = ipu.cycle
-    state.cycle_limit = max_cycles
-    clock = RunClock(state)
+    clock = RunClock(state, max_cycles)
     clock.begin_run(reset_stats=reset_stats)
 
     # TODO(E04): express this loop over the stepping engine once E04 lands it.
@@ -321,7 +321,7 @@ def run_test(
     inst_path: str | Path,
     setup: Callable[[IpuState], None] | None = None,
     teardown: Callable[[IpuState], None] | None = None,
-    max_cycles: int = DEFAULT_MAX_CYCLES,
+    max_cycles: int | None = None,
     debug_callback: DebugCallback | None = None,
     break_on_entry: bool = False,
     debug_control: RunControl | None = None,
