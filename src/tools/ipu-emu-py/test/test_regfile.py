@@ -26,7 +26,9 @@ from ipu_emu.ipu_config import (
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState
+
+from emu_support import ElementFormat, new_state
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +507,7 @@ class TestIpuState:
     def test_load_r_reg_from_xmem_debug_mode_row_size(self):
         """In debug mode a row is 512 B, not 128, and lands in r_wide_debug --
         the register LDR_MULT_REG loads in that mode -- not the 128-byte r."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([2.5] * 128))
         state.xmem.write_address(3 * 512, data)  # row 3, debug row size = 512 B
         state.load_r_reg_from_xmem(3, 0)
@@ -514,7 +516,7 @@ class TestIpuState:
     def test_store_r_reg_from_xmem_debug_mode_round_trip(self):
         """store_r_reg_to_xmem in debug mode reads back from r_wide_debug,
         mirroring the load helper above."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.INT32)
+        state = new_state(fmt=ElementFormat.INT32)
         state.regfile.set_r_wide_debug(1, struct.pack("<128i", *([7] * 128)))
         state.store_r_reg_to_xmem(2, 1)  # row 2, debug row size = 512 B -> byte 1024
         stored = state.xmem.read_address(2 * 512, 512)
@@ -541,7 +543,7 @@ class TestIpuState:
 
     def test_load_r_cyclic_from_xmem_debug_mode(self):
         """In debug mode, slot_element_idx=128 writes at byte 512 (4 B/element)."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([1.5] * 128))
         state.xmem.write_address(1 * 512, data)  # row 1, debug row size = 512 B
         state.load_r_cyclic_from_xmem(1, slot_element_idx=128)
@@ -566,7 +568,7 @@ class TestIpuState:
         """The mask is 1 bit/lane and does not scale with element width -- the
         row ADDRESS is translated by the debug row size (512 B), but the READ
         stays 128 bytes in both modes."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         mask_data = bytearray(range(128))
         state.xmem.write_address(2 * 512, mask_data)  # row 2, debug row size = 512 B
         state.load_r_mask_from_xmem(2)
