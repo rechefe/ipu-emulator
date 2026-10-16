@@ -138,6 +138,23 @@ def linecol_to_offset(text: str, line: int, column: int) -> int | None:
     return sum(len(source_line) for source_line in lines[:line]) + column
 
 
+def next_marker_offset(rendered: str, offset: int) -> int:
+    """Where the first open-file origin marker at or after `offset` starts.
+
+    Text up to a marker came from that marker's source line; each loop pass
+    has a marker occurrence of its own.
+
+    Args:
+        rendered: An instrumented render.
+        offset: An offset in it.
+
+    Returns:
+        The marker's offset, or `len(rendered)` if no marker follows.
+    """
+    match = _MARKER_RE.search(rendered, offset)
+    return match.start() if match else len(rendered)
+
+
 def source_line_at(rendered: str, offset: int) -> int | None:
     """0-based source line for an offset in the instrumented render.
 

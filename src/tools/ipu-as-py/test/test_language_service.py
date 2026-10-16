@@ -415,6 +415,21 @@ def test_a_loop_lists_each_word_once():
     ]
 
 
+def test_every_line_an_expression_prints_is_its_own_word():
+    source = "{{ 'HALT;HALT;;\nNOP;;\nHALT;;' }}\n"
+    fits = [w.fits for w in analyse(source, want={"words"}).words]
+    assert fits == [False, True, True]
+    loop = "{% for i in range(2) %}\n{{ 'HALT;HALT;;\nNOP;;\nHALT;;' }}\n{% endfor %}\n"
+    assert [w.fits for w in analyse(loop, want={"words"}).words] == [False, True, True]
+
+
+def test_every_word_of_an_include_is_its_own(tmp_path):
+    (tmp_path / "body.asm.j2").write_text("HALT;HALT;;\nADD lr0 lr1 lr2;;\nNOP;;\n")
+    source = '{% include "body.asm.j2" %}\n'
+    words = analyse(source, search_path=(tmp_path,), want={"words"}).words
+    assert [w.mnemonics for w in words] == [("HALT", "HALT"), ("ADD",), ("NOP",)]
+
+
 def test_two_words_from_one_expression_are_two():
     source = "{{ 'HALT ;; HALT ;;' }}\n"
     assert [w.range for w in analyse(source, want={"words"}).words] == [Range(0, 0, 0, 23)] * 2

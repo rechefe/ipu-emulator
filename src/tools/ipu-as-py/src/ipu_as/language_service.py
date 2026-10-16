@@ -44,6 +44,7 @@ from ipu_as.errors import AssemblerError, SlotError
 from ipu_as.ipu_token import NUMBER_PATTERN
 from ipu_as.jinja_tags import header_names, is_params_header, tag_names
 from ipu_as.placement import COMMENTS, Piece, Rendering, Source
+from ipu_as.source_map import next_marker_offset
 from ipu_as.symbols import SymbolTable
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
 from ipu_isa.codec.slot import OPCODE_SLOT
@@ -147,7 +148,7 @@ class Analysis:
     Attributes:
         diagnostics: As `ipu_as.diagnostics.check` reports them.
         tokens: The semantic tokens, sorted by line and column.
-        words: Each instruction word's slot fit, in source order.
+        words: Each instruction word's slot fit, in render order.
         jinja: Each Jinja region, in source order.
     """
 
@@ -395,10 +396,12 @@ def _words(document: _Document) -> tuple[WordFit, ...]:
 
     Two renderings with the same range are one word of the source, rendered
     twice: a placed token is at one place in the source. Words placed on whole
-    lines (no token in the source) are told apart by their order on their
-    rendered line, so `{{ 'HALT;; HALT;;' }}` is two words, and a loop's next
-    pass, on a rendered line of its own, renders the same ones again. Of the
-    renderings of one word, the first that does not fit is kept, else the first.
+    lines (no token in the source) are told apart by their order within the
+    text one origin marker closes, so every word an include or a `{{ }}`
+    prints stays its own (`{{ 'HALT;; HALT;;' }}` is two), while a loop's
+    next pass, closed by a marker occurrence of its own, renders the same ones
+    again. Of the renderings of one word, the first that does not fit is kept,
+    else the first.
     """
     rendered, failed = document.rendered
     if failed is not None:
@@ -419,8 +422,9 @@ def _words(document: _Document) -> tuple[WordFit, ...]:
         word, in_source = where
         key: tuple = (word,)
         if not in_source:
-            key = (word, on_line[word, tokens[-1].line])
-            on_line[word, tokens[-1].line] += 1
+            group = next_marker_offset(rendered, tokens[-1].end_pos)
+            key = (word, on_line[word, group])
+            on_line[word, group] += 1
         if key not in found or found[key].fits:
             fit = _fit(word, subtree)
             if key not in found or not fit.fits:

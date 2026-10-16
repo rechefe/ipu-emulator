@@ -14,7 +14,7 @@
       "items": { "$ref": "#/$defs/token" }
     },
     "words": {
-      "description": "Each word's slot fit (--words). A word loops render several times is listed once, by its range (the first rendering that does not fit, else the first); words with no token in the source are told apart by their order on their rendered line. Empty when the source does not render or parse (see the diagnostics); a word with no token in the source is omitted when the render cannot be mapped back to source lines (see check-json.md).",
+      "description": "Each word's slot fit (--words). A word that loops render several times is listed once, by its range (the first rendering that does not fit, else the first); words with no token in the source are told apart by their order on their rendered line. Empty when the source does not render or parse (see the diagnostics); a word with no token in the source is omitted when the render cannot be mapped back to source lines (see check-json.md).",
       "type": "array",
       "items": { "$ref": "#/$defs/word" }
     },
