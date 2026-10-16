@@ -22,6 +22,7 @@ const editing = require('./editing');
 const kernels = require('./kernels');
 const { timeoutSeconds } = kernels;
 const { Language } = require('./language');
+const trust = require('./trust');
 
 const LANGUAGE_ID = 'ipu-asm';
 
@@ -49,6 +50,11 @@ function showStatus(text, tooltip, command) {
   Object.assign(statusItem, { text, tooltip, command }).show();
 }
 
+function hideStatus() {
+  statusItem.hide();
+  status = '';
+}
+
 function markUnavailable(reason) {
   showStatus('$(warning) IPU: checks off', `IPU Assembly diagnostics are not running:\n\n${reason}`, 'ipuAsm.showCheckerStatus');
 
@@ -62,6 +68,10 @@ function markUnavailable(reason) {
         if (choice === 'Details') vscode.commands.executeCommand('ipuAsm.showCheckerStatus');
       });
   }
+}
+
+function markRestricted() {
+  showStatus('$(shield) IPU: Restricted Mode', `IPU Assembly: ${trust.RESTRICTED}`, 'workbench.trust.manage');
 }
 
 function markAvailable() {
@@ -181,7 +191,7 @@ async function resolveChecker(root) {
 }
 
 function ensureChecker(root) {
-  if (!root || checkerBinaries.has(root) || resolvingFolders.has(root)) return;
+  if (!root || !trust.mayRun() || checkerBinaries.has(root) || resolvingFolders.has(root)) return;
   resolvingFolders.add(root);
   resolveChecker(root).then(
     (binary) => {
@@ -230,6 +240,8 @@ function checkCommand(folder, root) {
 /** Check `text` as the file at `uri`. A newer run with the same `key`, or cancelling
  *  `token`, supersedes it; one past ipuAsm.timeoutSeconds is stopped as an error. */
 async function runCheckText(uri, text, key, token) {
+  // In Restricted Mode the folder's settings and BUILD files would choose what runs.
+  if (!trust.mayRun()) return { restricted: true, error: trust.RESTRICTED };
   const folder = vscode.workspace.getWorkspaceFolder(uri);
   const root = checkoutFor(uri);
   const cwd = root || (folder ? folder.uri.fsPath : path.dirname(uri.fsPath));
@@ -299,6 +311,10 @@ async function refresh(document, force = false) {
   const key = document.uri.toString();
   const version = document.version;
   if (!force && checked.get(key) === version) return;
+  if (!trust.mayRun()) {
+    markRestricted();
+    return;
+  }
 
   const result = await runCheckText(document.uri, document.getText(), key);
 
@@ -310,8 +326,7 @@ async function refresh(document, force = false) {
   // Not an IPU checkout's file (another project's assembly): nothing to say.
   if (result.outside) {
     diagnostics.delete(document.uri);
-    statusItem.hide();
-    status = '';
+    hideStatus();
     return;
   }
 
@@ -355,10 +370,12 @@ function activate(context) {
   kernelApi = kernels.register(context);
   // Build the checker now, not on the first keystroke (slow exactly once, and nothing waits
   // on it); after activation returns, since starting a process blocks briefly.
-  setImmediate(() => {
+  const startChecking = () => {
     for (const root of kernelApi.indexes.keys()) ensureChecker(root);
     vscode.workspace.textDocuments.forEach((d) => refresh(d));
-  });
+  };
+  if (!trust.mayRun()) markRestricted();
+  setImmediate(startChecking);
 
   let editingApi = null;
   if (lang) {
@@ -372,6 +389,11 @@ function activate(context) {
   }
 
   context.subscriptions.push(
+    // Out of Restricted Mode: what it kept from running starts now.
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      hideStatus();
+      startChecking();
+    }),
     vscode.workspace.onDidOpenTextDocument(refresh),
     vscode.workspace.onDidSaveTextDocument(refresh),
     // No content change (the dirty flag flipped): nothing new to check.

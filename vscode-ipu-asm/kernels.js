@@ -12,6 +12,7 @@ const caseform = require('./caseform');
 const checker = require('./checker');
 const project = require('./project');
 const runs = require('./runs');
+const trust = require('./trust');
 
 /** Debounce file-change refreshes: a branch switch touches many files. */
 const REFRESH_DEBOUNCE_MS = 1500;
@@ -48,6 +49,13 @@ class KernelIndex {
   async refresh() {
     if (this.loading) {
       this._again = true;
+      return;
+    }
+    if (!trust.mayRun()) {
+      // Restricted Mode: the manifest command is Bazel in this folder, or the folder's own setting.
+      this.manifest = null;
+      this.error = `${this.name}'s kernels are not listed: ${trust.RESTRICTED}`;
+      this._changed.fire();
       return;
     }
     this.loading = true;
@@ -132,9 +140,11 @@ async function isIdle(terminal) {
  *  Debug then Test) do not both find the same terminal idle. */
 let sending = Promise.resolve();
 
-/** Send `command` to the terminal for this folder and `name`, reused whenever it is idle. */
+/** Send `command` to the terminal for this folder and `name`, reused whenever it is idle.
+ *  Resolves to whether it was sent: not in Restricted Mode. */
 function sendToTerminal(index, name, command) {
   const send = async () => {
+    if (!trust.mayRun(name)) return false;
     const key = `${index.root}\u0000${name}`;
     let terminal = terminals.get(key);
     if (!terminal || !(await isIdle(terminal))) {
@@ -148,6 +158,7 @@ function sendToTerminal(index, name, command) {
     busy.add(terminal);
     sentAt.set(terminal, Date.now());
     terminal.sendText(command);
+    return true;
   };
   return (sending = sending.then(send, send));
 }
@@ -172,14 +183,19 @@ async function runKernel(indexes, action, kernelName, caseName = 'default', fold
     vscode.window.showWarningMessage(`IPU: ${kernelName} has no case ${caseName}.`);
     return undefined;
   }
-  const options = runs.optionArgs(chosen.entry, chosen.values);
-  const command = runs.kernelCommand(kernel, action, { caseName: chosen.base, options, flags: setting(index.folder, 'bazelFlags', []) });
+  let command;
+  try {
+    const options = runs.optionArgs(chosen.entry, chosen.values);
+    command = runs.kernelCommand(kernel, action, { caseName: chosen.base, options, flags: setting(index.folder, 'bazelFlags', []) });
+  } catch (err) {
+    vscode.window.showErrorMessage(`IPU: ${kernelName}: ${err.message}`);
+    return undefined;
+  }
   if (!command) {
     vscode.window.showWarningMessage(`IPU: ${kernelName} has no ${action} target.`);
     return undefined;
   }
-  await sendToTerminal(index, kernelName, command);
-  return command;
+  return (await sendToTerminal(index, kernelName, command)) ? command : undefined;
 }
 
 // --- Sidebar ---
@@ -230,6 +246,15 @@ function folderNodes(index, parent) {
   return nodes;
 }
 
+/** A case's options as the sidebar shows them; a manifest flag that could not be run says so. */
+function describeOptions(c) {
+  try {
+    return runs.optionArgs(c.entry, c.values);
+  } catch (err) {
+    return err.message;
+  }
+}
+
 function kernelNode(index, name, parent) {
   const kernel = index.manifest.kernels[name];
   const resourceUri = vscode.Uri.file(path.join(index.workspace, kernel.asm));
@@ -247,7 +272,7 @@ function kernelNode(index, name, parent) {
     parent,
     children: () => Object.entries(runs.kernelCases(kernel, caseform.savedCases(index)[name])).map(([caseName, c]) => node(caseName, c.saved ? 'symbol-property' : 'symbol-event', {
       id: `${row.item.id}|${caseName}`,
-      description: runs.optionArgs(c.entry, c.values),
+      description: describeOptions(c),
       tooltip: [c.saved && `saved in ipuAsm.cases${c.base === caseName ? '' : `, from ${c.base}`}`, `max cycles ${c.entry.max_cycles}`].filter(Boolean).join('; '),
       contextValue: 'ipuCase',
     }, { kernel: name, caseName, folder: index.root, parent: row })),
@@ -260,6 +285,7 @@ function kernelNode(index, name, parent) {
 /** Ask the registry which kernel handles `op` with `params`: the verdict (query --json),
  *  with the exchange logged to `output`. */
 async function runQuery(index, op, params, output) {
+  if (!trust.mayRun()) throw new Error(trust.RESTRICTED);
   const argv = runs.queryCommand(index.manifest, op, params, setting(index.folder, 'queryCommand', []));
   const [command, ...args] = argv;
   output.appendLine(`$ ${argv.map(runs.shellQuote).join(' ')}`);
@@ -477,7 +503,15 @@ function register(context) {
     addCase: cases(true),
     testFamily: (n) => {
       const index = n && n.entry ? indexes.get(n.folder) : undefined;
-      return index && sendToTerminal(index, n.family, runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) }));
+      if (!index) return undefined;
+      let command;
+      try {
+        command = runs.familyCommand(n.entry, { flags: setting(index.folder, 'bazelFlags', []) });
+      } catch (err) {
+        vscode.window.showErrorMessage(`IPU: ${n.family}: ${err.message}`);
+        return undefined;
+      }
+      return sendToTerminal(index, n.family, command);
     },
     refreshKernels: () => indexes.forEach((index) => index.refresh()),
     query: () => query(indexes, output, context.workspaceState),
@@ -497,6 +531,8 @@ function register(context) {
     view,
     ...Object.entries(commands).map(([name, run]) => vscode.commands.registerCommand(`ipuAsm.${name}`, run)),
     vscode.workspace.onDidChangeWorkspaceFolders(rescan),
+    // Out of Restricted Mode: list the kernels it kept from loading.
+    vscode.workspace.onDidGrantWorkspaceTrust(() => indexes.forEach((index) => index.refresh())),
     vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('ipuAsm.cases') && redraw()),
     vscode.window.onDidCloseTerminal((t) => {
       busy.delete(t);

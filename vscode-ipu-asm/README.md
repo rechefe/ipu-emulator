@@ -90,8 +90,9 @@ must keep assembling; a change that breaks it is a real grammar regression.
 |---|---|
 | `test/checker.js` | which checker runs, when the prebuilt one is stale, and how a process that runs too long is stopped |
 | `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
+| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode, and trusting the workspace starts it |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic, and agreement with the parser on the corpus |
-| `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest |
+| `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol, and formatting, leaves the assembled binary unchanged |
 | `test/integration/run.js` | the extension in a real VS Code, then in a parent folder, another project and a pre-manifest checkout |
 
@@ -174,6 +175,28 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
 
+## Restricted Mode
+
+VS Code opens a folder it has not been told to trust in Restricted Mode. There,
+the folder's own files would choose what runs: its `.vscode/settings.json` can
+set `ipuAsm.checkCommand`, `ipuAsm.manifestCommand`, `ipuAsm.queryCommand` and
+`ipuAsm.bazelFlags`, and its `BUILD` files decide what `bazel` does. So in
+Restricted Mode the extension runs nothing:
+
+- **Works:** highlighting, hover, completion, operand hints, navigation, rename
+  (on its lexical check, and it says so), formatting.
+- **Off:** diagnostics, the kernel sidebar and its buttons, Run, Debug, Test,
+  Benchmark and query. The status bar shows `$(shield) IPU: Restricted Mode`;
+  clicking it opens VS Code's trust settings.
+
+VS Code also ignores the four settings above when a Restricted Mode workspace
+sets them. Trusting the workspace starts the checker and loads the kernels at
+once, with no reload.
+
+Whatever the trust, a kernel manifest value that reaches a terminal (a target, a
+family's test suite, an option's flag) must be a Bazel label or a plain flag and
+is quoted; anything else is refused with an error and nothing is run.
+
 ## Diagnostics
 
 The grammar colours tokens; it cannot say a program is wrong. A TextMate rule
@@ -192,7 +215,8 @@ covering all three stages:
 | encode | `BGT lr0 lr1;;`, `mac.ee r0;;` | the mnemonic |
 
 Templates render in Jinja's sandbox, as the assembler does, because a file is
-checked as soon as it opens; the extension is also disabled in Restricted Mode.
+checked as soon as it opens; in Restricted Mode nothing is checked at all (see
+[Restricted Mode](#restricted-mode)).
 A template that expects harness values should give them a `| default(...)`.
 
 It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
