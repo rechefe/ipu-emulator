@@ -9,7 +9,7 @@ bazel test //src/tools/ipu-emu-py:test_execute           # emulator tests only
 bazel test //src/tools/ipu-as-py:test_assemble           # assembler tests only
 bazel test //src/tools/ipu-apps:test_fully_connected     # app tests only
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --format bin
-bazel test --define=ipu_proto=1 //...                    # prototyping mode (opt-in fast paths)
+bazel test --config=proto //...                          # prototyping mode (= --define=ipu_proto=1); CI runs both modes
 bazel build --config=docs //docs:build_docs              # docs site, offline (bazel-bin/docs/site.tar)
 ```
 

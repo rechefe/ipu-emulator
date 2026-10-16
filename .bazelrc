@@ -31,6 +31,11 @@ test:full --test_size_filters=
 build:full --build_tag_filters=-docs
 test:full --test_tag_filters=-docs
 
+# Prototyping build: the emulator's opt-in fast paths. Short form of
+# --define=ipu_proto=1, which keeps working. CI runs the default tier in both
+# modes (the `proto` job in .github/workflows/ci.yml).
+build:proto --define=ipu_proto=1
+
 # Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to
 # --config=docs so they stay out of every other action's cache key.
 # No build action reaches the network or reads GITHUB_TOKEN: the release log is
