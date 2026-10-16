@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Fetch merged pull requests from GitHub and update docs/content/release-log.md.
 
-Usage (one-time historical backfill or full refresh):
-    python docs/update_release_log.py
+The log is committed, so the docs build never reaches the network. The
+release-log workflow (.github/workflows/release-log.yml) refreshes it on master
+after every merge with ``--recent``.
 
-Usage (add only the most recently merged PR to the existing log, e.g. from CI):
-    python docs/update_release_log.py --latest
+Usage (one-time historical backfill or full refresh):
+    bazel run //docs:update_release_log -- --output "$PWD/docs/content/release-log.md"
+
+Usage (merge the PRs on the newest page of results into the existing log):
+    bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/release-log.md"
+
+Usage (add only the most recently merged PR to the existing log):
+    bazel run //docs:update_release_log -- --latest --output "$PWD/docs/content/release-log.md"
 
 The script reads GITHUB_TOKEN from the environment when available so that the
 GitHub API rate limit is much higher (5 000 req/h vs 60 req/h unauthenticated).
 
 A network failure never fails the script: a full refresh writes a minimal log,
-and ``--latest`` leaves an existing log unchanged.
+and ``--latest`` or ``--recent`` leaves an existing log unchanged.
 """
 
 import argparse
@@ -33,8 +40,7 @@ HEADER = """\
 # Release Log
 
 This page lists every pull request that has been merged into `master`, newest
-first.  It is regenerated automatically as part of the docs build on every
-merge.
+first.  A workflow refreshes it on `master` after every merge.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
@@ -78,12 +84,15 @@ def _fetch_page(page: int, per_page: int, token: str | None) -> list[dict]:
         raise FetchError(str(exc)) from exc
 
 
-def fetch_merged_prs(token: str | None, latest_only: bool = False) -> list[dict]:
+def fetch_merged_prs(
+    token: str | None, latest_only: bool = False, first_page_only: bool = False
+) -> list[dict]:
     """Return merged-PR dicts, newest merge first.
 
     With ``latest_only`` only the first page is fetched and the single PR with
     the greatest ``merged_at`` on it is returned (the page is ordered by
-    ``updated``, not by merge time).
+    ``updated``, not by merge time). With ``first_page_only`` every merged PR
+    on the first page (the 100 most recently updated PRs) is returned.
 
     Raises FetchError when the API cannot be reached.
     """
@@ -95,7 +104,7 @@ def fetch_merged_prs(token: str | None, latest_only: bool = False) -> list[dict]
         if not batch:
             break
         prs.extend(pr for pr in batch if pr.get("merged_at"))
-        if len(batch) < per_page or latest_only:
+        if len(batch) < per_page or latest_only or first_page_only:
             break
         page += 1
 
@@ -157,6 +166,13 @@ def main(argv: list[str] | None = None) -> int:
         "log (fast, for CI use).",
     )
     parser.add_argument(
+        "--recent",
+        action="store_true",
+        help="Fetch the 100 most recently updated PRs and merge every merged one "
+        "into the existing log (the release-log workflow's mode; catches merges "
+        "a previous run missed).",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=_DEFAULT_OUTPUT,
@@ -172,10 +188,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    existing = args.output.exists() if args.latest else False
+    incremental = args.latest or args.recent
+    existing = args.output.exists() if incremental else False
 
     try:
-        prs = fetch_merged_prs(token, latest_only=args.latest)
+        prs = fetch_merged_prs(token, latest_only=args.latest, first_page_only=args.recent)
     except FetchError as exc:
         if existing:
             print(

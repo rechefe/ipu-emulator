@@ -44,17 +44,23 @@ use `bazel run //src/tools/ipu-apps:identity -- --help`.
 ### Deprecated line debugger
 
 The old line debugger is deprecated and retained for existing Python callers.
-It is not accessible from the TUI. Existing callbacks continue to work:
+It is not accessible from the TUI. Pass it the run's `DebugControl`, or
+breakpoints set at its prompt last for that prompt only:
 
 ```python
 from ipu_emu.emulator import run_with_debug
 from ipu_emu.debug_cli import debug_prompt
+from ipu_emu.debug_control import DebugControl
 
-run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1))
+control = DebugControl()
+run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1, control=control), control=control)
 ```
 
 This lower-level API enters the line debugger when a BREAK instruction or
 runtime breakpoint fires. Pass `break_on_entry=True` to stop before execution.
+The same `DebugControl` goes to the run and to the prompt, so breakpoints set
+with `break` (and `until`) apply to the run; without it, they last for one
+prompt only.
 
 ## Break Instructions
 
@@ -540,8 +546,11 @@ state = IpuState()
 state.load_program("program.bin")
 # ... set up registers and memory ...
 
-# Run with debug CLI (level 0-2 controls verbosity)
-run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1))
+# Run with debug CLI (level 0-2 controls verbosity); the shared control
+# carries breakpoints set at the prompt back to the run
+from ipu_emu.debug_control import DebugControl
+control = DebugControl()
+run_with_debug(state, lambda s, c: debug_prompt(s, c, level=1, control=control), control=control)
 ```
 
 ### Debug Levels

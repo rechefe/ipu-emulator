@@ -12,16 +12,17 @@ chip do"*. It is off by default.
 ## Enabling it
 
 ```bash
-bazel test --define=ipu_proto=1 //...
-bazel run --define=ipu_proto=1 //src/tools/ipu-apps:fully_connected -- ...
+bazel test --config=proto //...
+bazel run --config=proto //src/tools/ipu-apps:fully_connected -- ...
 ```
 
-The Bazel flag is mandatory. Runtime controls can select or disable the mode
+`--config=proto` (`.bazelrc`) is the short form of `--define=ipu_proto=1`;
+both work. The Bazel flag is mandatory. Runtime controls can select or disable the mode
 only inside a build produced with that flag:
 
 | Level | How | Use |
 |---|---|---|
-| Build gate | `--define=ipu_proto=1` | Required capability; prototype mode defaults on |
+| Build gate | `--config=proto` (`--define=ipu_proto=1`) | Required capability; prototype mode defaults on |
 | Per state | `IpuState(prototyping=True/False)` | Select a mode inside a flagged build |
 | Per process | `IPU_EMU_PROTOTYPING=1/0` | Select the default inside a flagged build |
 
@@ -56,10 +57,12 @@ flagged one. So each case's program, setup, output, final state and cycle count
 must be identical in both modes. The record holds no run statistics, so no field
 is exempt (`MODE_DEPENDENT_FIELDS` in `kernel_registry/baseline.py` is empty).
 
-The flagged build is the nightly command, and it is expected to be green:
+CI runs the default tier in both modes on every pull request: the `test` job
+builds it as usual, and the `proto` job runs it with the flag and fails if any
+equivalence case in `test_prototyping_equivalence` is skipped. Locally:
 
 ```bash
-bazel test --define=ipu_proto=1 //...
+bazel test --config=proto //...
 ```
 
 **Not guaranteed:** that the work the emulator did resembles the work the chip

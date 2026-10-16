@@ -47,12 +47,9 @@ run disagrees with the reference) before trusting the "clean" run's PASS.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.matmul.matmul_192x192_x128 import app as mm4
 from ipu_apps.kernels.normalize.layernorm_64x192 import app as ln4

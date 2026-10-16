@@ -26,9 +26,9 @@ function workspace() {
   return { root, source, binary, at };
 }
 /** Assert what `checkCommandFor` picks in `w`: 'direct' (the binary) or 'bazel'. */
-function picks(w, expected, builtAgainst, message) {
+async function picks(w, expected, builtAgainst, message) {
   const want = { direct: checker.directCommand(w.binary), bazel: checker.bazelCommand() }[expected];
-  assert.deepStrictEqual(checker.checkCommandFor(w.binary, w.root, builtAgainst), want, message);
+  assert.deepStrictEqual(await checker.checkCommandFor(w.binary, w.root, builtAgainst), want, message);
 }
 
 for (const [what, setup, expected] of [
@@ -43,11 +43,11 @@ for (const [what, setup, expected] of [
   ['a workspace without the assembler has nothing to be stale against', (w) => {
     fs.rmSync(path.join(w.root, 'src'), { recursive: true });
     w.at(w.binary, -3600);
-    assert.strictEqual(checker.newestSourceMtime(w.root), 0);
+    return checker.newestSourceMtime(w.root).then((newest) => assert.strictEqual(newest, 0));
   }, 'direct'],
-]) test(what, () => { const w = workspace(); setup(w); picks(w, expected); });
+]) test(what, async () => { const w = workspace(); await setup(w); await picks(w, expected); });
 
-test('every source extension and directory is watched for staleness', () => {
+test('every source extension and directory is watched for staleness', async () => {
   const w = workspace();
   w.at(w.binary, 0);
   for (const dir of checker.SOURCE_DIRS) {
@@ -56,26 +56,26 @@ test('every source extension and directory is watched for staleness', () => {
       const file = path.join(w.root, dir, 'nested', `probe${ext}`);
       fs.writeFileSync(file, 'x');
       w.at(file, 60);
-      picks(w, 'bazel', undefined, `${dir} + ${ext} did not invalidate the binary`);
+      await picks(w, 'bazel', undefined, `${dir} + ${ext} did not invalidate the binary`);
       fs.rmSync(file);
     }
   }
 });
 
-test('a re-dated but unchanged source does not pin every check to Bazel; a real edit does', () => {
+test('a re-dated but unchanged source does not pin every check to Bazel; a real edit does', async () => {
   // A `git checkout` or `touch` re-dates the sources and Bazel, rebuilding on content, does nothing:
   // the binary stays behind. The first check rebuilds and records what it built against; the next is fast.
   const w = workspace();
   w.at(w.binary, -60);
   w.at(w.source, 0); // re-dated, same bytes
-  picks(w, 'bazel', undefined, 'the first check after a re-date should rebuild');
-  picks(w, 'direct', checker.newestSourceMtime(w.root));
+  await picks(w, 'bazel', undefined, 'the first check after a re-date should rebuild');
+  await picks(w, 'direct', await checker.newestSourceMtime(w.root));
   const edited = workspace();
   edited.at(edited.binary, -60);
   edited.at(edited.source, -30);
-  const builtAgainst = checker.newestSourceMtime(edited.root);
+  const builtAgainst = await checker.newestSourceMtime(edited.root);
   edited.at(edited.source, 0); // the edit, after that build
-  picks(edited, 'bazel', builtAgainst);
+  await picks(edited, 'bazel', builtAgainst);
 });
 
 test('the commands: the fallback alone is recognised, both end at --input, the binary has a Windows suffix', () => {

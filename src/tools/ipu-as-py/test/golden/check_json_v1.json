@@ -1,0 +1,122 @@
+{
+  "test_diagnostics.py: \"{% for c in ''.__class__.__mro__ %}\\nBKPT;;\\n{% endfor %}\\n\"": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: SecurityError: access to attribute '__class__' of 'str' object is unsafe.\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}BKPT;;\\n\"": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: SecurityError: access to attribute '__init__' of 'TemplateReference' object is unsafe.\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '    ADD lr14 lr14 cr3 ;\\n    ADD lr5  lr5  cr4        {#- note -#}\\n\\n    MULT.RC.VE lr15 lr5 0 lr15 cr15;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Instruction ADD expects 3 operands, got 8\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '    SET lr0 cr0 ;;    {#- a trailing note -#}\\n    SET lr1 cr1 ;;\\n    BEQ lr0, cr0, +1;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 11, \"end_line\": 2, \"end_column\": 12, \"message\": \"unexpected ','; expected one of: token, ';', ';;'\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '  acc.add.first ;;\\n'": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "test_diagnostics.py: ''": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 1, \"message\": \"unexpected ''; expected one of: token\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'ADD lr0 lr0 1.5;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 12, \"end_line\": 0, \"end_column\": 13, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BEQ lr0, cr0, +1;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 7, \"end_line\": 0, \"end_column\": 8, \"message\": \"unexpected ','; expected one of: token, ';', ';;'\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BGT lr0 lr1;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 1, \"message\": \"Pseudo-instruction 'BGT' expects 3 operand(s) (reg1, reg2, label), got 2\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BKPT;; mid: BKPT;;\\n'": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "test_diagnostics.py: 'BKPT;;\\nBKPT;;\\n{{ 1 + \"a\" }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 0, \"end_line\": 2, \"end_column\": 0, \"message\": \"Template error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BKPT;;\\nmac.ee r0;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 1, \"message\": \"Opcode 'mac.ee' not found in any Inst subclass.\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BKPT;;\\n{% for x in %}\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Template error: Expected an expression, got 'end of statement block'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'BKPT;;\\n{{ 1 / 0 }}\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 0, \"end_line\": 1, \"end_column\": 0, \"message\": \"Template error: ZeroDivisionError: division by zero\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'a:\\n  BKPT;;\\na:\\n  BKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 0, \"end_line\": 2, \"end_column\": 1, \"message\": \"Label 'a' is defined for the second time Previous definition\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'add:\\n  BKPT;;\\n'": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "test_diagnostics.py: 'start:\\n    BNE lr0 lr1 start ;\\n    B start;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 4, \"end_line\": 2, \"end_column\": 5, \"message\": \"Too many instructions of type CondInst (max 1)\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: 'start:\\n  BKPT;;\\n'": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "test_diagnostics.py: '{% for i in range(2) %}\\nBKPT;;\\n{% endfor %}\\nmac.ee r0;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 3, \"column\": 0, \"end_line\": 3, \"end_column\": 1, \"message\": \"Opcode 'mac.ee' not found in any Inst subclass.\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{% for i in range(4) %}\\n    ADD lr0 lr0 1.5;;\\n{% endfor %}\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 8, \"end_line\": 1, \"end_column\": 9, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{% for i in undefined_var %}\\nBKPT;;\\n{% endfor %}\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 2, \"column\": 2, \"end_line\": 2, \"end_column\": 3, \"message\": \"unexpected ''; expected one of: token\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    BKPT;;\\n'": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  },
+  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n{%- set b = \"lr1\" -%}\\n    SET {{a}} cr0;;\\n    SET {{b}} cr1;;\\n    BEQ lr0, cr0, +1;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 4, \"column\": 11, \"end_line\": 4, \"end_column\": 12, \"message\": \"unexpected ','; expected one of: token, ';', ';;'\", \"severity\": \"error\", \"stage\": \"parse\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{%- set pad = \"                         \" -%}\\n    ADD lr0 lr0 1.5;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 1, \"column\": 8, \"end_line\": 1, \"end_column\": 9, \"message\": \"Invalid token value - 1.5 in token LcrRegField Additional Information: Value 1.5 not in enum options Available options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\", \"severity\": \"error\", \"stage\": \"assemble\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ (1).missing() }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: UndefinedError: 'int object' has no attribute 'missing'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ (1).nope() }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: UndefinedError: 'int object' has no attribute 'nope'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: SecurityError: access to attribute '__class__' of 'dict' object is unsafe.\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ 1 + \"a\" }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: TypeError: unsupported operand type(s) for +: 'int' and 'str'\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "test_diagnostics.py: '{{ 1 / 0 }}\\nBKPT;;\\n'": {
+    "exit_code": 1,
+    "stdout": "[{\"line\": 0, \"column\": 0, \"end_line\": 0, \"end_column\": 0, \"message\": \"Template error: ZeroDivisionError: division by zero\", \"severity\": \"error\", \"stage\": \"template\", \"approximate\": false}]\n"
+  },
+  "vscode-ipu-asm/test/corpus/edge_cases.asm": {
+    "exit_code": 0,
+    "stdout": "[]\n"
+  }
+}

@@ -102,6 +102,11 @@ jobs:
       - name: Check how checkouts are found
         run: node vscode-ipu-asm/test/project.js
 
+      # The extension activated on a stand-in `vscode`: Restricted Mode runs nothing
+      # (no API grants workspace trust inside VS Code, so the integration test cannot drive it).
+      - name: Check what activation runs, and when
+        run: node vscode-ipu-asm/test/activation.js
+
       - name: Check completion and navigation against the parser
         run: |
           node vscode-ipu-asm/test/language.js \

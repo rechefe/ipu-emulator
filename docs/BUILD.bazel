@@ -66,19 +66,16 @@ genrule(
     tools = [":gen_instruction_format_md"],
 )
 
+# Refreshes the committed docs/content/release-log.md from the GitHub API. Not
+# part of any build: the docs build stays offline, and the release-log workflow
+# (.github/workflows/release-log.yml) runs this on master after every merge.
+#
+#   bazel run //docs:update_release_log -- --output "$PWD/docs/content/release-log.md"
 py_binary(
     name = "update_release_log",
     srcs = ["update_release_log.py"],
     main = "update_release_log.py",
     python_version = "PY3",
-)
-
-genrule(
-    name = "generate_release_log",
-    outs = ["release-log.md"],
-    cmd = "$(location :update_release_log) --output $@",
-    tags = ["no-sandbox"],
-    tools = [":update_release_log"],
 )
 
 # Default tier (not tagged "docs"): runs offline, _get is monkeypatched.
@@ -112,7 +109,6 @@ genrule(
         ":generate_mkdocs_md",
         ":generate_instruction_format_md",
         ":generate_instruction_format_artifacts",
-        ":generate_release_log",
         "//:GLOSSARY.md",
         "hooks/giscus_env.py",
         "hooks/history_link.py",
@@ -163,8 +159,6 @@ genrule(
 
         ln -sfn "$$ORIGDIR/$(location :generate_instruction_format_md)" "$(@D)/docs_temp/content/instruction-format.md"
 
-        ln -sfn "$$ORIGDIR/$(location :generate_release_log)" "$(@D)/docs_temp/content/release-log.md"
-
         # reference/glossary.md includes the root GLOSSARY.md through pymdownx.snippets,
         # whose base_path ".." is the parent of the temp tree, as the repo root is of docs/.
         ln -sfn "$$ORIGDIR/$(location //:GLOSSARY.md)" "$(@D)/GLOSSARY.md"
@@ -184,8 +178,10 @@ genrule(
         $$ORIGDIR/$(location :mkdocs) build --site-dir $$ORIGDIR/$(@D)/site_output
         cd $$ORIGDIR
 
-        # Package output
-        tar -cf $@ -C $(@D)/site_output .
+        # Package output. Sorted names, fixed mtimes and owners: two builds of the
+        # same commit give the same site.tar.
+        tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf $@ -C $(@D)/site_output .
     """,
     tools = [":mkdocs"],
 )

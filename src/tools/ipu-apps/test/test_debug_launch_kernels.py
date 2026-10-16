@@ -38,7 +38,7 @@ def debug_terminal(monkeypatch):
 def test_every_kernel_enters_debugger_and_completes(debug_terminal, monkeypatch, kernel):
     stops = []
 
-    def view(state, cycle):
+    def view(state, cycle, **frontend):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE
 

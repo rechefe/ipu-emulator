@@ -7,7 +7,7 @@ import pytest
 
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_apps.kernel_registry.base import IpuApp
-from ipu_emu.debug_control import get_debug_control
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, run_test
 from ipu_emu.ipu_state import IpuState
 import ipu_emu.debug_tui as tui
@@ -61,14 +61,14 @@ def test_entry_is_after_setup_and_before_side_effects(app, debug_terminal, monke
 
     monkeypatch.setattr("ipu_emu.debug_cli.DebugCLI", forbidden)
 
-    def view(state, cycle):
+    def view(state, cycle, *, control, session):
         assert app.events == ["setup"]
         assert state.inst_mem[0] is not None
         assert state.xmem.read_address(0, 8) == b"prepared"
-        assert not get_debug_control(state).breakpoints
+        assert not control.breakpoints
         stops.append((state.program_counter, cycle, state.regfile.get_lr(0)))
-        assert get_debug_control(state).stop_reason == "entry"
-        assert get_debug_control(state).kernel_name == type(app).__name__
+        assert control.stop_reason == "entry"
+        assert control.kernel_name == type(app).__name__
         return DebugAction.CONTINUE
 
     monkeypatch.setattr(tui, "run_debug_tui", view)
@@ -86,13 +86,12 @@ def test_tui_steps_and_breakpoints_reopen_without_the_cli(app, debug_terminal, m
     def forbidden(*args, **kwargs):
         pytest.fail("TUI stops must not construct the legacy CLI")
 
-    def view(state, cycle):
+    def view(state, cycle, *, control, session):
         stops.append((state.program_counter, cycle))
-        session = tui.get_debug_view_session(state)
         if len(stops) == 1:
             session.focus = "registers"
             session.maximized = True
-            get_debug_control(state).add_breakpoint(2)
+            control.add_breakpoint(2)
             return DebugAction.STEP
         assert session.focus == "registers"
         assert session.maximized
@@ -106,7 +105,7 @@ def test_tui_steps_and_breakpoints_reopen_without_the_cli(app, debug_terminal, m
 
 
 def test_quit_unwinds_without_teardown_or_returning_partial_state(app, debug_terminal, monkeypatch):
-    monkeypatch.setattr(tui, "run_debug_tui", lambda state, cycle: DebugAction.QUIT)
+    monkeypatch.setattr(tui, "run_debug_tui", lambda state, cycle, **frontend: DebugAction.QUIT)
     with pytest.raises(SystemExit) as result:
         app.run()
     assert result.value.code == 0
@@ -117,7 +116,7 @@ def test_quit_unwinds_without_teardown_or_returning_partial_state(app, debug_ter
 def test_curses_failure_does_not_fall_back_or_execute(app, debug_terminal, monkeypatch):
     state = IpuState()
 
-    def failure(state, cycle):
+    def failure(state, cycle, **frontend):
         raise RuntimeError("curses unavailable")
 
     monkeypatch.setattr(tui, "run_debug_tui", failure)
@@ -161,7 +160,7 @@ def test_interrupt_after_continue_cancels_without_teardown(app, debug_terminal, 
     state = IpuState()
     stops = []
 
-    def view(state, cycle):
+    def view(state, cycle, *, control, session):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE
 
@@ -223,24 +222,25 @@ def test_noninteractive_debug_is_rejected_before_setup(app, monkeypatch):
 def test_entry_uses_prepared_pc_and_combines_break_causes(program):
     assemble_to_bin_file("INC lr0 1;;\nBREAK;;\nBKPT;;", str(program))
     state = IpuState()
-    get_debug_control(state).add_breakpoint(1)
+    control = DebugControl()
+    control.add_breakpoint(1)
     stops = []
 
     def setup(state):
         state.program_counter = 1
 
     def callback(state, cycle):
-        stops.append((state.program_counter, cycle, get_debug_control(state).stop_reason))
+        stops.append((state.program_counter, cycle, control.stop_reason))
         return DebugAction.CONTINUE
 
     _, cycles = run_test(
         inst_path=program, state=state, setup=setup,
-        debug_callback=callback, break_on_entry=True,
+        debug_callback=callback, break_on_entry=True, debug_control=control,
     )
     assert stops == [(1, 0, "entry, breakpoint, BREAK instruction")]
     assert cycles == 2
     assert state.regfile.get_lr(0) == 0
-    assert get_debug_control(state).breakpoints == {1}
+    assert control.breakpoints == {1}
 
 
 @pytest.mark.parametrize("cancel", ["quit", "interrupt_after_continue"])
@@ -256,7 +256,7 @@ def test_registry_case_cancel_skips_check_and_cleans_workspace(debug_terminal, m
         prepared = original.prepare(workspace, rows=1)
         return PreparedCase(prepared.params, prepared.bindings, lambda: checks.append(True))
 
-    def view(state, cycle):
+    def view(state, cycle, *, control, session):
         assert cycle == 0 and state.program_counter == 0
         assert state.regfile.get_cr(4) == 1
         return DebugAction.QUIT if cancel == "quit" else DebugAction.CONTINUE
@@ -278,7 +278,7 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
     from ipu_apps.kernel_registry.cases import load_cases, run_case
 
     stops = []
-    def view(state, cycle):
+    def view(state, cycle, *, control, session):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE
 

@@ -90,8 +90,9 @@ must keep assembling; a change that breaks it is a real grammar regression.
 |---|---|
 | `test/checker.js` | which checker runs, when the prebuilt one is stale, and how a process that runs too long is stopped |
 | `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
+| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in; activation touches the disk only asynchronously |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic, and agreement with the parser on the corpus |
-| `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest |
+| `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol, and formatting, leaves the assembled binary unchanged |
 | `test/integration/run.js` | the extension in a real VS Code, then in a parent folder, another project and a pre-manifest checkout |
 
@@ -174,6 +175,28 @@ code --install-extension ipu-asm.vsix
 | `ipuAsm.timeoutSeconds` | `300` | the longest the checker, the manifest or a query may run before it is stopped; `0` for no limit |
 | `ipuAsm.wordSeparation` | `space` | how `;;` words are set apart (a label, comment or opening Jinja tag stays with its word): `space` (an empty CodeLens row; file unchanged), `emptyLine` (written by formatting), `line` (colour `ipuAsm.wordSeparator`) or `none` |
 
+## Restricted Mode
+
+VS Code opens a folder it has not been told to trust in Restricted Mode. There,
+the folder's own files would choose what runs: its `.vscode/settings.json` can
+set `ipuAsm.checkCommand`, `ipuAsm.manifestCommand`, `ipuAsm.queryCommand` and
+`ipuAsm.bazelFlags`, and its `BUILD` files decide what `bazel` does. So in
+Restricted Mode the extension runs nothing:
+
+- **Works:** highlighting, hover, completion, operand hints, navigation, rename
+  (on its lexical check, and it says so), formatting.
+- **Off:** diagnostics, the kernel sidebar and its buttons, Run, Debug, Test,
+  Benchmark and query. The status bar shows `$(shield) IPU: Restricted Mode`;
+  clicking it opens VS Code's trust settings.
+
+VS Code also ignores the four settings above when a Restricted Mode workspace
+sets them. Trusting the workspace starts the checker and loads the kernels at
+once, with no reload.
+
+Whatever the trust, a kernel manifest value that reaches a terminal (a target, a
+family's test suite, an option's flag) must be a Bazel label or a plain flag and
+is quoted; anything else is refused with an error and nothing is run.
+
 ## Diagnostics
 
 The grammar colours tokens; it cannot say a program is wrong. A TextMate rule
@@ -192,8 +215,11 @@ covering all three stages:
 | encode | `BGT lr0 lr1;;`, `mac.ee r0;;` | the mnemonic |
 
 Templates render in Jinja's sandbox, as the assembler does, because a file is
-checked as soon as it opens; the extension is also disabled in Restricted Mode.
+checked as soon as it opens; in Restricted Mode nothing is checked at all (see
+[Restricted Mode](#restricted-mode)).
 A template that expects harness values should give them a `| default(...)`.
+
+What `ipu-as check --json` prints is a versioned contract between the two: [schema/check-json.md](schema/check-json.md).
 
 It shells out to `ipu-as check --json` rather than speaking LSP, which keeps the
 extension dependency-free — no `vscode-languageclient`, no bundled
@@ -201,10 +227,11 @@ extension dependency-free — no `vscode-languageclient`, no bundled
 
 By default the extension builds `//src/tools/ipu-as-py:ipu-as` in the background
 when the workspace opens, then runs the resulting binary directly. This avoids
-Bazel's client startup and workspace lock while typing. Before every check it
-compares the binary with the assembler sources; if the binary is missing or the
-sources are newer, that check falls back to `bazel run`, which rebuilds it, and
-later checks use the binary directly again.
+Bazel's client startup and workspace lock while typing. It compares the binary
+with the assembler sources, and compares again only once a file watcher reports
+a source change (or the binary is rebuilt); if the binary is missing or the
+sources are newer, checks fall back to `bazel run`, which rebuilds it, and later
+checks use the binary directly again.
 
 `test/checker.js` covers this selection and freshness rule and runs in
 `.github/workflows/vscode-extension.yml`.
@@ -227,7 +254,13 @@ silence is the worse failure.
 So a status bar item reports which state you are in — `$(check) IPU` when
 diagnostics are live, `$(warning) IPU: checks off` when they are not. Clicking
 it, or running **IPU Assembly: Why are diagnostics not running?**, gives the
-reason.
+reason. With several checkouts open, it shows the active editor's: each checkout
+has its own toolchain. A check that failed is run again on the next save or
+**IPU Assembly: Check current file**, even if the text has not changed.
+
+An unsaved buffer is checked in the window's checkout when there is exactly one,
+and not at all when there are several. A git diff view is checked in the
+checkout holding its file; a document with no file on disk is not checked.
 
 The most common reason: **`ipu-as check` is added by the same change as this
 extension**, so a workspace on a branch predating it has no `check` subcommand

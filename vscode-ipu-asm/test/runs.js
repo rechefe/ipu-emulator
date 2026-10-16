@@ -44,6 +44,27 @@ test('kernel commands: default options as flags, case and options after --, benc
   ]) assert.strictEqual(runs.kernelCommand(k, mode, options), command, `${mode} ${JSON.stringify(options)}`);
 });
 
+test('a manifest value that is no Bazel label or flag is refused, not sent to the shell', () => {
+  const evil = '//a:b; rm -rf ~';
+  for (const targets of [{ run: evil }, { run: '//a:b', test: evil }, { run: '//a:b', benchmark: '$(id)' }, { run: 'a:b' }]) {
+    const k = { ...kernel, targets };
+    for (const action of ['run', 'debug', 'test', 'benchmark']) {
+      const target = targets[action === 'debug' ? 'run' : action];
+      if (target === undefined || target === '//a:b') continue;
+      assert.throws(() => runs.kernelCommand(k, action, { caseName: 'default' }), /not a valid Bazel label; nothing was run/, `${action} ${target}`);
+    }
+  }
+  assert.throws(() => runs.familyCommand({ suite: evil }), /family suite/);
+  assert.throws(() => runs.familyCommand({}), /family suite/);
+  const badFlag = { options: { rows: { flag: '--rows;id', default: 1, type: 'int' } } };
+  assert.throws(() => runs.optionArgs(badFlag), /flag of option rows "--rows;id" is not a valid flag/);
+  const badNegated = { options: { wide: { flag: '--wide', negated_flag: '`id`', default: false, type: 'bool' } } };
+  assert.throws(() => runs.optionArgs(badNegated), /flag of option wide/);
+  // Valid labels, external repositories' included, pass through as they always did.
+  assert.strictEqual(runs.familyCommand(manifest.families.reshape, { flags: ['--config=x'] }), 'bazel test --config=x //src/tools/ipu-apps:reshape');
+  assert.strictEqual(runs.kernelCommand({ ...kernel, targets: { test: '@other_repo//pkg/sub:t+1' } }, 'test'), 'bazel test @other_repo//pkg/sub:t+1');
+});
+
 test('cases: saved ones added or over the registry\'s, run as their base with their values; values checked by type', () => {
   const cases = runs.kernelCases(kernel, {
     tall: { base: 'default', options: { rows: 64, wide: true } },

@@ -14,6 +14,18 @@
   "categories": [
     "Programming Languages"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode, IPU assembly highlighting and hover work; checking, kernel runs and manifest queries are disabled.",
+      "restrictedConfigurations": [
+        "ipuAsm.checkCommand",
+        "ipuAsm.manifestCommand",
+        "ipuAsm.queryCommand",
+        "ipuAsm.bazelFlags"
+      ]
+    }
+  },
   "contributes": {
     "languages": [
       {

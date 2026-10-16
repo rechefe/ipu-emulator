@@ -18,6 +18,8 @@ dependencies = [
 dev = [
     "pytest>=9.0.1",
     "pyslang>=11.0.0",
+    "jsonschema>=4.0",
+    "referencing>=0.30",
 ]
 docs = [
     "mkdocs>=1.6.0",

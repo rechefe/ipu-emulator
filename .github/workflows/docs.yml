@@ -1,10 +1,30 @@
 name: Documentation
 
+# Builds the site on master pushes (and deploys it), on pull requests that touch
+# the docs or the code that generates pages, and on demand. The build is offline:
+# the release log is committed (docs/content/release-log.md) and refreshed by
+# release-log.yml, which dispatches this workflow after committing a new entry.
+#
+# Keep the paths in step with the generators: E03, E08 and E09 must update them
+# when packages move.
+
 on:
   push:
-    branches: [ "**" ]
+    branches: [master]
   pull_request:
-    branches: [ "**" ]
+    paths:
+      - "docs/**" # includes docs/mkdocs.yml and docs/content/release-log.md
+      - "GLOSSARY.md"
+      - "src/tools/ipu-as-py/src/**"
+      - "src/tools/ipu-isa/src/**"
+      - "src/tools/ipu-gen/src/**"
+      - "src/tools/ipu-apps/src/ipu_apps/kernels/**/*.md"
+      - ".github/workflows/docs.yml"
+      - "requirements_lock.txt"
+      - ".bazelrc"
+      - "MODULE.bazel"
+      - "tools/bootstrap.sh"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,6 +62,7 @@ jobs:
           GISCUS_LANG: ${{ vars.GISCUS_LANG }}
         run: |
           # --config=docs forwards the GISCUS_* variables into the build (.bazelrc).
+          # No GITHUB_TOKEN: nothing in the build calls the GitHub API.
           bazel build --config=docs //docs:build_docs
           mkdir -p site
           tar -xf bazel-bin/docs/site.tar -C site

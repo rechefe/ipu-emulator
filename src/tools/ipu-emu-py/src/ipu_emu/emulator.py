@@ -22,7 +22,7 @@ from typing import Any, Callable
 import numpy as np
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.debug_control import get_debug_control
+from ipu_emu.run_control import RunControl
 from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
 from ipu_emu.execute import (
     BreakResult,
@@ -108,6 +108,7 @@ def run_with_debug(
     debug_callback: DebugCallback,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     *,
+    control: RunControl | None = None,
     break_on_entry: bool = False,
 ) -> int:
     """Run the program honouring breakpoints.
@@ -121,8 +122,10 @@ def run_with_debug(
     - ``QUIT`` — halt immediately.
 
     Stops occur before instruction side effects. Callback cycle counts and
-    the return value count completed instructions. Runtime controls are shared
-    with frontends through :func:`get_debug_control`.
+    the return value count completed instructions. *control* holds the
+    breakpoints and run target the run honours, and receives its stop reason
+    and last completed instruction; a caller that shares it with a debugger
+    frontend passes it in, else a fresh one is used.
     ``break_on_entry`` stops at the prepared PC before the first instruction.
 
     ``state.stats`` describes this run only; its ``total_cycles`` is set even
@@ -133,7 +136,8 @@ def run_with_debug(
     ipu = Ipu(state)
     _begin_run(state)
 
-    control = get_debug_control(state)
+    # TODO(E04): express this loop over the stepping engine once E04 lands it.
+    control = control if control is not None else RunControl()
     control.last_completed_pc = None
     control.last_completed_instruction = None
     entry_pending = break_on_entry
@@ -298,6 +302,7 @@ def run_test(
     max_cycles: int = DEFAULT_MAX_CYCLES,
     debug_callback: DebugCallback | None = None,
     break_on_entry: bool = False,
+    debug_control: RunControl | None = None,
     state: IpuState | None = None,
     elu_alpha: float | None = None,
     window_a: float | None = None,
@@ -319,7 +324,8 @@ def run_test(
     when constructing a new ``IpuState``; if *state* is passed, non-``None``
     arguments are forwarded to :meth:`IpuState.set_activation_alphas`.
     ``break_on_entry`` requests an initial stop after setup when a
-    ``debug_callback`` is supplied.
+    ``debug_callback`` is supplied, and ``debug_control`` is the control that
+    run shares with its debugger frontend (see :func:`run_with_debug`).
     """
     if state is None:
         state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
@@ -334,7 +340,8 @@ def run_test(
 
     if debug_callback is not None:
         cycles = run_with_debug(
-            state, debug_callback, max_cycles, break_on_entry=break_on_entry
+            state, debug_callback, max_cycles,
+            control=debug_control, break_on_entry=break_on_entry,
         )
     else:
         cycles = run_until_complete(state, max_cycles)

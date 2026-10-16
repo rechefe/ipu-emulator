@@ -13,6 +13,9 @@ python.toolchain(
     # Containers such as Claude Code on the web run as root; without this the
     # hermetic interpreter fetch hard-fails instead of emitting a warning.
     ignore_root_user_error = True,
+    # Registers coverage.py with the toolchain, so `bazel coverage` (the nightly
+    # workflow) measures Python code instead of writing empty reports.
+    configure_coverage_tool = True,
 )
 use_repo(python, "python_3_10")
 

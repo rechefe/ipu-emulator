@@ -21,7 +21,9 @@ Usage from Python::
 Or as a callback for :func:`emulator.run_with_debug`::
 
     from ipu_emu.debug_cli import debug_prompt
-    run_with_debug(state, lambda s, c: debug_prompt(s))
+    from ipu_emu.debug_control import DebugControl
+    control = DebugControl()
+    run_with_debug(state, lambda s, c: debug_prompt(s, c, control=control), control=control)
 """
 
 from __future__ import annotations
@@ -48,7 +50,7 @@ from ipu_isa.registers import create_regfile_schema
 
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.emulator import DebugAction
-from ipu_emu.debug_control import get_debug_control, validate_pc
+from ipu_emu.debug_control import DebugControl, validate_pc
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.xmem import XMEM_SIZE_BYTES, XMEM_WIDTH_BYTES
@@ -745,10 +747,12 @@ class DebugCLI(cmd.Cmd):
         out: TextIO = sys.stdout,
         inp: TextIO = sys.stdin,
         cycle: int = 0,
+        control: DebugControl | None = None,
     ):
         super().__init__(stdin=inp, stdout=out)
         self.state = state
-        self.control = get_debug_control(state)
+        # The run's control, from whoever started the run; else this prompt's own.
+        self.control = control if control is not None else DebugControl()
         self.cycle = cycle
         self.out = out
         self.inp = inp
@@ -864,12 +868,12 @@ class DebugCLI(cmd.Cmd):
     def do_delete(self, args: str) -> None:
         """Remove runtime breakpoints. Usage: delete PC|all"""
         if args.strip().lower() == "all":
-            self.control.breakpoints.clear()
+            self.control.clear_breakpoints()
             self.out.write("All runtime breakpoints removed\n")
             return
         pc = self._command_pc(args.strip())
         if pc is not None:
-            self.control.breakpoints.discard(pc)
+            self.control.remove_breakpoint(pc)
             self.out.write(f"Breakpoint removed at PC {pc}\n")
 
     def do_until(self, args: str) -> bool | None:
@@ -958,7 +962,11 @@ class DebugCLI(cmd.Cmd):
             return
 
         if reg_name == "pc":
-            self.state.program_counter = value
+            try:
+                self.control.set_pc(self.state, value)
+            except ValueError as error:
+                self.out.write(f"{error}\n")
+                return
             self.out.write(f"Set pc = {value}\n")
             return
 
@@ -1145,12 +1153,13 @@ def debug_prompt(
     level: int = 0,
     out: TextIO = sys.stdout,
     inp: TextIO = sys.stdin,
+    control: DebugControl | None = None,
 ) -> DebugAction:
     """Enter the deprecated line debugger retained for existing callers.
 
     Suitable as a callback for :func:`emulator.run_with_debug`::
 
-        run_with_debug(state, lambda s, c: debug_prompt(s, c))
+        run_with_debug(state, lambda s, c: debug_prompt(s, c, control=control), control=control)
 
     Parameters
     ----------
@@ -1160,6 +1169,9 @@ def debug_prompt(
         Current cycle count (passed by ``run_with_debug``, informational).
     level : int
         Debug verbosity level (0–2), matching C ``ipu_debug__level_t``.
+    control : DebugControl, optional
+        The control passed to ``run_with_debug``, so ``break`` and ``until``
+        reach the run; without it they last for this prompt only.
     """
-    cli = DebugCLI(state, out=out, inp=inp, cycle=cycle)
+    cli = DebugCLI(state, out=out, inp=inp, cycle=cycle, control=control)
     return cli.run(level=level)

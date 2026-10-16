@@ -173,3 +173,34 @@ def test_full_refresh_pages_and_sorts(monkeypatch, tmp_path):
     assert len(rl.parse_rows(text)) == 101
     first_row = next(line for line in text.splitlines() if line.startswith("| [#"))
     assert first_row.startswith("| [#200]")
+
+
+def test_recent_merges_every_merged_pr_on_the_first_page(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_get(url, token):
+        calls.append(url)
+        return [
+            _pr(3, "three", "2024-03-03T00:00:00Z"),
+            {**_pr(4, "closed unmerged", None), "merged_at": None},
+            _pr(2, "two", "2024-03-02T00:00:00Z"),
+        ] + [_pr(100 + i, f"pr {i}", "2024-01-01T00:00:00Z") for i in range(97)]
+
+    monkeypatch.setattr(rl, "_get", fake_get)
+    out = tmp_path / "release-log.md"
+    out.write_text(rl.build_content([_pr(1, "one", "2024-03-01T00:00:00Z")]), encoding="utf-8")
+    assert rl.main(["--recent", "--output", str(out)]) == 0
+    rows = rl.parse_rows(out.read_text(encoding="utf-8"))
+    assert {1, 2, 3} <= set(rows)
+    assert 4 not in rows
+    assert len(calls) == 1  # first page only, although it was full
+
+
+@pytest.mark.parametrize("exc", _NETWORK_ERRORS, ids=lambda e: type(e).__name__)
+def test_recent_network_error_leaves_existing_file_unchanged(monkeypatch, tmp_path, exc):
+    monkeypatch.setattr(rl, "_get", _raise(exc))
+    out = tmp_path / "release-log.md"
+    before = rl.build_content([_pr(1, "one", "2024-03-01T00:00:00Z")])
+    out.write_text(before, encoding="utf-8")
+    assert rl.main(["--recent", "--output", str(out)]) == 0
+    assert out.read_text(encoding="utf-8") == before

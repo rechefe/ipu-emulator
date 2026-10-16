@@ -7,7 +7,10 @@ inline assembly into encoded instruction words, load them into an
 
 from __future__ import annotations
 
+import os
 import struct
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -20,7 +23,7 @@ from ipu_emu.emulator import (
     DebugAction,
 )
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
-from ipu_emu.debug_control import get_debug_control
+from ipu_emu.debug_control import DebugControl
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
 from ipu_emu.errors import DebugOnlyInstructionWarning
@@ -1967,7 +1970,7 @@ class TestDebuggerStops:
 
     def test_runtime_breakpoint_rearms_on_loop_visit(self):
         state = make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
-        control = get_debug_control(state)
+        control = DebugControl()
         control.add_breakpoint(0)
         original = [inst.copy() if inst else None for inst in state.inst_mem]
         stops = []
@@ -1977,13 +1980,13 @@ class TestDebuggerStops:
             assert control.stop_reason == "breakpoint"
             return DebugAction.CONTINUE
 
-        assert run_with_debug(state, callback) == 7
+        assert run_with_debug(state, callback, control=control) == 7
         assert stops == [(0, 0, 0), (0, 2, 1), (0, 4, 2)]
         assert state.inst_mem == original
 
     def test_simultaneous_causes_stop_once(self):
         state = make_state("BREAK;;\nBREAK;;\nBKPT;;")
-        control = get_debug_control(state)
+        control = DebugControl()
         control.add_breakpoint(1)
         reasons = []
 
@@ -1994,7 +1997,7 @@ class TestDebuggerStops:
                 return DebugAction.STEP
             return DebugAction.CONTINUE
 
-        assert run_with_debug(state, callback) == 3
+        assert run_with_debug(state, callback, control=control) == 3
         assert reasons == [
             (0, 0, "BREAK instruction"),
             (1, 1, "breakpoint, run target, step, BREAK instruction"),
@@ -2003,7 +2006,7 @@ class TestDebuggerStops:
 
     def test_run_target_stops_before_side_effects(self):
         state = make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
-        control = get_debug_control(state)
+        control = DebugControl()
         control.run_until(1, 0)
         stops = []
 
@@ -2013,13 +2016,13 @@ class TestDebuggerStops:
             assert control.stop_reason == "run target"
             return DebugAction.QUIT
 
-        assert run_with_debug(state, callback) == 1
+        assert run_with_debug(state, callback, control=control) == 1
         assert stops == [(1, 1, 1)]
         assert state.stats.total_cycles == 1
 
     def test_intervening_break_cancels_run_target(self):
         state = make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
-        control = get_debug_control(state)
+        control = DebugControl()
         stops = []
 
         def callback(state, cycle):
@@ -2030,14 +2033,14 @@ class TestDebuggerStops:
                 assert control.run_target is None
             return DebugAction.CONTINUE
 
-        assert run_with_debug(state, callback) == 4
+        assert run_with_debug(state, callback, control=control) == 4
         assert stops == [0, 1]
         assert state.regfile.get_lr(0) == 1
 
     @pytest.mark.parametrize("termination", ["halt", "quit", "limit", "error"])
     def test_run_target_cleared_on_every_exit(self, termination):
         state = make_state("BREAK;;\nBKPT;;")
-        control = get_debug_control(state)
+        control = DebugControl()
 
         def callback(state, cycle):
             control.run_until(10, state.program_counter)
@@ -2047,10 +2050,51 @@ class TestDebuggerStops:
 
         if termination in ("limit", "error"):
             with pytest.raises(RuntimeError if termination == "limit" else ValueError):
-                run_with_debug(state, callback, max_cycles=1)
+                run_with_debug(state, callback, max_cycles=1, control=control)
         else:
-            run_with_debug(state, callback)
+            run_with_debug(state, callback, control=control)
         assert control.run_target is None
+
+    def test_importing_the_emulator_imports_no_debugger(self):
+        # A fresh interpreter, so this test file's own imports do not count.
+        probe = "import sys, ipu_emu; print(sorted(m for m in sys.modules if m.startswith('ipu_emu.debug')))"
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
+        result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True)
+        assert result.stdout.strip() == "[]"
+
+    def test_two_states_keep_their_own_controls(self):
+        program = "INC lr0 1;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;"
+        first, second = make_state(program), make_state(program)
+        first_control, second_control = DebugControl(), DebugControl()
+        first_control.add_breakpoint(1)
+        second_control.add_breakpoint(2)
+        stops = []
+
+        def on_second(state, cycle):
+            stops.append(("second", state.program_counter))
+            return DebugAction.CONTINUE
+
+        def on_first(state, cycle):
+            stops.append(("first", state.program_counter))
+            # The second runs to completion while the first is paused.
+            run_with_debug(second, on_second, control=second_control)
+            return DebugAction.CONTINUE
+
+        run_with_debug(first, on_first, control=first_control)
+        assert stops == [("first", 1), ("second", 2)]
+        assert first_control.breakpoints == {1} and second_control.breakpoints == {2}
+        assert (first_control.last_completed_pc, second_control.last_completed_pc) == (3, 3)
+
+    def test_without_a_control_only_embedded_breaks_stop(self):
+        state = make_state("INC lr0 1;;\nBREAK;;\nBKPT;;")
+        stops = []
+
+        def callback(state, cycle):
+            stops.append(state.program_counter)
+            return DebugAction.CONTINUE
+
+        assert run_with_debug(state, callback) == 3
+        assert stops == [1]
 
     def test_pc_and_register_edits_apply_to_resumed_instruction(self):
         state = make_state("BREAK;;\nSET lr1 cr2;;\nBKPT;;")

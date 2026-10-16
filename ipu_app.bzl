@@ -171,7 +171,8 @@ def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
 
     For tests that run several kernels together (one kernel's output feeding
     the next). Every kernel's ``.asm`` under kernels_root is data, as are the
-    suite's other ``.py`` files (shared fixtures) and ``.asm`` programs. Files named
+    suite's own ``.asm`` programs; shared fixtures are a ``py_library`` in
+    ``deps``. Files named
     ``test_full_*.py`` run whole model stacks and take hours, so they are
     ``manual`` and size ``enormous``: run them by name with ``--config=full``
     (the default ``--test_size_filters=-enormous`` filters them out even when
@@ -186,10 +187,7 @@ def ipu_multi_kernel_tests(suites_root, kernels_root, deps):
             size = "enormous" if full else "large",
             tags = ["manual"] if full else [],
             srcs = [test],
-            data = native.glob(
-                [suite + "/*.py", suite + "/*.asm"],
-                exclude = [suite + "/test_*.py"],
-            ) + native.glob([kernels_root + "/**/*.asm"]),
+            data = native.glob([suite + "/*.asm"]) + native.glob([kernels_root + "/**/*.asm"]),
             imports = ["src"],
             legacy_create_init = False,
             deps = deps,

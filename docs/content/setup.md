@@ -158,6 +158,24 @@ uv pip install -e .
 ipu-as --help
 ```
 
+## Building the Documentation
+
+The documentation site is built by Bazel, offline:
+
+```bash
+bazel build --config=docs //docs:build_docs      # writes bazel-bin/docs/site.tar
+bazel run --config=docs //docs:serve_docs        # build and serve it locally
+```
+
+`--config=docs` forwards the optional `GISCUS_*` overrides into the build. No
+build action calls the GitHub API: the [release log](release-log.md) is
+committed, and a workflow refreshes it on `master` after every merge. To
+refresh it by hand:
+
+```bash
+bazel run //docs:update_release_log -- --recent --output "$PWD/docs/content/release-log.md"
+```
+
 ## Common Issues
 
 ### Bazel build fails with "external repository not found"
