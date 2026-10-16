@@ -31,11 +31,10 @@ test:full --test_size_filters=
 build:full --build_tag_filters=-docs
 test:full --test_tag_filters=-docs
 
-# Forward GITHUB_TOKEN into genrules that need it (e.g. generate_release_log)
-build --action_env=GITHUB_TOKEN
-
 # Docs build: giscus settings for docs/hooks/giscus_env.py. Scoped to
 # --config=docs so they stay out of every other action's cache key.
+# No build action reaches the network or reads GITHUB_TOKEN: the release log is
+# committed (docs/content/release-log.md) and refreshed by a workflow.
 build:docs --action_env=GISCUS_REPO_ID
 build:docs --action_env=GISCUS_CATEGORY_ID
 build:docs --action_env=GISCUS_REPO
