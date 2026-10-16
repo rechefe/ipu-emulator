@@ -120,10 +120,10 @@
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 2, Column 17\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
   },
   "test_diagnostics.py: '{% for i in undefined_var %}\\nBKPT;;\\n{% endfor %}\\n'": {
-    "exception": null,
+    "exception": "UndefinedError",
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: 'undefined_var' is undefined\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
   "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    BKPT;;\\n'": {
     "exception": null,

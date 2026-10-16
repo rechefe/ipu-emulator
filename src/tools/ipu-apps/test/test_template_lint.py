@@ -3,6 +3,9 @@
 Templates render with StrictUndefined: a value a template needs is a declared
 `ipu:params` parameter, and its default lives in the header. `| default(...)`,
 `is defined` and `is undefined` would bring back the silent fallback.
+
+The check is textual, so a comment that says "is defined" in prose fails it
+too; reword the comment.
 """
 
 from __future__ import annotations

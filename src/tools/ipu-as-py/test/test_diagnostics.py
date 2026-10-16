@@ -146,7 +146,7 @@ def test_empty_program_is_reported_not_crashed():
 def test_an_undefined_name_is_a_template_error_at_its_line():
     # StrictUndefined (E05-11): an undefined name no longer iterates as empty.
     (found,) = check("{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n")
-    assert (found.stage, found.line) == ("template", 0)
+    assert (found.stage, found.line) == ("template", 0)  # 0-based: source line 1
     assert "'undefined_var' is undefined" in found.message
 
 
