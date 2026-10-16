@@ -20,7 +20,7 @@ import math
 import struct
 import warnings
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cache, lru_cache
 from typing import Any, NamedTuple
 
@@ -31,6 +31,7 @@ from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, Emul
 from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
+from ipu_emu.issue import Issuer, MultIdentity
 from ipu_emu.regfile import RegFile
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.acc_stride_enums import (
@@ -594,11 +595,10 @@ class Ipu:
         # The cycle's register snapshot, which handlers read. The Cycle owns
         # it (bind_snapshot); no handler ever writes to it.
         self._snapshot_buffer: RegFile | None = None
-        # Set by dispatch for the multiply in flight, read back by
-        # _mult_mask_and_shift — the only place the active-lane count exists.
-        self._mult_identity: bool = False
-        self._mult_vector_identity = False
-        self._mult_cr_identity = False
+        # Issues each slot op into one IssueFacts record and runs its handler.
+        # The record of the op in flight is ``issuer.current``: the multiply
+        # handlers read its identity verdict when they count lanes.
+        self.issuer = Issuer(self)
         # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
         # conflict check and the profiler's begin/end hooks. The cycle gets a
         # weak proxy: a strong back-reference would make every engine a
@@ -935,7 +935,8 @@ class Ipu:
         stats = self.state.stats
         lanes = _active_lane_count(mask_int, dstructure.valid_elements)
         stats.mult_lane_ops += lanes
-        if self._mult_identity:
+        facts = self.issuer.current
+        if facts is not None and facts.mult_identity is not None and facts.mult_identity.any:
             stats.mult_identity_lane_ops += lanes
 
     def _effective_mult_mask(self, mask_idx: int, shift: int, cr_idx: int):
@@ -1172,32 +1173,6 @@ class Ipu:
     def execute_lr_nop(self) -> None:
         """Execute NOP in LR slot: No operation."""
         pass
-
-    def dispatch_lr(self, ops: tuple[IssuedOp, ...], inst: dict[str, int]) -> None:
-        """Dispatch the LR sub-slots of one word. Called by :class:`Cycle`.
-
-        Every sub-slot's read operands are resolved before any of them writes.
-        The cycle has already checked that no two write the same register.
-
-        Args:
-            ops: ``Schedule.lr_ops`` of the word.
-            inst: The word, for the profiler's encoded operands.
-        """
-        resolve = self._resolve
-        pending = []
-        for op in ops:
-            kwargs = dict(op.operands)
-            resolve(self, op.plan, kwargs)
-            pending.append((op, kwargs))
-        for op, kwargs in pending:
-            token = (
-                self._profile.start(self, "lr", op.plan, kwargs, dict(op.operands))
-                if self._profile
-                else None
-            )
-            op.plan.fn(self, **kwargs)
-            if self._profile:
-                self._profile.finish(self, token)
 
     # -----------------------------------------------------------------------
     # MULT Instruction Handlers
@@ -1909,13 +1884,10 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def dispatch_instruction(self, slot_type: str, inst: dict[str, int]) -> Any:
-        """Dispatch instruction to the correct execute_* method with named operands.
+        """Issue and execute one slot of *inst*, outside a cycle's schedule.
 
-        1. Reads the opcode from the instruction word
-        2. Looks up the instruction spec (operand names, execute_fn)
-        3. Extracts operand values from inst using precomputed field mappings
-        4. Auto-resolves 'read' operands to register values
-        5. Calls the handler with named keyword arguments
+        A delegate kept for callers that dispatch a single slot themselves (the
+        mobilevit measuring fixture, until E04-11 moves it to an observer).
 
         Args:
             slot_type: Slot type ("load", "store", "acc_store", "mult", "acc", "cond", "break")
@@ -1925,65 +1897,19 @@ class Ipu:
             Return value from handler (BreakResult for break slot, None otherwise)
         """
         plan = _SLOT_PLANS[slot_type][inst[_SLOT_OPCODE_FIELDS[slot_type]]]
-        kwargs = {name: inst[field_key] for name, field_key in plan.fields}
-        return self._dispatch_plan(slot_type, plan, kwargs, inst)
+        op = IssuedOp(slot_type, plan, {name: inst[key] for name, key in plan.fields})
+        return self.issuer.dispatch(op, inst)
 
-    def dispatch_op(self, op: IssuedOp, inst: dict[str, int]) -> Any:
-        """Dispatch one decoded slot of *inst*. Called by :class:`Cycle`.
+    def _mult_vector_is_one(
+        self, name: str, kwargs: Mapping[str, Any], encoded: Mapping[str, int]
+    ) -> bool:
+        """Only explicitly declared ONES loads establish vector provenance.
 
         Args:
-            op: The slot, from the word's :class:`~ipu_emu.cycle.Schedule`.
-            inst: The word itself (alias checks read co-issued slots).
-
-        Returns:
-            Return value from handler (BreakResult for break slot, None otherwise)
+            name: The multiply's mnemonic.
+            kwargs: Its resolved operands.
+            encoded: Its raw operand fields (``ra`` is read as its encoded index).
         """
-        return self._dispatch_plan(op.slot, op.plan, dict(op.operands), inst)
-
-    def _dispatch_plan(
-        self, slot_type: str, plan: SlotPlan, kwargs: dict[str, Any], inst: dict[str, int]
-    ) -> Any:
-        # Auto-resolve 'read' operands to register values.
-        if plan.reads:
-            self._resolve(self, plan, kwargs)
-
-        # Update run statistics
-        if plan.stat is not None:
-            stats = self.state.stats
-            setattr(stats, plan.stat, getattr(stats, plan.stat) + 1)
-
-        # MAC accounting. A multiply by 1.0 is how kernels emulate the vector
-        # move/add/subtract the ISA lacks, so it occupies the multiplier while
-        # retiring nothing. Set unconditionally for a mult (not just when true)
-        # so a MULT.RC.VV, which has no scalar to probe, cannot inherit the
-        # previous multiply's verdict. Read back by _mult_mask_and_shift, the
-        # only place the active-lane count exists.
-        if plan.is_mult:
-            self._mult_cr_identity = bool(plan.scalar_kind) and self._mult_scalar_is_one(
-                plan.scalar_kind, kwargs[plan.scalar_operand]
-            )
-            self._mult_vector_identity = self._mult_vector_is_one(plan.inst_name, kwargs)
-            self._mult_identity = self._mult_cr_identity or self._mult_vector_identity
-            if self._mult_identity:
-                self.state.stats.mult_identity_cycles += 1
-
-        alias = self._record_alias(plan, kwargs, inst) if plan.alias_checks else None
-
-        # Call handler with named arguments
-        token = (
-            self._profile.start(
-                self, slot_type, plan, kwargs, {name: inst[key] for name, key in plan.fields}
-            )
-            if self._profile and slot_type != Slot.BREAK
-            else None
-        )
-        result = plan.fn(self, **kwargs)
-        if self._profile:
-            self._profile.finish(self, token, alias)
-        return result
-
-    def _mult_vector_is_one(self, name: str, kwargs: dict[str, Any]) -> bool:
-        """Only explicitly declared ONES loads establish vector provenance."""
         if name not in VECTOR_IDENTITY_MULTS:
             return False
         snap = self._snapshot_buffer
@@ -2000,10 +1926,8 @@ class Ipu:
             if self._ones_bytes(data):
                 return True
         if name == "MULT.RC.VV":
-            # Narrow ra is already resolved to bytes; recover its encoded index.
-            inst = self.state.inst_mem[self.state.program_counter]
-            plan = _SLOT_PLANS[Slot.MULT][inst[_SLOT_OPCODE_FIELDS[Slot.MULT]]]
-            index = inst[dict(plan.fields)["ra"]]
+            # Narrow ra is already resolved to bytes; the issuer kept its index.
+            index = encoded["ra"]
             reg, index = ("r_wide_debug", index) if wide else _MULT_STAGE_MAP[index]
             if snap.has_constant_ones(reg, index * size, size):
                 return self._ones_bytes(snap.get_register_bytes(reg, index))
@@ -2046,18 +1970,26 @@ class Ipu:
         return self._mult_resolve_lcr_scalar(lcr) == _one_byte_for(self.state.dtype)
 
     def _record_alias(
-        self, plan: SlotPlan, kwargs: dict[str, Any], inst: dict[str, int]
+        self,
+        plan: SlotPlan,
+        kwargs: Mapping[str, Any],
+        inst: Mapping[str, int],
+        identity: MultIdentity | None,
     ) -> str | None:
         """Attribute this instruction to at most one declared ISA alias.
 
         First match wins, so hits partition ``mult_identity_cycles`` instead of
         double-counting idioms whose constraints overlap.
+
+        Args:
+            plan: The instruction's plan.
+            kwargs: Its resolved operands.
+            inst: The whole word, for co-issued slot constraints.
+            identity: Its identity verdict (``None`` unless it is a MULT).
         """
         for check in plan.alias_checks:
             if not check.hardware_only:
-                if not (
-                    self._mult_vector_identity if check.vector_only else self._mult_cr_identity
-                ):
+                if identity is None or not (identity.vector if check.vector_only else identity.cr):
                     continue
                 if check.masked_window and not self._alias_masked_window(kwargs):
                     continue
