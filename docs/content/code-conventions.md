@@ -98,4 +98,4 @@ A commit that only reformats code goes into `.git-blame-ignore-revs`, with a com
 | Rule | Why | Checked by |
 |---|---|---|
 | Pure Python and numpy. Speed comes from vectorising and from better data structures, not from compiled extensions. | Every contributor can read, debug and build the code. | Review |
-| A PR that claims a speed change pastes the `bazel run //tools/bench:bench -- --quick` table from before and after the change. | A speed-up without numbers cannot be checked or kept. The nightly history (`tools/bench/README.md`) shows slow drift. | Review |
+| A PR that claims a speed change pastes the `bazel run //tools/bench:bench -- --quick` table from before and after the change; an emulator change can run only `bazel run //src/tools/ipu-emu-py:bench_emulator -- --quick` (the PR template's Performance section). | A speed-up without numbers cannot be checked or kept. The nightly history (`tools/bench/README.md`) shows slow drift. | Review |

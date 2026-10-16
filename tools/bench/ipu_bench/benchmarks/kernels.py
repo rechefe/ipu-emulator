@@ -18,7 +18,7 @@ SMALL = "identity"
 LARGE = "matmul_720x240_x128"
 
 
-class _RunTimer:
+class RunTimer:
     """A ``run_case`` recorder that only times ``app.run`` (the emulated cycles)."""
 
     seconds = 0.0
@@ -40,7 +40,7 @@ def measure(kernel: str) -> dict:
     from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, run_case
 
     case = load_cases(kernel)["default"]
-    timer = _RunTimer()
+    timer = RunTimer()
     with TemporaryDirectory(prefix="ipu-bench-") as tmp:
         inst_path = assemble_kernel(kernel, tmp)
         _, cycles = run_case(kernel, case, inst_path=inst_path, recorder=timer)

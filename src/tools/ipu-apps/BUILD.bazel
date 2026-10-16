@@ -79,6 +79,13 @@ filegroup(
     srcs = glob(["src/ipu_apps/kernels/**/*.asm"]),
 )
 
+# Every kernel's checked-in input and golden files, for //tools/bench (the
+# emulator module runs the INT8 case of fully_connected).
+filegroup(
+    name = "kernel_data",
+    srcs = glob(["src/ipu_apps/kernels/**/*.bin"]),
+)
+
 # `bazel run :query -- softmax shape=32,300 dim=1`: which kernel handles a
 # computation, for any operation. With no arguments, the coverage report.
 py_binary(

@@ -16,7 +16,7 @@ def _tiny(monkeypatch):
 
 
 def test_every_module_runs_and_writes_valid_files(tmp_path):
-    assert {"imports", "assemble", "kernels"} <= bench.benchmark_modules().keys()
+    assert {"imports", "assemble", "kernels", "emulator"} <= bench.benchmark_modules().keys()
     assert bench.main(["--quick", "--out", str(tmp_path)]) == 0
     smaller = json.loads((tmp_path / SMALLER_FILE).read_text())
     bigger = json.loads((tmp_path / BIGGER_FILE).read_text())
@@ -27,14 +27,23 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
         "import/ipu_apps",
         "assemble/all_kernels",
         "kernel/identity/peak_rss_mb",
+        "emulator/ipu_state_construct_ms",
+        "emulator/ipu_state_tracemalloc_peak_mb",
+        "emulator/ipu_state_rss_delta_mb",
     ):
         assert name in {e["name"] for e in smaller}, name
-    for name in ("assemble/words_per_s", "kernel/identity/cycles_per_s"):
+    for name in (
+        "assemble/words_per_s",
+        "kernel/identity/cycles_per_s",
+        "emulator/faithful/fully_connected.int8/cycles_per_s",
+    ):
         assert name in {e["name"] for e in bigger}, name
     assert len(names) == len(smaller) + len(bigger)
     for entry in smaller + bigger:
         assert set(entry) <= {"name", "unit", "value", "extra"}
-        assert entry["value"] > 0, entry
+        # A growth in peak RSS can be 0 (the IpuState target is < 5 MB).
+        assert entry["value"] > 0 or entry["name"].endswith("_delta_mb"), entry
+        assert entry["value"] >= 0, entry
 
 
 def test_result_rejects_bad_entries():

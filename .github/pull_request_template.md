@@ -19,5 +19,11 @@ Code rules: docs/content/code-conventions.md.
 - [ ] `bazel test --test_tag_filters=lint //...` passed
 - [ ] ISA change: `bazel test //src/tools/ipu-as-py:test_sv_package_golden` passed and `tools/sv_localparam_diff.sh <base-ref>` prints nothing (the `*_WIDTH` localparams of `ipu_instr_pkg.sv` are identical to the base), or the change is called out below as breaking
 
+## Performance
+<!-- Emulator speed or memory changes (E04-05, E04-08, E04-15, E04-16 and any PR that claims a speed-up):
+paste the `bazel run //src/tools/ipu-emu-py:bench_emulator -- --quick` table from before and after
+(add `--config=proto` if the prototyping path changed), and the wall time of
+`bazel test //src/tools/ipu-emu-py/... --nocache_test_results`. Otherwise write "n/a". -->
+
 ## Notes for reviewers
 <!-- Anything surprising: performance numbers, golden updates, follow-ups, SV renames or width changes for the downstream RTL repository. -->
