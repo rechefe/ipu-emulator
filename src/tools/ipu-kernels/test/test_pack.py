@@ -77,7 +77,8 @@ def test_unpack_of_pack_is_the_tensor_rounded_to_the_format(tmp_path, fmt, name)
     [
         (F.FP32, 1.0, bytes.fromhex("0000803f")),  # IEEE 754, little-endian
         (F.INT8, -1.0, b"\xff"),  # two's complement
-        (F.INT8, 1.5, b"\x02"),  # to nearest, ties to even
+        (F.INT8, 2.5, b"\x02"),  # to nearest, ties to even
+        (F.INT8, -2.5, b"\xfe"),
         (F.INT8, 300.0, b"\x7f"),  # saturates
         (F.E4, 1.0, b"\x38"),  # 0 0111 000: exponent 7 = bias
         (F.E4, 1e6, b"\x77"),  # saturates to 240 = 0 1110 111

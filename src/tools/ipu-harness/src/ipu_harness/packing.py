@@ -20,6 +20,7 @@ its file), then in ``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack``
 from __future__ import annotations
 
 import functools
+import hashlib
 import importlib
 import importlib.util
 import math
@@ -107,8 +108,8 @@ def _named(source: object, name: str, where: str) -> PackTransform | None:
 
 
 @functools.lru_cache(maxsize=64)
-def _load_local(path: Path, mtime_ns: int) -> ModuleType:
-    """A kernel folder's ``pack.py``, executed once per version of the file."""
+def _load_local(path: Path, digest: str) -> ModuleType:
+    """A kernel folder's ``pack.py``, executed once per content (``digest``)."""
     spec = importlib.util.spec_from_file_location(f"_ipu_pack_{path.parent.name}", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"no loader for {path}")
@@ -119,7 +120,8 @@ def _load_local(path: Path, mtime_ns: int) -> ModuleType:
 
 def _local(path: Path, name: str) -> PackTransform | None:
     """Transform ``name`` from a kernel folder's ``pack.py``, if it defines one."""
-    return _named(_load_local(path, path.stat().st_mtime_ns), name, str(path))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return _named(_load_local(path, digest), name, str(path))
 
 
 def _shared(module: str, name: str) -> PackTransform | None:
@@ -178,8 +180,16 @@ def transform_for(
 
 
 def stored_format(tensor: TensorDecl, fmt: ElementFormat) -> ElementFormat:
-    """The format a tensor's bytes are in: its accumulator format (FP32 or
-    INT32) for an ``accumulator`` output, else ``fmt``."""
+    """The format a tensor's bytes are in.
+
+    Args:
+        tensor: The declared tensor.
+        fmt: The case's element format.
+
+    Returns:
+        Its accumulator format (FP32 or INT32) for an ``accumulator`` output,
+        else ``fmt``.
+    """
     if tensor.store == "accumulator":
         return ElementFormat(FORMATS[fmt].accumulator.value)
     return fmt
@@ -197,8 +207,16 @@ def _laid_out(
 
 
 def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
-    """The XMEM rows ``tensor`` takes as stored: its transform's rows, times the
-    accumulator stride for an ``accumulator`` output (E06-04's row counts).
+    """The XMEM rows ``tensor`` takes as stored (E06-04's row counts).
+
+    Args:
+        tensor: The declared tensor.
+        plan: The checked case.
+        package: Where family and shared transforms live.
+
+    Returns:
+        Its transform's rows, times the accumulator stride for an
+        ``accumulator`` output.
 
     Raises:
         PlanError: The transform is unknown or cannot lay out the planned shape.

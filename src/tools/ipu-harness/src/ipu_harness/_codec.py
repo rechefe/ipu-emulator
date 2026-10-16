@@ -90,7 +90,7 @@ def encode(values: Array, fmt: ElementFormat) -> bytes:
     native = _numpy_dtype(fmt)
     if native is not None:
         return held(values, fmt).ravel().astype(native).tobytes()
-    # FP8: the encoder rounds; clipping to the range first makes it saturate.
+    # FP8: clipped as held() clips, so the bytes are held()'s values; the encoder rounds.
     lo, hi = limits(fmt)
     clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi).ravel()
     return fp32_to_fp8_bytes(clipped.astype(np.float32), DType(FORMATS[fmt].exp_bits))
