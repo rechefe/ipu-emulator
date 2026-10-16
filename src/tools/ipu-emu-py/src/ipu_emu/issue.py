@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ipu_emu.geometry import effective_mult_mask
+from ipu_isa.constants import decode_dstructure
 
 if TYPE_CHECKING:
     from ipu_emu.cycle import CycleObserver, IssuedOp
@@ -132,6 +133,7 @@ class Issuer:
         """
         ipu = self._ipu()
         plan = op.plan
+        ipu._view.plan = plan
         operands = (
             self._resolve(plan, op.operands, ipu._snapshot_buffer)
             if plan.reads
@@ -155,11 +157,12 @@ class Issuer:
         encoded = op.operands
         identity = mask = None
         if plan.mask_cr_operand is not None:
-            # Read now, before the handler, which applies this same mask.
-            state = ipu.state
+            # Read now, before the handler, which applies this same mask, in
+            # the views the instruction declares (ipu._view's plan is this op's).
+            view = ipu._view
             mask = effective_mult_mask(
-                state.regfile,
-                state.get_dstructure_for(operands[plan.mask_cr_operand]),
+                view.source("r_mask"),
+                decode_dstructure(view.cr(operands[plan.mask_cr_operand], plan.mask_cr_operand)),
                 operands["mask_offset"],
                 operands["mask_shift"],
             )
@@ -169,7 +172,9 @@ class Issuer:
             # multiplier while retiring nothing.
             identity = _MULT_IDENTITIES[
                 bool(plan.scalar_kind)
-                and ipu._mult_scalar_is_one(plan.scalar_kind, operands[plan.scalar_operand]),
+                and ipu._mult_scalar_is_one(
+                    plan.scalar_kind, operands[plan.scalar_operand], plan.scalar_operand
+                ),
                 ipu._mult_vector_is_one(plan.inst_name, operands, encoded),
             ]
             if identity.cr or identity.vector:
@@ -191,6 +196,7 @@ class Issuer:
         """
         ipu = self._ipu()
         plan = op.plan
+        ipu._view.plan = plan
         encoded = op.operands
         operands = (
             self._resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
@@ -234,6 +240,7 @@ class Issuer:
             inst: The whole word.
         """
         ipu = self._ipu()
+        view = ipu._view
         resolve = self._resolve
         issued = []
         for op in ops:
@@ -242,6 +249,7 @@ class Issuer:
                 issued.append(self.issue(op, inst))
                 continue
             # The LR sub-slots' hot path: just the reads (as issue() does).
+            view.plan = plan
             encoded = op.operands
             operands = resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
             issued.append(
@@ -253,6 +261,7 @@ class Issuer:
         observers = self.observers
         for facts in issued:
             self.current = facts
+            view.plan = facts.plan
             if observers:
                 self._observed(ipu, facts, observers)
             else:
@@ -269,6 +278,7 @@ class Issuer:
         """
         ipu = self._ipu()
         self.current = facts
+        ipu._view.plan = facts.plan
         if self.observers:
             return self._observed(ipu, facts, self.observers)
         return facts.plan.fn(ipu, **facts.operands)
