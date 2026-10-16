@@ -120,7 +120,7 @@ def check_output_bytes(actual_path, expected_path):
         return
     if len(actual) != len(expected):
         raise ValueError(f"output size mismatch: got {len(actual)} bytes, expected {len(expected)}")
-    for offset, (got, want) in enumerate(zip(actual, expected)):
+    for offset, (got, want) in enumerate(zip(actual, expected, strict=True)):
         if got != want:
             raise ValueError(
                 f"output mismatch at byte {offset}: got 0x{got:02x}, expected 0x{want:02x}"

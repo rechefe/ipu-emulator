@@ -188,6 +188,7 @@ def compute_slot_layout(
             for op, (t, si) in zip(
                 instructions[opcode_name]["operands"],
                 slot_assignment[opcode_name],
+                strict=False,
             )
         ]
         for opcode_name in instructions
@@ -214,12 +215,12 @@ def _pad_slot_to_target(su: SlotUnion) -> None:
     if deficit <= 0:
         return
     # Prefer padding the field that carries LrModPow2K (k); the extra bit is unused.
-    for field in su.fields:
+    for slot_field in su.fields:
         if any(
             actual_type == "LrModPow2KImmediate"
-            for _opcode, (_operand_name, actual_type) in field.users.items()
+            for _opcode, (_operand_name, actual_type) in slot_field.users.items()
         ):
-            field.bits += deficit
+            slot_field.bits += deficit
             return
     raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {total})")
 
@@ -228,12 +229,12 @@ def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
     """Populate module-level constants for operand types with derived bit-widths."""
     remaining = dict(_DERIVED_OPERAND_TARGETS)
     for su in slot_unions.values():
-        for field in su.fields:
-            for _opcode, (_operand_name, actual_type) in field.users.items():
+        for slot_field in su.fields:
+            for _opcode, (_operand_name, actual_type) in slot_field.users.items():
                 target = remaining.pop(actual_type, None)
                 if target is not None:
                     module, attr = target
-                    setattr(module, attr, field.bits)
+                    setattr(module, attr, slot_field.bits)
     if remaining:
         raise ValueError(f"Operand types not found in any slot union layout: {sorted(remaining)}")
 

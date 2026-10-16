@@ -17,9 +17,8 @@ def ruff_test(name, srcs, tags = [], **kwargs):
     Args:
         name: target name; `ruff` by convention (the coverage check looks for it).
         srcs: the Python files to check.
-        tags: extra tags; `lint` is always added, so once no ruff_test is
-            manual `bazel test --test_tag_filters=lint //...` selects them all
-            (`//...` skips manual targets; //tools:lint names them instead).
+        tags: extra tags; `lint` is always added, so
+            `bazel test --test_tag_filters=lint //...` selects them all.
         **kwargs: passed to py_test (size, timeout, ...).
     """
     files = name + "_files"

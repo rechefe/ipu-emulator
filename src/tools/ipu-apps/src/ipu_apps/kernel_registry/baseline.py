@@ -172,13 +172,13 @@ def differences(expected: CaseRecord, actual: CaseRecord) -> list[str]:
     lines = []
     if len(expected.programs) != len(actual.programs):
         lines.append(f"programs: {len(expected.programs)} -> {len(actual.programs)}")
-    for index, (old, new) in enumerate(zip(expected.programs, actual.programs)):
+    for index, (old, new) in enumerate(zip(expected.programs, actual.programs, strict=False)):
         where = f"program {index} " if len(actual.programs) > 1 else ""
         for name in ("program_sha256", "xmem_setup_sha256"):
             if getattr(old, name) != getattr(new, name):
                 lines.append(f"{where}{name}: {getattr(old, name)} -> {getattr(new, name)}")
         for bank, prefix in (("cr", CR_REGISTER_NAME.upper()), ("lr", "LR")):
-            for reg, (a, b) in enumerate(zip(getattr(old, bank), getattr(new, bank))):
+            for reg, (a, b) in enumerate(zip(getattr(old, bank), getattr(new, bank), strict=False)):
                 if a != b:
                     lines.append(f"{where}{prefix}{reg}: {a} -> {b}")
     for name in ("output_sha256", "state_sha256", "cycles"):

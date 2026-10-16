@@ -164,7 +164,9 @@ class Inst:
                 f"got {len(inst['operands'])}, in Line {self.opcode.token.line}, Column {self.opcode.token.column}."
             )
 
-        self.operands = [op_type(op) for op_type, op in zip(operand_types, inst["operands"])]
+        self.operands = [
+            op_type(op) for op_type, op in zip(operand_types, inst["operands"], strict=True)
+        ]
         self.specific_operand_types = operand_types
 
     def _get_full_token_list(self) -> list[ipu_token.IpuToken]:
@@ -274,7 +276,7 @@ class Inst:
         if opcode_name is not None and hasattr(cls, "_slot_union"):
             bindings = cls._slot_union.opcode_bindings.get(opcode_name, [])
             struct_entry = cls._struct_entry(opcode_name)
-            for (field_idx, _), op_class in zip(bindings, struct_entry.operands):
+            for (field_idx, _), op_class in zip(bindings, struct_entry.operands, strict=False):
                 semantic[field_idx + 1] = op_class  # +1: index 0 is the opcode token
 
         decoded_tokens = []
@@ -347,7 +349,7 @@ class Inst:
             lines.append(intro.strip())
             lines.append("")
 
-        for opcode, struct_entry in cls.struct_by_opcode_table().items():
+        for opcode in cls.struct_by_opcode_table():
             if opcode == "NOP":
                 continue  # documented once globally in the Slots section
             instruction_format = cls._struct_entry(opcode)

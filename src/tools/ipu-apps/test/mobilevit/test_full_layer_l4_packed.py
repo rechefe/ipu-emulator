@@ -593,12 +593,12 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN1_SCRATCH_ROW = alloc.alloc(1 + N_PACKED_ROWS + 1 + N_PACKED_ROWS + N_PACKED_ROWS + 1 + 1 + 1)
     QKV_MASK_ROW = alloc.alloc(1)
     QKV_N_OUT = 3 * N_CH
-    QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
+    _QKV_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, QKV_N_OUT))
     QKV_OUT_ROW = alloc.alloc(QKV_N_OUT // PACK)
     UNPACK_MASK_ROW = alloc.alloc(1)
     QKV_UNPACKED_ROW = alloc.alloc(3 * N_CH)
     OUTPROJ_MASK_ROW = alloc.alloc(1)
-    OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
+    _OUTPROJ_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, N_CH))
     OUTPROJ_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     UNPACKED_ATTN_ROW = alloc.alloc(N_CH)
     PACK_MASK_ROW = alloc.alloc(1)
@@ -608,10 +608,10 @@ def test_full_l4_layer_packed_end_to_end(tmp_path: Path) -> None:
     LN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     FFN1_MASK_ROW = alloc.alloc(1)
     FFN1_N_OUT = 4 * N_CH
-    FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
+    _FFN1_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(N_CH, FFN1_N_OUT))
     FFN1_OUT_ROW = alloc.alloc(FFN1_N_OUT // PACK)
     FFN2_MASK_ROW = alloc.alloc(1)
-    FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
+    _FFN2_WEIGHTS_ROW = alloc.alloc(linear_weight_rows(FFN1_N_OUT, N_CH))
     FFN2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
     RESID2_OUT_ROW = alloc.alloc(N_PACKED_ROWS)
 

@@ -919,7 +919,7 @@ def test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears(
 
     @contextlib.contextmanager
     def inject():
-        warnings.warn("[DEBUG ONLY] injected", DebugOnlyInstructionWarning)
+        warnings.warn("[DEBUG ONLY] injected", DebugOnlyInstructionWarning, stacklevel=2)
         yield
 
     # Without the injection the hardware-only kernel passes ...

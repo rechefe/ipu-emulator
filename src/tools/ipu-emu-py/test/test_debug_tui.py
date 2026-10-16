@@ -203,7 +203,7 @@ class TestLayout:
             for y, x, text, _ in screen.writes
             if y == rect.y + 3 and rect.x < x < rect.x + rect.width - 1 and text.strip()
         )
-        for (x, text), (next_x, _) in zip(row, row[1:]):
+        for (x, text), (next_x, _) in zip(row, row[1:], strict=False):
             assert x + len(text) <= next_x
         labels = [text for _, text in row if text.endswith(" ")]
         assert labels == ["L00 ", "L08 ", "C00 ", "C08 "]
@@ -2887,7 +2887,7 @@ class TestPaneOrder:
         assert layout["disassembly"].x > 0
         assert layout["xmem"].x == 0
         assert layout["xmem"].y == layout["registers"].y > layout["pipeline"].y
-        for key, pane in zip("1234", ("pipeline", "disassembly", "xmem", "registers")):
+        for key, pane in zip("1234", ("pipeline", "disassembly", "xmem", "registers"), strict=True):
             view.handle_key(key)
             view.render()
             assert session.focus == pane

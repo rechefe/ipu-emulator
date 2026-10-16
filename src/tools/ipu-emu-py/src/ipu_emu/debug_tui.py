@@ -972,7 +972,9 @@ class CursesDebugView:
                     curses.mouseinterval(0)
                 except curses.error:
                     pass
-        except (AttributeError, curses.error if curses else Exception):
+        # curses is None when the module is unavailable; the conditional still
+        # evaluates to an exception class.
+        except (AttributeError, curses.error if curses else Exception):  # noqa: B030
             pass
 
     def _natural_register_columns(self, top_rows: int) -> int:
@@ -1446,7 +1448,7 @@ class CursesDebugView:
                     slot_labels[pc] = (
                         [
                             name
-                            for name, op in zip(SLOT_LABELS, ops)
+                            for name, op in zip(SLOT_LABELS, ops, strict=False)
                             if tab.fmt == "full" or op.upper().split(" ", 1)[0] != "NOP"
                         ]
                         if self.state.inst_mem[pc] is not None
@@ -1542,7 +1544,7 @@ class CursesDebugView:
         for stage, commands in pipeline_occupancy(instruction):
             if not commands:
                 lines.append((f"{stage:<10} IDLE", self.colors.border))
-            for index, (slot, operation) in enumerate(commands):
+            for index, (_slot, operation) in enumerate(commands):
                 name = stage if index == 0 else ""
                 text = f"{name:<10} {display_operation(operation)}"
                 lines.extend(
@@ -3016,10 +3018,6 @@ class CursesDebugView:
             tab = self.session.selected_pipeline_tab()
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
-            items_per_line = self._pipeline_items_per_line(
-                fmt,
-                self.pipeline_rect,
-            )
             item_size, _ = self._pipeline_value_geometry(fmt)
             items = len(_read_pipeline_register(self.state, spec)) // item_size
             rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)

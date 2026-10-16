@@ -123,7 +123,7 @@ def _midpoint_inputs(e: int) -> list[float]:
     """Every midpoint of adjacent magnitudes, +/- one float32 ULP, both signs."""
     table = _TABLES[e]
     out = []
-    for (lo, _), (hi, _) in zip(table, table[1:]):
+    for (lo, _), (hi, _) in zip(table, table[1:], strict=False):
         mid = (lo + hi) / 2
         f = _f32(float(mid))
         assert Fraction(f) == mid, "midpoint must be exact in float32"
@@ -183,7 +183,7 @@ def test_encode_round_trip(dtype):
 def test_encode_midpoints(dtype):
     e = int(dtype)
     table = _TABLES[e]
-    for (lo, lo_c), (hi, hi_c) in zip(table, table[1:]):
+    for (lo, lo_c), (hi, hi_c) in zip(table, table[1:], strict=False):
         mid = _f32(float((lo + hi) / 2))
         even = lo_c if lo_c % 2 == 0 else hi_c
         assert _float32_to_fp8_scalar(mid, e) == even

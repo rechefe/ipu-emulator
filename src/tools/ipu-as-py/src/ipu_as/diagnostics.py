@@ -134,7 +134,7 @@ def _linecol_to_offset(text: str, line: int, column: int) -> int | None:
     lines = text.splitlines(keepends=True)
     if line >= len(lines):
         return None
-    return sum(len(l) for l in lines[:line]) + column
+    return sum(len(source_line) for source_line in lines[:line]) + column
 
 
 def _source_line_at(rendered: str, offset: int) -> int | None:

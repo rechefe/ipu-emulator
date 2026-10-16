@@ -1423,7 +1423,9 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [ipu_add(a, m, dtype) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(
+            acc_buf, fmt, [ipu_add(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
+        )
 
     def execute_acc_add_first(self) -> None:
         """Execute ACC.ADD.FIRST: Set r_acc to multiply result (no previous sum)."""
@@ -1451,7 +1453,7 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [max(a, m) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(acc_buf, fmt, [max(a, m) for a, m in zip(acc_vals, mult_vals, strict=True)])
 
     def execute_acc_max_first(self) -> None:
         """Execute ACC.MAX.FIRST: Overwrite each R_ACC element with MULT_RES (clean init for max)."""
@@ -1478,7 +1480,9 @@ class Ipu:
         fmt = self._acc_agg_lane_fmt()
         acc_vals = struct.unpack_from(_ROW_FMT[fmt], snap_acc, 0)
         mult_vals = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
-        _store_row(acc_buf, fmt, [ipu_sub(a, m, dtype) for a, m in zip(acc_vals, mult_vals)])
+        _store_row(
+            acc_buf, fmt, [ipu_sub(a, m, dtype) for a, m in zip(acc_vals, mult_vals, strict=True)]
+        )
 
     def execute_acc_sub_first(self) -> None:
         """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""

@@ -76,5 +76,5 @@ def test_msb_to_lsb_slot_order():
         assert pos != -1, f"slot title for {slot!r} not found in SVG"
         positions.append(pos)
     assert positions == sorted(positions), (
-        f"slots out of order: {list(zip(COMPOUND_LAYOUT_SLOT_ORDER, positions))}"
+        f"slots out of order: {list(zip(COMPOUND_LAYOUT_SLOT_ORDER, positions, strict=True))}"
     )

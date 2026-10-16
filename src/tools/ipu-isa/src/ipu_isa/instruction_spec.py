@@ -1594,7 +1594,7 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
                 f"one per operand of {slot}.{real_instruction}"
             )
         own_names = {operand["name"] for operand in pseudo_def["operands"]}
-        for arg, target in zip(args, targets):
+        for arg, target in zip(args, targets, strict=True):
             where = f"{path}.expands_to.args[{target['name']}]"
             if not isinstance(arg, str):
                 raise schema.SpecError(f"{where}: must be a string")
