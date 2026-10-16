@@ -1,8 +1,8 @@
 # VS Code extension for IPU assembly.
 #
 # The grammar is GENERATED from the assembler's own parser (see
-# //src/tools/ipu-as-py:ipu_as_lib -> gen_vscode.py), so it cannot drift from
-# the language the assembler accepts.
+# //src/tools/ipu-gen: ipu_gen/vscode_data.py), so it cannot drift from the
+# language the assembler accepts.
 #
 # Node/npm is deliberately NOT wired into Bazel. Bazel's involvement is the two
 # Python binaries below; the agreement test and the .vsix build both run in
@@ -51,35 +51,20 @@ filegroup(
     ],
 )
 
-# Writes syntaxes/ipu-asm.tmLanguage.json and language-configuration.json.
+# Writes syntaxes/ipu-asm.tmLanguage.json, language-configuration.json and data/isa.json
+# (`ipu-gen vscode-data`).
 #   bazel run //vscode-ipu-asm:gen_vscode          -> into the source tree
 #   bazel build //vscode-ipu-asm:generate_grammar  -> into bazel-out
-py_binary(
+alias(
     name = "gen_vscode",
-    srcs = ["gen_vscode_wrapper.py"],
-    main = "gen_vscode_wrapper.py",
-    python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
-)
-
-# The wrapper as a library, so the generated-artifact snapshot test
-# (//src/tools/ipu-as-py:test_generated_artifacts) renders isa.json with the
-# same emulator data the binary passes.
-py_library(
-    name = "gen_vscode_lib",
-    srcs = ["gen_vscode_wrapper.py"],
-    imports = ["."],
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
+    actual = "//src/tools/ipu-gen:vscode_data",
 )
 
 # Ground truth for the agreement test: the parser's own tokenization of the
 # corpus, including each token's structural role.
-py_binary(
+alias(
     name = "dump_parser_tokens",
-    srcs = ["dump_parser_tokens_wrapper.py"],
-    main = "dump_parser_tokens_wrapper.py",
-    python_version = "PY3",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    actual = "//src/tools/ipu-as-py:dump_parser_tokens",
 )
 
 # Judges test/rewrites.js: every rename and format the editor could apply to
@@ -102,8 +87,8 @@ genrule(
         # was silently missing rather than a build error.
         "generated/data/isa.json",
     ],
-    cmd = "$(location :gen_vscode) $(RULEDIR)/generated",
-    tools = [":gen_vscode"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) vscode-data $(RULEDIR)/generated",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
 # The corpus is passed on the command line rather than declared as srcs:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from ipu_gen.union_layout_svg import render_union_layout_svg
+from ipu_gen.layout_svg import render_union_layout_svg
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     SLOT_COUNT,
@@ -67,7 +67,7 @@ def test_msb_to_lsb_slot_order():
     svg = _render()
     positions: list[int] = []
     for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-        # Match slot title lines from union_layout_svg._render_slot, not opcode
+        # Match slot title lines from layout_svg._render_slot, not opcode
         # substrings (e.g. STR_POST_AAQ_REG must not satisfy slot "aaq").
         needle = f">{slot.upper()} "
         pos = svg.find(needle)

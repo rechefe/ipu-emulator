@@ -400,17 +400,18 @@ class Inst:
             if instruction_format.doc is None:
                 continue
             spec_ops = INSTRUCTION_SPEC[slot][opcode]["operands"]
-            lines.extend(cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops))
+            lines.extend(cls.render_opcode_doc(opcode, instruction_format.doc, spec_ops))
             lines.append("")
 
         return "\n".join(lines).rstrip()
 
     @staticmethod
-    def _render_opcode_doc(
+    def render_opcode_doc(
         opcode: str,
         doc: InstructionDoc,
         spec_operands: list[dict],
     ) -> list[str]:
+        """Markdown lines documenting one opcode or pseudo-instruction (used by ipu_gen.docs_pages)."""
         lines = [f"### `{opcode}` — {doc.title}", ""]
         names = [operand["name"] for operand in spec_operands]
         lines.append(f"**Syntax:** `{syntax(opcode, names)}`")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrapper script to extract the generated docs site and serve it locally."""
+"""Extract the generated docs site and serve it locally: `bazel run //docs:serve_docs`."""
 
 import shutil
 import subprocess
@@ -11,7 +11,7 @@ from pathlib import Path
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: serve_docs_wrapper.py <site.tar> [port]", file=sys.stderr)
+        print("Usage: serve_docs.py <site.tar> [port]", file=sys.stderr)
         sys.exit(1)
 
     tar_path = Path(sys.argv[1])

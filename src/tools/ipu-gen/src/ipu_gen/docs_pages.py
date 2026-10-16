@@ -1,11 +1,16 @@
-#!/usr/bin/env python3
-"""Generate markdown documentation for IPU assembly (instructions, operand types, syntax page)."""
+"""Generate the MkDocs pages for IPU assembly (E08-14).
+
+The instruction reference, operand types, assembly syntax, programmer's guide
+and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
+``ipu-gen instruction-format-md OUT`` write them.
+"""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
+from ipu_as.inst import Inst
+from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     PSEUDO_INSTRUCTION_SPEC,
@@ -13,6 +18,7 @@ from ipu_isa.instruction_spec import (
     SLOT_METADATA,
     VALID_OPERAND_TYPES,
 )
+from ipu_isa.layout import word_bits
 from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import create_assembler_reg_enums
 
@@ -26,7 +32,7 @@ def generate_operand_types_md(output_path: Path) -> None:
     lines: list[str] = [
         "# Operand types",
         "",
-        "This page is **generated** by `ipu_as.gen_docs` from `VALID_OPERAND_TYPES` in "
+        "This page is **generated** by `ipu_gen.docs_pages` from `VALID_OPERAND_TYPES` in "
         "`instruction_spec.py` and the descriptions below. For encodings per instruction, see the "
         "[Instruction reference](instructions.md).",
         "",
@@ -370,8 +376,6 @@ def _generate_slots_section() -> str:
 
 def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
-    from ipu_as.compound_inst import CompoundInst
-    from ipu_as.inst import Inst
 
     content = ["# IPU Assembly Instruction Reference\n"]
     content.append(
@@ -394,9 +398,9 @@ def generate_instruction_docs(output_path: Path) -> None:
         "opcode field sharing comes from.\n"
     )
     content.append("\n### Whole-word bit layout\n")
-    content.append(CompoundInst.generate_struct_layout_svg())
+    content.append(struct_layout_svg())
     content.append("\n### Per-slot union layout\n")
-    content.append(CompoundInst.generate_union_layout_svg())
+    content.append(union_layout_svg())
     content.append("\n---\n\n")
 
     for inst_class in Inst.get_all_instruction_classes():
@@ -409,11 +413,9 @@ def generate_instruction_docs(output_path: Path) -> None:
 
 def generate_instruction_format_md(output_path: Path) -> None:
     """Generate the instruction-format documentation page (with download links)."""
-    from ipu_as.compound_inst import CompoundInst
-
-    width = CompoundInst.bits()
-    struct_svg = CompoundInst.generate_struct_layout_svg()
-    union_svg = CompoundInst.generate_union_layout_svg()
+    width = word_bits()
+    struct_svg = struct_layout_svg()
+    union_svg = union_layout_svg()
 
     content = f"""# Instruction format
 
@@ -461,7 +463,6 @@ bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.
 
 def generate_programmer_guide_md(output_path: Path) -> None:
     """Generate the programmer-facing pseudo-instruction/alias reference."""
-    from ipu_as.inst import Inst
 
     content = ["# Programmer's Guide: Pseudo-Instructions\n"]
     content.append(
@@ -475,7 +476,7 @@ def generate_programmer_guide_md(output_path: Path) -> None:
 
     for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
         expansion = pseudo_def["expands_to"]
-        lines = Inst._render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
+        lines = Inst.render_opcode_doc(name, pseudo_def["doc"], pseudo_def["operands"])
         lines.append("")
         lines.append(
             f"**Expands to:** `{expansion['instruction']}` "
@@ -494,30 +495,8 @@ def generate_all_docs(
     assembly_syntax_path: Path,
     programmer_guide_path: Path,
 ) -> None:
-    """Regenerate all MkDocs pages owned by the assembler toolchain."""
+    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
     generate_operand_types_md(operand_types_path)
     generate_assembly_syntax_md(assembly_syntax_path)
     generate_instruction_docs(instructions_path)
     generate_programmer_guide_md(programmer_guide_path)
-
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-    if len(argv) == 4:
-        generate_all_docs(Path(argv[0]), Path(argv[1]), Path(argv[2]), Path(argv[3]))
-    elif len(argv) == 1:
-        d = Path(argv[0])
-        d.mkdir(parents=True, exist_ok=True)
-        generate_all_docs(
-            d / "instructions.md",
-            d / "operand-types.md",
-            d / "assembly-syntax.md",
-            d / "programmer-guide.md",
-        )
-    else:
-        print(
-            "Usage: gen_docs.py <instructions.md> <operand-types.md> <assembly-syntax.md> <programmer-guide.md>\n"
-            "   or: gen_docs.py <output_directory>/",
-            file=sys.stderr,
-        )
-        sys.exit(1)

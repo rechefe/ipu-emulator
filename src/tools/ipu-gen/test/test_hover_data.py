@@ -12,7 +12,7 @@ import re
 import pytest
 
 from ipu_as.diagnostics import check
-from ipu_as.gen_vscode import build_hover_data, render_hover_data
+from ipu_gen.vscode_data import build_hover_data, render_hover_data
 
 HOVER = build_hover_data()
 
