@@ -11,6 +11,14 @@ not here — this class has no notion of "mode".
 
 from __future__ import annotations
 
+from typing import Callable
+
+#: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
+#: ``"write"`` or ``"clear"``. The event covers exactly the bytes
+#: ``[address, address + size)`` the operation touched. *data* holds those
+#: bytes for reads and writes, and is ``None`` for ``"clear"`` and ``fill``.
+MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
+
 XMEM_SIZE_BYTES = 1 << 29        # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = 128           # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
@@ -35,6 +43,14 @@ def _contiguous_range(idx: slice) -> tuple[int, int]:
     return start, max(start, stop)
 
 
+def _without(observers: tuple, fn: Callable) -> tuple:
+    """*observers* with the first occurrence of *fn* removed (if any)."""
+    for i, observer in enumerate(observers):
+        if observer is fn:
+            return observers[:i] + observers[i + 1:]
+    return observers
+
+
 class XMem:
     """512 MiB flat byte-addressable external memory.
 
@@ -44,7 +60,16 @@ class XMem:
     def __init__(self) -> None:
         self._data = bytearray(XMEM_SIZE_BYTES)
         self._constant_ones: dict[int, bytes] = {}
-        self._profile_observer = None
+        self._observers: tuple[MemoryObserver, ...] = ()
+
+    def add_observer(self, fn: MemoryObserver) -> Callable[[], None]:
+        """Report every XMEM access to *fn*; returns a function that detaches it."""
+        self._observers = self._observers + (fn,)
+        return lambda: setattr(self, "_observers", _without(self._observers, fn))
+
+    def _notify(self, kind: str, address: int, size: int, data) -> None:
+        for observer in self._observers:
+            observer(kind, address, size, data)
 
     def mark_constant_ones(self, address: int, data: bytes) -> None:
         """Record host-declared ONES provenance, after a validated write."""
@@ -70,8 +95,7 @@ class XMem:
                 f"end={address + size}, max={XMEM_SIZE_BYTES}"
             )
         result = bytearray(self._data[address : address + size])
-        if self._profile_observer is not None:
-            self._profile_observer("read", address, size, result)
+        self._notify("read", address, size, result)
         return result
 
     def write_address(self, address: int, data: bytes | bytearray) -> None:
@@ -84,8 +108,7 @@ class XMem:
             )
         self._invalidate_constants(address, address + size)
         self._data[address : address + size] = data
-        if self._profile_observer is not None:
-            self._profile_observer("write", address, size, data)
+        self._notify("write", address, size, data)
 
     # -- bulk helpers (mirror C API) ----------------------------------------
 
@@ -120,8 +143,7 @@ class XMem:
         """Zero the entire memory."""
         self._constant_ones.clear()
         self._data[:] = bytes(XMEM_SIZE_BYTES)
-        if self._profile_observer is not None:
-            self._profile_observer("clear", 0, XMEM_SIZE_BYTES, None)
+        self._notify("clear", 0, XMEM_SIZE_BYTES, None)
 
     def __getitem__(self, idx: int | slice) -> int | bytearray:
         return self._data[idx]

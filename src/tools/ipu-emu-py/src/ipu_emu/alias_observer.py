@@ -44,8 +44,14 @@ class ExecutionObserver:
         self.acc_scale = 0
         self.post_scale = 0
         self.cycle_events = []
-        state.xmem._profile_observer = self.memory
-        state.regfile._profile_observer = self.register_write
+        self._removers = (state.xmem.add_observer(self.memory),
+                          state.regfile.add_observer(self.register_write))
+
+    def detach(self):
+        """Stop observing the state's XMEM and register file."""
+        for remove in self._removers:
+            remove()
+        self._removers = ()
 
     @property
     def state(self):

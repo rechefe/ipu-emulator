@@ -142,3 +142,48 @@ class TestXMemIndexing:
         xmem = XMem()
         with pytest.raises(ValueError):
             xmem[0:4] = b"ab"
+
+
+# ---------------------------------------------------------------------------
+# Registered observers and ranged events
+# ---------------------------------------------------------------------------
+
+class TestXMemObservers:
+    def test_two_observers_both_receive_events(self):
+        xmem = XMem()
+        first, second = [], []
+        xmem.add_observer(lambda *event: first.append(event))
+        xmem.add_observer(lambda *event: second.append(event))
+        xmem.write_address(64, b"ab")
+        assert first == second == [("write", 64, 2, b"ab")]
+
+    def test_remover_detaches(self):
+        xmem = XMem()
+        events = []
+        remove = xmem.add_observer(lambda *event: events.append(event))
+        xmem.read_address(0, 4)
+        remove()
+        remove()  # idempotent
+        xmem.read_address(0, 4)
+        assert events == [("read", 0, 4, bytearray(4))]
+
+    def test_one_byte_write_is_one_event_of_size_one(self):
+        xmem = XMem()
+        events = []
+        xmem.add_observer(lambda *event: events.append(event))
+        xmem[1000] = 7
+        assert [(kind, address, size) for kind, address, size, _ in events] == [("write", 1000, 1)]
+
+    def test_slice_write_reports_its_range(self):
+        xmem = XMem()
+        events = []
+        xmem.add_observer(lambda *event: events.append(event))
+        xmem[300:304] = b"wxyz"
+        assert events == [("write", 300, 4, b"wxyz")]
+
+    def test_clear_is_one_ranged_event(self):
+        xmem = XMem()
+        events = []
+        xmem.add_observer(lambda *event: events.append(event))
+        xmem.clear()
+        assert events == [("clear", 0, XMEM_SIZE_BYTES, None)]
