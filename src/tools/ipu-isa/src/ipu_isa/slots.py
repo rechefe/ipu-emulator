@@ -1,6 +1,6 @@
 """The slot registry: every fact about each VLIW slot, once (E03-06).
 
-A compound instruction word holds one instance of each slot (three of LR).
+An instruction word holds one instance of each slot (three of LR).
 Each slot has one entry here: how many instances a word holds, its title and
 documentation, its wire names and its colour in the layout diagrams. The
 old per-module slot tables (``SLOT_COUNT``, ``COMPOUND_LAYOUT_SLOT_ORDER``,
@@ -27,7 +27,7 @@ from ipu_isa import schema
 
 
 class Slot(str, Enum):
-    """A slot name. ``Slot.LR == "lr"``, so string comparisons keep working.
+    """A slot. ``Slot.LR == "lr"``, so string comparisons keep working.
 
     A ``str`` mixin rather than ``StrEnum`` (Python 3.11); ``__str__`` returns
     the value, as ``StrEnum`` does.
@@ -51,6 +51,7 @@ class Slot(str, Enum):
 class SlotInfo:
     slot: Slot
     count: int  # instances per word: 3 for LR
+    pad_to_bits: int | None  # pad the packed slot to this width (wire format), or None
     hardware: bool  # implemented in silicon (E03-07 replaces this with a tag)
     title: str  # "Loop register"
     description: str  # one paragraph, for the editor and the docs
@@ -80,7 +81,7 @@ class SlotInfo:
 #: The keys each authored entry holds (all required).
 ENTRY_KEYS = schema.Keys(
     frozenset(
-        {"count", "hardware", "title", "description", "doc_heading", "doc_intro",
+        {"count", "pad_to_bits", "hardware", "title", "description", "doc_heading", "doc_intro",
          "field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class",
          "legend_colour", "legend_label"}
     )
@@ -89,6 +90,7 @@ ENTRY_KEYS = schema.Keys(
 _SPEC: dict[Slot, dict] = {
     Slot.BREAK: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Break",
         "description": "Debug break: halts execution or enters debug mode.",
@@ -103,6 +105,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.LOAD: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Load",
         "description": (
@@ -123,6 +126,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.STORE: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Store",
         "description": (
@@ -143,6 +147,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.ACC_STORE: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": False,
         "title": "Accumulator store",
         "description": (
@@ -163,6 +168,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.MULT: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Multiply",
         "description": "Multiply-stage instructions: element-wise and vector multiply operations.",
@@ -181,6 +187,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.ACC: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Accumulator",
         "description": "Accumulation instructions for combining multiply results into R_ACC.",
@@ -197,6 +204,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.AAQ: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Activation and quantization",
         "description": (
@@ -217,6 +225,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.LR: {
         "count": 3,
+        "pad_to_bits": 20,
         "hardware": True,
         "title": "Loop register",
         "description": (
@@ -236,6 +245,7 @@ _SPEC: dict[Slot, dict] = {
     },
     Slot.COND: {
         "count": 1,
+        "pad_to_bits": None,
         "hardware": True,
         "title": "Conditional",
         "description": (

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from ipu_isa import lr_inc_dec_imm
 from ipu_isa import reshape_mask
 from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_isa.slots import SLOTS, Slot
 
 # operand type name -> (module, attribute) written by finalize_derived_operand_bits()
 # once the union field carrying that type has been packed.
@@ -33,13 +34,6 @@ _DERIVED_OPERAND_TARGETS: dict[str, tuple] = {
     "LrIncDecImmediate": (lr_inc_dec_imm, "LR_INC_DEC_IMM_FIELD_BITS"),
     "LrOrReshapeMaskImmediate": (reshape_mask, "RESHAPE_MASK_FIELD_BITS"),
 }
-
-# Per-slot target widths (bits).  Padding is applied after union packing when the
-# solver's natural width is narrower — keeps encoded LR sub-instructions stable.
-_SLOT_TARGET_BITS: dict[str, int] = {
-    "lr": 20,
-}
-
 
 def get_operand_type_bits() -> dict[str, int]:
     """Return the bit-width for each operand type string used in instruction_spec.
@@ -204,7 +198,7 @@ def compute_slot_layout(
 
 def _pad_slot_to_target(su: SlotUnion) -> None:
     """Grow union fields when packing is narrower than the hardware slot width."""
-    target = _SLOT_TARGET_BITS.get(su.slot)
+    target = SLOTS[Slot(su.slot)].pad_to_bits
     if target is None:
         return
     total = su.opcode_bits + sum(f.bits for f in su.fields)

@@ -6,12 +6,12 @@ from ipu_isa.instruction_spec import (
     SLOT_UNIONS,
     is_hardware_slot,
 )
+from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_gen.union_layout_svg import render_union_layout_svg
 
 
 INST_SEPARATOR = ";"
-
 
 
 #: The assembler's instruction class of each slot. E05-02 replaces the
@@ -30,17 +30,25 @@ SLOT_TO_INST: dict[Slot, type[inst.Inst]] = {
 
 
 def check_slot_to_inst(slot_to_inst: dict) -> None:
-    """Raise unless ``slot_to_inst`` maps every registered slot to the
-    instruction class of that slot."""
+    """Raise ``SpecError`` unless ``slot_to_inst`` maps every registered slot,
+    and nothing else, to the instruction class of that slot."""
     missing = sorted(slot.value for slot in SLOTS if slot not in slot_to_inst)
-    if missing or len(slot_to_inst) != len(SLOTS):
-        raise ValueError(f"SLOT_TO_INST must cover exactly the registered slots; missing {missing}")
+    extra = sorted(str(key) for key in slot_to_inst if key not in SLOTS)
+    if missing or extra:
+        raise SpecError(
+            f"SLOT_TO_INST must cover exactly the registered slots; "
+            f"missing {missing}, unknown {extra}"
+        )
     for slot, inst_class in slot_to_inst.items():
         if inst_class._slot_type_name() != slot.value:
-            raise ValueError(f"SLOT_TO_INST[{slot.value}] is {inst_class.__name__}, a {inst_class._slot_type_name()} class")
+            raise SpecError(
+                f"SLOT_TO_INST[{slot.value}] is {inst_class.__name__}, "
+                f"a {inst_class._slot_type_name()} class"
+            )
 
 
 check_slot_to_inst(SLOT_TO_INST)
+
 
 class CompoundInst:
     def __init__(

@@ -82,7 +82,6 @@ _SV_RESERVED_STRUCT_NAMES = frozenset({
 })
 
 
-
 def _sanitize_enum_member(name: str) -> str:
     return name.upper().replace(".", "_").replace("-", "_")
 

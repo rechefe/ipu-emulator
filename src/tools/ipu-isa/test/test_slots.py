@@ -58,3 +58,14 @@ def test_entries_are_key_checked():
     spec[Slot.MULT]["colour"] = "#000000"
     with pytest.raises(SpecError, match=r"SLOTS\.mult: unknown key\(s\) 'colour'"):
         _load(spec, LAYOUT_ORDER)
+
+
+def test_every_slot_needs_an_entry():
+    spec = {slot: entry for slot, entry in _SPEC.items() if slot is not Slot.AAQ}
+    with pytest.raises(SpecError, match="SLOTS: entries .* do not match Slot"):
+        _load(spec, LAYOUT_ORDER)
+
+
+def test_lr_is_padded_to_20_bits():
+    assert SLOTS[Slot.LR].pad_to_bits == 20
+    assert all(info.pad_to_bits is None for slot, info in SLOTS.items() if slot is not Slot.LR)

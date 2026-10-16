@@ -501,7 +501,7 @@ def _build_slot_plans():
             )
             for inst_name, spec in INSTRUCTION_SPEC["lr"].items()
         )
-        for slot_idx in range(SLOT_COUNT["lr"])
+        for slot_idx, _ in enumerate(SLOTS[Slot.LR].field_prefixes())
     )
     lr_opcode_fields = tuple(
         f"{prefix}_token_0_{SLOTS[Slot.LR].opcode_enum}"

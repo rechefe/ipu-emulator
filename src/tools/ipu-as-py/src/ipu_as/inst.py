@@ -347,11 +347,11 @@ class Inst:
         )
 
     @classmethod
-    def _render_instruction_docs(cls, slot_type: str) -> str:
-        info = SLOTS[Slot(slot_type)]
+    def _render_instruction_docs(cls, slot: str) -> str:
+        info = SLOTS[Slot(slot)]
         heading, intro = info.doc_heading, info.doc_intro
         lines = [f"## {heading}", ""]
-        if not is_hardware_slot(slot_type):
+        if not is_hardware_slot(slot):
             lines.append(
                 "> **Simulation-only slot** — not implemented in real IPU hardware. "
                 "Excluded from hardware codegen."
@@ -367,7 +367,7 @@ class Inst:
             instruction_format = cls._struct_entry(opcode)
             if instruction_format.doc is None:
                 continue
-            spec_ops = INSTRUCTION_SPEC[slot_type][opcode]["operands"]
+            spec_ops = INSTRUCTION_SPEC[slot][opcode]["operands"]
             lines.extend(
                 cls._render_opcode_doc(opcode, instruction_format.doc, spec_ops)
             )
