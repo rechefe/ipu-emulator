@@ -874,7 +874,7 @@
             "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
             "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1"
           ],
-          "operation": "dst <- (dst + step) & ((1 << k) - 1)",
+          "operation": "dest <- (dest + step) & ((1 << k) - 1)",
           "summary": "Add a loop or configuration register into the destination loop register, then mask to k low bits (mod 2^k).",
           "syntax": "INCR_MOD_POW2 dest step k",
           "title": "Increment Loop Register Modulo Power of Two"

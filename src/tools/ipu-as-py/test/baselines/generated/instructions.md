@@ -1182,7 +1182,7 @@ SUB LR3 LR1 CR5;;
 Add a loop or configuration register into the destination loop register, then mask to k low bits (mod 2^k).
 
 **Pseudo code:**
-`dst <- (dst + step) & ((1 << k) - 1)`
+`dest <- (dest + step) & ((1 << k) - 1)`
 
 **Example of usage:**
 ```asm

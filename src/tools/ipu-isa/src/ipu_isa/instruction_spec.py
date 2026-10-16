@@ -75,8 +75,8 @@ Structure:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any
 
 from ipu_isa import schema
@@ -433,7 +433,7 @@ INSTRUCTION_SPEC = {
                     "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
-                operation="dst <- (dst + step) & ((1 << k) - 1)",
+                operation="dest <- (dest + step) & ((1 << k) - 1)",
                 example="INCR_MOD_POW2 LR2 LR3 4;;",
             ),
             "execute_fn": "execute_lr_incr_mod_pow2",
