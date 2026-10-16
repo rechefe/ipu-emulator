@@ -12,11 +12,8 @@ import lark
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError
 from ipu_as.symbols import SymbolTable
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    PSEUDO_INSTRUCTION_SPEC,
-    find_pseudo_instruction,
-)
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC
+from ipu_isa.view import find_pseudo_instruction
 
 IPU_INSTR_ADDR_JUMP = 1
 

@@ -1,0 +1,986 @@
+{
+ "instructions": [
+  {
+   "slot": "load",
+   "mnemonic": "LDR_MULT_REG",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "MultStageReg",
+     "read": null
+    },
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "base",
+     "type": "CrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_ldr_mult_reg"
+  },
+  {
+   "slot": "load",
+   "mnemonic": "LDR_CYCLIC_MULT_REG",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "base",
+     "type": "CrIdx",
+     "read": "live"
+    },
+    {
+     "name": "index",
+     "type": "LrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_ldr_cyclic_mult_reg"
+  },
+  {
+   "slot": "load",
+   "mnemonic": "LDR_MULT_MASK_REG",
+   "opcode": 2,
+   "operands": [
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "base",
+     "type": "CrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_ldr_mult_mask_reg"
+  },
+  {
+   "slot": "load",
+   "mnemonic": "NOP",
+   "opcode": 3,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_load_nop"
+  },
+  {
+   "slot": "store",
+   "mnemonic": "STR_POST_AAQ_REG",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "base",
+     "type": "CrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_str_post_aaq_reg"
+  },
+  {
+   "slot": "store",
+   "mnemonic": "NOP",
+   "opcode": 1,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_store_nop"
+  },
+  {
+   "slot": "acc_store",
+   "mnemonic": "STR_ACC_REG",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "base",
+     "type": "CrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "emulator",
+   "execute_fn": "execute_str_acc_reg"
+  },
+  {
+   "slot": "acc_store",
+   "mnemonic": "NOP",
+   "opcode": 1,
+   "operands": [],
+   "tag": "emulator",
+   "execute_fn": "execute_acc_store_nop"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "SET",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "reg",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "src",
+     "type": "CrIdx",
+     "read": "snapshot"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_set"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "ADD",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "src_a",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "src_b",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_add"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "SUB",
+   "opcode": 2,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "src_a",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "src_b",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_sub"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "INCR_MOD_POW2",
+   "opcode": 3,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "step",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "k",
+     "type": "LrModPow2KImmediate",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_incr_mod_pow2"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "INC",
+   "opcode": 4,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "imm",
+     "type": "LrIncDecImmediate",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_inc"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "DEC",
+   "opcode": 5,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrIdx",
+     "read": null
+    },
+    {
+     "name": "imm",
+     "type": "LrIncDecImmediate",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_dec"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "ADDB",
+   "opcode": 6,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrdIdx",
+     "read": null
+    },
+    {
+     "name": "src_b",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_addb"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "ADDBI",
+   "opcode": 7,
+   "operands": [
+    {
+     "name": "dest",
+     "type": "LrdIdx",
+     "read": null
+    },
+    {
+     "name": "imm",
+     "type": "AddbiImmediate",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_addbi"
+  },
+  {
+   "slot": "lr",
+   "mnemonic": "NOP",
+   "opcode": 8,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_lr_nop"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "MULT.RC.VV",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "rc_idx",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "ra",
+     "type": "MultStageReg",
+     "read": "snapshot"
+    },
+    {
+     "name": "mask_offset",
+     "type": "MultMaskOffsetImmediate",
+     "read": null
+    },
+    {
+     "name": "mask_shift",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_rc_vv"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "MULT.RC.VE",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "rc_idx",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "src",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "mask_offset",
+     "type": "MultMaskOffsetImmediate",
+     "read": null
+    },
+    {
+     "name": "mask_shift",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_rc_ve"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "MULT.RC.VS",
+   "opcode": 2,
+   "operands": [
+    {
+     "name": "rc_idx",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "mask_offset",
+     "type": "MultMaskOffsetImmediate",
+     "read": null
+    },
+    {
+     "name": "mask_shift",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_rc_vs"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "NOP",
+   "opcode": 3,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_nop"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "MULT.VE",
+   "opcode": 4,
+   "operands": [
+    {
+     "name": "ra_idx",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "cr_idx",
+     "type": "CrIdx",
+     "read": null
+    },
+    {
+     "name": "mask_offset",
+     "type": "MultMaskOffsetImmediate",
+     "read": null
+    },
+    {
+     "name": "mask_shift",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "dstructure_cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_ve"
+  },
+  {
+   "slot": "mult",
+   "mnemonic": "MULT.EE",
+   "opcode": 5,
+   "operands": [
+    {
+     "name": "ra_idx",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "cr_idx",
+     "type": "CrIdx",
+     "read": null
+    },
+    {
+     "name": "mask_offset",
+     "type": "MultMaskOffsetImmediate",
+     "read": null
+    },
+    {
+     "name": "mask_shift",
+     "type": "LrIdx",
+     "read": "live"
+    },
+    {
+     "name": "dstructure_cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_mult_ee"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.ADD",
+   "opcode": 0,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_add"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.ADD.FIRST",
+   "opcode": 1,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_add_first"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.MAX",
+   "opcode": 2,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_max"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.MAX.FIRST",
+   "opcode": 3,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_max_first"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.SUB",
+   "opcode": 4,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_sub"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.SUB.FIRST",
+   "opcode": 5,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_sub_first"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "NOP",
+   "opcode": 6,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_nop"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.STRIDE",
+   "opcode": 7,
+   "operands": [
+    {
+     "name": "elements_in_row",
+     "type": "ElementsInRow",
+     "read": null
+    },
+    {
+     "name": "horizontal_stride",
+     "type": "HorizontalStride",
+     "read": null
+    },
+    {
+     "name": "vertical_stride",
+     "type": "VerticalStride",
+     "read": null
+    },
+    {
+     "name": "offset",
+     "type": "LrIdx",
+     "read": "live"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_stride"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "AGG.SUM.FIRST",
+   "opcode": 8,
+   "operands": [
+    {
+     "name": "dest_slot",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_agg_sum_first"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "AGG.SUM",
+   "opcode": 9,
+   "operands": [
+    {
+     "name": "dest_slot",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_agg_sum"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "AGG.MAX.FIRST",
+   "opcode": 10,
+   "operands": [
+    {
+     "name": "dest_slot",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_agg_max_first"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "AGG.MAX",
+   "opcode": 11,
+   "operands": [
+    {
+     "name": "dest_slot",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_agg_max"
+  },
+  {
+   "slot": "acc",
+   "mnemonic": "ACC.RESHAPE",
+   "opcode": 12,
+   "operands": [
+    {
+     "name": "source",
+     "type": "LrdIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "dest",
+     "type": "LrdIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "reshape_mask",
+     "type": "LrOrReshapeMaskImmediate",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_acc_reshape"
+  },
+  {
+   "slot": "aaq",
+   "mnemonic": "NOP",
+   "opcode": 0,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_aaq_nop"
+  },
+  {
+   "slot": "aaq",
+   "mnemonic": "ACTIVATE.QUANTIZE",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "activation_fn",
+     "type": "ActivationFn",
+     "read": null
+    },
+    {
+     "name": "cr_idx",
+     "type": "DstructureCrIdx",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_activate_quantize"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BEQ",
+   "opcode": 0,
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_beq"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BNE",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_bne"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BLT",
+   "opcode": 2,
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_blt"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BGE",
+   "opcode": 3,
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_bge"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BR",
+   "opcode": 4,
+   "operands": [
+    {
+     "name": "reg",
+     "type": "LcrIdx",
+     "read": "snapshot"
+    }
+   ],
+   "tag": "hardware",
+   "execute_fn": "execute_br"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "BKPT",
+   "opcode": 5,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_bkpt"
+  },
+  {
+   "slot": "cond",
+   "mnemonic": "NOP",
+   "opcode": 6,
+   "operands": [],
+   "tag": "hardware",
+   "execute_fn": "execute_cond_nop"
+  },
+  {
+   "slot": "break",
+   "mnemonic": "BREAK",
+   "opcode": 0,
+   "operands": [],
+   "tag": "emulator",
+   "execute_fn": "execute_break"
+  },
+  {
+   "slot": "break",
+   "mnemonic": "BREAK.IFEQ",
+   "opcode": 1,
+   "operands": [
+    {
+     "name": "reg",
+     "type": "LrIdx",
+     "read": "snapshot"
+    },
+    {
+     "name": "value",
+     "type": "BreakImmediate",
+     "read": null
+    }
+   ],
+   "tag": "emulator",
+   "execute_fn": "execute_break_ifeq"
+  },
+  {
+   "slot": "break",
+   "mnemonic": "NOP",
+   "opcode": 2,
+   "operands": [],
+   "tag": "emulator",
+   "execute_fn": "execute_break_nop"
+  }
+ ],
+ "pseudo_instructions": [
+  {
+   "mnemonic": "BGT",
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "expands_to": {
+    "slot": "cond",
+    "mnemonic": "BLT"
+   },
+   "args": [
+    "reg2",
+    "reg1",
+    "label"
+   ],
+   "tag": "assembler"
+  },
+  {
+   "mnemonic": "BLE",
+   "operands": [
+    {
+     "name": "reg1",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "reg2",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "expands_to": {
+    "slot": "cond",
+    "mnemonic": "BGE"
+   },
+   "args": [
+    "reg2",
+    "reg1",
+    "label"
+   ],
+   "tag": "assembler"
+  },
+  {
+   "mnemonic": "BZ",
+   "operands": [
+    {
+     "name": "reg",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "expands_to": {
+    "slot": "cond",
+    "mnemonic": "BEQ"
+   },
+   "args": [
+    "reg",
+    "CR0",
+    "label"
+   ],
+   "tag": "assembler"
+  },
+  {
+   "mnemonic": "BNZ",
+   "operands": [
+    {
+     "name": "reg",
+     "type": "LcrIdx",
+     "read": null
+    },
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "expands_to": {
+    "slot": "cond",
+    "mnemonic": "BNE"
+   },
+   "args": [
+    "reg",
+    "CR0",
+    "label"
+   ],
+   "tag": "assembler"
+  },
+  {
+   "mnemonic": "B",
+   "operands": [
+    {
+     "name": "label",
+     "type": "Label",
+     "read": null
+    }
+   ],
+   "expands_to": {
+    "slot": "cond",
+    "mnemonic": "BEQ"
+   },
+   "args": [
+    "CR0",
+    "CR0",
+    "label"
+   ],
+   "tag": "assembler"
+  }
+ ]
+}

@@ -2420,7 +2420,7 @@ class TestDebuggerImprovements:
         assert view.editor_mode is None
 
     def test_scalar_editor_uses_mask_and_cancel_does_not_write(self):
-        from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+        from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 
         view, _, session = make_view()
         session.focus = "registers"

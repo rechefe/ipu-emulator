@@ -113,7 +113,7 @@ Any element deactivated by the mask-and-shift logic above (see
 | `PadMode.NEG_INF` | `-inf` | Float dtypes only — identity value for `max`-style reductions (e.g. `ACC.MAX`). |
 
 ```python
-from ipu_emu.ipu_config import PadMode
+from ipu_isa.constants import PadMode
 
 state.set_cr_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
 ```
@@ -127,7 +127,7 @@ Use `CR2`-`CR14` for app-specific constants. `CR0` and `CR1` are reserved
 read-only constants, and `CR15` is the dstructure register.
 
 ```python
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 
 OUTPUT_BASE_ADDR = 0x40000
 WEIGHTS_BASE_ADDR = 0x20000

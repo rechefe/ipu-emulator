@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
+from typing import Any
 
 from ipu_isa import schema
 from ipu_isa.acc_stride_enums import (
@@ -31,7 +32,7 @@ from ipu_isa.acc_stride_enums import (
     VERTICAL_STRIDE_NAMES,
 )
 from ipu_isa.activations import ACTIVATION_FN_NAMES
-from ipu_isa.geometry import MAX_PROGRAM_SIZE
+from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -102,7 +103,7 @@ ENTRY_KEYS = schema.Keys(
     )
 )
 
-_SPEC: dict[str, dict] = {
+_SPEC: dict[str, dict[str, Any]] = {
     "MultStageReg": {
         "kind": OperandKind.REGISTER,
         "bits": 2,
@@ -324,8 +325,8 @@ _SPEC: dict[str, dict] = {
     },
     "Label": {
         "kind": OperandKind.LABEL,
-        "bits": _index_bits(MAX_PROGRAM_SIZE),
-        "domain": Domain(value_range=(0, MAX_PROGRAM_SIZE - 1)),
+        "bits": _index_bits(INST_MEM_WORDS),
+        "domain": Domain(value_range=(0, INST_MEM_WORDS - 1)),
         "readable": False,
         "token_class": "LabelToken",
         "field_suffix": "label_token",
@@ -337,7 +338,7 @@ _SPEC: dict[str, dict] = {
 }
 
 
-def _load(spec: Mapping[str, dict]) -> Mapping[str, OperandType]:
+def _load(spec: Mapping[str, dict[str, Any]]) -> Mapping[str, OperandType]:
     """Check the authored entries and freeze them into records."""
     records = {}
     for name, entry in spec.items():

@@ -30,9 +30,9 @@ from pathlib import Path
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernel_registry.spec import ExecutionConfig, folder_spec, no, yes
 from ipu_emu.emulator import load_binary_to_xmem
-from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_isa.constants import LR_CR_SCALAR_VALUE_MASK
 
 # -- Constants (mirror #defines in fully_connected.c) -----------------------
 

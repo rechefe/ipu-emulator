@@ -28,7 +28,6 @@ import numpy as np
 
 from ipu_emu.activations import apply_activation
 from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorError
-from ipu_emu.ipu_config import LR_CR_SCALAR_BITS, REGISTER_WORD_VALUE_MASK, PadMode, Partition
 from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
@@ -45,20 +44,24 @@ from ipu_isa.activations import (
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
 )
-from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    get_opcode_for_instruction,
+from ipu_isa.constants import (
+    LR_CR_SCALAR_BITS,
+    REGISTER_WORD_VALUE_MASK,
+    PadMode,
+    Partition,
 )
+from ipu_isa.geometry import LANES
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.registers import (
-    get_lane_count,
     get_mult_stage_map,
     get_register_sizes,
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.view import get_opcode_for_instruction
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa
@@ -76,12 +79,12 @@ R_REG_SIZE = _reg_sizes["r"]["size_bytes"]
 R_CYCLIC_SIZE = _reg_sizes["r_cyclic"]["size_bytes"]
 R_ACC_SIZE = _reg_sizes["r_acc"]["size_bytes"]
 
-# Number of vector lanes: 128, mode-invariant. An element is 1 byte in narrow
-# mode and 4 bytes in wide-vector debug mode, so LANES must never be confused
-# with a byte count — use it for lane loop bounds, mask bit-widths, and
-# lane-indexed lists/tuples in both modes. R_REG_SIZE remains a byte count
-# (the "r" register's size); it coincides with LANES only in narrow mode.
-LANES = get_lane_count()
+# LANES (from ipu_isa.geometry) is the number of vector lanes: 128,
+# mode-invariant. An element is 1 byte in narrow mode and 4 bytes in
+# wide-vector debug mode, so LANES must never be confused with a byte count —
+# use it for lane loop bounds, mask bit-widths, and lane-indexed lists/tuples
+# in both modes. R_REG_SIZE remains a byte count (the "r" register's size); it
+# coincides with LANES only in narrow mode.
 
 # XMEM row geometry is shared by instruction execution and debugging. Derive
 # it from the register schema and the active element representation so there

@@ -19,7 +19,7 @@ String-keyed reads of `INSTRUCTION_SPEC`, `PSEUDO_INSTRUCTION_SPEC`, `SLOT_UNION
 1. Migrate each file above to `isa()` records and registries. One commit per file to keep review local.
 2. `lark_tree` pseudo expansion uses `isa().pseudo(mnemonic, arity)` and `PseudoInstruction.expands_to`.
 3. `gen_codegen`, `gen_docs` and `gen_vscode` take an `Isa` argument defaulting to `isa()`. This is what lets E03-24 render a modified ISA in-process.
-4. Delete `get_instruction`, `get_instruction_by_opcode`, `get_operand_names_and_types`, `find_pseudo_instruction`, `extract_opcodes`, `get_opcode_for_instruction` and `canonical_instruction_name` from `instruction_spec.py` (and `__all__`).
+4. Delete the dict-shaped helpers `get_instruction`, `get_instruction_by_opcode`, `get_operand_names_and_types`, `find_pseudo_instruction` and `get_opcode_for_instruction` from `ipu_isa/view.py`, where E03-09 moved them (`extract_opcodes` and `canonical_instruction_name` had no callers and are already gone). Make `instruction_tag` and `pseudo_tag` private to the validator.
 5. Add a check to E03-02's purity test: outside `src/tools/ipu-isa/`, no source file imports `INSTRUCTION_SPEC`, `PSEUDO_INSTRUCTION_SPEC`, `SLOT_UNIONS` or `SLOT_BINARY_LAYOUT`.
 
 ## Tests
