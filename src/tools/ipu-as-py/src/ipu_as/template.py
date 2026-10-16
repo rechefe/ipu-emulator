@@ -173,7 +173,8 @@ def _strip_comment(line: str) -> str:
             quote = char
         elif char == "#":
             return line[:i]
-    return line
+    # An unclosed quote is an apostrophe in prose (`don't`), not a quoted value.
+    return line if quote is None else line.split("#", 1)[0]
 
 
 def declared_params(text: str, source: str = "<asm>") -> ParamSpec | None:

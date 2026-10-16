@@ -183,7 +183,7 @@ _cache: collections.OrderedDict[tuple, AssemblyResult] = collections.OrderedDict
 def _cache_key(
     source: str, defines: Mapping[str, object] | None, params: template.ParamSpec | None
 ) -> tuple | None:
-    """The cache key, or None when the inputs cannot be one (an unhashable define value)."""
+    """The cache key, or None when the inputs cannot be one (a ParamSpec with an unhashable default)."""
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
     # Each value with its type and repr: True == 1 == 1.0 in Python, but they
     # bind differently against a declared int (only 1 is valid).

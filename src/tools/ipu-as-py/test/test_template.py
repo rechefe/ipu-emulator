@@ -171,3 +171,8 @@ def test_the_cache_does_not_bypass_define_types() -> None:
     session.assemble(source, defines={"x": 1})
     with pytest.raises(TemplateError, match="not of type int"):
         session.assemble(source, defines={"x": True})
+
+
+def test_an_apostrophe_in_a_note_does_not_swallow_it() -> None:
+    spec = template.declared_params("{#- ipu:params\nm: str = don't  # a note\n-#}")
+    assert spec.params[0].default == "don't"
