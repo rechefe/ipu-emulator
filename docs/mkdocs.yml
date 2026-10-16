@@ -137,6 +137,16 @@ markdown_extensions:
 
 extra:
   docs_git_branch: master
+  # Pages generated at build time (docs/BUILD.bazel) are not in docs/content/, so their
+  # "history" link (hooks/history_link.py) goes to the generator instead. This map is the
+  # one place to update when a generator or a generated page moves.
+  generated_pages:
+    instructions.md: src/tools/ipu-as-py/src/ipu_as/gen_docs.py
+    operand-types.md: src/tools/ipu-as-py/src/ipu_as/gen_docs.py
+    assembly-syntax.md: src/tools/ipu-as-py/src/ipu_as/gen_docs.py
+    programmer-guide.md: src/tools/ipu-as-py/src/ipu_as/gen_docs.py
+    instruction-format.md: src/tools/ipu-as-py/src/ipu_as/gen_docs.py
+    release-log.md: docs/update_release_log.py
   # giscus IDs are public (they are rendered into every page), so they are committed
   # here (IMPLEMENTATION-DECISIONS.md, E00-06). Values come from https://giscus.app,
   # or GraphQL: repository.id and repository.discussionCategories[].id.

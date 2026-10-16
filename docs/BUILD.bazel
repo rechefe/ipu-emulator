@@ -243,3 +243,13 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+py_pytest_test(
+    name = "test_history_link",
+    size = "small",
+    srcs = [
+        "hooks/history_link.py",
+        "hooks/test_history_link.py",
+    ],
+    deps = [requirement("pytest")],
+)
