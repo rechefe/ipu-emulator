@@ -162,7 +162,8 @@ def test_lr_subslot_exception_leaves_no_partial_write():
     when sub-slot 1's read raises, sub-slot 0's write to LR1 has not happened.
 
     Prototyping mode diverges here today (it runs sub-slots one at a time);
-    test_prototyping_equivalence records that as a strict xfail until E04-07.
+    E02-08 records that in test_prototyping_equivalence as a strict xfail
+    until E04-07.
     """
     state = prepare(PROBES["lr_subslot_exception"])
     with pytest.raises(RAISES["lr_subslot_exception"]):

@@ -79,11 +79,6 @@ def write_row(state: IpuState, row: int, values) -> None:
     state.xmem.write_address(row * row_bytes, _element_bytes(state, values))
 
 
-def read_row_bytes(state: IpuState, row: int, count: int) -> bytes:
-    row_bytes = LANES * (4 if _wide(state) else 1)
-    return bytes(state.xmem.read_address(row * row_bytes, count))
-
-
 def fill_ra(state: IpuState, values) -> None:
     """R0 ++ R1 (256 elements)."""
     name = "r_wide_debug" if _wide(state) else "r"
@@ -170,7 +165,11 @@ def prepare(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False
 
 
 def run(probe: Probe, mode: Mode = Mode.NARROW, *, prototyping: bool = False) -> Run:
-    """Run to the end, resuming past every break, as ``run_until_complete`` does."""
+    """Run to the end, resuming past every break, as ``run_until_complete`` does.
+
+    It is not ``run_until_complete`` because the break tests need the PC of
+    each break; run statistics are not reset or totalled here.
+    """
     state = prepare(probe, mode, prototyping=prototyping)
     ipu = Ipu(state)
     breaks: list[int] = []
@@ -224,6 +223,9 @@ def _break_lr_subslot_1_source(program: list) -> None:
         for name in word
         if name.startswith("lr_inst_1_") and name.endswith("_addbi_immediate")
     )
+    # SET's src shares the ADDBI immediate's union column; make sure the field
+    # found is that operand (CR3) before breaking it.
+    assert word[field_name] == 3, f"{field_name} is not sub-slot 1's SET source"
     word[field_name] = 999
 
 
@@ -400,7 +402,7 @@ PROBES: dict[str, Probe] = {
         )
         for name, op in _AGG_OPS.items()
     },
-    # ACC.RESHAPE LRD pairs (LRDn is LRn:LRn+1), element 7 only (mask 7): its
+    # ACC.RESHAPE LRD pairs (LRDn is the pair LR(n+1):LR(n)), element 7 only (mask 7): its
     # source byte is LR1's top byte and its dest byte LR3's; each is 0, then 5.
     # MULT_RES[i] = i + 1.
     "reshape_source": Probe(
@@ -422,7 +424,14 @@ PROBES: dict[str, Probe] = {
         edit=_break_lr_subslot_1_source,
     ),
     # ---- E02-06: datapath views ----------------------------------------------
-    # R0 is 1s at cycle start; the same word loads 2s into it.
+    # R0 is 1s at cycle start; the same word loads 2s into it. MULT.VE reads Ra
+    # inside its handler; MULT.RC.VV reads it through the ``ra`` operand.
+    "mult_ra_operand": Probe(
+        "LDR_MULT_REG R0 LR0 CR2 ; MULT.RC.VV LR0 R0 0 LR0 CR15 ;;\nBKPT ;;",
+        cr={2: ROW},
+        setup=_setup(_ra(_ONES), _row(ROW, _TWOS), _r_cyclic(_ONES)),
+        modes=(Mode.NARROW, Mode.WIDE_FP32),
+    ),
     "mult_r0_r1": Probe(
         "LDR_MULT_REG R0 LR0 CR2 ; MULT.VE LR0 CR1 0 LR0 CR15 ;;\nBKPT ;;",
         cr={2: ROW},

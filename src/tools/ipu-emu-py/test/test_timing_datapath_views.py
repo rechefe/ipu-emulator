@@ -27,10 +27,12 @@ def _mult_res(probe: str, mode: Mode = Mode.NARROW):
 
 
 @_MODES
-def test_mult_reads_r0_r1_at_cycle_start(mode):
-    """MULT reads R0/R1 at cycle start: a same-word LDR_MULT_REG (2s) is not
-    seen, so R0 (1s) x CR1 = 1."""
-    assert _mult_res("mult_r0_r1", mode) == 1
+@pytest.mark.parametrize("probe", ["mult_ra_operand", "mult_r0_r1"])
+def test_mult_reads_r0_r1_at_cycle_start(mode, probe):
+    """MULT reads R0/R1 at cycle start, through the ``ra`` operand (MULT.RC.VV)
+    and inside MULT.VE alike: a same-word LDR_MULT_REG (2s) is not seen, so
+    R0 (1s) x 1 = 1."""
+    assert _mult_res(probe, mode) == 1
 
 
 @_MODES
