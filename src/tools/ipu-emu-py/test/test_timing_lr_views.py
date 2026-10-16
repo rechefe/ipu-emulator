@@ -1,0 +1,170 @@
+"""Which LR value each consumer reads when the same word writes that LR (E02-05).
+
+"Cycle start" is the value the LR held when the word began; "forwarded" is the
+value an LR sub-slot wrote earlier in the same word (GLOSSARY.md). Each test
+runs one minimal probe from ``timing_probes.py`` in faithful mode and asserts
+the one value that tells the two apart. These pin today's behaviour: E04
+refactors must keep every test green, and the two rows decision Q32 changes
+(``test_agg_dest_slot_reads_cycle_start``,
+``test_reshape_source_dest_read_cycle_start``) are flipped by E04-25 alone.
+"""
+
+from __future__ import annotations
+
+import struct
+
+import pytest
+
+from timing_probes import PROBES, RAISES, ROW, lane, prepare, r_cyclic_element, ra_element, run
+from ipu_emu.execute import Ipu
+
+
+def _lr(probe: str, index: int) -> int:
+    return run(PROBES[probe]).state.regfile.get_lr(index)
+
+
+@pytest.mark.parametrize(
+    ("probe", "expected"),
+    [
+        ("lr_alu_add", 5 + 1),
+        ("lr_alu_sub", 5 - 1),
+        ("lr_alu_incr_mod_pow2", (0 + 5) % 16),
+        ("lr_alu_addb", 0x05050505),
+    ],
+)
+def test_lr_alu_sources_read_cycle_start(probe, expected):
+    """ADD, SUB, INCR_MOD_POW2 and ADDB read their LR sources at cycle start.
+
+    SET reads only a CR, and no instruction writes a CR, so it has no probe.
+    The ADDB probe's dest is LRD2, the pair LR2:LR3; LR2 is checked.
+    """
+    assert _lr(probe, 2) == expected
+
+
+def test_lr_subslots_read_cycle_start():
+    """An LR sub-slot reads the cycle-start value of an LR another sub-slot writes."""
+    assert _lr("lr_subslots", 1) == 0 + 1
+
+
+@pytest.mark.parametrize(("probe", "own"), [("lr_inc_own_dest", 13), ("lr_dec_own_dest", 7)])
+def test_inc_dec_read_own_dest_at_cycle_start(probe, own):
+    """INC/DEC update their dest from its cycle-start value, and another sub-slot
+    reading that LR sees the cycle-start value too."""
+    state = run(PROBES[probe]).state
+    assert (state.regfile.get_lr(0), state.regfile.get_lr(1)) == (own, 10)
+
+
+@pytest.mark.parametrize(
+    ("probe", "marker"),
+    [
+        ("cond_beq", 2),  # 0 == 0: taken (forwarded 5 would fall through)
+        ("cond_bne", 1),  # 0 != 0: falls through
+        ("cond_blt", 2),  # 0 < 1: taken
+        ("cond_bge", 1),  # 0 >= 1: falls through
+        ("cond_br", 1),  # jumps to 4, the cycle-start LR0 (forwarded: 6)
+    ],
+)
+def test_cond_operands_read_cycle_start(probe, marker):
+    """BEQ, BNE, BLT, BGE and BR read their LR operands at cycle start."""
+    assert _lr(probe, 7) == marker
+
+
+def test_break_ifeq_reads_cycle_start():
+    """BREAK.IFEQ reads its LR at cycle start: the word that sets LR0 = 5 does
+    not break, the next one does."""
+    assert run(PROBES["break_ifeq"]).breaks == [1]
+
+
+def test_load_offset_and_index_read_forwarded():
+    """LDR_MULT_REG, LDR_CYCLIC_MULT_REG and LDR_MULT_MASK_REG read their
+    offset and index LRs forwarded."""
+    assert ra_element(run(PROBES["load_mult_offset"]).state, 0) == 2
+    assert r_cyclic_element(run(PROBES["load_cyclic_offset"]).state, 0) == 2
+    state = run(PROBES["load_cyclic_index"]).state
+    assert (r_cyclic_element(state, 0), r_cyclic_element(state, 128)) == (0, 1)
+    assert run(PROBES["load_mask_offset"]).state.regfile.raw("r_mask")[0] == 0x22
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_store_offsets_read_forwarded():
+    """STR_POST_AAQ_REG and STR_ACC_REG read their offset LR forwarded: the data
+    lands at row ROW + 8, not ROW."""
+    state = run(PROBES["store_post_aaq_offset"]).state
+    assert (state.xmem.read_address(ROW * 128, 1), state.xmem.read_address((ROW + 8) * 128, 1)) == (
+        b"\x00",
+        b"\x07",
+    )
+    state = run(PROBES["store_acc_offset"]).state
+    assert state.xmem.read_address(ROW * 128, 4) == bytes(4)
+    assert struct.unpack("<i", state.xmem.read_address((ROW + 8) * 128, 4))[0] == 7
+
+
+@pytest.mark.parametrize(
+    ("probe", "expected"),
+    [
+        ("mult_rc_idx", 2 * 2),  # R_CYCLIC[128..] (2s) squared, not [0..] (1s)
+        ("mult_ra_idx", 2 * 1),  # R1 (2s) x CR1, not R0 (1s)
+        ("mult_mask_shift", 0),  # shift 1 masks lane 0; shift 0 would keep 3 * 3
+    ],
+)
+def test_mult_lr_operands_read_forwarded(probe, expected):
+    """MULT reads rc_idx, ra_idx and mask_shift forwarded."""
+    assert lane(run(PROBES[probe]).state, "mult_res", 0) == expected
+
+
+def test_mult_rc_ve_src_reads_forwarded():
+    """MULT.RC.VE's LR src (no ``read`` flag; the handler reads the live file)
+    is forwarded: it selects Ra element 5 (7), not element 0 (3)."""
+    assert lane(run(PROBES["mult_rc_ve_src"]).state, "mult_res", 0) == 7
+
+
+def test_acc_stride_offset_reads_forwarded():
+    """ACC.STRIDE reads its offset LR forwarded: the row lands at lane 32, so
+    lane 32 holds MULT_RES[0] (1) rather than MULT_RES[64] (65)."""
+    state = run(PROBES["acc_stride_offset"]).state
+    assert lane(state, "r_acc", 32) == 1
+
+
+def test_reshape_mask_lr_reads_forwarded():
+    """ACC.RESHAPE reads an LR reshape_mask forwarded: mask 8 moves no element,
+    so R_ACC stays zero."""
+    assert lane(run(PROBES["reshape_mask_lr"]).state, "r_acc", 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("op", "value"), [("sum", 128), ("sum_first", 128), ("max", 1), ("max_first", 1)]
+)
+def test_agg_dest_slot_reads_cycle_start(op, value):
+    """AGG.SUM/AGG.MAX(.FIRST) read dest_slot at cycle start: the result goes
+    to lane 0, not lane 5. Q32 makes this forwarded (flipped by E04-25)."""
+    state = run(PROBES[f"agg_dest_slot_{op}"]).state
+    assert (lane(state, "r_acc", 0), lane(state, "r_acc", 5)) == (value, 0)
+
+
+@pytest.mark.parametrize("probe", ["reshape_source", "reshape_dest"])
+def test_reshape_source_dest_read_cycle_start(probe):
+    """ACC.RESHAPE reads its source and dest LRD pairs at cycle start: element 7
+    copies MULT_RES[0] (1) to R_ACC[0]. Q32 makes this forwarded (flipped by
+    E04-25)."""
+    assert lane(run(PROBES[probe]).state, "r_acc", 0) == 1
+
+
+@pytest.mark.parametrize("probe", ["lr_conflict_same_lr", "lr_conflict_lrd_overlap"])
+def test_lr_write_conflict_raises(probe):
+    """Two LR sub-slots writing one LR (directly, or through an ADDB LRD pair)
+    raise before any LR is written. Becomes fault F-3 in E04-19."""
+    with pytest.raises(RAISES[probe], match="LR conflict"):
+        run(PROBES[probe])
+
+
+def test_lr_subslot_exception_leaves_no_partial_write():
+    """Faithful mode reads every LR sub-slot's operands before writing any, so
+    when sub-slot 1's read raises, sub-slot 0's write to LR1 has not happened.
+
+    Prototyping mode diverges here today (it runs sub-slots one at a time);
+    test_prototyping_equivalence records that as a strict xfail until E04-07.
+    """
+    state = prepare(PROBES["lr_subslot_exception"])
+    with pytest.raises(RAISES["lr_subslot_exception"]):
+        Ipu(state).execute_vliw_cycle()
+    assert state.regfile.get_lr(1) == 0

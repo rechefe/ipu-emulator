@@ -155,3 +155,31 @@ py_pytest_test(
         requirement("pytest"),
     ],
 )
+
+# Register-timing characterization (E02-05, E02-06): minimal probe programs in
+# test/timing_probes.py, shared with test_prototyping_equivalence (E02-08).
+# Each probe allocates a fresh IpuState (512 MiB XMEM, about 0.25 s), so the
+# timing tests are sharded to stay under 5 s per shard; pytest_shard_plugin
+# reads the shim's --shard-id/--num-shards.
+py_library(
+    name = "timing_probes",
+    testonly = True,
+    srcs = [
+        "test/pytest_shard_plugin.py",
+        "test/timing_probes.py",
+    ],
+    imports = ["test"],
+    deps = [":ipu_emu_lib"],
+)
+
+py_pytest_test(
+    name = "test_timing_lr_views",
+    srcs = ["test/test_timing_lr_views.py"],
+    args = ["-p", "pytest_shard_plugin"],
+    shard_count = 4,
+    imports = ["src"],
+    deps = [
+        ":timing_probes",
+        requirement("pytest"),
+    ],
+)
