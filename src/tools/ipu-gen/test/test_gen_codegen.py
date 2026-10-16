@@ -276,7 +276,10 @@ def test_format_page_shows_the_hardware_word_first_then_the_emulator_word(tmp_pa
     assert hardware < emulator
     assert word_bits(Tag.HARDWARE) == 155 and word_bits() == 186
     assert "Hardware word Layout - 155 total bits" in text[hardware:emulator]
-    assert "CompoundInst Layout - 186 total bits" in text[emulator:]
+    assert "Emulator word Layout - 186 total bits" in text[emulator:]
+    # By hand, from the SV golden: STORE is the hardware word's lowest slot
+    # (9 bits, opcode at bit 8) and COND its highest (opcode at bits 154:152).
+    assert ">[8:8]<" in text[hardware:emulator] and ">[154:152]<" in text[hardware:emulator]
     # The emulator-only slots are drawn only in the emulator-word section.
     hardware_part = text[hardware:emulator]
     assert "AccStoreInst" not in hardware_part and "BreakInst" not in hardware_part

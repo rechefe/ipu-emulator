@@ -890,7 +890,7 @@ the emulator-only slots (`ACC_STORE`, `BREAK`) below its bit 0. Its top
     </style>
   </defs>
   <rect x="0" y="0" width="888" height="751" fill="white" stroke="none"/>
-  <text x="444.0" y="34" text-anchor="middle" class="inst-title">CompoundInst Layout - 186 total bits</text>
+  <text x="444.0" y="34" text-anchor="middle" class="inst-title">Emulator word Layout - 186 total bits</text>
   <rect x="80" y="55.0" width="768" height="80" fill="white" stroke="black" stroke-width="2"/>
   <text x="50" y="99.0" text-anchor="end" class="bit-range">[185:160]</text>
   <text x="236.0" y="67.0" text-anchor="middle" class="field-label" style="font-size: 6px; fill: #000000; font-weight: bold;">185</text>

@@ -459,7 +459,7 @@ def _generate_slots_section(view: Isa) -> str:
 
 
 def _slot_names(view: Isa, tag: Tag) -> str:
-    """``tag``'s slots, MSB first, with their copy counts: ```LR`×3, `LOAD```."""
+    """``tag``'s slots, MSB first, with their copy counts, for example ``"`LR`×3, `LOAD`"``."""
     return ", ".join(
         f"`{slot.value.upper()}`"
         + (f"×{view.slots[slot].count}" if view.slots[slot].count > 1 else "")
@@ -512,7 +512,7 @@ the emulator-only slots ({_slot_names(view, Tag.EMULATOR)}) below its bit 0. Its
 
 {sub} Whole-word bit layout
 
-{struct_layout_svg(view)}
+{struct_layout_svg(view, title="Emulator word")}
 """
 
 
@@ -631,7 +631,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
 
     for pseudo in (isa() if view is None else view).pseudos():
         target = pseudo.expands_to
-        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands, Tag.ASSEMBLER)
+        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands, pseudo.tag)
         lines.append("")
         lines.append(
             f"**Expands to:** `{target.mnemonic}` "
