@@ -22,7 +22,7 @@ import ipu_isa
 FORBIDDEN = ("ipu_as", "ipu_emu", "ipu_gen", "ipu_apps")
 
 MODULES = sorted(
-    f"ipu_isa.{module.name}" for module in pkgutil.iter_modules(ipu_isa.__path__)
+    module.name for module in pkgutil.walk_packages(ipu_isa.__path__, "ipu_isa.")
 )
 
 

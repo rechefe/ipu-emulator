@@ -66,6 +66,7 @@ The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_s
 - `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
 - Each `doc.operands` line starts with its operand's name, in operand order.
 - Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
+- A pseudo-instruction has exactly `operands`, `expands_to` and `doc`, and its `expands_to` has exactly `slot`, `instruction` and `args`. Each argument is one of the pseudo's own operand names or a register valid for the target operand's type (`CR0` for an `LcrIdx`).
 
 A failure raises `SpecError` with the path of the entry, for example `mult.MY_NEW_INSTRUCTION.operands[src_a].read`.
 

@@ -68,6 +68,31 @@ def test_missing_instruction_key():
     _rejects(spec, r"lr\.ADD: missing key\(s\) 'execute_fn'")
 
 
+@pytest.mark.parametrize(
+    ("level", "match"),
+    [
+        ("instruction", r"lr\.ADD: missing key\(s\) 'execute_fn'"),
+        ("operand", r"lr\.ADD\.operands\[dest\]: missing key\(s\) 'type'"),
+        ("slot_metadata", r"SLOT_METADATA\.lr: missing key\(s\) 'description'"),
+        ("pseudo", r"pseudo\.B: missing key\(s\) 'doc'"),
+        ("expands_to", r"pseudo\.B\.expands_to: missing key\(s\) 'slot'"),
+    ],
+)
+def test_missing_key_at_every_level(level, match):
+    spec, metadata = _spec(), copy.deepcopy(SLOT_METADATA)
+    pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
+    {
+        "instruction": lambda: spec["lr"]["ADD"].pop("execute_fn"),
+        "operand": lambda: spec["lr"]["ADD"]["operands"][0].pop("type"),
+        "slot_metadata": lambda: metadata["lr"].pop("description"),
+        "pseudo": lambda: pseudo["B"].pop("doc"),
+        "expands_to": lambda: pseudo["B"]["expands_to"].pop("slot"),
+    }[level]()
+    with pytest.raises(SpecError, match=match):
+        validate_instruction_spec(spec, metadata)
+        validate_pseudo_instruction_spec(pseudo, spec)
+
+
 def test_unknown_slot_metadata_key():
     metadata = copy.deepcopy(SLOT_METADATA)
     metadata["mult"]["hardwear"] = True

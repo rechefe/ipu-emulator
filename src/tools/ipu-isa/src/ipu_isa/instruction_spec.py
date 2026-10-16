@@ -1521,7 +1521,8 @@ _OPERAND_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _DOC_OPERAND_NAME = re.compile(r"\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*:")
 
 #: Register operand types and the assembler register enum their names come
-#: from, for checking a pseudo-instruction's literal arguments.
+#: from, for checking a pseudo-instruction's literal arguments. E03-05 moves
+#: this onto the operand-type registry.
 _REGISTER_ENUM_OF_TYPE = {
     "LrIdx": "LrRegField",
     "CrIdx": "CrRegField",
