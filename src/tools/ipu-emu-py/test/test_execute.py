@@ -2711,7 +2711,7 @@ BKPT;;
         run_until_complete(state)
         return state.regfile.view("r_acc")
 
-    def _suppressed(self, acc_raw: bytearray, lane: int) -> bool:
+    def _suppressed(self, acc_raw: bytes | memoryview, lane: int) -> bool:
         return struct.unpack_from("<i", acc_raw, lane * 4)[0] == 0
 
     # ------------------------------------------------------------------

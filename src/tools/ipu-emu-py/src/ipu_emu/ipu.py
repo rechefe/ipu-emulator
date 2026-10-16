@@ -608,7 +608,7 @@ class Ipu:
             raise EmulatorError("no register snapshot: a handler ran outside a cycle")
 
     @staticmethod
-    def _read(regfile: RegFile, name: str) -> memoryview:
+    def _read_forgetting_provenance(regfile: RegFile, name: str) -> memoryview:
         """*regfile*'s register *name*, to read. Reading through ``raw()`` used to
         forget the register's constant-ones provenance, and these reads still
         do, so alias and identity statistics stay as they were until E04-24."""
@@ -898,7 +898,10 @@ class Ipu:
             # Lane statistics are still recorded: prototyping mode is only
             # allowed to skip work, never to change what a run reports.
             slot = (mask_idx % (LANES // 16)) * 16
-            if self._read(self.state.regfile, "r_mask")[slot : slot + 16] == _ALL_ONES_MASK_SLOT:
+            if (
+                self._read_forgetting_provenance(self.state.regfile, "r_mask")[slot : slot + 16]
+                == _ALL_ONES_MASK_SLOT
+            ):
                 self._count_mult_lanes(_ALL_ONES_MASK_INT, self.state.get_dstructure_for(cr_idx))
                 return
 
@@ -1417,15 +1420,15 @@ class Ipu:
     def _store_mult_res_row_in_acc(self) -> None:
         """Store MULT_RES in R_ACC through the parent lane conversion path."""
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         values = struct.unpack_from(_ROW_FMT[fmt], mult_res, 0)
         _store_row(self.state.regfile.mutable("r_acc"), fmt, values)
 
     def execute_acc_add(self) -> None:
         """Execute ACC.ADD: Accumulate mult_res into accumulator (running add)."""
         acc_buf = self.state.regfile.mutable("r_acc")
-        mult_res = self._read(self.state.regfile, "mult_res")
-        snap_acc = self._read(self._snapshot_buffer, "r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1451,8 +1454,8 @@ class Ipu:
     def execute_acc_max(self) -> None:
         """Execute ACC.MAX: Each R_ACC element takes max(R_ACC[i], MULT_RES[i])."""
         acc_buf = self.state.regfile.mutable("r_acc")
-        mult_res = self._read(self.state.regfile, "mult_res")
-        snap_acc = self._read(self._snapshot_buffer, "r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1479,8 +1482,8 @@ class Ipu:
     def execute_acc_sub(self) -> None:
         """Execute ACC.SUB: Subtract MULT_RES from each R_ACC element (running subtract)."""
         acc_buf = self.state.regfile.mutable("r_acc")
-        mult_res = self._read(self.state.regfile, "mult_res")
-        snap_acc = self._read(self._snapshot_buffer, "r_acc")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
+        snap_acc = self._read_forgetting_provenance(self._snapshot_buffer, "r_acc")
 
         if self._wide_vector_active():
             acc_lanes = self._wide_lanes_from(snap_acc)
@@ -1502,7 +1505,7 @@ class Ipu:
     def execute_acc_sub_first(self) -> None:
         """Execute ACC.SUB.FIRST: Set each R_ACC element to negated MULT_RES (clean init for subtract)."""
         acc_buf = self.state.regfile.mutable("r_acc")
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
 
         if self._wide_vector_active():
             # 0 - x, not -x: for x = +0.0 the scalar path produced +0.0, and
@@ -1569,9 +1572,10 @@ class Ipu:
 
         base = (offset % 4) * 32
         fmt = self._acc_agg_lane_fmt()
-        # From the first lane written to the end: a row overrunning it fails in pack_into, as before.
+        # From the first lane written to the end: a row overrunning it still fails in
+        # pack_into (struct.error), with offsets counted from that lane.
         acc_buf = self.state.regfile.mutable("r_acc", base * 4)
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
 
         for i, idx in enumerate(out_indices):
             if idx >= 0:
@@ -1608,7 +1612,7 @@ class Ipu:
                 f"({RESHAPE_ELEMENT_COUNT})"
             )
 
-        mult_res = self._read(self._snapshot_buffer, "mult_res")
+        mult_res = self._read_forgetting_provenance(self._snapshot_buffer, "mult_res")
         writes = []
         for i in range(mask, RESHAPE_ELEMENT_COUNT):
             if src_bytes[i] >= LANES or dst_bytes[i] >= LANES:
@@ -1656,7 +1660,7 @@ class Ipu:
         """Execute AGG.SUM.FIRST: sum active MULT_RES elements, write to R_ACC[dest] (clean init)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         result = self._agg_sum_lanes(fmt, mult_res, active)
         dest = int(dest_slot) % LANES
@@ -1668,10 +1672,12 @@ class Ipu:
         """Execute AGG.SUM: sum active MULT_RES elements and add to R_ACC[dest] (running accumulation)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._read(self._snapshot_buffer, "r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(
+            fmt, self._read_forgetting_provenance(self._snapshot_buffer, "r_acc"), dest * 4
+        )[0]
         partial = self._agg_sum_lanes(fmt, mult_res, active)
         if fmt == "<f":
             result: float | int = float(partial) + float(snap_dest)
@@ -1690,7 +1696,7 @@ class Ipu:
         """
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         seed: float | int = -2147483648 if fmt == "<i" else float("-inf")
         result = self._agg_max_lanes(fmt, mult_res, active, seed)
@@ -1701,10 +1707,12 @@ class Ipu:
         """Execute AGG.MAX: max of active MULT_RES elements seeded with R_ACC[dest] (running max)."""
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         fmt = self._acc_agg_lane_fmt()
-        mult_res = self._read(self.state.regfile, "mult_res")
+        mult_res = self._read_forgetting_provenance(self.state.regfile, "mult_res")
         active = self._agg_active_lane_count(valid_elements)
         dest = int(dest_slot) % LANES
-        snap_dest = struct.unpack_from(fmt, self._read(self._snapshot_buffer, "r_acc"), dest * 4)[0]
+        snap_dest = struct.unpack_from(
+            fmt, self._read_forgetting_provenance(self._snapshot_buffer, "r_acc"), dest * 4
+        )[0]
         result = self._agg_max_lanes(fmt, mult_res, active, snap_dest)
         struct.pack_into(fmt, self.state.regfile.mutable("r_acc", dest * 4, 4), 0, result)
 
@@ -1768,7 +1776,7 @@ class Ipu:
         valid_elements = self.state.get_dstructure_for(cr_idx).valid_elements
         active = self._agg_active_lane_count(valid_elements)
         fmt = self._acc_agg_lane_fmt()
-        acc_buf = self._read(self.state.regfile, "r_acc")
+        acc_buf = self._read_forgetting_provenance(self.state.regfile, "r_acc")
         post_buf = self.state.regfile.mutable("post_aaq_reg")
 
         if self._wide_vector_active():
@@ -1839,7 +1847,9 @@ class Ipu:
         modes; only the row address is translated.
         """
         addr = self._xmem_row_addr(offset + base)
-        self.state.xmem.write_address(addr, bytes(self._read(self.state.regfile, "post_aaq_reg")))
+        self.state.xmem.write_address(
+            addr, bytes(self._read_forgetting_provenance(self.state.regfile, "post_aaq_reg"))
+        )
 
     # -----------------------------------------------------------------------
     # COND Instruction Handlers
