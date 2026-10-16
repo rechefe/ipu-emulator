@@ -1,4 +1,6 @@
+load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 load("//tools:typecheck.bzl", "mypy_test")
 
@@ -21,6 +23,17 @@ py_library(
         "//src/tools/ipu-as-py:ipu_as_lib",
         "//src/tools/ipu-emu-py:ipu_emu_lib",
         "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("tomli"),  # tomllib before Python 3.11
+    ],
+)
+
+# kernel.toml: the schema, the loader and its errors (E06-02).
+py_pytest_test(
+    name = "test_manifest",
+    srcs = ["test/test_manifest.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
     ],
 )
 
