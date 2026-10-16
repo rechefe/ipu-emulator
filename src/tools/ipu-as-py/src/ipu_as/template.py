@@ -148,7 +148,11 @@ def _from_text(kind: type, text: str) -> object:
         return int(text, 0)
     if kind is tuple:
         return tuple(int(part, 0) for part in text.strip("()").split(",") if part.strip())
-    return text
+    if kind is float:
+        return float(text)
+    if kind is str:
+        return text
+    raise ValueError(f"no command-line spelling for {kind.__name__}")
 
 
 def _type_name(kind: type) -> str:

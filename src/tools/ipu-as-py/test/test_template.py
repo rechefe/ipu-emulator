@@ -56,6 +56,19 @@ def test_a_param_spec_from_the_caller_replaces_the_header() -> None:
     assert template.render("{{ n }}", TemplateInputs(params=spec)) == "7"
 
 
+def test_a_callers_own_parameter_types_are_checked_and_named() -> None:
+    # The kernel harness declares float and dict parameters, which no header can.
+    spec = ParamSpec((Param("s", float), Param("shapes", dict)))
+    ok = TemplateInputs(defines={"s": "2.5", "shapes": {"x": [2]}}, params=spec)
+    assert template.render("{{ s }} {{ shapes.x }}", ok) == "2.5 [2]"
+    for defines, message in (
+        ({"s": "two", "shapes": {}}, "define 's' is 'two', not of type float"),
+        ({"s": 2.5, "shapes": "x=2"}, "define 'shapes' is 'x=2', not of type dict"),
+    ):
+        with pytest.raises(TemplateError, match=message):
+            template.render("{{ s }}", TemplateInputs(defines=defines, params=spec))
+
+
 @pytest.mark.parametrize(
     ("source", "defines", "message", "line"),
     [
