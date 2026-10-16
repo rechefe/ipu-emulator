@@ -306,6 +306,17 @@ LDR_MULT_REG r0 lr0 cr0;;
 
 The harness must initialize **`cr6`** (here: the memory offset) before this program runs.
 
+### ABI names
+
+A kernel can name its registers by role instead of by number. The assembler takes a name → register mapping (from the kernel's `kernel.toml` `[abi]` table, or `ipu-as assemble --abi kernel.toml`) and exposes it as two read-only namespaces: `{{ cr.<name> }}` renders a `CR` register and `{{ lr.<name> }}` an `LR` register. An unknown name is a template error at its line, and a mapping whose value is not a register of its namespace is rejected before rendering. `cr` and `lr` cannot be used as parameter or define names.
+
+```jinja2
+SET {{ lr.data_ptr }} {{ cr.data_base }};;
+LDR_MULT_REG R0 {{ lr.data_ptr }} CR0;;
+```
+
+With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 CR2;;`.
+
 ## Running the assembler
 
 **Command line (Bazel):**

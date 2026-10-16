@@ -4,8 +4,9 @@ from typing import NoReturn
 
 import click
 import lark
+import tomli
 
-from ipu_as import diagnostics, lark_tree
+from ipu_as import diagnostics, lark_tree, session, template
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
 
 
@@ -42,20 +43,47 @@ def cli():
     type=click.Choice(["mem", "bin"]),
     default="mem",
 )
-def assemble(input: click.Path, output: click.Path, format: str):
+@click.option(
+    "--abi",
+    "abi_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="A kernel.toml whose [abi] table names the registers the template reads "
+    "as {{ cr.<name> }} / {{ lr.<name> }}.",
+)
+def assemble(input: click.Path, output: click.Path, format: str, abi_path: str | None):
     """Assembles the given input file."""
     click.echo(f"Assembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
     with open(input) as source:
         text = source.read()
+    abi = _read_abi(abi_path) if abi_path else None
     try:
-        if format == "mem":
-            lark_tree.assemble_to_mem_file(text, output)
-        elif format == "bin":
-            lark_tree.assemble_to_bin_file(text, output)
+        result = session.assemble(text, abi=abi)
     except AssemblerError as error:
         _exit_with(error)
+    if format == "mem":
+        with open(output, "w") as f:
+            f.write(result.to_mem())
+    elif format == "bin":
+        with open(output, "wb") as f:
+            f.write(result.to_bin())
+
+
+def _read_abi(path: str) -> dict[str, dict[str, str]]:
+    """The `cr` / `lr` namespaces from the `[abi]` table of a kernel.toml (name = "CR2")."""
+    try:
+        with open(path, "rb") as f:
+            table = tomli.load(f).get("abi")
+    except (tomli.TOMLDecodeError, UnicodeDecodeError) as error:
+        raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
+    if not isinstance(table, dict):
+        raise click.BadParameter(f"{path} has no [abi] table", param_hint="--abi")
+    try:
+        return template.abi_namespaces(table)
+    except TemplateError as error:
+        raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
 
 
 @click.command()

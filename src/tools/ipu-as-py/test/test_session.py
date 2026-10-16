@@ -37,9 +37,9 @@ def test_a_render_that_yields_braces_is_rendered_once(monkeypatch) -> None:
     calls = []
     real_render = template.render
 
-    def counting_render(text: str, **options) -> str:
+    def counting_render(text: str, *args, **options) -> str:
         calls.append(text)
-        return real_render(text, **options)
+        return real_render(text, *args, **options)
 
     monkeypatch.setattr(template, "render", counting_render)
     source = "{{ '{{' }}\nBKPT;;\n"
@@ -56,7 +56,7 @@ def test_render_runs_once_per_session(monkeypatch) -> None:
     monkeypatch.setattr(
         template,
         "render",
-        lambda text, **options: calls.append(text) or real_render(text, **options),
+        lambda text, *args, **options: calls.append(text) or real_render(text, *args, **options),
     )
     assembly = AssemblySession("{% if true %}NOP;;{% endif %}\nBKPT;;\n")
     assembly.render()
