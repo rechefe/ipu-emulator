@@ -6,9 +6,7 @@ This file gives Claude Code the context needed to work effectively in this repos
 
 ## Project Purpose
 
-**ipu-c-samples** is a Python-based IPU (Inference Processing Unit) emulator and assembler toolchain. It lets you write assembly programs for a custom VLIW ISA, then assemble and emulate them in software.
-
-Despite the repo name, there is no C code — it is pure Python with a Bazel build system.
+**ipu-emulator** is a Python-based IPU (Inference Processing Unit) emulator and assembler toolchain. It lets you write assembly programs for a custom VLIW ISA, then assemble and emulate them in software.
 
 ---
 
@@ -106,7 +104,7 @@ LDR_MULT_REG R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE L
 
 ### Operand Types (defined in instruction_spec)
 
-`MultStageReg`, `LrIdx`, `CrIdx`, `LcrIdx`, `LrdIdx`, `DstructureCrIdx`, `LrIncDecImmediate`, `AddbiImmediate`, `ActivationFn`, `ElementsInRow`, `HorizontalStride`, `VerticalStride`, `LrModPow2KImmediate`, `MultMaskOffsetImmediate`, `ReshapeMaskImmediate`, `BreakImmediate`, `Label`
+The operand types are listed on the generated [Operand types](https://rechefe.github.io/ipu-emulator/operand-types/) page. It is built from `instruction_spec.py`; `bazel build //docs:generate_mkdocs_md` writes it to `bazel-bin/docs/operand-types.md`.
 
 `ACC.STRIDE` operand enums (see `acc_stride_enums.py`): `ElementsInRow` = **`16`**, **`32`**, **`64`**; `HorizontalStride` = **`off`**, **`on`**, **`on_inv`** (expand is fixed hardware behaviour, not programmable).
 
@@ -118,7 +116,7 @@ LDR_MULT_REG R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE L
    ```python
    "MY_INST": {
        "operands": [
-           {"name": "dest", "type": "LrIdx", "read": "snapshot"},
+           {"name": "dest", "type": "LrIdx"},
            {"name": "src",  "type": "MultStageReg", "read": "snapshot"},
        ],
        "doc": InstructionDoc(summary="...", ...),
@@ -129,7 +127,7 @@ LDR_MULT_REG R0 LR0 CR0; MULT.RC.VV LR1 R0 0 LR3 CR15; ACC.ADD; INC LR0 1; BNE L
 2. **Implement the handler in `ipu.py`:**
    ```python
    def execute_my_inst(self, *, dest: int, src: bytearray) -> None:
-       # dest is resolved to the LR value; src is the register bytes
+       # dest is the LR index (a destination takes no "read" key); src is the register bytes
        ...
    ```
    - Use `*,` (keyword-only args)
@@ -173,12 +171,9 @@ bazel test //...
 ```bash
 # Assemble a program
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --format bin
-
-# With Jinja2 template variables
-bazel run //src/tools/ipu-as-py:ipu-as -- assemble --define ROWS=8 prog.asm.j2
 ```
 
-Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, conditionals).
+Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, conditionals). The CLI has no option to set template variables yet.
 
 ---
 
@@ -217,14 +212,13 @@ See `docs/content/adding-applications.md` for the full contract.
 
 ## Debugging
 
-Add `BREAK;;` to assembly, then run with the debug callback:
+Run any kernel target under the debugger TUI:
 
-```python
-from ipu_emu.debug_cli import debug_prompt
-run_with_debug(state, debug_prompt)
+```bash
+bazel run --config=debug //src/tools/ipu-apps:identity
 ```
 
-Interactive commands: `continue`, `step`, `get lr0`, `set lr0 100`, `save state.json`
+It opens at cycle 0, before the first instruction: F8 steps, F5 continues, F9 toggles a breakpoint. See [`docs/content/debugging.md`](docs/content/debugging.md) for all controls.
 
 ---
 

@@ -22,14 +22,6 @@ from docs.doc_files import doc_files
 _INVOCATION = re.compile(r"\bipu-as(?![\w-])(?:[ \t]+--)?[ \t]+(?P<rest>[a-z].*)$")
 _SHELL_OPERATORS = {"|", "||", "&&", ";", ">", ">>", "<", "&", "2>&1"}
 
-# Commands known not to run, keyed by (file, text in the command), each fixed
-# by the named issue. Strict xfail: a fixed command fails until its entry goes.
-KNOWN_BROKEN: dict[tuple[str, str], str] = {
-    ("SKILL.md", "--define"): "E09-02: --define and a positional template",
-    ("docs/content/adding-instruction.md", "--format hex"): "E09-02: --format hex and stdin",
-}
-
-
 @dataclass(frozen=True)
 class Command:
     path: str
@@ -133,12 +125,7 @@ def _cases() -> list:
     for path in doc_files():
         for command in _commands(path):
             case_id = f"{command.path}:{command.line}"
-            marks = [
-                pytest.mark.xfail(reason=reason, strict=True)
-                for (path_name, text), reason in KNOWN_BROKEN.items()
-                if command.path == path_name and text in " ".join(command.argv)
-            ]
-            cases.append(pytest.param(command, id=case_id, marks=marks))
+            cases.append(pytest.param(command, id=case_id))
     return cases
 
 
