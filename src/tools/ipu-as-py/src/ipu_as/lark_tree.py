@@ -10,6 +10,7 @@ import ipu_as.compound_inst as compound_inst
 from ipu_as import session
 from ipu_as.session import instruction_aligned_bytes_len
 from ipu_as.syntax import ASTBuilder, get_parser, parse_tree
+from ipu_isa.codec.word import unpack_words
 
 __all__ = [
     "ASTBuilder",
@@ -67,13 +68,7 @@ def disassemble_from_mem_file(input_path: str, output_path: str):
 
 def disassemble_from_bin_file(input_path: str, output_path: str):
     with open(input_path, "rb") as f:
-        byte_data = f.read()
-        instruction_size_bytes = instruction_aligned_bytes_len()
-        program = []
-        for i in range(0, len(byte_data), instruction_size_bytes):
-            word_bytes = byte_data[i : i + instruction_size_bytes]
-            word_int = int.from_bytes(word_bytes, byteorder="little")
-            program.append(word_int)
+        program = unpack_words(f.read())
     with open(output_path, "w") as f:
         for line in disassemble(program):
             f.write(f"{line}\n")

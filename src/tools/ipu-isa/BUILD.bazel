@@ -27,7 +27,7 @@ filegroup(
 py_library(
     name = "ipu_isa_lib",
     srcs = glob([
-        "src/ipu_isa/*.py",
+        "src/ipu_isa/**/*.py",
     ]),
     imports = ["src"],
     deps = [requirement(dep) for dep in RUNTIME_DEPS],
@@ -172,6 +172,17 @@ py_pytest_test(
     name = "test_view",
     srcs = ["test/test_view.py"],
     data = ["test/fixtures/spec_snapshot.json"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_word_codec",
+    srcs = ["test/test_word_codec.py"],
+    data = ["//src/tools/ipu-as-py:test/baselines/word_fields.json"],
     imports = ["src"],
     deps = [
         ":ipu_isa_lib",

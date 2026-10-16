@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.view import isa
 
@@ -18,11 +19,7 @@ def stage_operations(instruction: dict[str, int] | None) -> list[tuple[str, str]
     """Decode every slot, including idle NOPs, without executing any operation."""
     if instruction is None:
         return [(label, "NOP") for label in SLOT_LABELS]
-    word = 0
-    shift = 0
-    for name, width in CompoundInst.get_fields():
-        word |= (instruction.get(name, 0) & ((1 << width) - 1)) << shift
-        shift += width
+    word = DecodedWord(instruction).to_word()
     operations = [part.strip() for part in CompoundInst.decode(word).split(";") if part.strip()]
     return list(zip(SLOT_LABELS, semantic_operations(operations), strict=True))
 

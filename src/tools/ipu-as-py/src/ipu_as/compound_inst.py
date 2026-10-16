@@ -4,6 +4,7 @@ import warnings
 import ipu_as.inst as inst
 import ipu_as.utils as utils
 from ipu_as.errors import SlotError
+from ipu_isa.codec.word import WORD_LAYOUT
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 
@@ -211,3 +212,25 @@ class CompoundInst:
                 )
                 fields.append((field_name, token_type.bits()))
         return tuple(reversed(fields))
+
+
+def check_word_fields(compound: type[CompoundInst]) -> None:
+    """The assembler's word fields are the ISA's word layout (E03-16).
+
+    ``get_fields()`` names fields after the token classes; ``WORD_LAYOUT`` is
+    the wire format, built from the registries. Until E05-03 makes the
+    assembler read ``WORD_LAYOUT``, the two must agree.
+    """
+    ours = list(compound.get_fields())
+    isa_fields = [(f.name, f.bits) for f in WORD_LAYOUT]
+    if ours != isa_fields:
+        first = next(
+            ((a, b) for a, b in zip(ours, isa_fields, strict=False) if a != b),
+            f"{len(ours)} fields against {len(isa_fields)}",
+        )
+        raise SpecError(
+            f"CompoundInst.get_fields() differs from ipu_isa.codec.word.WORD_LAYOUT: {first}"
+        )
+
+
+check_word_fields(CompoundInst)

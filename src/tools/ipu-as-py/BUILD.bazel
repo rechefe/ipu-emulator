@@ -11,6 +11,8 @@ exports_files([
     # Read by //tools:test_update_baselines.
     "BUILD.bazel",
     "pyproject.toml",
+    # Read by //src/tools/ipu-isa:test_word_codec (E03-16).
+    "test/baselines/word_fields.json",
 ])
 
 # RUNTIME_DEPS as JSON, for //tools:deps_consistency_test.

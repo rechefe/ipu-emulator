@@ -164,8 +164,7 @@ separate, fully mapped region in the host address space (see below).
 
 - **`IMEM_MAP_SIZE`** = `IMEM_DEPTH × INSTRUCTION_ALIGNED_BYTES`, where
   `INSTRUCTION_ALIGNED_BYTES` is the per-instruction size of the assembler
-  `--format bin` stream (see `instruction_aligned_bytes_len()` /
-  `_instruction_aligned_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
+  `--format bin` stream (`ipu_isa.codec.word.word_bytes()`). The emulator uses `INST_MEM_SIZE` (1024) for
   `IMEM_DEPTH`; hardware uses `IMEM_DEPTH = 256` per
   [stage-control.md](stage-control.md) — the SystemRDL parameter drives the
   generated map size.

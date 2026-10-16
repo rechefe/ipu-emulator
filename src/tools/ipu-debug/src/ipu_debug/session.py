@@ -22,6 +22,7 @@ from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_isa.codec.word import DecodedWord
 from ipu_isa.errors import IpuError
 from ipu_isa.registers import create_regfile_schema
 from ipu_isa.types import RegDescriptor, RegDtype
@@ -330,12 +331,7 @@ def disassemble_at(state: IpuState, pc: int) -> str:
     if inst is None:
         return f"PC {pc}: <nop>"
 
-    # Re-encode the field dict back to an int and use CompoundInst.decode()
-    word = 0
-    shift = 0
-    for name, width in CompoundInst.get_fields():
-        word |= (inst.get(name, 0) & ((1 << width) - 1)) << shift
-        shift += width
+    word = DecodedWord(inst).to_word()
 
     return f"PC {pc}: {CompoundInst.decode(word)}"
 

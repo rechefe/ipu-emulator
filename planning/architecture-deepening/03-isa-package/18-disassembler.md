@@ -24,7 +24,7 @@ Disassembly (word to text) is derived from the codec and the derived syntax, so 
    ```
 2. `CompoundInst.decode` delegates to `disassemble` (kept until E05 retires `CompoundInst`).
 3. `debug_cli.disassemble_at` and `debug_pipeline.stage_operations` call `disassemble` / `slot_operations` on `DecodedWord.to_word()`. Delete the text splitting and token re-binding in `semantic_operations`; keep its output identical.
-4. Delete the temporary `ipu_emu` → `ipu_as` edge from `tools/import_graph.toml`, so `//tools:test_import_graph` fails if any file under `src/tools/ipu-emu-py/src/` imports `ipu_as`. (Tests may still use the assembler.)
+4. (Done in E03-16, which removed the last emulator import of `ipu_as`.) The `ipu_emu` row of `tools/import_graph.toml` has no `ipu_as` edge, so `//tools:test_import_graph` fails if any file under `src/tools/ipu-emu-py/src/` imports `ipu_as`. (Tests may still use the assembler.)
 
 ## Tests
 
