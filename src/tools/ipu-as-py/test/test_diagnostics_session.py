@@ -6,16 +6,15 @@ import json
 
 from click.testing import CliRunner
 
-import ipu_as.compound_inst as compound_inst
-from ipu_as import diagnostics
+from ipu_as import diagnostics, encode
 from ipu_as.cli import cli
 
 
 def test_a_plain_value_error_in_the_encoder_is_internal_not_assemble(monkeypatch) -> None:
-    def broken(self):
+    def broken(compound):
         raise ValueError("a bug in the encoder")
 
-    monkeypatch.setattr(compound_inst.CompoundInst, "encode", broken)
+    monkeypatch.setattr(encode, "encode_word", broken)
     result = CliRunner().invoke(cli, ["check", "--json", "--input", "-"], input="NOP;;\n")
     (found,) = json.loads(result.stdout)
     assert found["stage"] == "internal"

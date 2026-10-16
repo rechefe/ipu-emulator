@@ -73,8 +73,8 @@ class KernelManifest:
     formats: tuple[ElementFormat, ...]
     params: Mapping[str, ParamDecl]
     tensors: Mapping[str, TensorDecl]
-    abi: Mapping[str, CrIdx]           # validated "CR2".."CR15"
-    derived: Mapping[str, str]         # see E06-06 open question
+    abi: Mapping[str, str]             # validated "CR2".."CR15" or "LR0".."LR15" (LR presets)
+    derived: Mapping[str, str]         # expressions (E06-06 settles derived CR values this way)
     cases: Mapping[str, CaseDecl]      # must contain "default"
     golden: GoldenDecl
     stages: str | None                 # "stages.py:run" (E06-14)

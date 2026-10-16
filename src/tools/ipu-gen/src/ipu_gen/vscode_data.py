@@ -34,8 +34,8 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
-from ipu_as.compound_inst import WILDCARD_OPCODES
 from ipu_as.diagnostics import check
+from ipu_as.encode import WILDCARD_OPCODES
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.ipu_token import NUMBER_PATTERN
 from ipu_as.lark_tree import get_parser
@@ -460,7 +460,7 @@ def _doc_to_dict(doc, syntax_line: str) -> dict | None:
 
 
 def _slot_fill(instructions: dict[str, list[dict]], order: list[str]) -> dict:
-    """How the assembler fills a word's slots (``CompoundInst._fill_instructions``):
+    """How the assembler fills a word's slots (``ipu_as.encode.assign_slots``):
     in source order, a wildcard takes the first free slot in ``order``, and every
     other mnemonic a free slot of its kind: the slot its real form is specified
     in, or for a pseudo-instruction the slot of the instruction it expands to

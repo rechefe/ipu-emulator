@@ -514,6 +514,8 @@ def _abi(
         register = _register(r, name, value)
         if register in used:
             raise r.fail(path, f"[abi] {name} and {used[register]} both bind {register}")
+        if name in params and params[name].type == "str":
+            raise r.fail(path, f"[abi] {name} is a str parameter; a register holds a number")
         if register.startswith("LR") and name in params and params[name].type == "float":
             raise r.fail(
                 path, f"[abi] {name} is an element scalar (a float); it binds a CR, not {register}"
