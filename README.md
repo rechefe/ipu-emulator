@@ -46,7 +46,7 @@ Tests are split into two tiers by Bazel test size. The named configs in
 
 | Tier | Holds | Command |
 |------|-------|---------|
-| Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every push. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets) |
+| Default | Every test except size `enormous`: what a change must pass before review. CI runs it on every pull request and every push to master. | `bazel test //...` (CI: `bazel test --config=ci //...`, which also skips `docs` targets and uses the CI caches) |
 | Heavy | Size `enormous` tests, such as the per-kernel `test_alias_profile_kernels_*` and `test_debug_launch_kernels_*` sweeps. Runs nightly. | `bazel test --config=full //...` |
 
 `manual` targets (for example the `test_full_*` MobileViT stacks) are in

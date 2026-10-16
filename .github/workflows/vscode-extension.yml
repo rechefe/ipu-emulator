@@ -6,7 +6,11 @@ name: VS Code Extension
 #
 # The paths filters include ipu_as, ipu_common and ipu_emu: the grammar,
 # instruction set, operand types, case rules and register facts are read from
-# them at build time.
+# them at build time. requirements_lock.txt and tools/bootstrap.sh change the
+# build it runs, so pull requests that touch them run it too.
+#
+# Keep these paths in step with the package layout: E03's rename of ipu_common
+# to ipu_isa and the Q69 package split must update them.
 
 on:
   # Master publishes, so only files that can change the packaged .vsix count:
@@ -37,6 +41,9 @@ on:
       - 'src/tools/ipu-apps/src/ipu_apps/kernels/**/*.py'
       - 'src/tools/ipu-apps/BUILD.bazel'
       - 'ipu_app.bzl'
+      # PRs only: they change how the build runs, not what is packaged.
+      - 'requirements_lock.txt'
+      - 'tools/bootstrap.sh'
   workflow_dispatch:
 
 permissions:
