@@ -40,6 +40,9 @@ fi
 #   --registry      : bcr.bazel.build is blocked; use the GitHub mirror.
 #   --lockfile_mode : the mirror URL differs from the one recorded in
 #                     MODULE.bazel.lock, so leave the committed lockfile alone.
+#   --nobuild_runfile_links : do not materialise runfiles trees at build time.
+#                     Each ipu-apps target links ~84 MB of runfiles, and
+#                     `//...` alone fills the session's disk allowance.
 BAZELRC_MARKER="# claude-code-on-the-web session-start hook"
 if ! grep -qF "$BAZELRC_MARKER" "$HOME/.bazelrc" 2>/dev/null; then
   cat >> "$HOME/.bazelrc" << RC
@@ -49,15 +52,19 @@ common --registry=https://raw.githubusercontent.com/bazelbuild/bazel-central-reg
 common --lockfile_mode=off
 RC
 fi
+if ! grep -q "^build --nobuild_runfile_links" "$HOME/.bazelrc" 2>/dev/null; then
+  echo "build --nobuild_runfile_links" >> "$HOME/.bazelrc"
+fi
 
 # Bazel actions run repository shell scripts; keep them executable.
 find "$PROJECT_DIR" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 
 # Warm the container: download Bazel itself plus every external dependency
 # (module registry entries and pip wheels) while the image is still being built.
+# Fetch only; a full build here costs tens of GB of disk before work starts.
 cd "$PROJECT_DIR"
 bazel version
-bazel build --config=ci //... || true
+bazel fetch --config=ci //... || true
 
 # Persist the settings the rest of the session needs.
 if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -q "^export BAZELISK_BASE_URL=" "$CLAUDE_ENV_FILE" 2>/dev/null; then
