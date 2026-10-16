@@ -59,6 +59,16 @@ INSTRUCTION_SPEC = {
 }
 ```
 
+The spec is checked strictly when `ipu_isa` is imported (`validate_instruction_spec`):
+
+- An instruction has exactly the keys `operands`, `doc` and `execute_fn`, and an operand has `name`, `type` and optionally `read`. Any other key is an error, so a typo such as `"raed"` fails at import instead of being ignored. The allowed keys are listed in `src/tools/ipu-isa/src/ipu_isa/schema.py`; a new key goes there first.
+- Operand names are unique within the instruction and match `[a-z][a-z0-9_]*`.
+- `read` is allowed only on register operands (`LrIdx`, `CrIdx`, `LcrIdx`, `MultStageReg`, `LrdIdx`).
+- Each `doc.operands` line starts with its operand's name, in operand order.
+- Mnemonics are unique within the slot ignoring case, and each slot has exactly one `NOP`.
+
+A failure raises `SpecError` with the path of the entry, for example `mult.MY_NEW_INSTRUCTION.operands[src_a].read`.
+
 **Key fields:**
 
 - **`operands`**: List of operand definitions, each with:

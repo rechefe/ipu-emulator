@@ -1174,7 +1174,7 @@ SUB LR3, LR1, CR5;;
 
 | Name | Type | Details |
 |------|------|---------|
-| `dest` | [`LrIdx`](operand-types.md#lridx) | dst: Destination loop register (LR0–LR15); read and written |
+| `dest` | [`LrIdx`](operand-types.md#lridx) | dest: Destination loop register (LR0–LR15); read and written |
 | `step` | [`LcrIdx`](operand-types.md#lcridx) | step: Signed 32-bit increment from LR0–LR15 or CR0–CR15 |
 | `k` | [`LrModPow2KImmediate`](operand-types.md#lrmodpow2kimmediate) | k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1 |
 

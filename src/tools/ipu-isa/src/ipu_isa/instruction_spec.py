@@ -74,8 +74,12 @@ Structure:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any
+
+from ipu_isa import schema
+from ipu_isa.registers import create_assembler_reg_enums
 
 
 # ===========================================================================
@@ -426,7 +430,7 @@ INSTRUCTION_SPEC = {
                 ),
                 syntax="INCR_MOD_POW2 dst, step, k",
                 operands=[
-                    "dst: Destination loop register (LR0–LR15); read and written",
+                    "dest: Destination loop register (LR0–LR15); read and written",
                     "step: Signed 32-bit increment from LR0–LR15 or CR0–CR15",
                     "k: Immediate in [1, 9]; encoded in 4 bits as (k − 1); mask = (1 << k) - 1",
                 ],
@@ -1513,175 +1517,158 @@ def find_pseudo_instruction(name: str, arg_count: int) -> dict | None:
 # Validation
 # ===========================================================================
 
-def validate_instruction_spec() -> None:
-    """Validate instruction specification consistency.
-    
-    Checks:
-    - All slot types exist
-    - All instructions have required fields (operands, doc, execute_fn)
-    - Operands have name and type fields
-    - All operand types are recognized
-    
-    Raises ValueError if validation fails.
-    """
-    valid_operand_types = VALID_OPERAND_TYPES
-    valid_read_sources = {"snapshot", "live"}
-    
-    for slot_type, instructions in INSTRUCTION_SPEC.items():
-        if not isinstance(instructions, dict):
-            raise ValueError(f"Slot '{slot_type}' instructions must be a dict")
-        
-        if len(instructions) == 0:
-            raise ValueError(f"Slot '{slot_type}' has no instructions")
-        
-        for inst_name, inst_def in instructions.items():
-            # Check required fields
-            if "operands" not in inst_def:
-                raise ValueError(f"{slot_type}.{inst_name}: missing 'operands' field")
-            if "doc" not in inst_def:
-                raise ValueError(f"{slot_type}.{inst_name}: missing 'doc' field")
-            if "execute_fn" not in inst_def:
-                raise ValueError(f"{slot_type}.{inst_name}: missing 'execute_fn' field")
-            
-            # Validate operands structure
-            operands = inst_def["operands"]
-            if not isinstance(operands, list):
-                raise ValueError(
-                    f"{slot_type}.{inst_name}: 'operands' must be a list of dicts"
-                )
-            
-            for operand in operands:
-                if not isinstance(operand, dict):
-                    raise ValueError(
-                        f"{slot_type}.{inst_name}: each operand must be a dict"
-                    )
-                if "name" not in operand:
-                    raise ValueError(
-                        f"{slot_type}.{inst_name}: operand missing 'name' field"
-                    )
-                if "type" not in operand:
-                    raise ValueError(
-                        f"{slot_type}.{inst_name}: operand '{operand['name']}' "
-                        f"missing 'type' field"
-                    )
-                
-                op_type = operand["type"]
-                if op_type not in valid_operand_types:
-                    raise ValueError(
-                        f"{slot_type}.{inst_name}: operand '{operand['name']}' "
-                        f"has invalid type '{op_type}'. Must be one of: "
-                        f"{valid_operand_types}"
-                    )
-                
-                # Validate 'read' field if present
-                if "read" in operand:
-                    read_val = operand["read"]
-                    if read_val not in valid_read_sources:
-                        raise ValueError(
-                            f"{slot_type}.{inst_name}: operand '{operand['name']}' "
-                            f"has invalid 'read' value '{read_val}'. "
-                            f"Must be one of: {valid_read_sources}"
-                        )
-            
-            # Validate doc is InstructionDoc
-            if not isinstance(inst_def["doc"], InstructionDoc):
-                raise ValueError(
-                    f"{slot_type}.{inst_name}: 'doc' must be InstructionDoc instance"
-                )
-            
-            # Validate execute_fn is a string
-            if not isinstance(inst_def["execute_fn"], str):
-                raise ValueError(
-                    f"{slot_type}.{inst_name}: 'execute_fn' must be a string"
-                )
+_OPERAND_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_DOC_OPERAND_NAME = re.compile(r"\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*:")
+
+#: Register operand types and the assembler register enum their names come
+#: from, for checking a pseudo-instruction's literal arguments.
+_REGISTER_ENUM_OF_TYPE = {
+    "LrIdx": "LrRegField",
+    "CrIdx": "CrRegField",
+    "LcrIdx": "LcrRegField",
+    "MultStageReg": "MultStageRegField",
+}
 
 
-def validate_pseudo_instruction_spec() -> None:
-    """Validate pseudo-instruction specification consistency.
-
-    Checks:
-    - Each pseudo-instruction has 'operands', 'expands_to', and 'doc'
-    - No pseudo-instruction defines 'execute_fn' (they never reach the
-      emulator — only the assembler expands them)
-    - Operands have name/type fields with a recognized type
-    - 'expands_to' references a real slot + instruction that actually
-      exists in INSTRUCTION_SPEC, with a matching operand count
-    - Each 'expands_to.args' entry is either one of this pseudo's own
-      operand names or a literal string (e.g. "CR0")
-
-    Raises ValueError if validation fails.
-    """
-    for name, pseudo_def in PSEUDO_INSTRUCTION_SPEC.items():
-        if "operands" not in pseudo_def:
-            raise ValueError(f"pseudo.{name}: missing 'operands' field")
-        if "expands_to" not in pseudo_def:
-            raise ValueError(f"pseudo.{name}: missing 'expands_to' field")
-        if "doc" not in pseudo_def:
-            raise ValueError(f"pseudo.{name}: missing 'doc' field")
-        if "execute_fn" in pseudo_def:
-            raise ValueError(
-                f"pseudo.{name}: pseudo-instructions must not define "
-                f"'execute_fn' — they expand to a real instruction at "
-                f"assemble time and never reach the emulator"
+def _check_operands(path: str, operands: object) -> None:
+    """Keys, name, type and ``read`` of each operand; names unique."""
+    if not isinstance(operands, list):
+        raise schema.SpecError(f"{path}.operands: must be a list of dicts")
+    for index, operand in enumerate(operands):
+        name = operand.get("name", index) if isinstance(operand, dict) else index
+        where = f"{path}.operands[{name}]"
+        schema.check_keys(where, operand, schema.OPERAND)
+        if not isinstance(operand["name"], str) or not _OPERAND_NAME.fullmatch(operand["name"]):
+            raise schema.SpecError(
+                f"{where}.name: {operand['name']!r} does not match [a-z][a-z0-9_]*"
             )
-
-        operands = pseudo_def["operands"]
-        if not isinstance(operands, list):
-            raise ValueError(f"pseudo.{name}: 'operands' must be a list of dicts")
-
-        operand_names = set()
-        for operand in operands:
-            if "name" not in operand or "type" not in operand:
-                raise ValueError(
-                    f"pseudo.{name}: each operand needs a 'name' and 'type'"
+        if operand["type"] not in VALID_OPERAND_TYPES:
+            raise schema.SpecError(
+                f"{where}.type: unknown operand type {operand['type']!r}; "
+                f"must be one of {sorted(VALID_OPERAND_TYPES)}"
+            )
+        if "read" in operand:
+            if operand["read"] not in schema.READ_SOURCES:
+                raise schema.SpecError(
+                    f"{where}.read: {operand['read']!r} is not one of "
+                    f"{sorted(schema.READ_SOURCES)}"
                 )
-            if operand["type"] not in VALID_OPERAND_TYPES:
-                raise ValueError(
-                    f"pseudo.{name}: operand '{operand['name']}' has invalid "
-                    f"type '{operand['type']}'"
+            if operand["type"] not in schema.READABLE_OPERAND_TYPES:
+                raise schema.SpecError(
+                    f"{where}.read: a {operand['type']} operand is not a register, "
+                    f"so it cannot be read; 'read' is allowed only on "
+                    f"{sorted(schema.READABLE_OPERAND_TYPES)}"
                 )
-            operand_names.add(operand["name"])
+    schema.check_unique(path, "operand name", (op["name"] for op in operands))
 
-        if not isinstance(pseudo_def["doc"], InstructionDoc):
-            raise ValueError(f"pseudo.{name}: 'doc' must be InstructionDoc instance")
+
+def _check_doc(path: str, doc: object, operands: list[dict]) -> None:
+    """``doc`` is an InstructionDoc whose operand lines name the operands, in order."""
+    if not isinstance(doc, InstructionDoc):
+        raise schema.SpecError(f"{path}.doc: must be an InstructionDoc")
+    documented = []
+    for line in doc.operands:
+        match = _DOC_OPERAND_NAME.match(line)
+        documented.append(match.group(1) if match else line)
+    expected = [operand["name"] for operand in operands]
+    if documented != expected:
+        raise schema.SpecError(
+            f"{path}.doc.operands: names {documented} do not match the operands {expected}"
+        )
+
+
+def validate_instruction_spec(instruction_spec: dict, slot_metadata: dict) -> None:
+    """Check the instruction spec and slot metadata against the schema.
+
+    A pure function of its arguments, so a test can check a modified copy.
+    Raises :class:`ipu_isa.schema.SpecError` naming the path and the rule.
+    """
+    if set(slot_metadata) != set(instruction_spec):
+        raise schema.SpecError(
+            f"SLOT_METADATA: slots {sorted(slot_metadata)} do not match "
+            f"INSTRUCTION_SPEC slots {sorted(instruction_spec)}"
+        )
+    for slot_type, metadata in slot_metadata.items():
+        schema.check_keys(f"SLOT_METADATA.{slot_type}", metadata, schema.SLOT_METADATA_ENTRY)
+
+    for slot_type, instructions in instruction_spec.items():
+        if not isinstance(instructions, dict) or not instructions:
+            raise schema.SpecError(f"{slot_type}: must be a non-empty dict of instructions")
+        schema.check_unique(
+            slot_type, "mnemonic (compared in upper case)", (n.upper() for n in instructions)
+        )
+        nops = [name for name in instructions if name.upper() == "NOP"]
+        if len(nops) != 1:
+            raise schema.SpecError(f"{slot_type}: must have exactly one NOP, has {len(nops)}")
+        for inst_name, inst_def in instructions.items():
+            path = f"{slot_type}.{inst_name}"
+            schema.check_keys(path, inst_def, schema.INSTRUCTION)
+            _check_operands(path, inst_def["operands"])
+            _check_doc(path, inst_def["doc"], inst_def["operands"])
+            if not isinstance(inst_def["execute_fn"], str):
+                raise schema.SpecError(f"{path}.execute_fn: must be a string")
+
+
+def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) -> None:
+    """Check the pseudo-instruction spec against the schema and the real
+    instructions it expands to.
+
+    Each ``expands_to.args`` entry is one of the pseudo's own operand names or
+    a literal register name valid for the target operand's type (``CR0`` for an
+    ``LcrIdx``). Pseudo-instructions carry no ``execute_fn``: they expand at
+    assemble time and never reach the emulator. A pure function of its
+    arguments; raises :class:`ipu_isa.schema.SpecError`.
+    """
+    register_names = {
+        enum_name: {name.upper() for name in names}
+        for enum_name, names in create_assembler_reg_enums().items()
+    }
+    for name, pseudo_def in pseudo_spec.items():
+        path = f"pseudo.{name}"
+        schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
+        _check_operands(path, pseudo_def["operands"])
+        _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])
 
         expansion = pseudo_def["expands_to"]
-        if not isinstance(expansion, dict):
-            raise ValueError(f"pseudo.{name}: 'expands_to' must be a dict")
-
-        slot = expansion.get("slot")
-        real_instruction = expansion.get("instruction")
-        args = expansion.get("args")
-
-        if slot not in INSTRUCTION_SPEC:
-            raise ValueError(
-                f"pseudo.{name}: expands_to.slot '{slot}' is not a valid slot"
+        schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
+        slot, real_instruction, args = (
+            expansion["slot"], expansion["instruction"], expansion["args"]
+        )
+        if slot not in instruction_spec:
+            raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
+        real_def = next(
+            (d for n, d in instruction_spec[slot].items()
+             if n.upper() == str(real_instruction).upper()),
+            None,
+        )
+        if real_def is None:
+            raise schema.SpecError(
+                f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
             )
-        try:
-            real_def = get_instruction(slot, real_instruction)
-        except KeyError:
-            raise ValueError(
-                f"pseudo.{name}: expands_to.instruction '{real_instruction}' "
-                f"not found in slot '{slot}'"
+        targets = real_def["operands"]
+        if not isinstance(args, list) or len(args) != len(targets):
+            raise schema.SpecError(
+                f"{path}.expands_to.args: must be a list of {len(targets)} entries, "
+                f"one per operand of {slot}.{real_instruction}"
             )
-
-        if not isinstance(args, list):
-            raise ValueError(f"pseudo.{name}: 'expands_to.args' must be a list")
-        if len(args) != len(real_def["operands"]):
-            raise ValueError(
-                f"pseudo.{name}: expands_to.args has {len(args)} entries but "
-                f"{slot}.{real_instruction} takes {len(real_def['operands'])} operands"
-            )
-        for arg in args:
+        own_names = {operand["name"] for operand in pseudo_def["operands"]}
+        for arg, target in zip(args, targets):
+            where = f"{path}.expands_to.args[{target['name']}]"
             if not isinstance(arg, str):
-                raise ValueError(
-                    f"pseudo.{name}: expands_to.args entries must be strings"
+                raise schema.SpecError(f"{where}: must be a string")
+            if arg in own_names:
+                continue
+            enum_name = _REGISTER_ENUM_OF_TYPE.get(target["type"])
+            if enum_name is None or arg.upper() not in register_names[enum_name]:
+                raise schema.SpecError(
+                    f"{where}: literal {arg!r} is neither an operand of {name} nor a "
+                    f"register valid for a {target['type']} operand"
                 )
 
 
 # Validate on import
-validate_instruction_spec()
-validate_pseudo_instruction_spec()
+validate_instruction_spec(INSTRUCTION_SPEC, SLOT_METADATA)
+validate_pseudo_instruction_spec(PSEUDO_INSTRUCTION_SPEC, INSTRUCTION_SPEC)
 
 # Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
 from ipu_isa.union_layout import compute_slot_layouts, SlotUnion  # noqa: E402
