@@ -5,11 +5,11 @@ from io import StringIO
 
 import pytest
 
-import ipu_emu.debug_launch as launch
-import ipu_emu.debug_tui as tui
+import ipu_debug.launch as launch
+import ipu_debug.tui as tui
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_as.lark_tree import assemble_to_bin_file
-from ipu_emu.debug_control import DebugControl
+from ipu_debug.control import DebugControl
 from ipu_emu.emulator import DebugAction, run_test
 from ipu_emu.ipu_state import IpuState
 
@@ -59,7 +59,7 @@ def test_entry_is_after_setup_and_before_side_effects(app, debug_terminal, monke
     def forbidden(*args, **kwargs):
         pytest.fail("direct TUI launch must not construct the legacy CLI")
 
-    monkeypatch.setattr("ipu_emu.debug_cli.DebugCLI", forbidden)
+    monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
 
     def view(state, cycle, *, control, session):
         assert app.events == ["setup"]
@@ -97,7 +97,7 @@ def test_tui_steps_and_breakpoints_reopen_without_the_cli(app, debug_terminal, m
         assert session.maximized
         return DebugAction.CONTINUE
 
-    monkeypatch.setattr("ipu_emu.debug_cli.DebugCLI", forbidden)
+    monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
     monkeypatch.setattr(tui, "run_debug_tui", view)
     _, cycles = app.run()
     assert stops == [(0, 0), (1, 1), (2, 2)]
@@ -135,7 +135,7 @@ def test_terminal_interrupt_cancels_without_entering_cli(app, debug_terminal, mo
         pytest.fail("interrupts must not enter the deprecated CLI")
 
     monkeypatch.setattr(tui.curses, "wrapper", interrupted)
-    monkeypatch.setattr("ipu_emu.debug_cli.DebugCLI", forbidden)
+    monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
     with pytest.raises(SystemExit) as result:
         app.run()
     assert result.value.code == 0

@@ -19,7 +19,7 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "
 # The repository's own packages (src/tools/*/src/<name>). Named explicitly so
 # import grouping is the same in the workspace and in a ruff_test sandbox,
 # where the other packages' directories are absent.
-known-first-party = ["ipu_apps", "ipu_as", "ipu_bench", "ipu_emu", "ipu_gen", "ipu_isa"]
+known-first-party = ["ipu_apps", "ipu_as", "ipu_bench", "ipu_debug", "ipu_emu", "ipu_gen", "ipu_isa"]
 
 [lint.mccabe]
 max-complexity = 10
@@ -81,9 +81,9 @@ max-args = 6
 "src/tools/ipu-emu-py/src/ipu_emu/ipu_state.py" = ["PLR0913"]
 "src/tools/ipu-emu-py/src/ipu_emu/isa_alias_spec.py" = ["C901", "PLR0912", "PLR0915"]
 
-# ipu-emu-py debugger: removed by E08.
-"src/tools/ipu-emu-py/src/ipu_emu/debug_cli.py" = ["C901", "PLR0912"]
-"src/tools/ipu-emu-py/src/ipu_emu/debug_tui.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+# ipu-debug debugger: removed by E08.
+"src/tools/ipu-debug/src/ipu_debug/cli.py" = ["C901", "PLR0912"]
+"src/tools/ipu-debug/src/ipu_debug/tui.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
 
 # ipu-isa layout solver: removed by E03 (immutable derived layout).
 "src/tools/ipu-isa/src/ipu_isa/union_layout.py" = ["C901", "PLR0912"]

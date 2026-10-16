@@ -14,14 +14,14 @@ the Lark assembler (that path is only for ``*.asm`` / ``assemble()``).
 
 Usage from Python::
 
-    from ipu_emu.debug_cli import debug_prompt, DebugAction
+    from ipu_debug.cli import debug_prompt, DebugAction
     action = debug_prompt(state)          # interactive REPL
     action = debug_prompt(state, level=2) # auto-save JSON on entry
 
 Or as a callback for :func:`emulator.run_with_debug`::
 
-    from ipu_emu.debug_cli import debug_prompt
-    from ipu_emu.debug_control import DebugControl
+    from ipu_debug.cli import debug_prompt
+    from ipu_debug.control import DebugControl
     control = DebugControl()
     run_with_debug(state, lambda s, c: debug_prompt(s, c, control=control), control=control)
 """
@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
 # Single source of truth — import register types/schema from ipu_isa
-from ipu_emu.debug_control import DebugControl, validate_pc
+from ipu_debug.control import DebugControl, validate_pc
 from ipu_emu.emulator import DebugAction
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes

@@ -10,7 +10,7 @@ from io import StringIO
 
 import pytest
 
-import ipu_emu.debug_tui as tui
+import ipu_debug.tui as tui
 from ipu_apps.kernel_registry import kernels
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
