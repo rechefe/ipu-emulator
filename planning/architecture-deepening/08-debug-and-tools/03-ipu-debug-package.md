@@ -28,7 +28,7 @@ The debugger becomes its own package, `src/tools/ipu-debug/src/ipu_debug/` (Q69)
    - the frontend half of `debug_control.py` → `ipu_debug/control.py`. The run-loop half stays in `ipu_emu` (E08-02).
 3. Move the tests to `src/tools/ipu-debug/test/` with their Bazel targets, keeping the target names (`test_debug_cli`, `test_debug_tui`).
 4. Update `kernel_registry/base.py` to import `ipu_debug.launch`, and add `ipu_debug_lib` to the ipu-apps deps.
-5. Register the package in the import-graph test: `ipu_debug` may import `ipu_emu` and `ipu_isa`, and nothing may import `ipu_debug` except `ipu_apps` / `ipu_harness` (the runner).
+5. Register the package in `tools/import_graph.toml` and add its `:py_sources` to `//tools:test_import_graph`: `ipu_debug` may import `ipu_emu` and `ipu_isa`, and nothing may import `ipu_debug` except `ipu_apps` / `ipu_harness` (the runner).
 6. Update `docs/content/debugging.md` paths only. No content rewrite (E09).
 
 ## Tests

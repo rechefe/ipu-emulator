@@ -4,14 +4,47 @@ import ipu_as.inst as inst
 import ipu_as.utils as utils
 from ipu_as.errors import SlotError
 from ipu_gen.union_layout_svg import render_union_layout_svg
-from ipu_isa.instruction_spec import (
-    COMPOUND_LAYOUT_SLOT_ORDER,
-    SLOT_COUNT,
-    SLOT_UNIONS,
-    is_hardware_slot,
-)
+from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.schema import SpecError
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 
 INST_SEPARATOR = ";"
+
+
+#: The assembler's instruction class of each slot. E05-02 replaces the
+#: classes with the slot codec and deletes this table.
+SLOT_TO_INST: dict[Slot, type[inst.Inst]] = {
+    Slot.COND: inst.CondInst,
+    Slot.LR: inst.LrInst,
+    Slot.LOAD: inst.LoadInst,
+    Slot.STORE: inst.StoreInst,
+    Slot.ACC_STORE: inst.AccStoreInst,
+    Slot.MULT: inst.MultInst,
+    Slot.ACC: inst.AccInst,
+    Slot.AAQ: inst.AaqInst,
+    Slot.BREAK: inst.BreakInst,
+}
+
+
+def check_slot_to_inst(slot_to_inst: dict) -> None:
+    """Raise ``SpecError`` unless ``slot_to_inst`` maps every registered slot,
+    and nothing else, to the instruction class of that slot."""
+    missing = sorted(slot.value for slot in SLOTS if slot not in slot_to_inst)
+    extra = sorted(str(key) for key in slot_to_inst if key not in SLOTS)
+    if missing or extra:
+        raise SpecError(
+            f"SLOT_TO_INST must cover exactly the registered slots; "
+            f"missing {missing}, unknown {extra}"
+        )
+    for slot, inst_class in slot_to_inst.items():
+        if inst_class._slot_type_name() != slot.value:
+            raise SpecError(
+                f"SLOT_TO_INST[{slot.value}] is {inst_class.__name__}, "
+                f"a {inst_class._slot_type_name()} class"
+            )
+
+
+check_slot_to_inst(SLOT_TO_INST)
 
 
 class CompoundInst:
@@ -80,7 +113,7 @@ class CompoundInst:
                         token=opcode_str,
                     )
 
-            if not is_hardware_slot(inst_type._slot_type_name()):
+            if SLOTS[Slot(inst_type._slot_type_name())].debug_only:
                 warnings.warn(
                     f"{instruction['opcode'].token.value} uses the simulation-only "
                     f"{inst_type._slot_type_name()} slot (not implemented in real IPU hardware)",
@@ -98,21 +131,10 @@ class CompoundInst:
     def instruction_types(cls) -> list[type[inst.Inst]]:
         # Instruction slots in MSB → LSB list order (encode places the last entry at LSB).
         # Execution order (break first, then LR, …) is handled in ipu.py, not here.
-        # Slot counts come from SLOT_COUNT in instruction_spec (single source of truth).
-        _slot_to_inst = {
-            "cond": inst.CondInst,
-            "lr": inst.LrInst,
-            "load": inst.LoadInst,
-            "store": inst.StoreInst,
-            "acc_store": inst.AccStoreInst,
-            "mult": inst.MultInst,
-            "acc": inst.AccInst,
-            "aaq": inst.AaqInst,
-            "break": inst.BreakInst,
-        }
+        # Slot order and counts come from the slot registry (ipu_isa.slots).
         result = []
-        for slot in COMPOUND_LAYOUT_SLOT_ORDER:
-            result.extend([_slot_to_inst[slot]] * SLOT_COUNT[slot])
+        for slot in LAYOUT_ORDER:
+            result.extend([SLOT_TO_INST[slot]] * SLOTS[slot].count)
         return result
 
     @classmethod
@@ -213,15 +235,8 @@ class CompoundInst:
         without folding cross-opcode field sharing.
         """
         legend_entries = [
-            (inst.BreakInst, "#FFD93D", "BreakInst (Break / Debug)"),
-            (inst.LoadInst, "#FF6B6B", "LoadInst (Memory Load)"),
-            (inst.StoreInst, "#E74C3C", "StoreInst (Memory Store)"),
-            (inst.AccStoreInst, "#C0392B", "AccStoreInst (STR_ACC_REG, simulation-only)"),
-            (inst.MultInst, "#4ECDC4", "MultInst (Multiply)"),
-            (inst.AccInst, "#45B7D1", "AccInst (Accumulator)"),
-            (inst.AaqInst, "#9B59B6", "AaqInst (Activation and Quantization)"),
-            (inst.LrInst, "#FFA07A", "LrInst (Link Register)"),
-            (inst.CondInst, "#98D8C8", "CondInst (Conditional)"),
+            (SLOT_TO_INST[slot], info.legend_colour, info.legend_label)
+            for slot, info in SLOTS.items()
         ]
         color_map = {inst_type: color for inst_type, color, _ in legend_entries}
 

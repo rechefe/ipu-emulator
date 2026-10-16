@@ -352,7 +352,7 @@ The branch diamond costs several bundles per taken path, none of them multiplyin
 
 ### A16 — `STR_ACC_REG` is simulation-only
 
-Flagged `"hardware": False` in `instruction_spec.py` — it has no hardware encoding.
+Its slot, `acc_store`, is tagged EMULATOR and flagged `debug_only` in `ipu_isa/slots.py` — it has no hardware encoding.
 
 ```asm
 # Simulation only

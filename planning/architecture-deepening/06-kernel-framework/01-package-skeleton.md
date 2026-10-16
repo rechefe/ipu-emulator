@@ -36,7 +36,7 @@ issue is mergeable on its own.
    - `//src/tools/ipu-kernels:ipu_kernels_lib` depends on `ipu_harness_lib`.
    - Add `kernels/BUILD.bazel` (empty package root) and
      `kernels/defs.bzl` (empty `ipu_kernel` macro stub; filled in E06-13).
-3. Import rules, added to the E01 import-graph test:
+3. Import rules, added as rows of `tools/import_graph.toml` (`//tools:test_import_graph`, E03-02). The `ipu_kernels.reference` rule and the "not at module level" rules are finer than a row: extend the table's schema (for example dotted keys matched by longest prefix) and the test here:
    - `ipu_harness` may import `ipu_isa`, `ipu_as` and `ipu_emu`. It must not
      import `ipu_apps`, `ipu_kernels`, `ipu_debug` at module level, or `torch`
      at module level. The reference is loaded lazily by the checker (E06-09)

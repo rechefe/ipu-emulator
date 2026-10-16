@@ -80,6 +80,8 @@ from dataclasses import dataclass
 
 from ipu_isa import schema
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.tags import Tag
 
 # ===========================================================================
 # Exports
@@ -89,18 +91,16 @@ __all__ = [
     "InstructionDoc",
     "syntax",
     "INSTRUCTION_SPEC",
-    "SLOT_BINARY_LAYOUT",
-    "SLOT_UNIONS",
     "SLOT_COUNT",
     "SLOT_METADATA",
     "COMPOUND_LAYOUT_SLOT_ORDER",
     "VALID_OPERAND_TYPES",
-    "SlotUnion",
     "canonical_instruction_name",
     "get_instruction",
     "get_instruction_by_opcode",
     "get_operand_names_and_types",
-    "is_hardware_slot",
+    "instruction_tag",
+    "pseudo_tag",
     "validate_instruction_spec",
     "PSEUDO_INSTRUCTION_SPEC",
     "find_pseudo_instruction",
@@ -135,86 +135,40 @@ def syntax(mnemonic: str, operand_names: Sequence[str]) -> str:
     return " ".join([mnemonic, *operand_names])
 
 
-# ===========================================================================
-# SLOT BINARY LAYOUT  (derived — do not edit manually)
-# ===========================================================================
-# SLOT_BINARY_LAYOUT and SLOT_UNIONS are computed by the union layout solver
-# from INSTRUCTION_SPEC below.  They are populated after INSTRUCTION_SPEC is
-# fully defined (see the call at the bottom of this module).
-#
-# SLOT_BINARY_LAYOUT: slot → [canonical_type, ...] — one entry per union
-#   field, in field order.  Used by the assembler's Inst.operand_types() and
-#   the emulator's field-map builder.
-#
-# SLOT_UNIONS: slot → SlotUnion — full union metadata including per-opcode
-#   operand-to-field bindings.
-# ===========================================================================
-
-# Placeholder — overwritten after INSTRUCTION_SPEC is defined.
-SLOT_BINARY_LAYOUT: dict[str, list[str]] = {}
-SLOT_UNIONS: dict = {}
+# The binary layout (SLOT_UNIONS, SLOT_BINARY_LAYOUT, word widths) is derived
+# from INSTRUCTION_SPEC by ipu_isa.layout, which imports this module. Slots are
+# tagged HARDWARE or EMULATOR in ipu_isa.slots; until E03-22 the generated SV
+# package still renders every slot, the EMULATOR ones (acc_store, break)
+# included.
 
 # How many times each slot appears in the VLIW instruction word.
 # Most slots appear once; LR appears three times (three independent sub-instructions).
-SLOT_COUNT: dict[str, int] = {
-    "break": 1,
-    "load": 1,
-    "store": 1,
-    "acc_store": 1,
-    "mult": 1,
-    "acc": 1,
-    "aaq": 1,
-    "lr": 3,
-    "cond": 1,
-}
+# Derived views over the slot registry (ipu_isa.slots), kept so callers can
+# migrate to SLOTS one at a time.
 
-# Compound instruction binary layout (MSB → LSB).  Used by the assembler,
-# union-layout SVG, and docs — keep in sync with compound_inst encoding order.
-COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [
-    "cond",
-    "lr",
-    "load",
-    "mult",
-    "acc",
-    "aaq",
-    "store",
-    "acc_store",
-    "break",
-]
+#: Instances of each slot in one word.
+SLOT_COUNT: dict[str, int] = {slot.value: info.count for slot, info in SLOTS.items()}
 
-# Per-slot metadata.  ``hardware: False`` marks simulation-only slots that are
-# not implemented in real IPU hardware (excluded from HW codegen).
+#: Compound instruction binary layout (MSB → LSB).
+COMPOUND_LAYOUT_SLOT_ORDER: list[str] = [slot.value for slot in LAYOUT_ORDER]
+
+#: Per-slot description.
 SLOT_METADATA: dict[str, dict] = {
-    "load": {
-        "description": "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, and mask registers)."
-    },
-    "store": {
-        "description": "Last-stage memory stores that drain POST_AAQ_REG to external memory after activation and quantization."
-    },
-    "acc_store": {
-        "hardware": False,
-        "description": "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not implemented in real IPU hardware.",
-    },
-    "mult": {
-        "description": "Multiply-stage instructions: element-wise and vector multiply operations."
-    },
-    "acc": {"description": "Accumulation instructions for combining multiply results into R_ACC."},
-    "aaq": {
-        "description": "Activation and quantization: apply activation to R_ACC and write quantized INT8 bytes to POST_AAQ_REG."
-    },
-    "lr": {
-        "description": "Loop register instructions for controlling addresses, counters, and scalars. Three independent sub-slots per cycle."
-    },
-    "cond": {
-        "description": "Conditional and unconditional branches; control flow based on register comparisons."
-    },
-    "break": {"description": "Debug break: halts execution or enters debug mode."},
+    slot.value: {"description": info.description} for slot, info in SLOTS.items()
 }
 
 
-def is_hardware_slot(slot_type: str) -> bool:
-    """Return True when *slot_type* is implemented in real IPU hardware."""
-    return SLOT_METADATA.get(slot_type, {}).get("hardware", True)
+def instruction_tag(slot: str, inst_def: dict) -> Tag:
+    """An instruction's tag: its own ``"tag"`` if it has one, else its slot's.
+
+    The schema requires the two to agree, so this is always the slot's tag.
+    """
+    return inst_def.get("tag", SLOTS[Slot(slot)].tag)
+
+
+def pseudo_tag(pseudo_def: dict) -> Tag:
+    """A pseudo-instruction's tag: ``ASSEMBLER`` (the schema rejects any other)."""
+    return pseudo_def.get("tag", Tag.ASSEMBLER)
 
 
 # ===========================================================================
@@ -1518,12 +1472,31 @@ def _check_doc(path: str, doc: object, operands: list[dict]) -> None:
         )
 
 
+def _check_instruction_tag(path: str, slot_type: str, inst_def: dict) -> None:
+    """An instruction has its slot's tag: an instruction in an EMULATOR slot is
+    EMULATOR, and an EMULATOR instruction may not sit in a HARDWARE slot."""
+    if "tag" not in inst_def:
+        return
+    tag, slot_tag = inst_def["tag"], SLOTS[Slot(slot_type)].tag
+    if not isinstance(tag, Tag):
+        raise schema.SpecError(f"{path}.tag: must be a Tag, got {tag!r}")
+    if tag is not slot_tag:
+        raise schema.SpecError(
+            f"{path}.tag: {tag.name} in a {slot_tag.name} slot; an instruction has its slot's tag"
+        )
+
+
 def validate_instruction_spec(instruction_spec: dict, slot_metadata: dict) -> None:
     """Check the instruction spec and slot metadata against the schema.
 
     A pure function of its arguments, so a test can check a modified copy.
     Raises :class:`ipu_isa.schema.SpecError` naming the path and the rule.
     """
+    if set(instruction_spec) != {slot.value for slot in SLOTS}:
+        raise schema.SpecError(
+            f"INSTRUCTION_SPEC: slots {sorted(instruction_spec)} do not match the slot "
+            f"registry {sorted(slot.value for slot in SLOTS)}"
+        )
     if set(slot_metadata) != set(instruction_spec):
         raise schema.SpecError(
             f"SLOT_METADATA: slots {sorted(slot_metadata)} do not match "
@@ -1548,6 +1521,7 @@ def validate_instruction_spec(instruction_spec: dict, slot_metadata: dict) -> No
             _check_doc(path, inst_def["doc"], inst_def["operands"])
             if not isinstance(inst_def["execute_fn"], str):
                 raise schema.SpecError(f"{path}.execute_fn: must be a string")
+            _check_instruction_tag(path, slot_type, inst_def)
 
 
 def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) -> None:
@@ -1565,59 +1539,62 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
         schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
         _check_operands(path, pseudo_def["operands"])
         _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])
+        if pseudo_tag(pseudo_def) is not Tag.ASSEMBLER:
+            raise schema.SpecError(f"{path}.tag: a pseudo-instruction is Tag.ASSEMBLER")
+        _check_expansion(path, name, pseudo_def, instruction_spec)
 
-        expansion = pseudo_def["expands_to"]
-        schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
-        slot, real_instruction, args = (
-            expansion["slot"],
-            expansion["instruction"],
-            expansion["args"],
+
+def _check_expansion(path: str, name: str, pseudo_def: dict, instruction_spec: dict) -> None:
+    """The pseudo's ``expands_to`` names a real instruction and fills each of
+    its operands with a pseudo operand or a valid literal register."""
+    expansion = pseudo_def["expands_to"]
+    schema.check_keys(f"{path}.expands_to", expansion, schema.EXPANSION)
+    slot, real_instruction, args = (
+        expansion["slot"],
+        expansion["instruction"],
+        expansion["args"],
+    )
+    if slot not in instruction_spec:
+        raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
+    real_def = next(
+        (
+            d
+            for n, d in instruction_spec[slot].items()
+            if n.upper() == str(real_instruction).upper()
+        ),
+        None,
+    )
+    if real_def is None:
+        raise schema.SpecError(
+            f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
         )
-        if slot not in instruction_spec:
-            raise schema.SpecError(f"{path}.expands_to.slot: {slot!r} is not a slot")
-        real_def = next(
-            (
-                d
-                for n, d in instruction_spec[slot].items()
-                if n.upper() == str(real_instruction).upper()
-            ),
-            None,
+    if instruction_tag(slot, real_def) not in (Tag.HARDWARE, Tag.EMULATOR):
+        raise schema.SpecError(
+            f"{path}.expands_to.instruction: {real_instruction!r} is not a HARDWARE "
+            "or EMULATOR instruction"
         )
-        if real_def is None:
+    targets = real_def["operands"]
+    if not isinstance(args, list) or len(args) != len(targets):
+        raise schema.SpecError(
+            f"{path}.expands_to.args: must be a list of {len(targets)} entries, "
+            f"one per operand of {slot}.{real_instruction}"
+        )
+    own_names = {operand["name"] for operand in pseudo_def["operands"]}
+    for arg, target in zip(args, targets, strict=True):
+        where = f"{path}.expands_to.args[{target['name']}]"
+        if not isinstance(arg, str):
+            raise schema.SpecError(f"{where}: must be a string")
+        if arg in own_names:
+            continue
+        target_type = OPERAND_TYPES[target["type"]]
+        registers = {member.upper() for member in target_type.domain.members}
+        if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
             raise schema.SpecError(
-                f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
+                f"{where}: literal {arg!r} is neither an operand of {name} nor a "
+                f"register valid for a {target['type']} operand"
             )
-        targets = real_def["operands"]
-        if not isinstance(args, list) or len(args) != len(targets):
-            raise schema.SpecError(
-                f"{path}.expands_to.args: must be a list of {len(targets)} entries, "
-                f"one per operand of {slot}.{real_instruction}"
-            )
-        own_names = {operand["name"] for operand in pseudo_def["operands"]}
-        for arg, target in zip(args, targets, strict=True):
-            where = f"{path}.expands_to.args[{target['name']}]"
-            if not isinstance(arg, str):
-                raise schema.SpecError(f"{where}: must be a string")
-            if arg in own_names:
-                continue
-            target_type = OPERAND_TYPES[target["type"]]
-            registers = {member.upper() for member in target_type.domain.members}
-            if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
-                raise schema.SpecError(
-                    f"{where}: literal {arg!r} is neither an operand of {name} nor a "
-                    f"register valid for a {target['type']} operand"
-                )
 
 
 # Validate on import
 validate_instruction_spec(INSTRUCTION_SPEC, SLOT_METADATA)
 validate_pseudo_instruction_spec(PSEUDO_INSTRUCTION_SPEC, INSTRUCTION_SPEC)
-
-# Derive union layout from INSTRUCTION_SPEC (must run after spec is fully defined).
-from ipu_isa.union_layout import SlotUnion, compute_slot_layouts  # noqa: E402
-
-_computed_unions = compute_slot_layouts(INSTRUCTION_SPEC)
-SLOT_UNIONS.update(_computed_unions)
-SLOT_BINARY_LAYOUT.update(
-    {slot: [f.canonical_type for f in su.fields] for slot, su in _computed_unions.items()}
-)

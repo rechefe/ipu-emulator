@@ -55,8 +55,8 @@ Constraint vocabulary for ``where`` (a closed set — extend deliberately):
         which missing operation is being emulated.
 
     {"hardware_only": True}
-        The instruction's *slot* is flagged ``"hardware": False`` in
-        ``SLOT_METADATA`` — simulation-only, no silicon encoding. Matches
+        The instruction's *slot* is debug-only (``SlotInfo.debug_only``) —
+        simulation-only, no silicon encoding. Matches
         unconditionally; no runtime value is read.
 
 Every match must carry exactly one of ``scalar_is``, ``vector_ones`` or
@@ -75,7 +75,8 @@ overlapping tallies.
 
 from __future__ import annotations
 
-from ipu_isa.instruction_spec import INSTRUCTION_SPEC, SLOT_METADATA
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+from ipu_isa.slots import SLOTS, Slot
 
 # Only 1 is implementable today: the emulator tests a multiplicand against the
 # dtype's encoding of 1.0, which is the whole point of the table. Widening this
@@ -309,10 +310,10 @@ def validate_isa_alias_spec() -> None:
                                 f"alias {alias_id!r} names unknown instruction "
                                 f"{name!r} in co_slot {co_slot!r}"
                             )
-                if constraint.get("hardware_only") and SLOT_METADATA[slot].get("hardware", True):
+                if constraint.get("hardware_only") and not SLOTS[Slot(slot)].debug_only:
                     raise ValueError(
                         f"alias {alias_id!r} uses hardware_only on slot {slot!r}, "
-                        'which is not flagged "hardware": False'
+                        "which is not debug-only"
                     )
 
             signature = (

@@ -12,6 +12,7 @@ automatically without touching this file.
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import SlotError, SourceLocation
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+from ipu_isa.slots import SLOTS, Slot
 
 
 def create_assembler_opcodes() -> dict[str, type]:
@@ -43,21 +44,11 @@ def create_assembler_opcodes() -> dict[str, type]:
                 token=opcode_token.value,
             )
 
-    slot_to_class_name = {
-        "load": "LoadInstOpcode",
-        "store": "StoreInstOpcode",
-        "acc_store": "AccStoreInstOpcode",
-        "lr": "LrInstOpcode",
-        "mult": "MultInstOpcode",
-        "acc": "AccInstOpcode",
-        "aaq": "AaqInstOpcode",
-        "cond": "CondInstOpcode",
-        "break": "BreakInstOpcode",
-    }
-
     result = {}
-    for slot_type, class_name in slot_to_class_name.items():
-        instructions = INSTRUCTION_SPEC[slot_type]
+    # INSTRUCTION_SPEC order: it fixes the order the token classes are created
+    # in, which the SV package's enum order follows.
+    for slot_type, instructions in INSTRUCTION_SPEC.items():
+        class_name = SLOTS[Slot(slot_type)].asm_opcode_class
         enum_array = list(instructions.keys())
 
         # Create class dynamically
