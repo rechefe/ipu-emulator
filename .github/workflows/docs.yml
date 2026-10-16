@@ -95,6 +95,6 @@ jobs:
       - name: Require giscus widget on master
         run: |
           if [ "${{ needs.build.outputs.giscus_rendered }}" != "true" ]; then
-            echo "::error::index.html has no giscus widget; set repo_id/category_id in docs/mkdocs.yml (or GISCUS_* overrides) and build with --config=docs."
+            echo "::error::index.html has no giscus widget; set repo_id/category_id in docs/mkdocs.yml (or GISCUS_* overrides) and build with --config=docs. See planning/architecture-deepening/00-verified-fixes/13-giscus-category-id.md."
             exit 1
           fi

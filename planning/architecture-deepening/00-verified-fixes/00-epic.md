@@ -61,10 +61,11 @@ The architecture review (two passes, 11 reviewers, master at 694a8a8) produced a
 | E00-10 | [10-dead-config-and-fp32-to-fp4.md](10-dead-config-and-fp32-to-fp4.md) | Remove dead build config and the unused `tools/fp32_to_fp4.py` | S | — | none |
 | E00-11 | [11-assert-str-acc-reg-warning.md](11-assert-str-acc-reg-warning.md) | Tests assert the STR_ACC_REG debug-only warning instead of ignoring it | S | — | none |
 | E00-12 | [12-assemble-command-in-claude-and-skill.md](12-assemble-command-in-claude-and-skill.md) | CLAUDE.md and SKILL.md: an `ipu-as assemble` command that runs as written | S | — | none (docs) |
+| E00-13 | [13-giscus-category-id.md](13-giscus-category-id.md) | giscus: commit the Announcements `category_id` in `docs/mkdocs.yml` (`ready-for-human`) | XS | E00-06 | yes (deployed site) |
 
 ## Suggested order
 
-All twelve issues are independent and can be worked in parallel. Two orderings matter for later epics:
+All issues except E00-13 are independent and can be worked in parallel. E00-13 is a manual step a human does after E00-06 (agent sessions cannot read the discussion category id). Two orderings matter for later epics:
 
 ```
 E00-01 ──▶ E04-13 (element codecs use the fixed encoder as reference)
