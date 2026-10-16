@@ -331,12 +331,19 @@ def _field_decoders(slot: Slot, opcode: int) -> tuple[_Decoder, ...]:
     return tuple(OPERAND_TYPE_MAP[name].decode for name in types)
 
 
-def _instance_text(fields: DecodedWord, key: tuple[Slot, int]) -> str:
+def _field(fields: Mapping[str, int], spec: FieldSpec) -> int:
+    """A field's value, as packing would leave it: missing is 0, extra bits are dropped."""
+    return fields.get(spec.name, 0) & ((1 << spec.bits) - 1)
+
+
+def _instance_text(fields: Mapping[str, int], key: tuple[Slot, int]) -> str:
     specs = _INSTANCE_FIELDS[key]
-    opcode = fields[specs[0].name]
+    opcode = _field(fields, specs[0])
     mnemonic = isa().instructions(key[0])[opcode].mnemonic
     decoders = _field_decoders(key[0], opcode)
-    operands = (decode(fields[spec.name]) for decode, spec in zip(decoders, specs[1:], strict=True))
+    operands = (
+        decode(_field(fields, spec)) for decode, spec in zip(decoders, specs[1:], strict=True)
+    )
     return " ".join((mnemonic, *operands))
 
 
@@ -375,7 +382,8 @@ def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) ->
     """``disassemble_word`` of a word already split into its fields (``DecodedWord``).
 
     Args:
-        fields: Wire field name -> value; a missing field is 0.
+        fields: Wire field name -> value; a missing field is 0, and a value
+            wider than its field is cut to the field, as packing would.
         target: Which slots to print: every slot, or the hardware slots.
 
     Returns:
@@ -384,7 +392,6 @@ def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) ->
     Raises:
         IndexError: a slot holds an opcode no instruction uses.
     """
-    fields = fields if isinstance(fields, DecodedWord) else DecodedWord(fields)
     instances = _TARGET_INSTANCES[target_tag(target)]
     return ";\n\t\t\t".join(_instance_text(fields, key) for key in instances) + ";;"
 
