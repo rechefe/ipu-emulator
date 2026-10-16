@@ -41,14 +41,23 @@ py_binary(
     python_version = "PY3",
 )
 
+# Not stamped: the package's header names a hash of its own content, so its
+# bytes, and this action's cache key, depend only on the instruction set.
 genrule(
     name = "generate_instruction_format_artifacts",
     outs = ["ipu_instr_pkg.sv"],
-    # stamp = 1 exposes bazel-out/stable-status.txt, whose STABLE_GIT_COMMIT
-    # (tools/workspace_status.sh) is part of this action's key.
-    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv) bazel-out/stable-status.txt",
-    stamp = 1,
+    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv)",
     tools = [":gen_codegen"],
+)
+
+# Checks a vendored copy of the package against the hash in its header:
+#   bazel run //docs:verify_sv_package -- path/to/ipu_instr_pkg.sv
+py_binary(
+    name = "verify_sv_package",
+    srcs = ["verify_sv_package_wrapper.py"],
+    main = "verify_sv_package_wrapper.py",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    python_version = "PY3",
 )
 
 py_binary(

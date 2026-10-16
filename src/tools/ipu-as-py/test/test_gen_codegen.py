@@ -147,6 +147,28 @@ def test_nop_union_members_use_single_padding_field(tmp_path: Path):
 
 
 def test_render_is_deterministic():
-    a = gen_codegen.render_template("ipu_instr_pkg.sv.j2")
-    b = gen_codegen.render_template("ipu_instr_pkg.sv.j2")
-    assert a == b
+    assert gen_codegen.render_sv_package() == gen_codegen.render_sv_package()
+
+
+def test_header_names_the_hash_of_the_body_not_a_commit():
+    import hashlib
+
+    first, second, body = gen_codegen.render_sv_package().split("\n", 2)
+    assert first == "// Auto-generated from instruction_spec.py — do not edit."
+    assert second == f"// Content: sha256:{hashlib.sha256(body.encode()).hexdigest()}"
+    assert "Source:" not in body and "@" not in second
+
+
+def test_verify_accepts_the_package_and_rejects_any_edit():
+    text = gen_codegen.render_sv_package()
+    assert gen_codegen.verify_sv_package(text)
+    at = text.index("package ipu_instr_pkg;")
+    edited = text[:at] + "P" + text[at + 1:]
+    assert not gen_codegen.verify_sv_package(edited)
+    assert not gen_codegen.verify_sv_package(text.replace("// Content: sha256:", "// Content: sha256:0", 1))
+    assert not gen_codegen.verify_sv_package("")
+
+
+def test_compound_comment_lists_the_layout_order():
+    text = gen_codegen.render_sv_package()
+    assert "slots MSB → LSB: cond, lr×3, load, mult, acc, aaq, store, acc_store, break" in text
