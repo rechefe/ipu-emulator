@@ -92,13 +92,15 @@ py_pytest_test(
 )
 
 # Registers from [abi] (E06-06). ipu_apps only for the projections' CRs it
-# reproduces (guards E07-02, which deletes that harness).
+# reproduces (guards E07-02, which deletes that harness); ipu_kernels for the
+# shared pack transforms the projections declare.
 py_pytest_test(
     name = "test_abi",
     srcs = ["test/test_abi.py"],
     deps = [
         ":ipu_harness_lib",
         "//src/tools/ipu-apps:ipu_apps_lib",
+        "//src/tools/ipu-kernels:ipu_kernels_lib",
         requirement("numpy"),
         requirement("pytest"),
     ],

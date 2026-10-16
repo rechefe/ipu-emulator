@@ -29,16 +29,18 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Protocol
 
 import numpy as np
 
 from ipu_as.session import AssemblySession
 from ipu_emu.errors import ConfigurationError
+
+# The emulator's dstructure convention (CR15, CLAUDE.md); ipu_isa has no constant for it.
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_state import IpuState
 from ipu_harness._codec import encode
 from ipu_harness.manifest import KernelManifest
-from ipu_harness.params import CasePlan
+from ipu_harness.params import CasePlan, PlanError
 from ipu_harness.placement import Placement
 from ipu_isa.constants import (
     CR_READ_ONLY_INITIAL_VALUES,
@@ -52,7 +54,15 @@ from ipu_isa.view import Isa, isa
 
 __all__ = ["RegisterWrite", "apply", "check_cr_reads", "register_writes", "template_names"]
 
-_REGISTER = re.compile(r"(CR|LR)([0-9]+)")
+_CR = re.compile(r"CR([0-9]+)")
+
+#: Raw register bits hold a value in [-2^31, 2^32): a signed or an unsigned word.
+_LOWEST, _PAST_HIGHEST = -(1 << 31), LR_CR_SCALAR_VALUE_MASK + 1
+
+
+def _bank(register: str) -> str:
+    """``"cr"`` or ``"lr"``: the register file's name for ``register``'s bank."""
+    return register[:2].lower()
 
 
 @dataclass(frozen=True)
@@ -73,7 +83,7 @@ class RegisterWrite:
     @property
     def bank(self) -> str:
         """``"cr"`` or ``"lr"``: the register file's name for the bank."""
-        return self.register[:2].lower()
+        return _bank(self.register)
 
     @property
     def index(self) -> int:
@@ -114,10 +124,17 @@ def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite
 
     Returns:
         The writes, values as raw register bits.
+
+    Raises:
+        PlanError: A value does not fit a 32-bit register.
     """
     writes = []
     for name, register in plan.manifest.abi.items():
         value, source = _value(name, plan, placement)
+        if not _LOWEST <= value < _PAST_HIGHEST:
+            raise PlanError(
+                plan.manifest, f"abi.{name}", f"{source} = {value} does not fit a 32-bit register"
+            )
         writes.append(RegisterWrite(register, value & LR_CR_SCALAR_VALUE_MASK, source))
     dstructure = f"CR{DEFAULT_DSTRUCTURE_CR}"
     if dstructure not in plan.manifest.abi.values():
@@ -127,25 +144,31 @@ def register_writes(plan: CasePlan, placement: Placement) -> tuple[RegisterWrite
 
 
 def template_names(manifest: KernelManifest) -> Mapping[str, Mapping[str, str]]:
-    """The program's register names: ``{"cr": {"x": "CR2", ...}, "lr": {...}}``
-    (``{{ cr.x }}``, ``{{ lr.i }}``; E06-07)."""
+    """The program's register names (E06-07).
+
+    Args:
+        manifest: The kernel.
+
+    Returns:
+        ``{"cr": {"x": "CR2", ...}, "lr": {...}}``, read as ``{{ cr.x }}`` and
+        ``{{ lr.i }}``.
+    """
     banks: dict[str, dict[str, str]] = {"cr": {}, "lr": {}}
     for name, register in manifest.abi.items():
-        banks[register[:2].lower()][name] = register
+        banks[_bank(register)][name] = register
     return MappingProxyType({bank: MappingProxyType(names) for bank, names in banks.items()})
 
 
-class _Registers(Protocol):
-    def set_scalar(self, name: str, index: int, value: int) -> None: ...
+def apply(state: IpuState, writes: Iterable[RegisterWrite]) -> None:
+    """Write registers through the model's register file, by bank name.
 
+    E04-30's reference-model API (``write_register``) replaces the register
+    file call when it lands.
 
-class _State(Protocol):
-    @property
-    def regfile(self) -> _Registers: ...
-
-
-def apply(state: _State, writes: Iterable[RegisterWrite]) -> None:
-    """Write ``writes`` through the reference model's register file, by bank name."""
+    Args:
+        state: The model.
+        writes: From :func:`register_writes`.
+    """
     for write in writes:
         state.regfile.set_scalar(write.bank, write.index, write.value)
 
@@ -180,24 +203,28 @@ def check_cr_reads(manifest: KernelManifest, rendered: str) -> None:
 
     Args:
         manifest: The kernel.
-        rendered: Its program, Jinja rendered (pseudo-instructions are expanded
-            by the parse).
+        rendered: Its program with the template rendered (E06-07's
+            ``AssemblyResult.rendered``); it is parsed, not rendered again.
 
     Raises:
-        ConfigurationError: A read of an unbound CR, naming its line.
+        ConfigurationError: A read of an unbound CR, naming the line and its
+            text. The line is the rendered program's: the program file's own
+            line when it has no template layer.
     """
-    bound = {int(r[2:]) for r in manifest.abi.values() if r.startswith("CR")}
+    bound = {int(r[2:]) for r in manifest.abi.values() if _bank(r) == "cr"}
     bound |= {*CR_READ_ONLY_INITIAL_VALUES, DEFAULT_DSTRUCTURE_CR}
     view = isa()
     types, cr_types = _operand_types(view), _cr_types(view)
-    for word in AssemblySession(rendered, name=str(manifest.asm)).parse():
+    lines = rendered.splitlines()
+    for word in AssemblySession("", name=manifest.asm.name).parse_rendered(rendered):
         for instruction in word["instructions"]:
             mnemonic = instruction["opcode"].token.value
-            operand_types = types.get(mnemonic.lower(), [])
-            for kind, operand in zip(operand_types, instruction["operands"], strict=False):
-                m = _REGISTER.fullmatch(operand.token.value.upper())
-                if kind in cr_types and m and m.group(1) == "CR" and int(m.group(2)) not in bound:
+            for kind, operand in zip(types[mnemonic.lower()], instruction["operands"], strict=True):
+                m = _CR.fullmatch(operand.token.value.upper())
+                if kind in cr_types and m and int(m.group(1)) not in bound:
+                    where = operand.location()
                     raise ConfigurationError(
-                        f"{manifest.asm.name}: {operand.location()}: {mnemonic} reads CR{m.group(2)}, which [abi] "
-                        f"does not bind (bound: {', '.join(f'CR{i}' for i in sorted(bound))})"
+                        f"{manifest.asm.name}, rendered line {where.line} "
+                        f"({lines[where.line - 1].strip()!r}): reads CR{m.group(1)}, which "
+                        f"[abi] does not bind (bound: {', '.join(f'CR{i}' for i in sorted(bound))})"
                     )

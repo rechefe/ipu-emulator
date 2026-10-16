@@ -39,7 +39,8 @@ def assemble(plan: CasePlan, session: AssemblySession) -> Program:
 ```
 
 - The declared template parameters are the `kernel.toml` `[params]` names plus
-  the reserved names `cr`, `format` and `shapes`. The framework passes them to
+  the reserved names `cr`, `lr`, `format` and `shapes` (`cr` and `lr` are the
+  `[abi]` register names, passed as the render's namespaces). The framework passes them to
   the E05 render API as the declaration set, so a kernel does not repeat its
   parameters in an `ipu:params` header. `StrictUndefined` turns any other name
   into a located error (`scale.asm:9: undefined 'cr.z'`).

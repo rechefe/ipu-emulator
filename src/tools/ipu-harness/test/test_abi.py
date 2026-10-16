@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,9 +16,9 @@ from ipu_emu.ipu_state import IpuState
 from ipu_harness import manifest as manifest_module
 from ipu_harness.abi import apply, check_cr_reads, register_writes, template_names
 from ipu_harness.manifest import KernelManifest, ManifestError, load_manifest
-from ipu_harness.params import plan_case
+from ipu_harness.packing import stored_rows
+from ipu_harness.params import PlanError, plan_case
 from ipu_harness.placement import place
-from ipu_isa.constants import encode_dstructure
 from ipu_isa.formats import ElementFormat as F
 
 SCALE = """\
@@ -77,7 +78,8 @@ def test_scale_bases_and_integers_are_the_same_in_every_format_and_s_is_encoded(
     assert {k: got[k] for k in ("CR2", "CR3", "CR4")} == {"CR2": 0, "CR3": 4, "CR4": 4}
     assert got["CR5"] == TWO[fmt]
     assert got["LR3"] == 0xFFFFFFFC  # -4, two's complement in 32 bits
-    assert got["CR15"] == encode_dstructure(valid_elements=128)
+    # valid_elements 128 in bits 7:0; partition P0 and pad ZERO above it are 0.
+    assert got["CR15"] == 0x80
 
 
 def test_a_negative_int8_scalar_is_its_low_byte(tmp_path):
@@ -123,10 +125,21 @@ def test_template_names_and_apply_through_the_register_file(tmp_path):
 # --- the CR-read check -----------------------------------------------------------------
 
 
-def test_a_read_of_an_unbound_cr_names_its_line(tmp_path):
+@pytest.mark.parametrize(
+    "line",
+    [
+        "    SET lr1 cr9;;",  # a CR operand
+        "    ADD lr0 lr1 cr9;;",  # an LR-or-CR operand spelled CRn
+        "    BZ cr9 top;;",  # a pseudo-instruction (BEQ cr9 CR0 top)
+        "    SET lr1 CR9;;",  # any case
+        "    SET lr0 cr2; SET lr1 cr9;;",  # not the word's first instruction
+    ],
+)
+def test_a_read_of_an_unbound_cr_names_its_line(tmp_path, line):
     m = kernel(tmp_path, SCALE.format(unit=""))
-    program = "top:\n    SET lr0 cr2;;\n    SET lr1 cr9;;\n    B top;;\n"
-    with pytest.raises(ConfigurationError, match=r"scale.asm: Line 3, Column \d+: SET reads CR9"):
+    program = f"top:\n    SET lr0 cr2;;\n{line}\n    B top;;\n"
+    message = rf"scale.asm, rendered line 3 \({re.escape(repr(line.strip()))}\): reads CR9"
+    with pytest.raises(ConfigurationError, match=message):
         check_cr_reads(m, program)
 
 
@@ -135,10 +148,23 @@ def test_hardwired_bound_and_dstructure_crs_and_labels_named_like_crs_pass(tmp_p
     program = (
         "cr9:\n"  # a label, not a register
         "    SET lr0 cr0;;\n    SET lr1 cr1;;\n    SET lr2 cr5;;\n"
+        "    ADD lr0 lr1 lr2;;\n"  # an LR-or-CR operand spelled LRn
         "    MULT.VE lr0 cr2 0 lr0 cr15;;\n"
         "    B cr9;;\n"
     )
     check_cr_reads(m, program)
+
+
+def test_a_value_that_does_not_fit_a_register_is_located(tmp_path):
+    toml = SCALE.format(unit="").replace(
+        'neg = "-rows"', 'neg = "-rows"\nhuge = "rows * 1000000000"'
+    )
+    m = kernel(tmp_path, toml.replace('neg  = "LR3"', 'neg  = "LR3"\nhuge = "LR4"'))
+    assert writes(m, {"rows": 4, "s": 2.0}, F.FP32)["LR4"] == 4_000_000_000  # an unsigned word
+    plan = plan_case(m, {"rows": 5, "s": 2.0}, F.FP32)
+    with pytest.raises(PlanError, match="does not fit a 32-bit register") as error:
+        register_writes(plan, place(plan))
+    assert error.value.key == "abi.huge"
 
 
 # --- the projections' 13 CRs (guards E07-02) ----------------------------------------------
@@ -152,6 +178,7 @@ formats = ["fp32"]
 k     = {{ type = "int", default = {k} }}
 n_out = {{ type = "int", default = {n_out} }}
 n_tg  = {{ type = "int", default = {n_tg} }}
+n_tok = {{ type = "int", default = {n_tok} }}
 
 [derived]
 neg_one         = "-1"
@@ -165,10 +192,12 @@ out_stream_str  = "n_tg * n_out"
 stream_count    = "4"
 
 [inputs.data]
-shape = [4, "k", "n_tg", 128]
+shape = [4, "n_tg", "k", "n_tok"]
+pack = "channel_major"
 
 [inputs.weights]
 shape = ["n_out", "k"]
+pack = "output_major_weights"
 
 [outputs.out]
 shape = [4, "n_tg", "n_out", 128]
@@ -222,7 +251,11 @@ def test_the_projections_abi_reproduces_todays_crs(tmp_path, name):
     harness._load_data = lambda state: ProjectionP4App._load_data(harness, state)
     harness._load_weights = lambda state: ProjectionP4App._load_weights(harness, state)
     ProjectionP4App.setup(harness, SimpleNamespace(regfile=recorder, xmem=recorder))
-    toml = PROJECTION.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg)
+    toml = PROJECTION.format(k=layout.k, n_out=layout.n_out, n_tg=layout.n_tg, n_tok=layout.n_tok)
     m = kernel(tmp_path, toml, family="projections", name=name)
-    got = {int(r[2:]): v for r, v in writes(m, {}, F.FP32).items() if r != "CR15"}
-    assert got == recorder.crs
+    # As E07-02 runs it: logical shapes, the shared transforms, packing's row counts.
+    plan = plan_case(m, {}, F.FP32)
+    placement = place(plan, {n: stored_rows(t, plan) for n, t in m.tensors.items()})
+    got = {int(w.register[2:]): w.value for w in register_writes(plan, placement)}
+    # Today's harness leaves CR15 at the state's default dstructure.
+    assert got == {**recorder.crs, 15: IpuState().regfile.get_cr(15)}
