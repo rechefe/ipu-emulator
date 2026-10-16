@@ -31,7 +31,8 @@ Schema
     ``pack`` (inputs): a named pack transform (E06-05). ``store`` (outputs):
     ``element`` (default) or ``accumulator``. ``fill`` (scratch): the value the
     region is filled with, default 0. Scratch regions are placed and filled,
-    never compared. (E06-08 adds an input's ``range``.)
+    never compared. ``range`` (inputs): ``[lo, hi]`` for the generated values in
+    every format, or ``{ int8 = [lo, hi], e4 = [lo, hi] }`` per format (E06-08).
 
 ``[abi]``
     ``<name> = "CR2"`` .. ``"CR15"``, or ``"LR0"`` .. ``"LR15"`` (a preset, E06-06).
@@ -136,7 +137,7 @@ _SECTIONS = (
 _KERNEL_KEYS = ("op", "formats", "asm", "stages")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
-    "input": ("shape", "row", "pack"),
+    "input": ("shape", "row", "pack", "range"),
     "output": ("shape", "row", "store"),
     "scratch": ("shape", "row", "fill"),
 }
@@ -183,6 +184,8 @@ class TensorDecl:
         pack: The named pack transform of an input (E06-05).
         store: How an output is stored: ``element`` or ``accumulator``.
         fill: The value a scratch region is filled with.
+        value_range: ``[lo, hi]`` per format for an input's generated values
+            (``range``, E06-08); a format not listed takes the default.
     """
 
     name: str
@@ -192,6 +195,9 @@ class TensorDecl:
     pack: str | None = None
     store: Store = "element"
     fill: int | float = 0
+    value_range: Mapping[ElementFormat, tuple[float, float]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     @property
     def section(self) -> str:
@@ -389,7 +395,40 @@ def _shape(
     return tuple(out)
 
 
-def _tensor(r: Reader, section: str, name: str, raw: object, names: Iterable[str]) -> TensorDecl:
+def _pair(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[float, float]:
+    pair = r.typed(raw, list, path)
+    if len(pair) != 2:
+        raise r.fail(path, f"{where(path)} must be [lo, hi]")
+    lo, hi = (r.typed(v, (int, float), path) for v in pair)
+    if not lo < hi:
+        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is empty: lo must be below hi")
+    return float(lo), float(hi)
+
+
+def _range(
+    r: Reader, raw: object, path: tuple[str, ...], formats: tuple[ElementFormat, ...]
+) -> dict[ElementFormat, tuple[float, float]]:
+    """``range = [lo, hi]`` for every format, or ``{ int8 = [lo, hi], ... }`` per format."""
+    if isinstance(raw, list):
+        bounds = _pair(r, raw, path)
+        return dict.fromkeys(formats, bounds)
+    out: dict[ElementFormat, tuple[float, float]] = {}
+    for key, value in r.table(raw, path).items():
+        fmt = r.format(key, (*path, key))
+        if fmt not in formats:
+            raise r.fail((*path, key), f"range for {key}, a format the kernel does not run in")
+        out[fmt] = _pair(r, value, (*path, key))
+    return out
+
+
+def _tensor(
+    r: Reader,
+    section: str,
+    name: str,
+    raw: object,
+    names: Iterable[str],
+    formats: tuple[ElementFormat, ...],
+) -> TensorDecl:
     role = _ROLES[section]
     path = (section, name)
     _check_name(r, path)
@@ -415,6 +454,9 @@ def _tensor(r: Reader, section: str, name: str, raw: object, names: Iterable[str
         decl = replace(decl, store=store)
     if "fill" in table:
         decl = replace(decl, fill=r.typed(table["fill"], (int, float), (*path, "fill")))
+    if "range" in table:
+        ranges = _range(r, table["range"], (*path, "range"), formats)
+        decl = replace(decl, value_range=MappingProxyType(ranges))
     return decl
 
 
@@ -654,13 +696,18 @@ def _derived(r: Reader, raw: object, params: Mapping[str, ParamDecl]) -> dict[st
     return derived
 
 
-def _tensors(r: Reader, data: Mapping[str, Any], scalars: tuple[str, ...]) -> dict[str, TensorDecl]:
+def _tensors(
+    r: Reader,
+    data: Mapping[str, Any],
+    scalars: tuple[str, ...],
+    formats: tuple[ElementFormat, ...],
+) -> dict[str, TensorDecl]:
     tensors: dict[str, TensorDecl] = {}
     for section in _ROLES:
         for name, raw in r.table(data.get(section, {}), (section,)).items():
             if name in tensors or name in scalars:
                 raise r.fail((section, name), f"{name!r} is declared twice")
-            tensors[name] = _tensor(r, section, name, raw, scalars)
+            tensors[name] = _tensor(r, section, name, raw, scalars, formats)
     return tensors
 
 
@@ -705,7 +752,7 @@ def load_manifest(
     entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
     derived = _derived(r, data.get("derived", {}), params)
     scalars = (*params, *derived)
-    tensors = _tensors(r, data, scalars)
+    tensors = _tensors(r, data, scalars, kernel.formats)
     manifest = KernelManifest(
         name=entry.name or directory.name,
         directory=directory,

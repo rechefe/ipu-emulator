@@ -56,6 +56,16 @@ py_pytest_test(
     ],
 )
 
+# Cases, sweeps, seeded generators and user data (E06-08).
+py_pytest_test(
+    name = "test_cases",
+    srcs = ["test/test_cases.py"],
+    deps = [
+        ":ipu_harness_lib",
+        requirement("pytest"),
+    ],
+)
+
 # kernel.toml: the schema, the loader and its errors (E06-02).
 py_pytest_test(
     name = "test_manifest",
