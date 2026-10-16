@@ -87,6 +87,9 @@ def assemble_program(
         search_path: Directories its ``{% include %}`` and ``{% import %}``
             resolve in.
 
+    Returns:
+        The assembled program; equal inputs share one cached result.
+
     Raises:
         AssemblerError: the source does not render or assemble.
     """
@@ -97,7 +100,11 @@ def assemble_program(
 
 @contextmanager
 def program_file(program: AssemblyResult) -> Iterator[Path]:
-    """``program`` written as a ``.bin`` file, which exists until the block ends."""
+    """``program`` written as a ``.bin`` file, which exists until the block ends.
+
+    Yields:
+        The path of the ``.bin`` file, in a temporary directory.
+    """
     with TemporaryDirectory(prefix="ipu_program_") as tmp:
         path = Path(tmp) / "program.bin"
         path.write_bytes(program.to_bin())

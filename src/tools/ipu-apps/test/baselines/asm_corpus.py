@@ -65,7 +65,9 @@ RENDER_CONTEXTS: dict[str, tuple[dict, ...]] = {
 #: defaults), and the other defines their harness tests assemble them with.
 #: Each set of defines is one more corpus entry. ``conv_universal_wide384``'s
 #: test sweeps rows=16 at width 384 and width 512 (cpr=4) at rows=4;
-#: ``depthwise_conv_stride2_narrow``'s runs cols 64 and 16.
+#: ``depthwise_conv_stride2_narrow``'s runs cols 64 and 16. (rows=16 assembles
+#: the same words as the default rows=8: rows changes the program only at 1.
+#: The entry records what the harness runs all the same.)
 _CONVOLUTIONS = "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/"
 HARNESS_DEFINES: dict[str, tuple[dict, ...]] = {
     _CONVOLUTIONS + "conv_universal_wide384/conv_universal_wide384.asm": (

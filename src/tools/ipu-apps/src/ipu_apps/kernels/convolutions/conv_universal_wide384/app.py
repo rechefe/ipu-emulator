@@ -58,6 +58,7 @@ Usage (normally through the registry: ``create_harness(
 from __future__ import annotations
 
 import math
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -260,7 +261,7 @@ class ConvUniversalWide384App(IpuApp):
             )
         return _pack_conv_weights_dense_fp32(weights)
 
-    def program(self):
+    def program(self) -> AbstractContextManager[Path]:
         """The program assembled for this shape's ``cpr`` and ``rows``."""
         source = kernel_source("conv_universal_wide384")
         return program_file(assemble_program(source, defines={"cpr": self.cpr, "rows": self.rows}))
@@ -325,6 +326,7 @@ class ConvUniversalWide384App(IpuApp):
             Path(self.output_path).write_bytes(out_chw.astype(np.float32).tobytes())
 
     def run(self, *, max_cycles: int = 5_000_000, **kwargs) -> tuple[IpuState, int]:
+        # Only the larger max_cycles default differs from IpuApp.run.
         return super().run(max_cycles=max_cycles, **kwargs)
 
 

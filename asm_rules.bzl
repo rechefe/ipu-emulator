@@ -10,15 +10,16 @@ def assemble_asm(name, src, output_format = "bin", defines = {}, includes = [], 
         output_format: Output format (default: "bin")
         defines: Template values, {name: value}, for the parameters the
             source's ipu:params header declares; each is passed as
-            --define name=value, in sorted order so the command is stable.
+            --define 'name=value' (no single quotes in a value), in sorted
+            order so the command is stable. A tuple is written 1,2,3.
         includes: Files the source's {% include %} / {% import %} read; each
             distinct directory is passed as -I, after the source's own.
-            They must be source files, as the directory is found by
-            resolving each one's symlink.
+            They must be source files named by relative path (not labels),
+            as the directory is found by resolving each one's symlink.
         **kwargs: Additional arguments passed to genrule
     """
     output_file = name + "." + output_format
-    flags = ["--define %s=%s" % (key, defines[key]) for key in sorted(defines)]
+    flags = ["--define '%s=%s'" % (key, defines[key]) for key in sorted(defines)]
     include_dirs = []
     for include in includes:
         directory = include.rpartition("/")[0] or "."

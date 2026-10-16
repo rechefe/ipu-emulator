@@ -17,7 +17,7 @@ from tools.ruff_runner import ruff_executable
 CONFIG = Path("ruff.toml").resolve()
 
 
-def _banned(tmp_path: Path, relative: str, source: str) -> str:
+def _ruff_output(tmp_path: Path, relative: str, source: str) -> str:
     path = tmp_path / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
@@ -40,9 +40,11 @@ def _banned(tmp_path: Path, relative: str, source: str) -> str:
     ],
 )
 def test_a_planted_render_fails_the_lint(tmp_path, source):
-    assert "TID251" in _banned(tmp_path, "src/tools/x/test/test_x.py", source)
+    assert "TID251" in _ruff_output(tmp_path, "src/tools/x/test/test_x.py", source)
 
 
 def test_the_template_module_may_render(tmp_path):
     source = "from jinja2.sandbox import SandboxedEnvironment\n\nSandboxedEnvironment()\n"
-    assert "TID251" not in _banned(tmp_path, "src/tools/ipu-as-py/src/ipu_as/template.py", source)
+    assert "TID251" not in _ruff_output(
+        tmp_path, "src/tools/ipu-as-py/src/ipu_as/template.py", source
+    )

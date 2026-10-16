@@ -66,6 +66,9 @@ class IpuApp:
         ``inst_path`` by default. A harness whose program depends on its
         parameters overrides this to return
         ``program_file(assemble_program(source, defines=...))``.
+
+        Returns:
+            A context manager whose value is the ``.bin`` path to load.
         """
         return nullcontext(self.inst_path)
 
