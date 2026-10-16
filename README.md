@@ -79,6 +79,14 @@ bazel run //tools:update_requirements_lock -- --upgrade-package numpy   # move o
 bazel run //tools:update_requirements_lock -- --upgrade                 # move everything
 ```
 
+Each package's `py_library` carries only its runtime packages, the
+`[project].dependencies` of its `pyproject.toml`. They are written once, as
+`RUNTIME_DEPS` in the package's `deps.bzl`. Test and docs packages (the `dev`
+and `docs` extras) go on the test and docs targets that use them, as
+`requirement("pytest")`. Changing a runtime dependency means editing both
+`pyproject.toml` and `deps.bzl`, then refreshing the lock;
+`//tools:deps_consistency_test` fails if either step is missed.
+
 Notes
 -----
 - The assembler and emulator share a single source of truth via `ipu_common` (instruction spec, register schema).

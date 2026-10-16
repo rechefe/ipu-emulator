@@ -1,8 +1,8 @@
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 
 exports_files([
-    "pyproject_deps.bzl",
     "requirements-tools.in",
 ])
 
@@ -17,4 +17,29 @@ py_binary(
     name = "update_requirements_lock",
     srcs = ["update_requirements_lock.py"],
     deps = [requirement("uv")],
+)
+
+# Every requirement in the pyproject.toml files and requirements-tools.in is
+# pinned in the lock, and each package's deps.bzl RUNTIME_DEPS (its py_library's
+# third-party deps) equals its [project].dependencies minus ipu-* packages.
+py_pytest_test(
+    name = "deps_consistency_test",
+    size = "small",
+    srcs = ["deps_consistency_test.py"],
+    data = [
+        "requirements-tools.in",
+        "//:requirements_lock.txt",
+        "//src/tools/ipu-apps:pyproject.toml",
+        "//src/tools/ipu-apps:runtime_deps",
+        "//src/tools/ipu-as-py:pyproject.toml",
+        "//src/tools/ipu-as-py:runtime_deps",
+        "//src/tools/ipu-common:pyproject.toml",
+        "//src/tools/ipu-common:runtime_deps",
+        "//src/tools/ipu-emu-py:pyproject.toml",
+        "//src/tools/ipu-emu-py:runtime_deps",
+    ],
+    deps = [
+        requirement("pytest"),
+        requirement("tomli"),
+    ],
 )
