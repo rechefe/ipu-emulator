@@ -28,10 +28,10 @@ from ipu_emu.emulator import (
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import BreakResult, decode_instruction_word
 from ipu_emu.ipu import NARROW_MAX_ROW, EmulatorError
-from ipu_emu.ipu_config import PadMode, encode_dstructure
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
+from ipu_isa.constants import PadMode, encode_dstructure
 
 # ============================================================================
 # Basic Register Operations

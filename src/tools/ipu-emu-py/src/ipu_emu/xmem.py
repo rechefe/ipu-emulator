@@ -15,13 +15,15 @@ from __future__ import annotations
 import weakref
 from collections.abc import Callable, Iterator
 
+from ipu_isa.geometry import XMEM_BYTES
+
 #: ``fn(kind, address, size, data)`` with *kind* one of ``"read"``,
 #: ``"write"`` or ``"clear"``. The event covers exactly the bytes
 #: ``[address, address + size)`` the operation touched. *data* holds those
 #: bytes for reads and writes, and is ``None`` for ``"clear"`` and ``fill``.
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
-XMEM_SIZE_BYTES = 1 << 29  # 512 MiB; full-resolution FP32 descriptors fit
+XMEM_SIZE_BYTES = XMEM_BYTES  # 512 MiB; full-resolution FP32 descriptors fit
 XMEM_WIDTH_BYTES = 128  # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 

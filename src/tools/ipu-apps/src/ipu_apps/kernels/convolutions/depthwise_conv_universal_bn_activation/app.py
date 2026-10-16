@@ -78,7 +78,7 @@ from ipu_apps.kernels.convolutions.app import (
     universal_spec,
     unpack_output_chunked,
 )
-from ipu_emu.ipu_config import Partition
+from ipu_isa.constants import Partition
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState

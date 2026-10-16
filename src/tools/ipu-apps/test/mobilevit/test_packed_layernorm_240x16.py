@@ -19,8 +19,8 @@ from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
 from ipu_as.label import reset_labels
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
-from ipu_emu.ipu_config import encode_dstructure
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_isa.constants import encode_dstructure
 
 _PACKED_ASM_SRC = Path(__file__).parent / "asm_packed_layernorm_240x16.asm"
 

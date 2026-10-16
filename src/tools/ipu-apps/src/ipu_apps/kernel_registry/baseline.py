@@ -40,8 +40,8 @@ from pathlib import Path
 import ipu_emu.emulator as emulator
 from ipu_apps.kernel_registry.registry import kernel_spec
 from ipu_emu.descriptors import REGFILE_SCHEMA
-from ipu_emu.ipu_config import CR_REGISTER_NAME
 from ipu_emu.ipu_state import IpuState
+from ipu_isa.constants import CR_REGISTER_NAME
 
 #: The one command that rewrites baselines from the current tree.
 UPDATE_COMMAND = "bazel run //src/tools/ipu-apps:update_kernel_baselines -- <kernel> ..."

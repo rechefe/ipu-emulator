@@ -31,7 +31,7 @@ from ipu_isa.acc_stride_enums import (
     VERTICAL_STRIDE_NAMES,
 )
 from ipu_isa.activations import ACTIVATION_FN_NAMES
-from ipu_isa.geometry import MAX_PROGRAM_SIZE
+from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_FIELD_BITS,
     LR_MOD_POW2_K_MAX,
@@ -324,8 +324,8 @@ _SPEC: dict[str, dict] = {
     },
     "Label": {
         "kind": OperandKind.LABEL,
-        "bits": _index_bits(MAX_PROGRAM_SIZE),
-        "domain": Domain(value_range=(0, MAX_PROGRAM_SIZE - 1)),
+        "bits": _index_bits(INST_MEM_WORDS),
+        "domain": Domain(value_range=(0, INST_MEM_WORDS - 1)),
         "readable": False,
         "token_class": "LabelToken",
         "field_suffix": "label_token",

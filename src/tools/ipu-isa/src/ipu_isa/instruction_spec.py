@@ -79,6 +79,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ipu_isa import schema
+from ipu_isa.constants import CR_ONE_REG_INDEX, CR_ZERO_REG_INDEX
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.tags import Tag
@@ -1524,6 +1525,27 @@ def validate_instruction_spec(instruction_spec: dict, slot_metadata: dict) -> No
             _check_instruction_tag(path, slot_type, inst_def)
 
 
+_CR_LITERAL = re.compile(r"CR(\d+)", re.IGNORECASE)
+_CONSTANT_CRS = (CR_ZERO_REG_INDEX, CR_ONE_REG_INDEX)
+
+
+def _check_constant_register_literal(where: str, name: str, arg: str, doc: InstructionDoc) -> None:
+    """A CR named literally in an expansion must be a constant register (CR0
+    holds 0, CR1 holds 1), and the pseudo's docs must name it, so the
+    expansion's meaning rests on a documented ISA fact."""
+    match = _CR_LITERAL.fullmatch(arg)
+    if match is None:
+        return
+    if int(match.group(1)) not in _CONSTANT_CRS:
+        allowed = ", ".join(f"CR{index}" for index in _CONSTANT_CRS)
+        raise schema.SpecError(f"{where}: literal {arg!r} is not a constant register ({allowed})")
+    text = " ".join(filter(None, (doc.summary, doc.operation, doc.notes)))
+    if arg.upper() not in text.upper():
+        raise schema.SpecError(
+            f"{where}: pseudo-instruction {name} expands with {arg!r} but its docs do not say so"
+        )
+
+
 def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) -> None:
     """Check the pseudo-instruction spec against the schema and the real
     instructions it expands to.
@@ -1588,6 +1610,7 @@ def validate_pseudo_instruction_spec(pseudo_spec: dict, instruction_spec: dict) 
                     f"{where}: literal {arg!r} is neither an operand of {name} nor a "
                     f"register valid for a {target['type']} operand"
                 )
+            _check_constant_register_literal(where, name, arg, pseudo_def["doc"])
 
 
 # Validate on import

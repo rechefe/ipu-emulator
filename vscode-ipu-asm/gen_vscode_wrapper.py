@@ -14,9 +14,9 @@ from pathlib import Path
 from ipu_as.gen_vscode import generate_all
 from ipu_as.reg import LRD_REG_FIELDS
 from ipu_emu.ipu import Ipu
-from ipu_emu.ipu_config import CR_READ_ONLY_INITIAL_VALUES, CR_REGISTER_NAME
+from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, CR_REGISTER_NAME
 
-# What only the emulator knows, for register hovers: fixed registers (CR0 = 0,
+# For register hovers: fixed registers (CR0 = 0,
 # CR1 = 1), and the LR pair behind each LRD name (indexed by its enum position).
 EMULATOR = {
     "fixed": {f"{CR_REGISTER_NAME}{i}": v for i, v in CR_READ_ONLY_INITIAL_VALUES.items()},

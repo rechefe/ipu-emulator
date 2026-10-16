@@ -11,8 +11,13 @@ from enum import Enum
 from typing import Any
 
 from ipu_emu import activations as _activations
-from ipu_emu.ipu_config import (
-    CR_DSTRUCTURE_REG_INDEX,
+from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
+from ipu_emu.ipu_math import DType
+from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
+from ipu_emu.regfile import RegFile
+from ipu_emu.stats import RunStats
+from ipu_emu.xmem import XMem
+from ipu_isa.constants import (
     DEFAULT_DSTRUCTURE,
     DStructureConfig,
     PadMode,
@@ -20,14 +25,10 @@ from ipu_emu.ipu_config import (
     decode_dstructure,
     encode_dstructure,
 )
-from ipu_emu.ipu_math import DType
-from ipu_emu.prototyping import resolve_enabled as _resolve_prototyping
-from ipu_emu.regfile import RegFile
-from ipu_emu.stats import RunStats
-from ipu_emu.xmem import XMem
+from ipu_isa.geometry import INST_MEM_WORDS
 
-# Matches C: #define IPU__INST_MEM_SIZE 1024
-INST_MEM_SIZE = 1024
+#: Instruction-memory depth, as the emulator names it.
+INST_MEM_SIZE = INST_MEM_WORDS
 
 
 def _ipu():
@@ -120,7 +121,7 @@ class IpuState:
 
     def get_cr_dstructure(self) -> DStructureConfig:
         """Read CR15 as decoded dstructure configuration fields."""
-        return decode_dstructure(self.regfile.get_cr(CR_DSTRUCTURE_REG_INDEX))
+        return decode_dstructure(self.regfile.get_cr(DEFAULT_DSTRUCTURE_CR))
 
     def get_dstructure_for(self, cr_idx: int) -> DStructureConfig:
         """Decode the dstructure configuration from an arbitrary CR register.
@@ -136,7 +137,7 @@ class IpuState:
         partition: Partition | int = DEFAULT_DSTRUCTURE.partition,
         pad_mode: PadMode | int = DEFAULT_DSTRUCTURE.pad_mode,
         *,
-        cr_idx: int = CR_DSTRUCTURE_REG_INDEX,
+        cr_idx: int = DEFAULT_DSTRUCTURE_CR,
     ) -> None:
         """Write dstructure configuration fields to ``cr_idx`` (CR15 by default)."""
         self.regfile.set_cr(

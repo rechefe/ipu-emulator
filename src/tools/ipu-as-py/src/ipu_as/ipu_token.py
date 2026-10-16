@@ -4,8 +4,11 @@ import lark
 
 import ipu_as.label as label
 import ipu_as.utils as utils
-from ipu_isa.geometry import MAX_PROGRAM_SIZE
+from ipu_isa.geometry import INST_MEM_WORDS
 from ipu_isa.operand_types import operand_type
+
+#: Instruction-memory depth, as the assembler names it.
+MAX_PROGRAM_SIZE = INST_MEM_WORDS
 
 
 @dataclasses.dataclass
