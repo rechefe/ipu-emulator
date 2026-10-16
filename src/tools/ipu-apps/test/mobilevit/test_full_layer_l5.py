@@ -18,15 +18,9 @@ This asymmetry is real, not a simplification made here.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
-
-# See test_full_layer_l4.py's matching comment: makes this file's own
-# directory importable whether test/ is a package (bazel) or a flat rootdir
-# (plain pytest/uv).
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
 from ipu_apps.kernels.projections.proj_qkv_240_p4.app import ProjQKV240P4App, K as QKV_K, N_OUT as QKV_N_OUT

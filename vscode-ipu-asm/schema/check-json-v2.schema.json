@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check-json-v2.schema.json",
+  "title": "ipu-as check --json --json-version 2",
+  "description": "Version 2 wraps version 1's diagnostics in an object that names its version, so later versions can add fields beside them. See check-json.md.",
+  "type": "object",
+  "required": ["schemaVersion", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "diagnostics": { "$ref": "check-json-v1.schema.json" }
+  }
+}

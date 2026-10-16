@@ -30,18 +30,9 @@ not real kernels. Head concat needs no repack -- it is pure addressing.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
-
-# Make this file's own directory importable regardless of whether the test
-# runner treats test/ as a package (bazel auto-generates test/__init__.py,
-# so this module loads as `test.test_full_layer_l4`) or as a flat rootdir
-# (plain `pytest`/`uv run pytest`, no __init__.py, module loads as
-# `test_full_layer_l4`) -- the fixture modules below are siblings in this
-# same directory either way.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ipu_apps.kernels.normalize.layernorm_64x192.app import LayerNorm64x192App
 from ipu_apps.kernels.projections.proj_qkv_192_p4.app import ProjQkv192P4App, K as QKV_K, N_OUT as QKV_N_OUT

@@ -30,12 +30,9 @@ from the reference, before trusting the "clean" test's PASS.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.matmul.matmul_240x240_x128 import app as mm
 from ipu_apps.kernels.normalize.layernorm_16x240 import app as ln

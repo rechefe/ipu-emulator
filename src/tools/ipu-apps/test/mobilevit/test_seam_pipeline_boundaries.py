@@ -55,12 +55,9 @@ defect):
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.elementwise.residual_add_16x240 import app as ra5
 from ipu_apps.kernels.elementwise.residual_add_64x192 import app as ra4

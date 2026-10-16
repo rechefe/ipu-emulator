@@ -22,7 +22,7 @@ from ipu_emu.debug_tui import (
     PipelineTab,
     RegisterTab,
     XmemTab,
-    get_debug_view_session,
+    new_debug_view_session,
     run_debug_tui,
 )
 from ipu_emu.descriptors import REGFILE_SCHEMA
@@ -547,24 +547,41 @@ class TestTitleFitting:
 
 class TestSessionPersistence:
     def test_default_tab_is_one_full_active_row(self):
-        normal = get_debug_view_session(IpuState())
+        normal = new_debug_view_session(IpuState())
         wide_state = new_state(fmt=ElementFormat.FP32)
-        wide = get_debug_view_session(wide_state)
+        wide = new_debug_view_session(wide_state)
 
         assert normal.tabs[0].request.count == xmem_row_size_bytes(IpuState())
         assert wide.tabs[0].request.count == xmem_row_size_bytes(wide_state)
 
-    def test_same_state_reuses_session(self):
+    def test_the_session_passed_to_each_stop_persists(self, monkeypatch):
         state = IpuState()
-        first = get_debug_view_session(state)
-        first.set_message("persistent message")
-        first.tabs[0].scroll = 3
+        session = new_debug_view_session(state)
+        seen = []
 
-        second = get_debug_view_session(state)
+        def wrapper(callback):
+            callback(FakeScreen([debug_tui.curses.KEY_F5]))
 
-        assert second is first
-        assert second.message == "persistent message"
-        assert second.tabs[0].scroll == 3
+        class View:
+            def __init__(self, screen, state, session, cycle, control):
+                self.session, self.control = session, control
+
+            def run(self):
+                seen.append((self.session, self.control))
+                if len(seen) == 1:
+                    self.session.set_message("persistent message")
+                    self.session.tabs[0].scroll = 3
+                return DebugAction.CONTINUE
+
+        monkeypatch.setattr(debug_tui.curses, "wrapper", wrapper)
+        monkeypatch.setattr(debug_tui, "CursesDebugView", View)
+        control = debug_tui.DebugControl()
+        run_debug_tui(state, 0, control=control, session=session)
+        run_debug_tui(state, 1, control=control, session=session)
+
+        assert seen == [(session, control)] * 2
+        assert session.message == "persistent message"
+        assert session.tabs[0].scroll == 3
 
     def test_step_keeps_view_active_and_captures_baseline(self):
         state = IpuState()
@@ -1795,8 +1812,9 @@ class TestMouseAndTerminalFallbacks:
 
         monkeypatch.setattr(debug_tui.curses, "wrapper", wrapper)
 
-        assert run_debug_tui(state, 3) == DebugAction.CONTINUE
-        assert get_debug_view_session(state).active
+        session = new_debug_view_session(state)
+        assert run_debug_tui(state, 3, session=session) == DebugAction.CONTINUE
+        assert session.active
 
     def test_curses_initialization_failure_is_reported(self, monkeypatch):
         state = IpuState()
@@ -1806,9 +1824,10 @@ class TestMouseAndTerminalFallbacks:
 
         monkeypatch.setattr(debug_tui.curses, "wrapper", wrapper)
 
+        session = new_debug_view_session(state)
         with pytest.raises(RuntimeError, match="curses TUI failed"):
-            run_debug_tui(state, 0)
-        assert not get_debug_view_session(state).active
+            run_debug_tui(state, 0, session=session)
+        assert not session.active
 
     def test_wrapper_restores_terminal_when_view_raises(self, monkeypatch):
         state = IpuState()
@@ -1827,10 +1846,11 @@ class TestMouseAndTerminalFallbacks:
 
         monkeypatch.setattr(debug_tui.curses, "wrapper", wrapper)
 
+        session = new_debug_view_session(state)
         with pytest.raises(RuntimeError, match="render loop failed"):
-            run_debug_tui(state, 0)
+            run_debug_tui(state, 0, session=session)
         assert restored
-        assert not get_debug_view_session(state).active
+        assert not session.active
 
 
 
@@ -2767,12 +2787,12 @@ class TestPipelineStageView:
     def test_trace_tracks_actual_branch_pc_and_does_not_record_stops(self):
         from ipu_emu.emulator import run_with_debug
         state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; BKPT;;")
-        control = debug_tui.get_debug_control(state)
+        control = debug_tui.DebugControl()
         stops = []
         def paused(state, cycle):
             stops.append((state.program_counter, cycle, control.last_completed_pc))
             return DebugAction.STEP if len(stops) < 3 else DebugAction.QUIT
-        assert run_with_debug(state, paused, break_on_entry=True) == 2
+        assert run_with_debug(state, paused, break_on_entry=True, control=control) == 2
         assert stops == [(0, 0, None), (3, 1, 0), (4, 2, 3)]
         assert control.last_completed_instruction == state.inst_mem[3]
         assert control.last_completed_instruction is not state.inst_mem[3]
@@ -2780,15 +2800,15 @@ class TestPipelineStageView:
     def test_trace_follows_pc_edits_and_resets_for_a_new_run(self):
         from ipu_emu.emulator import run_with_debug
         state = self.program("NOP;; NOP;; SET lr2 cr1;; BKPT;;")
-        control = debug_tui.get_debug_control(state)
+        control = debug_tui.DebugControl()
         def paused(state, cycle):
             if cycle == 0:
                 state.program_counter = 2
                 return DebugAction.STEP
             assert control.last_completed_pc == 2
             return DebugAction.QUIT
-        run_with_debug(state, paused, break_on_entry=True)
-        run_with_debug(state, lambda state, cycle: DebugAction.QUIT, break_on_entry=True)
+        run_with_debug(state, paused, break_on_entry=True, control=control)
+        run_with_debug(state, lambda state, cycle: DebugAction.QUIT, break_on_entry=True, control=control)
         assert control.last_completed_pc is None
 
     @pytest.mark.parametrize("rows,columns", [(12, 48), (24, 80), (42, 140)])

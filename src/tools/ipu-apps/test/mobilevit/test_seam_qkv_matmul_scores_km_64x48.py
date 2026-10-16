@@ -33,12 +33,9 @@ seam audit sets.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km
 from ipu_apps.kernels.matmul.matmul_576x192_x128 import app as mm

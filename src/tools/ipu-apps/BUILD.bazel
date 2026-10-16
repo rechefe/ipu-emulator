@@ -146,11 +146,28 @@ ipu_per_kernel_test(
     size = "enormous",
 )
 
+# The MobileViT suite's shared fixtures, imported by module name (`fixture_*`).
+py_library(
+    name = "mobilevit_fixtures",
+    srcs = glob(["test/mobilevit/fixture_*.py"]),
+    imports = ["test/mobilevit"],
+    deps = [":ipu_apps_lib"],
+)
+
 # Tests that run several kernels together: one target per test/<suite>/test_*.py.
 ipu_multi_kernel_tests(
     suites_root = "test",
     kernels_root = "src/ipu_apps/kernels",
-    deps = [":ipu_apps_lib", requirement("pytest")],
+    deps = [":ipu_apps_lib", ":mobilevit_fixtures", requirement("pytest")],
+)
+
+# No test reaches a module through sys.path; it depends on a declared library.
+py_pytest_test(
+    name = "test_no_sys_path_insert",
+    size = "small",
+    srcs = ["test/test_no_sys_path_insert.py"],
+    data = glob(["test/**/*.py"]),
+    deps = [requirement("pytest")],
 )
 
 # Assembled-binary baseline (E02-01): the .bin and .mem digests of every .asm

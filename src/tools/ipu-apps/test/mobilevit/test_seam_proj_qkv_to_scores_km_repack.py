@@ -29,12 +29,9 @@ repacked element, confirm the run diverges) before trusting the clean pass.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from ipu_apps.kernels.attention.attn_scores_km_16x60 import app as km5
 from ipu_apps.kernels.attention.attn_scores_km_64x48 import app as km4
