@@ -1,0 +1,118 @@
+{
+  "snippet:astral-crlf": [
+    "token 4:3 \"\\ud83d\": the scan reads an operand, the assembler nothing",
+    "token 4:4 \"\\ude00\": the scan reads an operand, the assembler nothing",
+    "token 4:5 \"x\": the scan reads an operand, the assembler nothing",
+    "words: the assembler lists none (2 in the scan)"
+  ],
+  "snippet:header": [
+    "jinja 1:1 \"{#- ipu:params rows: int = 4 # rows to c…\": defines [] by the fallback, [rows] by the assembler"
+  ],
+  "snippet:kwarg": [
+    "jinja 5:1 \"{{ m(dest=\\\"lr1\\\", n=n) }}\": uses [dest m n] by the fallback, [m n] by the assembler"
+  ],
+  "snippet:unknown-in-word": [
+    "word 1:1 [HALT SE]: the fallback says it fits, the assembler that it does not fit"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_first_layer/conv_first_layer.asm": [
+    "word 127:5 [ld.mult]: in the scan only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/conv_universal_wide384/conv_universal_wide384.asm": [
+    "jinja 126:1 \"{#- ipu:params cpr: int = 3 # column chu…\": defines [] by the fallback, [cpr rows] by the assembler"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/convolutions/depthwise_conv_stride2_narrow/depthwise_conv_stride2_narrow.asm": [
+    "jinja 1:1 \"{#- ipu:params elements_in_row: int = 32…\": defines [] by the fallback, [elements_in_row] by the assembler"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_nms7/maxpool2d_nms7.asm": [
+    "word 92:5 [ADD ADD LD.MULT.CYCLIC MULT.RC.VE ACC.MAX.FIRST]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/pooling/maxpool2d_nms9/maxpool2d_nms9.asm": [
+    "word 92:5 [ADD ADD LD.MULT.CYCLIC MULT.RC.VE ACC.MAX.FIRST]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_32x32x144/fold_32x32x144.asm": [
+    "word 231:5 [SET SET]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/fold_8x8x240/fold_8x8x240.asm": [
+    "word 195:5 [SET SET]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/reshape/unfold_32x32x144/unfold_32x32x144.asm": [
+    "word 159:5 [ADD]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/src/ipu_apps/kernels/softmax/softmax_rows_partial/softmax_rows_partial.asm": [
+    "word 180:5 [MULT.RC.VE acc.add.first]: in the scan only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_layernorm_192x64.asm": [
+    "token 155:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 201:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 267:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 324:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "word 171:5 [SET]: in the assembler's answer only",
+    "word 200:5 [MULT.RC.VE ACC.ADD.FIRST]: in the assembler's answer only",
+    "word 283:5 [SET]: in the assembler's answer only",
+    "word 323:5 [MULT.RC.VE ACC.ADD.FIRST]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_layernorm_240x16.asm": [
+    "token 219:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 224:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 285:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 383:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 388:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 443:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "word 223:5 [MULT.RC.VV ACC.ADD.FIRST]: in the assembler's answer only",
+    "word 235:5 [SET]: in the assembler's answer only",
+    "word 284:5 [MULT.RC.VE ACC.ADD.FIRST]: in the assembler's answer only",
+    "word 387:5 [MULT.RC.VS ACC.ADD.FIRST]: in the assembler's answer only",
+    "word 399:5 [SET]: in the assembler's answer only",
+    "word 442:5 [MULT.RC.VE ACC.ADD.FIRST]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_generic.asm": [
+    "tokens: the assembler lists no assembly tokens (114 in the scan)",
+    "words: the assembler lists none (69 in the scan)",
+    "jinja 1:1 \"{#- ipu:params chunk_widths: tuple[int, …\": defines [] by the fallback, [chunk_widths] by the assembler",
+    "jinja 205:5 \"{%- if chunk_widths | length > 1 %}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler",
+    "jinja 214:24 \"{{ chunk_widths | length }}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_generic_p4.asm": [
+    "tokens: the assembler lists no assembly tokens (101 in the scan)",
+    "words: the assembler lists none (61 in the scan)",
+    "jinja 1:1 \"{#- ipu:params chunk_widths: tuple[int, …\": defines [] by the fallback, [chunk_widths] by the assembler",
+    "jinja 165:5 \"{%- if chunk_widths | length > 1 %}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler",
+    "jinja 172:24 \"{{ chunk_widths | length }}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_silu.asm": [
+    "tokens: the assembler lists no assembly tokens (114 in the scan)",
+    "words: the assembler lists none (69 in the scan)",
+    "jinja 1:1 \"{#- ipu:params chunk_widths: tuple[int, …\": defines [] by the fallback, [chunk_widths] by the assembler",
+    "jinja 209:5 \"{%- if chunk_widths | length > 1 %}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler",
+    "jinja 218:24 \"{{ chunk_widths | length }}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_output_linear_silu_p4.asm": [
+    "tokens: the assembler lists no assembly tokens (101 in the scan)",
+    "words: the assembler lists none (61 in the scan)",
+    "jinja 1:1 \"{#- ipu:params chunk_widths: tuple[int, …\": defines [] by the fallback, [chunk_widths] by the assembler",
+    "jinja 172:5 \"{%- if chunk_widths | length > 1 %}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler",
+    "jinja 179:24 \"{{ chunk_widths | length }}\": uses [chunk_widths length] by the fallback, [chunk_widths] by the assembler"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_pack_192x64.asm": [
+    "token 99:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "word 114:5 [SET]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_pack_240x16.asm": [
+    "token 111:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "token 143:5 \"ACC.ADD\": the assembler reads a mnemonic, the scan nothing",
+    "word 126:5 [SET]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_192x64.asm": [
+    "word 101:5 [SET]: in the assembler's answer only"
+  ],
+  "src/tools/ipu-apps/test/mobilevit/asm_packed_unpack_240x16.asm": [
+    "word 99:5 [SET]: in the assembler's answer only"
+  ],
+  "vscode-ipu-asm/test/corpus/negative/unbalanced_jinja.asm": [
+    "tokens: the assembler lists no assembly tokens (1 in the scan)",
+    "words: the assembler lists none (1 in the scan)"
+  ],
+  "vscode-ipu-asm/test/corpus/negative/unknown_mnemonic.asm": [
+    "word 2:5 [FROB]: the fallback says it fits, the assembler that it does not fit"
+  ]
+}

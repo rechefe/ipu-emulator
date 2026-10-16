@@ -7,22 +7,24 @@ const vscode = require('vscode');
 
 const { provide, rangeOf } = require('./shared');
 
-function register(context, { lang, checkText }) {
-  const symbolAt = (document, position) => lang.symbolAt(document.getText(), document.offsetAt(position));
+function register(context, { lang, checkText, semantics }) {
+  const symbolAt = async (document, position) => ({ known: await semantics(document), offset: document.offsetAt(position) });
   provide(context, 'Rename', {
-    prepareRename(document, position) {
-      const sym = symbolAt(document, position);
+    async prepareRename(document, position) {
+      const { known, offset } = await symbolAt(document, position);
+      const sym = known.symbolAt(offset);
       if (!sym) throw new Error('Only labels and Jinja names can be renamed.');
       return { range: rangeOf(document, sym.range), placeholder: sym.name };
     },
 
     async provideRenameEdits(document, position, newName, token) {
-      const sym = symbolAt(document, position);
+      const { known, offset } = await symbolAt(document, position);
+      const sym = known.symbolAt(offset);
       if (!sym) return undefined;
       const label = sym.kind === 'label';
       if (!lang.validName(sym.kind, newName)) throw new Error(`"${newName}" is not a valid ${label ? 'label' : 'Jinja name'}.`);
       const text = document.getText();
-      if (label ? lang.labels(text).defs.some((d) => lang.sameLabel(d.name, newName)) : lang.jinjaClash(text, sym, newName)) {
+      if (label ? lang.labels(text).defs.some((d) => lang.sameLabel(d.name, newName)) : known.jinjaClash(sym, newName)) {
         throw new Error(label
           ? `"${newName}" is already defined in this file.`
           : `"${newName}" is already defined or used where "${sym.name}" is.`);

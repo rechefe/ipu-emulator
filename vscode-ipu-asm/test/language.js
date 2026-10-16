@@ -1,6 +1,6 @@
 'use strict';
 
-// language.js against small cases with known answers and, given parser-tokens.json (the dump the
+// language.js and fallback/ against small cases with known answers and, given parser-tokens.json (the dump the
 // agreement test uses), against the parser on every corpus file.
 //
 //   node test/language.js <data/isa.json> [parser-tokens.json]
@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { Language, jinjaRegions } = require('../language');
+const { fallbackOf } = require('../fallback');
 const { mangle } = require('./mangle');
 const { test, main } = require('./harness');
 
@@ -20,6 +21,8 @@ if (!isaPath) {
 }
 const isa = JSON.parse(fs.readFileSync(isaPath, 'utf8'));
 const lang = new Language(isa);
+// Slot fit and Jinja scoping: the editor's own rules, used where the assembler gives no answer.
+const fb = fallbackOf(lang);
 const eq = assert.deepStrictEqual;
 
 /** [text, offset] for `marked`, whose `|` marks the offset. */
@@ -28,7 +31,7 @@ const contextAt = (marked) => lang.context(...at(marked));
 /** The `set` definition of `name` in force at the `|`, or null where `name` is no `set`. */
 const valueAt = (marked, name) => {
   const [text, offset] = at(marked);
-  const d = lang.jinjaBinding(text, name, offset);
+  const d = fb.jinjaBinding(text, name, offset);
   return d && d.kind === 'set' ? d : null;
 };
 
@@ -60,14 +63,14 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
     ['| ; BLT.S lr0 cr4 top;;', ['BEQ', 'B'], ['SET']], // pseudo B also expands to cond
     [alternatives, [], ['ACC.MAX']],
   ]) {
-    const names = lang.mnemonicsFor(contextAt(marked).others).map((m) => m.mnemonic);
+    const names = fb.mnemonicsFor(contextAt(marked).others).map((m) => m.mnemonic);
     for (const m of absent) assert(!names.includes(m), `${marked}: ${m} offered`);
     for (const m of present) assert(names.includes(m), `${marked}: ${m} not offered`);
   }
   const ctx = contextAt(alternatives);
   eq([ctx.kind, ctx.others.before], ['mnemonic', ['MULT.VE']], 'the other branch is not in this word');
   // ipu_as.encode.assign_slots: in source order, NOP takes the first free slot in order -- cond.
-  eq([lang.fits(['NOP', 'HALT']), lang.fits(['HALT', 'NOP'])], [false, true]);
+  eq([fb.fits(['NOP', 'HALT']), fb.fits(['HALT', 'NOP'])], [false, true]);
   // Operand types come from isa.json; accepts follows the domain, case and number bases.
   const t = lang.operandType('ACTIVATE.QUANTIZE', 0);
   assert(t.operand.type === 'ActivationFn' && t.domain.values.includes('window'));
@@ -102,18 +105,18 @@ test('numbers and slot fill follow isa.json (schema 1); an isa.json without a ve
     instructions: { ...isa.instructions, 'X.A': twoSlots(['cond', 'mult']), 'X.B': twoSlots(['cond', 'mult']) },
     slotFill: { ...isa.slotFill, kinds: { ...isa.slotFill.kinds, 'X.A': 'mult', 'X.B': 'mult' } },
   });
-  eq([withMulti.fits(['X.A']), withMulti.fits(['X.A', 'X.B']), withMulti.fits(['X.A', 'HALT'])], [true, false, true]);
+  eq([fallbackOf(withMulti).fits(['X.A']), fallbackOf(withMulti).fits(['X.A', 'X.B']), fallbackOf(withMulti).fits(['X.A', 'HALT'])], [true, false, true]);
   // Version 0 (no schemaVersion): the old rules, kept for an older checkout's bundled isa.json.
   const { schemaVersion, numberPattern, slotFill, ...v0 } = isa;
   const old = new Language({ ...v0, instructions: withMulti.isa.instructions });
   assert(!old.accepts(signed, '-0x10') && old.accepts(signed, '-16'));
-  assert(old.fits(['X.A', 'X.B']), 'the old rule put a multi-form mnemonic in the first free slot');
+  assert(fallbackOf(old).fits(['X.A', 'X.B']), 'the old rule put a multi-form mnemonic in the first free slot');
   // A mnemonic slotFill gives no kind does not fit (generator drift shows), and a fill rule this
   // file does not know keeps the old rule.
   const noKind = new Language({ ...isa, slotFill: { ...isa.slotFill, kinds: {} } });
-  assert(!noKind.fits(['HALT']) && noKind.fits(['NOP']));
+  assert(!fallbackOf(noKind).fits(['HALT']) && fallbackOf(noKind).fits(['NOP']));
   const unknownRule = new Language({ ...isa, instructions: withMulti.isa.instructions, slotFill: { ...withMulti.isa.slotFill, rule: 'later' } });
-  assert(unknownRule.fits(['X.A', 'X.B']), 'an unknown rule falls back to the version-0 rule');
+  assert(fallbackOf(unknownRule).fits(['X.A', 'X.B']), 'an unknown rule falls back to the version-0 rule');
 });
 
 // --- labels, Jinja names, rename, symbols, folding ---------------------------------------------
@@ -137,16 +140,16 @@ test('label definitions and references, as the assembler reads them', () => {
 
 test('set, macro, parameter and for definitions, with literal values', () => {
   const text = '{%- set lr_row = "lr1" -%}\n{% set n = 4 %}\n{% set e = a + 1 %}\n{% macro step(x) %}{% endmacro %}\n{% for i, j in pairs %}{% endfor %}';
-  const { lr_row: row, n, e, step, i, j } = Object.fromEntries(lang.jinjaDefs(text).map((d) => [d.name, d]));
+  const { lr_row: row, n, e, step, i, j } = Object.fromEntries(fb.jinjaDefs(text).map((d) => [d.name, d]));
   eq([row.value, n.value, e.value, e.expression, step.kind], ['lr1', '4', null, 'a + 1', 'macro']);
   assert(i && j);
   assert.strictEqual(text.slice(row.start, row.end), 'lr_row');
   const tuple = '{% set a, b = 1, 2 %}{% macro m(x, y=3) %}{{ x }}{% endmacro %}{{ a }}{{ b }}';
-  const names = lang.jinjaDefs(tuple).map((d) => `${d.kind}:${d.name}`);
+  const names = fb.jinjaDefs(tuple).map((d) => `${d.kind}:${d.name}`);
   for (const n of ['set:a', 'set:b', 'macro:m', 'param:x', 'param:y']) assert(names.includes(n), n);
-  assert(lang.symbolAt(tuple, tuple.lastIndexOf('{{ a }}') + 3));
+  assert(fb.symbolAt(tuple, tuple.lastIndexOf('{{ a }}') + 3));
   const params = '{% macro m(a, b=f(1, c), d="x,y") %}{% endmacro %}'; // names, not their defaults
-  eq(lang.jinjaDefs(params).filter((d) => d.kind === 'param').map((d) => d.name), ['a', 'b', 'd']);
+  eq(fb.jinjaDefs(params).filter((d) => d.kind === 'param').map((d) => d.name), ['a', 'b', 'd']);
 });
 
 test('the value in force is the last set before the cursor, scoped to its loop', () => {
@@ -158,17 +161,17 @@ test('the value in force is the last set before the cursor, scoped to its loop',
     [loop.replace('{{ x }}', '{{ |x }}'), 'x', '2'],
     [`${loop.slice(0, -4)}|x }}`, 'x', '1'],
   ]) assert.strictEqual(valueAt(marked, name).value, value, marked);
-  assert.strictEqual(lang.jinjaBinding(loop, 'i', loop.lastIndexOf('{{ x }}')), null);
-  eq(lang.jinjaVisible(loop, loop.indexOf('{{ x }}')).map((d) => `${d.kind}:${d.name}:${d.value}`).sort(), ['for:i:undefined', 'set:x:2']);
+  assert.strictEqual(fb.jinjaBinding(loop, 'i', loop.lastIndexOf('{{ x }}')), null);
+  eq(fb.jinjaVisible(loop, loop.indexOf('{{ x }}')).map((d) => `${d.kind}:${d.name}:${d.value}`).sort(), ['for:i:undefined', 'set:x:2']);
 });
 
 test('name uses skip strings, attributes and Jinja words; symbolAt finds every use of a name or label', () => {
-  const uses = lang.jinjaNames('{% for x in items if x.lr_row %}{{ "lr_row" }}{{ lr_row }}{% endfor %}').map((u) => u.name);
+  const uses = fb.jinjaNames('{% for x in items if x.lr_row %}{{ "lr_row" }}{{ lr_row }}{% endfor %}').map((u) => u.name);
   assert.strictEqual(uses.filter((u) => u === 'lr_row').length, 1);
   assert(!uses.includes('for') && !uses.includes('in') && !uses.includes('if'));
   const text = '{% set r = "lr1" %}\ntop: SET {{ r }} cr0;;\n    BLT.S {{ r }} cr4 top;;';
-  const jinja = lang.symbolAt(text, text.indexOf('{{ r }}') + 3);
-  const label = lang.symbolAt(text, text.lastIndexOf('top') + 1);
+  const jinja = fb.symbolAt(text, text.indexOf('{{ r }}') + 3);
+  const label = fb.symbolAt(text, text.lastIndexOf('top') + 1);
   eq([jinja.kind, jinja.refs.length, label.kind, label.refs.length], ['jinja', 3, 'label', 2]);
 });
 
@@ -187,47 +190,47 @@ test('a macro parameter hides the top-level name, and each macro has its own', (
   const inM = text.indexOf('{{ r }}') + 3;
   const last = text.lastIndexOf('{{ r }}') + 3;
   const mark = (offset) => `${text.slice(0, offset)}|${text.slice(offset)}`;
-  assert.strictEqual(lang.jinjaBinding(text, 'r', inM).kind, 'param');
+  assert.strictEqual(fb.jinjaBinding(text, 'r', inM).kind, 'param');
   assert.strictEqual(valueAt(mark(inM), 'r'), null);
   assert.strictEqual(valueAt(mark(last), 'r').value, 'lr0');
   // m's parameter is used in m only; the top-level name outside the macros only.
-  const sym = lang.symbolAt(text, inM);
+  const sym = fb.symbolAt(text, inM);
   eq(sym.refs.map((r) => r.start), [text.indexOf('m(r') + 2, inM]);
-  eq(lang.symbolAt(text, text.indexOf('r =')).refs.map((r) => r.start), [text.indexOf('r ='), last]);
+  eq(fb.symbolAt(text, text.indexOf('r =')).refs.map((r) => r.start), [text.indexOf('r ='), last]);
   // Another macro's parameter of the same name is no clash; the top-level name is.
-  assert.strictEqual(lang.jinjaClash(text, lang.symbolAt(text, text.indexOf('n(r') + 2), 'q'), false);
-  assert.strictEqual(lang.symbolAt(text, text.indexOf('{{ r }}', inM) + 3).refs.length, 2);
+  assert.strictEqual(fb.jinjaClash(text, fb.symbolAt(text, text.indexOf('n(r') + 2), 'q'), false);
+  assert.strictEqual(fb.symbolAt(text, text.indexOf('{{ r }}', inM) + 3).refs.length, 2);
   const mText = text.replace('m(r)', 'm(q)');
-  assert.strictEqual(lang.jinjaClash(mText, lang.symbolAt(mText, mText.indexOf('n(r') + 2), 'q'), false);
-  assert.strictEqual(lang.jinjaClash(text, sym, 'm'), true);
+  assert.strictEqual(fb.jinjaClash(mText, fb.symbolAt(mText, mText.indexOf('n(r') + 2), 'q'), false);
+  assert.strictEqual(fb.jinjaClash(text, sym, 'm'), true);
   // Nor may a rename take a name the file uses without defining it.
   const uses = '{% for i in range(2) %}{{ i }} {{ rows | default(8) }}{% endfor %}';
-  const i = lang.symbolAt(uses, uses.indexOf('i in'));
-  eq([lang.jinjaClash(uses, i, 'rows'), lang.jinjaClash(uses, i, 'col')], [true, false]);
+  const i = fb.symbolAt(uses, uses.indexOf('i in'));
+  eq([fb.jinjaClash(uses, i, 'rows'), fb.jinjaClash(uses, i, 'col')], [true, false]);
 });
 
 test('a set after a parameter replaces it from there on; a loop header is read outside the loop', () => {
   const text = '{% macro inc(dest, n) %}{%- set n = n % 512 -%}{{ n }}{% endmacro %}';
-  const kind = (offset) => lang.jinjaBinding(text, 'n', offset).kind;
+  const kind = (offset) => fb.jinjaBinding(text, 'n', offset).kind;
   eq([kind(text.lastIndexOf('{{ n }}') + 3), kind(text.indexOf('n % 512'))], ['set', 'param']);
   const loop = '{% set i=5 %}{% for i in range(i) %}{{ i }}{% endfor %}';
-  eq(lang.symbolAt(loop, loop.indexOf('i in')).refs.map((r) => r.start), [loop.indexOf('i in'), loop.indexOf('{{ i }}') + 3]);
-  assert.strictEqual(lang.symbolAt(loop, loop.indexOf('range(i)') + 6).binding.kind, 'set');
+  eq(fb.symbolAt(loop, loop.indexOf('i in')).refs.map((r) => r.start), [loop.indexOf('i in'), loop.indexOf('{{ i }}') + 3]);
+  assert.strictEqual(fb.symbolAt(loop, loop.indexOf('range(i)') + 6).binding.kind, 'set');
 });
 
 test('a {{ name }} shows the literal value in force there; unused labels and sets, conservatively', () => {
   const text = '{% set r = "lr0" %}{% set n = 3 %}{% macro m(r) %}SET {{ r }} cr0;;{% endmacro %}\n'
     + 'SET {{ r }} cr0;;\n{% set r = "lr1" %}SET {{- r -}} cr0;;\nSET {{ r ~ "x" }} cr0;;\n';
   // Not inside the macro (its parameter hides the set) nor on an expression.
-  eq(lang.jinjaHints(text).map((h) => [text.slice(text.lastIndexOf('{{', h.at), h.at), h.value]), [['{{ r }}', 'lr0'], ['{{- r -}}', 'lr1']]);
-  const unused = (t) => lang.unused(t).map((u) => `${u.kind}:${u.name}`);
+  eq(fb.jinjaHints(text).map((h) => [text.slice(text.lastIndexOf('{{', h.at), h.at), h.value]), [['{{ r }}', 'lr0'], ['{{- r -}}', 'lr1']]);
+  const unused = (t) => fb.unused(t).map((u) => `${u.kind}:${u.name}`);
   eq(unused('{% set a = 1 %}{% set b = 2 %}{% set n = 0 %}{% set n = n + 1 %}{% set c = 1 %}{% set c = 2 %}\n'
     + 'top:\nend:\n    BLT.S lr0 cr0 top ;;\n    SET {{ b }} cr0 ;;\n'), ['label:end', 'set:a', 'set:c', 'set:c']);
   eq(unused('{# loop: see far_loop #}\nfar_loop:\n{% set t = "far_loop" %}{{ t }}\n'), []); // named anywhere else: used
 });
 
 test('symbols list labels, sets and macros in order; folding pairs blocks and multi-line comments', () => {
-  eq(lang.symbols('{% set r = "lr1" %}\n{% macro m() %}{% endmacro %}\ntop: HALT;;').map((s) => `${s.kind}:${s.name}`),
+  eq(fb.symbols('{% set r = "lr1" %}\n{% macro m() %}{% endmacro %}\ntop: HALT;;').map((s) => `${s.kind}:${s.name}`),
     ['set:r', 'macro:m', 'label:top']);
   const text = '{#\n header\n#}\n{% for i in range(2) %}\n{% if i %}\nHALT;;\n{% endif %}\n{% endfor %}\n{# one line #}';
   const folds = lang.folding(text).map((f) => [f.kind, text.slice(f.start, f.start + 6)]).sort();
@@ -318,7 +321,7 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
         mine.set(ins.mnemonic.start, 'MNEMONIC');
         for (const op of ins.operands) mine.set(op.start, 'OPERAND');
       }
-      if (!lang.fits(w.instructions.map((i) => i.mnemonic.text))) fail(`${name}: word at ${w.start} assembles, but language.js says it does not fit its slots`);
+      if (!fb.fits(w.instructions.map((i) => i.mnemonic.text))) fail(`${name}: word at ${w.start} assembles, but language.js says it does not fit its slots`);
     }
     const theirs = new Map(entry.tokens.filter((t) => t.role).map((t) => [t.start, t.role]));
     corpusTokens += theirs.size;
@@ -341,7 +344,7 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
           if (ins.mnemonic.templated) continue;
           const at = lang.context(text, ins.mnemonic.end);
           corpusContexts++;
-          if (!(at.kind === 'mnemonic' && lang.mnemonicsFor(at.others).some((m) => same(m.mnemonic, ins.mnemonic.text)))) {
+          if (!(at.kind === 'mnemonic' && fb.mnemonicsFor(at.others).some((m) => same(m.mnemonic, ins.mnemonic.text)))) {
             fail(`${label}: ${ins.mnemonic.text} at ${ins.mnemonic.start} is not offered where it is written`);
           }
           ins.operands.forEach((op, i) => {
