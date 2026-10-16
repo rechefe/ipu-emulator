@@ -68,7 +68,8 @@ def test_e4_expected_values_round_to_the_nearest_even_code(tmp_path):
     want = expected_for(case, plan, reference)["y"]
     assert want.tolist() == [[1.0, 1.25, 1.125, 240.0]]  # 1e6 saturates to E4's largest
     # A kernel that rounds the same way passes at EXACT.
-    result = compare("y", want.copy(), want, tier_for(plan), F.E4)
+    got = np.array([[1.0, 1.25, 1.125, 240.0]])
+    result = compare("y", got, want, tier_for(plan, plan.manifest.tensors["y"]), F.E4)
     assert result.passed and result.tier.name == "EXACT" and result.max_abs == 0
 
 
@@ -119,7 +120,8 @@ def test_an_expected_file_wins_over_the_reference(tmp_path):
 def test_no_reference_and_no_file_is_no_golden(tmp_path):
     case, plan = planned(kernel(tmp_path, reference=False), "default", F.FP32)
     assert expected_for(case, plan, None) == {}
-    assert tier_for(planned(kernel(tmp_path / "b"), "default", F.INT8)[1]).name == "EXACT"
+    _, int8 = planned(kernel(tmp_path / "b"), "default", F.INT8)
+    assert tier_for(int8, int8.manifest.tensors["y"]).name == "EXACT"
 
 
 def test_an_expected_file_or_reference_of_the_wrong_shape_is_located(tmp_path):
@@ -132,3 +134,34 @@ def test_an_expected_file_or_reference_of_the_wrong_shape_is_located(tmp_path):
     case, plan = planned(m, "default", F.FP32)
     with pytest.raises(PlanError, match=r"made y \(3,\), not \(1, 4\)"):
         expected_for(case, plan, {"y": np.zeros(3)})
+
+
+def test_an_accumulator_output_takes_its_accumulator_format_tier(tmp_path):
+    m = kernel(tmp_path, store='store = "accumulator"\n')
+    _, plan = planned(m, "default", F.E4)
+    # e4 names EXACT, fp32 FP32_ORDER: the FP32 accumulator output is held at FP32_ORDER.
+    assert tier_for(plan, m.tensors["y"]).name == "FP32_ORDER"
+
+
+def test_a_value_that_is_no_code_never_passes_at_fp8_ulp():
+    tier = TIERS["FP8_ULP"]
+    # 1.06 lies between E4 codes 1.0 and 1.125: no kernel stores it.
+    for bad in (1.06, np.nan, np.inf):
+        result = compare("y", np.array([bad, 1.0]), np.array([1.125, 1.0]), tier, F.E4)
+        assert not result.passed and result.max_ulps == -1 and result.worst_index == (0,)
+    assert compare("y", np.array([-0.0]), np.array([0.0]), tier, F.E4).passed
+
+
+def test_nan_fails_a_tolerance_tier_and_an_empty_output_passes():
+    assert not compare("y", np.array([np.nan]), np.array([1.0]), TIERS["FP32_LONG"], F.FP32).passed
+    assert compare("y", np.zeros((0, 4)), np.zeros((0, 4)), TIERS["EXACT"], F.FP32).passed
+
+
+def test_the_reference_must_make_exactly_the_declared_outputs(tmp_path):
+    case, plan = planned(kernel(tmp_path), "default", F.FP32)
+    for made in ({}, {"y": np.zeros((1, 4)), "z": np.zeros(1)}, {"Y": np.zeros((1, 4))}):
+        with pytest.raises(PlanError, match="not the outputs \\['y'\\]") as error:
+            expected_for(case, plan, made)
+        assert error.value.key == "golden"
+    with pytest.raises(PlanError, match="non-finite"):
+        expected_for(case, plan, {"y": np.array([[1.0, np.nan, 0.0, 0.0]])})

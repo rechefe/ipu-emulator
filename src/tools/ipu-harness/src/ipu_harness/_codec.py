@@ -56,6 +56,7 @@ def codes(fmt: ElementFormat) -> Array:
     """
     decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(FORMATS[fmt].exp_bits))
     values: Array = np.unique(decoded[np.isfinite(decoded)].astype(np.float64))
+    values.flags.writeable = False  # cached: shared by every caller
     return values
 
 

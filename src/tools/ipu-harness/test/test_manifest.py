@@ -169,6 +169,18 @@ RULES = [
         "-1 must not be negative",
         "tolerance = {",
     ),
+    (
+        'fp32 = "EXACT"',
+        'fp32 = { tier = "FP32_ORDER", ulps = 2, why = "x" }',
+        "is never read for fp32 at this tier",
+        "tolerance = {",
+    ),
+    (
+        'e4 = "FP8_ULP" }',
+        'e4 = { tier = "FP8_ULP", rtol = 0.1, why = "x" } }',
+        "is never read for e4 at this tier",
+        "tolerance = {",
+    ),
     # An input's range (E06-08): a non-empty [lo, hi], per format only for the kernel's formats.
     (
         '[inputs.x]\nshape = ["rows", 128]',
@@ -390,7 +402,7 @@ RULES = [
     (
         "tolerance = { fp32",
         'tolerance = { e5 = "X", fp32',
-        "tolerance for e5, a format the kernel does not run in",
+        "tolerance for e5, a format the kernel does not run in or accumulate in",
         "e5 =",
     ),
     ("rows = [1, 7, 33, 128]", "rows = []", "sweeps over no values", "rows = []"),
@@ -468,6 +480,13 @@ def test_a_tier_override_keeps_its_why(tmp_path):
     )
     tier = load_manifest(kernel(tmp_path, toml)).golden.tolerance[ElementFormat.FP32]
     assert tier == ("FP32_ORDER", 3e-5, 1e-6, None, "measured on case X")
+
+
+def test_an_accumulator_format_may_name_a_tier(tmp_path):
+    # INT8 accumulates in INT32: an accumulator output in an int8 case is compared there.
+    toml = SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", int32 = "INT8_LSB"')
+    tiers = load_manifest(kernel(tmp_path, toml)).golden.tolerance
+    assert tiers[ElementFormat.INT32].name == "INT8_LSB"
 
 
 def test_an_input_range_is_per_format(tmp_path):

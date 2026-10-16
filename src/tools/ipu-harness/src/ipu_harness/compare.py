@@ -36,8 +36,10 @@ class Comparison:
         tier: The tolerance it was held to.
         passed: Whether every element is within the tier.
         max_abs: The largest absolute difference.
-        max_rel: The largest difference relative to the expected value.
-        max_ulps: The largest distance in codes (8-bit float formats), else None.
+        max_rel: The largest difference relative to the expected value, over
+            the elements whose expected value is not zero.
+        max_ulps: The largest distance in codes (8-bit float formats), else
+            None; -1 when a value the kernel wrote is not a finite code.
         worst_index: Where the element that is furthest out of tolerance is
             (the largest difference when all pass).
         got: The kernel's value there.
@@ -65,12 +67,14 @@ class Comparison:
         )
 
 
-def tier_for(plan: CasePlan) -> Tier:
-    """The tier ``[golden] tolerance`` names for ``plan.format``, else EXACT."""
-    return plan.manifest.golden.tolerance.get(plan.format, DEFAULT_TIER)
+def tier_for(plan: CasePlan, tensor: TensorDecl) -> Tier:
+    """The tier ``[golden] tolerance`` names for the format ``tensor`` is
+    stored in (``plan.format``, or its accumulator format), else EXACT."""
+    return plan.manifest.golden.tolerance.get(stored_format(tensor, plan.format), DEFAULT_TIER)
 
 
 def _rounded(values: Array, tensor: TensorDecl, plan: CasePlan) -> Array:
+    """``values`` as the format ``tensor`` is stored in holds them, as float64."""
     return held(np.asarray(values, dtype=np.float64), stored_format(tensor, plan.format)).astype(
         np.float64
     )
@@ -92,14 +96,22 @@ def expected_for(
         neither a file nor a reference output has none (a smoke run only).
 
     Raises:
-        PlanError: An expected file is unreadable or not the output's shape,
-            or the reference gave an output the wrong shape (located at
-            ``cases.<name>.expected.<output>`` or ``golden``).
+        PlanError: An expected file is unreadable, not real numbers or not
+            the output's shape; the reference did not make exactly the
+            declared outputs, or made one the wrong shape; or an expected
+            value is not finite (located at ``cases.<name>.expected.<output>``
+            or ``golden``).
     """
+    outputs = [t for t in plan.manifest.tensors.values() if t.role == "output"]
+    if ref_out is not None and set(ref_out) != {t.name for t in outputs}:
+        raise PlanError(
+            plan.manifest,
+            "golden",
+            f"the reference made {sorted(ref_out)}, not the outputs "
+            f"{sorted(t.name for t in outputs)}",
+        )
     out: dict[str, Array] = {}
-    for tensor in plan.manifest.tensors.values():
-        if tensor.role != "output":
-            continue
+    for tensor in outputs:
         shape = plan.shapes[tensor.name]
         if tensor.name in case.expected:
             key = f"cases.{case.decl.name}.expected.{tensor.name}"
@@ -108,28 +120,43 @@ def expected_for(
                 values = np.load(path, allow_pickle=False)
             except (OSError, ValueError) as error:
                 raise PlanError(plan.manifest, key, f"cannot read {path}: {error}") from None
-            if values.shape != shape or not np.issubdtype(values.dtype, np.number):
+            real = np.issubdtype(values.dtype, np.floating) or np.issubdtype(
+                values.dtype, np.integer
+            )
+            if values.shape != shape or not real:
                 raise PlanError(
                     plan.manifest, key, f"{path} holds {values.dtype} {values.shape}, not {shape}"
                 )
-        elif ref_out is not None and tensor.name in ref_out:
-            values = ref_out[tensor.name]
+        elif ref_out is not None:
+            key = "golden"
+            values = np.asarray(ref_out[tensor.name])
             if values.shape != shape:
                 raise PlanError(
                     plan.manifest,
-                    "golden",
+                    key,
                     f"the reference made {tensor.name} {values.shape}, not {shape}",
                 )
         else:
             continue
+        if not np.all(np.isfinite(values)):
+            raise PlanError(plan.manifest, key, f"expected {tensor.name} holds a non-finite value")
         out[tensor.name] = _rounded(values, tensor, plan)
     return out
 
 
 def _ulps(got: Array, want: Array, fmt: ElementFormat) -> Array:
-    """The distance in codes between two arrays of ``fmt`` values."""
+    """The distance in codes between two arrays of ``fmt`` values; infinite
+    where either value is not a finite code of ``fmt``."""
     order = codes(fmt)
-    distance: Array = np.abs(np.searchsorted(order, got) - np.searchsorted(order, want))
+
+    def index(values: Array) -> Array:
+        at = np.searchsorted(order, values)
+        exact = order[np.minimum(at, len(order) - 1)] == values
+        found: Array = np.where(exact, at, -1)
+        return found
+
+    g, w = index(got), index(want)
+    distance: Array = np.where((g < 0) | (w < 0), np.inf, np.abs(g - w).astype(np.float64))
     return distance
 
 
@@ -137,8 +164,8 @@ def compare(output: str, got: Array, want: Array, tier: Tier, fmt: ElementFormat
     """Hold ``got`` to ``want`` at ``tier``.
 
     An element passes when ``|got - want| <= atol + rtol * |want|``, or, for a
-    tier with ``ulps`` in an 8-bit float format, when the two are at most
-    ``ulps`` codes apart.
+    tier with ``ulps`` in an 8-bit float format, when both are codes of the
+    format at most ``ulps`` codes apart. A NaN or infinity never passes.
 
     Args:
         output: The output's name.
@@ -156,24 +183,33 @@ def compare(output: str, got: Array, want: Array, tier: Tier, fmt: ElementFormat
     got64, want64 = np.asarray(got, dtype=np.float64), np.asarray(want, dtype=np.float64)
     if got64.shape != want64.shape:
         raise ValueError(f"{output}: got shape {got64.shape}, want {want64.shape}")
-    diff = np.abs(got64 - want64)
-    rel = np.divide(diff, np.abs(want64), out=np.zeros_like(diff), where=want64 != 0)
+    fp8 = FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8
+    counts_codes = tier.ulps is not None and fp8
+    if got64.size == 0:
+        return Comparison(output, tier, True, 0.0, 0.0, 0 if counts_codes else None, (), 0.0, 0.0)
+    with np.errstate(invalid="ignore"):
+        diff = np.abs(got64 - want64)
+        diff[~np.isfinite(diff)] = np.inf  # a NaN is as far off as an infinity
+        rel = np.divide(diff, np.abs(want64), out=np.zeros_like(diff), where=want64 != 0)
     ulps: Array | None = None
-    if tier.ulps is not None and FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8:
+    if counts_codes:
         ulps = _ulps(got64, want64, fmt)
-        excess = ulps.astype(np.float64) - tier.ulps
+        excess = ulps - tier.ulps
     else:
         excess = diff - (tier.atol + tier.rtol * np.abs(want64))
     passed = bool(np.all(excess <= 0))
     worst = np.unravel_index(int(np.argmax(excess if not passed else diff)), diff.shape)
     index = tuple(int(i) for i in worst)
+    max_ulps = None
+    if ulps is not None:
+        max_ulps = -1 if np.isinf(ulps).any() else int(ulps.max())
     return Comparison(
         output=output,
         tier=tier,
         passed=passed,
-        max_abs=float(diff.max(initial=0.0)),
-        max_rel=float(rel.max(initial=0.0)),
-        max_ulps=None if ulps is None else int(ulps.max(initial=0)),
+        max_abs=float(diff.max()),
+        max_rel=float(rel.max()),
+        max_ulps=max_ulps,
         worst_index=index,
         got=float(got64[index]),
         want=float(want64[index]),

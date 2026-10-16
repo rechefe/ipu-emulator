@@ -620,14 +620,28 @@ def _named_tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
     return TIERS[name]
 
 
-def _tier(r: Reader, raw: object, path: tuple[str, ...]) -> ToleranceTier:
-    """A tier by name, or a table overriding one's numbers with a ``why``."""
+def _tier(r: Reader, raw: object, fmt: ElementFormat, path: tuple[str, ...]) -> ToleranceTier:
+    """A tier by name, or a table overriding one's numbers with a ``why``.
+
+    An override may set only the numbers ``compare`` reads for ``fmt``:
+    ``ulps`` only for an 8-bit float format, and there not ``rtol`` or ``atol``
+    when the tier counts codes.
+    """
     if not isinstance(raw, dict):
         return _named_tier(r, raw, path)
     r.known(raw, _TIER_KEYS, path)
     if "tier" not in raw or "why" not in raw:
         raise r.fail(path, f"{where(path)} overrides a tier: it needs 'tier' and a 'why'")
     base = _named_tier(r, raw["tier"], (*path, "tier"))
+    fp8 = FORMATS[fmt].is_float and FORMATS[fmt].element_bits == 8
+    unread = ["ulps"] if not fp8 else []
+    if fp8 and (base.ulps is not None or "ulps" in raw):
+        unread = ["rtol", "atol"]
+    for key in unread:
+        if key in raw:
+            raise r.fail(
+                (*path, key), f"{where((*path, key))} is never read for {fmt.value} at this tier"
+            )
     rtol, atol = (_non_negative(r, raw, key, (int, float), path) for key in ("rtol", "atol"))
     ulps = _non_negative(r, raw, "ulps", int, path)
     return ToleranceTier(
@@ -674,9 +688,14 @@ def _golden(
         for fmt, tier in tiers.items():
             path = ("golden", "tolerance", fmt)
             key = r.format(fmt, path)
-            if key not in formats:
-                raise r.fail(path, f"tolerance for {fmt}, a format the kernel does not run in")
-            tolerance[key] = _tier(r, tier, path)
+            # An accumulator output is compared in its accumulator format (FP32 or INT32).
+            accumulated = {ElementFormat(FORMATS[f].accumulator.value) for f in formats}
+            if key not in formats and key not in accumulated:
+                raise r.fail(
+                    path,
+                    f"tolerance for {fmt}, a format the kernel does not run in or accumulate in",
+                )
+            tolerance[key] = _tier(r, tier, key, path)
     return GoldenDecl(reference, op, MappingProxyType(tolerance))
 
 
