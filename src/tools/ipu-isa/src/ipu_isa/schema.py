@@ -2,7 +2,7 @@
 
 Instructions, operands, slot metadata and pseudo-instructions are authored as
 nested dicts in ``instruction_spec.py``. Every key a dict there may carry is
-listed here, required or optional, so a typo such as ``"raed": "snapshot"`` is
+listed here, required or optional, so a typo such as ``"raed": "cycle_start"`` is
 an error at import instead of a silently dropped field. Adding a key to the
 spec means adding it here first.
 """
@@ -31,14 +31,23 @@ class Keys:
     optional: frozenset[str] = frozenset()
 
 
-INSTRUCTION = Keys(frozenset({"operands", "doc", "execute_fn"}), frozenset({"tag"}))
-OPERAND = Keys(frozenset({"name", "type"}), frozenset({"read"}))
+INSTRUCTION = Keys(
+    frozenset({"operands", "doc", "execute_fn"}),
+    frozenset({"tag", "implicit_reads", "implicit_writes"}),
+)
+OPERAND = Keys(frozenset({"name", "type"}), frozenset({"read", "write"}))
+#: One entry of an instruction's ``implicit_reads`` (E03-14).
+IMPLICIT_READ = Keys(frozenset({"register", "view"}), frozenset({"via_operand"}))
+#: One entry of an instruction's ``implicit_writes`` (E03-14).
+IMPLICIT_WRITE = Keys(frozenset({"register"}), frozenset({"via_operand"}))
 SLOT_METADATA_ENTRY = Keys(frozenset({"description"}))
 PSEUDO_INSTRUCTION = Keys(frozenset({"operands", "expands_to", "doc"}), frozenset({"tag"}))
 EXPANSION = Keys(frozenset({"slot", "instruction", "args"}))
 
-#: Values of an operand's ``read`` key.
-READ_SOURCES = frozenset({"snapshot", "live"})
+#: Values of an operand's ``read`` key and of an implicit read's ``view``: the
+#: register's value at cycle start, or the value forwarded from an earlier
+#: slot of the same word (GLOSSARY.md; ``ipu_isa.timing.View``).
+READ_SOURCES = frozenset({"cycle_start", "forwarded"})
 
 
 def check_keys(path: str, entry: object, keys: Keys) -> None:

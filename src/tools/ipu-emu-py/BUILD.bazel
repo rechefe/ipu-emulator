@@ -274,6 +274,22 @@ py_pytest_test(
     ],
 )
 
+# The ISA's timing declarations against the two files above (E03-14). It
+# reads the timing tests' source, so they are data, not imported.
+py_pytest_test(
+    name = "test_timing_declarations",
+    srcs = ["test/test_timing_declarations.py"],
+    data = [
+        "test/test_timing_datapath_views.py",
+        "test/test_timing_lr_views.py",
+    ],
+    imports = ["src"],
+    deps = [
+        ":ipu_emu_lib",
+        requirement("pytest"),
+    ],
+)
+
 # The Q71 emulator benchmarks (E04-02): IpuState() construction, matmul cycles/s
 # (FP32 and INT8; prototyping too with --config=proto). A `bazel run` target, not a
 # test: //tools/bench:bench_smoke_test keeps it from rotting. tools/bench/README.md.

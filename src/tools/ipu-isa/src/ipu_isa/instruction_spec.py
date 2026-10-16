@@ -18,9 +18,17 @@ KEY DESIGN PRINCIPLES:
    Types are string names the assembler resolves to its token classes.
    Operands with a ``"read"`` field are source registers whose values
    are auto-resolved by the emulator dispatcher before calling handlers.
-   The value controls which register file is used:
-     - ``"snapshot"`` → read from the VLIW snapshot (pre-write state)
-     - ``"live"``     → read from the current (post-write) register file
+   The value is the timing view (``ipu_isa.timing``, GLOSSARY.md):
+     - ``"cycle_start"`` → the value the register held when the word began
+     - ``"forwarded"``   → the value after the writes of earlier slots of
+       the same word
+   Operands with ``"write": True`` are destination registers: the raw index
+   is passed through and the handler writes it.
+
+4. TIMING: every register an instruction reads or writes is declared, as an
+   operand (``read`` / ``write``) or in ``implicit_reads`` /
+   ``implicit_writes``. ``ipu_isa.timing`` holds the slot execution order and
+   the timing contract the declarations are checked against.
 
 OPERAND TYPE NAMES (resolved by the assembler into its token classes):
   - "MultStageReg": R0 or R1 (MultStageRegField); 2-bit encoding in the VLIW word
@@ -48,8 +56,8 @@ Structure:
         "slot_type": {
             "instruction_name": {
                 "operands": [
-                    {"name": "src", "type": "LrIdx", "read": "snapshot"},
-                    {"name": "dest", "type": "LrIdx"},
+                    {"name": "src", "type": "LrIdx", "read": "cycle_start"},
+                    {"name": "dest", "type": "LrIdx", "write": True},
                     ...
                 ],
                 "doc": InstructionDoc(...),
@@ -61,15 +69,21 @@ Structure:
     }
 
     Operand "read" flag:
-        - ``"read": "snapshot"`` → source register resolved from the VLIW
-          snapshot (read-before-write). The emulator dispatcher reads the
-          register value from the snapshot captured at cycle start.
-        - ``"read": "live"`` → source register resolved from the current
-          register file (sees writes from earlier slots in the same cycle).
+        - ``"read": "cycle_start"`` → source register resolved to the value it
+          held when the instruction word began.
+        - ``"read": "forwarded"`` → source register resolved to the value
+          after the writes of earlier slots in the same word.
         - Absent → destination/index operand; the raw index is passed
-          through so the handler can write to it.
+          through so the handler can write to it (``"write": True`` when it
+          is the register the instruction writes).
         - Immediates and Labels have no "read" flag (literal values always
           passed as-is).
+
+    Instruction "implicit_reads" / "implicit_writes" (optional): registers
+    the handler reads or writes that are not ``read`` / ``write`` operands, as
+    ``{"register": <REGISTER_DEFINITIONS name>, "via_operand": <operand that
+    selects the index, optional>, "view": "cycle_start" | "forwarded"}``
+    (``view`` on reads only).
 """
 
 from __future__ import annotations
@@ -82,6 +96,7 @@ from typing import Any
 from ipu_isa import schema
 from ipu_isa.constants import CR_ONE_REG_INDEX, CR_ZERO_REG_INDEX
 from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
+from ipu_isa.registers import REGISTER_DEFINITIONS
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, SlotInfo
 from ipu_isa.tags import Tag
 
@@ -189,9 +204,9 @@ INSTRUCTION_SPEC = {
     "load": {
         "LDR_MULT_REG": {
             "operands": [
-                {"name": "dest", "type": "MultStageReg"},
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
+                {"name": "dest", "type": "MultStageReg", "write": True},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
+                {"name": "base", "type": "CrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Load Register",
@@ -208,9 +223,9 @@ INSTRUCTION_SPEC = {
         },
         "LDR_CYCLIC_MULT_REG": {
             "operands": [
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
-                {"name": "index", "type": "LrIdx", "read": "live"},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
+                {"name": "base", "type": "CrIdx", "read": "cycle_start"},
+                {"name": "index", "type": "LrIdx", "read": "forwarded"},
             ],
             "doc": InstructionDoc(
                 title="Load Cyclic Register",
@@ -222,12 +237,13 @@ INSTRUCTION_SPEC = {
                 ],
                 operation="R_CYCLIC[index .. index+127] = Memory[row(offset + base)]   # index ∈ {0, 128, 256, 384}",
             ),
+            "implicit_writes": [{"register": "r_cyclic"}],
             "execute_fn": "execute_ldr_cyclic_mult_reg",
         },
         "LDR_MULT_MASK_REG": {
             "operands": [
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
+                {"name": "base", "type": "CrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Load Mask Register",
@@ -238,6 +254,7 @@ INSTRUCTION_SPEC = {
                 ],
                 operation="R_MASK = Memory[row(offset + base) .. +128B]  # reads only the row's first 128 B, in both modes -- the mask is 1 bit/element and does not scale with element width",
             ),
+            "implicit_writes": [{"register": "r_mask"}],
             "execute_fn": "execute_ldr_mult_mask_reg",
         },
         "NOP": {
@@ -256,8 +273,8 @@ INSTRUCTION_SPEC = {
     "store": {
         "STR_POST_AAQ_REG": {
             "operands": [
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
+                {"name": "base", "type": "CrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Store Post-AAQ register",
@@ -272,6 +289,9 @@ INSTRUCTION_SPEC = {
                 operation="Memory[row(offset + base)] = POST_AAQ_REG (512 bytes, both modes -- width does not scale with element width); interim staging register",
                 example="STR_POST_AAQ_REG LR0 CR0;;",
             ),
+            "implicit_reads": [
+                {"register": "post_aaq_reg", "view": "forwarded"},
+            ],
             "execute_fn": "execute_str_post_aaq_reg",
         },
         "NOP": {
@@ -290,8 +310,8 @@ INSTRUCTION_SPEC = {
     "acc_store": {
         "STR_ACC_REG": {
             "operands": [
-                {"name": "offset", "type": "LrIdx", "read": "live"},
-                {"name": "base", "type": "CrIdx", "read": "live"},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
+                {"name": "base", "type": "CrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Store Accumulator",
@@ -307,6 +327,9 @@ INSTRUCTION_SPEC = {
                 example="STR_ACC_REG LR0 CR1;;",
                 notes="This instruction lives in the simulation-only **acc_store** slot.",
             ),
+            "implicit_reads": [
+                {"register": "r_acc", "view": "forwarded"},
+            ],
             "execute_fn": "execute_str_acc_reg",
         },
         "NOP": {
@@ -327,8 +350,8 @@ INSTRUCTION_SPEC = {
     "lr": {
         "SET": {
             "operands": [
-                {"name": "reg", "type": "LrIdx"},
-                {"name": "src", "type": "CrIdx", "read": "snapshot"},
+                {"name": "reg", "type": "LrIdx", "write": True},
+                {"name": "src", "type": "CrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Set Loop Register",
@@ -344,9 +367,9 @@ INSTRUCTION_SPEC = {
         },
         "ADD": {
             "operands": [
-                {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "dest", "type": "LrIdx", "write": True},
+                {"name": "src_a", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "src_b", "type": "LcrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Add",
@@ -363,9 +386,9 @@ INSTRUCTION_SPEC = {
         },
         "SUB": {
             "operands": [
-                {"name": "dest", "type": "LrIdx"},
-                {"name": "src_a", "type": "LrIdx", "read": "snapshot"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "dest", "type": "LrIdx", "write": True},
+                {"name": "src_a", "type": "LrIdx", "read": "cycle_start"},
+                {"name": "src_b", "type": "LcrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Subtract",
@@ -385,8 +408,8 @@ INSTRUCTION_SPEC = {
         },
         "INCR_MOD_POW2": {
             "operands": [
-                {"name": "dest", "type": "LrIdx"},
-                {"name": "step", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "dest", "type": "LrIdx", "write": True},
+                {"name": "step", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "k", "type": "LrModPow2KImmediate"},
             ],
             "doc": InstructionDoc(
@@ -403,11 +426,14 @@ INSTRUCTION_SPEC = {
                 operation="dest <- (dest + step) & ((1 << k) - 1)",
                 example="INCR_MOD_POW2 LR2 LR3 4;;",
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
+            ],
             "execute_fn": "execute_lr_incr_mod_pow2",
         },
         "INC": {
             "operands": [
-                {"name": "dest", "type": "LrIdx"},
+                {"name": "dest", "type": "LrIdx", "write": True},
                 {"name": "imm", "type": "LrIncDecImmediate"},
             ],
             "doc": InstructionDoc(
@@ -420,11 +446,14 @@ INSTRUCTION_SPEC = {
                 operation="dest = dest + imm",
                 example="INC LR0 7;;",
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
+            ],
             "execute_fn": "execute_lr_inc",
         },
         "DEC": {
             "operands": [
-                {"name": "dest", "type": "LrIdx"},
+                {"name": "dest", "type": "LrIdx", "write": True},
                 {"name": "imm", "type": "LrIncDecImmediate"},
             ],
             "doc": InstructionDoc(
@@ -439,12 +468,15 @@ INSTRUCTION_SPEC = {
                 operation="dest = dest - imm",
                 example="DEC LR0 3;;",
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
+            ],
             "execute_fn": "execute_lr_dec",
         },
         "ADDB": {
             "operands": [
-                {"name": "dest", "type": "LrdIdx"},
-                {"name": "src_b", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "dest", "type": "LrdIdx", "write": True},
+                {"name": "src_b", "type": "LcrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Add Byte (Broadcast, Register)",
@@ -470,11 +502,14 @@ INSTRUCTION_SPEC = {
                     "two's-complement subtract."
                 ),
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
+            ],
             "execute_fn": "execute_addb",
         },
         "ADDBI": {
             "operands": [
-                {"name": "dest", "type": "LrdIdx"},
+                {"name": "dest", "type": "LrdIdx", "write": True},
                 {"name": "imm", "type": "AddbiImmediate"},
             ],
             "doc": InstructionDoc(
@@ -500,6 +535,9 @@ INSTRUCTION_SPEC = {
                     "wrapping — it does not behave like a plain two's-complement subtract."
                 ),
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "dest", "view": "cycle_start"},
+            ],
             "execute_fn": "execute_addbi",
         },
         "NOP": {
@@ -520,10 +558,10 @@ INSTRUCTION_SPEC = {
     "mult": {
         "MULT.RC.VV": {
             "operands": [
-                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
-                {"name": "ra", "type": "MultStageReg", "read": "snapshot"},
+                {"name": "rc_idx", "type": "LrIdx", "read": "forwarded"},
+                {"name": "ra", "type": "MultStageReg", "read": "cycle_start"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -544,14 +582,20 @@ INSTRUCTION_SPEC = {
                 example="MULT.RC.VV LR0 R0 0 LR2 CR15;;",
                 notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
+            "implicit_reads": [
+                {"register": "r_cyclic", "view": "cycle_start"},
+                {"register": "r_mask", "view": "forwarded"},
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "mult_res"}],
             "execute_fn": "execute_mult_rc_vv",
         },
         "MULT.RC.VE": {
             "operands": [
-                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
+                {"name": "rc_idx", "type": "LrIdx", "read": "forwarded"},
                 {"name": "src", "type": "LcrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -573,13 +617,22 @@ INSTRUCTION_SPEC = {
                 example="MULT.RC.VE LR0 LR3 0 LR2 CR15;;",
                 notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "src", "view": "forwarded"},
+                {"register": "cr", "via_operand": "src", "view": "cycle_start"},
+                {"register": "r", "view": "cycle_start"},
+                {"register": "r_cyclic", "view": "cycle_start"},
+                {"register": "r_mask", "view": "forwarded"},
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "mult_res"}],
             "execute_fn": "execute_mult_rc_ve",
         },
         "MULT.RC.VS": {
             "operands": [
-                {"name": "rc_idx", "type": "LrIdx", "read": "live"},
+                {"name": "rc_idx", "type": "LrIdx", "read": "forwarded"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -599,6 +652,12 @@ INSTRUCTION_SPEC = {
                 example="MULT.RC.VS LR0 0 LR2 CR15;;",
                 notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
+            "implicit_reads": [
+                {"register": "r_cyclic", "view": "cycle_start"},
+                {"register": "r_mask", "view": "forwarded"},
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "mult_res"}],
             "execute_fn": "execute_mult_rc_vs",
         },
         "NOP": {
@@ -612,10 +671,10 @@ INSTRUCTION_SPEC = {
         },
         "MULT.VE": {
             "operands": [
-                {"name": "ra_idx", "type": "LrIdx", "read": "live"},
+                {"name": "ra_idx", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "forwarded"},
                 {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -636,14 +695,21 @@ INSTRUCTION_SPEC = {
                 example="MULT.VE LR0 CR3 0 LR2 CR15;;",
                 notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "r", "view": "cycle_start"},
+                {"register": "r_mask", "view": "forwarded"},
+                {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "mult_res"}],
             "execute_fn": "execute_mult_ve",
         },
         "MULT.EE": {
             "operands": [
-                {"name": "ra_idx", "type": "LrIdx", "read": "live"},
+                {"name": "ra_idx", "type": "LrIdx", "read": "forwarded"},
                 {"name": "cr_idx", "type": "CrIdx"},
                 {"name": "mask_offset", "type": "MultMaskOffsetImmediate"},
-                {"name": "mask_shift", "type": "LrIdx", "read": "live"},
+                {"name": "mask_shift", "type": "LrIdx", "read": "forwarded"},
                 {"name": "dstructure_cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -664,6 +730,13 @@ INSTRUCTION_SPEC = {
                 example="MULT.EE LR0 CR3 0 LR2 CR15;;",
                 notes="Element masking via `mask_offset` and `mask_shift` fills elements whose derived mask bit is **0** (deactivated) in `MULT_RES` with the dstructure register's `pad_mode` value (zero by default, or +inf/-inf for a floating-point dtype) before accumulation; elements with bit **1** pass through. See [Masking](assembly-syntax.md#masking) for the full algorithm.",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "r", "view": "cycle_start"},
+                {"register": "r_mask", "view": "forwarded"},
+                {"register": "cr", "via_operand": "dstructure_cr_idx", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "mult_res"}],
             "execute_fn": "execute_mult_ee",
         },
     },
@@ -683,6 +756,11 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] += MULT_RES[i]  # for each element i",
                 example="ACC.ADD;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+                {"register": "r_acc", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_add",
         },
         "ACC.ADD.FIRST": {
@@ -694,6 +772,10 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] = MULT_RES[i]  # for each element i",
                 example="ACC.ADD.FIRST;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_add_first",
         },
         "ACC.MAX": {
@@ -705,6 +787,11 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] = max(R_ACC[i], MULT_RES[i])  # for each element i",
                 example="ACC.MAX;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+                {"register": "r_acc", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_max",
         },
         "ACC.MAX.FIRST": {
@@ -716,6 +803,10 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] = MULT_RES[i]  # for each element i (unconditional overwrite)",
                 example="ACC.MAX.FIRST;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_max_first",
         },
         "ACC.SUB": {
@@ -727,6 +818,11 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] -= MULT_RES[i]  # for each element i",
                 example="ACC.SUB;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+                {"register": "r_acc", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_sub",
         },
         "ACC.SUB.FIRST": {
@@ -738,6 +834,10 @@ INSTRUCTION_SPEC = {
                 operation="R_ACC[i] = -MULT_RES[i]  # for each element i",
                 example="ACC.SUB.FIRST;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_sub_first",
         },
         "NOP": {
@@ -754,7 +854,7 @@ INSTRUCTION_SPEC = {
                 {"name": "elements_in_row", "type": "ElementsInRow"},
                 {"name": "horizontal_stride", "type": "HorizontalStride"},
                 {"name": "vertical_stride", "type": "VerticalStride"},
-                {"name": "offset", "type": "LrIdx", "read": "live"},
+                {"name": "offset", "type": "LrIdx", "read": "forwarded"},
             ],
             "doc": InstructionDoc(
                 title="Accumulator Stride",
@@ -772,11 +872,15 @@ INSTRUCTION_SPEC = {
                 ),
                 example="ACC.STRIDE 16 off off LR0;;",
             ),
+            "implicit_reads": [
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_stride",
         },
         "AGG.SUM.FIRST": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -798,11 +902,16 @@ INSTRUCTION_SPEC = {
                 ),
                 example="AGG.SUM.FIRST LR0 CR3;;",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_agg_sum_first",
         },
         "AGG.SUM": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -824,11 +933,17 @@ INSTRUCTION_SPEC = {
                 ),
                 example="AGG.SUM LR0 CR3;;",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
+                {"register": "r_acc", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_agg_sum",
         },
         "AGG.MAX.FIRST": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -851,11 +966,16 @@ INSTRUCTION_SPEC = {
                 ),
                 example="AGG.MAX.FIRST LR0 CR3;;",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_agg_max_first",
         },
         "AGG.MAX": {
             "operands": [
-                {"name": "dest_slot", "type": "LrIdx", "read": "snapshot"},
+                {"name": "dest_slot", "type": "LrIdx", "read": "cycle_start"},
                 {"name": "cr_idx", "type": "DstructureCrIdx"},
             ],
             "doc": InstructionDoc(
@@ -877,12 +997,18 @@ INSTRUCTION_SPEC = {
                 ),
                 example="AGG.MAX LR0 CR3;;",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "mult_res", "view": "forwarded"},
+                {"register": "r_acc", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_agg_max",
         },
         "ACC.RESHAPE": {
             "operands": [
-                {"name": "source", "type": "LrdIdx", "read": "snapshot"},
-                {"name": "dest", "type": "LrdIdx", "read": "snapshot"},
+                {"name": "source", "type": "LrdIdx", "read": "cycle_start"},
+                {"name": "dest", "type": "LrdIdx", "read": "cycle_start"},
                 {"name": "reshape_mask", "type": "LrOrReshapeMaskImmediate"},
             ],
             "doc": InstructionDoc(
@@ -898,7 +1024,7 @@ INSTRUCTION_SPEC = {
                     "reshape_mask: immediate 0-7 or an LR register; selects the first participating element index (elements reshape_mask..7 participate; reshape_mask = 0 uses all 8, reshape_mask = 7 uses only element 7). When an LR is given, its full value is used as the mask at runtime.",
                 ],
                 operation=(
-                    "mult_res = MULT_RES (pre-instruction snapshot)\n"
+                    "mult_res = MULT_RES (cycle-start value)\n"
                     "mask = reshape_mask if immediate else LR[reshape_mask]\n"
                     "if mask > 8: raise error\n"
                     "for i in mask..7:\n"
@@ -913,6 +1039,11 @@ INSTRUCTION_SPEC = {
                     "0-4; elements 5-7 participate."
                 ),
             ),
+            "implicit_reads": [
+                {"register": "lr", "via_operand": "reshape_mask", "view": "forwarded"},
+                {"register": "mult_res", "view": "cycle_start"},
+            ],
+            "implicit_writes": [{"register": "r_acc"}],
             "execute_fn": "execute_acc_reshape",
         },
     },
@@ -938,7 +1069,7 @@ INSTRUCTION_SPEC = {
             "doc": InstructionDoc(
                 title="Activate and Quantize",
                 summary=(
-                    "Read active elements from ``r_acc`` (snapshot), apply the selected element-wise activation, "
+                    "Read active elements from the forwarded R_ACC (this cycle's ACC result), apply the selected element-wise activation, "
                     "clamp the results to the INT8 range ``[-128, 127]``, and write the resulting bytes to "
                     "the leading active-element positions of **``POST_AAQ_REG``**; all remaining bytes are zeroed. "
                     "``r_acc`` is not modified. Requires INT8 mode. "
@@ -965,6 +1096,11 @@ INSTRUCTION_SPEC = {
                 ),
                 example="ACTIVATE.QUANTIZE relu CR15;;",
             ),
+            "implicit_reads": [
+                {"register": "cr", "via_operand": "cr_idx", "view": "cycle_start"},
+                {"register": "r_acc", "view": "forwarded"},
+            ],
+            "implicit_writes": [{"register": "post_aaq_reg"}],
             "execute_fn": "execute_activate_quantize",
         },
     },
@@ -978,8 +1114,8 @@ INSTRUCTION_SPEC = {
     "cond": {
         "BEQ": {
             "operands": [
-                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
+                {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -997,8 +1133,8 @@ INSTRUCTION_SPEC = {
         },
         "BNE": {
             "operands": [
-                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
+                {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -1016,8 +1152,8 @@ INSTRUCTION_SPEC = {
         },
         "BLT": {
             "operands": [
-                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
+                {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -1035,8 +1171,8 @@ INSTRUCTION_SPEC = {
         },
         "BGE": {
             "operands": [
-                {"name": "reg1", "type": "LcrIdx", "read": "snapshot"},
-                {"name": "reg2", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg1", "type": "LcrIdx", "read": "cycle_start"},
+                {"name": "reg2", "type": "LcrIdx", "read": "cycle_start"},
                 {"name": "label", "type": "Label"},
             ],
             "doc": InstructionDoc(
@@ -1054,7 +1190,7 @@ INSTRUCTION_SPEC = {
         },
         "BR": {
             "operands": [
-                {"name": "reg", "type": "LcrIdx", "read": "snapshot"},
+                {"name": "reg", "type": "LcrIdx", "read": "cycle_start"},
             ],
             "doc": InstructionDoc(
                 title="Branch Register",
@@ -1101,7 +1237,7 @@ INSTRUCTION_SPEC = {
         },
         "BREAK.IFEQ": {
             "operands": [
-                {"name": "reg", "type": "LrIdx", "read": "snapshot"},
+                {"name": "reg", "type": "LrIdx", "read": "cycle_start"},
                 {"name": "value", "type": "BreakImmediate"},
             ],
             "doc": InstructionDoc(
@@ -1335,7 +1471,63 @@ def _check_operands(path: str, operands: object, operand_types: Mapping[str, Ope
                     f"{where}.read: a {operand['type']} operand is not a register, "
                     f"so it cannot be read; 'read' is allowed only on {readable}"
                 )
+        if "write" in operand:
+            _check_write(where, operand, readable)
     schema.check_unique(path, "operand name", (op["name"] for op in operands))
+
+
+def _check_write(where: str, operand: dict[str, Any], readable: list[str]) -> None:
+    """``write`` is ``True`` on a register operand that has no ``read``: the
+    handler gets the index to write, not a value."""
+    if operand["write"] is not True:
+        raise schema.SpecError(f"{where}.write: must be True, got {operand['write']!r}")
+    if operand["type"] not in readable:
+        raise schema.SpecError(
+            f"{where}.write: a {operand['type']} operand is not a register, "
+            f"so it cannot be written; 'write' is allowed only on {readable}"
+        )
+    if "read" in operand:
+        raise schema.SpecError(
+            f"{where}: a 'write' operand has no 'read' (the handler needs its index); "
+            "declare the read in implicit_reads with via_operand"
+        )
+
+
+def _check_accesses(path: str, inst_def: dict[str, Any]) -> None:
+    """``implicit_reads`` / ``implicit_writes`` entries name a register of
+    REGISTER_DEFINITIONS, an operand of the instruction (``via_operand``) and,
+    for a read, a view. The timing rules are checked by ``ipu_isa.timing``."""
+    operand_names = {operand["name"] for operand in inst_def["operands"]}
+    for key, keys in (
+        ("implicit_reads", schema.IMPLICIT_READ),
+        ("implicit_writes", schema.IMPLICIT_WRITE),
+    ):
+        if key not in inst_def:
+            continue
+        entries = inst_def[key]
+        if not isinstance(entries, list) or not entries:
+            raise schema.SpecError(f"{path}.{key}: must be a non-empty list of dicts")
+        seen: set[tuple[str, str | None]] = set()
+        for index, entry in enumerate(entries):
+            where = f"{path}.{key}[{index}]"
+            schema.check_keys(where, entry, keys)
+            if entry["register"] not in REGISTER_DEFINITIONS:
+                raise schema.SpecError(
+                    f"{where}.register: {entry['register']!r} is not a register of "
+                    "REGISTER_DEFINITIONS"
+                )
+            via = entry.get("via_operand")
+            if via is not None and via not in operand_names:
+                raise schema.SpecError(f"{where}.via_operand: {via!r} is not an operand")
+            if "view" in entry and entry["view"] not in schema.READ_SOURCES:
+                raise schema.SpecError(
+                    f"{where}.view: {entry['view']!r} is not one of {sorted(schema.READ_SOURCES)}"
+                )
+            if (entry["register"], via) in seen:
+                raise schema.SpecError(
+                    f"{where}: {entry['register']!r} via {via!r} is declared twice"
+                )
+            seen.add((entry["register"], via))
 
 
 def _check_doc(path: str, doc: object, operands: list[dict[str, Any]]) -> None:
@@ -1413,6 +1605,7 @@ def validate_instruction_spec(
             path = f"{slot_type}.{inst_name}"
             schema.check_keys(path, inst_def, schema.INSTRUCTION)
             _check_operands(path, inst_def["operands"], operand_types)
+            _check_accesses(path, inst_def)
             _check_doc(path, inst_def["doc"], inst_def["operands"])
             if not isinstance(inst_def["execute_fn"], str):
                 raise schema.SpecError(f"{path}.execute_fn: must be a string")

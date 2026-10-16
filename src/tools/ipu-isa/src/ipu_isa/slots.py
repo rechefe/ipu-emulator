@@ -17,7 +17,8 @@ Each slot is tagged HARDWARE or EMULATOR (E03-07). In ``LAYOUT_ORDER`` the
 EMULATOR slots come after every HARDWARE slot, so the hardware word is the
 most significant bits of the emulator word (Q41).
 
-Execution order is not here; E03-14 declares it with the timing contract.
+Execution order is not here: ``ipu_isa.timing.SLOT_EXECUTION_ORDER`` declares it
+with the timing contract.
 """
 
 from __future__ import annotations

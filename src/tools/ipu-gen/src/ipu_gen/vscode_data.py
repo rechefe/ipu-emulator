@@ -434,7 +434,12 @@ def build_language_configuration() -> dict:
 
 def _operand_dicts(operands: tuple[Operand, ...]) -> list[dict]:
     return [
-        {"name": op.name, "type": op.type.name, **({"read": op.read.value} if op.read else {})}
+        {
+            "name": op.name,
+            "type": op.type.name,
+            **({"read": op.read.value} if op.read else {}),
+            **({"write": True} if op.write else {}),
+        }
         for op in operands
     ]
 

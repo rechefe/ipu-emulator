@@ -481,11 +481,11 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
         ).items()
     )
     # The LR slot needs the write target to detect two sub-instructions writing
-    # the same register; which operand carries it is fixed per instruction.
+    # the same register; the spec declares it with "write": True (E03-14).
     write_operand, write_is_lrd = None, False
     if slot is Slot.LR:
         for op in instruction.operands:
-            if op.name in ("dest", "reg") and op.read is None:
+            if op.write:
                 # An LR write target is an LR or an LRD pair; a pair's names
                 # (lrd0, lrd2, ...) belong to no single register bank.
                 banks = _banks(op.type)
