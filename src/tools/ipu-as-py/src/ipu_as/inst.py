@@ -250,6 +250,7 @@ class Inst:
     def find_inst_type_by_opcode(
         cls, opcode: str, location: SourceLocation | None = None
     ) -> type["Inst"]:
+        """The Inst subclass whose slot has `opcode`; `location` locates the error if none does."""
         opl = opcode.lower()
         for subclass in cls.__subclasses__():
             if any(opl == name.lower() for name in subclass.struct_by_opcode_table()):

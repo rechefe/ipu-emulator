@@ -28,6 +28,7 @@ class SourceLocation:
 
     @classmethod
     def of(cls, token: lark.Token) -> "SourceLocation":
+        """The location of a lark token from the parse tree."""
         return cls(token.line, token.column, getattr(token, "end_column", None))
 
     def __str__(self) -> str:

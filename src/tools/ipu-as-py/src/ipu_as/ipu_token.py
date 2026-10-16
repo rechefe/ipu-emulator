@@ -13,6 +13,7 @@ class AnnotatedToken:
     instr_id: int
 
     def location(self) -> SourceLocation:
+        """Where this token is in the rendered source."""
         return SourceLocation.of(self.token)
 
     def get_location_string(self) -> str:
@@ -39,15 +40,21 @@ class IpuToken:
             return {"kind": "number", "min": low, "max": high}
         raise NotImplementedError(f"{cls.__name__} does not describe its values")
 
-    def _raise_error(self, extra_msg: str = "", error_class: type[OperandError] | type[LabelError] = OperandError):
+    def _invalid_value_message(self, extra_msg: str) -> str:
         error_msg = (
             f"Invalid token value - {self.token.value} in token {self.__class__.__name__}\n"
             f"In {self.annotated_token.get_location_string()}"
         )
         if extra_msg:
             error_msg += f"\nAdditional Information: {extra_msg}"
-        raise error_class(
-            error_msg, location=self.annotated_token.location(), token=self.token.value
+        return error_msg
+
+    def _raise_error(self, extra_msg: str = ""):
+        """Raise an OperandError for this token's value."""
+        raise OperandError(
+            self._invalid_value_message(extra_msg),
+            location=self.annotated_token.location(),
+            token=self.token.value,
         )
 
 
@@ -179,7 +186,11 @@ class LabelToken(IpuToken):
                     f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
                 )
         elif self.token.value not in label.ipu_labels.labels:
-            self._raise_error(f"Label {self.token.value} not defined", LabelError)
+            raise LabelError(
+                self._invalid_value_message(f"Label {self.token.value} not defined"),
+                location=self.annotated_token.location(),
+                token=self.token.value,
+            )
 
     @classmethod
     def default(cls) -> "IpuToken":
