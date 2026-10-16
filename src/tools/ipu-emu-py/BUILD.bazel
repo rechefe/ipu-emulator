@@ -28,6 +28,12 @@ genrule(
     }),
 )
 
+# The package's Python sources, for //tools:test_import_graph.
+filegroup(
+    name = "py_sources",
+    srcs = glob(["src/**/*.py"]),
+)
+
 py_library(
     name = "ipu_emu_lib",
     srcs = glob(["src/ipu_emu/*.py"]) + [":build_flags"],

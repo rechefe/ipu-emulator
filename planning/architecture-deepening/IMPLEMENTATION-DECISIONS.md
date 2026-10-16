@@ -15,6 +15,7 @@ The user decided the program-level questions in the grilling session. They are r
 | `check --json` schema files | `vscode-ipu-asm/schema/` | E05-08 |
 | Template parameters | Declared in `kernel.toml [params]`. A standalone template may use an `ipu:params` header comment. | E05-09 |
 | `--abi` input | A `kernel.toml` path. Only its `[abi]` table is read. | E05-13 |
+| How are the dependencies between packages enforced? | One table, `tools/import_graph.toml`, lists the first-party packages each package may import. `//tools:test_import_graph` reads every source under `src/tools/*/src/<package>/` and fails on any other first-party import, including function-level imports and literal `importlib.import_module` calls. A package without a row fails the test. Later issues add rows (E06-01, E08-03, E08-13) or delete the edges marked temporary (`ipu_emu` → `ipu_as` in E03-18, `ipu_as` → `ipu_gen` in E08-14); they do not add new checks. `//src/tools/ipu-isa:test_purity` stays as the run-time check that `ipu_isa` imports with only its own library on the path. | E03-02, E03-18, E06-01, E08-03, E08-13 |
 
 ## ISA and emulator
 
