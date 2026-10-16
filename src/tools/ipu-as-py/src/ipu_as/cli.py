@@ -6,7 +6,7 @@ import click
 import lark
 import tomli
 
-from ipu_as import diagnostics, lark_tree, session
+from ipu_as import diagnostics, lark_tree, session, template
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
 
 
@@ -73,23 +73,17 @@ def assemble(input: click.Path, output: click.Path, format: str, abi_path: str |
 
 def _read_abi(path: str) -> dict[str, dict[str, str]]:
     """The `cr` / `lr` namespaces from the `[abi]` table of a kernel.toml (name = "CR2")."""
-    with open(path, "rb") as f:
-        try:
+    try:
+        with open(path, "rb") as f:
             table = tomli.load(f).get("abi")
-        except tomli.TOMLDecodeError as error:
-            raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
+    except (tomli.TOMLDecodeError, UnicodeDecodeError) as error:
+        raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
     if not isinstance(table, dict):
         raise click.BadParameter(f"{path} has no [abi] table", param_hint="--abi")
-    namespaces: dict[str, dict[str, str]] = {"cr": {}, "lr": {}}
-    for name, register in table.items():
-        prefix = str(register)[:2].lower()
-        if prefix not in namespaces:
-            raise click.BadParameter(
-                f"{path}: [abi] {name} = {register!r} is not a CR or LR register",
-                param_hint="--abi",
-            )
-        namespaces[prefix][name] = str(register)
-    return namespaces
+    try:
+        return template.abi_namespaces(table)
+    except TemplateError as error:
+        raise click.BadParameter(f"{path}: {error}", param_hint="--abi") from None
 
 
 @click.command()

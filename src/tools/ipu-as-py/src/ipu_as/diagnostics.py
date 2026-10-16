@@ -21,7 +21,7 @@ Positions are 0-based, matching LSP and the VS Code API.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -545,15 +545,23 @@ def _template_failure(wrapped: TemplateError) -> Diagnostic:
     )
 
 
-def check(text: str, *, search_path: Sequence[Path] = ()) -> list[Diagnostic]:
+def check(
+    text: str,
+    *,
+    search_path: Sequence[Path] = (),
+    abi: Mapping[str, Mapping[str, str]] | None = None,
+) -> list[Diagnostic]:
     """Return diagnostics for one assembly source. Empty means it assembles.
 
-    `search_path` holds the roots `{% include %}` and `{% import %}` resolve in.
+    `search_path` holds the roots `{% include %}` and `{% import %}` resolve in, and
+    `abi` the `cr` / `lr` names the template reads.
     An error inside an included template is reported at the open file's
     include line, and its message names the template and line.
     """
     rendered = text
-    inputs = template.TemplateInputs(search_path=tuple(Path(p) for p in search_path))
+    inputs = template.TemplateInputs(
+        search_path=tuple(Path(p) for p in search_path), namespaces=abi or {}
+    )
     if any(marker in text for marker in _JINJA_MARKERS):
         # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
         # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.

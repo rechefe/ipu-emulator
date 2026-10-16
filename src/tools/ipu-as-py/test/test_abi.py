@@ -100,3 +100,43 @@ def test_cli_rejects_an_abi_value_that_is_not_a_register(tmp_path: Path) -> None
     )
     assert result.exit_code == 2
     assert "is not a CR or LR register" in result.output
+
+
+def test_register_spelling_follows_the_assembler() -> None:
+    inputs = TemplateInputs(namespaces={"cr": {"x": "cr2"}})
+    assert template.render("{{ cr.x }}", inputs) == "CR2"  # any case, as the assembler reads
+    with pytest.raises(TemplateError, match="is not a register"):
+        template.render("NOP;;", TemplateInputs(namespaces={"cr": {"x": "CR02"}}))
+
+
+def test_a_private_looking_name_is_not_an_abi_name() -> None:
+    with pytest.raises(TemplateError, match="is not a name"):
+        template.render("NOP;;", TemplateInputs(namespaces={"cr": {"_x": "CR2"}}))
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        ('{{ cr["data_bse"] }}', "unknown ABI name cr.data_bse"),
+        ("{% for k in cr %}{% endfor %}", "cannot be iterated"),
+        ("{{ cr }}", "use cr.<name>"),
+    ],
+)
+def test_the_namespace_is_only_read_by_name(source, message) -> None:
+    with pytest.raises(TemplateError, match=message):
+        template.render(source, TemplateInputs(namespaces=ABI))
+
+
+def test_a_flat_abi_table_splits_into_the_namespaces() -> None:
+    table = {"data_base": "CR2", "data_ptr": "LR0"}
+    assert template.abi_namespaces(table) == {"cr": {"data_base": "CR2"}, "lr": {"data_ptr": "LR0"}}
+    with pytest.raises(TemplateError, match="is not a CR or LR register"):
+        template.abi_namespaces({"x": 2})
+
+
+def test_check_reads_the_abi_names() -> None:
+    from ipu_as import diagnostics
+
+    assert diagnostics.check(SOURCE, abi=ABI) == []
+    (found,) = diagnostics.check(SOURCE)
+    assert found.stage == "template"

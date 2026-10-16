@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -293,27 +293,33 @@ def lex(text: str) -> list[tuple[int, str, str]]:
 #: The ABI namespaces a template may name registers through, and the register
 #: file each one names: `{{ cr.data_base }}` -> "CR2", `{{ lr.data_ptr }}` -> "LR0".
 ABI_NAMESPACES = ("cr", "lr")
-_ABI_VALUE = re.compile(r"(?P<file>CR|LR)(?P<index>[0-9]+)")
 
 
 class _AbiNamespace:
-    """A read-only `name -> register token` mapping a template reads as attributes."""
+    """A read-only `name -> register token` mapping a template reads as `cr.name` or `cr["name"]`."""
 
     def __init__(self, namespace: str, registers: Mapping[str, str]) -> None:
         self._namespace = namespace
         self._registers = dict(registers)
 
     def __getattr__(self, name: str) -> str:
-        if name.startswith("_"):
-            raise AttributeError(name)
+        # Only reached for names the object does not have; the sandbox refuses
+        # `_`-names before this, and abi_namespaces() rejects them as ABI names.
+        return self[name]
+
+    def __getitem__(self, name: str) -> str:
         try:
             return self._registers[name]
         except KeyError:
-            # Not AttributeError: jinja turns that into Undefined, and an
-            # unknown register name must fail whatever the Undefined policy.
+            # Not AttributeError or KeyError: jinja turns those into Undefined,
+            # and an unknown register name must fail whatever the Undefined policy.
             raise TemplateError(f"unknown ABI name {self._namespace}.{name}") from None
 
-    __getitem__ = __getattr__
+    def __iter__(self):
+        raise TemplateError(f"the ABI namespace {self._namespace} cannot be iterated")
+
+    def __str__(self) -> str:
+        raise TemplateError(f"use {self._namespace}.<name>, not {self._namespace} alone")
 
 
 def _abi_context(
@@ -328,20 +334,39 @@ def _abi_context(
                 f"unknown ABI namespace {namespace!r} (have: {', '.join(ABI_NAMESPACES)})",
                 location=where,
             )
-        count = REGISTER_DEFINITIONS[namespace]["count"]
+        tokens = REGISTER_DEFINITIONS[namespace]["assembler_values"]
+        checked = {}
         for name, register in registers.items():
-            match = _ABI_VALUE.fullmatch(str(register))
-            if match is None or match["file"].lower() != namespace or int(match["index"]) >= count:
+            if not str(name).isidentifier() or str(name).startswith("_"):
+                raise TemplateError(f"ABI name {namespace}.{name} is not a name", location=where)
+            if str(register).lower() not in tokens:
                 raise TemplateError(
                     f"ABI name {namespace}.{name} = {register!r} is not a register "
-                    f"{namespace.upper()}0-{namespace.upper()}{count - 1}",
+                    f"{tokens[0].upper()}-{tokens[-1].upper()}",
                     location=where,
                 )
-        context[namespace] = _AbiNamespace(namespace, registers)
+            checked[name] = str(register).upper()
+        context[namespace] = _AbiNamespace(namespace, checked)
     return context
 
 
-def _check_reserved(names, source_name: str, what: str) -> None:
+def abi_namespaces(table: Mapping[str, str]) -> dict[str, dict[str, str]]:
+    """Split a flat `name -> register` table (`kernel.toml [abi]`) into the `cr` / `lr` namespaces.
+
+    Raises:
+        TemplateError: a value is not a CR or LR register.
+    """
+    namespaces: dict[str, dict[str, str]] = {namespace: {} for namespace in ABI_NAMESPACES}
+    for name, register in table.items():
+        namespace = str(register)[:2].lower()
+        if not isinstance(register, str) or namespace not in namespaces:
+            raise TemplateError(f"[abi] {name} = {register!r} is not a CR or LR register")
+        namespaces[namespace][name] = register
+    _abi_context(namespaces, "[abi]")  # the per-register checks
+    return namespaces
+
+
+def _check_reserved(names: Iterable[str], source_name: str, what: str) -> None:
     for name in names:
         if name in ABI_NAMESPACES:
             raise TemplateError(
@@ -355,7 +380,7 @@ def has_markers(text: str) -> bool:
     return any(marker in text for marker in MARKERS)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class TemplateInputs:
     """What a template is rendered with, besides its text."""
 
