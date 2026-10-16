@@ -1,16 +1,16 @@
 # IPU Emulator Documentation
 
-Welcome to the IPU Emulator documentation. This project provides a complete IPU (Intelligence Processing Unit) emulation environment with assembly language support, C-based emulator, and comprehensive tooling.
+Welcome to the IPU Emulator documentation. The IPU (Inference Processing Unit) is a 128-lane VLIW vector processor for neural-network inference. This repository defines its instruction set, assembles programs for it, emulates it, and holds the kernels that run on it.
 
 ## Overview
 
 This repository contains:
 
-- **IPU Emulator** - C-based emulator for IPU behavior
-- **IPU Assembly Language** (`ipu-as`) - Python-based assembler with Jinja2 preprocessing
-- **XMEM Support** - External memory emulation
-- **Sample Programs** - Fully connected neural network examples
-- **Build System** - Bazel-based build and test infrastructure
+- **ISA definition** (`ipu_common`) - `instruction_spec.py`, the single source of truth for instructions, operands and registers
+- **IPU assembler** (`ipu_as`) - Python assembler with Jinja2 preprocessing, plus the generated SystemVerilog package
+- **IPU emulator** (`ipu_emu`) - Python emulator of the IPU, with an interactive debugger
+- **Kernels** (`ipu_apps`) - assembly kernels (matmul, convolutions, softmax, normalize and others), each with its harness and tests
+- **Build system** - Bazel builds, tests and generates these docs
 
 ## Quick Links
 
@@ -25,12 +25,12 @@ This repository contains:
 ## Repository Structure
 
 ```
-ipu-c-samples/
-├── src/
-│   ├── apps/               # Sample applications
-│   ├── lib/                # Core libraries (ipu, xmem, emulator, fp, logging)
-│   └── tools/              # IPU assembler and emulator tools
-├── test/                   # Unit tests
+ipu-emulator/
+├── src/tools/
+│   ├── ipu-common/         # ISA definition (ipu_common)
+│   ├── ipu-as-py/          # Assembler (ipu_as)
+│   ├── ipu-emu-py/         # Emulator and debugger (ipu_emu)
+│   └── ipu-apps/           # Kernels and their harnesses (ipu_apps)
 ├── docs/                   # MkDocs config, hooks, overrides
 │   └── content/            # Documentation page sources (MkDocs docs_dir)
 ├── BUILD.bazel             # Root build configuration
@@ -84,7 +84,7 @@ bazel build //docs:build_docs
 
 ## Contributing
 
-See [README.md](https://github.com/rechefe/ipu-emulator/blob/main/README.md) for development setup and contribution guidelines.
+See [README.md](https://github.com/rechefe/ipu-emulator/blob/master/README.md) for development setup and contribution guidelines.
 
 ## Additional Resources
 
