@@ -8,8 +8,8 @@ import contextlib
 import lark
 import pytest
 
-from ipu_common.acc_stride_enums import get_horizontal_stride_bits, get_vertical_stride_bits
-from ipu_common.instruction_spec import VALID_OPERAND_TYPES
+from ipu_isa.acc_stride_enums import get_horizontal_stride_bits, get_vertical_stride_bits
+from ipu_isa.instruction_spec import VALID_OPERAND_TYPES
 from ipu_as.diagnostics import check
 from ipu_as.gen_vscode import build_hover_data
 from ipu_as.inst import OPERAND_TYPE_MAP
@@ -97,7 +97,7 @@ def test_lexical_facts_match_the_grammar_and_the_assembler():
 
 
 def test_every_register_is_described_by_its_definition():
-    # The hover's words come from ipu_common.registers (and LrdRegField for
+    # The hover's words come from ipu_isa.registers (and LrdRegField for
     # pairs), and the fixed values from whoever passes them (the emulator).
     data = build_hover_data({"fixed": {"cr0": 0, "cr1": 1}, "pairs": {"lrd4": (4, 5)}})
     docs = data["registerDocs"]

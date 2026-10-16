@@ -13,11 +13,13 @@ fast paths cannot be selected; only a flagged build executes the two-mode cases.
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import pytest
 
 from ipu_emu.emulator import load_program
-from ipu_emu.errors import RegisterIndexError
+from ipu_emu.errors import DebugOnlyInstructionWarning, RegisterIndexError
 from ipu_emu.execute import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.prototyping import (
@@ -28,6 +30,8 @@ from ipu_emu.prototyping import (
 )
 
 from emu_support import ElementFormat, assemble_program, make_state, new_state, run_both
+
+import timing_probes
 
 
 _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
@@ -113,17 +117,14 @@ def _assert_regfiles_identical(regfile_a, regfile_b) -> None:
 def _assert_states_identical(state_a: IpuState, state_b: IpuState) -> None:
     assert state_a.program_counter == state_b.program_counter
     _assert_regfiles_identical(state_a.regfile, state_b.regfile)
-    # TODO(E04-05): compare with XMem.__eq__ instead of the private buffer.
-    assert state_a.xmem._data == state_b.xmem._data
+    assert state_a.xmem == state_b.xmem
     assert state_a.stats == state_b.stats
 
 
-def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
-    """Run *asm* faithful and prototyping in lockstep; compare after every cycle.
-
-    Also checks that a snapshot handed out by the prototyping engine stays
-    unchanged by later cycles.
-    """
+def _cycle_comparer():
+    """An ``on_cycle`` callback for ``run_both``: the two states must be
+    identical after every cycle, and a snapshot handed out by the prototyping
+    engine must stay unchanged by later cycles."""
     retained = {}
 
     def compare(engines) -> None:
@@ -139,7 +140,14 @@ def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed:
         else:
             assert _regfile_bytes(retained["snapshot"]) == retained["bytes"]
 
-    faithful, fast = run_both(asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=compare)
+    return compare
+
+
+def _run_equivalence(asm: str, *, fmt: ElementFormat = ElementFormat.INT8, seed: int = 5):
+    """Run *asm* faithful and prototyping in lockstep; compare after every cycle."""
+    faithful, fast = run_both(
+        asm, fmt=fmt, setup=_seed(fmt, seed), on_cycle=_cycle_comparer()
+    )
     _assert_states_identical(faithful, fast)
     return faithful, fast
 
@@ -155,6 +163,100 @@ def test_narrow_int8_programs_are_identical(name):
 @pytest.mark.parametrize("fmt", [ElementFormat.FP32, ElementFormat.INT32])
 def test_wide_vector_programs_are_identical(name, fmt):
     _run_equivalence(PROGRAMS[name], fmt=fmt)
+
+
+# The timing probes (E02-05, E02-06): one minimal program per row of the
+# register-timing table, each in every element format it is meaningful in.
+_PROBE_RUNS = [
+    pytest.param(name, mode, id=f"{name}-{mode.value}")
+    for name, probe in timing_probes.PROBES.items()
+    if name not in timing_probes.RAISES
+    for mode in probe.modes
+]
+
+
+_PROBE_FORMATS = {
+    timing_probes.Mode.NARROW: ElementFormat.INT8,
+    timing_probes.Mode.WIDE_FP32: ElementFormat.FP32,
+}
+
+
+def _probe_states(name: str, mode) -> list[IpuState]:
+    return [
+        timing_probes.prepare(timing_probes.PROBES[name], mode, prototyping=prototyping)
+        for prototyping in (False, True)
+    ]
+
+
+def _probe_setup(probe):
+    def setup(state: IpuState) -> None:
+        for index, value in probe.cr.items():
+            state.regfile.set_cr(index, value)
+        probe.setup(state)
+
+    return setup
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
+def test_timing_probes_are_identical(name, mode):
+    probe = timing_probes.PROBES[name]
+    # STR_ACC_REG is emulator-only and says so on every run.
+    expected = (
+        pytest.warns(DebugOnlyInstructionWarning)
+        if "STR_ACC_REG" in probe.asm
+        else contextlib.nullcontext()
+    )
+    with expected:
+        faithful, fast = run_both(
+            program=timing_probes.decoded_program(probe),
+            fmt=_PROBE_FORMATS[mode],
+            dstructure={"valid_elements": timing_probes.LANES},
+            setup=_probe_setup(probe),
+            on_cycle=_cycle_comparer(),
+        )
+    _assert_states_identical(faithful, fast)
+
+
+#: Raising probes whose two modes are known to end in different states.
+_KNOWN_DIVERGENT = {"lr_subslot_exception"}
+
+
+def _run_until_raise(name: str):
+    """Run a probe that raises in both modes; return each mode's exception and
+    final state."""
+    (mode,) = timing_probes.PROBES[name].modes
+    states = _probe_states(name, mode)
+    exceptions = []
+    for state in states:
+        engine = Ipu(state)
+        with pytest.raises(timing_probes.RAISES[name]) as caught:
+            for _ in range(timing_probes.MAX_CYCLES):
+                engine.execute_vliw_cycle()
+        exceptions.append(caught.value)
+    return states, exceptions
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.parametrize("name", sorted(set(timing_probes.RAISES) - _KNOWN_DIVERGENT))
+def test_raising_timing_probes_are_identical(name):
+    states, exceptions = _run_until_raise(name)
+    assert type(exceptions[0]) is type(exceptions[1])
+    assert exceptions[0].args == exceptions[1].args
+    _assert_states_identical(*states)
+
+
+@_REQUIRES_PROTO_BUILD
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="E04-07 closes the LR sub-slot divergence"
+)
+def test_lr_subslot_exception_partial_state_matches():
+    """When an LR sub-slot's operand read raises, faithful mode has written no
+    LR; prototyping mode runs sub-slots one at a time and has already written
+    sub-slot 0's LR1. E04-07 makes the two agree; the strict xfail then fails
+    and that PR removes the marker."""
+    states, _ = _run_until_raise("lr_subslot_exception")
+    _assert_states_identical(*states)
 
 
 @_REQUIRES_PROTO_BUILD

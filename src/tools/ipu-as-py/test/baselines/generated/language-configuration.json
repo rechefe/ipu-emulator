@@ -1,0 +1,46 @@
+{
+  "autoClosingPairs": [
+    {
+      "close": " %}",
+      "open": "{%"
+    },
+    {
+      "close": " }}",
+      "open": "{{"
+    },
+    {
+      "close": " #}",
+      "open": "{#"
+    }
+  ],
+  "brackets": [
+    [
+      "{%",
+      "%}"
+    ],
+    [
+      "{{",
+      "}}"
+    ],
+    [
+      "{#",
+      "#}"
+    ]
+  ],
+  "comments": {
+    "blockComment": [
+      "{#",
+      "#}"
+    ],
+    "lineComment": "//"
+  },
+  "onEnterRules": [
+    {
+      "action": {
+        "indent": "indent"
+      },
+      "beforeText": "^\\s*([+-]?[A-Za-z0-9_][A-Za-z0-9_\\.]*)\\s*(:)\\s*(?:#[^\n]*|\\/\\/[^\n]*)?$"
+    }
+  ],
+  "wordPattern": "[+-]?[A-Za-z0-9_][A-Za-z0-9_\\.]*"
+}

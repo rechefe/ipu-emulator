@@ -27,7 +27,8 @@ py_library(
     ]),
     imports = ["src"],
     deps = [
-        "//src/tools/ipu-common:ipu_common_lib",
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
     ] + [requirement(dep) for dep in RUNTIME_DEPS],
 )
 
@@ -120,4 +121,84 @@ py_pytest_test(
         requirement("pytest"),
         requirement("pyslang"),
     ],
+)
+
+# Decode snapshots (E02-02): instruction-word field names, the emulator's
+# operand-to-field maps and the enum descriptors, pinned as JSON in
+# test/baselines/. `bazel run :update_decode_snapshots` rewrites them.
+py_library(
+    name = "decode_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/decode_snapshots.py"],
+    imports = ["test/baselines"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-emu-py:ipu_emu_lib",
+    ],
+)
+
+py_pytest_test(
+    name = "test_decode_snapshots",
+    srcs = ["test/test_decode_snapshots.py"],
+    data = glob(["test/baselines/*.json"]),
+    deps = [":decode_snapshots", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_decode_snapshots",
+    testonly = True,
+    srcs = ["test/baselines/update_decode_snapshots.py"],
+    main = "test/baselines/update_decode_snapshots.py",
+    deps = [":decode_snapshots"],
+)
+
+# SV package golden (E02-03): the rendered ipu_instr_pkg.sv (commit unstamped)
+# and every *_WIDTH localparam pinned by name. `bazel run :update_sv_golden`
+# rewrites the golden file; the localparam table is edited by hand.
+py_binary(
+    name = "update_sv_golden",
+    srcs = ["test/golden/update_sv_golden.py"],
+    main = "test/golden/update_sv_golden.py",
+    deps = [":ipu_as_lib"],
+)
+
+py_pytest_test(
+    name = "test_sv_package_golden",
+    srcs = [
+        "test/golden/update_sv_golden.py",
+        "test/test_sv_package_golden.py",
+    ],
+    data = ["test/golden/ipu_instr_pkg.sv"],
+    imports = ["test/golden"],
+    deps = [":ipu_as_lib", requirement("pytest")],
+)
+
+# Generated-artifact snapshots (E02-04): the docs pages, the TextMate grammar,
+# isa.json and the union layout SVG, regenerated in-process and compared byte
+# for byte. `bazel run :update_generated_artifacts` rewrites them.
+py_library(
+    name = "generated_artifacts",
+    testonly = True,
+    srcs = ["test/baselines/generated_artifacts.py"],
+    imports = ["test/baselines"],
+    deps = [
+        ":ipu_as_lib",
+        "//src/tools/ipu-gen:ipu_gen_lib",
+        "//vscode-ipu-asm:gen_vscode_lib",
+    ],
+)
+
+py_pytest_test(
+    name = "test_generated_artifacts",
+    srcs = ["test/test_generated_artifacts.py"],
+    data = glob(["test/baselines/generated/**"]),
+    deps = [":generated_artifacts", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_generated_artifacts",
+    testonly = True,
+    srcs = ["test/baselines/update_generated_artifacts.py"],
+    main = "test/baselines/update_generated_artifacts.py",
+    deps = [":generated_artifacts"],
 )

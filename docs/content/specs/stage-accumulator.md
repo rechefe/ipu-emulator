@@ -194,7 +194,7 @@ buffer's overall width.
 
 The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from
-[`instruction_spec.py`](../../../src/tools/ipu-common/src/ipu_common/instruction_spec.py)
+[`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
 by
 [`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
 Per the project's opcode-derivation rule, opcode = position within the

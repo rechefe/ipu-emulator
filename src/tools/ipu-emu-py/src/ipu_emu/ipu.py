@@ -32,39 +32,37 @@ from ipu_emu.stats import RunStats
 from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_BINARY_LAYOUT,
     SLOT_UNIONS,
     SLOT_COUNT,
-    create_emulator_constants,
     get_opcode_for_instruction,
 )
-from ipu_common.acc_stride_enums import (
+from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
     get_horizontal_stride_bits,
     get_vertical_stride_bits,
 )
-from ipu_common.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
-from ipu_common.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_common.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
-from ipu_common.registers import (
+from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
+from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
+from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
+from ipu_isa.registers import (
     get_register_sizes,
     get_lane_count,
     get_mult_stage_map,
 )
-from ipu_common.activations import (
+from ipu_isa.activations import (
     ACTIVATION_EXP2,
     ACTIVATION_IDENTITY,
     ACTIVATION_RECIPROCAL,
-    apply_activation,
 )
+from ipu_emu.activations import apply_activation
 
 # ---------------------------------------------------------------------------
-# Constants — derived from the single source of truth in ipu-common
+# Constants — derived from the single source of truth in ipu-isa
 # ---------------------------------------------------------------------------
 
-_emu_constants = create_emulator_constants()
 _reg_sizes = get_register_sizes()
 
 # MultStageRegField: index → (register_name, element_index)
@@ -1526,7 +1524,7 @@ class Ipu:
     ) -> None:
         """Execute ACC.STRIDE: Decimate mult_res by horizontal/vertical stride and write into r_acc.
 
-        Operand semantics from ipu_common.acc_stride_enums (single source of truth).
+        Operand semantics from ipu_isa.acc_stride_enums (single source of truth).
         offset: LR value; (offset % 4) * 32 is the start index in r_acc (0, 32, 64, or 96).
         """
         elements_per_row = get_elements_per_row(elements_in_row)

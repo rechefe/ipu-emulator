@@ -11,12 +11,12 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24.0",
     "ipu-as-py",
-    "ipu-common",
+    "ipu-isa",
 ]
 
 [tool.uv.sources]
 ipu-as-py = { path = "../ipu-as-py", editable = true }
-ipu-common = { path = "../ipu-common", editable = true }
+ipu-isa = { path = "../ipu-isa", editable = true }
 
 [project.optional-dependencies]
 dev = [

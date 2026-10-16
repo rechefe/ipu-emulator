@@ -5,8 +5,8 @@ import math
 import struct
 import weakref
 
-from ipu_common.activations import ACTIVATION_IDENTITY
-from ipu_common.registers import get_lane_count
+from ipu_isa.activations import ACTIVATION_IDENTITY
+from ipu_isa.registers import get_lane_count
 from ipu_emu.alias_profile import Event
 from ipu_emu.ipu_math import dtype_one_byte
 from ipu_emu.xmem import XMEM_WIDTH_BYTES
@@ -33,6 +33,9 @@ class ExecutionObserver:
         self.stores = {}
         self.memory_versions = {}
         self.memory_epoch = 0
+        # Version of a block absent from memory_versions: 0 (never written)
+        # until a clear() stamps the whole memory at once.
+        self.cleared_epoch = 0
         self.last_reads = {}
         self.acc = None
         self.mult = None
@@ -41,8 +44,14 @@ class ExecutionObserver:
         self.acc_scale = 0
         self.post_scale = 0
         self.cycle_events = []
-        state.xmem._profile_observer = self.memory
-        state.regfile._profile_observer = self.register_write
+        self._removers = (state.xmem.add_observer(self.memory),
+                          state.regfile.add_observer(self.register_write))
+
+    def detach(self):
+        """Stop observing the state's XMEM and register file."""
+        for remove in self._removers:
+            remove()
+        self._removers = ()
 
     @property
     def state(self):
@@ -99,8 +108,17 @@ class ExecutionObserver:
             return a[0][2]["reg"], self.pc + 4
         return None
 
-    def memory(self, kind, address, data):
-        end = address + len(data)
+    def memory(self, kind, address, size, data):
+        if kind == "clear":
+            # Every block now holds a fresh zero written at this epoch. Drop the
+            # tables and remember the epoch as the version of every untouched
+            # block, instead of stamping each of the 4M blocks.
+            self.memory_epoch += 1
+            self.stores.clear()
+            self.memory_versions.clear()
+            self.cleared_epoch = self.memory_epoch
+            return
+        end = address + size
         blocks = range(address // XMEM_WIDTH_BYTES, (end + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES)
         origin = None
         if kind == "write":
@@ -114,6 +132,8 @@ class ExecutionObserver:
                     and all(self.stores.get(block) is first for block in blocks)):
                 origin = first[2]
         if self.current is not None:
+            if data is None:  # a fill: the event carries the range, not the bytes
+                data = self.state.xmem.snapshot_bytes(address, size)
             self.accesses.append((kind, address, bytes(data), origin))
 
     def begin(self, ipu):
@@ -316,7 +336,7 @@ class ExecutionObserver:
             _, address, data, origin = self.accesses[0]
             blocks = range(address // XMEM_WIDTH_BYTES,
                            (address + len(data) + XMEM_WIDTH_BYTES - 1) // XMEM_WIDTH_BYTES)
-            versions = tuple(self.memory_versions.get(block, 0) for block in blocks)
+            versions = tuple(self.memory_versions.get(block, self.cleared_epoch) for block in blocks)
             previous = self.last_reads.get((address, len(data)))
             if previous and previous[2] != versions:
                 previous = None

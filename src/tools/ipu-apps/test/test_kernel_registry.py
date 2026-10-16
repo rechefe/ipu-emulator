@@ -809,7 +809,7 @@ def _toy_case_test(monkeypatch, program, *, run_hook=None):
         assemble_to_bin_file(_TOY_PROGRAMS[program], str(path))
         return path
 
-    def run(kernel, case, *, options, inst_path):
+    def run(kernel, case, *, options, inst_path, recorder):
         state = IpuState()
         load_program_from_binary(state, inst_path)
         with run_hook() if run_hook else contextlib.nullcontext():
@@ -821,6 +821,8 @@ def _toy_case_test(monkeypatch, program, *, run_hook=None):
                         lambda kernel: {"default": types.SimpleNamespace(defaults={})})
     monkeypatch.setattr(testing, "assemble_kernel", assemble)
     monkeypatch.setattr(testing, "run_case", run)
+    # The toy kernel is not registered, so it has no baseline to compare with.
+    monkeypatch.setattr(testing, "check_baseline", lambda *args: None)
     return testing.case_tests("toy")
 
 

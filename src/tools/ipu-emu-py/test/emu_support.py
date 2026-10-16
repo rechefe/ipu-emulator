@@ -132,13 +132,17 @@ def run(asm: str, *, max_cycles: int = DEFAULT_MAX_CYCLES, **kw: Any) -> IpuStat
 
 
 def run_both(
-    asm: str,
+    asm: str | None = None,
     *,
+    program: Sequence[dict[str, int] | None] | None = None,
     on_cycle: Callable[[Sequence[Ipu]], None] | None = None,
     max_cycles: int = 100_000,
     **kw: Any,
 ) -> tuple[IpuState, IpuState]:
     """Run *asm* on a faithful and a prototyping state in lockstep.
+
+    Pass *program* (decoded words, ``None`` for an empty entry) instead of
+    *asm* to run a program the assembler would not produce.
 
     Both states are built with :func:`new_state` (keywords *kw*, including
     *setup*, which runs on each). After every cycle the two cycle outcomes must agree and
@@ -146,10 +150,12 @@ def run_both(
     are resumed. Each state's ``stats.total_cycles`` is set to the cycle count.
     Requires a ``--define=ipu_proto=1`` build.
     """
-    decoded = assemble_program(asm)
+    if (asm is None) == (program is None):
+        raise TypeError("run_both takes exactly one of asm and program")
+    decoded = assemble_program(asm) if program is None else list(program)
     states = tuple(new_state(prototyping=mode, **kw) for mode in (False, True))
     for state in states:
-        load_program(state, [dict(inst) for inst in decoded])
+        load_program(state, [None if inst is None else dict(inst) for inst in decoded])
     engines = [Ipu(state) for state in states]
 
     cycles = 0

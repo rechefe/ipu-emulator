@@ -43,6 +43,25 @@ cycle outcomes, snapshots, and run statistics after every cycle. The default
 build verifies that the gate cannot be bypassed; the flagged build runs the
 two-mode equivalence cases.
 
+The lockstep test also runs every register-timing probe
+(`src/tools/ipu-emu-py/test/timing_probes.py`, one minimal program per row of
+the timing tables), in every element format the probe covers. One divergence is
+known and recorded as a strict expected failure until E04-07 closes it: when an
+LR sub-slot's operand read raises, the faithful path has written no LR, while
+prototyping mode has already written the earlier sub-slot's LR.
+
+At kernel level, every case's baseline record (`baseline.json` beside each
+kernel's `test.py`) is recorded in a default build and checked unchanged in a
+flagged one. So each case's program, setup, output, final state and cycle count
+must be identical in both modes. The record holds no run statistics, so no field
+is exempt (`MODE_DEPENDENT_FIELDS` in `kernel_registry/baseline.py` is empty).
+
+The flagged build is the nightly command, and it is expected to be green:
+
+```bash
+bazel test --define=ipu_proto=1 //...
+```
+
 **Not guaranteed:** that the work the emulator did resembles the work the chip
 would do. A skipped `NOP` slot still issues in the real machine, and a
 short-circuited mask is still applied there. Trust the numbers a prototyping run

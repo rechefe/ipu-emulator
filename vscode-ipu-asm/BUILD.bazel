@@ -29,6 +29,13 @@ filegroup(
     srcs = glob(["test/corpus/**/*.asm"]),
 )
 
+# The assembly fixtures, for the assembled-binary baseline in
+# //src/tools/ipu-apps:test_asm_digests.
+filegroup(
+    name = "asm_fixtures",
+    srcs = glob(["test/**/*.asm"]),
+)
+
 filegroup(
     name = "agreement_test_srcs",
     srcs = [
@@ -51,6 +58,16 @@ py_binary(
     srcs = ["gen_vscode_wrapper.py"],
     main = "gen_vscode_wrapper.py",
     python_version = "PY3",
+    deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
+)
+
+# The wrapper as a library, so the generated-artifact snapshot test
+# (//src/tools/ipu-as-py:test_generated_artifacts) renders isa.json with the
+# same emulator data the binary passes.
+py_library(
+    name = "gen_vscode_lib",
+    srcs = ["gen_vscode_wrapper.py"],
+    imports = ["."],
     deps = ["//src/tools/ipu-as-py:ipu_as_lib", "//src/tools/ipu-emu-py:ipu_emu_lib"],
 )
 

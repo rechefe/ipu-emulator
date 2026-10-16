@@ -34,7 +34,7 @@ from ipu_as.lark_tree import assemble, parse
 
 from ipu_as.compound_inst import CompoundInst
 
-from ipu_common.activations import apply_activation
+from ipu_emu.activations import apply_activation
 
 from emu_support import ElementFormat, decode_program, make_state, new_state, run
 

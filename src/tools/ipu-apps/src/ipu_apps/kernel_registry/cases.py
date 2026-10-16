@@ -1,6 +1,7 @@
 """Reusable cases and execution through the kernel registry's harness factory."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.resources import files
@@ -108,13 +109,16 @@ def check_output_bytes(actual_path, expected_path):
 
 
 def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=None,
-             output_path=None, workspace=None, inst_path=None, alias_profile=None):
+             output_path=None, workspace=None, inst_path=None, alias_profile=None,
+             recorder=None):
     """Assemble, prepare, construct, execute, and check a case.
 
     An optional workspace/instruction binary lets tests reuse assembly and
     inspect output files. Otherwise all temporary files are cleaned on every
     exit, including cancellation. Completed output is exported before checking
     so callers can inspect failed results. Returns the state and cycle count.
+    An optional :class:`~ipu_apps.kernel_registry.baseline.Recorder` captures
+    the run for the case's baseline record.
     """
     values = dict(case.defaults)
     overrides = dict(options or {})
@@ -129,7 +133,7 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
         with TemporaryDirectory(prefix="ipu-case-") as tmp:
             return run_case(kernel_name, case, options=values, max_cycles=limit,
                             output_path=output_path, workspace=Path(tmp), inst_path=inst_path,
-                            alias_profile=alias_profile)
+                            alias_profile=alias_profile, recorder=recorder)
     workspace = Path(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
     prepared = case.prepare(workspace, **values)
@@ -145,7 +149,10 @@ def run_case(kernel_name: str, case: KernelCase, *, options=None, max_cycles=Non
     app = create_harness(kernel_name, params=prepared.params, bindings=bindings)
     if alias_profile is not None:
         alias_profile.metadata.update(kernel=kernel_name, options=values)
-    state, cycles = app.run(max_cycles=limit, **({"alias_profile": alias_profile} if alias_profile is not None else {}))
+    with recorder.watch() if recorder is not None else nullcontext():
+        state, cycles = app.run(max_cycles=limit, **({"alias_profile": alias_profile} if alias_profile is not None else {}))
+    if recorder is not None:
+        recorder.finish(state, cycles, bindings.get("output_path"))
     if not state.is_halted:
         raise RuntimeError(f"{kernel_name} did not complete within {limit} cycles")
     if output_path is not None:

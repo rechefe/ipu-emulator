@@ -594,3 +594,24 @@ class TestIpuState:
         d = state.to_dict()
         assert d["program_counter"] == 0
         assert d["regfile"]["lr"][0] == 10
+
+
+def test_regfile_observers_register_and_detach():
+    rf = RegFile()
+    first, second = [], []
+    remove_first = rf.add_observer(lambda *event: first.append(event))
+    rf.add_observer(lambda *event: second.append(event))
+    rf.raw("r_acc")
+    remove_first()
+    remove_first()  # idempotent
+    rf.raw("mult_res")
+    assert [name for name, _, _ in first] == ["r_acc"]
+    assert [name for name, _, _ in second] == ["r_acc", "mult_res"]
+
+
+def test_regfile_snapshot_does_not_inherit_observers():
+    rf = RegFile()
+    events = []
+    rf.add_observer(lambda *event: events.append(event))
+    rf.snapshot().raw("r_acc")
+    assert events == []

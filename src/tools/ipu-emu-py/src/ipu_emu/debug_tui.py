@@ -3133,7 +3133,7 @@ class CursesDebugView:
             token = tokens[tab.cursor_column]
             offset, size = resolved.byte_address + token.raw_start, token.raw_size
             fmt, backing = tab.request.fmt, None
-            raw = self.state.xmem.read_address(offset, size)
+            raw = self.state.xmem.snapshot_bytes(offset, size)
             label = f"XMEM 0x{offset:08x}"
         if len(raw) != size:
             self.session.set_message("Selected value is out of range", error=True)

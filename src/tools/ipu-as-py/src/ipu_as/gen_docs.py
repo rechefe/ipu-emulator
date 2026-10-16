@@ -6,14 +6,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ipu_common.instruction_spec import (
+from ipu_isa.instruction_spec import (
     PSEUDO_INSTRUCTION_SPEC,
     VALID_OPERAND_TYPES,
     SLOT_COUNT,
     SLOT_METADATA,
     COMPOUND_LAYOUT_SLOT_ORDER,
 )
-from ipu_common.registers import create_assembler_reg_enums
+from ipu_isa.registers import create_assembler_reg_enums
 
 # Long-form reference for each operand type string in instruction_spec (single source: VALID_OPERAND_TYPES).
 OPERAND_TYPE_DETAILS: dict[str, str] = {
@@ -60,12 +60,12 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     ),
     "ElementsInRow": (
         "ACC-slot immediate: elements per row for **`ACC.STRIDE`**. Valid values: **`16`**, **`32`**, "
-        "**`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_common`."
+        "**`64`** (minimum is 16; encoded 0→16, 1→32, 2→64). See `acc_stride_enums` in `ipu_isa`."
     ),
     "HorizontalStride": (
         "ACC-slot immediate: horizontal stride mode for **`ACC.STRIDE`**. Valid values: **`off`**, "
         "**`on`**, **`on_inv`** (2-bit encoded enum; **`reserved3`** is reserved). Expand padding "
-        "is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_common`."
+        "is fixed hardware behaviour and is not programmable. See `acc_stride_enums` in `ipu_isa`."
     ),
     "VerticalStride": (
         "ACC-slot immediate: **vertical stride** bit pattern for `ACC.STRIDE` (see "
@@ -74,7 +74,7 @@ OPERAND_TYPE_DETAILS: dict[str, str] = {
     "ActivationFn": (
         "AAQ-slot keyword on **`ACTIVATE.QUANTIZE`**: one of **identity**, **relu**, **relu6**, "
         "**sigmoid**, **tanh**, **gelu**, **softplus**, **elu**, **exp2**, **reciprocal**, **rsqrt**, **silu**, **window** "
-        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_common.activations``). Emulator-only calibration (including α and the "
+        "(see ``ACTIVATION_FN_NAMES`` in ``ipu_isa.activations``). Emulator-only calibration (including α and the "
         "**window** bounds a, b) "
         "is described in **Building Applications** "
         "(`docs/content/building-applications.md`)."
@@ -147,7 +147,7 @@ def generate_operand_types_md(output_path: Path) -> None:
 
 
 def generate_assembly_syntax_md(output_path: Path) -> None:
-    """Write assembly-syntax.md (register table from ipu_common register enums)."""
+    """Write assembly-syntax.md (register table from ipu_isa register enums)."""
     enums = create_assembler_reg_enums()
     mult_vals = ", ".join(f"`{v}`" for v in enums.get("MultStageRegField", []))
     lr_vals = enums.get("LrRegField", [])
@@ -157,7 +157,7 @@ def generate_assembly_syntax_md(output_path: Path) -> None:
 
     main = """# Assembly Language Syntax
 
-The IPU assembler is a Python-based tool that turns assembly source into binary VLIW instructions for the emulator. Instruction names, operands, and encoding are driven by `instruction_spec.py` in `ipu_common`; the [Instruction reference](instructions.md) and [Operand types](operand-types.md) are generated from that same toolchain.
+The IPU assembler is a Python-based tool that turns assembly source into binary VLIW instructions for the emulator. Instruction names, operands, and encoding are driven by `instruction_spec.py` in `ipu_isa`; the [Instruction reference](instructions.md) and [Operand types](operand-types.md) are generated from that same toolchain.
 
 ## Features
 
@@ -208,7 +208,7 @@ LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE l
 
 ## Register names
 
-The mult-stage and scalar register **tokens** below are derived from `REGISTER_DEFINITIONS` in `ipu_common.registers` (same source as the assembler).
+The mult-stage and scalar register **tokens** below are derived from `REGISTER_DEFINITIONS` in `ipu_isa.registers` (same source as the assembler).
 
 | Kind | Assembler tokens | Notes |
 |------|------------------|--------|
@@ -501,7 +501,7 @@ def generate_instruction_format_md(output_path: Path) -> None:
 
 This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
 Field names, bit widths, opcode values, and union-field sharing are **generated** from
-`instruction_spec.py` in `ipu_common` (the same source the assembler and emulator use).
+`instruction_spec.py` in `ipu_isa` (the same source the assembler and emulator use).
 
 ## Compound instruction layout ({width} bits)
 

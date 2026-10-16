@@ -15,7 +15,7 @@ Elsewhere a `.asm` is only coloured.
 |---|---|---|
 | Token shapes, comments, `;` / `;;`, labels | `asm_grammar.lark` terminals | extension build |
 | Instructions, their slots, slots per word, operands, docs | `instruction_spec.py` | extension build |
-| What each register is; `CR0`/`CR1` fixed values | `ipu_common.registers`, `ipu_emu.ipu_config` | extension build |
+| What each register is; `CR0`/`CR1` fixed values | `ipu_isa.registers`, `ipu_emu.ipu_config` | extension build |
 | What each operand type accepts (registers, enums, ranges) | the assembler's token classes, `completion_domain()` | extension build |
 | Which names ignore case | probe programs run through the assembler | extension build |
 | Kernels, families and their Bazel targets | `ipu_app.bzl` (`:kernel_targets`) | runtime, from the workspace |

@@ -1,0 +1,28 @@
+{
+ "default": {
+  "cycles": 51,
+  "output_sha256": "671788414f6542ed13926aa9a718375e1d54ada87b2987d8486b79e9d201fff6",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 8, 10, 2, 4, 1, 2, 1, 128, 8, 0, 0, 0, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "6a8911e00ae5354a051bcf4537bf51f0366026d97b29f33cefa165a8f67f11f5",
+    "xmem_setup_sha256": "f1be66223a877e096e31fb5bc52cd9a995e71054908aae068900fe96d891c62e"
+   }
+  ],
+  "state_sha256": "d699e22322979ffe3600e7df2faffde93069e6041f09eca79d8f3533922c5fac"
+ },
+ "tile_boundary": {
+  "cycles": 174,
+  "output_sha256": "ec3d01b91d2c5359ec2d5e867477c7257e9cf0b39813f844e80e3ddee8f4a8a7",
+  "programs": [
+   {
+    "cr": [0, 1, 0, 40, 48, 4, 8, 2, 2, 2, 128, 20, 0, 0, 0, 128],
+    "lr": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "program_sha256": "6a8911e00ae5354a051bcf4537bf51f0366026d97b29f33cefa165a8f67f11f5",
+    "xmem_setup_sha256": "fb7211b5d5720bce7b96191f415174985f08aab9c327d05d4e2db2f3398c3b22"
+   }
+  ],
+  "state_sha256": "b82fdaa8caf1d3e0d068d7c7458770d877c88e72ed6180d4cc0d98005e2084f3"
+ }
+}

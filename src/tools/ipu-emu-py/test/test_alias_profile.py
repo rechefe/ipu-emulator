@@ -454,3 +454,30 @@ MULT.RC.VE LR3 CR1 0 LR0 CR15; ACC.MAX;;
 BKPT;;
 ''', setup=setup, wide=True)
     assert count(state, 'A7_REDUCE_SEG') == 0
+
+
+def test_xmem_clear_under_profiler_is_constant_size():
+    """clear() is one ranged event: the observer drops its tables instead of
+    stamping a version on each of the 4M 128-byte blocks."""
+    state = run("BKPT;;")
+    observer = state.alias_profile._bridge
+    state.xmem.write_address(0, bytes(range(256)))
+    assert len(observer.memory_versions) == 2
+    state.xmem.clear()
+    assert len(observer.memory_versions) == 0
+    assert len(observer.stores) == 0
+    # Blocks the program never wrote after the clear still read as written by
+    # the clear, so a row of cleared memory is not mistaken for a constant.
+    assert observer.cleared_epoch == observer.memory_epoch > 0
+
+
+def test_profiled_xmem_is_freed_without_the_cycle_collector():
+    """The observer keeps its removers; they must not pin XMEM in a cycle."""
+    state = run("BKPT;;")
+    xmem = weakref.ref(state.xmem)
+    gc.disable()
+    try:
+        del state
+        assert xmem() is None
+    finally:
+        gc.enable()
