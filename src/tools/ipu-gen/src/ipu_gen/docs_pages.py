@@ -495,7 +495,7 @@ def generate_all_docs(
     assembly_syntax_path: Path,
     programmer_guide_path: Path,
 ) -> None:
-    """Regenerate all MkDocs pages owned by the assembler toolchain."""
+    """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
     generate_operand_types_md(operand_types_path)
     generate_assembly_syntax_md(assembly_syntax_path)
     generate_instruction_docs(instructions_path)

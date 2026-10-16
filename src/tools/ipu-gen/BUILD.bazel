@@ -24,7 +24,7 @@ filegroup(
 # Generators that render artifacts from the ISA: the SystemVerilog package
 # (E08-13), the docs pages and layout SVGs (E08-14). E08-15 moves the VS Code
 # generator here. ipu_as: the instruction reference renders each Inst class's
-# description.
+# description until E05-02 takes it from the slot codec.
 py_library(
     name = "ipu_gen_lib",
     srcs = glob(["src/ipu_gen/*.py"]),

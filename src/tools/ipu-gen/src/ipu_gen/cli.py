@@ -15,9 +15,6 @@ import click
 from ipu_gen import docs_pages, layout_svg
 from ipu_gen import sv_package as sv
 
-#: The pages `docs-pages` writes, in the order //docs:generate_mkdocs_md lists them.
-DOCS_PAGES = ("instructions.md", "operand-types.md", "assembly-syntax.md", "programmer-guide.md")
-
 
 @click.group()
 def cli() -> None:
@@ -37,7 +34,12 @@ def sv_package(output: str) -> None:
 def docs_pages_command(out_dir: Path) -> None:
     """Write the instruction, operand-type, assembly-syntax and programmer's guide pages."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs_pages.generate_all_docs(*(out_dir / page for page in DOCS_PAGES))
+    docs_pages.generate_all_docs(
+        instructions_path=out_dir / "instructions.md",
+        operand_types_path=out_dir / "operand-types.md",
+        assembly_syntax_path=out_dir / "assembly-syntax.md",
+        programmer_guide_path=out_dir / "programmer-guide.md",
+    )
 
 
 @cli.command("instruction-format-md")

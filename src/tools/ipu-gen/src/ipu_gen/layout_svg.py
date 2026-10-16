@@ -1,6 +1,8 @@
-"""SVG renderer for the IPU per-slot union layout.
+"""SVG renderers for the instruction word layout (E08-14).
 
-Produces a diagram that shows, for every slot:
+``struct_layout_svg`` draws the whole instruction word as rows of 32 bits, every
+field in its bit position. ``union_layout_svg`` (over ``render_union_layout_svg``)
+shows, for every slot:
 
 * the union fields packed by ``union_layout.py`` (one coloured box per field,
   width ∝ bit-width, labelled with the canonical type and bit-count), and
@@ -9,7 +11,9 @@ Produces a diagram that shows, for every slot:
 
 The diagram is the canonical visual for the "Compound Instruction Layout"
 section of the docs.  Slot order follows the binary layout MSB → LSB so the
-picture matches what an encoded VLIW word looks like in memory.
+picture matches what an encoded instruction word looks like in memory. Both read
+the ISA (``LAYOUT_ORDER``, ``SLOTS``, ``SLOT_UNIONS``); E05-03 moves them onto its
+word codec (``WORD_LAYOUT``).
 """
 
 from __future__ import annotations
@@ -209,7 +213,11 @@ def _slot_tokens(slot: Slot) -> list[tuple[str, int]]:
 
 
 def union_layout_svg() -> str:
-    """The per-slot union layout of the ISA, slots in word order (MSB → LSB)."""
+    """The per-slot union layout of the ISA, slots in word order (MSB → LSB).
+
+    Returns:
+        The SVG source.
+    """
     return render_union_layout_svg(
         dict(SLOT_UNIONS),
         slot_order=[slot.value for slot in LAYOUT_ORDER],
@@ -217,151 +225,161 @@ def union_layout_svg() -> str:
     )
 
 
-def struct_layout_svg() -> str:
-    """Render the whole instruction word as bit rows of 32.
+# The whole-word diagram: one row of 32 bits, ``_BIT_W`` px per bit, per 32 bits.
+_BIT_W = 24
+_ROW_H = 80
+_PAD = 20
+_ROW_W = 32 * _BIT_W
+_TITLE_PX = 14
+_LABEL_PX = 8
+_BITS_PX = 7
+_ROW_X = _PAD + 60
+_TEXT_LINE_H = 11
+_LEGEND_BOX = 12
 
-    Shows every operand field in its actual bit position, coloured by the
-    owning slot.  Complements ``union_layout_svg`` by giving the whole-word
-    picture (what an encoded VLIW word looks like in memory) without folding
-    cross-opcode field sharing. Field labels are the token-class names the ISA
-    records (``SlotInfo.asm_opcode_class``, ``OperandType.token_class``).
-    """
-    legend_entries = [(slot, info.legend_colour, info.legend_label) for slot, info in SLOTS.items()]
-    color_map = {slot: color for slot, color, _ in legend_entries}
 
-    fields_with_positions = []
+def _word_fields() -> list[dict]:
+    """Every field of the instruction word, LSB first, with its bit range and slot colour."""
+    colours = {slot: info.legend_colour for slot, info in SLOTS.items()}
+    fields = []
     current_bit = 0
     for slot in reversed(_word_slots()):
         for token_name, token_bits in reversed(_slot_tokens(slot)):
-            fields_with_positions.append(
+            fields.append(
                 {
                     "name": _smart_abbreviate_field_name(token_name),
                     "bits": token_bits,
                     "start_bit": current_bit,
                     "end_bit": current_bit + token_bits - 1,
-                    "color": color_map.get(slot, "#CCCCCC"),
+                    "color": colours.get(slot, "#CCCCCC"),
                 }
             )
             current_bit += token_bits
+    return fields
 
-    bits_per_width = 24
-    row_height = 80
-    padding = 20
-    row_width = 32 * bits_per_width
-    font_size_title = 14
-    font_size_label = 8
-    font_size_bits = 7
+
+def _label_lines(name: str) -> list[str]:
+    """A field label split into lines; words over 10 characters are shortened."""
+    short = {"immediate": "imm", "opcode": "op", "stage": "stg"}
+    lines = []
+    for word in name.split():
+        if len(word) <= 10:
+            lines.append(word)
+            continue
+        prefix = next((p for p in short if word.startswith(p)), None)
+        lines.append(short[prefix] if prefix else word[:5])
+    return lines
+
+
+def _field_svg(field: dict, row_end_bit: int, row_start_bit: int, x0: float, y: float) -> list[str]:
+    """One field's box, label and bit range, within one row."""
+    field_start = max(field["start_bit"], row_start_bit)
+    field_end = min(field["end_bit"], row_end_bit)
+    width_px = (field_end - field_start + 1) * _BIT_W
+    field_x = x0 + (row_end_bit - field_end) * _BIT_W
+    out = [
+        f'  <rect x="{field_x}" y="{y}" '
+        f'width="{width_px}" height="{_ROW_H}" '
+        f'fill="{field["color"]}" stroke="black" stroke-width="1" opacity="0.85"/>'
+    ]
+    center_x = field_x + width_px / 2
+    center_y = y + _ROW_H / 2
+    lines = _label_lines(field["name"])
+    text_height = len(lines) * _TEXT_LINE_H
+    start_y = center_y - text_height / 2
+    for i, line in enumerate(lines):
+        out.append(
+            f'  <text x="{center_x}" y="{start_y + i * _TEXT_LINE_H}" '
+            f'text-anchor="middle" class="field-label">{line}</text>'
+        )
+    out.append(
+        f'  <text x="{center_x}" y="{center_y + text_height / 2 + 3}" '
+        f'text-anchor="middle" class="field-label" style="font-weight: bold;">'
+        f"[{field['end_bit']}:{field['start_bit']}]</text>"
+    )
+    return out
+
+
+def _row_svg(row_idx: int, num_rows: int, total_bits: int, fields: list[dict]) -> list[str]:
+    """One row of 32 bits (row 0 is bits 31..0), drawn top to bottom from the MSB."""
+    row_start_bit = row_idx * 32
+    row_end_bit = min(row_start_bit + 31, total_bits - 1)
+    y = _PAD + _TITLE_PX * 2.5 + ((num_rows - 1 - row_idx) * _ROW_H)
+    out = [
+        f'  <rect x="{_ROW_X}" y="{y}" width="{_ROW_W}" height="{_ROW_H}" '
+        f'fill="white" stroke="black" stroke-width="2"/>',
+        f'  <text x="{_PAD + 30}" y="{y + _ROW_H / 2 + _LABEL_PX / 2}" '
+        f'text-anchor="end" class="bit-range">[{row_end_bit}:{row_start_bit}]</text>',
+    ]
+    x0 = _ROW_X + (32 - (row_end_bit - row_start_bit + 1)) * _BIT_W
+    for bit_pos in range(row_end_bit, row_start_bit - 1, -1):
+        bit_x = x0 + (row_end_bit - bit_pos + 0.5) * _BIT_W
+        out.append(
+            f'  <text x="{bit_x}" y="{y + 12}" text-anchor="middle" '
+            f'class="field-label" style="font-size: 6px; fill: #000000; font-weight: bold;">{bit_pos}</text>'
+        )
+    for field in fields:
+        if field["start_bit"] <= row_end_bit and field["end_bit"] >= row_start_bit:
+            out += _field_svg(field, row_end_bit, row_start_bit, x0, y)
+    return out
+
+
+def _legend_svg(legend_y: float) -> list[str]:
+    """The slot colour key below the rows."""
+    out = [
+        f'  <text x="{_ROW_X}" y="{legend_y}" class="inst-label" '
+        f'style="font-weight: bold;">Instruction Type Colors:</text>'
+    ]
+    for i, info in enumerate(SLOTS.values()):
+        y_pos = legend_y + 15 + i * 15
+        out.append(
+            f'  <rect x="{_ROW_X}" y="{y_pos - _LEGEND_BOX + 2}" '
+            f'width="{_LEGEND_BOX}" height="{_LEGEND_BOX}" '
+            f'fill="{info.legend_colour}" stroke="black" stroke-width="1" opacity="0.85"/>'
+        )
+        out.append(
+            f'  <text x="{_ROW_X + _LEGEND_BOX + 8}" y="{y_pos + 2}" '
+            f'class="field-label" style="font-size: 9px;">{info.legend_label}</text>'
+        )
+    return out
+
+
+def struct_layout_svg() -> str:
+    """Render the whole instruction word as bit rows of 32.
+
+    Shows every operand field in its actual bit position, coloured by the
+    owning slot.  Complements ``union_layout_svg`` by giving the whole-word
+    picture (what an encoded instruction word looks like in memory) without
+    folding cross-opcode field sharing. Field labels are the token-class names
+    the ISA records (``SlotInfo.asm_opcode_class``, ``OperandType.token_class``).
+
+    Returns:
+        The SVG source.
+    """
+    fields = _word_fields()
     total_bits = word_bits()
     num_rows = (total_bits + 31) // 32
-
-    legend_height = 20 + len(legend_entries) * 15
-    svg_width = row_width + padding * 2 + 80
-    svg_height = (num_rows * row_height) + font_size_title * 4 + padding * 3 + legend_height
-
+    legend_height = 20 + len(SLOTS) * 15
+    svg_width = _ROW_W + _PAD * 2 + 80
+    svg_height = (num_rows * _ROW_H) + _TITLE_PX * 4 + _PAD * 3 + legend_height
     svg_lines = [
         f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">',
         "  <defs>",
         "    <style>",
-        f"      .inst-title {{ font-size: {font_size_title}px; font-weight: bold; font-family: Arial; }}",
-        f"      .inst-label {{ font-size: {font_size_label}px; font-weight: bold; font-family: Arial; }}",
-        f"      .field-label {{ font-size: {font_size_bits}px; font-family: Arial; }}",
-        f"      .bit-range {{ font-size: {font_size_label}px; font-family: Arial; }}",
+        f"      .inst-title {{ font-size: {_TITLE_PX}px; font-weight: bold; font-family: Arial; }}",
+        f"      .inst-label {{ font-size: {_LABEL_PX}px; font-weight: bold; font-family: Arial; }}",
+        f"      .field-label {{ font-size: {_BITS_PX}px; font-family: Arial; }}",
+        f"      .bit-range {{ font-size: {_LABEL_PX}px; font-family: Arial; }}",
         "    </style>",
         "  </defs>",
         f'  <rect x="0" y="0" width="{svg_width}" height="{svg_height}" fill="white" stroke="none"/>',
-        f'  <text x="{svg_width / 2}" y="{padding + font_size_title}" '
+        f'  <text x="{svg_width / 2}" y="{_PAD + _TITLE_PX}" '
         f'text-anchor="middle" class="inst-title">'
         f"{_WORD_TITLE} Layout - {total_bits} total bits</text>",
     ]
-
     for row_idx in range(num_rows - 1, -1, -1):
-        row_start_bit = row_idx * 32
-        row_end_bit = min(row_start_bit + 31, total_bits - 1)
-        display_row_idx = num_rows - 1 - row_idx
-        current_y = padding + font_size_title * 2.5 + (display_row_idx * row_height)
-        current_x = padding + 60
-        svg_lines.append(
-            f'  <rect x="{current_x}" y="{current_y}" '
-            f'width="{row_width}" height="{row_height}" '
-            f'fill="white" stroke="black" stroke-width="2"/>'
-        )
-        svg_lines.append(
-            f'  <text x="{padding + 30}" y="{current_y + row_height / 2 + font_size_label / 2}" '
-            f'text-anchor="end" class="bit-range">[{row_end_bit}:{row_start_bit}]</text>'
-        )
-
-        bit_label_y = current_y + 12
-        bits_in_row = row_end_bit - row_start_bit + 1
-        row_offset = (32 - bits_in_row) * bits_per_width
-        for bit_pos in range(row_end_bit, row_start_bit - 1, -1):
-            bit_x = current_x + row_offset + (row_end_bit - bit_pos + 0.5) * bits_per_width
-            svg_lines.append(
-                f'  <text x="{bit_x}" y="{bit_label_y}" text-anchor="middle" '
-                f'class="field-label" style="font-size: 6px; fill: #000000; font-weight: bold;">{bit_pos}</text>'
-            )
-
-        for field in fields_with_positions:
-            if field["start_bit"] > row_end_bit or field["end_bit"] < row_start_bit:
-                continue
-            field_start = max(field["start_bit"], row_start_bit)
-            field_end = min(field["end_bit"], row_end_bit)
-            field_width_px = (field_end - field_start + 1) * bits_per_width
-            field_x = current_x + row_offset + (row_end_bit - field_end) * bits_per_width
-            svg_lines.append(
-                f'  <rect x="{field_x}" y="{current_y}" '
-                f'width="{field_width_px}" height="{row_height}" '
-                f'fill="{field["color"]}" stroke="black" stroke-width="1" opacity="0.85"/>'
-            )
-            field_center_x = field_x + field_width_px / 2
-            field_center_y = current_y + row_height / 2
-
-            text_lines = []
-            for word in field["name"].split():
-                if len(word) > 10:
-                    if word.startswith("immediate"):
-                        text_lines.append("imm")
-                    elif word.startswith("opcode"):
-                        text_lines.append("op")
-                    elif word.startswith("stage"):
-                        text_lines.append("stg")
-                    else:
-                        text_lines.append(word[:5])
-                else:
-                    text_lines.append(word)
-
-            line_height = 11
-            total_text_height = len(text_lines) * line_height
-            start_y = field_center_y - total_text_height / 2
-            for i, line in enumerate(text_lines):
-                svg_lines.append(
-                    f'  <text x="{field_center_x}" y="{start_y + i * line_height}" '
-                    f'text-anchor="middle" class="field-label">{line}</text>'
-                )
-            svg_lines.append(
-                f'  <text x="{field_center_x}" y="{field_center_y + total_text_height / 2 + 3}" '
-                f'text-anchor="middle" class="field-label" style="font-weight: bold;">'
-                f"[{field['end_bit']}:{field['start_bit']}]</text>"
-            )
-
-    legend_y = padding + font_size_title * 2.5 + (num_rows * row_height) + 20
-    svg_lines.append(
-        f'  <text x="{padding + 60}" y="{legend_y}" class="inst-label" '
-        f'style="font-weight: bold;">Instruction Type Colors:</text>'
-    )
-    color_box_size = 12
-    for i, (_, color, label) in enumerate(legend_entries):
-        x_pos = padding + 60
-        y_pos = legend_y + 15 + i * 15
-        svg_lines.append(
-            f'  <rect x="{x_pos}" y="{y_pos - color_box_size + 2}" '
-            f'width="{color_box_size}" height="{color_box_size}" '
-            f'fill="{color}" stroke="black" stroke-width="1" opacity="0.85"/>'
-        )
-        svg_lines.append(
-            f'  <text x="{x_pos + color_box_size + 8}" y="{y_pos + 2}" '
-            f'class="field-label" style="font-size: 9px;">{label}</text>'
-        )
-
+        svg_lines += _row_svg(row_idx, num_rows, total_bits, fields)
+    svg_lines += _legend_svg(_PAD + _TITLE_PX * 2.5 + (num_rows * _ROW_H) + 20)
     svg_lines.append("</svg>")
     return "\n".join(svg_lines)
 

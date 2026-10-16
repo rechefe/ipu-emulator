@@ -29,7 +29,7 @@ ipu_isa = []
 # SV package and the layout SVGs read ipu_isa only.
 ipu_gen = [
     "ipu_isa",
-    "ipu_as",  # the instruction reference renders each Inst class's description (E03-11 reads the ISA view)
+    "ipu_as",  # temporary: the instruction reference renders Inst.description() (E05-02 removes it)
 ]
 
 ipu_as = ["ipu_isa"]
