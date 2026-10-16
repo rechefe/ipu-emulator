@@ -3447,12 +3447,13 @@ class TestDeclaredSlotOrder:
     def test_faithful_dispatch_follows_declared_order(self, monkeypatch, skip_break):
         import ipu_emu.cycle as cycle_mod
         import ipu_emu.ipu as ipu_mod
+        from ipu_emu.issue import Issuer
 
         order = self._reordered()
         monkeypatch.setattr(cycle_mod, "SLOT_EXECUTION_ORDER", order)
         dispatched: list[str] = []
-        real_dispatch = ipu_mod.Ipu.dispatch_op
-        real_lr = ipu_mod.Ipu.dispatch_lr
+        real_dispatch = Issuer.dispatch
+        real_lr = Issuer.dispatch_all
 
         def spy_dispatch(self, op, inst):
             dispatched.append(op.slot)
@@ -3462,8 +3463,8 @@ class TestDeclaredSlotOrder:
             dispatched.append("lr")
             return real_lr(self, ops, inst)
 
-        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_op", spy_dispatch)
-        monkeypatch.setattr(ipu_mod.Ipu, "dispatch_lr", spy_lr)
+        monkeypatch.setattr(Issuer, "dispatch", spy_dispatch)
+        monkeypatch.setattr(Issuer, "dispatch_all", spy_lr)
 
         # The BREAK.IFEQ does not fire (LR1 is 0), so the word retires.
         state = make_state("SET lr0 cr8 ; BREAK.IFEQ lr1 5;;\nBKPT;;", cr={8: 7}, prototyping=False)

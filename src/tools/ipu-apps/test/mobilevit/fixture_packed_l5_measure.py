@@ -24,12 +24,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from ipu_emu.execute import BreakResult
-from ipu_emu.ipu import _SLOT_FIELD_PREFIX, Ipu
-from ipu_isa.slots import Slot
+from ipu_emu.ipu import Ipu
+from ipu_isa.codec.word import opcode_field
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.view import isa
 
 #: The slots a cycle runs after its break slot (the LR slots are not counted).
-_AFTER_BREAK = tuple(slot for slot in _SLOT_FIELD_PREFIX if slot != "break")
+_AFTER_BREAK = tuple(
+    slot for slot, info in SLOTS.items() if info.count == 1 and slot is not Slot.BREAK
+)
 
 
 @dataclass
@@ -47,7 +50,7 @@ class InstrCount:
         if inst is None:
             return
         for slot_type in slots:
-            opcode = inst[f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{slot_type}_inst_opcode"]
+            opcode = inst[opcode_field(Slot(slot_type))]
             if isa().by_opcode(Slot(slot_type), opcode).mnemonic != "NOP":
                 self.by_slot[slot_type] = self.by_slot.get(slot_type, 0) + 1
 

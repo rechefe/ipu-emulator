@@ -125,7 +125,7 @@ Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly pro
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/kernel.asm" --output "$PWD/kernel.bin" --define rows=8
 ```
 
-The `check` subcommand takes the same `--define` and `-I` options.
+The `check` subcommand takes the same `--define` and `-I` options. Both, and `disassemble`, take `--target hardware`: the words then hold the hardware slots only (the top bits of the emulator word), and an emulator-only instruction such as `BREAK` is an error at its mnemonic. The default, `--target emulator`, is the full word the emulator runs.
 
 ## Step 2: Define Bazel Build Targets
 

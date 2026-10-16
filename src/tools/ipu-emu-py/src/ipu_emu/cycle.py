@@ -47,6 +47,7 @@ from ipu_isa.timing import SLOT_EXECUTION_ORDER
 if TYPE_CHECKING:
     from ipu_emu.ipu import Ipu, SlotPlan
     from ipu_emu.ipu_state import IpuState
+    from ipu_emu.issue import IssueFacts
     from ipu_emu.regfile import RegFile
 
 
@@ -325,6 +326,16 @@ class Cycle:
         return self._public_snapshot
 
     @property
+    def current(self) -> IssueFacts | None:
+        """The :class:`~ipu_emu.issue.IssueFacts` of the op whose handler is running.
+
+        Kept by the engine's issuer, so a handler reads the same record whichever
+        cycle drives it. The last op's record between ops; ``None`` before the
+        first.
+        """
+        return self._ipu.issuer.current
+
+    @property
     def skip_idle_nops(self) -> bool:
         """Whether this cycle's schedules skip idle NOP slots (prototyping)."""
         return self._skip_idle_nops
@@ -397,7 +408,7 @@ class Cycle:
                 if (
                     honour_break
                     and schedule.break_op is not None
-                    and self._ipu.dispatch_op(schedule.break_op, inst) is CycleOutcome.BREAK
+                    and self._ipu.issuer.dispatch(schedule.break_op, inst) is CycleOutcome.BREAK
                 ):
                     return CycleOutcome.BREAK
             self._run(pc, inst, schedule)
@@ -466,7 +477,7 @@ class Cycle:
     def _evaluate_break(self, inst: Mapping[str, int], schedule: Schedule) -> CycleOutcome:
         if schedule.break_op is None:
             return CycleOutcome.RETIRED
-        return self._ipu.dispatch_op(schedule.break_op, inst)
+        return self._ipu.issuer.dispatch(schedule.break_op, inst)
 
     def _run(self, pc: int, inst: Mapping[str, int] | None, schedule: Schedule | None) -> None:
         """Every side effect of one word, between the observer's begin and end."""
@@ -483,7 +494,8 @@ class Cycle:
             observer.end()
 
     def _run_slots(self, inst: Mapping[str, int], schedule: Schedule) -> None:
-        dispatch_op = self._ipu.dispatch_op
+        issuer = self._ipu.issuer
+        dispatch = issuer.dispatch
         stats = self.state.stats
         slot_ops = schedule.slot_ops
         lr_position = schedule.lr_position
@@ -491,17 +503,17 @@ class Cycle:
             if op.operands is None:  # a skipped NOP, issued for its counter
                 setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
             else:
-                dispatch_op(op, inst)
+                dispatch(op, inst)
         if schedule.lr_conflict is not None:
             raise lr_conflict_error(schedule.lr_conflict, self.state.program_counter)
         # Every LR sub-slot resolves its reads before any of them writes, in
         # both modes, so a read that raises leaves no LR written.
-        self._ipu.dispatch_lr(schedule.lr_ops, inst)
+        issuer.dispatch_all(schedule.lr_ops, inst)
         for op in slot_ops[lr_position:]:
             if op.operands is None:
                 setattr(stats, op.plan.stat, getattr(stats, op.plan.stat) + 1)
             else:
-                dispatch_op(op, inst)
+                dispatch(op, inst)
 
 
 # ``ipu_emu.ipu`` holds the decode tables (a plan holds its handler function) and

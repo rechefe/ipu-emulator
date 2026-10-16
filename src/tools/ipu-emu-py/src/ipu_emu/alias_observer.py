@@ -167,12 +167,17 @@ class ExecutionObserver:
         self.snapshot_rows = self.rows.copy()
         self.cycle_events = []
 
-    def start(self, ipu, slot, plan, kwargs, encoded):
+    def start(self, ipu, issued):
+        # Opens the event of one issued op, from its ipu_emu.issue.IssueFacts.
+        slot, plan, kwargs, encoded = issued.slot, issued.plan, issued.operands, issued.encoded
         if plan.inst_name == "NOP":
             return None
-        facts = {"operands": dict(kwargs), "encoded": encoded, "chain": self.chain}
         # Do not serialize resolved vectors; only small execution facts escape.
-        facts["operands"] = {k: v for k, v in kwargs.items() if isinstance(v, int)}
+        facts = {
+            "operands": {k: v for k, v in kwargs.items() if isinstance(v, int)},
+            "encoded": dict(encoded),
+            "chain": self.chain,
+        }
         facts["lr_reads"] = {
             read.name: encoded[read.name]
             for read in plan.reads
@@ -194,7 +199,7 @@ class ExecutionObserver:
                 mask=mask,
                 declared_width=ds.valid_elements,
                 partition=int(ds.partition),
-                identity=ipu._mult_identity,
+                identity=issued.mult_identity.any,
                 wide_fp32=self.state.wide_vector_debug
                 and self.state.wide_vector_arithmetic.value == "fp32",
             )

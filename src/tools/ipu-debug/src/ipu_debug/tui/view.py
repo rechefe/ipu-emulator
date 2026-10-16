@@ -35,7 +35,7 @@ from ipu_debug.pipeline import (
     SLOT_LABELS,
     display_operation,
     pipeline_occupancy,
-    semantic_operations,
+    stage_operations,
 )
 from ipu_debug.session import DebugSession
 from ipu_debug.tui.draw import (
@@ -896,11 +896,13 @@ class CursesDebugView:
     def _disassembly(self, pc: int) -> str:
         text = self._disassembly_cache.get(pc)
         if text is None:
-            line = self.debug.disassemble(pc, 1)
-            text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
-            operations = self._all_operations(text)
-            if len(operations) == len(SLOT_LABELS):
-                text = f"PC {pc}: " + ";\n".join(semantic_operations(operations)) + ";;"
+            instruction = self.state.inst_mem[pc] if 0 <= pc < INST_MEM_SIZE else None
+            if instruction is None:
+                line = self.debug.disassemble(pc, 1)
+                text = f"PC {pc}: {line[0].text}" if line else "PC out of bounds"
+            else:
+                operations = (operation for _, operation in stage_operations(instruction))
+                text = f"PC {pc}: " + ";\n".join(operations) + ";;"
             self._disassembly_cache[pc] = text
         return text
 

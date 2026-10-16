@@ -28,7 +28,8 @@ import ipu_as.template as template
 from ipu_as.errors import AssemblerError, ParseError, SourceLocation
 from ipu_as.symbols import SymbolTable
 from ipu_as.syntax import ASTBuilder, parse_tree
-from ipu_isa.codec.word import pack_program, word_bytes
+from ipu_isa.codec.word import hardware_word, pack_program, word_bytes
+from ipu_isa.tags import Tag
 
 __all__ = [
     "AssemblyResult",
@@ -53,6 +54,8 @@ class AssemblyResult:
     rendered: str
     #: Each warning the encoder raised, as text (simulation-only slots).
     warnings: tuple[str, ...]
+    #: Which word ``words`` holds: Tag.EMULATOR or Tag.HARDWARE.
+    target: Tag = Tag.EMULATOR
     _warning_categories: tuple[type[Warning], ...] = field(default=(), repr=False, compare=False)
 
     def to_mem(self) -> str:
@@ -60,8 +63,15 @@ class AssemblyResult:
         return "".join(f"0x0{word:08x}\n" for word in self.words)
 
     def to_bin(self) -> bytes:
-        """The `.bin` file bytes: each word little-endian, padded to 32 bits."""
-        return pack_program(self.words)
+        """The `.bin` file bytes: each word little-endian, padded to 32 bits.
+
+        A hardware word is `word_bytes(Tag.HARDWARE)` bytes, an emulator word
+        `word_bytes()`.
+        """
+        if self.target is Tag.EMULATOR:
+            return pack_program(self.words)
+        width = word_bytes(Tag.HARDWARE)
+        return b"".join(word.to_bytes(width, byteorder="little") for word in self.words)
 
     def reissue_warnings(self) -> None:
         """Raise the assembly's warnings again, as encoding did.
@@ -146,31 +156,53 @@ class AssemblySession:
         except lark.exceptions.LarkError as error:
             raise ParseError(str(error), location=_lark_location(error)) from error
 
-    def encode(self, parsed: list[dict]) -> tuple[int, ...]:
+    def encode(self, parsed: list[dict], target: str = "emulator") -> tuple[int, ...]:
         """The instruction words of `parsed` (from `parse` or `parse_rendered`).
 
-        Raises:
-            EncodeError: an operand, slot or label error.
-        """
-        return tuple(encode.encode_word(instr) for instr in parsed)
+        Args:
+            parsed: The compound instructions.
+            target: `"emulator"` (every slot) or `"hardware"`: each word is then
+                the hardware word, the emulator word's top
+                `word_bits(Tag.HARDWARE)` bits.
 
-    def assemble(self) -> AssemblyResult:
+        Returns:
+            One word per compound instruction.
+
+        Raises:
+            EncodeError: an operand, slot or label error; for the hardware
+                target, an emulator-only instruction.
+        """
+        tag = encode.target_tag(target)
+        words = (encode.encode_word(instr, tag) for instr in parsed)
+        if tag is Tag.HARDWARE:
+            return tuple(hardware_word(word) for word in words)
+        return tuple(words)
+
+    def assemble(self, target: str = "emulator") -> AssemblyResult:
         """Encode every instruction word and raise the encoder's warnings.
+
+        Args:
+            target: `"emulator"` (the default: every slot, as the emulator runs
+                it) or `"hardware"` (the hardware slots only; an emulator-only
+                instruction is an error).
+
+        Returns:
+            The words and what the assembly found.
 
         Raises:
             TemplateError, ParseError or an EncodeError subclass.
         """
-        result = self._encode()
+        result = self._encode(encode.target_tag(target))
         result.reissue_warnings()
         return result
 
-    def _encode(self) -> AssemblyResult:
+    def _encode(self, target: Tag = Tag.EMULATOR) -> AssemblyResult:
         """Encode without raising warnings; they are recorded in the result."""
         parsed = self.parse()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             try:
-                words = self.encode(parsed)
+                words = self.encode(parsed, target)
                 failure = None
             except AssemblerError as error:
                 failure = error
@@ -184,6 +216,7 @@ class AssemblySession:
             symbols=MappingProxyType(dict(self.symbols.items())),
             rendered=self.render(),
             warnings=tuple(str(w.message) for w in caught),
+            target=target,
             _warning_categories=tuple(w.category for w in caught),
         )
         return result
@@ -234,7 +267,9 @@ def assemble(
     abi: Mapping[str, Mapping[str, str]] | None = None,
     name: str = "<input>",
 ) -> AssemblyResult:
-    """Assemble `source`, reusing the result of an identical recent assembly.
+    """Assemble `source` for the emulator, reusing the result of an identical recent assembly.
+
+    For the hardware word use `AssemblySession(source, ...).assemble("hardware")`.
 
     A cached result raises its warnings again, so a caller sees the same
     warnings whether or not the result came from the cache. A source with a
