@@ -153,6 +153,20 @@ py_pytest_test(
     ],
 )
 
+# The Cycle module (E04-07): step = evaluate_break + retire, no side effects
+# before BREAK, the idle word, re-snapshot on resume.
+py_pytest_test(
+    name = "test_cycle",
+    srcs = ["test/test_cycle.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        requirement("numpy"),
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_emulator_e2e",
     srcs = ["test/test_emulator_e2e.py"],

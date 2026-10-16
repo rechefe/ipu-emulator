@@ -115,33 +115,29 @@ def emulator_only_instructions(instructions) -> set[str]:
 # ---------------------------------------------------------------------------
 # Legacy execution API (backward compatibility wrappers)
 # ---------------------------------------------------------------------------
-# These functions maintain the old API but delegate to the Ipu class.
-# New code should use the Ipu class directly.
+# These functions maintain the old API but delegate to ipu_emu.cycle.Cycle.
+# New code should use Cycle (``ipu.cycle``, or ``Cycle(state, ipu)``) directly.
 # ---------------------------------------------------------------------------
 
 
 def execute_next_instruction(state: IpuState) -> BreakResult:
-    """Execute one VLIW cycle.
+    """Execute one VLIW cycle, honouring BREAK.
 
-    Legacy wrapper — new code should use Ipu class directly.
-
-    1. Fetch instruction at program counter
-    2. Snapshot the register file
-    3. Execute BREAK first (before side effects)
-    4. Execute load, MULT, ACC, AAQ, store, acc_store, COND from the snapshot
+    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.step`, deleted when the
+    reference-model API replaces it (E04-30).
 
     Returns:
-        BreakResult.BREAK if break condition occurred, CONTINUE otherwise
+        BreakResult.BREAK if the word stopped at its BREAK slot, else CONTINUE.
     """
     ipu = Ipu(state)
-    return ipu.execute_vliw_cycle()
+    return ipu.cycle.step()
 
 
 def execute_instruction_skip_break(state: IpuState) -> None:
-    """Execute the current instruction without re-checking break.
+    """Retire the current word without evaluating BREAK.
 
-    Legacy wrapper — new code should use Ipu class directly.
-    Used after returning from a debug break to complete the cycle.
+    Legacy wrapper of :meth:`ipu_emu.cycle.Cycle.retire`, deleted when the
+    reference-model API replaces it (E04-30).
     """
     ipu = Ipu(state)
-    ipu.execute_vliw_cycle_skip_break()
+    ipu.cycle.retire()
