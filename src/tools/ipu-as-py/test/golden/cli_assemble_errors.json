@@ -123,7 +123,7 @@
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Unexpected token Token('$END', '') at line 1, column 1.\nExpected one of: \n\t* TOKEN\n\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError rendering template: 'undefined_var' is undefined\n"
   },
   "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    BKPT;;\\n'": {
     "exception": null,

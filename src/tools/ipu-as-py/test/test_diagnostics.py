@@ -136,19 +136,18 @@ def test_jinja_runtime_errors_are_reported_not_raised(source):
     assert found and found[0].stage == "template"
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        "",
-        "{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n",
-    ],
-)
-def test_empty_program_is_reported_not_crashed(source):
-    # An undefined name iterates as empty rather than raising, so a template can
-    # render to nothing at all. The parser then fails on the synthetic `$END`
-    # token, which carries no end position -- that used to crash the checker.
-    found = check(source)
+def test_empty_program_is_reported_not_crashed():
+    # The parser fails on the synthetic `$END` token, which carries no end
+    # position -- that used to crash the checker.
+    found = check("")
     assert found and found[0].stage == "parse"
+
+
+def test_an_undefined_name_is_a_template_error_at_its_line():
+    # StrictUndefined (E05-11): an undefined name no longer iterates as empty.
+    (found,) = check("{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n")
+    assert (found.stage, found.line) == ("template", 0)
+    assert "'undefined_var' is undefined" in found.message
 
 
 def test_encode_column_is_not_a_rendered_offset():
