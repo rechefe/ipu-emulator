@@ -262,7 +262,7 @@ and pane sizes are retained in memory for the current IPU state.
 `?` opens a scrollable overlay listing every control, grouped by scope. While it
 is open it consumes all input, so `F5` and `F8` cannot start execution by
 accident; `Esc`, `?`, or `Enter` closes it. The overlay and the shortcut
-bar are generated from one table in `ipu_debug/tui.py`, so they cannot disagree.
+bar are generated from one table in `ipu_debug/tui/keymap.py`, so they cannot disagree.
 
 The bottom shortcut bar changes with the focused pane, so it only shows actions
 that apply to the current context. It drops the least important shortcuts on a

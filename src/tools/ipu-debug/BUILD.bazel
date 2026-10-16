@@ -28,7 +28,7 @@ filegroup(
 # ipu_emu_lib does not depend on this library (Q62, tools/import_graph.toml).
 py_library(
     name = "ipu_debug_lib",
-    srcs = glob(["src/ipu_debug/*.py"]),
+    srcs = glob(["src/ipu_debug/**/*.py"]),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-emu-py:ipu_emu_lib",
@@ -57,6 +57,20 @@ py_pytest_test(
     name = "test_debug_tui",
     srcs = ["test/test_debug_tui.py"],
     data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        "//src/tools/ipu-emu-py:emu_test_support",
+        requirement("pytest"),
+    ],
+)
+
+# The TUI shell: golden screen tests over FakeScreen, TabSet and keymap unit
+# tests, and the check that only tui/screen.py imports curses.
+py_pytest_test(
+    name = "test_tui_shell",
+    srcs = ["test/test_tui_shell.py"],
+    data = ["pytest.ini"] + glob(["test/golden/tui/*.txt"]),
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",

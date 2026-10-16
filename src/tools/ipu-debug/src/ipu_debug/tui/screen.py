@@ -440,7 +440,9 @@ class CursesScreen:
             return self._mouse()
         key: Input | None = None
         if isinstance(raw, int):
-            key = _KEY_CODES.get(raw) or _CHARACTER_KEYS.get(chr(raw) if 0 <= raw < 0x110000 else "")
+            key = _KEY_CODES.get(raw) or _CHARACTER_KEYS.get(
+                chr(raw) if 0 <= raw < 0x110000 else ""
+            )
         elif isinstance(raw, str):
             key = _CHARACTER_KEYS.get(raw, raw)
         if key is Key.RESIZE:
@@ -505,11 +507,7 @@ _CURSES_KEY_NAMES = {
     **{f"KEY_F{number}": Key[f"F{number}"] for number in range(1, 13)},
 }
 _KEY_CODES: dict[int, Key] = (
-    {
-        getattr(curses, name): key
-        for name, key in _CURSES_KEY_NAMES.items()
-        if hasattr(curses, name)
-    }
+    {getattr(curses, name): key for name, key in _CURSES_KEY_NAMES.items() if hasattr(curses, name)}
     if curses is not None
     else {}
 )

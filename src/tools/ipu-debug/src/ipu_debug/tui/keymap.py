@@ -159,14 +159,28 @@ HELP_SCOPE_TITLES: tuple[tuple[HelpScope, str], ...] = (
 # The footer puts execution controls first. ``docs/content/debugging.md``
 # documents the same controls and is synchronised by hand.
 KEY_BINDINGS: tuple[KeyBinding, ...] = (
-    KeyBinding(("F2",), "pane", "Add a tab to the focused pane", "F2:Add", 3,
-               binds=((Key.F2, Command.ADD_TAB),)),
-    KeyBinding(("F3",), "pane", "Edit the active tab", "F3:Edit", 3,
-               binds=((Key.F3, Command.EDIT_TAB),)),
-    KeyBinding(("F4",), "pane", "Close the active tab", "F4:Close", 3,
-               binds=((Key.F4, Command.CLOSE_TAB),)),
-    KeyBinding(("f",), "pane", "Cycle the active tab's format", "f:Format", 2,
-               binds=(("f", Command.CYCLE_FORMAT),)),
+    KeyBinding(
+        ("F2",),
+        "pane",
+        "Add a tab to the focused pane",
+        "F2:Add",
+        3,
+        binds=((Key.F2, Command.ADD_TAB),),
+    ),
+    KeyBinding(
+        ("F3",), "pane", "Edit the active tab", "F3:Edit", 3, binds=((Key.F3, Command.EDIT_TAB),)
+    ),
+    KeyBinding(
+        ("F4",), "pane", "Close the active tab", "F4:Close", 3, binds=((Key.F4, Command.CLOSE_TAB),)
+    ),
+    KeyBinding(
+        ("f",),
+        "pane",
+        "Cycle the active tab's format",
+        "f:Format",
+        2,
+        binds=(("f", Command.CYCLE_FORMAT),),
+    ),
     KeyBinding(
         ("d", "a"),
         "pane",
@@ -188,8 +202,9 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
             (Key.RIGHT, Command.MOVE_RIGHT),
         ),
     ),
-    KeyBinding(("Tab",), "pane", "Select the next tab", "Tab:Next", 2,
-               binds=((Key.TAB, Command.NEXT_TAB),)),
+    KeyBinding(
+        ("Tab",), "pane", "Select the next tab", "Tab:Next", 2, binds=((Key.TAB, Command.NEXT_TAB),)
+    ),
     KeyBinding(
         ("PgUp", "PgDn"),
         "pane",
@@ -208,8 +223,13 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
     KeyBinding(("Double-click",), "pane", "Edit the selected register or memory value"),
     KeyBinding(("Code gutter",), "pane", "Click to toggle an instruction breakpoint"),
     KeyBinding(("Drag",), "pane", "Drag a pane divider or scrollbar"),
-    KeyBinding(("Shift-Tab",), "global", "Focus the next pane", "S-Tab:Pane",
-               binds=((Key.SHIFT_TAB, Command.NEXT_PANE),)),
+    KeyBinding(
+        ("Shift-Tab",),
+        "global",
+        "Focus the next pane",
+        "S-Tab:Pane",
+        binds=((Key.SHIFT_TAB, Command.NEXT_PANE),),
+    ),
     KeyBinding(
         ("1-4",),
         "global",
@@ -223,10 +243,17 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
             ("4", Command.FOCUS_REGISTERS),
         ),
     ),
-    KeyBinding(("F5",), "global", "Continue to the next breakpoint", "F5:Run", 0,
-               binds=((Key.F5, Command.CONTINUE),)),
-    KeyBinding(("F8",), "global", "Execute one instruction", "F8:Step", 0,
-               binds=((Key.F8, Command.STEP),)),
+    KeyBinding(
+        ("F5",),
+        "global",
+        "Continue to the next breakpoint",
+        "F5:Run",
+        0,
+        binds=((Key.F5, Command.CONTINUE),),
+    ),
+    KeyBinding(
+        ("F8",), "global", "Execute one instruction", "F8:Step", 0, binds=((Key.F8, Command.STEP),)
+    ),
     KeyBinding(
         ("F9",),
         "pane",
@@ -269,17 +296,29 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
         footer_rank=4,
         binds=((Key.SHIFT_UP, Command.SPLIT_UP), (Key.SHIFT_DOWN, Command.SPLIT_DOWN)),
     ),
-    KeyBinding(("=",), "global", "Reset every split", "=:Reset", 4,
-               binds=(("=", Command.RESET_SPLITS),)),
-    KeyBinding(("?",), "global", "Show this help overlay",
-               binds=(("?", Command.SHOW_HELP),)),
-    KeyBinding(("q",), "global", "Halt execution and exit the debugger", "q Quit", 0,
-               binds=(("q", Command.QUIT),)),
+    KeyBinding(
+        ("=",), "global", "Reset every split", "=:Reset", 4, binds=(("=", Command.RESET_SPLITS),)
+    ),
+    KeyBinding(("?",), "global", "Show this help overlay", binds=(("?", Command.SHOW_HELP),)),
+    KeyBinding(
+        ("q",),
+        "global",
+        "Halt execution and exit the debugger",
+        "q Quit",
+        0,
+        binds=(("q", Command.QUIT),),
+    ),
     # Esc also leaves the disassembly pane's stage view.
-    KeyBinding(("Esc",), "editor", "Cancel the editor",
-               binds=((Key.ESCAPE, Command.CANCEL),), also=(Focus.DISASSEMBLY,)),
-    KeyBinding(("Enter",), "editor", "Apply the edited value",
-               binds=((Key.ENTER, Command.EDITOR_SUBMIT),)),
+    KeyBinding(
+        ("Esc",),
+        "editor",
+        "Cancel the editor",
+        binds=((Key.ESCAPE, Command.CANCEL),),
+        also=(Focus.DISASSEMBLY,),
+    ),
+    KeyBinding(
+        ("Enter",), "editor", "Apply the edited value", binds=((Key.ENTER, Command.EDITOR_SUBMIT),)
+    ),
     KeyBinding(
         ("Left", "Right", "Home", "End"),
         "editor",
@@ -365,9 +404,7 @@ def help_lines(width: int = 72) -> list[tuple[str, int]]:
     key_width = max(len(" / ".join(binding.keys)) for binding in KEY_BINDINGS)
     for scope, title in HELP_SCOPE_TITLES:
         bindings = [
-            binding
-            for binding in KEY_BINDINGS
-            if binding.scope == scope and binding.keys != ("q",)
+            binding for binding in KEY_BINDINGS if binding.scope == scope and binding.keys != ("q",)
         ]
         if not bindings:
             continue
@@ -430,8 +467,10 @@ def footer_actions(binding: KeyBinding) -> list[tuple[str, str | Key]]:
         return []
     if binding.keys == ("d", "a"):
         return [("a:Prev", "a"), ("d:Next", "d")]
-    if binding.keys[0] in ("Arrows", "1-4") or binding.keys[0].startswith("Shift-") and (
-        binding.keys[0] != "Shift-Tab"
+    if (
+        binding.keys[0] in ("Arrows", "1-4")
+        or binding.keys[0].startswith("Shift-")
+        and (binding.keys[0] != "Shift-Tab")
     ):
         return []
     return [(binding.footer, binding.binds[0][0])]
