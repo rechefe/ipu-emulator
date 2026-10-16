@@ -228,7 +228,7 @@ class TestKeymap:
 
     def test_every_command_has_a_handler(self):
         view = CursesDebugView(FakeScreen(), make_state("NOP;;"), _session(), cycle=0)
-        assert set(view._commands) >= set(KEYMAP.values())
+        assert set(view.commands) >= set(KEYMAP.values())
 
 
 def _session():
