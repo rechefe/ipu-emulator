@@ -106,7 +106,7 @@ nav:
           - Normalization and shaping: kernels/normalization-and-shaping.md
           - Attention: kernels/attention.md
           - MobileViT-S: kernels/mobilevit.md
-      # Code conventions: the E01-12 page is linked here when it exists.
+      - Code conventions: code-conventions.md               # E01-12
       - Glossary: reference/glossary.md
   - Explanation:
       - explanation/index.md

@@ -52,6 +52,8 @@ tools/sv_localparam_diff.sh <base-ref>                      # diff localparam li
 
 [SKILL.md](SKILL.md) is the index: for each task or topic it names the page that covers it.
 
+Read [Code conventions](docs/content/code-conventions.md) before writing or reviewing code. Terms: [GLOSSARY.md](GLOSSARY.md). Decisions: [docs/adr/](docs/adr/).
+
 ## Agent skills
 
 ### Issue tracker

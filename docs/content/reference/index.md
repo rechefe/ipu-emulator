@@ -13,6 +13,5 @@ These pages are for looking things up: instructions, operands, commands and term
 | [Command-line tools](cli.md) | Every command-line tool (`ipu-as`, the kernel runner and the debugger), with its subcommands and options. |
 | [Reference model API](reference-model-api.md) | The stable emulator API and the trace schema. |
 | [Kernels](../kernels/index.md) | The kernel catalogue, by family. |
+| [Code conventions](../code-conventions.md) | How code in this repository is written, and what checks each rule. |
 | [Glossary](glossary.md) | The terms these docs use. |
-
-[E01-12](https://github.com/rechefe/ipu-emulator/blob/master/planning/architecture-deepening/01-foundation/12-code-conventions-page.md) writes the code-conventions page; this list links it once it exists.
