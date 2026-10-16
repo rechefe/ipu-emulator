@@ -17,6 +17,13 @@ exports_files([
     ".vscodeignore",
 ])
 
+# The assembly fixtures, for the assembled-binary baseline in
+# //src/tools/ipu-apps:test_asm_digests.
+filegroup(
+    name = "asm_fixtures",
+    srcs = glob(["test/**/*.asm"]),
+)
+
 filegroup(
     name = "agreement_test_srcs",
     srcs = [

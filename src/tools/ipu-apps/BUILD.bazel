@@ -141,3 +141,36 @@ ipu_multi_kernel_tests(
     kernels_root = "src/ipu_apps/kernels",
     deps = [":ipu_apps_lib", requirement("pytest")],
 )
+
+# Assembled-binary baseline (E02-01): the .bin and .mem digests of every .asm
+# program in the repo, plus each render context today's tests use. Corpus in
+# test/baselines/asm_corpus.py; `bazel run :update_asm_digests` rewrites the
+# manifest after an intended change.
+_ASM_CORPUS = glob([
+    "src/ipu_apps/kernels/**/*.asm",
+    "test/mobilevit/*.asm",
+]) + ["//vscode-ipu-asm:asm_fixtures"]
+
+py_library(
+    name = "asm_corpus",
+    srcs = ["test/baselines/asm_corpus.py"],
+    imports = ["test/baselines"],
+    deps = [
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("jinja2"),
+    ],
+)
+
+py_pytest_test(
+    name = "test_asm_digests",
+    srcs = ["test/test_asm_digests.py"],
+    data = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
+    deps = [":asm_corpus", requirement("pytest")],
+)
+
+py_binary(
+    name = "update_asm_digests",
+    srcs = ["test/baselines/update_asm_digests.py"],
+    main = "test/baselines/update_asm_digests.py",
+    deps = [":asm_corpus"],
+)
