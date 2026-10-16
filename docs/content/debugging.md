@@ -215,7 +215,7 @@ Outside an editor and the help overlay, `Esc` does nothing.
 | `F8` | Execute one instruction and refresh |
 | `F9` | Toggle a runtime breakpoint at the disassembly cursor |
 | `F10` | Run to the disassembly cursor or the next stop |
-| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value |
+| `e` | Edit the selected LR/CR, pipeline-register, or XMEM value; in disassembly, edit the PC |
 | `q` | Halt execution and exit the debugger (ignored while Help is open) |
 | `Esc` | Close the help overlay or cancel an open editor; otherwise do nothing |
 | `F2` | Add a tab to the focused pane |
@@ -678,6 +678,12 @@ input leaves the bytes unchanged and keeps the editor open.
 Edits affect only the selected value’s byte span. Pipeline edits use the displayed
 register’s native or wide backing; XMEM edits use the resolved selected address.
 Other memory tabs refresh immediately after applying an edit.
+
+In Disassembly, `e` edits the PC. The value must lie between `0` and
+`INST_MEM_SIZE - 1`; an out-of-range PC keeps the editor open with an error.
+The TUI editors and the line CLI's `set`, `break`, `delete` and `until` make
+the same change through one debugger core, so any of them refreshes every
+cached XMEM view.
 
 Escape sequence decoding waits at most 25 ms, so a standalone Escape closes
 popups promptly while arrow/function-key sequences remain enabled.

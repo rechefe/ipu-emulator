@@ -29,7 +29,7 @@ from ipu_debug.tui import (
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.ipu import xmem_row_size_bytes
-from ipu_emu.ipu_state import IpuState
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
 
 class FakeScreen:
@@ -2354,6 +2354,43 @@ class TestDebuggerImprovements:
         assert error is None
         assert resolved.data == b"\x22"
 
+    def test_cr_edit_moves_the_session_generation_and_refreshes_xmem(self):
+        state = IpuState()
+        state.xmem.write_address(0, b"\x11")
+        state.xmem.write_address(128, b"\x22")
+        view, _, session = make_view(state)
+        request = XmemRequest("row", "0", "cr2", 1, "hex")
+        session.tabs = [XmemTab(request)]
+        view.render()
+        assert view._resolve_xmem(request)[0].data == b"\x11"
+        generation = view.debug.generation
+        session.focus = "registers"
+        session.register_tabs[0].group = "cr"
+        session.register_tabs[0].cursor = 2
+        view.handle_key("e")
+        view.command = "1"
+        view.handle_key("\n")
+        assert view.editor_mode is None
+        assert view.debug.generation == generation + 1
+        assert view._resolve_xmem(request)[0].data == b"\x22"
+
+    def test_disassembly_editor_sets_the_pc_through_the_session(self):
+        view, screen, session = make_view()
+        session.focus = "disassembly"
+        view.handle_key("e")
+        assert view.editor_mode == "scalar" and view.editor_register == "pc"
+        view.render()
+        assert "Edit PC value" in screen.text()
+        view.command = str(INST_MEM_SIZE)
+        view.handle_key("\n")
+        assert session.message_is_error and "PC must be between" in session.message
+        assert view.state.program_counter == 0
+        view.command = "0x3"
+        view.handle_key("\n")
+        assert view.editor_mode is None
+        assert view.state.program_counter == 3
+        assert session.message == "Set PC = 0x3"
+
     @pytest.mark.parametrize("index", [0, 1])
     def test_scalar_editor_rejects_constants_and_invalid_input(self, index):
         view, _, session = make_view()
@@ -2919,6 +2956,7 @@ class TestMemoryValueEditing:
         view.render()
         tab = session.selected_tab()
         tab.cursor_column = 1
+        generation = view.debug.generation
         view.handle_key("e")
         assert view.editor_mode == "value"
         view.command = "1.25"
@@ -2926,7 +2964,10 @@ class TestMemoryValueEditing:
         assert (
             state.xmem.read_address(16, 16) == b"\x55" * 4 + struct.pack("<f", 1.25) + b"\x55" * 8
         )
-        assert not view._xmem_cache and not view._xmem_requests
+        assert view.debug.generation > generation
+        resolved, error = view._resolve_xmem(tab.request)
+        assert error is None
+        assert resolved.cells[1].value == 1.25
 
     @pytest.mark.parametrize("pane", ["pipeline", "xmem"])
     def test_double_click_invalid_input_and_cancel_leave_bytes_unchanged(self, monkeypatch, pane):

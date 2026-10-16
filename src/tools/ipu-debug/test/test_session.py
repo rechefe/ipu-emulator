@@ -201,3 +201,103 @@ class TestDisassemble:
             INST_MEM_SIZE - 1
         ]
         assert session.disassemble(INST_MEM_SIZE, 4) == []
+
+
+# ---------------------------------------------------------------------------
+# Mutations
+# ---------------------------------------------------------------------------
+
+
+class TestSetRegister:
+    def test_scalar_write_returns_the_masked_value_and_bumps_generation(self, session):
+        from ipu_emu.ipu_config import LR_CR_SCALAR_VALUE_MASK
+
+        view = session.set_register("cr2", -1)
+        assert view.name == "cr" and view.index == 2
+        assert view.value == LR_CR_SCALAR_VALUE_MASK
+        assert session.state.regfile.get_cr(2) == LR_CR_SCALAR_VALUE_MASK
+        assert session.generation == 1
+
+    def test_pc_is_a_settable_register(self, session):
+        view = session.set_register("pc", 1)
+        assert session.state.program_counter == 1
+        assert view.name == "pc" and view.value == 1
+
+    @pytest.mark.parametrize(
+        ("name", "value", "message"),
+        [
+            ("pc", INST_MEM_SIZE, f"PC must be between 0 and {INST_MEM_SIZE - 1}"),
+            ("pc", -1, f"PC must be between 0 and {INST_MEM_SIZE - 1}"),
+            ("bogus", 1, "Unknown register: bogus"),
+            ("r0", 1, "Cannot set byte-array register 'r0' with a scalar value"),
+            ("cr0", 1, "CR0 is read-only"),
+        ],
+    )
+    def test_rejects_with_the_frontend_text_and_changes_nothing(
+        self, session, name, value, message
+    ):
+        pc = session.state.program_counter
+        with pytest.raises(DebugError, match=message.replace("(", r"\(")):
+            session.set_register(name, value)
+        assert session.state.program_counter == pc
+        assert session.state.regfile.get_cr(0) == 0
+        assert session.generation == 0
+
+
+class TestBreakpointsAndRunUntil:
+    def test_add_toggle_remove_and_clear(self, session):
+        session.add_breakpoint(1)
+        assert session.control.breakpoints == {1}
+        assert session.toggle_breakpoint(2) is True
+        assert session.toggle_breakpoint(1) is False
+        assert session.control.breakpoints == {2}
+        session.remove_breakpoint(2)
+        session.remove_breakpoint(3)  # absent: nothing happens
+        assert session.control.breakpoints == frozenset()
+        session.add_breakpoint(4)
+        session.clear_breakpoints()
+        assert session.control.breakpoints == frozenset()
+        assert session.generation == 7
+
+    @pytest.mark.parametrize(
+        "method", ["add_breakpoint", "remove_breakpoint", "toggle_breakpoint", "run_until"]
+    )
+    def test_out_of_range_pc_is_a_debug_error(self, session, method):
+        with pytest.raises(DebugError, match="PC must be between"):
+            getattr(session, method)(INST_MEM_SIZE)
+        assert session.generation == 0
+
+    def test_run_until_resumes_only_away_from_the_current_pc(self, session):
+        assert session.run_until(0) is False
+        assert session.control.run_target is None
+        assert session.run_until(1) is True
+        assert session.control.run_target == 1
+
+    @pytest.mark.parametrize(
+        ("text", "message"), [("x", "PC must be an integer"), ("-1", "PC must be between")]
+    )
+    def test_parse_pc_reports_the_frontend_text(self, session, text, message):
+        with pytest.raises(DebugError, match=message):
+            session.parse_pc(text)
+
+
+class TestMemoryWrites:
+    def test_xmem_and_register_byte_writes_bump_generation(self, session):
+        session.write_xmem(8, b"\x01\x02")
+        assert session.state.xmem.read_address(8, 2) == b"\x01\x02"
+        session.write_register_bytes("r", 3, b"\x07")
+        assert session.state.regfile.view("r")[3] == 7
+        assert session.generation == 2
+
+    def test_out_of_range_writes_raise_debug_error(self, session):
+        size = len(session.state.regfile.view("r"))
+        with pytest.raises(DebugError, match="out of range"):
+            session.write_register_bytes("r", size, b"\x00")
+        with pytest.raises(DebugError):
+            session.write_xmem(-1, b"\x00")
+        assert session.generation == 0
+
+    def test_halt_moves_the_pc_past_instruction_memory(self, session):
+        session.halt()
+        assert session.state.program_counter == INST_MEM_SIZE
+        assert session.generation == 1

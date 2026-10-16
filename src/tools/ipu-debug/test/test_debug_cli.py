@@ -686,3 +686,58 @@ class TestRuntimeControls:
         assert "read-only" in output.getvalue()
         assert state.regfile.get_cr(0) == 0
         assert state.regfile.get_cr(1) == 1
+
+
+# ---------------------------------------------------------------------------
+# Adapter conformance: the CLI only forwards to DebugSession
+# ---------------------------------------------------------------------------
+
+
+def _debug_state(state: IpuState, control: DebugControl) -> tuple:
+    return (
+        state.program_counter,
+        state_to_json_dict(state),
+        control.breakpoints,
+        control.run_target,
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "call"),
+    [
+        ("set lr3 5", lambda s: s.set_register("lr3", 5)),
+        ("set cr7 0x10", lambda s: s.set_register("cr7", 0x10)),
+        ("set pc 4", lambda s: s.set_register("pc", 4)),
+        ("break 7", lambda s: s.add_breakpoint(7)),
+        ("delete 2", lambda s: s.remove_breakpoint(2)),
+        ("delete all", lambda s: s.clear_breakpoints()),
+        ("until 9", lambda s: s.run_until(9)),
+    ],
+)
+def test_cli_commands_leave_the_same_state_as_session_calls(command, call):
+    from ipu_debug.session import DebugSession
+
+    def prepared() -> tuple[IpuState, DebugControl]:
+        state = IpuState()
+        control = DebugControl()
+        control.add_breakpoint(2)
+        control.add_breakpoint(5)
+        return state, control
+
+    cli_state, cli_control = prepared()
+    cli, _ = _make_cli(cli_state, "", control=cli_control)
+    cli.onecmd(command)
+
+    direct_state, direct_control = prepared()
+    session = DebugSession(direct_state, direct_control)
+    call(session)
+
+    assert _debug_state(cli_state, cli_control) == _debug_state(direct_state, direct_control)
+    assert cli.session.generation == session.generation == 1
+
+
+def test_cli_set_bumps_generation_so_cached_views_refresh():
+    cli, _ = _make_cli(IpuState(), "")
+    cli.onecmd("set lr0 1")
+    cli.onecmd("set r0 1")  # rejected: no mutation
+    assert cli.session.generation == 1

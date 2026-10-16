@@ -369,10 +369,10 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
     KeyBinding(
         ("e",),
         "pane",
-        "Edit the selected register or memory value",
+        "Edit the selected value (PC in Disassembly)",
         "e:Value",
         1,
-        panes=("registers", "pipeline", "xmem"),
+        panes=("disassembly", "registers", "pipeline", "xmem"),
     ),
     KeyBinding(
         ("Shift-Left", "Shift-Right"),
@@ -823,7 +823,8 @@ class CursesDebugView:
         self.cursor = 0
         self.editor_mode: str | None = None
         self.editor_pane: str | None = None
-        self.editor_register: tuple[str, int] | None = None
+        # The scalar being edited, as ``DebugSession.set_register`` names it.
+        self.editor_register: str | None = None
         # Overlay state is per curses entry, so help never survives a step.
         self.help_visible = False
         self.help_scroll = 0
@@ -858,10 +859,12 @@ class CursesDebugView:
         # does, and instruction memory cannot change while the debugger is
         # stopped, so each PC is decoded at most once per curses entry.
         self._disassembly_cache: dict[int, str] = {}
-        # XMEM is frozen for the same reason, and one request can tokenise into
-        # far more lines than a pane shows.
+        # XMEM only changes through ``self.debug``, and one request can tokenise
+        # into far more lines than a pane shows, so reads are cached for as
+        # long as the session's generation stays the same.
         self._xmem_cache: dict[tuple[int, int, str, int], list[Any]] = {}
         self._xmem_requests: dict[XmemRequest, tuple[XmemWindow | None, str | None]] = {}
+        self._xmem_generation = self.debug.generation
         self.redraw = True
         self.disassembly_rect = Rect(0, 0, 0, 0)
         self.registers_rect = Rect(0, 0, 0, 0)
@@ -1333,7 +1336,15 @@ class CursesDebugView:
                 1,
             )
 
+    def _fresh_xmem_views(self) -> None:
+        """Drop cached XMEM reads once the session has changed state."""
+        if self._xmem_generation != self.debug.generation:
+            self._xmem_generation = self.debug.generation
+            self._xmem_requests = {}
+            self._xmem_cache = {}
+
     def _resolve_xmem(self, request: XmemRequest) -> tuple[XmemWindow | None, str | None]:
+        self._fresh_xmem_views()
         if request not in self._xmem_requests:
             try:
                 self._xmem_requests[request] = (self.debug.read_xmem(request), None)
@@ -1342,6 +1353,7 @@ class CursesDebugView:
         return self._xmem_requests[request]
 
     def _xmem_lines(self, resolved: XmemWindow) -> list[Any]:
+        self._fresh_xmem_views()
         key = _resolved_key(resolved)
         lines = self._xmem_cache.get(key)
         if lines is None:
@@ -2462,8 +2474,7 @@ class CursesDebugView:
         action = "Add" if self.editor_mode == "add" else "Edit"
         title = f"{action} {pane_label} tab"
         if self.editor_register is not None:
-            name, index = self.editor_register
-            title = f"Edit {name.upper()}{index} value"
+            title = f"Edit {self.editor_register.upper()} value"
         if self.editor_mode == "value":
             title = f"Edit {self.editor_value[4]}"
         self._draw_overlay_frame(rect, [title])
@@ -2488,7 +2499,11 @@ class CursesDebugView:
         first_description, second_description = descriptions[pane]
         if self.editor_mode == "scalar":
             first_description = "Integer value: decimal, 0x hex, or 0b binary"
-            second_description = "Register masking applies; CR0 and CR1 are read-only"
+            second_description = (
+                "Range: 0 through instruction memory size - 1"
+                if self.editor_register == "pc"
+                else "Register masking applies; CR0 and CR1 are read-only"
+            )
         if self.editor_mode == "value":
             first_description = f"Format: {self.editor_value[3]} / {self.editor_value[2]} bytes"
             second_description = "Enter a number; hex/binary prefixes accepted for integers"
@@ -2602,7 +2617,9 @@ class CursesDebugView:
                 self.session.stages_scroll = 0 if self._key_is("KEY_HOME", key) else 10000
                 return _NO_OUTCOME
         if key in ("e", "E"):
-            if self.session.focus in ("registers", "pipeline", "xmem"):
+            if self.session.focus == "disassembly":
+                self._begin_scalar_editor("pc")
+            elif self.session.focus in ("registers", "pipeline", "xmem"):
                 self._begin_value_editor()
             return _NO_OUTCOME
         if self._key_is("KEY_F9", key) or self._key_is("KEY_F10", key):
@@ -2612,16 +2629,16 @@ class CursesDebugView:
             base = self.state.program_counter if tab.target is None else tab.target
             pc = max(0, min(INST_MEM_SIZE - 1, base + tab.cursor_offset))
             if self._key_is("KEY_F9", key):
-                enabled = self.control.toggle_breakpoint(pc)
+                enabled = self.debug.toggle_breakpoint(pc)
                 action = "set" if enabled else "removed"
                 self.session.set_message(f"Breakpoint {action} at PC {pc}")
-            elif self.control.run_until(pc, self.state.program_counter):
+            elif self.debug.run_until(pc):
                 return self._execution_action(DebugAction.CONTINUE)
             else:
                 self.session.set_message(f"Already at PC {pc}")
             return _NO_OUTCOME
         if isinstance(key, str) and key.lower() == "q":
-            self.state.program_counter = INST_MEM_SIZE
+            self.debug.halt()
             return self._execution_action(DebugAction.QUIT)
         if isinstance(key, str) and key.lower() == "f":
             self._cycle_focused_format()
@@ -2931,7 +2948,7 @@ class CursesDebugView:
             if rect.contains(y, x) and x < rect.x + 2:
                 self._focus_pane("disassembly")
                 self._place_cursor("disassembly", pc)
-                enabled = self.control.toggle_breakpoint(pc)
+                enabled = self.debug.toggle_breakpoint(pc)
                 action = "set" if enabled else "removed"
                 self.session.set_message(f"Breakpoint {action} at PC {pc}")
                 return
@@ -3188,52 +3205,54 @@ class CursesDebugView:
                     raise ValueError("Enter a valid integer") from None
                 raw = value.to_bytes(size, "little", signed=fmt in ("int8", "int32"))
             if backing is None:
-                self.state.xmem.write_address(offset, raw)
+                self.debug.write_xmem(offset, raw)
             else:
-                if offset < 0 or offset + size > len(self.state.regfile.view(backing)):
-                    raise ValueError("Selected value is out of range")
-                self.state.regfile.mutable(backing, offset, size)[:] = raw
+                self.debug.write_register_bytes(backing, offset, raw)
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
             return _NO_OUTCOME
-        self._xmem_requests.clear()
-        self._xmem_cache.clear()
         self._clear_editor()
         self.editor_value = None
         self.session.set_message(f"Updated {label}")
         return _NO_OUTCOME
 
-    def _begin_scalar_editor(self) -> None:
-        tab = self.session.selected_register_tab()
-        groups = self._register_groups(tab)
-        position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
-        name = groups[position // _REGISTERS_PER_GROUP]
-        index = position % _REGISTERS_PER_GROUP
-        self.editor_register = (name, index)
+    def _begin_scalar_editor(self, register: str | None = None) -> None:
+        """Edit one scalar: *register* (``"pc"``) or the LR / CR under the cursor."""
+        if register is None:
+            tab = self.session.selected_register_tab()
+            groups = self._register_groups(tab)
+            position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
+            register = (
+                f"{groups[position // _REGISTERS_PER_GROUP]}{position % _REGISTERS_PER_GROUP}"
+            )
+        if register == "pc":
+            current = self.state.program_counter
+            self.editor_pane = "disassembly"
+        else:
+            desc, index = self.debug.resolve_register(register)
+            current = self.state.regfile.get_scalar(desc.name, index)
+            self.editor_pane = "registers"
+        self.editor_register = register
         self.editor_mode = "scalar"
-        self.editor_pane = "registers"
-        self.command = hex(self.state.regfile.get_scalar(name, index))
+        self.command = hex(current)
         self.cursor = len(self.command)
-        self.session.set_message(f"Enter an integer for {name.upper()}{index}")
+        self.session.set_message(f"Enter an integer for {register.upper()}")
 
     def _submit_scalar_editor(self) -> object:
         assert self.editor_register is not None
-        name, index = self.editor_register
         try:
             value = self.debug.parse_int(self.command.strip())
         except DebugError:
             self.session.set_message("Invalid integer value", error=True)
             return _NO_OUTCOME
         try:
-            self.state.regfile.set_scalar(name, index, value)
-        except EmulatorError as error:
+            written = self.debug.set_register(self.editor_register, value)
+        except DebugError as error:
             self.session.set_message(str(error), error=True)
             return _NO_OUTCOME
-        self._xmem_requests.clear()
-        self._xmem_cache.clear()
+        label = self.editor_register.upper()
         self._clear_editor()
-        actual = self.state.regfile.get_scalar(name, index)
-        self.session.set_message(f"Set {name.upper()}{index} = {actual:#x}")
+        self.session.set_message(f"Set {label} = {written.value:#x}")
         return _NO_OUTCOME
 
     def _begin_tab_editor(self, mode: str) -> None:

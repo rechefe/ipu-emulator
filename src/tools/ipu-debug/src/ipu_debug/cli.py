@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover - unavailable on some platforms
     readline = None
 
 # Single source of truth — import register types/schema from ipu_isa
-from ipu_debug.control import DebugControl, validate_pc
+from ipu_debug.control import DebugControl
 from ipu_debug.format import (
     VISIBLE_ALPHABET,
     decode_16bit_cell,
@@ -64,8 +64,7 @@ from ipu_debug.session import (
     xmem_range_error,
 )
 from ipu_emu.emulator import DebugAction
-from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
+from ipu_emu.ipu_state import IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.types import RegDescriptor, RegDtype
 
@@ -374,7 +373,7 @@ class DebugCLI(cmd.Cmd):
     def do_quit(self, args: str) -> bool:
         """Quit debugger and halt execution."""
         self.out.write("Halting execution.\n")
-        self.state.program_counter = INST_MEM_SIZE
+        self.session.halt()
         self._result = DebugAction.QUIT
         return True
 
@@ -390,23 +389,17 @@ class DebugCLI(cmd.Cmd):
 
     # -- Register commands --------------------------------------------------
 
-    def _command_pc(self, token: str) -> int | None:
-        try:
-            try:
-                pc = self.session.parse_int(token)
-            except DebugError:
-                raise ValueError("PC must be an integer") from None
-            return validate_pc(pc)
-        except ValueError as error:
-            self.out.write(f"{error}\n")
-            return None
+    def _report(self, error: DebugError) -> None:
+        self.out.write(f"{error}\n")
 
     def do_break(self, args: str) -> None:
         """Add a runtime breakpoint. Usage: break [PC]"""
-        pc = self._command_pc(args.strip() or str(self.state.program_counter))
-        if pc is not None:
-            self.control.add_breakpoint(pc)
-            self.out.write(f"Breakpoint at PC {pc}\n")
+        try:
+            pc = self.session.parse_pc(args.strip() or str(self.state.program_counter))
+            self.session.add_breakpoint(pc)
+        except DebugError as error:
+            return self._report(error)
+        self.out.write(f"Breakpoint at PC {pc}\n")
 
     def do_breaks(self, args: str) -> None:
         """List runtime breakpoints. Usage: breaks"""
@@ -422,20 +415,24 @@ class DebugCLI(cmd.Cmd):
     def do_delete(self, args: str) -> None:
         """Remove runtime breakpoints. Usage: delete PC|all"""
         if args.strip().lower() == "all":
-            self.control.clear_breakpoints()
+            self.session.clear_breakpoints()
             self.out.write("All runtime breakpoints removed\n")
             return
-        pc = self._command_pc(args.strip())
-        if pc is not None:
-            self.control.remove_breakpoint(pc)
-            self.out.write(f"Breakpoint removed at PC {pc}\n")
+        try:
+            pc = self.session.parse_pc(args.strip())
+            self.session.remove_breakpoint(pc)
+        except DebugError as error:
+            return self._report(error)
+        self.out.write(f"Breakpoint removed at PC {pc}\n")
 
     def do_until(self, args: str) -> bool | None:
         """Run to a PC or the next stop, whichever comes first. Usage: until PC"""
-        pc = self._command_pc(args.strip())
-        if pc is None:
-            return None
-        if not self.control.run_until(pc, self.state.program_counter):
+        try:
+            pc = self.session.parse_pc(args.strip())
+            resume = self.session.run_until(pc)
+        except DebugError as error:
+            return self._report(error)
+        if not resume:
             self.out.write(f"Already at PC {pc}\n")
             return None
         return self.do_continue("")
@@ -516,37 +513,16 @@ class DebugCLI(cmd.Cmd):
         if len(parts) < 2:
             self.out.write("Usage: set <register> <value>\n")
             return
-        reg_name = parts[0]
         try:
             value = self.session.parse_int(parts[1])
         except DebugError:
             self.out.write(f"Invalid value: {parts[1]}\n")
             return
-
-        if reg_name == "pc":
-            try:
-                self.control.set_pc(self.state, value)
-            except ValueError as error:
-                self.out.write(f"{error}\n")
-                return
-            self.out.write(f"Set pc = {value}\n")
-            return
-
         try:
-            desc, idx = self.session.resolve_register(reg_name)
+            self.session.set_register(parts[0], value)
         except DebugError as error:
-            self.out.write(f"{error}\n")
-            return
-
-        if desc.dtype in (RegDtype.UINT32, RegDtype.INT32):
-            try:
-                self.state.regfile.set_scalar(desc.name, idx, value)
-            except EmulatorError as error:
-                self.out.write(f"{error}\n")
-                return
-            self.out.write(f"Set {reg_name} = {value}\n")
-        else:
-            self.out.write(f"Cannot set byte-array register '{reg_name}' with a scalar value\n")
+            return self._report(error)
+        self.out.write(f"Set {parts[0]} = {value}\n")
 
     def do_xmem(self, args: str) -> None:
         """Read XMEM. Usage: xmem row|byte BASE OFFSET COUNT FORMAT"""

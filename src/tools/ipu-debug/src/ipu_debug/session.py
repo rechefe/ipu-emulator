@@ -1,8 +1,11 @@
-"""The debugger core both frontends sit on: parse, resolve, read, disassemble.
+"""The debugger core both frontends sit on: parse, resolve, read, mutate, disassemble.
 
 ``DebugSession`` has no curses, no ``cmd`` and no stream writes. It turns user
 text into requests, reads registers and XMEM windows from an ``IpuState`` and
-disassembles instruction memory, returning values. Every user-facing failure
+disassembles instruction memory, returning values. It is also the only place a
+debugger changes anything: register and memory writes, the PC, breakpoints and
+run-until all go through its methods, each of which bumps ``generation`` so
+views can tell their cached reads are stale. Every user-facing failure
 is a ``DebugError`` whose message is the text a frontend shows. How values are
 laid out on screen stays in each adapter (``ipu_debug.cli``, ``ipu_debug.tui``)
 and in the shared display helpers of ``ipu_debug.format``.
@@ -14,7 +17,8 @@ import struct
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ipu_debug.control import DebugControl
+from ipu_debug.control import DebugControl, validate_pc
+from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
@@ -342,7 +346,11 @@ def disassemble_at(state: IpuState, pc: int) -> str:
 
 
 class DebugSession:
-    """Parse, resolve, read and disassemble for one stopped ``IpuState``."""
+    """Parse, resolve, read, mutate and disassemble for one stopped ``IpuState``.
+
+    ``generation`` starts at 0 and goes up by one on every successful
+    mutation. A view that caches what it read keys the cache by it.
+    """
 
     def __init__(
         self,
@@ -354,6 +362,7 @@ class DebugSession:
         self.state = state
         self.control = control if control is not None else DebugControl()
         self.kernel_name = kernel_name if kernel_name is not None else self.control.kernel_name
+        self.generation = 0
 
     # -- parsing ------------------------------------------------------------
 
@@ -373,6 +382,95 @@ class DebugSession:
     def resolve_register(name: str) -> tuple[RegDescriptor, int]:
         """Resolve a register name to its descriptor and element index."""
         return resolve_register(name)
+
+    def parse_pc(self, text: str) -> int:
+        """Parse a user-chosen PC; it must be an integer inside instruction memory."""
+        try:
+            pc = parse_int(text)
+        except DebugError:
+            raise DebugError("PC must be an integer") from None
+        return self._checked_pc(pc)
+
+    @staticmethod
+    def _checked_pc(pc: int) -> int:
+        try:
+            return validate_pc(pc)
+        except ValueError as error:
+            raise DebugError(str(error)) from None
+
+    # -- mutations ----------------------------------------------------------
+
+    def _changed(self) -> None:
+        self.generation += 1
+
+    def set_register(self, name: str, value: int) -> RegisterView:
+        """Write *value* to the scalar register *name* (``lr3``, ``cr7``, ``pc``).
+
+        Returns the register as written (LR and CR values are masked). Raises
+        ``DebugError`` for an unknown name, a byte-array register, a PC outside
+        instruction memory or a read-only CR.
+        """
+        if name == "pc":
+            self.state.program_counter = self._checked_pc(value)
+            self._changed()
+            return RegisterView("pc", 0, RegDtype.UINT32, value, 4)
+        desc, index = resolve_register(name)
+        if not is_scalar(desc):
+            raise DebugError(f"Cannot set byte-array register '{name}' with a scalar value")
+        try:
+            self.state.regfile.set_scalar(desc.name, index, value)
+        except EmulatorError as error:
+            raise DebugError(str(error)) from None
+        self._changed()
+        return self.register(desc.name, index)
+
+    def write_register_bytes(self, name: str, offset: int, data: bytes) -> None:
+        """Overwrite bytes ``[offset, offset + len(data))`` of register *name*."""
+        if offset < 0 or offset + len(data) > len(self.state.regfile.view(name)):
+            raise DebugError("Selected value is out of range")
+        self.state.regfile.mutable(name, offset, len(data))[:] = data
+        self._changed()
+
+    def write_xmem(self, byte_address: int, data: bytes) -> None:
+        """Overwrite XMEM bytes starting at *byte_address*."""
+        try:
+            self.state.xmem.write_address(byte_address, data)
+        except (EmulatorError, ValueError) as error:
+            raise DebugError(str(error)) from None
+        self._changed()
+
+    def add_breakpoint(self, pc: int) -> None:
+        self.control.add_breakpoint(self._checked_pc(pc))
+        self._changed()
+
+    def remove_breakpoint(self, pc: int) -> None:
+        """Remove the breakpoint at *pc*; nothing happens if there is none."""
+        self.control.remove_breakpoint(self._checked_pc(pc))
+        self._changed()
+
+    def clear_breakpoints(self) -> None:
+        self.control.clear_breakpoints()
+        self._changed()
+
+    def toggle_breakpoint(self, pc: int) -> bool:
+        """Flip the breakpoint at *pc*; return whether it is now set."""
+        enabled = self.control.toggle_breakpoint(self._checked_pc(pc))
+        self._changed()
+        return enabled
+
+    def run_until(self, pc: int) -> bool:
+        """Arm a one-stop target at *pc*; True when execution should resume.
+
+        False means the state is already at *pc*, so nothing is armed.
+        """
+        resume = self.control.run_until(self._checked_pc(pc), self.state.program_counter)
+        self._changed()
+        return resume
+
+    def halt(self) -> None:
+        """Move the PC past instruction memory so the run ends (QUIT)."""
+        self.state.program_counter = INST_MEM_SIZE
+        self._changed()
 
     # -- reads --------------------------------------------------------------
 
