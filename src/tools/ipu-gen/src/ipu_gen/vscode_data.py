@@ -34,8 +34,10 @@ import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from ipu_as.compound_inst import WILDCARD_OPCODES
 from ipu_as.diagnostics import check
 from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_as.ipu_token import NUMBER_PATTERN
 from ipu_as.lark_tree import get_parser
 from ipu_as.reg import LRD_REG_FIELDS, LrdRegField
 from ipu_isa.constants import CR_READ_ONLY_INITIAL_VALUES, CR_REGISTER_NAME
@@ -45,6 +47,10 @@ from ipu_isa.types import RegKind
 from ipu_isa.view import Isa, Operand, isa
 
 GENERATED_BY = "//vscode-ipu-asm:gen_vscode from asm_grammar.lark — do not edit by hand"
+
+#: The version of isa.json's layout. 1 adds ``numberPattern`` and ``slotFill``;
+#: the extension reads a file without it as version 0, with its old rules.
+SCHEMA_VERSION = 1
 
 SCOPE_NAME = "source.ipu-asm"
 
@@ -453,6 +459,26 @@ def _doc_to_dict(doc, syntax_line: str) -> dict | None:
     return data
 
 
+def _slot_fill(instructions: dict[str, list[dict]], order: list[str]) -> dict:
+    """How the assembler fills a word's slots (``CompoundInst._fill_instructions``):
+    in source order, a wildcard takes the first free slot in ``order``, and every
+    other mnemonic a free slot of its kind: the slot its real form is specified
+    in, or for a pseudo-instruction the slot of the instruction it expands to
+    (its form's ``slot``). From the view's forms, so a view's ISA is its own."""
+    kinds = {}
+    for mnemonic, forms in instructions.items():
+        if mnemonic.lower() in WILDCARD_OPCODES:
+            continue
+        real = [f for f in forms if not f["pseudo"]]
+        kinds[mnemonic] = (real or forms)[0]["slot"]
+    return {
+        "order": order,
+        "wildcards": sorted(WILDCARD_OPCODES),
+        "rule": "own-kind",
+        "kinds": dict(sorted(kinds.items())),
+    }
+
+
 def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict:
     """Instruction and register reference, consumed by the extension at runtime.
 
@@ -489,6 +515,7 @@ def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict
 
     return {
         "_generated": GENERATED_BY,
+        "schemaVersion": SCHEMA_VERSION,
         "instructions": {
             mnemonic: sorted(forms, key=lambda f: (f["slot"], f.get("opcode", -1)))
             for mnemonic, forms in instructions.items()
@@ -505,6 +532,9 @@ def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict
         # assembler fills them in (a bare NOP takes the first free one).
         "slotCount": {slot.value: info.count for slot, info in view.slots.items()},
         "slotOrder": [slot.value for slot in view.layout.layout_order],
+        "slotFill": _slot_fill(instructions, [slot.value for slot in view.layout.layout_order]),
+        # The number literals the assembler accepts (ipu_as.ipu_token.NUMBER_PATTERN).
+        "numberPattern": NUMBER_PATTERN,
         # What each operand type accepts, from the class that validates it, so
         # completion never offers a value the assembler rejects (test_isa_data.py).
         "operandTypes": {

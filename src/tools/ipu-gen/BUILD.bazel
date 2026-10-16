@@ -129,6 +129,7 @@ py_pytest_test(
 py_pytest_test(
     name = "test_isa_data",
     srcs = ["test/test_isa_data.py"],
+    data = ["//vscode-ipu-asm:corpus"],
     imports = ["src"],
     deps = [
         ":ipu_gen_lib",

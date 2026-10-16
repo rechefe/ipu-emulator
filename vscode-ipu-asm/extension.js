@@ -145,6 +145,9 @@ class Checking {
     /** The checkout each document was last found in (null: none), by document Uri, for what
      *  must answer at once (the status bar, a keystroke's debounce). */
     this.roots = new Map();
+    /** The latest refresh of each document, by document Uri: what one that was superseded
+     *  resolves to, so a refresh resolves once the check that counts is done. */
+    this.latest = new Map();
   }
 
   stateOf(root) {
@@ -314,8 +317,15 @@ class Checking {
   }
 
   /** Check a document's current buffer (what is on screen, not on disk), unless
-   *  this very version was checked already. */
-  async refresh(document, force = false) {
+   *  this very version was checked already. Resolves once that check is done, or
+   *  the one that superseded it. */
+  refresh(document, force = false) {
+    const done = this.refreshOnce(document, force);
+    if (document) this.latest.set(document.uri.toString(), done);
+    return done;
+  }
+
+  async refreshOnce(document, force) {
     if (!document || document.languageId !== LANGUAGE_ID) return;
     if (!trust.mayRun()) {
       this.showStatus();
@@ -331,7 +341,11 @@ class Checking {
 
     // A run we cancelled ourselves says nothing about the toolchain or the code,
     // and a file closed while it ran has nothing left to mark.
-    if (result.superseded || document.isClosed) return;
+    if (document.isClosed) return;
+    if (result.superseded) {
+      await this.latest.get(key);
+      return;
+    }
 
     if (result.error) {
       // A broken toolchain must not paint the file red — that would be a
@@ -381,6 +395,7 @@ class Checking {
       state.checked.delete(key);
     }
     this.roots.delete(key);
+    this.latest.delete(key);
     this.diagnostics.delete(document.uri);
   }
 
@@ -473,9 +488,10 @@ async function activate(context) {
     vscode.workspace.onDidChangeTextDocument((e) => e.contentChanges.length && checking.scheduleRefresh(e.document)),
     vscode.workspace.onDidCloseTextDocument((d) => checking.forget(d)),
     vscode.window.onDidChangeActiveTextEditor(() => checking.showStatus()),
+    // Resolves once the check is done, so a caller (a test) can wait on it.
     vscode.commands.registerCommand('ipuAsm.check', () => {
       const editor = vscode.window.activeTextEditor;
-      if (editor) checking.refresh(editor.document, true);
+      return editor ? checking.refresh(editor.document, true) : undefined;
     }),
     vscode.commands.registerCommand('ipuAsm.showCheckerStatus', () => {
       const error = checking.errorFor();
