@@ -29,7 +29,7 @@ from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
-from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
+from ipu_emu.errors import ConfigurationError, DebugOnlyInstructionWarning, EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_isa.instruction_spec import (
@@ -142,6 +142,11 @@ def _pack_lanes_one_by_one(lane_fmt: str, buf: bytearray | memoryview, values, b
     """
     for i, v in enumerate(values):
         struct.pack_into(lane_fmt, buf, byte_off + 4 * i, v)
+
+
+def _check_partition(num_partitions) -> None:
+    if not isinstance(num_partitions, Partition):
+        raise ConfigurationError(f"partition must be a Partition enum value, got {num_partitions!r}")
 
 
 def _store_row(buf: bytearray | memoryview, lane_fmt: str, values) -> None:
@@ -564,7 +569,7 @@ class Ipu:
             if profile._bridge is None:
                 profile._bridge = ExecutionObserver(profile, state)
             elif profile._bridge.state is not state:
-                raise ValueError("an AliasProfile belongs to a single IpuState")
+                raise ConfigurationError("an AliasProfile belongs to a single IpuState")
             self._profile = profile._bridge
             state.stats.alias_profile = profile
         # Snapshot buffer reused across cycles. Every register is refreshed from
@@ -598,6 +603,11 @@ class Ipu:
         if self._public_snapshot is None:
             self._public_snapshot = self._snapshot_buffer.snapshot()
         return self._public_snapshot
+
+    def _require_snapshot(self) -> None:
+        """A handler reading the cycle's snapshot runs inside a cycle, which takes it."""
+        if self._snapshot_buffer is None:
+            raise EmulatorError("no register snapshot: a handler ran outside a cycle")
 
     @staticmethod
     def _read(regfile: RegFile, name: str) -> memoryview:
@@ -835,9 +845,7 @@ class Ipu:
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
         num_partitions=P: P groups of LANES/P elements; bit 0 of each group is 0.
         """
-        assert isinstance(num_partitions, Partition), (
-            f"partition must be a Partition enum value, got {num_partitions!r}"
-        )
+        _check_partition(num_partitions)
         if num_partitions == 0:
             return (1 << LANES) - 1
         step = LANES // num_partitions
@@ -857,9 +865,7 @@ class Ipu:
         num_partitions=0: all-ones — no boundaries, shifts are unconstrained.
         num_partitions=P: P groups of LANES/P elements; last bit of each group is 0.
         """
-        assert isinstance(num_partitions, Partition), (
-            f"partition must be a Partition enum value, got {num_partitions!r}"
-        )
+        _check_partition(num_partitions)
         if num_partitions == 0:
             return (1 << LANES) - 1
         step = LANES // num_partitions
@@ -1117,19 +1123,19 @@ class Ipu:
 
     def execute_lr_inc(self, *, dest: int, imm: int) -> None:
         """Execute INC: uint32 ``dest = dest + imm`` (read-modify-write)."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         cur = self._snapshot_buffer.get_lr(dest)
         self.state.regfile.set_lr(dest, (cur + imm) & 0xFFFFFFFF)
 
     def execute_lr_dec(self, *, dest: int, imm: int) -> None:
         """Execute DEC: uint32 ``dest = dest - imm`` (read-modify-write)."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         cur = self._snapshot_buffer.get_lr(dest)
         self.state.regfile.set_lr(dest, (cur - imm) & 0xFFFFFFFF)
 
     def _addb_broadcast(self, dest: int, byte_val: int) -> None:
         """Broadcast-add a signed byte to all 8 elements of LRDn = LR(2n+1):LR(2n), clamped to [0, 255]."""
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         lanes = bytearray(self._get_lrd_bytes(dest, self._snapshot_buffer))
         signed = byte_val - 256 if byte_val >= 128 else byte_val
         for i in range(8):
@@ -1151,7 +1157,7 @@ class Ipu:
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
         ``k`` is the raw encoded field (k_semantic − 1); semantic exponent is k + 1.
         """
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         if k > LR_MOD_POW2_K_ENCODED_MAX:
             raise EmulatorError(
                 f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
@@ -1579,7 +1585,7 @@ class Ipu:
         come from the pre-instruction snapshot; a participating source[i]/dest[i]
         outside [0, 127] raises rather than being silently skipped.
         """
-        assert self._snapshot_buffer is not None
+        self._require_snapshot()
         src_bytes = self._get_lrd_bytes(source, self._snapshot_buffer)
         dst_bytes = self._get_lrd_bytes(dest, self._snapshot_buffer)
 

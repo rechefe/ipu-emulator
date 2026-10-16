@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from ipu_emu.errors import ConfigurationError
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.run_control import RunControl
 from ipu_emu.ipu_math import DType, fp32_to_fp8_bytes, fp8_bytes_to_fp32
@@ -56,7 +57,7 @@ def _begin_run(state: IpuState) -> None:
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory."""
     if len(instructions) > INST_MEM_SIZE:
-        raise ValueError(
+        raise ConfigurationError(
             f"Program too large: {len(instructions)} instructions "
             f"(max {INST_MEM_SIZE})"
         )

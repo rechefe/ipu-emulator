@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from ipu_apps.kernel_registry.cases import case_options, load_cases, run_case
+from ipu_isa.errors import IpuError
 
 
 def _user_path(text: str) -> Path:
@@ -59,7 +60,7 @@ def main(argv=None):
                                 max_cycles=args.max_cycles, output_path=args.output, alias_profile=profile)
         if args.alias_report:
             args.alias_report.write_text(profile.to_json(indent=2) + "\n")
-    except (ValueError, OSError, RuntimeError, AssertionError, ImportError,
+    except (IpuError, ValueError, OSError, RuntimeError, AssertionError, ImportError,
             AttributeError, KeyError, TypeError, argparse.ArgumentError) as exc:
         parser.exit(1, f"error: {str(exc) or type(exc).__name__}\n")
     print(f"{args.kernel}/{args.case}: PASS ({cycles} cycles)")
