@@ -3,9 +3,9 @@
 import inspect
 
 import pytest
+from emu_support import ElementFormat, new_state
 
 import ipu_emu.errors as errors
-from emu_support import ElementFormat, new_state
 from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault
@@ -16,13 +16,19 @@ from ipu_isa.errors import IpuError
 
 
 def test_every_emulator_error_is_an_ipu_error():
-    classes = [cls for _, cls in inspect.getmembers(errors, inspect.isclass) if cls.__module__ == errors.__name__]
+    classes = [
+        cls
+        for _, cls in inspect.getmembers(errors, inspect.isclass)
+        if cls.__module__ == errors.__name__
+    ]
     assert len(classes) >= 6
     assert all(issubclass(cls, IpuError) for cls in classes), classes
 
 
 def test_the_two_kinds_share_one_root():
-    assert issubclass(EmulatorFault, EmulatorError) and issubclass(ConfigurationError, EmulatorError)
+    assert issubclass(EmulatorFault, EmulatorError) and issubclass(
+        ConfigurationError, EmulatorError
+    )
     assert issubclass(ConfigurationError, ValueError), "setup checks raised ValueError before"
     assert not issubclass(EmulatorError, RuntimeError)
 

@@ -161,9 +161,11 @@ def test_verify_accepts_the_package_and_rejects_any_edit():
     text = gen_codegen.render_sv_package()
     assert gen_codegen.verify_sv_package(text)
     at = text.index("package ipu_instr_pkg;")
-    edited = text[:at] + "P" + text[at + 1:]
+    edited = text[:at] + "P" + text[at + 1 :]
     assert not gen_codegen.verify_sv_package(edited)
-    assert not gen_codegen.verify_sv_package(text.replace("// Content: sha256:", "// Content: sha256:0", 1))
+    assert not gen_codegen.verify_sv_package(
+        text.replace("// Content: sha256:", "// Content: sha256:0", 1)
+    )
     assert not gen_codegen.verify_sv_package("")
 
 

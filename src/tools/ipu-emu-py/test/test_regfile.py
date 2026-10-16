@@ -5,6 +5,7 @@ import struct
 import subprocess
 import sys
 
+import numpy as np
 import pytest
 from emu_support import ElementFormat, new_state
 
