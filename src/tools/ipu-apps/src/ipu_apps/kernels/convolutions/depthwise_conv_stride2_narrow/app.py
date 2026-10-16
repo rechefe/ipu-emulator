@@ -66,6 +66,7 @@ Usage (normally through the registry: ``create_harness(
 
 from __future__ import annotations
 
+import copy
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -211,6 +212,9 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         stage1_app.inst_path = stage1_bin_path
         kwargs.setdefault("state", self.make_state())
         state, cycles1 = stage1_app.run(max_cycles=max_cycles, **kwargs)
+        # Each run's stats cover that run only; keep stage 1's so the
+        # kernel's stats can cover both stages.
+        stage1_stats = copy.copy(state.stats)
 
         stage2_src = render_asm(
             kernel_asm("depthwise_conv_stride2_narrow"), elements_in_row=self.cols,
@@ -241,6 +245,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
             max_cycles=max_cycles,
             state=state,
         )
+        state2.stats = stage1_stats + state2.stats
 
         if self.output_path is not None:
             total_outputs = self.num_out_groups * self.channels

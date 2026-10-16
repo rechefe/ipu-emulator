@@ -8,7 +8,9 @@ Provides two modes:
     quit.
 
 Both functions operate on an :class:`IpuState` that has already been
-loaded with an assembled program (via :func:`load_program`).
+loaded with an assembled program (via :func:`load_program`). Each resets
+``state.stats`` before its first cycle, so the stats describe that run only,
+and sets ``state.stats.total_cycles`` even when the run raises.
 """
 
 from __future__ import annotations
@@ -41,6 +43,15 @@ class DebugAction(Enum):
 # Receives (state, cycle_count) and returns a DebugAction.
 DebugCallback = Callable[[IpuState, int], DebugAction]
 
+# The cycle limit every run entry point defaults to. Kernels that need more
+# pass their own limit; the default is the same whichever API runs a program.
+DEFAULT_MAX_CYCLES = 1_000_000
+
+
+def _begin_run(state: IpuState) -> None:
+    """Start a run: stats describe this run only."""
+    state.stats.reset()
+
 
 def load_program(state: IpuState, instructions: list[dict[str, int]]) -> None:
     """Load decoded instruction dicts into the state's instruction memory."""
@@ -60,10 +71,13 @@ def load_program_from_binary(state: IpuState, path: str | Path) -> None:
     load_program(state, instructions)
 
 
-def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
+def run_until_complete(
+    state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES
+) -> int:
     """Run the program ignoring breakpoints until it halts.
 
-    Returns the number of cycles executed.
+    Returns the number of cycles executed. ``state.stats`` describes this run
+    only; its ``total_cycles`` is set even when the run raises.
 
     Raises ``RuntimeError`` if *max_cycles* is exceeded (likely infinite loop).
     """
@@ -71,25 +85,28 @@ def run_until_complete(state: IpuState, max_cycles: int = 100_000) -> int:
     # One engine for the whole run: it carries no per-cycle state beyond the
     # snapshot buffer it reuses, and building one per cycle was pure overhead.
     ipu = Ipu(state)
-    while not state.is_halted:
-        if cycles >= max_cycles:
-            raise RuntimeError(
-                f"Exceeded {max_cycles} cycles — possible infinite loop "
-                f"(PC={state.program_counter})"
-            )
-        result = ipu.execute_vliw_cycle()
-        if result == BreakResult.BREAK:
-            # In "run" mode, skip the break and execute the instruction anyway
-            ipu.execute_vliw_cycle_skip_break()
-        cycles += 1
-    state.stats.total_cycles = cycles
+    _begin_run(state)
+    try:
+        while not state.is_halted:
+            if cycles >= max_cycles:
+                raise RuntimeError(
+                    f"Exceeded {max_cycles} cycles — possible infinite loop "
+                    f"(PC={state.program_counter})"
+                )
+            result = ipu.execute_vliw_cycle()
+            if result == BreakResult.BREAK:
+                # In "run" mode, skip the break and execute the instruction anyway
+                ipu.execute_vliw_cycle_skip_break()
+            cycles += 1
+    finally:
+        state.stats.total_cycles = cycles
     return cycles
 
 
 def run_with_debug(
     state: IpuState,
     debug_callback: DebugCallback,
-    max_cycles: int = 100_000,
+    max_cycles: int = DEFAULT_MAX_CYCLES,
     *,
     break_on_entry: bool = False,
 ) -> int:
@@ -107,10 +124,14 @@ def run_with_debug(
     the return value count completed instructions. Runtime controls are shared
     with frontends through :func:`get_debug_control`.
     ``break_on_entry`` stops at the prepared PC before the first instruction.
+
+    ``state.stats`` describes this run only; its ``total_cycles`` is set even
+    when the run raises.
     """
     cycles = 0
     stepping = False
     ipu = Ipu(state)
+    _begin_run(state)
 
     control = get_debug_control(state)
     control.last_completed_pc = None
@@ -274,7 +295,7 @@ def run_test(
     inst_path: str | Path,
     setup: Callable[[IpuState], None] | None = None,
     teardown: Callable[[IpuState], None] | None = None,
-    max_cycles: int = 1_000_000,
+    max_cycles: int = DEFAULT_MAX_CYCLES,
     debug_callback: DebugCallback | None = None,
     break_on_entry: bool = False,
     state: IpuState | None = None,

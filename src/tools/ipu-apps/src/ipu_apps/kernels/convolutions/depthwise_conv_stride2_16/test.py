@@ -4,6 +4,7 @@ refusal (channels are packed in pairs)."""
 import numpy as np
 import pytest
 
+from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.convolutions.depthwise_conv_stride2_16.app import (
     DepthwiseConvStride2_16App,
@@ -24,3 +25,11 @@ def test_rejects_odd_channels(tmp_path):
             kernel=np.zeros((3, 3, 3), dtype=np.float32),
             output_path=None, channels=3,
         )
+
+
+def test_stats_cover_both_stages():
+    """Each run resets the stats; the harness adds stage 1's back in."""
+    state, cycles = run_case("depthwise_conv_stride2_16", load_cases("depthwise_conv_stride2_16")["default"],
+                             options=dict(channels=4, seed=7))
+    assert state.stats.total_cycles == cycles
+    assert state.stats.mult_utilization <= 1.0

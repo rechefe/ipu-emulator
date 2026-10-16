@@ -3,6 +3,7 @@ width (rows_per_chunk 2/4/8), and its constructor refusals."""
 import numpy as np
 import pytest
 
+from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.convolutions.depthwise_conv_stride2_narrow.app import (
     DepthwiseConvStride2NarrowApp,
@@ -28,3 +29,11 @@ def test_rejects_unsupported_shapes(tmp_path, rows, cols):
             kernel=np.zeros((1, 3, 3), dtype=np.float32),
             output_path=None, rows=rows, cols=cols, channels=1,
         )
+
+
+def test_stats_cover_both_stages():
+    """Each run resets the stats; the harness adds stage 1's back in."""
+    state, cycles = run_case("depthwise_conv_stride2_narrow", load_cases("depthwise_conv_stride2_narrow")["default"],
+                             options=dict(channels=2, height=8, width=64, seed=3))
+    assert state.stats.total_cycles == cycles
+    assert state.stats.mult_utilization <= 1.0

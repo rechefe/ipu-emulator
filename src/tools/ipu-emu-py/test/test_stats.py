@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from ipu_emu.emulator import load_program, run_until_complete
+import dataclasses
+from collections import Counter
+
+import pytest
+
+from ipu_emu.emulator import (
+    DEFAULT_MAX_CYCLES,
+    DebugAction,
+    load_program,
+    run_test,
+    run_until_complete,
+    run_with_debug,
+)
+from ipu_emu.errors import EmulatorError
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.stats import RunStats
@@ -168,3 +181,146 @@ BKPT;;
         assert state.stats.acc_active_cycles == 0
         assert state.stats.xmem_reads == 0
         assert state.stats.xmem_writes == 0
+
+
+# ---------------------------------------------------------------------------
+# Stats describe one run (E00-05)
+# ---------------------------------------------------------------------------
+
+_MULT_ACC_PROGRAM = """\
+SET lr0 cr0;;
+LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+ACC.ADD;;
+LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+BKPT;;
+"""
+
+# Branches to itself forever.
+_ENDLESS_PROGRAM = """\
+spin:
+BEQ lr0 lr0 spin;;
+"""
+
+# Two cycles complete, then the third raises an EmulatorError.
+_FAULTING_PROGRAM = """\
+SET lr0 cr8;;
+SET lr1 cr9;;
+LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+BKPT;;
+"""
+
+
+def _loaded(asm_code: str, *, cr: dict[int, int] | None = None) -> IpuState:
+    state = IpuState()
+    for idx, val in (cr or {}).items():
+        state.regfile.set_cr(idx, val)
+    load_program(state, [decode_instruction_word(w) for w in assemble(asm_code)])
+    return state
+
+
+def _counters(stats: RunStats) -> dict:
+    return {f.name: getattr(stats, f.name) for f in dataclasses.fields(stats)
+            if f.name != "alias_profile"}
+
+
+def _never_called(state, cycles):  # no breakpoint in these programs
+    return DebugAction.CONTINUE
+
+
+_RUNNERS = {
+    "run_until_complete": lambda state, **kw: run_until_complete(state, **kw),
+    "run_with_debug": lambda state, **kw: run_with_debug(state, _never_called, **kw),
+}
+
+
+class TestStatsPerRun:
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_second_run_reports_only_itself(self, runner):
+        state = _loaded(_MULT_ACC_PROGRAM)
+        _RUNNERS[runner](state)
+        first = _counters(state.stats)
+        assert first["mult_active_cycles"] > 0 and first["acc_active_cycles"] > 0
+
+        state.program_counter = 0
+        _RUNNERS[runner](state)
+        assert _counters(state.stats) == first
+        assert state.stats.mult_utilization <= 1.0
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_cycle_limit_sets_total_cycles(self, runner):
+        state = _loaded(_ENDLESS_PROGRAM)
+        state.stats.total_cycles = 12345  # stale value from an earlier run
+        with pytest.raises(RuntimeError, match="Exceeded 10 cycles"):
+            _RUNNERS[runner](state, max_cycles=10)
+        assert state.stats.total_cycles == 10
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_emulator_error_sets_total_cycles(self, runner):
+        state = _loaded(_FAULTING_PROGRAM, cr={8: 160, 9: 64})
+        state.stats.total_cycles = 12345
+        with pytest.raises(EmulatorError):
+            _RUNNERS[runner](state)
+        assert state.stats.total_cycles == 2
+
+    @pytest.mark.parametrize("runner", sorted(_RUNNERS))
+    def test_normal_halt_sets_total_cycles(self, runner):
+        state = _loaded(_MULT_ACC_PROGRAM)
+        cycles = _RUNNERS[runner](state)
+        assert state.stats.total_cycles == cycles == 5
+
+
+class TestRunStatsArithmetic:
+    def _filled(self, base: int) -> RunStats:
+        stats = RunStats()
+        for i, f in enumerate(dataclasses.fields(stats)):
+            if f.name == "alias_profile":
+                continue
+            if f.name == "alias_hits":
+                stats.alias_hits = Counter({"A1": base, "A2": base + 1})
+            else:
+                setattr(stats, f.name, base + i)
+        return stats
+
+    def test_reset_zeroes_counters_and_keeps_alias_profile(self):
+        profile = object()
+        stats = self._filled(3)
+        stats.alias_profile = profile
+        hits = stats.alias_hits
+        stats.reset()
+        assert _counters(stats) == _counters(RunStats())
+        assert stats.alias_profile is profile
+        # A copy taken before the reset keeps its hits.
+        assert hits == Counter({"A1": 3, "A2": 4})
+
+    def test_reset_keeps_state_alias_profile(self):
+        from ipu_emu.alias_profile import AliasProfile
+
+        profile = AliasProfile()
+        state = IpuState(alias_profile=profile)
+        load_program(state, [decode_instruction_word(w) for w in assemble("BKPT;;")])
+        run_until_complete(state)
+        assert state.stats.alias_profile is profile
+
+    def test_add_sums_every_counter(self):
+        profile = object()
+        left = self._filled(1)
+        left.alias_profile = profile
+        right = self._filled(100)
+        right.alias_profile = object()
+        total = left + right
+        for f in dataclasses.fields(RunStats):
+            if f.name == "alias_profile":
+                continue
+            assert getattr(total, f.name) == getattr(left, f.name) + getattr(right, f.name), f.name
+        assert total.alias_profile is profile
+        # Operands are not modified.
+        assert left.alias_hits == Counter({"A1": 1, "A2": 2})
+
+
+def test_every_runner_defaults_to_one_cycle_limit():
+    import inspect
+
+    assert DEFAULT_MAX_CYCLES == 1_000_000
+    for fn in (run_until_complete, run_with_debug, run_test):
+        default = inspect.signature(fn).parameters["max_cycles"].default
+        assert default == DEFAULT_MAX_CYCLES, fn.__name__

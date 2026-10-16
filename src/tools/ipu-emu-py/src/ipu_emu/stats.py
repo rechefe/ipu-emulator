@@ -15,7 +15,7 @@ can report what the multiplier actually retired. See
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 
 from ipu_common.registers import get_lane_count
 
@@ -26,7 +26,12 @@ LANES = get_lane_count()
 
 @dataclass
 class RunStats:
-    """Counters accumulated during one emulator run."""
+    """Counters accumulated during one emulator run.
+
+    Both runners call :meth:`reset` before the first cycle, so these counters
+    describe exactly one run. A caller that chains runs on one state and wants
+    the whole picture adds them explicitly (``stage1 + stage2``).
+    """
 
     total_cycles: int = 0
     mult_active_cycles: int = 0
@@ -50,6 +55,32 @@ class RunStats:
     alias_hits: Counter[str] = field(default_factory=Counter)
     # Optional independent measurements; overlaps never change MAC accounting.
     alias_profile: object | None = field(default=None, repr=False, compare=False)
+
+    def reset(self) -> None:
+        """Zero every counter and clear ``alias_hits``.
+
+        ``alias_profile`` is an attachment, not a counter: it is set when the
+        state is built and survives. ``alias_hits`` is replaced by a fresh
+        ``Counter``, so a shallow copy taken before the reset keeps its hits.
+        """
+        for f in fields(self):
+            if f.name == "alias_profile":
+                continue
+            if f.default_factory is not MISSING:
+                setattr(self, f.name, f.default_factory())
+            else:
+                setattr(self, f.name, f.default)
+
+    def __add__(self, other: RunStats) -> RunStats:
+        """Sum two runs' counters; the result keeps ``self.alias_profile``."""
+        if not isinstance(other, RunStats):
+            return NotImplemented
+        summed = {
+            f.name: getattr(self, f.name) + getattr(other, f.name)
+            for f in fields(self)
+            if f.name != "alias_profile"
+        }
+        return RunStats(**summed, alias_profile=self.alias_profile)
 
     @property
     def mult_utilization(self) -> float:

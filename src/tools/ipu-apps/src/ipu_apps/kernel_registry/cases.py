@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Callable, Mapping
 
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_emu.emulator import DEFAULT_MAX_CYCLES
 from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
 
 
@@ -29,7 +30,7 @@ class KernelCase:
     """
     prepare: Callable[..., PreparedCase]
     defaults: Mapping[str, Any] = field(default_factory=dict)
-    max_cycles: int = 1_000_000
+    max_cycles: int = DEFAULT_MAX_CYCLES
 
     def __post_init__(self):
         reserved = {"kernel", "case", "list_cases", "max_cycles", "output", "help", "profile_aliases", "alias_report"}

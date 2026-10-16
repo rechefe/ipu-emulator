@@ -27,6 +27,7 @@ from ipu_emu.emulator import (
     dump_xmem_to_binary,
     load_fp32_as_fp8_to_xmem,
     DebugAction,
+    DEFAULT_MAX_CYCLES,
 )
 from ipu_emu.debug_cli import (
     debug_prompt,
@@ -66,6 +67,7 @@ __all__ = [
     "fp32_to_fp8_bytes",
     "fp8_bytes_to_fp32",
     "DebugAction",
+    "DEFAULT_MAX_CYCLES",
     "debug_prompt",
     "DebugCLI",
     "print_all_registers",

@@ -4,6 +4,7 @@ exercises dynamic region sizing), and the odd-rows refusal."""
 import numpy as np
 import pytest
 
+from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests
 from ipu_apps.kernels.convolutions.depthwise_conv_stride2_128.app import (
     DepthwiseConvStride2_128App,
@@ -25,3 +26,11 @@ def test_rejects_odd_rows(tmp_path):
             kernel=np.zeros((1, 3, 3), dtype=np.float32),
             output_path=None, rows=5, channels=1,
         )
+
+
+def test_stats_cover_both_stages():
+    """Each run resets the stats; the harness adds stage 1's back in."""
+    state, cycles = run_case("depthwise_conv_stride2_128", load_cases("depthwise_conv_stride2_128")["default"],
+                             options=dict(channels=4, height=16, seed=7))
+    assert state.stats.total_cycles == cycles
+    assert state.stats.mult_utilization <= 1.0

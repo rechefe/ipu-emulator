@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ipu_emu.emulator import DebugCallback, run_test
+from ipu_emu.emulator import DEFAULT_MAX_CYCLES, DebugCallback, run_test
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -68,7 +68,7 @@ class IpuApp:
     def run(
         self,
         *,
-        max_cycles: int = 1_000_000,
+        max_cycles: int = DEFAULT_MAX_CYCLES,
         debug_callback: DebugCallback | None = None,
         state: "IpuState | None" = None,
         elu_alpha: float | None = None,
