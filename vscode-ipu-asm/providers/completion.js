@@ -68,8 +68,13 @@ function register(context, { lang }) {
         });
       });
       if (domain.kind === 'label') {
-        const names = new Set(lang.labels(text).defs.map((d) => d.name));
+        const labels = lang.labels(text);
+        const names = new Set(labels.defs.map((d) => d.name));
         for (const name of names) items.push(item(name, 'Reference', { sortText: `2${name}` }));
+        // Local labels: the next (`1f`) or nearest previous (`1b`) `1:`.
+        for (const n of labels.locals) {
+          for (const ref of [`${n}b`, `${n}f`]) items.push(item(ref, 'Reference', { sortText: `3${ref}` }));
+        }
       }
       // Template names whose value in force at the cursor this operand accepts: `{{ lr_row }}`.
       // Braces already typed are replaced, not doubled.

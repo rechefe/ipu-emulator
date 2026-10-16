@@ -7,6 +7,7 @@ import lark
 
 import ipu_as.utils as utils
 from ipu_as.errors import LabelError, OperandError, SourceLocation
+from ipu_as.symbols import is_local_reference
 from ipu_isa.geometry import MAX_PROGRAM_SIZE
 from ipu_isa.operand_types import operand_type
 
@@ -190,6 +191,16 @@ class LabelToken(IpuToken):
                 self._raise_error(
                     f"Relative label target address {target_address} out of range for program size {MAX_PROGRAM_SIZE}"
                 )
+        elif self.annotated_token.symbols is not None and is_local_reference(self.token.value):
+            try:
+                self.annotated_token.symbols.address(self.token, at=self.instr_id)
+            except LabelError as error:
+                # In the token-error format, which carries "Line N, Column M".
+                raise LabelError(
+                    self._invalid_value_message(str(error)),
+                    location=error.location,
+                    token=error.token,
+                ) from error
         elif (
             self.annotated_token.symbols is None
             or self.token.value not in self.annotated_token.symbols
@@ -217,7 +228,7 @@ class LabelToken(IpuToken):
         if self.token.value.startswith("+"):
             offset = int(self.token.value, 0)
             return self.instr_id + offset
-        return self.annotated_token.symbols.address(self.token)
+        return self.annotated_token.symbols.address(self.token, at=self.instr_id)
 
     @classmethod
     def decode(cls, value: int) -> str:

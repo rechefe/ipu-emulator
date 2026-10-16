@@ -62,6 +62,17 @@ py_pytest_test(
     ],
 )
 
+# GNU numeric local labels (E05-14).
+py_pytest_test(
+    name = "test_local_labels",
+    srcs = ["test/test_local_labels.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # AssemblySession: own symbol table, one render, cache (E05-05).
 py_pytest_test(
     name = "test_session",

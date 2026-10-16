@@ -132,7 +132,7 @@ def test_error_site_raises_located_subclass(source, error_class, where, token, m
 def test_undefined_label_lookup_raises_label_error() -> None:
     token = lark.Token("LABEL", "missing", line=4, column=7)
     with pytest.raises(LabelError) as info:
-        SymbolTable().address(token)
+        SymbolTable().address(token, at=0)
     assert str(info.value) == "Label 'missing' referenced in Line 4, Column 7 not defined."
     assert info.value.location == SourceLocation(4, 7)
     assert info.value.token == "missing"
