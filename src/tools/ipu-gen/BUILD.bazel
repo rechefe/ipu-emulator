@@ -70,7 +70,6 @@ py_pytest_test(
     ],
 )
 
-# slang elaborates the package with zero diagnostics.
 # One ISA entry is enough for the generators (E03-24).
 py_pytest_test(
     name = "test_one_edit_generators",
@@ -84,6 +83,7 @@ py_pytest_test(
     ],
 )
 
+# slang elaborates the package with zero diagnostics.
 py_pytest_test(
     name = "test_sv_package_compiles",
     srcs = ["test/test_sv_package_compiles.py"],

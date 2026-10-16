@@ -40,13 +40,16 @@ _HANDLER_ANCHOR = "    def execute_lr_add(self"
 PROGRAM = "SET LR0 CR2 ;; TESTNEG LR1 LR0 ;; HALT ;;"
 
 RUN = f"""
+import ipu_as
+import ipu_emu
 import ipu_isa
 from ipu_as.lark_tree import assemble
 from ipu_emu.emulator import load_program, run_until_complete
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 
-assert ipu_isa.__file__.startswith({{root!r}}), ipu_isa.__file__
+for package in (ipu_isa, ipu_as, ipu_emu):
+    assert package.__file__.startswith({{root!r}}), package.__file__
 state = IpuState()
 state.regfile.set_cr(2, 5)
 load_program(state, [decode_instruction_word(word) for word in assemble({PROGRAM!r})])

@@ -51,7 +51,7 @@ HANDLER_SOURCE = '''\
 def entry() -> dict[str, Any]:
     """The spec entry as data (``ENTRY_SOURCE`` evaluated)."""
     source = "{" + ENTRY_SOURCE.strip().rstrip(",") + "}"
-    return eval(source, {"InstructionDoc": InstructionDoc})[MNEMONIC]  # noqa: S307 - our own literal
+    return eval(source, {"InstructionDoc": InstructionDoc})[MNEMONIC]  # our own constant literal
 
 
 def view_with_dummy() -> Isa:

@@ -38,7 +38,7 @@ Use `bazel`, not `pip install` or `python` directly.
 4. Run `bazel test //...`.
 5. Check the generated SystemVerilog package (below).
 
-The "one edit" tests prove these steps are enough: `//src/tools/ipu-apps:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. Their `KNOWN_MANUAL_EDITS` list (empty) names any other edit still needed.
+The "one edit" tests prove these steps are enough: `//src/tools/ipu-apps:test_one_edit_end_to_end` adds a dummy instruction with one spec entry and one handler and runs it; `//src/tools/ipu-isa:test_one_edit` and `//src/tools/ipu-gen:test_one_edit_generators` check every derived artifact. The end-to-end test's `KNOWN_MANUAL_EDITS` (empty) names any other edit still needed.
 
 ## Generated SystemVerilog Package
 
