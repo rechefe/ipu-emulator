@@ -195,6 +195,13 @@ _ASM_CORPUS = glob([
     "test/mobilevit/**/*.asm",
 ]) + ["//vscode-ipu-asm:asm_fixtures"]
 
+# The corpus and its digest manifest as data, for tools that read the
+# manifest without importing asm_corpus (//src/tools/ipu-as-py:bench_assemble).
+filegroup(
+    name = "asm_corpus_files",
+    srcs = _ASM_CORPUS + ["test/baselines/asm_digests.json"],
+)
+
 py_library(
     name = "asm_corpus",
     srcs = ["test/baselines/asm_corpus.py"],

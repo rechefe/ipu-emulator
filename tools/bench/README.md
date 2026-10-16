@@ -23,6 +23,7 @@ after the change (see the code-conventions page).
 | `import/ipu_as`, `import/ipu_emu`, `import/ipu_apps` | s | lower | `python -c "import <module>"` in a fresh interpreter, startup included, best of 5 (2 with `--quick`). |
 | `assemble/all_kernels` | s | lower | Every kernel `.asm` assembled once with `ipu_as.lark_tree.assemble`, parser construction included. |
 | `assemble/words_per_s` | words/s | higher | Instruction words of that run per second. |
+| `assemble/render_s`, `assemble/parse_s`, `assemble/encode_s` | s | lower | Every program in the assembled-binary digest manifest, split by pipeline stage, best of 3 (1 with `--quick`); parser built and tables warm first. Also `bazel run //src/tools/ipu-as-py:bench_assemble`. |
 | `kernel/<k>/cycles_per_s` | cycles/s | higher | The `default` case of `identity` (small) and `matmul_720x240_x128` (large), run and checked as the tests do; only the emulated run is timed. |
 | `kernel/<k>/peak_rss_mb` | MB | lower | `ru_maxrss` of the process that ran the case. |
 | `ci/full_suite_wall_s` | s | lower | Nightly only: the coverage step of the nightly `full` job. |

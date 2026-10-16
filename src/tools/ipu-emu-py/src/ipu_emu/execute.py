@@ -46,7 +46,7 @@ from ipu_isa.slots import SLOTS
 def decode_instruction_word(word: int) -> dict[str, int]:
     """Decode a raw integer instruction word into a field dict.
 
-    Uses ``CompoundInst.get_fields()`` which returns ``[(name, bits), ...]``
+    Uses ``CompoundInst.get_fields()`` which returns ``((name, bits), ...)``
     ordered from MSB to LSB.  We iterate in reverse (LSB first) to extract
     each field.
     """

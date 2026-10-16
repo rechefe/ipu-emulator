@@ -104,10 +104,14 @@ class NumberToken(IpuToken):
         return f"{value}"
 
 
+#: Each EnumToken subclass's lower-case name -> value map, built on first use.
+_REVERSE_MAPS: dict[type, dict[str, int]] = {}
+
+
 class EnumToken(IpuToken):
     def __init__(self, token: AnnotatedToken):
         super().__init__(token)
-        if self.token.value.lower() not in {n.lower() for n in self.enum_array()}:
+        if self.token.value.lower() not in self._reverse_map():
             self._raise_error(
                 f"Value {self.token.value} not in enum options\n"
                 f"Available options: {self.enum_array()}"
@@ -144,8 +148,15 @@ class EnumToken(IpuToken):
     def encode(self) -> int:
         return self._reverse_map()[self.token.value.lower()]
 
-    def _reverse_map(self) -> dict[str, int]:
-        return {name.lower(): idx for idx, name in enumerate(self.enum_array())}
+    @classmethod
+    def _reverse_map(cls) -> dict[str, int]:
+        """Lower-case member name -> value, built once per class (the enum
+        tables are static ISA data). Do not mutate: it is shared."""
+        reverse = _REVERSE_MAPS.get(cls)
+        if reverse is None:
+            reverse = {name.lower(): idx for idx, name in enumerate(cls.enum_array())}
+            _REVERSE_MAPS[cls] = reverse
+        return reverse
 
     @classmethod
     def decode(cls, value: int) -> str:
