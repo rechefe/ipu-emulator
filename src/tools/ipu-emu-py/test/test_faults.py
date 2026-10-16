@@ -13,7 +13,8 @@ from emu_support import assemble_program, make_state, new_state
 
 from ipu_emu import xmem
 from ipu_emu.emulator import load_program, run_until_complete
-from ipu_emu.errors import EmulatorError, EmulatorFault, XMemBoundsError
+from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault, XMemBoundsError
+from ipu_emu.execute import Ipu
 from ipu_emu.ipu import plans_for
 from ipu_emu.ipu_state import HaltRecord
 from ipu_isa.faults import FaultId
@@ -164,3 +165,78 @@ def test_an_acc_stride_past_r_acc_is_an_error_before_any_write():
     with pytest.raises(EmulatorError, match="past the end of R_ACC"):
         run_until_complete(state)
     assert bytes(state.regfile.get_r_acc_bytes()) == before
+
+
+# --- enable bits and sticky flags (E04-22) ---------------------------------
+
+
+def test_after_reset_every_fault_is_enabled_and_nothing_is_sticky():
+    state = new_state()
+    assert state.faults.enable == dict.fromkeys(FaultId, True)
+    assert state.faults.sticky == set()
+    state.faults.set_enabled(FaultId.F1, False)
+    state.faults.sticky.add(FaultId.F1)
+    state.faults.reset()
+    assert state.faults.enable == dict.fromkeys(FaultId, True) and not state.faults.sticky
+
+
+def test_an_enabled_fault_is_sticky_too():
+    state = make_state("INC LR0 1 ;;")
+    fault_of(state)
+    assert state.faults.sticky == {FaultId.F2}
+
+
+def test_f1_disabled_runs_the_slot_as_nop_and_the_word_retires():
+    # INC in the LR slot and a reserved activation code in the AAQ slot.
+    word = with_operand(
+        "INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;",
+        Slot.AAQ,
+        "ACTIVATE.QUANTIZE",
+        "activation_fn",
+        15,
+    )
+    state = new_state()
+    load_program(state, [word, assemble_program("BKPT ;;")[0]])
+    state.faults.set_enabled(FaultId.F1, False)
+    assert run_until_complete(state) == 2
+    assert state.halt == HaltRecord("halt", 1, None)
+    assert state.regfile.get_lr(0) == 1  # the other slot retired
+    assert state.faults.sticky == {FaultId.F1}
+    # The same word with F-1 enabled faults (the cached schedule is not stale).
+    state.faults.set_enabled(FaultId.F1, True)
+    state.program_counter = 0
+    fault = fault_of(state)
+    assert (fault.fault, fault.pc) == (FaultId.F1, 0)
+
+
+def test_f9_disabled_runs_past_the_limit_and_sets_the_flag():
+    state = make_state(
+        "SET LR1 CR8 ;;\nloop:\nINC LR0 1 ;;\nBNE LR0 LR1 loop ;;\nBKPT ;;", cr={8: 10}
+    )
+    state.faults.set_enabled(FaultId.F9, False)
+    assert run_until_complete(state, max_cycles=5) == 22
+    assert state.halt == HaltRecord("halt", 3, None)
+    assert state.faults.sticky == {FaultId.F9}
+
+
+@pytest.mark.parametrize("fault", [FaultId.F2, FaultId.F3, FaultId.F4, FaultId.F5, FaultId.F6])
+def test_disabling_an_undecided_fault_is_refused_at_setup(fault):
+    state = make_state("BKPT ;;")
+    with pytest.raises(ConfigurationError, match=f"{fault.label} cannot be disabled.*OQ-2"):
+        state.faults.set_enabled(fault, False)
+    # A direct write past set_enabled is refused when the run starts, before
+    # anything changes.
+    state.faults.enable[fault] = False
+    state.stats.total_cycles = 7
+    with pytest.raises(ConfigurationError, match="OQ-2"):
+        run_until_complete(state)
+    assert state.stats.total_cycles == 7 and state.halt is None
+
+
+def test_fault_state_survives_a_step():
+    state = make_state("INC LR0 1 ;;\nBKPT ;;")
+    state.faults.set_enabled(FaultId.F7, False)  # not modelled: allowed, changes nothing
+    state.faults.sticky.add(FaultId.F1)
+    ipu = Ipu(state)  # held: the cycle keeps only a weak reference to it
+    ipu.cycle.step()
+    assert state.faults.enable[FaultId.F7] is False and state.faults.sticky == {FaultId.F1}

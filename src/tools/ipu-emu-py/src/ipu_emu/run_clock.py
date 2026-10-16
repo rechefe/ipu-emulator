@@ -42,8 +42,13 @@ class RunClock:
             reset_stats: Start ``state.stats`` from zero, so it describes this
                 run only. When false, this run's counters and cycles add to
                 the earlier runs'.
+
+        Raises:
+            ConfigurationError: A fault whose disabled behaviour is undefined
+                (F-2 to F-6) is disabled.
         """
         state = self.state
+        state.faults.check()  # first: a refused run changes nothing
         if reset_stats:
             state.stats.reset()
         self._earlier = state.stats.total_cycles
@@ -55,7 +60,8 @@ class RunClock:
             state.cycle_limit = self._limit
 
     def admit(self) -> None:
-        """Allow one more cycle, or fault F-9 at the PC it would run.
+        """Allow one more cycle, or fault F-9 at the PC it would run. With F-9
+        disabled the run goes on past the limit, with F-9 sticky.
 
         Raises:
             EmulatorFault: F-9, the run has used ``state.cycle_limit`` cycles
@@ -63,6 +69,10 @@ class RunClock:
         """
         limit = self.state.cycle_limit
         if limit and self.cycles >= limit:
+            faults = self.state.faults
+            faults.sticky.add(FaultId.F9)
+            if not faults.enable[FaultId.F9]:
+                return
             pc = self.state.program_counter
             self.state.halt = HaltRecord("fault", pc, FaultId.F9)
             raise EmulatorFault(FaultId.F9, pc, f"the run reached its cycle limit ({limit})")

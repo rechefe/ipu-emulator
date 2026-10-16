@@ -100,7 +100,7 @@ class ExecutionObserver:
             if pc >= len(self.state.inst_mem) or self.state.inst_mem[pc] is None:
                 return []
             try:
-                ops = decode_word(self.state.inst_mem[pc])
+                ops = decode_word(self.state.inst_mem[pc], pc=pc)
             except EmulatorFault:
                 return None  # an undefined opcode: faults when fetched, never a diamond
             return [

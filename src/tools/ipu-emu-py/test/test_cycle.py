@@ -325,7 +325,7 @@ def test_schedule_of_a_word():
         "INC",
     ]
     assert [op.slot for op in schedule.slot_ops] == [
-        op.slot for op in decode_word(word) if op.slot not in ("break", "lr")
+        op.slot for op in decode_word(word, pc=0) if op.slot not in ("break", "lr")
     ]
     assert "acc" in {op.slot for op in schedule.slot_ops if op.plan.inst_name != "NOP"}
 

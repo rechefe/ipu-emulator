@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from ipu_emu import activations as _activations
+from ipu_emu.fault_control import FaultControl
 from ipu_emu.inst_mem import InstMem
 from ipu_emu.ipu_config import DEFAULT_DSTRUCTURE_CR
 from ipu_emu.ipu_math import DType
@@ -87,6 +88,8 @@ class IpuState:
         quit_requested:  The debugger quit the last run before it finished.
         halt:            Set when a HALT word retires or a word faults; ``None``
                          while the program runs. Cleared when a run starts.
+        faults:          Fault enable bits and sticky flags (``FaultControl``);
+                         every fault enabled after construction.
         cycle_limit:     Cycles a run may take before it faults F-9; 0 means
                          no limit. A runner's ``max_cycles`` sets it.
         program_length:  Words of the loaded program: a fetch at or past it
@@ -113,6 +116,7 @@ class IpuState:
         self.halt: HaltRecord | None = None
         self.program_length: int = INST_MEM_SIZE
         self.cycle_limit: int = DEFAULT_CYCLE_LIMIT
+        self.faults = FaultControl()
         self.stats = RunStats()
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile

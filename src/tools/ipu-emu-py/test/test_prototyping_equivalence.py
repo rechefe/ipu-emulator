@@ -391,6 +391,25 @@ def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
     _assert_states_identical(*states)
 
 
+@_REQUIRES_PROTO_BUILD
+def test_a_disabled_f1_runs_the_same_nop_in_both_modes():
+    # A reserved activation code in the AAQ slot: with F-1 disabled the slot
+    # is a NOP in both modes, and the LR slot retires.
+    word = dict(assemble_program("INC LR0 1 ; ACTIVATE.QUANTIZE relu CR15 ;;")[0])
+    aaq = next(name for name in word if name.startswith("aaq_") and "activation_fn" in name)
+    word[aaq] = 15
+    states = []
+    for prototyping in (False, True):
+        state = new_state(prototyping=prototyping)
+        load_program(state, [word, assemble_program("BKPT ;;")[0]])
+        state.faults.set_enabled(FaultId.F1, False)
+        run_until_complete(state)
+        assert state.faults.sticky == {FaultId.F1}
+        states.append(state)
+    _assert_states_identical(*states)
+    assert states[0].stats == states[1].stats
+
+
 def test_bazel_flag_is_a_mandatory_capability(monkeypatch):
     monkeypatch.delenv("IPU_EMU_PROTOTYPING", raising=False)
     assert IpuState(prototyping=False).prototyping is False

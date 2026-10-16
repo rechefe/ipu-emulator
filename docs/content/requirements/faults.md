@@ -53,6 +53,8 @@ The fault list and this table are mirrored as data in `ipu_isa.faults`, which de
 
 The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A `BKPT` (HALT) word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
 
+`IpuState.faults` (`ipu_emu.fault_control.FaultControl`) holds each fault's enable bit, all set at construction, and the sticky flags, which every fault sets, enabled or not (IPU-FLT-5, IPU-FLT-6). With F-1 disabled, the slot with the reserved encoding runs as `NOP` and the rest of the word retires (the proposal in OQ-2). With F-9 disabled, the run goes on past its limit. Clearing the bit of F-2 to F-6 raises `ConfigurationError`, because OQ-2 does not say what the word then does; clearing F-7 or F-8 changes nothing, as neither is modelled.
+
 | Fault | In the emulator |
 |---|---|
 | F-1 | At fetch: an opcode the ISA does not define, or an operand code that is reserved (the table above) or past its operand type's width (a union column can be wider). |
