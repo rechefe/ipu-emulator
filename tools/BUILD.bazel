@@ -11,7 +11,7 @@ exports_files([
     "ruff_runner.py",
 ])
 
-# Refresh //:requirements_lock.txt from the five pyproject.toml files and
+# Refresh //:requirements_lock.txt from the six pyproject.toml files and
 # tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
 # needed. Extra arguments go to `uv pip compile`:
 #
@@ -40,6 +40,8 @@ py_pytest_test(
         "//src/tools/ipu-as-py:runtime_deps",
         "//src/tools/ipu-debug:pyproject.toml",
         "//src/tools/ipu-debug:runtime_deps",
+        "//src/tools/ipu-gen:pyproject.toml",
+        "//src/tools/ipu-gen:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
         "//src/tools/ipu-isa:runtime_deps",
         "//src/tools/ipu-emu-py:pyproject.toml",
@@ -61,7 +63,7 @@ py_library(
 
 # Each first-party package imports only the packages its row in
 # import_graph.toml allows. A new package adds its row there and its
-# :py_sources here.
+# :py_sources here (import_graph.toml lists the other registrations).
 py_pytest_test(
     name = "test_import_graph",
     size = "small",
@@ -73,7 +75,9 @@ py_pytest_test(
         "//src/tools/ipu-debug:py_sources",
         "//src/tools/ipu-emu-py:py_sources",
         "//src/tools/ipu-gen:py_sources",
+        "//src/tools/ipu-harness:py_sources",
         "//src/tools/ipu-isa:py_sources",
+        "//src/tools/ipu-kernels:py_sources",
     ],
     deps = [
         requirement("pytest"),
@@ -141,7 +145,9 @@ test_suite(
         "//src/tools/ipu-debug:ruff",
         "//src/tools/ipu-emu-py:ruff",
         "//src/tools/ipu-gen:ruff",
+        "//src/tools/ipu-harness:ruff",
         "//src/tools/ipu-isa:ruff",
+        "//src/tools/ipu-kernels:ruff",
         "//tools:ruff_lint",
         "//tools/bench:ruff",
         "//vscode-ipu-asm:ruff",

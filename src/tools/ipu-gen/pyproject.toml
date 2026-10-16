@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipu-gen"
+version = "0.1.0"
+description = "Generators that render artifacts (the SystemVerilog package, ...) from the IPU ISA"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.3.1",
+    "ipu-isa",
+    "jinja2>=3.1.4",
+]
+
+[tool.uv.sources]
+ipu-isa = { path = "../ipu-isa", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.1",
+    "pyslang>=11.0.0",
+]
+
+[project.scripts]
+ipu-gen = "ipu_gen.cli:cli"
+
+[tool.setuptools.package-data]
+ipu_gen = ["templates/*.j2"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.uv]
+package = true

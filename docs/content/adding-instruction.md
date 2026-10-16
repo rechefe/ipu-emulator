@@ -241,7 +241,7 @@ bazel test //...
 A downstream RTL repository vendors the generated `ipu_instr_pkg.sv`, so a new instruction changes its wire format. Run the two commands from the [CLAUDE.md "Generated SystemVerilog Package" section](https://github.com/rechefe/ipu-emulator/blob/master/CLAUDE.md#generated-systemverilog-package) and follow its rules for comparing the `localparam` widths against the base commit:
 
 ```bash
-bazel test //src/tools/ipu-as-py:test_sv_package_compiles
+bazel test //src/tools/ipu-gen:test_sv_package_compiles
 bazel build //docs:generate_instruction_format_artifacts
 ```
 

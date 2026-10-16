@@ -6,7 +6,9 @@ import json
 
 import pytest
 
+from ipu_apps.kernel_registry.cases import load_cases
 from ipu_bench import bench, ci_times
+from ipu_bench.benchmarks import emulator
 from ipu_bench.result import BIGGER_FILE, SMALLER_FILE, TINY_ENV, Result, append_results
 
 
@@ -16,7 +18,9 @@ def _tiny(monkeypatch):
 
 
 def test_every_module_runs_and_writes_valid_files(tmp_path):
-    assert {"imports", "assemble", "assemble_stages", "kernels"} <= bench.benchmark_modules().keys()
+    assert {"imports", "assemble", "assemble_stages", "kernels", "emulator"} <= (
+        bench.benchmark_modules().keys()
+    )
     assert bench.main(["--quick", "--out", str(tmp_path)]) == 0
     smaller = json.loads((tmp_path / SMALLER_FILE).read_text())
     bigger = json.loads((tmp_path / BIGGER_FILE).read_text())
@@ -30,14 +34,29 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
         "assemble/parse_s",
         "assemble/encode_s",
         "kernel/identity/peak_rss_mb",
+        "emulator/ipu_state_construct_ms",
+        "emulator/ipu_state_tracemalloc_peak_mb",
+        "emulator/ipu_state_rss_delta_mb",
     ):
         assert name in {e["name"] for e in smaller}, name
-    for name in ("assemble/words_per_s", "kernel/identity/cycles_per_s"):
+    for name in (
+        "assemble/words_per_s",
+        "kernel/identity/cycles_per_s",
+        "emulator/faithful/fully_connected.int8/cycles_per_s",
+    ):
         assert name in {e["name"] for e in bigger}, name
     assert len(names) == len(smaller) + len(bigger)
     for entry in smaller + bigger:
         assert set(entry) <= {"name", "unit", "value", "extra"}
-        assert entry["value"] > 0, entry
+        # Peak-RSS growth is 0 when construction does not raise the process's peak.
+        assert entry["value"] > 0 or entry["name"].endswith("_delta_mb"), entry
+        assert entry["value"] >= 0, entry
+
+
+def test_emulator_kernels_exist():
+    # The tiny budget skips the matmul run; a renamed kernel or case still fails here.
+    for kernel, case_name in (emulator.MATMUL, emulator.INT8):
+        assert case_name in load_cases(kernel), (kernel, case_name)
 
 
 def test_result_rejects_bad_entries():

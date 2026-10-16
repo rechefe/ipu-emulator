@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-from ipu_as import gen_codegen
+from ipu_gen import sv_package
 
 GOLDEN_PATH = "src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv"
 UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_sv_golden"
@@ -20,7 +20,7 @@ UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_sv_golden"
 
 def render() -> str:
     """The package exactly as the downstream repo gets it."""
-    return gen_codegen.render_sv_package()
+    return sv_package.render_sv_package()
 
 
 def main() -> int:

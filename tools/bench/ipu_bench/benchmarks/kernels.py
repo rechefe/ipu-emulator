@@ -1,8 +1,8 @@
 """``kernel/<k>/*``: emulator speed and peak memory on two fixed kernel cases.
 
 ``identity`` (small) and ``matmul_720x240_x128`` (large: the largest standard
-matmul case, the same kernel E04-02 benchmarks), each with its ``default``
-case, run and checked exactly as the tests run them.
+matmul case; E04-02's ``emulator`` module uses a smaller one), each with its
+``default`` case, run and checked exactly as the tests run them.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ SMALL = "identity"
 LARGE = "matmul_720x240_x128"
 
 
-class _RunTimer:
+class RunTimer:
     """A ``run_case`` recorder that only times ``app.run`` (the emulated cycles)."""
 
     seconds = 0.0
@@ -40,7 +40,7 @@ def measure(kernel: str) -> dict:
     from ipu_apps.kernel_registry.cases import assemble_kernel, load_cases, run_case
 
     case = load_cases(kernel)["default"]
-    timer = _RunTimer()
+    timer = RunTimer()
     with TemporaryDirectory(prefix="ipu-bench-") as tmp:
         inst_path = assemble_kernel(kernel, tmp)
         _, cycles = run_case(kernel, case, inst_path=inst_path, recorder=timer)

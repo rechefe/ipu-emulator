@@ -24,10 +24,7 @@ py_library(
     srcs = glob([
         "src/ipu_as/*.py",
     ]),
-    data = glob([
-        "src/ipu_as/**/*.lark",
-        "src/ipu_as/templates/**/*.j2",
-    ]),
+    data = glob(["src/ipu_as/**/*.lark"]),
     imports = ["src"],
     deps = [
         "//src/tools/ipu-gen:ipu_gen_lib",
@@ -229,27 +226,6 @@ py_pytest_test(
     ],
 )
 
-py_pytest_test(
-    name = "test_gen_codegen",
-    srcs = ["test/test_gen_codegen.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_as_lib",
-        requirement("pytest"),
-    ],
-)
-
-py_pytest_test(
-    name = "test_sv_package_compiles",
-    srcs = ["test/test_sv_package_compiles.py"],
-    imports = ["src"],
-    deps = [
-        ":ipu_as_lib",
-        requirement("pytest"),
-        requirement("pyslang"),
-    ],
-)
-
 # Decode snapshots (E02-02): instruction-word field names, the emulator's
 # operand-to-field maps and the enum descriptors, pinned as JSON in
 # test/baselines/. `bazel run :update_decode_snapshots` rewrites them.
@@ -286,7 +262,7 @@ py_binary(
     name = "update_sv_golden",
     srcs = ["test/golden/update_sv_golden.py"],
     main = "test/golden/update_sv_golden.py",
-    deps = [":ipu_as_lib"],
+    deps = ["//src/tools/ipu-gen:ipu_gen_lib"],
 )
 
 py_pytest_test(
@@ -297,7 +273,7 @@ py_pytest_test(
     ],
     data = ["test/golden/ipu_instr_pkg.sv"],
     imports = ["test/golden"],
-    deps = [":ipu_as_lib", requirement("pytest")],
+    deps = ["//src/tools/ipu-gen:ipu_gen_lib", requirement("pytest")],
 )
 
 # Generated-artifact snapshots (E02-04): the docs pages, the TextMate grammar,

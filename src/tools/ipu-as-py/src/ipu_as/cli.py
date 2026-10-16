@@ -5,7 +5,7 @@ from typing import NoReturn
 import click
 import lark
 
-from ipu_as import diagnostics, gen_codegen, lark_tree
+from ipu_as import diagnostics, lark_tree
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
 
 
@@ -79,14 +79,6 @@ def disassemble(input: click.Path, output: click.Path, format: str):
             lark_tree.disassemble_from_bin_file(input, output)
     except AssemblerError as error:
         _exit_with(error)
-
-
-@click.command("sv-package")
-@click.option("--output", type=click.Path(), required=True, help="Output .sv file path")
-def sv_package(output: str):
-    """Generate a SystemVerilog package for the IPU instruction format."""
-    gen_codegen.generate_sv_package(output)
-    click.echo(f"Wrote SystemVerilog package to {output}")
 
 
 #: The `check --json` versions this assembler can print; the contract is in
@@ -186,7 +178,6 @@ def check(input: str, as_json: bool, json_version: int | None):
 
 cli.add_command(assemble)
 cli.add_command(disassemble)
-cli.add_command(sv_package)
 cli.add_command(check)
 
 if __name__ == "__main__":

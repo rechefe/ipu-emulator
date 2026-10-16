@@ -196,7 +196,7 @@ The opcode enum (`acc_inst_opcode_t`, package `ipu_instr_pkg`) is generated
 from
 [`instruction_spec.py`](../../../src/tools/ipu-isa/src/ipu_isa/instruction_spec.py)
 by
-[`gen_codegen.py`](../../../src/tools/ipu-as-py/src/ipu_as/gen_codegen.py).
+[`sv_package.py`](../../../src/tools/ipu-gen/src/ipu_gen/sv_package.py).
 Per the project's opcode-derivation rule, opcode = position within the
 `"acc"` slot dict — the table below lists mnemonics in that exact order.
 

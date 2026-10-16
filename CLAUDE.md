@@ -40,10 +40,10 @@ Use `bazel`, not `pip install` or `python` directly.
 
 ## Generated SystemVerilog Package
 
-A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instruction_spec.py`, `union_layout.py`, `gen_codegen.py` or `ipu_instr_pkg.sv.j2`:
+A downstream RTL repo vendors `ipu_instr_pkg.sv` verbatim. After changing `instruction_spec.py`, `union_layout.py`, `ipu_gen/sv_package.py` or `ipu_instr_pkg.sv.j2`:
 
 ```bash
-bazel test //src/tools/ipu-as-py:test_sv_package_compiles   # slang elaborates it with zero diagnostics
+bazel test //src/tools/ipu-gen:test_sv_package_compiles     # slang elaborates it with zero diagnostics
 bazel test //src/tools/ipu-as-py:test_sv_package_golden     # text golden + every *_WIDTH pinned by name
 bazel build //docs:generate_instruction_format_artifacts    # writes bazel-bin/docs/ipu_instr_pkg.sv
 tools/sv_localparam_diff.sh <base-ref>                      # diff localparam lines vs the base commit

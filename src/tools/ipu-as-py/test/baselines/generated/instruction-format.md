@@ -940,7 +940,7 @@ Field names, bit widths, opcode values, and union-field sharing are **generated*
 
 ## Generated artifacts
 
-These files are produced at documentation build time (and via the assembler CLI). They are
+These files are produced at documentation build time (and via the `ipu-gen` CLI). They are
 **not** checked into the repository.
 
 | Artifact | Description | Download |
@@ -953,7 +953,7 @@ These files are produced at documentation build time (and via the assembler CLI)
 bazel build //docs:generate_instruction_format_artifacts
 # outputs under bazel-bin/docs/
 
-bazel run //src/tools/ipu-as-py:ipu-as -- sv-package --output /tmp/ipu_instr_pkg.sv
+bazel run //src/tools/ipu-gen:ipu-gen -- sv-package --output /tmp/ipu_instr_pkg.sv
 ```
 
 ## Related documentation

@@ -3,15 +3,20 @@
 # //tools:test_import_graph reads every Python source under
 # src/tools/*/src/<package>/ and fails on an import of a first-party package
 # that its row does not list. A package imports itself freely. A new package
-# (ipu_harness) adds its row here and its :py_sources to the test's
-# data in the change that creates it; until then the test fails on a package
+# (such as ipu_debug) adds, in the change that creates it, its row here, its
+# :py_sources to the test's data, its name to known-first-party in ruff.toml
+# and its ruff_test to //tools:lint; until then the test fails on a package
 # with sources and no row, and on any import of an ipu_* package it has no
 # sources for.
 #
-# Rows are per top-level package. "Nothing imports X except Y" is a row
-# matter: list X only in Y's row. Finer rules (a subpackage such as
-# ipu_kernels.reference, or "not at module level") extend this schema in the
-# issue that needs them (E06-01).
+# "Nothing imports X except Y" is a row matter: list X only in Y's row.
+#
+# A key is a package or a subpackage (a quoted dotted key such as
+# "ipu_kernels.reference", E06-01). A source file follows the longest key that
+# is its module or a parent of it, so a subpackage row replaces its package's
+# row for the files under it; [allowed] and [deferred] are looked up
+# separately. A source imports its own key's subtree freely: a subpackage row
+# must list the rest of its own package if it may import it.
 #
 # Edges marked "temporary" are today's code, not the target design; the
 # issue named beside each one removes it, and that change deletes the edge.
@@ -47,3 +52,32 @@ ipu_debug = [
 # ipu_isa is allowed but not imported today. ipu_debug: debug mode
 # (IPU_DEBUG_TUI=1) launches the TUI.
 ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
+
+# The kernel framework (E06): the ISA, the assembler's session API and the
+# emulator's reference-model API. Not ipu_apps, nor ipu_debug until the
+# runner takes over launching the debugger (E06-12). Never ipu_kernels, not
+# even inside a function (Q62): the registry loader (E06-16) and the reference
+# lookup (E06-09) load kernel-side modules with importlib.import_module(name)
+# on a name read from registry data. That is plugin loading, not an edge, and
+# this test only sees literal names.
+ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu"]
+
+# Kernel-side shared code builds on the framework. No other row lists
+# ipu_kernels. Kernel tests and per-kernel .py files under kernels/ are outside
+# src/tools and not checked yet; the issue that adds the first one extends the
+# test to them.
+ipu_kernels = ["ipu_harness"]
+
+# A shared reference never imports the emulator, nor the framework or the rest
+# of ipu_kernels (both reach ipu_emu): one that does is a copy of the code under
+# test. Format codecs come from ipu_isa.
+"ipu_kernels.reference" = ["ipu_isa"]
+
+[deferred]
+# Modules a key's sources may import only inside a function (or under
+# `if TYPE_CHECKING:`), never when the module itself is imported. Any module,
+# first or third party; a first-party one must also be in the key's [allowed]
+# row.
+
+# torch is a test-only dependency: the checker loads the reference lazily (E06-09).
+ipu_harness = ["torch"]

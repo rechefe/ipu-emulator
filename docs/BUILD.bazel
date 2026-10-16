@@ -34,21 +34,13 @@ genrule(
     tools = [":gen_docs"],
 )
 
-py_binary(
-    name = "gen_codegen",
-    srcs = ["gen_codegen_wrapper.py"],
-    main = "gen_codegen_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
-    python_version = "PY3",
-)
-
 # Not stamped: the package's header names a hash of its own content, so its
 # bytes, and this action's cache key, depend only on the instruction set.
 genrule(
     name = "generate_instruction_format_artifacts",
     outs = ["ipu_instr_pkg.sv"],
-    cmd = "$(location :gen_codegen) $(location ipu_instr_pkg.sv)",
-    tools = [":gen_codegen"],
+    cmd = "$(location //src/tools/ipu-gen:ipu-gen) sv-package --output $(location ipu_instr_pkg.sv) > /dev/null",
+    tools = ["//src/tools/ipu-gen:ipu-gen"],
 )
 
 # Checks a vendored copy of the package against the hash in its header:
@@ -57,7 +49,7 @@ py_binary(
     name = "verify_sv_package",
     srcs = ["verify_sv_package_wrapper.py"],
     main = "verify_sv_package_wrapper.py",
-    deps = ["//src/tools/ipu-as-py:ipu_as_lib"],
+    deps = ["//src/tools/ipu-gen:ipu_gen_lib"],
     python_version = "PY3",
 )
 
