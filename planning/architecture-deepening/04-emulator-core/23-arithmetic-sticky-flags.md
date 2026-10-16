@@ -8,7 +8,7 @@ Arithmetic events are not faults and never halt (Q53, faults.md "Arithmetic even
 
 ## Background
 
-- FP accumulator stores go through `struct.pack_into("<f", ...)`, which raises `OverflowError: float too large to pack with f format` for a finite value above the float32 maximum. Two tests pin that for ACC.ADD: `TestNarrowStoreOverflow` (test_execute.py:3116-3144) and `TestWideVectorStoreOverflow` (test_wide_vector_debug.py:622-653). The activation overflow test at test_prototyping_equivalence.py:281 is AaQ and stays as it is (Q35).
+- FP accumulator stores go through `struct.pack_into("<f", ...)`, which raises `OverflowError: float too large to pack with f format` for a finite value above the float32 maximum. This is [OQ-18](../../../docs/content/requirements/open-questions.md#emulator-and-isa). Two tests pin that for ACC.ADD: `TestNarrowStoreOverflow` (test_execute.py:3116-3144) and `TestWideVectorStoreOverflow` (test_wide_vector_debug.py:622-653). The activation overflow test at test_prototyping_equivalence.py:281 is AaQ and stays as it is (Q35).
 - After E04-13/E04-16 that behaviour sits in one place, `LaneCodec.store_acc`.
 - Integer accumulation wraps to int32 silently (`ipu_add`, ipu_math.py:197-207).
 - faults.md reserves "one sticky flag for each event": accumulator overflow, NaN result, quantization saturation. Quantization saturation is AaQ and out of scope (Q35).
@@ -20,7 +20,7 @@ Arithmetic events are not faults and never halt (Q53, faults.md "Arithmetic even
    - FP formats: store the IEEE float32 result (±inf on overflow, NaN propagated) using numpy float32 casting; report `ACC_OVERFLOW` if any lane overflowed from finite inputs, `ACC_NAN` if any lane is NaN.
    - INT formats: keep the wrap; report `ACC_OVERFLOW` when any lane wrapped.
 3. ACC and AGG handlers add the events to `arith_flags`. The commit record (E04-29) lists events per cycle.
-4. Do not set a quantization-saturation flag; record in E09 open questions that the AaQ placeholder does not model it.
+4. Do not set a quantization-saturation flag; the AaQ placeholder does not model it ([OQ-20](../../../docs/content/requirements/open-questions.md#emulator-and-isa)).
 5. Update the two pinned ACC tests to assert the inf result and the flag.
 
 ## Open question
