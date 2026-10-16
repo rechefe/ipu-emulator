@@ -113,3 +113,12 @@ def test_a_pseudo_must_expand_to_a_real_instruction():
     spec[target["slot"]][real]["tag"] = Tag.ASSEMBLER
     with pytest.raises(SpecError, match=rf"pseudo\.{name}\.expands_to\.instruction"):
         validate_pseudo_instruction_spec(pseudo, spec)
+
+
+def test_a_tag_value_string_works_and_an_unknown_one_raises():
+    # isa().layout.word_bits("emulator") once returned 0 (an `is` compare).
+    assert word_bits("emulator") == 186 - 155
+    assert word_bits("hardware") == 155
+    assert slots_with_tag("emulator") == (Slot.ACC_STORE, Slot.BREAK)
+    with pytest.raises(ValueError):
+        word_bits("emulater")

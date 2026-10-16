@@ -16,8 +16,12 @@ binary stays byte-identical.
   escape such as ``\\n`` is renamed.
 * ``.py`` files also rename the handlers (``execute_ldr_mult_reg`` becomes
   ``execute_ld_mult``).
-* Skipped: ``planning/``, the release log, generated baselines (regenerate
-  them with ``tools/update_baselines.sh``) and this script and its test.
+* Skipped: ``planning/``, the release log, this script and its test, the
+  rename table and its test, and everything under ``/test/baselines/``,
+  ``/test/golden/`` and ``/test/fixtures/``. Regenerate the baselines with
+  ``tools/update_baselines.sh``; rename hand-kept goldens and fixtures (the
+  check-JSON and CLI-error goldens, TUI screens, the view snapshot) by hand
+  or with ``rename_text``, keeping what they recorded.
 
 Prints the number of replacements per changed file. ``--check`` prints the
 same and changes nothing; it exits 1 if anything would change.
@@ -92,7 +96,16 @@ def _new_name(match: re.Match[str]) -> str:
 
 
 def rename_text(text: str, suffix: str) -> tuple[str, int]:
-    """``text`` with the old names replaced, and the number of replacements."""
+    """Rename the old mnemonics in one file's text.
+
+    Args:
+        text: The file's contents.
+        suffix: The file's suffix; it picks the rule (any case, upper case
+            only, or none).
+
+    Returns:
+        The new text and the number of replacements.
+    """
     if suffix in ANY_CASE_SUFFIXES:
         text, count = _ANY_CASE.subn(_new_name, text)
     elif suffix in UPPER_CASE_SUFFIXES:
@@ -114,7 +127,15 @@ def _skipped(path: str) -> bool:
 
 
 def rename_tree(root: Path, *, check: bool = False) -> dict[str, int]:
-    """Rename every tracked file under ``root``; return path -> replacements."""
+    """Rename every tracked file under a checkout.
+
+    Args:
+        root: The checkout (``git ls-files`` runs there).
+        check: Report only; write nothing.
+
+    Returns:
+        Repository path -> replacements, for each file that changes.
+    """
     listed = subprocess.run(
         ["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True
     ).stdout.splitlines()

@@ -368,13 +368,13 @@ The loop of the \texttt{identity} kernel, which copies rows:
 
 \begin{pycode}
 row_loop:
-    LD.MULT r0 lr1 cr2 ;;          # load:  row CR2+LR1 -> R0
+    LD.MULT r0 lr1 cr2 ;;               # load:  row CR2+LR1 -> R0
     MULT.VE lr0 cr1 0 lr0 cr15 ;        # mult:  R0 x 1.0
     ACC.ADD.FIRST ;;                    # acc:   R_ACC = MULT_RES
     ACTIVATE.QUANTIZE identity cr15 ;   # aaq:   pass through
-    ST.AAQ lr1 cr3 ;;         # store: to row CR3+LR1
+    ST.AAQ lr1 cr3 ;;                   # store: to row CR3+LR1
     ADD lr1 lr1 cr1 ;;                  # lr:    next row
-    BLT.S lr1 cr4 row_loop ;;             # cond:  loop while LR1 < CR4
+    BLT.S lr1 cr4 row_loop ;;           # cond:  loop while LR1 < CR4
 \end{pycode}
 
 Each \texttt{;;} ends an instruction word, so this loop takes five cycles per

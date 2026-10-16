@@ -16,11 +16,11 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 ```asm
 # Comments start with # or //
 label:                          # Labels end with a colon
-    LD.MULT r0 lr0 cr0;     # LOAD: load into mult stage r0
+    LD.MULT r0 lr0 cr0;           # LOAD: load into mult stage r0
     MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
-    ACC.ADD;                     # ACC: accumulate
-    INC lr0 1;               # LR: bump address (increment via INC)
-    BNE lr0 lr1 next;            # COND: branch
+    ACC.ADD;                      # ACC: accumulate
+    INC lr0 1;                    # LR: bump address (increment via INC)
+    BNE lr0 lr1 next;             # COND: branch
     ;;
 ```
 

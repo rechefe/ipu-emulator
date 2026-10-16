@@ -384,13 +384,13 @@ element_loop:
     BNE                 lr5 lr6 element_loop;;
 
 after_element_loop:
-    ST.ACC         lr7 cr2;;
+    ST.ACC              lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
 
     BREAK;;
 
-    BLT.S                 lr0 lr1 input_loop;;
+    BLT.S               lr0 lr1 input_loop;;
 
 end:
     HALT;;

@@ -1854,7 +1854,7 @@ class Ipu:
         self.state.program_counter = reg
 
     def execute_halt(self) -> None:
-        """Execute HALT: Breakpoint (halt execution)."""
+        """Execute HALT: end the kernel once this word has retired."""
         self.state.program_counter = INST_MEM_SIZE  # halt
 
     def execute_cond_nop(self) -> None:
