@@ -9,7 +9,8 @@ by the E06 issue that needs it: ``manifest``, ``params``, ``placement``,
 ``runner``, ``stages``, ``registry`` and ``testing``.
 
 It imports ``ipu_isa``, the assembler's session API (``ipu_as``) and the
-emulator's reference-model API (``ipu_emu``), and nothing else first-party at
-module level; ``torch`` only inside the functions that need it, because it is
-a test-only dependency. ``tools/import_graph.toml`` enforces both.
+emulator's reference-model API (``ipu_emu``). ``ipu_kernels`` and ``torch``
+only inside the functions that need them: kernel-side modules are loaded by
+name when asked for, and torch is a test-only dependency.
+``tools/import_graph.toml`` enforces the package-level rules.
 """

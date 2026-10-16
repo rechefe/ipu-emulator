@@ -11,7 +11,8 @@ filegroup(
 )
 
 # The kernel framework (E06). ipu_as for its session API only, ipu_emu for its
-# reference-model API only; tools/import_graph.toml holds the import rules.
+# reference-model API only (checked in review); tools/import_graph.toml holds
+# the package-level import rules.
 py_library(
     name = "ipu_harness_lib",
     srcs = glob(["src/ipu_harness/**/*.py"]),
@@ -23,7 +24,7 @@ py_library(
     ],
 )
 
-# Strict from day one (Q65).
+# Strict from day one (E06-01, Q65).
 mypy_test(
     name = "mypy",
     lib = ":ipu_harness_lib",

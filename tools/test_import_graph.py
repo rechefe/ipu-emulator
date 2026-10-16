@@ -43,9 +43,12 @@ FIRST_PARTY_PREFIX = "ipu_"
 Table = Mapping[str, frozenset[str]]
 
 
+SECTIONS = ("allowed", "deferred")
+
+
 def load_table(path: Path = TABLE, section: str = "allowed") -> dict[str, frozenset[str]]:
     with path.open("rb") as f:
-        rows = tomllib.load(f).get(section, {})
+        rows = tomllib.load(f)[section]
     return {key: frozenset(deps) for key, deps in rows.items()}
 
 
@@ -57,10 +60,12 @@ def find_packages(root: Path = SOURCE_ROOT) -> dict[str, Path]:
 class Import(NamedTuple):
     line: int
     module: str
-    deferred: bool  # inside a function or under `if TYPE_CHECKING:`
+    deferred: bool  # in a function body or under `if TYPE_CHECKING:`
 
 
 def _is_type_checking(test: ast.expr) -> bool:
+    """``if TYPE_CHECKING:`` or ``if <anything>.TYPE_CHECKING:``; a compound
+    test such as ``if TYPE_CHECKING and x:`` does not count (fails safe)."""
     name = test.attr if isinstance(test, ast.Attribute) else getattr(test, "id", None)
     return name == "TYPE_CHECKING"
 
@@ -87,15 +92,22 @@ def _imports(node: ast.AST, deferred: bool) -> Iterator[Import]:
         yield Import(node.lineno, node.module, deferred)
     elif isinstance(node, ast.Call) and (module := _literal_import_module(node)):
         yield Import(node.lineno, module, deferred)
+    # Only a body runs later: a function's decorators, defaults and annotations
+    # run when the module is imported.
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        later = node.body
+    elif isinstance(node, ast.Lambda):
+        later = [node.body]
+    elif isinstance(node, ast.If) and _is_type_checking(node.test):
+        later = node.body
+    else:
+        later = []
     for child in ast.iter_child_nodes(node):
-        inner = deferred or isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda)
-        if isinstance(node, ast.If) and _is_type_checking(node.test) and child in node.body:
-            inner = True
-        yield from _imports(child, inner)
+        yield from _imports(child, deferred or any(child is n for n in later))
 
 
 def imported_modules(source: str, filename: str = "<string>") -> Iterator[Import]:
-    """Each absolute import in ``source``, in source order of discovery."""
+    """Each absolute import in ``source``, depth first, roughly in source order."""
     yield from _imports(ast.parse(source, filename), deferred=False)
 
 
@@ -105,10 +117,20 @@ def module_name(path: Path, directory: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
+def within(module: str, prefix: str) -> bool:
+    """``module`` is ``prefix`` or inside it."""
+    return module == prefix or module.startswith(prefix + ".")
+
+
+def key_of(table: Table, module: str) -> str | None:
+    """The longest key of ``table`` that is ``module`` or a parent of it."""
+    keys = [k for k in table if within(module, k)]
+    return max(keys, key=len) if keys else None
+
+
 def row(table: Table, module: str) -> frozenset[str]:
-    """The row of the longest key that is ``module`` or a parent of it."""
-    keys = [k for k in table if module == k or module.startswith(k + ".")]
-    return table[max(keys, key=len)] if keys else frozenset()
+    key = key_of(table, module)
+    return table[key] if key is not None else frozenset()
 
 
 def violations(
@@ -123,7 +145,9 @@ def violations(
     for package, directory in sorted(packages.items()):
         for path in sorted(directory.rglob("*.py")):
             source = module_name(path, directory)
-            allowed = row(table, source) | {package}
+            # A source imports its own key's subtree freely: the whole package
+            # under a package row, only the subpackage under a subpackage row.
+            allowed = row(table, source) | {key_of(table, source) or package}
             lazy_only = row(deferred or {}, source)
             for imp in imported_modules(path.read_text(), str(path)):
                 top = imp.module.split(".")[0]
@@ -134,7 +158,7 @@ def violations(
                         "add its :py_sources to //tools:test_import_graph and its row to "
                         f"{TABLE}"
                     )
-                elif top in packages and top not in allowed:
+                elif top in packages and not any(within(imp.module, a) for a in allowed):
                     found.append(f"{where} imports {imp.module}")
                 elif top in lazy_only and not imp.deferred:
                     found.append(f"{where} imports {imp.module} at module level")
@@ -155,13 +179,29 @@ def test_every_package_has_a_row():
     } == {"no row": [], "no sources": []}
 
 
+def test_table_has_only_known_sections():
+    with TABLE.open("rb") as f:
+        assert sorted(tomllib.load(f)) == sorted(SECTIONS)
+
+
 def test_rows_name_known_packages():
     unknown = {
-        key: sorted(deps - PACKAGES.keys())
+        key: sorted(d for d in deps if d.split(".")[0] not in PACKAGES)
         for key, deps in TABLE_ROWS.items()
-        if deps - PACKAGES.keys()
     }
-    assert unknown == {}
+    assert {k: v for k, v in unknown.items() if v} == {}
+
+
+def test_deferred_rows_are_valid():
+    """A deferred module is a top-level name (the check compares those), and a
+    first-party one is also allowed for the key."""
+    bad = {}
+    for key, modules in DEFERRED_ROWS.items():
+        allowed = row(TABLE_ROWS, key)
+        for module in modules:
+            if "." in module or (module in PACKAGES and module not in allowed):
+                bad.setdefault(key, []).append(module)
+    assert bad == {}
 
 
 def test_subpackage_keys_name_directories():
@@ -245,6 +285,8 @@ def test_imports_are_marked_deferred_inside_functions_and_type_checking():
         "def f():\n    import d\n"
         "class K:\n    import e\n    def m(self):\n        import f\n"
         "g = lambda: __import__('x') or importlib.import_module('h')\n"
+        "@dec(importlib.import_module('i'))\n"
+        "def k(x=importlib.import_module('j')):\n    pass\n"
     )
     deferred = {imp.module: imp.deferred for imp in imported_modules(source)}
     assert deferred == {
@@ -256,6 +298,8 @@ def test_imports_are_marked_deferred_inside_functions_and_type_checking():
         "e": False,
         "f": True,
         "h": True,
+        "i": False,
+        "j": False,
     }
 
 
@@ -286,7 +330,11 @@ _PACKAGES = {
     ("file", "text", "message"),
     [
         ("harness/src/ipu_harness/runner.py", "import ipu_apps\n", "imports ipu_apps"),
-        ("harness/src/ipu_harness/runner.py", "import ipu_kernels\n", "imports ipu_kernels"),
+        (
+            "harness/src/ipu_harness/registry.py",
+            "import ipu_kernels.elementwise.layers\n",
+            "ipu_kernels.elementwise.layers at module level",
+        ),
         ("harness/src/ipu_harness/reference.py", "import torch\n", "torch at module level"),
         (
             "kernels/src/ipu_kernels/reference/softmax.py",
@@ -297,6 +345,13 @@ _PACKAGES = {
             "kernels/src/ipu_kernels/reference/softmax.py",
             "import ipu_harness\n",
             "imports ipu_harness",
+        ),
+        # The rest of ipu_kernels may import ipu_harness, so a reference may not
+        # reach it through them.
+        (
+            "kernels/src/ipu_kernels/reference/softmax.py",
+            "from ipu_kernels.pack import rows\n",
+            "imports ipu_kernels.pack",
         ),
     ],
 )
@@ -312,10 +367,14 @@ def test_e06_01_rules_accept(tmp_path):
         {
             **_PACKAGES,
             "harness/src/ipu_harness/reference.py": (
-                "import ipu_emu\nimport ipu_isa\ndef load():\n    import torch\n"
+                "import ipu_emu\nimport ipu_isa\nimport importlib\n"
+                "def load(op):\n    import torch\n"
+                "    return importlib.import_module('ipu_kernels.reference.ops')\n"
             ),
             "kernels/src/ipu_kernels/pack/rows.py": "import ipu_harness\n",
-            "kernels/src/ipu_kernels/reference/softmax.py": "import ipu_isa\nimport torch\n",
+            "kernels/src/ipu_kernels/reference/softmax.py": (
+                "import ipu_isa\nimport torch\nfrom ipu_kernels.reference import common\n"
+            ),
         },
     )
     assert violations(packages, TABLE_ROWS, DEFERRED_ROWS) == []

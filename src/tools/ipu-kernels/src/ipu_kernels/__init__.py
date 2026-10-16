@@ -9,6 +9,7 @@ concern:
 * ``ipu_kernels.<family>``: family code that is neither a kernel nor a
   framework concern.
 
-It builds on ``ipu_harness``. Nothing imports it except kernel tests and the
-registry loader (``tools/import_graph.toml``).
+It builds on ``ipu_harness``. Nothing imports it except kernel tests and,
+inside a function, the harness's registry loader and reference lookup
+(``tools/import_graph.toml``).
 """

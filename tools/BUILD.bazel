@@ -59,7 +59,7 @@ py_library(
 
 # Each first-party package imports only the packages its row in
 # import_graph.toml allows. A new package adds its row there and its
-# :py_sources here.
+# :py_sources here (import_graph.toml lists the other registrations).
 py_pytest_test(
     name = "test_import_graph",
     size = "small",

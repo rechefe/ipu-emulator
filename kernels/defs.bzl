@@ -10,7 +10,7 @@ def ipu_kernel(name, **kwargs):
     """Declare kernel `name` from its .asm, kernel.toml and optional reference.py.
 
     Args:
-        name: the kernel's name, the last part of //kernels/<family>:<name>.
+        name: the kernel's name, the last path component of //kernels/<family>/<name>.
         **kwargs: reserved for E06-13.
     """
     fail("ipu_kernel(%s): not implemented until E06-13" % name)
