@@ -5,11 +5,10 @@ from ipu_as.compound_inst import CompoundInst
 from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT
 from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
-from ipu_isa.tags import Tag
 
-#: One label per slot instance, in layout order; ``*`` marks EMULATOR slots.
+#: One label per slot instance, in layout order; ``*`` marks debug-only slots.
 SLOT_LABELS = tuple(
-    label + ("" if SLOTS[slot].tag is Tag.HARDWARE else "*")
+    label + ("*" if SLOTS[slot].debug_only else "")
     for slot in LAYOUT_ORDER
     for label in SLOTS[slot].instance_labels()
 )
