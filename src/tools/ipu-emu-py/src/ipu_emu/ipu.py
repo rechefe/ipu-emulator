@@ -33,6 +33,7 @@ from ipu_emu.geometry import (
 )
 from ipu_emu.geometry import (
     effective_mult_mask,
+    element_format,
     xmem_element_width_bytes,
     xmem_row_size_bytes,
 )
@@ -40,6 +41,7 @@ from ipu_emu.ipu_math import DType, dtype_one_byte, ipu_add, ipu_mult, ipu_sub
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.issue import Issuer, MultIdentity
+from ipu_emu.numerics import LaneCodec, codec_for
 from ipu_emu.regfile import RegFile
 from ipu_emu.resolver import READ_CR, READ_LCR, READ_LR, READ_MULT_STAGE, READ_OTHER
 from ipu_emu.xmem import XMEM_SIZE_BYTES
@@ -691,45 +693,22 @@ class Ipu:
 
     # -- wide-vector lanes as arrays ----------------------------------------
     #
-    # The scalar loops these replace did their arithmetic on Python floats
-    # (doubles) and Python ints, one lane at a time, and rounded once when
-    # packing the result back. Widening to float64/int64 here keeps every
-    # intermediate identical and leaves that single rounding on the store, so
-    # the vectorised path is bit-for-bit the scalar path -- just not 128 round
-    # trips through ``struct``.
+    # The FP32 / INT32 lane codecs (``ipu_emu.numerics``) widen to float64 /
+    # int64 and round once on the store, so these vectorised paths are
+    # bit-for-bit the scalar loops they replaced.
+
+    def _wide_codec(self) -> LaneCodec:
+        return codec_for(element_format(self.state))
 
     def _wide_lanes_from(self, buf, byte_off: int = 0) -> np.ndarray:
         """Read LANES lanes of *buf* widened to float64 (FP32) or int64 (INT32)."""
-        if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            # NumPy's global error policy belongs to the embedding application;
-            # signaling-NaN conversion must behave like struct regardless of it.
-            with np.errstate(all="ignore"):
-                return np.frombuffer(buf, dtype="<f4", count=LANES, offset=byte_off).astype(
-                    np.float64
-                )
-        return np.frombuffer(buf, dtype="<i4", count=LANES, offset=byte_off).astype(np.int64)
+        return self._wide_codec().decode(memoryview(buf)[byte_off:])
 
     def _wide_store_lanes(
         self, buf: bytearray | memoryview, values: np.ndarray, byte_off: int = 0
     ) -> None:
         """Write LANES lanes back, rounding once — what ``pack_into`` did."""
-        if self.state.wide_vector_arithmetic == WideVectorArithmetic.FP32:
-            # numpy 2 refuses to re-enter one errstate object, so this stays
-            # per call (~2 us); a magnitude pre-check measured slower.
-            with np.errstate(all="ignore"):
-                narrowed = values.astype(np.float32)
-            if not np.isfinite(narrowed).all() and np.any(np.isinf(narrowed) & np.isfinite(values)):
-                # A finite double too large for float32: struct.pack_into
-                # raises OverflowError where numpy would store an infinity.
-                # Replay the lane-by-lane store so the register ends up exactly
-                # as that path left it and the same exception propagates.
-                _pack_lanes_one_by_one("<f", buf, values.tolist(), byte_off)
-                return
-            raw = narrowed
-        else:
-            # int32 wrap, as _wide_imult32 / ipu_add(INT8) do lane by lane.
-            raw = (values & 0xFFFFFFFF).astype(np.uint32)
-        buf[byte_off : byte_off + LANES * 4] = raw.tobytes()
+        self._wide_codec().store_acc(memoryview(buf)[byte_off:], values)
 
     def _wide_ra_lanes(self, mult_stage_enc: int) -> np.ndarray:
         """R0/R1 wide lanes from the cycle-start snapshot (issue #157).

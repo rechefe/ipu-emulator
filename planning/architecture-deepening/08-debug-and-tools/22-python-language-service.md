@@ -27,7 +27,7 @@ The checkout's assembler answers every analysis question the editor asks, in one
 ```python
 # ipu_as/language_service.py
 @dataclass(frozen=True)
-class Token: line: int; col: int; length: int; type: str; role: str       # role: mnemonic|register|label-def|label-ref|number|jinja|comment
+class Token: line: int; column: int; length: int; type: str; role: str       # role: mnemonic|register|label-def|label-ref|number|jinja|comment
 @dataclass(frozen=True)
 class WordFit: range: Range; mnemonics: tuple[str, ...]; slots: Mapping[str, int]; fits: bool; error: str | None
 @dataclass(frozen=True)

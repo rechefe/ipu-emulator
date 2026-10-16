@@ -1,10 +1,9 @@
 """Element values as a format holds them: its range, rounding into it, its bytes.
 
 One place for the harness (the manifest's ``range`` check, case inputs,
-packing): every per-format branch is here, none in the callers. The
-element codec itself moves to ``ipu_isa.formats`` in E04-13; until then FP8
-goes through the emulator's public encode and decode, which round to nearest
-and saturate.
+packing): every per-format branch is here, none in the callers. FP8 goes
+through the element codec in ``ipu_isa.formats`` (E04-13), which rounds to
+nearest and saturates.
 """
 
 from __future__ import annotations
@@ -15,8 +14,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from ipu_emu.ipu_math import DType, fp8_bytes_to_fp32, fp32_to_fp8_bytes
-from ipu_isa.formats import FORMATS, ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat, element_values, encode_element
 
 Array = npt.NDArray[Any]
 
@@ -54,7 +52,7 @@ def codes(fmt: ElementFormat) -> Array:
     Returns:
         The values, as a float64 array without duplicates (+0 and -0 are one).
     """
-    decoded = fp8_bytes_to_fp32(bytes(range(256)), DType(FORMATS[fmt].exp_bits))
+    decoded = np.array(element_values(fmt), dtype=np.float32)
     values: Array = np.unique(decoded[np.isfinite(decoded)].astype(np.float64))
     values.flags.writeable = False  # cached: shared by every caller
     return values
@@ -78,9 +76,20 @@ def held(values: Array, fmt: ElementFormat) -> Array:
     as_fp32 = clipped.astype(np.float32)
     if fmt is ElementFormat.FP32:
         return as_fp32
-    dtype = DType(info.exp_bits)
-    flat: Array = fp8_bytes_to_fp32(fp32_to_fp8_bytes(as_fp32.ravel(), dtype), dtype)
+    flat: Array = _fp8_decode(_fp8_encode(as_fp32.ravel(), fmt), fmt)
     return np.reshape(flat, as_fp32.shape)
+
+
+def _fp8_encode(values: Array, fmt: ElementFormat) -> bytes:
+    """float32 ``values`` as 8-bit float codes, one element at a time."""
+    return bytes(encode_element(float(v), fmt) for v in values.astype(np.float32))
+
+
+def _fp8_decode(raw: bytes, fmt: ElementFormat) -> Array:
+    """8-bit float codes as float32 values (a table lookup)."""
+    table = np.array(element_values(fmt), dtype=np.float32)
+    decoded: Array = table[np.frombuffer(raw, dtype=np.uint8)]
+    return decoded
 
 
 def _numpy_dtype(fmt: ElementFormat) -> str | None:
@@ -109,7 +118,7 @@ def encode(values: Array, fmt: ElementFormat) -> bytes:
     # FP8: clipped as held() clips, so the bytes are held()'s values; the encoder rounds.
     lo, hi = limits(fmt)
     clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi).ravel()
-    return fp32_to_fp8_bytes(clipped.astype(np.float32), DType(FORMATS[fmt].exp_bits))
+    return _fp8_encode(clipped.astype(np.float32), fmt)
 
 
 def decode(raw: bytes, fmt: ElementFormat) -> Array:
@@ -125,5 +134,4 @@ def decode(raw: bytes, fmt: ElementFormat) -> Array:
     native = _numpy_dtype(fmt)
     if native is not None:
         return np.frombuffer(raw, dtype=native).astype(np.float64)
-    decoded: Array = fp8_bytes_to_fp32(raw, DType(FORMATS[fmt].exp_bits))
-    return decoded.astype(np.float64)
+    return _fp8_decode(raw, fmt).astype(np.float64)
