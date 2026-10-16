@@ -264,6 +264,12 @@ class TestStatsPerRun:
         state.cycle_limit = 5
         assert _RUNNERS[runner](state, max_cycles=0) == 402
         assert state.cycle_limit == 5
+        # Restored when the run faults under its own limit, too.
+        state = make_state(_COUNTED_LOOP, cr={8: 200})
+        state.cycle_limit = 7
+        with pytest.raises(EmulatorFault):
+            _RUNNERS[runner](state, max_cycles=3)
+        assert state.cycle_limit == 7
 
     @pytest.mark.parametrize("runner", sorted(_RUNNERS))
     def test_reset_stats_false_accumulates(self, runner):

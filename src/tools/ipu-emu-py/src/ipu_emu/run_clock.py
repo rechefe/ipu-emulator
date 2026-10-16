@@ -33,7 +33,7 @@ class RunClock:
         self.cycles = 0
         self._earlier = 0  # total_cycles carried in when stats accumulate
         self._limit = limit
-        self._own_limit = state.cycle_limit
+        self._own_limit = state.cycle_limit  # read again by begin_run
 
     def begin_run(self, *, reset_stats: bool = True) -> None:
         """Start a run: no halt or quit pending, no cycles counted.
@@ -82,7 +82,9 @@ class RunClock:
         self.cycles += 1
 
     def end_run(self) -> None:
-        """Write ``total_cycles`` and restore the state's own cycle limit;
-        called when the run ends, faulted or not."""
+        """Write ``total_cycles``, and restore the state's own cycle limit if
+        the run replaced it; called when the run ends, faulted or not. (A
+        limit programmed during a run without its own is kept.)"""
         self.state.stats.total_cycles = self._earlier + self.cycles
-        self.state.cycle_limit = self._own_limit
+        if self._limit is not None:
+            self.state.cycle_limit = self._own_limit
