@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from ipu_as import session
 from ipu_as.cli import cli
@@ -20,7 +20,7 @@ rows: int = 8
 """
 
 
-def _invoke(*argv: str):
+def _invoke(*argv: str) -> Result:
     # input="" closes stdin: a prompt would abort instead of waiting.
     return CliRunner().invoke(cli, list(argv), input="")
 
@@ -53,6 +53,14 @@ def test_defines_render_like_the_same_values_given_to_the_assembler(tmp_path):
     result = _invoke(*argv, "--define", "rows=5")
     assert result.exit_code == 0, result.stdout
     assert output.read_bytes() == session.assemble(TEMPLATE, defines={"cpr": 2, "rows": 5}).to_bin()
+
+
+def test_defines_equal_to_the_header_defaults_change_nothing(tmp_path):
+    source = _write(tmp_path / "k.asm", TEMPLATE)
+    output = tmp_path / "k.bin"
+    argv = ["assemble", "--input", source, "--output", str(output)]
+    assert _invoke(*argv, "--define", "cpr=3", "--define", "rows=8").exit_code == 0
+    assert output.read_bytes() == session.assemble(TEMPLATE).to_bin()
 
 
 def test_an_undeclared_define_is_a_template_error(tmp_path):

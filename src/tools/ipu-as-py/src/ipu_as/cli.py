@@ -82,7 +82,7 @@ def cli():
     help="A kernel.toml whose [abi] table names the registers the template reads "
     "as {{ cr.<name> }} / {{ lr.<name> }}.",
 )
-def assemble(  # noqa: PLR0913 - one argument per option
+def assemble(
     input: str,
     output: str,
     format: str | None,
