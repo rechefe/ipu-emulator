@@ -62,6 +62,16 @@ def include_note(rendered: str, offset: int) -> str:
     return f" (in {match.group('name')}:{match.group('line')})"
 
 
+def strip_markers(text: str) -> str:
+    """`text` up to its first origin marker, without the whitespace before it.
+
+    A marker is appended to a line's comment when the line has one, so the
+    rendered comment token carries it.
+    """
+    match = _ANY_MARKER_RE.search(text)
+    return text if match is None else text[: match.start()].rstrip()
+
+
 def instrument(source: str, prefix: str = _LINE_MARKER) -> str | None:
     """Tag every template line with its own line number.
 
