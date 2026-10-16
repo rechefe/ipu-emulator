@@ -261,7 +261,44 @@ def test_cli_writes_the_docs_pages_and_the_union_svg(tmp_path: Path):
     assert svg.read_text() == layout_svg.union_layout_svg()
     page = tmp_path / "instruction-format.md"
     assert CliRunner().invoke(cli, ["instruction-format-md", str(page)]).exit_code == 0
-    assert "## Compound instruction layout" in page.read_text()
+    assert "## Hardware word (155 bits)" in page.read_text()
+
+
+def test_format_page_shows_the_hardware_word_first_then_the_emulator_word(tmp_path: Path):
+    from ipu_gen import docs_pages
+
+    page = tmp_path / "instruction-format.md"
+    docs_pages.generate_instruction_format_md(page)
+    text = page.read_text()
+    # By hand: the hardware word is 155 bits, the emulator word 186 (Q41).
+    hardware = text.index("## Hardware word (155 bits)")
+    emulator = text.index("## Emulator word (186 bits)")
+    assert hardware < emulator
+    assert word_bits(Tag.HARDWARE) == 155 and word_bits() == 186
+    assert "Hardware word Layout - 155 total bits" in text[hardware:emulator]
+    assert "CompoundInst Layout - 186 total bits" in text[emulator:]
+    # The emulator-only slots are drawn only in the emulator-word section.
+    hardware_part = text[hardware:emulator]
+    assert "AccStoreInst" not in hardware_part and "BreakInst" not in hardware_part
+    assert "(`ACC_STORE`, `BREAK`) below its bit 0" in text
+
+
+def test_instruction_reference_tags_every_instruction(tmp_path: Path):
+    from ipu_gen import docs_pages
+
+    page = tmp_path / "instructions.md"
+    docs_pages.generate_instruction_docs(page)
+    text = page.read_text()
+    assert "### `HALT` — Halt\n\n**Syntax:** `HALT`\n\n**Tag:** `HARDWARE`" in text
+    assert "### `ST.ACC` —" in text
+    st_acc = text[text.index("### `ST.ACC` —") :]
+    assert "**Tag:** `EMULATOR`" in st_acc.split("###", 2)[1]
+    assert "**Tag:** `EMULATOR`" in text[text.index("### `BREAK` —") :].split("###", 2)[1]
+    documented = text.count("\n### `") - text.count("\n### `NOP`")
+    assert text.count("**Tag:** `") == documented
+    guide = tmp_path / "guide.md"
+    docs_pages.generate_programmer_guide_md(guide)
+    assert guide.read_text().count("**Tag:** `ASSEMBLER`") == 5  # B, BZ, BNZ, BGT.S, BLE.S
 
 
 def test_cli_verify_sv_package_exit_codes(tmp_path: Path):

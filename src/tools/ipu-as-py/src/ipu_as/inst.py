@@ -20,6 +20,7 @@ import ipu_as.utils as utils
 from ipu_isa.instruction_spec import InstructionDoc, syntax
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import Slot
+from ipu_isa.tags import Tag
 from ipu_isa.view import Isa, Operand, isa
 
 
@@ -146,10 +147,10 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
     info = view.slots[Slot(slot)]
     heading, intro = info.doc_heading, info.doc_intro
     lines = [f"## {heading}", ""]
-    if info.debug_only:
+    if info.tag is Tag.EMULATOR:
         lines.append(
-            "> **Simulation-only slot** — not implemented in real IPU hardware. "
-            "Excluded from hardware codegen."
+            "> **Emulator-only slot** — not implemented in real IPU hardware: not in the "
+            "hardware word or the SV package."
         )
         lines.append("")
     if intro.strip():
@@ -161,16 +162,29 @@ def render_slot_docs(slot: str, view: Isa | None = None) -> str:
             continue  # documented once globally in the Slots section
         if instruction.doc is None:
             continue
-        lines.extend(render_opcode_doc(instruction.mnemonic, instruction.doc, instruction.operands))
+        lines.extend(
+            render_opcode_doc(
+                instruction.mnemonic, instruction.doc, instruction.operands, instruction.tag
+            )
+        )
         lines.append("")
 
     return "\n".join(lines).rstrip()
+
+
+#: How the instruction reference describes each tag (E03-23).
+TAG_TEXT = {
+    Tag.HARDWARE: "implemented by the IPU",
+    Tag.EMULATOR: "emulator only; not in the hardware word or the SV package",
+    Tag.ASSEMBLER: "expanded by the assembler; no opcode",
+}
 
 
 def render_opcode_doc(
     opcode: str,
     doc: InstructionDoc,
     spec_operands: Sequence[Operand],
+    tag: Tag | None = None,
 ) -> list[str]:
     """Markdown documentation of one opcode or pseudo-instruction.
 
@@ -178,14 +192,18 @@ def render_opcode_doc(
         opcode: The mnemonic, as written in assembly.
         doc: Its ``InstructionDoc``.
         spec_operands: Its operand dicts from the instruction spec, in order.
+        tag: Its tag, shown under the syntax; omitted when ``None``.
 
     Returns:
-        The Markdown lines: heading, syntax, operands, and the doc's prose.
+        The Markdown lines: heading, syntax, tag, operands, and the doc's prose.
     """
     lines = [f"### `{opcode}` — {doc.title}", ""]
     names = [operand.name for operand in spec_operands]
     lines.append(f"**Syntax:** `{syntax(opcode, names)}`")
     lines.append("")
+    if tag is not None:
+        lines.append(f"**Tag:** `{tag.name}` ({TAG_TEXT[tag]})")
+        lines.append("")
 
     if spec_operands:
         lines.append(
