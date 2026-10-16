@@ -47,12 +47,6 @@ from ipu_debug.session import (
     XmemRequest,
     XmemWindow,
 )
-from ipu_emu.descriptors import REGFILE_SCHEMA
-from ipu_emu.emulator import DebugAction
-from ipu_emu.errors import EmulatorError
-from ipu_emu.ipu import xmem_row_size_bytes
-from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
-
 from ipu_debug.tui.keymap import (
     KEY_BINDINGS,
     PANE_COMMANDS,
@@ -78,6 +72,11 @@ from ipu_debug.tui.screen import (
     terminal_available,
 )
 from ipu_debug.tui.tabs import TabSet
+from ipu_emu.descriptors import REGFILE_SCHEMA
+from ipu_emu.emulator import DebugAction
+from ipu_emu.errors import EmulatorError
+from ipu_emu.ipu import xmem_row_size_bytes
+from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
 MIN_TERMINAL_ROWS = 24
 MIN_TERMINAL_COLUMNS = 80
@@ -284,6 +283,8 @@ FOOTER_PANE_LABELS = {
     "xmem": "XMEM",
     "pipeline": "Pipe",
 }
+
+
 @dataclass(frozen=True)
 class PipelineRegisterSpec:
     """One logical pipeline register and its mode-specific storage."""

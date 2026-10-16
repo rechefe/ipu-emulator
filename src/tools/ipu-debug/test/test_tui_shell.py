@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from emu_support import make_state
 
+import ipu_debug.tui.screen as screen_module
 from ipu_debug.control import DebugControl
 from ipu_debug.session import DebugSession
 from ipu_debug.tui import new_debug_view_session
@@ -31,7 +32,6 @@ from ipu_debug.tui.keymap import (
     key_label,
     lookup,
 )
-import ipu_debug.tui.screen as screen_module
 from ipu_debug.tui.screen import (
     CursesScreen,
     FakeScreen,

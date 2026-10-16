@@ -8,6 +8,7 @@ import pytest
 
 import ipu_debug.launch as launch
 import ipu_debug.tui as tui
+import ipu_debug.tui.screen as tui_screen
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_debug.control import DebugControl
@@ -137,7 +138,7 @@ def test_terminal_interrupt_cancels_without_entering_cli(app, debug_terminal, mo
     def forbidden(*args, **kwargs):
         pytest.fail("interrupts must not enter the deprecated CLI")
 
-    monkeypatch.setattr(tui.curses, "wrapper", interrupted)
+    monkeypatch.setattr(tui_screen.curses, "wrapper", interrupted)
     monkeypatch.setattr("ipu_debug.cli.DebugCLI", forbidden)
     state, _ = app.run()
     assert state.quit_requested
