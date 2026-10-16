@@ -33,6 +33,7 @@ from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState, WideVectorArithmetic
 from ipu_emu.isa_alias_spec import SCALAR_MULT_OPERANDS, VECTOR_IDENTITY_MULTS, aliases_for
 from ipu_emu.issue import Issuer, MultIdentity
 from ipu_emu.regfile import RegFile
+from ipu_emu.resolver import READ_CR, READ_LCR, READ_LR, READ_MULT_STAGE, READ_OTHER
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.acc_stride_enums import (
     get_elements_per_row,
@@ -110,7 +111,7 @@ def xmem_row_size_bytes(state: IpuState) -> int:
 
 XMEM_ADDRESSABLE_ROWS = XMEM_SIZE_BYTES // (LANES * _WIDE_ELEMENT_WIDTH_BYTES)
 
-# R_CYCLIC is divided into four 128-byte slots; LDR_CYCLIC_MULT_REG's index
+# R_CYCLIC is divided into four 128-byte slots; LD.MULT.CYCLIC's index
 # must land exactly on a slot boundary — no implicit wraparound.
 R_CYCLIC_VALID_INDICES = tuple(range(0, R_CYCLIC_SIZE, R_REG_SIZE))
 
@@ -307,15 +308,6 @@ _INSTRUCTION_READ_TYPES = _build_read_operand_types()
 # comparison. All of that is a function of (slot_type, opcode) alone.
 # ---------------------------------------------------------------------------
 
-# How a "read" operand resolves to a register value. LR, CR and LCR reads are
-# handled inline in the dispatcher (and a wide-mode mult-stage read in
-# prototyping mode); anything else falls back to ``Ipu._resolve_operand``.
-_READ_LR = 0
-_READ_CR = 1
-_READ_LCR = 2
-_READ_MULT_STAGE = 3
-_READ_OTHER = 4
-
 # Register bank of each register name the assembler accepts ("lr3" -> "lr").
 _BANK_OF_NAME = {
     name: bank
@@ -330,17 +322,18 @@ def _banks(operand_type: OperandType) -> frozenset[str | None]:
     return frozenset(_BANK_OF_NAME.get(name) for name in operand_type.domain.members)
 
 
-# How a read operand resolves, by the banks its type can name.
+# How a read operand resolves, by the banks its type can name: a read code of
+# ipu_emu.resolver, whose adapters do the resolving.
 _READ_BY_BANKS = {
-    frozenset({"lr"}): _READ_LR,
-    frozenset({"cr"}): _READ_CR,
-    frozenset({"lr", "cr"}): _READ_LCR,
-    frozenset({"r"}): _READ_MULT_STAGE,
+    frozenset({"lr"}): READ_LR,
+    frozenset({"cr"}): READ_CR,
+    frozenset({"lr", "cr"}): READ_LCR,
+    frozenset({"r"}): READ_MULT_STAGE,
 }
 
 # Read code of every operand type, from its domain in the operand-type registry.
 _READ_CODES = {
-    name: _READ_BY_BANKS.get(_banks(operand_type), _READ_OTHER)
+    name: _READ_BY_BANKS.get(_banks(operand_type), READ_OTHER)
     for name, operand_type in OPERAND_TYPES.items()
 }
 
@@ -361,7 +354,7 @@ _SCALAR_NONE = 0
 _SCALAR_LCR = 1  # LcrIdx: an LR selects an Ra element, or a CR supplies the byte
 _SCALAR_CR = 2  # CrIdx: the CR's low byte is the scalar
 
-_SCALAR_KINDS = {_READ_LCR: _SCALAR_LCR, _READ_CR: _SCALAR_CR}  # by read code
+_SCALAR_KINDS = {READ_LCR: _SCALAR_LCR, READ_CR: _SCALAR_CR}  # by read code
 
 
 class _AliasCheck(NamedTuple):
@@ -575,12 +568,6 @@ class Ipu:
         # Prototyping mode's shortcuts, read once: the flag belongs to the run,
         # not to the cycle (see ipu_emu/prototyping.py).
         self._prototyping: bool = state.prototyping
-        # How read operands become register values. Prototyping reads LR and
-        # CR storage directly; the results are identical (E04-10 makes this
-        # the resolver adapter). The plain function, called with self: a
-        # bound method stored on self would make every engine a reference
-        # cycle, keeping its state alive until the cyclic collector runs.
-        self._resolve = Ipu._resolve_reads_prototype if self._prototyping else Ipu._resolve_reads
         self._profile = None
         if state.alias_profile is not None:
             from ipu_emu.alias_observer import ExecutionObserver
@@ -598,7 +585,9 @@ class Ipu:
         # Issues each slot op into one IssueFacts record and runs its handler.
         # The record of the op in flight is ``issuer.current``: the multiply
         # handlers read its identity verdict when they count lanes.
-        self.issuer = Issuer(self)
+        # How its read operands become register values: the resolver adapter
+        # the cycle module picks for this state (packed when prototyping).
+        self.issuer = Issuer(self, resolver_for(state))
         # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
         # conflict check and the profiler's begin/end hooks. The cycle gets a
         # weak proxy: a strong back-reference would make every engine a
@@ -667,7 +656,7 @@ class Ipu:
 
         This only translates and range-checks the row itself; the resulting
         address's actual payload (which may span more than one row's worth of
-        bytes, e.g. STR_ACC_REG's fixed 512-byte R_ACC) is bounds-checked by
+        bytes, e.g. ST.ACC's fixed 512-byte R_ACC) is bounds-checked by
         ``XMem.read_address``/``write_address`` against the allocation.
         """
         if row < 0:
@@ -778,7 +767,7 @@ class Ipu:
         """Scale an r_cyclic ELEMENT index to a byte offset (mode-dependent width).
 
         ``rc_idx`` (MULT.RC.* operand) addresses r_cyclic the same way
-        ``LDR_CYCLIC_MULT_REG``'s ``index`` operand does -- in elements, not
+        ``LD.MULT.CYCLIC``'s ``index`` operand does -- in elements, not
         bytes -- so reads and writes to the same register share one unit. A
         no-op in narrow mode (1 byte/element); scales by 4 in wide-vector
         debug mode. See issue #182's follow-up: rc_idx used to be a raw byte
@@ -797,48 +786,6 @@ class Ipu:
     # -----------------------------------------------------------------------
     # Helper Methods
     # -----------------------------------------------------------------------
-
-    def _resolve_operand(
-        self, op_type: OperandType, raw_value: int, source: RegFile
-    ) -> int | bytearray:
-        """Resolve a 'read' operand to its register value.
-
-        Called by dispatch for operands with a ``"read"`` field in instruction_spec.
-        The operand type determines how the raw index is resolved:
-
-        - LrIdx → source.get_lr(idx) → uint32 value
-        - CrIdx → source.get_cr(idx) → uint32 value
-        - LcrIdx → LR if idx < LR_REG_COUNT, else CR → uint32 value
-        - MultStageReg → register bytes via _MULT_STAGE_MAP → bytearray
-
-        Args:
-            op_type: The operand's type, from the ISA view.
-            raw_value: Raw encoded index from the instruction word.
-            source: Register file to read from (snapshot or live regfile).
-        """
-        code = _READ_CODES[op_type.name]
-        if code == _READ_LR:
-            return source.get_lr(raw_value)
-        elif code == _READ_CR:
-            return source.get_cr(raw_value)
-        elif code == _READ_LCR:
-            if raw_value < LR_REG_COUNT:
-                return source.get_lr(raw_value)
-            else:
-                return source.get_cr(raw_value - LR_REG_COUNT)
-        elif code == _READ_MULT_STAGE:
-            if raw_value > 1:
-                raise EmulatorError(
-                    f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw_value}"
-                )
-            if self._wide_vector_active():
-                # Mult handlers read wide lanes via _wide_ra_lanes(raw_value),
-                # keyed by MultStageReg encoding index (0=r0, 1=r1) into r_wide_debug.
-                return raw_value
-            reg_name, elem_idx = _MULT_STAGE_MAP[raw_value]
-            return source.get_register_bytes(reg_name, elem_idx)
-        else:
-            return raw_value
 
     @staticmethod
     @cache
@@ -1032,8 +979,8 @@ class Ipu:
         """Execute NOP in acc_store slot: No operation."""
         pass
 
-    def execute_str_acc_reg(self, *, offset: int, base: int) -> None:
-        """Execute STR_ACC_REG: Store accumulator to memory (debug only).
+    def execute_st_acc(self, *, offset: int, base: int) -> None:
+        """Execute ST.ACC: Store accumulator to memory (debug only).
 
         Stores all 512 bytes of R_ACC (128 elements x 32-bit accumulator
         width) unconditionally in both modes -- R_ACC's width does not scale
@@ -1043,7 +990,7 @@ class Ipu:
         since this is a debug-only instruction by nature (see warning above).
         """
         warnings.warn(
-            "[DEBUG ONLY] STR_ACC_REG is not a hardware instruction and is available "
+            "[DEBUG ONLY] ST.ACC is not a hardware instruction and is available "
             "for emulator debugging purposes only",
             DebugOnlyInstructionWarning,
             stacklevel=2,
@@ -1052,10 +999,10 @@ class Ipu:
         acc_data = self.state.regfile.get_r_acc_bytes()
         self.state.xmem.write_address(addr, acc_data)
 
-    def execute_ldr_mult_reg(self, *, dest: int, offset: int, base: int) -> None:
-        """Execute LDR_MULT_REG: Load data from memory into a mult stage register."""
+    def execute_ld_mult(self, *, dest: int, offset: int, base: int) -> None:
+        """Execute LD.MULT: Load data from memory into a mult stage register."""
         if dest not in (0, 1):
-            raise EmulatorError(f"LDR_MULT_REG: dest must be 0 (r0) or 1 (r1); got {dest}")
+            raise EmulatorError(f"LD.MULT: dest must be 0 (r0) or 1 (r1); got {dest}")
         addr = self._xmem_row_addr(offset + base)
         if self._wide_vector_active():
             data = self.state.xmem.read_address(addr, self._row_size_bytes())
@@ -1070,8 +1017,8 @@ class Ipu:
         if self.state.xmem.is_constant_ones(addr, data):
             self.state.regfile.mark_constant_ones(reg_name, elem_idx * len(data), len(data))
 
-    def execute_ldr_cyclic_mult_reg(self, *, offset: int, base: int, index: int) -> None:
-        """Execute LDR_CYCLIC_MULT_REG: Load with cyclic addressing into r_cyclic.
+    def execute_ld_mult_cyclic(self, *, offset: int, base: int, index: int) -> None:
+        """Execute LD.MULT.CYCLIC: Load with cyclic addressing into r_cyclic.
 
         ``index`` is an ELEMENT index into r_cyclic's 512-element ring and must
         land on one of the four slot boundaries (0/128/256/384) in both modes
@@ -1082,7 +1029,7 @@ class Ipu:
         addr = self._xmem_row_addr(offset + base)
         if index not in R_CYCLIC_VALID_INDICES:
             raise EmulatorError(
-                f"LDR_CYCLIC_MULT_REG: index must be one of {R_CYCLIC_VALID_INDICES} "
+                f"LD.MULT.CYCLIC: index must be one of {R_CYCLIC_VALID_INDICES} "
                 f"(R_CYCLIC slot boundaries); got {index}"
             )
         byte_idx = index * self._element_width_bytes()
@@ -1095,8 +1042,8 @@ class Ipu:
             name = "r_cyclic_wide_debug" if self._wide_vector_active() else "r_cyclic"
             self.state.regfile.mark_constant_ones(name, byte_idx, len(data))
 
-    def execute_ldr_mult_mask_reg(self, *, offset: int, base: int) -> None:
-        """Execute LDR_MULT_MASK_REG: Load mask data from memory.
+    def execute_ld_mask(self, *, offset: int, base: int) -> None:
+        """Execute LD.MASK: Load mask data from memory.
 
         Reads only the START of the row -- 128 bytes (8 x 128-bit slots) in
         both modes. The mask is 1 bit per element and does not scale with
@@ -1152,8 +1099,8 @@ class Ipu:
         """Execute ADDBI: broadcast-add an immediate byte (signed) to LRDn's 8 byte elements."""
         self._addb_broadcast(dest, imm)
 
-    def execute_lr_incr_mod_pow2(self, *, dest: int, step: int, k: int) -> None:
-        """INCR_MOD_POW2: dest <- (dest + step) mod 2^k.
+    def execute_lr_inc_modp2(self, *, dest: int, step: int, k: int) -> None:
+        """INC.MODP2: dest <- (dest + step) mod 2^k.
 
         Old dest is taken from the cycle-start snapshot (read-before-write). Step is
         resolved from LcrIdx (snapshot), interpreted as uint32 like ``add``/``sub``.
@@ -1162,7 +1109,7 @@ class Ipu:
         self._require_snapshot()
         if k > LR_MOD_POW2_K_ENCODED_MAX:
             raise EmulatorError(
-                f"INCR_MOD_POW2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
+                f"INC.MODP2: invalid k encoding {k} (max {LR_MOD_POW2_K_ENCODED_MAX})"
             )
         k_exp = k + LR_MOD_POW2_K_MIN
         cur = self._snapshot_buffer.get_lr(dest)
@@ -1192,7 +1139,7 @@ class Ipu:
         if src < LR_REG_COUNT:
             # The LR holds an INDEX into Ra -> read it LIVE (same-cycle LR writes
             # are visible, like other mult index operands).  Only the Ra DATA is
-            # snapshot (issue #157): a same-cycle LDR_MULT_REG is not yet visible.
+            # snapshot (issue #157): a same-cycle LD.MULT is not yet visible.
             idx = self.state.regfile.get_lr(src) % (2 * R_REG_SIZE)
             r_buf = self._snapshot_buffer.raw_readonly(
                 "r"
@@ -1205,7 +1152,7 @@ class Ipu:
         """Wide-vector counterpart of ``_mult_resolve_lcr_scalar``."""
         if src < LR_REG_COUNT:
             # Ra/Rc are read from the START-OF-CYCLE SNAPSHOT like every other
-            # register, so a same-cycle LDR_MULT_REG is not visible to the
+            # register, so a same-cycle LD.MULT is not visible to the
             # consuming mult (issue #157: the load lands a cycle later).
             return self._wide_ra_lane(self.state.regfile.get_lr(src) % (2 * LANES))
         cr_idx = src - LR_REG_COUNT
@@ -1806,7 +1753,7 @@ class Ipu:
             result[i] = max(-128, min(127, int(round(y)))) & 0xFF
         self.state.regfile.set_post_aaq_reg(result + bytearray(384))
 
-    def execute_str_post_aaq_reg(self, *, offset: int, base: int) -> None:
+    def execute_st_aaq(self, *, offset: int, base: int) -> None:
         """Store **POST_AAQ_REG** (512 bytes) to XMEM.
 
         POST_AAQ_REG's width does not scale with the active element width
@@ -1837,14 +1784,14 @@ class Ipu:
             return value - (1 << LR_CR_SCALAR_BITS)
         return value
 
-    def execute_blt(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute BLT: Branch if less than (signed comparison)."""
+    def execute_blt_s(self, *, reg1: int, reg2: int, label: int) -> None:
+        """Execute BLT.S: Branch if less than (signed comparison)."""
         s1 = self._to_signed_reg(reg1)
         s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 < s2 else self.state.program_counter + 1
 
-    def execute_bge(self, *, reg1: int, reg2: int, label: int) -> None:
-        """Execute BGE: Branch if greater or equal (signed comparison)."""
+    def execute_bge_s(self, *, reg1: int, reg2: int, label: int) -> None:
+        """Execute BGE.S: Branch if greater or equal (signed comparison)."""
         s1 = self._to_signed_reg(reg1)
         s2 = self._to_signed_reg(reg2)
         self.state.program_counter = label if s1 >= s2 else self.state.program_counter + 1
@@ -1853,8 +1800,8 @@ class Ipu:
         """Execute BR: Branch to register value."""
         self.state.program_counter = reg
 
-    def execute_bkpt(self) -> None:
-        """Execute BKPT: Breakpoint (halt execution)."""
+    def execute_halt(self) -> None:
+        """Execute HALT: end the kernel once this word has retired."""
         self.state.program_counter = INST_MEM_SIZE  # halt
 
     def execute_cond_nop(self) -> None:
@@ -2000,76 +1947,6 @@ class Ipu:
             self.state.stats.alias_hits[check.alias_id] += 1
             return check.alias_id
 
-    def _resolve_reads(self, plan: SlotPlan, kwargs: dict[str, Any]) -> None:
-        """Replace each ``read`` operand's raw index with its register value.
-
-        The three scalar index types are inlined because they cover almost every
-        read operand in the ISA; anything else goes through
-        :meth:`_resolve_operand`.
-        """
-        for read in plan.reads:
-            source = self._snapshot_buffer if read.from_snapshot else self.state.regfile
-            raw = kwargs[read.name]
-            code = read.code
-            if code == _READ_LR:
-                kwargs[read.name] = source.get_lr(raw)
-            elif code == _READ_CR:
-                kwargs[read.name] = source.get_cr(raw)
-            elif code == _READ_LCR:
-                kwargs[read.name] = (
-                    source.get_lr(raw) if raw < LR_REG_COUNT else source.get_cr(raw - LR_REG_COUNT)
-                )
-            else:
-                kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
-
-    def _resolve_reads_prototype(self, plan: SlotPlan, kwargs: dict[str, Any]) -> None:
-        """Resolve cached-plan reads without generic RegFile lookup overhead.
-
-        LR and CR storage is always a packed array of little-endian uint32
-        values. Cached instructions also make their encoded indices stable, so
-        prototype mode can read the bytearrays directly. Invalid debugger edits
-        deliberately fall back to the public accessor to retain its assertion
-        type and message.
-        """
-        for read in plan.reads:
-            source = self._snapshot_buffer if read.from_snapshot else self.state.regfile
-            raw = kwargs[read.name]
-            code = read.code
-            if code == _READ_LR:
-                buf = source._storage["lr"]
-                if 0 <= raw < len(buf) // 4:
-                    kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
-                else:
-                    kwargs[read.name] = source.get_lr(raw)
-            elif code == _READ_CR:
-                buf = source._storage["cr"]
-                if 0 <= raw < len(buf) // 4:
-                    kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
-                else:
-                    kwargs[read.name] = source.get_cr(raw)
-            elif code == _READ_LCR:
-                if raw < LR_REG_COUNT:
-                    buf = source._storage["lr"]
-                    if 0 <= raw < len(buf) // 4:
-                        kwargs[read.name] = struct.unpack_from("<I", buf, raw * 4)[0]
-                    else:
-                        kwargs[read.name] = source.get_lr(raw)
-                else:
-                    cr_idx = raw - LR_REG_COUNT
-                    buf = source._storage["cr"]
-                    if 0 <= cr_idx < len(buf) // 4:
-                        kwargs[read.name] = struct.unpack_from("<I", buf, cr_idx * 4)[0]
-                    else:
-                        kwargs[read.name] = source.get_cr(cr_idx)
-            elif code == _READ_MULT_STAGE and self._wide_vector_active():
-                if raw > 1:
-                    raise EmulatorError(
-                        f"Mult-stage operand must encode r0 (0) or r1 (1); got {raw}"
-                    )
-                # Wide handlers consume the encoded R0/R1 index directly.
-            else:
-                kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
-
     # -----------------------------------------------------------------------
     # VLIW Execution
     # -----------------------------------------------------------------------
@@ -2129,7 +2006,7 @@ _check_execution_order_covers_plans()
 # ``Ipu`` builds its ``Cycle``, and the cycle module reads this module's decode
 # tables (``plans_for``). Each module imports the other last, so either can be
 # imported first (see the end of ``ipu_emu.cycle``).
-from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp  # noqa: E402
+from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp, resolver_for  # noqa: E402
 
 #: The old name of :class:`CycleOutcome`, kept until E08 migrates the debuggers.
 BreakResult = CycleOutcome

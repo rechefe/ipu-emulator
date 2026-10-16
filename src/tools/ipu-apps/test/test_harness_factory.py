@@ -341,7 +341,7 @@ for name in ('identity', 'softmax_rows', 'fully_connected'):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always', DebugOnlyInstructionWarning)
             run_case(name, case, workspace=Path(tmp))
-        # Only fully_connected uses the emulator-only STR_ACC_REG.
+        # Only fully_connected uses the emulator-only ST.ACC.
         debug_only = any(issubclass(w.category, DebugOnlyInstructionWarning) for w in caught)
         if debug_only != (name == 'fully_connected'):
             raise SystemExit(name + ': unexpected DebugOnlyInstructionWarning state')

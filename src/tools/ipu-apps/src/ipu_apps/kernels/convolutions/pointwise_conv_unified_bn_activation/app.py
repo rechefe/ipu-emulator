@@ -57,11 +57,11 @@ if TYPE_CHECKING:
 
 # -- Memory layout -----------------------------------------------------------
 #
-# Row-addressed ISA: XMEM offset/base operands on LDR_MULT_REG /
-# LDR_CYCLIC_MULT_REG's offset+base / LDR_MULT_MASK_REG / STR_POST_AAQ_REG are
+# Row-addressed ISA: XMEM offset/base operands on LD.MULT /
+# LD.MULT.CYCLIC's offset+base / LD.MASK / ST.AAQ are
 # ROW numbers, not byte addresses. A "row" is CHUNK_ELEMENTS (128) elements --
 # 512 bytes at FP32's 4 B/element -- including BIAS_BASE_ROW, which feeds CR10
-# exactly like KERNEL_BASE_ROW feeds CR14 (same LDR_MULT_REG pattern, same
+# exactly like KERNEL_BASE_ROW feeds CR14 (same LD.MULT pattern, same
 # row-number treatment). R_CYCLIC ELEMENT addressing is untouched -- see the
 # .asm header for the full recipe note.
 

@@ -142,7 +142,7 @@ source delivered by [Issue 1](#9-implementation-plan).
 |---------|---------------|--------|-------------|
 | `0x000` | `ID`          | RO     | Magic + version of the control block (sanity check for firmware). |
 | `0x004` | `CTRL`        | RW/W1S | Command bits: `START`, `HALT`, `STEP`, `RESET` (soft, excludes IMEM), `IMEM_SWAP` (bank swap), `CONTINUE`. Self-clearing pulse semantics. |
-| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BKPT`/`BREAK`), `ERROR`, plus an `ERR_CODE` field. |
+| `0x008` | `STATUS`      | RO     | `RUNNING`, `HALTED`, `BREAK` (hit a `BREAK`; `HALT` ends the kernel, see E03-20), `ERROR`, plus an `ERR_CODE` field. |
 | `0x00C` | `PC`          | RW     | Program counter. Read returns the current PC; write sets the next PC (only valid while halted). |
 | `0x010` | `CYCLES`      | RO     | Cycles executed since the last start/reset. |
 | `0x014` | `MAX_CYCLES`  | RW     | Watchdog limit; `0` = use engine default. Guards against runaway programs. |

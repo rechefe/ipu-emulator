@@ -31,6 +31,10 @@ Disassembly (word to text) is derived from the codec and the derived syntax, so 
 - [ ] E02-02 disassembly snapshots unchanged, now produced by `ipu_isa.disassemble`.
 - [ ] `test_debug_cli.py`, `test_debug_tui.py` and the pipeline-view tests pass unchanged.
 
+## Outcome
+
+Valid words disassemble byte-identically (corpus snapshots unchanged; a fuzz of decodable random words matched the old `CompoundInst.decode`, `stage_operations` and `lark_tree.disassemble`). Illegal field values, which only hand-made words hold, now print `<illegal_<OperandType>_<value>>` for every register and enum type: `<illegal_mult_stage_N>` became `<illegal_MultStageReg_N>`, and the other types, which raised `IndexError`, now print instead.
+
 ## Acceptance Criteria
 
 - [ ] `grep -rn "ipu_as" src/tools/ipu-emu-py/src` finds nothing.

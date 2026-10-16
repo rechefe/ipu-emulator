@@ -48,7 +48,7 @@ from ipu_emu.emulator import DebugAction, run_with_debug
 _PACKAGE = Path(__file__).parent.parent
 GOLDEN = Path(__file__).parent / "golden" / "tui"
 
-PROGRAM = "SET lr2 cr1;; SET lr3 cr1;; NOP;; SET lr4 cr1;; NOP;; NOP;; BKPT;;"
+PROGRAM = "SET lr2 cr1;; SET lr3 cr1;; NOP;; SET lr4 cr1;; NOP;; NOP;; HALT;;"
 # Enough Backspaces to empty any editor's default text.
 CLEAR = [Key.BACKSPACE] * 40
 

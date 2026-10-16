@@ -12,7 +12,7 @@ contraction bound), not a lane count.
 
 This is the L4 variant of ``qk_scores_256x36``.  The mapping is carried over
 unchanged: K is loaded channel-major (one channel column into R_CYCLIC), Q is
-staged query-major so that one ``LDR_MULT_REG`` puts a query's 48 head-channels
+staged query-major so that one ``LD.MULT`` puts a query's 48 head-channels
 into R0, and ``MULT.RC.VE`` broadcasts the scalar Q[i,c] over the key column.
 No AGG.
 
@@ -159,7 +159,7 @@ class QkScores64x48App(IpuApp):
         state.regfile.set_lr(0, 0)  # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)  # K stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
-        state.regfile.set_lr(6, D - 2)  # contraction BLT bound
+        state.regfile.set_lr(6, D - 2)  # contraction BLT.S bound
         state.regfile.set_lr(7, 0)  # output row offset
         state.regfile.set_lr(8, 0)  # Q-row row offset
         state.regfile.set_lr(9, 0)  # query counter

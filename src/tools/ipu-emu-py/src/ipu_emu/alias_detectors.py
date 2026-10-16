@@ -8,7 +8,7 @@ from ipu_isa.activations import ACTIVATION_EXP2, ACTIVATION_IDENTITY
 
 
 def transfer(load):
-    if load.instruction not in ("LDR_MULT_REG", "LDR_CYCLIC_MULT_REG"):
+    if load.instruction not in ("LD.MULT", "LD.MULT.CYCLIC"):
         return ()
     store = load.facts.get("origin")
     post = store.facts.get("post") if store else None

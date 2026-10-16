@@ -90,7 +90,7 @@ class ExecutionObserver:
 
     def diamond(self, ipu, plan, kwargs):
         """Prove the canonical two-arm SET diamond from decoded ISA plans."""
-        if plan.inst_name not in ("BEQ", "BNE", "BLT", "BGE"):
+        if plan.inst_name not in ("BEQ", "BNE", "BLT.S", "BGE.S"):
             return None
         if kwargs.get("label") != self.pc + 3:
             return None
@@ -443,15 +443,15 @@ class ExecutionObserver:
                 previous_read=previous,
                 declared=not any(versions),
             )
-            if origin and origin.instruction == "STR_POST_AAQ_REG":
+            if origin and origin.instruction == "ST.AAQ":
                 store_address = origin.facts["accesses"][0][1]
                 if (address - store_address) % 4 == 0:
                     facts["scale_lanes"] = (
                         origin.facts.get("scale_lanes", 0) >> ((address - store_address) // 4)
                     ) & ((1 << (len(data) // 4)) - 1)
-            if name == "LDR_MULT_REG":
+            if name == "LD.MULT":
                 facts.update(bank="ra", bank_index=facts["operands"]["dest"])
-            elif name == "LDR_CYCLIC_MULT_REG":
+            elif name == "LD.MULT.CYCLIC":
                 facts.update(bank="ring", bank_index=facts["operands"]["index"] // LANES)
         self.next_id += 1
         event = Event(self.next_id, self.cycle, self.pc, slot, name, facts)
@@ -463,9 +463,9 @@ class ExecutionObserver:
                 versions,
             )
             kw = facts["operands"]
-            if name == "LDR_MULT_REG":
+            if name == "LD.MULT":
                 self.rows[("ra", kw["dest"])] = (event, facts["data"])
-            elif name == "LDR_CYCLIC_MULT_REG":
+            elif name == "LD.MULT.CYCLIC":
                 self.rows[("ring", kw["index"] // LANES)] = (event, facts["data"])
         elif slot == "mult":
             self.mult = event

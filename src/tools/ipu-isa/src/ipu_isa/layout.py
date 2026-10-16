@@ -21,11 +21,11 @@ def isa_layout() -> IsaLayout:
     return isa().layout
 
 
-def slots_with_tag(tag: Tag) -> tuple[Slot, ...]:
+def slots_with_tag(tag: Tag | str) -> tuple[Slot, ...]:
     """The repository's slots tagged ``tag``, in layout order."""
     return isa_layout().slots_with_tag(tag)
 
 
-def word_bits(tag: Tag | None = None) -> int:
+def word_bits(tag: Tag | str | None = None) -> int:
     """Width of the emulator word (``None``) or of its ``tag`` slots."""
     return isa_layout().word_bits(tag)

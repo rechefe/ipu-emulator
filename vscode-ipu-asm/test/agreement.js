@@ -4,7 +4,7 @@
 //
 // The previous grammar was hand-written from reading asm_grammar.lark, and it
 // drifted: it coloured `BEQ lr0, cr0, +1;;` as valid (it is a lex error) and
-// failed to see `end:` in `BKPT;; end: BKPT;;` as a label. Nothing detected
+// failed to see `end:` in `HALT;; end: HALT;;` as a label. Nothing detected
 // either, because nothing compared the two.
 //
 // This tokenizes the same text twice — once with the parser (via

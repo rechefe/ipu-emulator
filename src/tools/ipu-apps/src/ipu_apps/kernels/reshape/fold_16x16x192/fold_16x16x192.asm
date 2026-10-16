@@ -119,13 +119,13 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157, inherited from unfold_16x16x192): a
 # MULT.RC.VV instruction reads its Ra DATA (r0) from the start-of-cycle
-# snapshot, so it cannot consume a chunk loaded by an LDR_MULT_REG issued in
+# snapshot, so it cannot consume a chunk loaded by an LD.MULT issued in
 # the very same bundle -- co-issuing a load and a MULT in one bundle is fine
 # only when the MULT consumes a PREVIOUSLY loaded chunk. This kernel primes
 # the first load before ch_loop and keeps every subsequent LDR one bundle
 # ahead of the MULT that consumes it, exactly like unfold_16x16x192.
 #
-# STR_POST_AAQ_REG reads its offset operand LIVE -- never co-issue an ADD on
+# ST.AAQ reads its offset operand LIVE -- never co-issue an ADD on
 # the offset LR (lr8) in the same bundle as the store, or the row lands one
 # slot late. Here lr8 only advances in its own bundle at the very end of the
 # channel loop, well clear of both stripe stores.
@@ -167,13 +167,13 @@
 #   ONES: 1 row
 #   DST:  2 stripes x 192 rows
 
-    LDR_CYCLIC_MULT_REG lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
+    LD.MULT.CYCLIC lr0 cr8 lr0;;       # r_cyclic[0..127] = 1.0 (dtype-specific)
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..191)
 # ---------------------------------------------------------------------------
 
-    LDR_MULT_REG        r0 lr6 cr9;;        # prime: stream TL row of ch 0
+    LD.MULT        r0 lr6 cr9;;        # prime: stream TL row of ch 0
 
 ch_loop:
 
@@ -184,7 +184,7 @@ ch_loop:
     SET                 lr3 cr3;;           # source table <- [0,1,2,3,4,5,6,7]
     SET                 lr4 cr4;
     SET                 lr5 cr5;;           # dest table   <- TL base
-    LDR_MULT_REG r0 lr6 cr10;
+    LD.MULT r0 lr6 cr10;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE lrd2 lrd4 0;;               # call0: src[0..7]   -> dest[0,2,..,14]
     ADDBI               lrd2 8;
@@ -207,7 +207,7 @@ ch_loop:
     SET                 lr4 cr4;
     SET                 lr5 cr5;;           # dest table <- TL base
     ADDBI               lrd4 1;;            # dest table <- TR base
-    LDR_MULT_REG r0 lr6 cr11;
+    LD.MULT r0 lr6 cr11;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -226,7 +226,7 @@ ch_loop:
     SET                 lr4 cr4;
     SET                 lr5 cr5;;           # dest table <- TL base
     ADDBI               lrd4 16;;           # dest table <- BL base
-    LDR_MULT_REG r0 lr6 cr12;
+    LD.MULT r0 lr6 cr12;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -249,7 +249,7 @@ ch_loop:
     # NOT advance here -- both stripe passes read the SAME 4 stream rows for
     # this channel; only the source-table window (rebuilt explicitly per
     # stream below) differs between the two passes.
-    LDR_MULT_REG r0 lr6 cr9;
+    LD.MULT r0 lr6 cr9;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply BR row (prefetch TL next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -263,7 +263,7 @@ ch_loop:
     ACC.RESHAPE lrd2 lrd4 0;;
 
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr14;;     # stripe 0 <- DST_BASE + ch (current channel)
+    ST.AAQ         lr8 cr14;;     # stripe 0 <- DST_BASE + ch (current channel)
 
     # ===== Destination STRIPE 1 pass (source window = lanes [32..63]) ======
 
@@ -273,7 +273,7 @@ ch_loop:
     SET                 lr4 cr4;
     SET                 lr5 cr5;;           # dest table <- TL base
     ADDBI               lrd2 32;;           # source table <- [32..39] (stripe-1 window)
-    LDR_MULT_REG r0 lr6 cr10;
+    LD.MULT r0 lr6 cr10;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply TL row (prefetch TR next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -293,7 +293,7 @@ ch_loop:
     SET                 lr5 cr5;
     ADDBI               lrd2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               lrd4 1;;            # dest table <- TR base
-    LDR_MULT_REG r0 lr6 cr11;
+    LD.MULT r0 lr6 cr11;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply TR row (prefetch BL next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -313,7 +313,7 @@ ch_loop:
     SET                 lr5 cr5;
     ADDBI               lrd2 32;;           # source table <- [32..39]; dest table <- TL base
     ADDBI               lrd4 16;;           # dest table <- BL base
-    LDR_MULT_REG r0 lr6 cr12;
+    LD.MULT r0 lr6 cr12;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply BL row (prefetch BR next)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -340,7 +340,7 @@ ch_loop:
     # store below still targets the CURRENT channel's row; it advances only
     # once, in the loop tail after both stripe stores (mirrors unfold's lr8).
     ADD                 lr6 lr6 lr7;;       # src offset: next channel
-    LDR_MULT_REG r0 lr6 cr9;
+    LD.MULT r0 lr6 cr9;
     MULT.RC.VV lr0 r0 0 lr0 cr15;;          # multiply BR row (prefetch ch+1's TL)
     ACC.RESHAPE lrd2 lrd4 0;;
     ADDBI               lrd2 8;
@@ -354,12 +354,12 @@ ch_loop:
     ACC.RESHAPE lrd2 lrd4 0;;
 
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr8 cr13;;     # stripe 1 <- DST_BASE + 192 + ch
+    ST.AAQ         lr8 cr13;;     # stripe 1 <- DST_BASE + 192 + ch
 
     # -- Advance pointers; loop -------------------------------------------------
     ADD                 lr8 lr8 lr9;;       # dst offset: next channel (+1 row)
     ADD                 lr10 lr10 cr1;;
-    BLT                 lr10 lr11 ch_loop;; # loop while ch < 192
+    BLT.S                 lr10 lr11 ch_loop;; # loop while ch < 192
 
 end:
-    BKPT;;
+    HALT;;

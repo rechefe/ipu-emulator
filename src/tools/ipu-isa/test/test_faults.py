@@ -81,7 +81,7 @@ def test_reserved_operand_codes_of_todays_isa():
         "VerticalStride": (3,),
     }
     assert _operand_codes(Slot.AAQ) == {"ActivationFn": (13, 14, 15)}
-    # INCR_MOD_POW2 stores k - 1: k in 1..9 uses codes 0..8.
+    # INC.MODP2 stores k - 1: k in 1..9 uses codes 0..8.
     assert _operand_codes(Slot.LR) == {"LrModPow2KImmediate": tuple(range(9, 16))}
     assert _operand_codes(Slot.COND) == {}
 
@@ -100,6 +100,6 @@ def test_emulator_slots_have_no_entry():
 
 def test_a_new_instruction_takes_a_reserved_opcode():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
-    spec["cond"]["NEW_OP"] = copy.deepcopy(spec["cond"]["NOP"])
+    spec["cond"]["NEWOP"] = copy.deepcopy(spec["cond"]["NOP"])
     changed = load_isa(spec, PSEUDO_INSTRUCTION_SPEC, SLOTS, OPERAND_TYPES)
     assert reserved_encodings(changed)[Slot.COND].opcodes == ()

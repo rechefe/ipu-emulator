@@ -30,7 +30,7 @@
 
     WHAT THE UNROLL REMOVES:
       * the channel loop, and with it the exact-group-size computation
-        (ADD gend / BLT / SET / DEC) that a partial final group forces;
+        (ADD gend / BLT.S / SET / DEC) that a partial final group forces;
       * the guard input plane -- the general kernel's pipelined loop prefetches
         one channel past the end, this one has no next channel to prefetch;
       * the separate drain word -- tap 9 co-issues ACTIVATE.QUANTIZE and the
@@ -49,7 +49,7 @@
         step  -  +1 +1 +126  +1   +1  +126  +1   +1
 
     lr_widx walks +1 in lockstep, so the weights are W[o, 0].ravel() -- nine
-    consecutive elements of one LDR_MULT_REG row.
+    consecutive elements of one LD.MULT row.
 
     CR map (set by the harness; CR0/CR1 are READ-ONLY hardware constants):
       CR0  = 0                        CR1  = 1  (-> 1.0 scalar; every +1)
@@ -86,8 +86,8 @@
     ADD {{lr_s2}} {{lr_s1}} {{lr_s1}} ;;                 {#- 256 -#}
 
 ochan_loop:
-    LDR_MULT_REG r0 {{lr_o}} cr4 ;;                      {#- R0 = W[o, 0] (nine weights) -#}
-    LDR_MULT_REG r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o -#}
+    LD.MULT r0 {{lr_o}} cr4 ;;                      {#- R0 = W[o, 0] (nine weights) -#}
+    LD.MULT r1 {{lr_o}} cr5 ;;                      {#- R1 = bias row o -#}
     SET {{lr_y}}    cr0 ;
     SET {{lr_rowb}} cr0 ;;
 
@@ -97,12 +97,12 @@ row_loop:
 tile_loop:
 {#- ---- three row loads; the bias reset rides in the third ---------------- -#}
     ADD {{lr_addr}} {{lr_rowb}} {{lr_t}} ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- padded row y -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- padded row y -#}
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_s1}} ;;     {#- slot1 <- padded row y+1 -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_s1}} ;;     {#- slot1 <- padded row y+1 -#}
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
     SUB {{lr_widx}} {{lr_zero}} cr1 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_s2}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_s2}} ;
     MULT.EE {{lr_s1}} cr1 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;;
                                         {#- slot2 <- y+2 | R_ACC = bias[o] | widx = -1 -#}
 
@@ -126,18 +126,18 @@ tile_loop:
     ADD {{lr_rc}} {{lr_rc}} cr1 ; ADD {{lr_widx}} {{lr_widx}} cr1 ;
     MULT.RC.VE {{lr_rc}} {{lr_widx}} 0 {{lr_zero}} cr15 ; ACC.ADD ;
     ACTIVATE.QUANTIZE relu cr15 ;
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- kr+1 kc+1 | OUT[o, y, t] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- kr+1 kc+1 | OUT[o, y, t] -#}
 
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_t}} {{lr_t}} cr1 ;
-    BLT {{lr_t}} cr11 tile_loop ;;                       {#- pre-increment: bound TPR-1 -#}
+    BLT.S {{lr_t}} cr11 tile_loop ;;                       {#- pre-increment: bound TPR-1 -#}
 
     ADD {{lr_rowb}} {{lr_rowb}} cr6 ;
     ADD {{lr_y}} {{lr_y}} cr1 ;;
-    BLT {{lr_y}} cr7 row_loop ;;
+    BLT.S {{lr_y}} cr7 row_loop ;;
 
     ADD {{lr_o}} {{lr_o}} cr1 ;;
-    BLT {{lr_o}} cr8 ochan_loop ;;
+    BLT.S {{lr_o}} cr8 ochan_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

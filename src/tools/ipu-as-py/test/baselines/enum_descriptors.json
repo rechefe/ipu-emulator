@@ -19,7 +19,7 @@
     [12, "ACC_RESHAPE"]
   ],
   "acc_store_inst_opcode": [
-    [0, "STR_ACC_REG"],
+    [0, "ST_ACC"],
     [1, "NOP"]
   ],
   "activation_fn_field": [
@@ -45,10 +45,10 @@
   "cond_inst_opcode": [
     [0, "BEQ"],
     [1, "BNE"],
-    [2, "BLT"],
-    [3, "BGE"],
+    [2, "BLT_S"],
+    [3, "BGE_S"],
     [4, "BR"],
-    [5, "BKPT"],
+    [5, "HALT"],
     [6, "NOP"]
   ],
   "cr_reg_field": [
@@ -133,16 +133,16 @@
     [31, "CR15"]
   ],
   "load_inst_opcode": [
-    [0, "LDR_MULT_REG"],
-    [1, "LDR_CYCLIC_MULT_REG"],
-    [2, "LDR_MULT_MASK_REG"],
+    [0, "LD_MULT"],
+    [1, "LD_MULT_CYCLIC"],
+    [2, "LD_MASK"],
     [3, "NOP"]
   ],
   "lr_inst_opcode": [
     [0, "SET"],
     [1, "ADD"],
     [2, "SUB"],
-    [3, "INCR_MOD_POW2"],
+    [3, "INC_MODP2"],
     [4, "INC"],
     [5, "DEC"],
     [6, "ADDB"],
@@ -190,7 +190,7 @@
     [1, "R1"]
   ],
   "store_inst_opcode": [
-    [0, "STR_POST_AAQ_REG"],
+    [0, "ST_AAQ"],
     [1, "NOP"]
   ],
   "vertical_stride_field": [

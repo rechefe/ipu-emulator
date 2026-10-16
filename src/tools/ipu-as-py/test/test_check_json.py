@@ -74,7 +74,7 @@ def test_the_schemas_are_valid_json_schemas():
 
 def test_the_snapshot_covers_every_parametrized_source():
     # Including those listed with other parameters ("source,expected_line").
-    assert 'BKPT;;\nBKPT;;\n{{ 1 + "a" }}\nBKPT;;\n' in diagnostics_test_sources()
+    assert 'HALT;;\nHALT;;\n{{ 1 + "a" }}\nHALT;;\n' in diagnostics_test_sources()
 
 
 def test_v1_output_matches_its_schema():
@@ -104,7 +104,7 @@ def test_explicit_version_1_is_the_default():
 
 def test_a_json_version_without_json_is_a_usage_error():
     result = CliRunner().invoke(
-        cli, ["check", "--json-version", "2", "--input", "-"], input="BKPT;;\n"
+        cli, ["check", "--json-version", "2", "--input", "-"], input="HALT;;\n"
     )
     assert result.exit_code == 2
     assert "--json-version" in result.output
@@ -112,7 +112,7 @@ def test_a_json_version_without_json_is_a_usage_error():
 
 def test_an_unknown_version_is_a_usage_error():
     result = CliRunner().invoke(
-        cli, ["check", "--json", "--json-version", "3", "--input", "-"], input="BKPT;;\n"
+        cli, ["check", "--json", "--json-version", "3", "--input", "-"], input="HALT;;\n"
     )
     assert result.exit_code == 2
     assert "Usage:" in result.output and "--json-version" in result.output

@@ -2298,7 +2298,7 @@ class TestPipelineStageView:
     def test_trace_tracks_actual_branch_pc_and_does_not_record_stops(self):
         from ipu_emu.emulator import run_with_debug
 
-        state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        state = self.program("B +3;; NOP;; NOP;; SET lr2 cr1;; HALT;;")
         control = DebugControl()
         stops = []
 
@@ -2314,7 +2314,7 @@ class TestPipelineStageView:
     def test_trace_follows_pc_edits_and_resets_for_a_new_run(self):
         from ipu_emu.emulator import run_with_debug
 
-        state = self.program("NOP;; NOP;; SET lr2 cr1;; BKPT;;")
+        state = self.program("NOP;; NOP;; SET lr2 cr1;; HALT;;")
         control = DebugControl()
 
         def paused(state, cycle):

@@ -26,7 +26,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot, so it cannot consume a row loaded by
-# LDR_CYCLIC_MULT_REG in its own bundle -- it would see the previous r_cyclic.
+# LD.MULT.CYCLIC in its own bundle -- it would see the previous r_cyclic.
 # `;;` ends one VLIW word = one cycle = one snapshot, so a load and a MULT in
 # the same bundle always execute in the same cycle regardless of textual order;
 # co-issuing them is fine, consuming the same-cycle load is not.
@@ -35,12 +35,12 @@
 # the steady state stays 4 cycles per row:
 #   Per row:
 #     Cycle 1: MULT.RC.VE x 1.0 on A[ch] (loaded last row's cycle 3); ACC.ADD.FIRST;
-#              LDR_CYCLIC_MULT_REG -> r_cyclic = B[ch]
+#              LD.MULT.CYCLIC -> r_cyclic = B[ch]
 #     Cycle 2: MULT.RC.VE x 1.0 on B[ch]; ACC.ADD
-#     Cycle 3: ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG -> stage and store
+#     Cycle 3: ACTIVATE.QUANTIZE identity + ST.AAQ -> stage and store
 #              A[ch]+B[ch] in ONE word; advance row counter;
-#              LDR_CYCLIC_MULT_REG -> r_cyclic = A[ch+1]  (prefetch for next row)
-#     Cycle 4: advance output ptr; BLT -> loop
+#              LD.MULT.CYCLIC -> r_cyclic = A[ch+1]  (prefetch for next row)
+#     Cycle 4: advance output ptr; BLT.S -> loop
 #   Total: 4 cycles x 240 rows = 960 cycles, plus one priming load at startup.
 #
 # IMPORTANT -- live-LR semantics:
@@ -48,8 +48,8 @@
 #   Each a_ptr/b_ptr ADD stays co-issued with the load it feeds, so the load
 #   sees the already-advanced pointer -- that is what makes the prefetch in
 #   cycle 3 address row ch+1 rather than row ch.
-#   STR_POST_AAQ_REG reads out_ptr live; do NOT ADD out_ptr in the same cycle as it.
-#   BLT reads snapshot; ADD row_index must happen the cycle before BLT.
+#   ST.AAQ reads out_ptr live; do NOT ADD out_ptr in the same cycle as it.
+#   BLT.S reads snapshot; ADD row_index must happen the cycle before BLT.S.
 #
 # Registers are referred to below by the symbolic names defined in the
 # register-name block. The assembler's Jinja2 preprocessor substitutes them
@@ -92,13 +92,13 @@
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
     # Prime the pipeline: load A[0] so row 0's cycle 1 has it in the snapshot.
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 
 row_loop:
     # Cycle 1: r_acc = A[ch] x 1.0  (A[ch] was loaded a cycle earlier)
     #   Co-issued load fetches B[ch] for cycle 2.
-    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
     MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;;
@@ -106,20 +106,20 @@ row_loop:
     MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;;
     # Cycle 3: stage r_acc into post_aaq_reg for the hardware store path.
-    #   ACTIVATE.QUANTIZE and STR_POST_AAQ_REG co-issue in ONE VLIW word: AaQ
+    #   ACTIVATE.QUANTIZE and ST.AAQ co-issue in ONE VLIW word: AaQ
     #   and STR are consecutive pipeline stages within a word, and the in-word
     #   slot order is CTRL -> MULT -> ACC -> AaQ -> STR, so STR consumes this
     #   cycle's AaQ result. This is why the store is free and the loop stays
     #   4 cycles per row.
     #   Co-issued load prefetches A[ch+1] for the next row's cycle 1.
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
-    # Cycle 4: advance output ptr; BLT reads snap row_index = already-incremented
+    # Cycle 4: advance output ptr; BLT.S reads snap row_index = already-incremented
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }};
-    BLT {{ row_index }} {{ row_limit }} row_loop;;
+    BLT.S {{ row_index }} {{ row_limit }} row_loop;;
 
 end:
-    BKPT;;
+    HALT;;

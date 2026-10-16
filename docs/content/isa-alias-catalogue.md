@@ -54,12 +54,12 @@ Every other identity-multiply entry below is a special case of this one.
 
 ```asm
 # Form 1 - ring vector x CR one
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # ring <- src, one bundle ahead
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # ring <- src, one bundle ahead
     MULT.RC.VE LR0 CR1 0 LR0 CR15 ;     # x 1.0, pure routing
     ACC.ADD.FIRST ;;                    # ACC.ADD to accumulate instead
 
 # Form 2 - ring x a resident all-ones row in R0
-    LDR_MULT_REG R0 LR2 CR2 ;;          # R0 <- 128 x 1.0, hoisted once
+    LD.MULT R0 LR2 CR2 ;;          # R0 <- 128 x 1.0, hoisted once
     MULT.RC.VV LR0 R0 0 LR0 CR15 ;
     ACC.ADD.FIRST ;;
 
@@ -78,10 +78,10 @@ and summed in the accumulator.
 
 ```asm
 # Form 1 - vector + vector (residual add). Two passes, one accumulator.
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # ring <- A
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # ring <- A
     MULT.RC.VE LR0 CR1 0 LR0 CR15 ;     # A x 1.0 
     ACC.ADD.FIRST ;
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # ring <- B, co-issued
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # ring <- B, co-issued
     MULT.RC.VE LR0 CR1 0 LR0 CR15 ;     # B x 1.0 
     ACC.ADD ;;
 
@@ -161,9 +161,9 @@ write window.
 # Form 2 - cross-lane rotate. The ring does NOT wrap at 128, so the row must be
 # materialised twice, back to back, and read at a shifted offset.
     ACTIVATE.QUANTIZE identity CR15 ;
-    STR_POST_AAQ_REG LR2 CR2 ;;         # drain R_ACC to scratch
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # reload copy 1 at ring slot 0
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR5 ;;  # reload copy 2 at ring slot 128
+    ST.AAQ LR2 CR2 ;;         # drain R_ACC to scratch
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # reload copy 1 at ring slot 0
+    LD.MULT.CYCLIC LR2 CR0 LR5 ;;  # reload copy 2 at ring slot 128
     MULT.RC.VE LR6 CR1 0 LR0 CR15 ;     # LR6 = rotate amount
     ACC.MAX ;;
 
@@ -180,8 +180,8 @@ hand-built "primitive A":
 ```asm
 # Drain the 128 lanes holding N partitions of partition_size
     ACTIVATE.QUANTIZE identity CR15 ;
-    STR_POST_AAQ_REG LR2 CR2 ;;
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # reload into the ring
+    ST.AAQ LR2 CR2 ;;
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # reload into the ring
 
 # Then one pass per partition p, at rc_idx = partition_size * p
     SET LR4 CR3 ;;                      # CR3 = partition_size * 0
@@ -205,11 +205,11 @@ external memory — a register move executed through XMEM.
 ```asm
 # Drain
     ACTIVATE.QUANTIZE identity CR15 ;   # 'identity' = this is a move
-    STR_POST_AAQ_REG LR2 CR2 ;;
+    ST.AAQ LR2 CR2 ;;
 
 # Re-enter, either side
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # -> R_CYCLIC
-    LDR_MULT_REG R0 LR2 CR2 ;;          # -> R0 / R1
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # -> R_CYCLIC
+    LD.MULT R0 LR2 CR2 ;;          # -> R0 / R1
 ```
 
 No identity multiply, but one `xmem_write` and one `xmem_read` per move, plus the
@@ -220,11 +220,11 @@ a register move.
 
 ```asm
 # Rebase by log2(e), then use the native exp2
-    LDR_MULT_REG R0 LR2 CR2 ;;      # R0 <- 128 x log2(e), hoisted once
+    LD.MULT R0 LR2 CR2 ;;      # R0 <- 128 x log2(e), hoisted once
     MULT.RC.VV LR0 R0 0 LR0 CR15 ;  # REAL multiply, genuinely needed
     ACC.ADD.FIRST ;;
     ACTIVATE.QUANTIZE exp2 CR15 ;
-    STR_POST_AAQ_REG LR2 CR2 ;;
+    ST.AAQ LR2 CR2 ;;
 ```
 
 A real multiply — but it is work a native `exp` would not need, plus one
@@ -243,7 +243,7 @@ signed integer, so fractional constants cannot use that scalar path.
 
 ```asm
 # Wide FP32: materialise the constant as a full 128-lane row
-    LDR_MULT_REG R0 LR2 CR2 ;;  # R0 <- 128 x 0.5
+    LD.MULT R0 LR2 CR2 ;;  # R0 <- 128 x 0.5
     MULT.RC.VV LR0 R0 0 LR0 CR15 ;
     ACC.ADD.FIRST ;;
 ```
@@ -260,8 +260,8 @@ encoding and no in-register alias. The only route is a full A8 round-trip:
 
 ```asm
     ACTIVATE.QUANTIZE identity CR15 ;
-    STR_POST_AAQ_REG LR2 CR2 ;;         # drain R_ACC
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;;  # reload as ring data
+    ST.AAQ LR2 CR2 ;;         # drain R_ACC
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;;  # reload as ring data
     MULT.RC.VV LR0 R0 0 LR0 CR15 ;      # now multiply against R0
     ACC.ADD.FIRST ;;
 ```
@@ -280,9 +280,9 @@ loop_pre:
 loop:
     MULT.RC.VE LR0 LR1 0 LR0 CR15 ;  # real MAC
     ACC.ADD ;
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;
     ADD LR2 LR2 CR4 ;
-    BLT LR1 LR5 loop_pre ;;
+    BLT.S LR1 LR5 loop_pre ;;
 ```
 
 A kernel whose `AGG` `dest_slot` reads the snapshot escapes it — no pre-increment
@@ -319,7 +319,7 @@ j_loop:
 k_loop:
     MULT.RC.VE LR0 LR1 0 LR0 CR15 ;
     ACC.ADD ;
-    LDR_CYCLIC_MULT_REG LR2 CR0 LR0 ;  # re-read, N_OUT times over
+    LD.MULT.CYCLIC LR2 CR0 LR0 ;  # re-read, N_OUT times over
     ...
 ```
 
@@ -331,12 +331,12 @@ Three smaller gaps.
 
 ```asm
 # Missing SELECT/MASK.VV - predication folded in multiplicatively
-    LDR_MULT_REG R0 LR2 CR2 ;;      # R0 <- KEEP mask, 1.0 real / 0.0 pad
+    LD.MULT R0 LR2 CR2 ;;      # R0 <- KEEP mask, 1.0 real / 0.0 pad
     MULT.RC.VV LR0 R0 0 LR0 CR15 ;  # gate by multiplying
     ACC.ADD ;;
 
 # Missing CSEL - a branch diamond stands in for a conditional move
-    BLT LR1 LR5 use_full ;;
+    BLT.S LR1 LR5 use_full ;;
     SET LR6 CR8 ;;                  # tail bound
     B joined ;;
 use_full:
@@ -350,20 +350,20 @@ joined:
 
 The branch diamond costs several bundles per taken path, none of them multiplying.
 
-### A16 — `STR_ACC_REG` is simulation-only
+### A16 — `ST.ACC` is simulation-only
 
 Its slot, `acc_store`, is tagged EMULATOR and flagged `debug_only` in `ipu_isa/slots.py` — it has no hardware encoding.
 
 ```asm
 # Simulation only
-    STR_ACC_REG LR2 CR2 ;;
+    ST.ACC LR2 CR2 ;;
 
 # Real-hardware equivalent
     ACTIVATE.QUANTIZE identity CR15 ;
-    STR_POST_AAQ_REG LR2 CR2 ;;
+    ST.AAQ LR2 CR2 ;;
 ```
 
-The real form quantizes to INT8; `STR_ACC_REG` writes raw accumulator words. Cycle
+The real form quantizes to INT8; `ST.ACC` writes raw accumulator words. Cycle
 counts from a kernel relying on it are not achievable on silicon. One live use
 remains, at `fully_connected/fully_connected.asm:48`.
 

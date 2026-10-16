@@ -1,11 +1,11 @@
 {
-  "test_diagnostics.py: \"{% for c in ''.__class__.__mro__ %}\\nBKPT;;\\n{% endfor %}\\n\"": {
+  "test_diagnostics.py: \"{% for c in ''.__class__.__mro__ %}\\nHALT;;\\n{% endfor %}\\n\"": {
     "exception": "SecurityError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}BKPT;;\\n\"": {
+  "test_diagnostics.py: \"{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}HALT;;\\n\"": {
     "exception": "SecurityError",
     "exit_code": 1,
     "stderr": "",
@@ -47,49 +47,49 @@
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: No terminal matches ',' in the current parser context, at line 1 col 8\n\nBEQ lr0, cr0, +1;;\n       ^\nExpected one of: \n\t* TOKEN\n\t* _SEMI\n\t* _SEMI2\n\nPrevious tokens: Token('TOKEN', 'lr0')\n\n"
   },
-  "test_diagnostics.py: 'BGT lr0 lr1;;\\n'": {
+  "test_diagnostics.py: 'BGT.S lr0 lr1;;\\n'": {
     "exception": null,
     "exit_code": 1,
     "stderr": "",
-    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Error trying to process rule \"compound_instr_list\":\n\nPseudo-instruction 'BGT' expects 3 operand(s) (reg1, reg2, label), got 2\nAt: Line 1, Column 1\n"
+    "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Error trying to process rule \"compound_instr_list\":\n\nPseudo-instruction 'BGT.S' expects 3 operand(s) (reg1, reg2, label), got 2\nAt: Line 1, Column 1\n"
   },
-  "test_diagnostics.py: 'BKPT;; mid: BKPT;;\\n'": {
+  "test_diagnostics.py: 'HALT;; mid: HALT;;\\n'": {
     "exception": null,
     "exit_code": 0,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: 'BKPT;;\\nBKPT;;\\n{{ 1 + \"a\" }}\\nBKPT;;\\n'": {
+  "test_diagnostics.py: 'HALT;;\\nHALT;;\\n{{ 1 + \"a\" }}\\nHALT;;\\n'": {
     "exception": "TypeError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: 'BKPT;;\\nmac.ee r0;;\\n'": {
+  "test_diagnostics.py: 'HALT;;\\nmac.ee r0;;\\n'": {
     "exception": null,
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Opcode 'mac.ee' not found in any Inst subclass.\n"
   },
-  "test_diagnostics.py: 'BKPT;;\\n{% for x in %}\\n'": {
+  "test_diagnostics.py: 'HALT;;\\n{% for x in %}\\n'": {
     "exception": "TemplateSyntaxError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: 'BKPT;;\\n{{ 1 / 0 }}\\n'": {
+  "test_diagnostics.py: 'HALT;;\\n{{ 1 / 0 }}\\n'": {
     "exception": "ZeroDivisionError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: 'a:\\n  BKPT;;\\na:\\n  BKPT;;\\n'": {
+  "test_diagnostics.py: 'a:\\n  HALT;;\\na:\\n  HALT;;\\n'": {
     "exception": null,
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError parsing code: Error trying to process rule \"compound_instr_list\":\n\nLabel 'a' is defined for the second time at Line 3, Column 1. Previous definition at Line 1, Column 1.\n"
   },
-  "test_diagnostics.py: 'add:\\n  BKPT;;\\n'": {
+  "test_diagnostics.py: 'add:\\n  HALT;;\\n'": {
     "exception": null,
     "exit_code": 0,
     "stderr": "",
@@ -101,13 +101,13 @@
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Too many instructions of type CondInst (max 1)\nAt: Line 3, Column 5\n"
   },
-  "test_diagnostics.py: 'start:\\n  BKPT;;\\n'": {
+  "test_diagnostics.py: 'start:\\n  HALT;;\\n'": {
     "exception": null,
     "exit_code": 0,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{% for i in range(2) %}\\nBKPT;;\\n{% endfor %}\\nmac.ee r0;;\\n'": {
+  "test_diagnostics.py: '{% for i in range(2) %}\\nHALT;;\\n{% endfor %}\\nmac.ee r0;;\\n'": {
     "exception": null,
     "exit_code": 1,
     "stderr": "",
@@ -119,13 +119,13 @@
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 2, Column 17\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
   },
-  "test_diagnostics.py: '{% for i in undefined_var %}\\nBKPT;;\\n{% endfor %}\\n'": {
+  "test_diagnostics.py: '{% for i in undefined_var %}\\nHALT;;\\n{% endfor %}\\n'": {
     "exception": "UndefinedError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    BKPT;;\\n'": {
+  "test_diagnostics.py: '{%- set a = \"lr0\" -%}\\n    SET {{a}} cr0;;\\n    HALT;;\\n'": {
     "exception": null,
     "exit_code": 0,
     "stderr": "",
@@ -143,31 +143,31 @@
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\nError assembling code: Invalid token value - 1.5 in token LcrRegField\nIn Line 1, Column 13\nAdditional Information: Value 1.5 not in enum options\nAvailable options: ['lr0', 'lr1', 'lr2', 'lr3', 'lr4', 'lr5', 'lr6', 'lr7', 'lr8', 'lr9', 'lr10', 'lr11', 'lr12', 'lr13', 'lr14', 'lr15', 'cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr5', 'cr6', 'cr7', 'cr8', 'cr9', 'cr10', 'cr11', 'cr12', 'cr13', 'cr14', 'cr15']\n"
   },
-  "test_diagnostics.py: '{{ (1).missing() }}\\nBKPT;;\\n'": {
+  "test_diagnostics.py: '{{ (1).missing() }}\\nHALT;;\\n'": {
     "exception": "UndefinedError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{{ (1).nope() }}\\nBKPT;;\\n'": {
+  "test_diagnostics.py: '{{ (1).nope() }}\\nHALT;;\\n'": {
     "exception": "UndefinedError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\\n'": {
+  "test_diagnostics.py: '{{ ({}).__class__.__base__.__subclasses__() }}HALT;;\\n'": {
     "exception": "SecurityError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{{ 1 + \"a\" }}\\nBKPT;;\\n'": {
+  "test_diagnostics.py: '{{ 1 + \"a\" }}\\nHALT;;\\n'": {
     "exception": "TypeError",
     "exit_code": 1,
     "stderr": "",
     "stdout": "Assembling file: <input>\nOutput will be saved to: <output>\n"
   },
-  "test_diagnostics.py: '{{ 1 / 0 }}\\nBKPT;;\\n'": {
+  "test_diagnostics.py: '{{ 1 / 0 }}\\nHALT;;\\n'": {
     "exception": "ZeroDivisionError",
     "exit_code": 1,
     "stderr": "",

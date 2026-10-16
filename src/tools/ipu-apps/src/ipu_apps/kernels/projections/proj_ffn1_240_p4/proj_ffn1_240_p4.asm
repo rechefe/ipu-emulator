@@ -48,7 +48,7 @@
 #   constant FULL_BOUND=126 (width 128) and a harness-supplied TAIL_BOUND
 #   (width = K - 128*(chunk_count-1), shape-specific). Each chunk iteration
 #   compares its runtime chunk_idx against LAST_CHUNK_IDX and selects the
-#   bound register accordingly (bound_sel: BLT chunk_idx LAST_CHUNK_IDX ->
+#   bound register accordingly (bound_sel: BLT.S chunk_idx LAST_CHUNK_IDX ->
 #   full width; else tail width) -- this is what makes chunk_count and the
 #   tail width purely DATA (harness-loaded registers), so the exact same
 #   .asm control-flow text handles K=240/240/384/480 without new labels.
@@ -59,7 +59,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157) -- same rule as every existing matmul
 # kernel: MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle
-# snapshot, so it cannot consume a chunk LDR_CYCLIC_MULT_REG loads in its own
+# snapshot, so it cannot consume a chunk LD.MULT.CYCLIC loads in its own
 # bundle. Chunk 0 of each j primes k=0's row one bundle ahead (startup bias
 # -1 -> -2); every later chunk's first row is already in flight from the
 # previous chunk's trailing prefetch (data pointer never resets), so only
@@ -128,7 +128,7 @@ j_loop:
     # ---- chunk 0: prime + peel first k-iter (ACC.ADD.FIRST) ----
     ADD {{ data_ptr }} {{ stream_data_base }} {{ NEG_ONE }};;       # data ptr = stream D base - 1 row
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ ZERO }};;         # chunk0 W row = weight_row_off
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;          # r0 = W[j, chunk0]
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;          # r0 = W[j, chunk0]
     SET {{ k_idx }} {{ NEG_ONE }};;                                 # fixed_idx startup: -1
     SUB {{ k_idx }} {{ k_idx }} {{ ONE }};;                         # biased to -2 (load runs a bundle ahead)
     SET {{ chunk_idx }} {{ ZERO }};;                                # chunk_idx = 0
@@ -136,30 +136,30 @@ j_loop:
     # Prime k=0's row for chunk0 (snapshot contract, see header). data_ptr
     # already holds the ABSOLUTE row (stream_data_base includes DATA_BASE),
     # so every data load below uses base=ZERO (cr0=0).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
     B after_chunk0;;
 
 k_chunk0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} k_chunk0;;
 
 after_chunk0:
     INC {{ chunk_idx }} 1;;                                         # chunk_idx = 1
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
     B store_out;;
 
     # ---- chunk_loop: chunks 1 .. chunk_count-1 (runtime loop, ONE body) ----
@@ -168,11 +168,11 @@ after_chunk0:
     # is never reset), exactly as in the 3- and 4-chunk single-stream kernels.
 chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;    # this chunk's W row = weight_row_off + chunk_idx
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
     SET {{ k_idx }} {{ NEG_ONE }};;  # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased -- prefetch already in flight)
 
     # bound_sel: is this the LAST chunk? last -> TAIL_BOUND, else FULL_BOUND.
-    BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} use_full_bound;;
+    BLT.S {{ chunk_idx }} {{ LAST_CHUNK_IDX }} use_full_bound;;
     SET {{ bound }} {{ TAIL_BOUND }};;
     B chunk_body;;
 use_full_bound:
@@ -181,28 +181,28 @@ use_full_bound:
 chunk_body:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ ONE }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ bound }} chunk_body;;
+    BLT.S {{ k_idx }} {{ bound }} chunk_body;;
 
     INC {{ chunk_idx }} 1;;
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} chunk_loop;;
 
 store_out:
     ACTIVATE.QUANTIZE silu {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,j,:] = silu(R_ACC) (FFN1 nonlinearity)
+    ST.AAQ {{ out_ptr }} {{ ZERO }};;  # C[p,j,:] = silu(R_ACC) (FFN1 nonlinearity)
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                     # advance output ptr, packed (1 row/j)
 
     ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};
     INC {{ j_idx }} 1;;
-    BLT {{ j_idx }} {{ N_OUT_CR }} j_loop;;
+    BLT.S {{ j_idx }} {{ N_OUT_CR }} j_loop;;
 
     # ----- next stream: stream D/C bases += stride, p++ -----
     ADD {{ stream_data_base }} {{ stream_data_base }} {{ DATA_STREAM_STR }};;
     ADD {{ stream_out_base }} {{ stream_out_base }} {{ OUT_STREAM_STR }};;
     INC {{ stream_idx }} 1;;
-    BLT {{ stream_idx }} {{ STREAM_COUNT }} stream_loop;;
+    BLT.S {{ stream_idx }} {{ STREAM_COUNT }} stream_loop;;
 
 end:
-    BKPT;;
+    HALT;;

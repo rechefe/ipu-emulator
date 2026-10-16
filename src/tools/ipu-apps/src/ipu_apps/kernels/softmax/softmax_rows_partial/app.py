@@ -13,7 +13,7 @@ N elements of each partition contribute (max/sum ignore the padding tail).
 
 Reduction trick (probe-validated): to reduce partition p, ``MULT.RC.VV`` reads
 r_cyclic at ELEMENT offset ``p*ps`` (rc_idx is element-addressed, matching
-``LDR_CYCLIC_MULT_REG``'s index -- issue #182/PR #196) so partition p lands in
+``LD.MULT.CYCLIC``'s index -- issue #182/PR #196) so partition p lands in
 mult_res elements 0..N-1, then a masked ``AGG`` reduces exactly those into r_acc
 slot = row index.
 
@@ -30,7 +30,7 @@ Layout:
 Only Pass 4 re-packs: for partition p, ``MULT.RC.VE`` places row p's product
 at elements ``[p*ps, p*ps+N)`` (same rc_idx trick, reversed), masked via a
 per-partition ``R_MASK`` slot (``mask_offset=p``, built by ``_partition_masks``
-and loaded once per chunk via ``LDR_MULT_MASK_REG``) so every OTHER element is
+and loaded once per chunk via ``LD.MASK``) so every OTHER element is
 zeroed before ``acc.add``/``acc.add.first`` accumulates it into the shared
 r_acc -- this is what lets P separate partitions safely share one accumulator
 without corrupting each other (see STATUS.md's "Pass-4 cross-partition
@@ -60,7 +60,7 @@ from __future__ import annotations
 from ipu_apps.kernels.softmax.app import LANES, SoftmaxApp, partition_size, softmax_spec
 
 # r_cyclic's full ring: 512 ELEMENTS (MULT.RC's rc_idx is element-addressed,
-# matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196). The Pass-4
+# matching LD.MULT.CYCLIC's index -- issue #182/PR #196). The Pass-4
 # repack's reverse slide wraps at this element count.
 RING_ELEMENTS = 512
 

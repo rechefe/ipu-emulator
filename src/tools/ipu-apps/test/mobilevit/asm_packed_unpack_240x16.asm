@@ -61,13 +61,13 @@
     SET {{ mask_shift0 }} {{ ZERO }};;
     SET {{ row_stride }} {{ ROW_STRIDE }};;
     SET {{ slot0_lr }} {{ ZERO }};;
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
     SET {{ read_ptr }} {{ PACKED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: STR_POST_AAQ_REG's offset is a LIVE read and dispatches after this bundle's own ADD -- see asm_packed_layernorm_240x16.asm's step 3 note
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a LIVE read and dispatches after this bundle's own ADD -- see asm_packed_layernorm_240x16.asm's step 3 note
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime chunk 0 into slot 0
 
     # ---- chunk 0 (peeled) ----
@@ -78,13 +78,13 @@
     ACC.ADD.FIRST;;
     {%- if p_in < 7 %}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ UNPACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
     {%- else %}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ UNPACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- endif %}
 {%- endfor %}
@@ -102,26 +102,26 @@ unpack_loop:
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ UNPACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     {#- final p_in of this chunk: fuse write_ptr's advance, the trailing
-        prefetch load+advance, AND row_idx's own advance+BLT all into one
+        prefetch load+advance, AND row_idx's own advance+BLT.S all into one
         bundle -- exactly 3 "lr" ops (write_ptr, read_ptr, row_idx), the
         per-cycle maximum -- mirroring asm_packed_layernorm_240x16.asm's
         loop structure precisely (see that file for why row_idx's ADD and
-        BLT must share the closing load's bundle). #}
+        BLT.S must share the closing load's bundle). #}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ UNPACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ UNPACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} unpack_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} unpack_loop;;
     {%- endif %}
 {%- endfor %}
 
 end:
-    BKPT;;
+    HALT;;

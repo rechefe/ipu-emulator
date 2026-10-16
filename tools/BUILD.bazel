@@ -141,6 +141,24 @@ py_pytest_test(
     deps = [requirement("pytest")],
 )
 
+# The mnemonic rename (E03-19), kept for open branches and downstream users:
+#
+#   bazel run //tools:rename_mnemonics -- [--check] [ROOT]
+py_binary(
+    name = "rename_mnemonics",
+    srcs = ["rename_mnemonics.py"],
+)
+
+py_pytest_test(
+    name = "test_rename_mnemonics",
+    size = "small",
+    srcs = [
+        "rename_mnemonics.py",
+        "test_rename_mnemonics.py",
+    ],
+    deps = [requirement("pytest")],
+)
+
 # The locked ruff (requirements_lock.txt), run in the workspace root:
 #
 #   bazel run //tools:ruff -- check --fix

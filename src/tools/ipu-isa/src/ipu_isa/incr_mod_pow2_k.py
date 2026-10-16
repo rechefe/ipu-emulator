@@ -1,4 +1,4 @@
-"""incr_mod_pow2 k operand — shared by assembler and emulator.
+"""inc.modp2 k operand — shared by assembler and emulator.
 
 The LR slot encodes k in a narrow field: semantic k ∈ [LR_MOD_POW2_K_MIN, LR_MOD_POW2_K_MAX]
 is stored as (k - 1) in LR_MOD_POW2_K_FIELD_BITS bits (4 bits → nine distinct codes 0..8).

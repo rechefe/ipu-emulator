@@ -353,7 +353,7 @@ def run_packed_residual_add(
     relocate A; see test_packed_residual_add_240x16.py, which never sets cr0
     either, for the same reason).
 
-    CROSS-KERNEL STATE BLEED: this kernel never calls LDR_MULT_MASK_REG --
+    CROSS-KERNEL STATE BLEED: this kernel never calls LD.MASK --
     it relies entirely on R_MASK's regfile-init default (all 1s), correct
     when run standalone (a fresh IpuState). Chained after
     asm_packed_output_linear_generic.asm (which loads a ONE-HOT 8-slot mask
@@ -362,7 +362,7 @@ def run_packed_residual_add(
     partition 0 of every packed row -- partitions 1-7 read back as zero
     (caught by a per-partition breakdown of a wrong output row: partition 0
     correct, 1-7 all exactly 0.0, not merely close). Any kernel that omits
-    LDR_MULT_MASK_REG and depends on the all-ones default is unsafe to call
+    LD.MASK and depends on the all-ones default is unsafe to call
     after another kernel that has touched R_MASK within the SAME IpuState --
     a real chaining hazard, exposed by this test's "single IpuState, no
     host touch" requirement, that no single-kernel test would ever catch.

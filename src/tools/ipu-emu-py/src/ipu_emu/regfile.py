@@ -169,6 +169,20 @@ class RegFile:
         constant-ones provenance is kept. Writing through it raises ``TypeError``."""
         return memoryview(self._storage[self._resolve(name)]).toreadonly()
 
+    def packed_bank(self, name: str) -> memoryview:
+        """Scalar register bank *name* (LR or CR) as packed little-endian uint32
+        words, read-only (see :meth:`view`), for ``struct.unpack_from`` reads
+        (the packed operand resolver), so nothing outside this module touches
+        the storage.
+
+        Raises:
+            RegisterKindError: *name* is not a bank of 4-byte scalar registers.
+        """
+        desc = self.descriptor(name)
+        if desc.is_vector or desc.size_bytes != 4:
+            raise RegisterKindError(f"{name} is not a packed bank of uint32 scalar registers")
+        return self.view(name)
+
     def mutable(self, name: str, start: int = 0, size: int | None = None) -> memoryview:
         """Bytes ``[start, start+size)`` of register *name* (to its end when
         *size* is None), writable. Observers are told that exactly that range

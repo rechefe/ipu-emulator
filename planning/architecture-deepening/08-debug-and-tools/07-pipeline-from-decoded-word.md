@@ -8,6 +8,8 @@ The debugger's pipeline and disassembly views read slots, opcodes and operands f
 
 ## Background
 
+E03-18 already did step 2 and part of step 4: `stage_operations` calls `ipu_isa.codec.disasm.slot_operations`, `semantic_operations` and the `;` splitting in `pipeline.py` are gone, and `disassemble_at` uses `disassemble`. What is left: the TUI's `_disassembly` still decodes each word twice (session text, then `stage_operations`) and `_all_operations` / the `slot_labels` zip split the joined text again; use the labelled pairs directly. The bullets below describe the code before E03-18.
+
 - `pipeline.stage_operations` (old `debug_pipeline.py:15-24`) re-packs the field dict with `CompoundInst.get_fields()`, calls `CompoundInst.decode(word)`, splits on `";"`, and re-applies operand bindings to the text (`semantic_operations`).
 - `cli.disassemble_at` (old `debug_cli.py:361-378`) re-packs the dict the same way.
 - `SLOT_LABELS` (old `debug_pipeline.py:59`) hard-codes `("CTRL", ("LR0", "LR1", "LR2", "COND", "BREAK"))`. A change to the LR sub-slot count, or a slot added in `instruction_spec.py`, does not reach the view (D2).

@@ -71,15 +71,15 @@ Assembly is line-oriented. One **compound instruction** may contain several **sl
 ```asm
 # Comments start with # or //
 label:                          # Labels end with a colon
-    LDR_MULT_REG r0 lr0 cr0;     # LOAD: load into mult stage r0
+    LD.MULT r0 lr0 cr0;           # LOAD: load into mult stage r0
     MULT.RC.VV lr1 r0 0 lr3 cr15; # MULT: element-wise multiply
-    ACC.ADD;                     # ACC: accumulate
-    INC lr0 1;               # LR: bump address (increment via INC)
-    BNE lr0 lr1 next;            # COND: branch
+    ACC.ADD;                      # ACC: accumulate
+    INC lr0 1;                    # LR: bump address (increment via INC)
+    BNE lr0 lr1 next;             # COND: branch
     ;;
 ```
 
-By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LDR_MULT_REG`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
+By convention, **instruction mnemonics are written in upper case** in documentation and examples (e.g. `MULT.RC.VV`, `LD.MULT`). **Operand tokens** use **lower case** (`lr0`, `r0`, `cr0`). The assembler accepts **any case** for mnemonics and register tokens.
 
 ## Compound instructions
 
@@ -96,12 +96,12 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
 - The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
-- The **acc_store** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
+- The **acc_store** slot (`ST.ACC`) is **simulation-only** — not implemented in real IPU hardware.
 
 **Example (parallel slots):**
 
 ```asm
-LDR_MULT_REG r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
+LD.MULT r0 lr0 cr0; MULT.RC.VV lr1 r0 0 lr3 cr15; ACC.ADD; INC lr0 1; BNE lr0 lr1 loop;;
 ```
 
 ## Register names
@@ -117,7 +117,7 @@ The mult-stage and scalar register **tokens** below are derived from `REGISTER_D
 
 The **`mem_bypass`** vector may still exist in the **emulator regfile** for debugging, but it is **not** a valid mult-stage assembly operand.
 
-**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INCR_MOD_POW2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
+**LR slot:** **`SET`** copies from a **`cr`** register (see [CrIdx](operand-types.md#cridx)); **`ADD`**/**`SUB`**'s **`src_b`** is register-only (see [LcrIdx](operand-types.md#lcridx)) — use **`INC`**/**`DEC`** for an immediate operand instead (see [LrIncDecImmediate](operand-types.md#lrincdecimmediate)); **`INC.MODP2`** uses a dedicated **k** immediate (see [LrModPow2KImmediate](operand-types.md#lrmodpow2kimmediate)).
 
 ## Labels and branches
 
@@ -127,7 +127,7 @@ start:
 loop:
     INC lr0 1;;
     BNE lr0 lr1 loop;;
-    BKPT;;
+    HALT;;
 ```
 
 Relative labels such as `B +5` / `B -2` are supported where the grammar accepts a **label** token (see cond-slot instructions in the reference).
@@ -145,7 +145,7 @@ A label made of decimal digits only, such as `1:`, is a **local label** (the GNU
 {{% endmacro %}}
 {{{{ count_to("CR2") }}}}
 {{{{ count_to("CR3") }}}}
-    BKPT;;
+    HALT;;
 ```
 
 """
@@ -164,7 +164,7 @@ a mask of all-zeros deactivates every element.
 from XMEM with:
 
 ```asm
-LDR_MULT_MASK_REG offset, base;;
+LD.MASK offset, base;;
 ```
 
 `offset` is an LR register holding the XMEM byte offset; `base` is a CR register holding the
@@ -234,11 +234,11 @@ still be named explicitly via the instruction's CR-index operand — there is no
 
 ```asm
 # LR1 = XMEM byte offset of mask data; CR2 = XMEM base address
-LDR_MULT_MASK_REG LR1, CR2;;
+LD.MASK LR1, CR2;;
 
 # Load a vector into R0, load cyclic data into R_CYCLIC
-LDR_MULT_REG R0, LR0, CR0;;
-LDR_CYCLIC_MULT_REG LR2, CR0, LR5;;
+LD.MULT R0, LR0, CR0;;
+LD.MULT.CYCLIC LR2, CR0, LR5;;
 
 # Multiply R0 element-wise vs R_CYCLIC using slot 3, shift index in LR4, accumulate
 MULT.RC.VV LR2, R0, 3, LR4, CR15; ACC.ADD;;
@@ -304,7 +304,7 @@ The assembler runs Jinja2 on the source when `{{`, `{%`, and `{#` appear.
 ```jinja2
 {% set off_reg = 6 %}
 SET lr0 cr{{ off_reg }};;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 ```
 
 The harness must initialize **`cr6`** (here: the memory offset) before this program runs.
@@ -315,7 +315,7 @@ A kernel can name its registers by role instead of by number. The assembler take
 
 ```jinja2
 SET {{ lr.data_ptr }} {{ cr.data_base }};;
-LDR_MULT_REG R0 {{ lr.data_ptr }} CR0;;
+LD.MULT R0 {{ lr.data_ptr }} CR0;;
 ```
 
 With `[abi]` `data_base = "CR2"` and `data_ptr = "LR0"`, this renders `SET LR0 CR2;;`.

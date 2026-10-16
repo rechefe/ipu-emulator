@@ -39,7 +39,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 #   p_in=1 p_out=1  rc_idx=0    max_read=63   slot=[0,0]
 # 3 of 4 pairs stay in slot 0, but (p_in=0,p_out=1) lands ENTIRELY in slot 3
 # (elements 448-511), never touching slots 1 or 2. So this kernel replicates
-# the packed chunk into R_CYCLIC slots 0 and 3 ONLY (2 LDR_CYCLIC_MULT_REG
+# the packed chunk into R_CYCLIC slots 0 and 3 ONLY (2 LD.MULT.CYCLIC
 # calls per chunk) -- not L5's 1-slot optimization, and not the naive
 # 4-slot default either.
 #
@@ -57,7 +57,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 # computed once by the harness at load time.
 #
 # CROSS-KERNEL R_MASK HAZARD: this kernel loads a one-hot 2-slot R_MASK
-# (one 64-lane window per output partition) via LDR_MULT_MASK_REG and never
+# (one 64-lane window per output partition) via LD.MASK and never
 # restores an all-ones R_MASK before halting. A downstream kernel in the
 # same IpuState that relies on R_MASK's all-ones default (e.g.
 # asm_packed_residual_add_192x64.asm) will silently read back zeros in
@@ -106,10 +106,10 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
     SET {{ chunk_base }} {{ DATA_BASE }};;
     ADD {{ chunk_base }} {{ chunk_base }} {{ chunk_ctr }};;
     SET {{ slot_lr }} {{ ZERO }};;
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot_lr }};;
     SET {{ slot3_lr }} {{ ZERO }};;
     {{- inc(slot3_lr, SLOT3) }}
-    LDR_CYCLIC_MULT_REG {{ chunk_base }} {{ ZERO }} {{ slot3_lr }};;
+    LD.MULT.CYCLIC {{ chunk_base }} {{ ZERO }} {{ slot3_lr }};;
 {% endmacro %}
 
 {% macro accumulate_chunk(first) %}
@@ -118,7 +118,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
         (this weight-chunk's row 0) at the start of every packed chunk. #}
     ADD {{ w_row_ptr }} {{ w_ptr }} {{ ZERO }};;
     {%- for p_out in range(2) %}
-    LDR_MULT_REG r0 {{ w_row_ptr }} {{ ZERO }};;
+    LD.MULT r0 {{ w_row_ptr }} {{ ZERO }};;
     SET {{ rc_idx_reg }} {{ SEED_CR[p_out] }};;
     ADD {{ k_idx }} {{ k_base }} {{ ZERO }};;
     DEC {{ k_idx }} 1;;
@@ -138,7 +138,7 @@ chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
 {% set chunk0_pc_count = chunk0_width // 2 %}
 
     SET {{ mask_off_lr }} {{ ZERO }};;
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
     SET {{ out_ptr }} {{ OUTPUT_BASE }};;
     SET {{ w_ptr }} {{ WEIGHTS_BASE }};;
     SET {{ chunk_ctr }} {{ ZERO }};;
@@ -161,7 +161,7 @@ wc0_pc_loop:
     {{ accumulate_chunk(false) }}
     INC {{ chunk_ctr }} 1;;
     INC {{ k_base }} 2;;
-    BLT {{ pc_idx }} {{ pc_bound }} wc0_pc_loop_inc;;
+    BLT.S {{ pc_idx }} {{ pc_bound }} wc0_pc_loop_inc;;
     B wc0_pc_loop_exit;;
 wc0_pc_loop_inc:
     INC {{ pc_idx }} 1;;
@@ -185,7 +185,7 @@ wc_loop:
     {%- if not loop.last %}
     SET {{ pc_bound }} {{ ZERO }};;
     INC {{ pc_bound }} {{ wc_num }};;
-    BGT {{ wc_idx }} {{ pc_bound }} pc_bound_skip_{{ wc_num }};;
+    BGT.S {{ wc_idx }} {{ pc_bound }} pc_bound_skip_{{ wc_num }};;
     {%- endif %}
     SET {{ pc_bound }} {{ ZERO }};;
     INC {{ pc_bound }} {{ (chunk_width // 2) - 1 }};;
@@ -202,7 +202,7 @@ wc_pc_loop:
     {{ accumulate_chunk(false) }}
     INC {{ chunk_ctr }} 1;;
     INC {{ k_base }} 2;;
-    BLT {{ pc_idx }} {{ pc_bound }} wc_pc_loop_inc;;
+    BLT.S {{ pc_idx }} {{ pc_bound }} wc_pc_loop_inc;;
     B wc_pc_loop_exit;;
 wc_pc_loop_inc:
     INC {{ pc_idx }} 1;;
@@ -210,7 +210,7 @@ wc_pc_loop_inc:
 wc_pc_loop_exit:
 
     INC {{ wc_idx }} 1;;
-    BLT {{ wc_idx }} {{ wc_bound }} wc_loop_continue;;
+    BLT.S {{ wc_idx }} {{ wc_bound }} wc_loop_continue;;
     B wc_loop_exit;;
 wc_loop_continue:
     INC {{ w_ptr }} 2;;
@@ -219,7 +219,7 @@ wc_loop_exit:
     {%- endif %}
 
     ACTIVATE.QUANTIZE silu {{ DSTRUCT_STORE }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;
+    ST.AAQ {{ out_ptr }} {{ ZERO }};;
 
 end:
-    BKPT;;
+    HALT;;

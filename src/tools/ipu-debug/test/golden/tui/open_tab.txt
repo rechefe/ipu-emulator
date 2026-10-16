@@ -8,7 +8,7 @@
 │  0018:    0    0    0    0    0    0  ││  0003  SET lr4 cr1                 ││
 │  001e:    0    0    0    0    0    0  ││  0004  <NOP>                       ││
 │  0024:    0    0    0    0    0    0  ││  0005  <NOP>                       ││
-│  002a:    0    0    0    0    0    0  ││  0006  BKPT                        ││
+│  002a:    0    0    0    0    0    0  ││  0006  HALT                        ││
 ├─ 3 XMEM · 0x00000000 · 256 bytes ─────┬┴ 4 CR / LR ───────────── cols 1-2/4 ─┤
 │[+]‹ [row:0+0 int8 x] [row:0+0 u8 x]   │[+]  [all hex x] [lr hex x]          ›│
 │  XMEM row 0 starts at byte address 0x█│  LR 00-07        LR 08-15            │

@@ -47,12 +47,14 @@ class DecodedSlot:
         operands: Encoded operand values, in assembly operand order.
         unused_bits: Mask of the non-zero bits that neither the opcode nor any
             operand of ``instruction`` occupies.
+        value: The slot's bits as decoded.
     """
 
     slot: Slot
     instruction: Instruction
     operands: tuple[int, ...]
     unused_bits: int
+    value: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +88,7 @@ class SlotCodec:
         "_slot",
         "_instances",
         "_bits",
+        "_fields",
         "_opcode_shift",
         "_instructions",
         "_by_mnemonic",
@@ -104,6 +107,7 @@ class SlotCodec:
         for field in union.fields:
             shift -= field.bits
             fields.append(_Field(shift, field.bits))
+        self._fields = tuple(fields)
         self._opcode_shift = self.bits - union.opcode_bits
         self._instructions = view.instructions(slot)
         self._by_mnemonic = {i.mnemonic.upper(): i for i in self._instructions}
@@ -189,6 +193,17 @@ class SlotCodec:
         """The slot value of ``NOP``."""
         return self._nop
 
+    def field_values(self, value: int) -> tuple[int, ...]:
+        """The raw value of every union field of a slot value.
+
+        Args:
+            value: The slot's bits.
+
+        Returns:
+            Each field's bits, field 0 first, bound to an operand or not.
+        """
+        return tuple((value >> field.shift) & ((1 << field.bits) - 1) for field in self._fields)
+
     def decode(self, value: int) -> DecodedSlot:
         """Decode one slot value.
 
@@ -216,7 +231,7 @@ class SlotCodec:
             for operand in self._operands[instruction.mnemonic]
         )
         return DecodedSlot(
-            self._slot, instruction, operands, value & ~self._used[instruction.mnemonic]
+            self._slot, instruction, operands, value & ~self._used[instruction.mnemonic], value
         )
 
 

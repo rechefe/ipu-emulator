@@ -26,6 +26,7 @@ from ipu_isa.slots import Slot
 if TYPE_CHECKING:
     from ipu_emu.cycle import IssuedOp
     from ipu_emu.ipu import Ipu, SlotPlan
+    from ipu_emu.resolver import OperandResolver
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,14 +93,17 @@ class Issuer:
     """Issues slot ops of one :class:`~ipu_emu.ipu.Ipu` and executes the results.
 
     Args:
-        ipu: The engine whose handlers, resolver and statistics the issuer
+        ipu: The engine whose handlers, snapshot and statistics the issuer
             uses. Held weakly: the engine owns its issuer.
+        resolver: How read operands become register values
+            (:mod:`ipu_emu.resolver`).
     """
 
-    __slots__ = ("_ipu", "current")
+    __slots__ = ("_ipu", "_resolve", "current")
 
-    def __init__(self, ipu: Ipu) -> None:
+    def __init__(self, ipu: Ipu, resolver: OperandResolver) -> None:
         self._ipu = weakref.ref(ipu)
+        self._resolve = resolver.resolve
         #: The record of the op whose handler is running (or ran last); ``None``
         #: before the first execute.
         self.current: IssueFacts | None = None
@@ -117,9 +121,11 @@ class Issuer:
         """
         ipu = self._ipu()
         plan = op.plan
-        operands = dict(op.operands)
-        if plan.reads:
-            ipu._resolve(ipu, plan, operands)
+        operands = (
+            self._resolve(plan, op.operands, ipu._snapshot_buffer)
+            if plan.reads
+            else dict(op.operands)
+        )
         if plan.stat is not None:
             stats = ipu.state.stats
             setattr(stats, plan.stat, getattr(stats, plan.stat) + 1)
@@ -164,9 +170,9 @@ class Issuer:
         ipu = self._ipu()
         plan = op.plan
         encoded = op.operands
-        operands = dict(encoded)
-        if plan.reads:
-            ipu._resolve(ipu, plan, operands)
+        operands = (
+            self._resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
+        )
         stat = plan.stat
         if stat is not None:
             stats = ipu.state.stats
@@ -197,7 +203,7 @@ class Issuer:
             inst: The whole word.
         """
         ipu = self._ipu()
-        resolve = ipu._resolve
+        resolve = self._resolve
         issued = []
         for op in ops:
             plan = op.plan
@@ -206,9 +212,7 @@ class Issuer:
                 continue
             # The LR sub-slots' hot path: just the reads (as issue() does).
             encoded = op.operands
-            operands = dict(encoded)
-            if plan.reads:
-                resolve(ipu, plan, operands)
+            operands = resolve(plan, encoded, ipu._snapshot_buffer) if plan.reads else dict(encoded)
             issued.append(_new_facts(_IssueFacts, (op.slot, plan, encoded, operands, None, None)))
         profile = ipu._profile
         for facts in issued:

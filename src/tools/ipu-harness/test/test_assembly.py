@@ -46,7 +46,7 @@ SCALE_ASM = """\
     SET lr0 {{ cr.x }} ;;
     SET lr1 {{ cr.y }} ;;
     SET lr2 {{ cr.rows }} ;;
-    BKPT ;;
+    HALT ;;
 """
 
 
@@ -68,9 +68,9 @@ def test_cr_names_render_and_the_program_is_the_same_in_every_format(tmp_path):
 
 def test_the_template_reads_params_format_and_shapes(tmp_path):
     asm = (
-        "{% for i in range(rows) %}    BKPT ;;\n{% endfor %}"
-        "{% if format == 'e4' %}    BKPT ;;\n{% endif %}"
-        "{% if shapes['x'] == [rows, 128] %}    BKPT ;;\n{% endif %}"
+        "{% for i in range(rows) %}    HALT ;;\n{% endfor %}"
+        "{% if format == 'e4' %}    HALT ;;\n{% endif %}"
+        "{% if shapes['x'] == [rows, 128] %}    HALT ;;\n{% endif %}"
     )
     m = kernel(tmp_path, asm)
     assert len(assemble(plan_case(m, {"rows": 2}, F.FP32)).words) == 3
@@ -92,7 +92,7 @@ def test_the_template_reads_params_format_and_shapes(tmp_path):
     ],
 )
 def test_an_undefined_name_is_located_in_the_program(tmp_path, line, message):
-    m = kernel(tmp_path, "    BKPT ;;\n" + line)
+    m = kernel(tmp_path, "    HALT ;;\n" + line)
     with pytest.raises(TemplateError, match=message) as error:
         assemble(plan_case(m, {}, F.FP32))
     assert error.value.location is not None and error.value.location.line == 2
@@ -102,7 +102,7 @@ def test_an_undefined_name_is_located_in_the_program(tmp_path, line, message):
 def test_a_program_cannot_declare_parameters_of_its_own(tmp_path):
     # kernel.toml is the declaration: an ipu:params header is not read, so a
     # name it declares is undefined.
-    asm = "{# ipu:params\nextra: int = 3\n#}\n    SET lr0 {{ cr.x }} ;;\n{% if extra %}    BKPT ;;\n{% endif %}"
+    asm = "{# ipu:params\nextra: int = 3\n#}\n    SET lr0 {{ cr.x }} ;;\n{% if extra %}    HALT ;;\n{% endif %}"
     m = kernel(tmp_path, asm)
     with pytest.raises(TemplateError, match="'extra' is undefined") as error:
         assemble(plan_case(m, {}, F.FP32))
@@ -118,7 +118,7 @@ def test_the_cache_encodes_each_distinct_rendered_program_once(tmp_path):
     # The program does not use rows: another rows renders alike, so no new assembly.
     assert assemble(plan_case(m, {"rows": 9}, F.FP32), cache) is first
     assert cache.assembled == 1
-    uses_rows = kernel(tmp_path, "{% for i in range(rows) %}    BKPT ;;\n{% endfor %}", "loop")
+    uses_rows = kernel(tmp_path, "{% for i in range(rows) %}    HALT ;;\n{% endfor %}", "loop")
     assemble(plan_case(uses_rows, {"rows": 2}, F.FP32), cache)
     assemble(plan_case(uses_rows, {"rows": 3}, F.FP32), cache)
     assemble(plan_case(uses_rows, {"rows": 2}, F.E4), cache)
@@ -127,10 +127,10 @@ def test_the_cache_encodes_each_distinct_rendered_program_once(tmp_path):
 
 def test_includes_resolve_in_the_kernel_and_family_folders(tmp_path):
     m = kernel(tmp_path, '{% include "family_tail.asm.j2" %}\n{% include "local.asm.j2" %}\n')
-    (m.directory.parent / "family_tail.asm.j2").write_text("    BKPT ;;\n")
+    (m.directory.parent / "family_tail.asm.j2").write_text("    HALT ;;\n")
     (m.directory / "local.asm.j2").write_text("    SET lr0 {{ cr.x }} ;;\n")
     result = assemble(plan_case(m, {}, F.FP32))
-    assert result.rendered.splitlines() == ["    BKPT ;;", "    SET lr0 CR2 ;;"]
+    assert result.rendered.splitlines() == ["    HALT ;;", "    SET lr0 CR2 ;;"]
 
 
 def test_neither_the_harness_nor_the_kernel_library_imports_jinja2():
@@ -148,9 +148,9 @@ def test_a_float_parameter_renders_as_its_value(tmp_path):
 def test_the_macro_library_is_searched_when_given_and_must_exist(tmp_path):
     lib = tmp_path / "asm_lib"
     lib.mkdir()
-    (lib / "halt.asm.j2").write_text("    BKPT ;;\n")
+    (lib / "halt.asm.j2").write_text("    HALT ;;\n")
     m = kernel(tmp_path, '{% include "halt.asm.j2" %}\n')
-    assert assemble(plan_case(m, {}, F.FP32), asm_lib=lib).rendered.strip() == "BKPT ;;"
+    assert assemble(plan_case(m, {}, F.FP32), asm_lib=lib).rendered.strip() == "HALT ;;"
     with pytest.raises(TemplateError, match="halt.asm.j2"):
         assemble(plan_case(m, {}, F.FP32))  # not given: not searched
     with pytest.raises(ConfigurationError, match="the macro library is not there"):
@@ -158,8 +158,8 @@ def test_the_macro_library_is_searched_when_given_and_must_exist(tmp_path):
 
 
 def test_a_cache_hit_raises_the_programs_warnings_again(tmp_path):
-    # STR_ACC_REG is in the simulation-only acc_store slot: encoding warns.
-    m = kernel(tmp_path, "    STR_ACC_REG lr0 cr0 ;;\n    BKPT ;;\n")
+    # ST.ACC is in the simulation-only acc_store slot: encoding warns.
+    m = kernel(tmp_path, "    ST.ACC lr0 cr0 ;;\n    HALT ;;\n")
     cache = AssemblyCache()
     for _ in range(2):
         with pytest.warns(UserWarning, match="simulation-only"):

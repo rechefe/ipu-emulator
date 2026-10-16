@@ -95,7 +95,7 @@ def roots(tmp_path: Path) -> tuple[Path, Path]:
     (lib / "m.asm.j2").write_text(
         "{% macro f() %}NOP;;{% endmacro %}\n{% macro bad() %}\nNOP;;\n{{ 1 + 'a' }}\n{% endmacro %}\n"
     )
-    (lib / "body.asm.j2").write_text("NOP;;\nBKPT;;\n")
+    (lib / "body.asm.j2").write_text("NOP;;\nHALT;;\n")
     (lib / "escape.asm.j2").write_text("{{ ''.__class__.__mro__[1].__subclasses__() }}")
     outside = tmp_path / "secret.asm.j2"
     outside.write_text("NOP;;")
@@ -107,7 +107,7 @@ def test_include_and_import_resolve_in_the_search_path(roots) -> None:
     lib, _ = roots
     assert (
         template.render('{% include "body.asm.j2" %}', TemplateInputs(search_path=(lib,)))
-        == "NOP;;\nBKPT;;"
+        == "NOP;;\nHALT;;"
     )
     rendered = template.render(
         '{% import "m.asm.j2" as m %}{{ m.f() }}', TemplateInputs(search_path=(lib,))
@@ -136,7 +136,7 @@ def test_a_sandbox_escape_inside_an_included_file_is_refused(roots) -> None:
 
 def test_an_error_inside_an_included_macro_names_its_file_and_line(roots) -> None:
     lib, _ = roots
-    source = 'NOP;;\n{% import "m.asm.j2" as m %}\n{{ m.bad() }}\nBKPT;;\n'
+    source = 'NOP;;\n{% import "m.asm.j2" as m %}\n{{ m.bad() }}\nHALT;;\n'
     with pytest.raises(TemplateError) as info:
         template.render(source, TemplateInputs(search_path=(lib,)))
     assert (info.value.location.source, info.value.location.line) == ("m.asm.j2", 4)
@@ -149,7 +149,7 @@ def test_an_error_inside_an_included_macro_names_its_file_and_line(roots) -> Non
 def test_an_assemble_error_from_an_included_file_names_it(roots) -> None:
     lib, _ = roots
     (lib / "wrong.asm.j2").write_text("NOP;;\nACC.ADD LR0;;\n")
-    source = 'NOP;;\n{% include "wrong.asm.j2" %}\nBKPT;;\n'
+    source = 'NOP;;\n{% include "wrong.asm.j2" %}\nHALT;;\n'
     (found,) = diagnostics.check(source, search_path=[lib])
     assert found.stage == "assemble"
     assert found.line == 1  # the include line
@@ -157,7 +157,7 @@ def test_an_assemble_error_from_an_included_file_names_it(roots) -> None:
 
 
 def test_a_source_without_markers_is_returned_unrendered() -> None:
-    text = "NOP;;\nBKPT;;\n"
+    text = "NOP;;\nHALT;;\n"
     assert template.render(text) is text
 
 
@@ -190,7 +190,7 @@ def test_a_deleted_include_is_reported_as_not_found(tmp_path: Path) -> None:
 def test_the_cache_does_not_bypass_define_types() -> None:
     from ipu_as import session
 
-    source = "{#- ipu:params\nx: int\n-#}\n{% for _ in range(x) %}NOP;;\n{% endfor %}BKPT;;\n"
+    source = "{#- ipu:params\nx: int\n-#}\n{% for _ in range(x) %}NOP;;\n{% endfor %}HALT;;\n"
     session.assemble(source, defines={"x": 1})
     with pytest.raises(TemplateError, match="not of type int"):
         session.assemble(source, defines={"x": True})
@@ -205,5 +205,5 @@ def test_an_undefined_name_is_a_template_error_naming_it_and_its_line() -> None:
     # StrictUndefined (E05-11): `{{ lable }}` used to render as "" inside the
     # instruction, and the error surfaced as an operand count far from the cause.
     with pytest.raises(TemplateError, match="'lable' is undefined") as info:
-        template.render("BKPT;;\nBEQ LR0 LR1 {{ lable }};;\n", source_name="k.asm")
+        template.render("HALT;;\nBEQ LR0 LR1 {{ lable }};;\n", source_name="k.asm")
     assert (info.value.location.line, info.value.location.source) == (2, "k.asm")

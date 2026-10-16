@@ -40,7 +40,7 @@ const hoverText = async (uri, at) =>
   (await exec('vscode.executeHoverProvider', uri, at)).map((h) => h.contents.map((c) => c.value || c).join('\n')).join('\n');
 /** Lines ending a `;;` word, but the last. */
 const wordEnds = () => doc.getText().split('\n').map((l, n) => (l.trimEnd().endsWith(';;') ? n : -1)).filter((n) => n >= 0).slice(0, -1);
-const loopText = '{% set r = "lr0" %}\n{% for i in range(2) %}\nSET {{ r }} cr0;;\n{% endfor %}\nBKPT;;\n';
+const loopText = '{% set r = "lr0" %}\n{% for i in range(2) %}\nSET {{ r }} cr0;;\n{% endfor %}\nHALT;;\n';
 
 /** Run `fn` with the `ipuAsm` workspace settings in `settings`, then restore them. */
 async function withSettings(settings, fn) {
@@ -55,8 +55,8 @@ async function withSettings(settings, fn) {
 
 test('mnemonics that fit the word are offered at the start of an instruction, not on a typed space', async () => {
   const names = labels(await completeIn('    \n', 4));
-  for (const m of ['ACC.ADD.FIRST', 'MULT.RC.VE', 'BKPT', 'SET', 'B']) assert(names.includes(m), m);
-  const inWord = labels(await completeIn('BKPT ; \n', 7));
+  for (const m of ['ACC.ADD.FIRST', 'MULT.RC.VE', 'HALT', 'SET', 'B']) assert(names.includes(m), m);
+  const inWord = labels(await completeIn('HALT ; \n', 7));
   assert(!inWord.includes('BEQ') && !inWord.includes('B') && inWord.includes('SET'), 'cond is full');
   // A typed space or newline there opens nothing: Enter would accept a suggestion instead of ending
   // the line. Plain words (kind Text) aside, no mnemonic (Keyword).
@@ -85,10 +85,10 @@ test('a mnemonic brings its operands as tab stops; a {{ name }} shows its value;
   const set = items.find((i) => name(i) === 'SET');
   assert.match(set.insertText.value, /^SET \$\{1:\w+\} \$\{2:\w+\}$/);
   const template = (item) => item.insertText instanceof vscode.SnippetString;
-  assert(!template(items.find((i) => name(i) === 'BKPT')));
+  assert(!template(items.find((i) => name(i) === 'HALT')));
   // Operands already there: the name alone.
   assert(!template((await completeIn('S lr0 cr0;;\n', 1)).find((i) => name(i) === 'SET')));
-  const d = await vscode.window.showTextDocument(await withText('{% set r = "lr0" %}\nSET {{ r }} cr0;;\nend:\n    BKPT;;\n')).then((e) => e.document);
+  const d = await vscode.window.showTextDocument(await withText('{% set r = "lr0" %}\nSET {{ r }} cr0;;\nend:\n    HALT;;\n')).then((e) => e.document);
   const hints = await exec('vscode.executeInlayHintProvider', d.uri, new vscode.Range(0, 0, 4, 0));
   assert.deepStrictEqual(hints.map((h) => [h.label, h.position.line]), [['lr0', 1]]);
   const fadedNow = () => vscode.languages.getDiagnostics(d.uri).filter((x) => x.tags && x.tags.includes(vscode.DiagnosticTag.Unnecessary));
@@ -142,8 +142,8 @@ test('outline lists labels and Jinja names; the header comment folds', async () 
 
 // --- formatting, word separation, typing ------------------------------------------------------------
 
-const messy = 'top: SET lr0 cr0 ;; BKPT;;\n  ACC.ADD.FIRST;\nBKPT;;\n';
-const tidy = 'top:\n    SET lr0 cr0 ;;\n    BKPT;;\n    ACC.ADD.FIRST;\n    BKPT;;\n';
+const messy = 'top: SET lr0 cr0 ;; HALT;;\n  ACC.ADD.FIRST;\nHALT;;\n';
+const tidy = 'top:\n    SET lr0 cr0 ;;\n    HALT;;\n    ACC.ADD.FIRST;\n    HALT;;\n';
 /** `text` after Format Document, or Format Selection on `range`. */
 async function formatted(text, range) {
   const d = await withText(text);
@@ -156,14 +156,14 @@ async function formatted(text, range) {
 }
 
 test('Format Selection formats the selected lines only', async () =>
-  assert.strictEqual(await formatted('  a:\nBKPT;;\nBKPT;; BKPT;;\n', new vscode.Range(1, 0, 1, 6)), '  a:\n    BKPT;;\nBKPT;; BKPT;;\n'));
+  assert.strictEqual(await formatted('  a:\nHALT;;\nHALT;; HALT;;\n', new vscode.Range(1, 0, 1, 6)), '  a:\n    HALT;;\nHALT;; HALT;;\n'));
 
 const none = () => [];
 const spaceGaps = () => { const t = doc.getText().split('\n'); return wordEnds().map((n) => n + 1).filter((n) => t[n].trim()); };
 // [wordSeparation (undefined: the default, "space"), Format Document's result, on-screen gaps (CodeLens), drawn lines]
 for (const [mode, result, gaps, drawn] of [
   [undefined, tidy, spaceGaps, none],
-  ['emptyLine', 'top:\n    SET lr0 cr0 ;;\n\n    BKPT;;\n\n    ACC.ADD.FIRST;\n    BKPT;;\n', none, none],
+  ['emptyLine', 'top:\n    SET lr0 cr0 ;;\n\n    HALT;;\n\n    ACC.ADD.FIRST;\n    HALT;;\n', none, none],
   ['line', tidy, none, wordEnds],
   ['none', tidy, none, none],
 ]) {
@@ -216,8 +216,8 @@ test('Enter after ;; or a label indents the next line; after ;; it leaves an emp
 });
 
 test('typing ;; before more code moves that code to its own word; a label\'s colon outdents it', async () => {
-  const { lines } = await typeIn('SET lr0 cr0 BKPT', ';;', (l) => l.length > 1, new vscode.Position(0, 11));
-  assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    BKPT']);
+  const { lines } = await typeIn('SET lr0 cr0 HALT', ';;', (l) => l.length > 1, new vscode.Position(0, 11));
+  assert.deepStrictEqual(lines(), ['    SET lr0 cr0;;', '    HALT']);
   await typeIn('    top', ':', (l) => l[0] === 'top:');
 });
 
@@ -324,7 +324,7 @@ test('a kernel terminal still running something is never typed into; two runs st
 
 test('the open sidebar follows the editor to the kernel', async () => {
   await exec('workbench.view.extension.ipu');
-  await vscode.window.showTextDocument(await withText('BKPT;;\n'));
+  await vscode.window.showTextDocument(await withText('HALT;;\n'));
   await vscode.window.showTextDocument(doc);
   await until(() => api().view.selection.length && api().view.selection[0].kernel === 'demo_kernel', 'the kernel row selected');
 });

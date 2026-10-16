@@ -6,7 +6,7 @@ Computes C = A × W^T where:
   C: (M=128, N=128) output  — one XMEM row per matrix row (128 accumulators)
 
 K=64 < SIMD width (128): each row of A is zero-padded to a full XMEM row so
-LDR_CYCLIC_MULT_REG (a whole-row load) works unchanged. The inner loop only
+LD.MULT.CYCLIC (a whole-row load) works unchanged. The inner loop only
 accesses cyclic indices 0..63, so the padded zeros are never used.
 
 Weights are stored output-major (FC convention) and transposed during loading:

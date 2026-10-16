@@ -50,7 +50,7 @@
     SET                 lr7 cr7;;
 
 row_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LD.MULT        r0 lr0 cr0;;
 
     SET                 lr4 cr8;;
     SET                 lr5 cr9;;
@@ -68,14 +68,14 @@ row_loop:
     # lr5 shares a word with the MULT that consumes it, so MULT sees the k that
     # lr5 was just advanced to.
     ADD                 lr4 lr4 lr13;;            # lr4 = k=0's offset (0)
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;;           # load T[k=0] (lr4 unchanged this word)
+    LD.MULT.CYCLIC lr4 cr11 lr15;;           # load T[k=0] (lr4 unchanged this word)
     ADD                 lr4 lr4 lr13;
     ADD                 lr5 lr5 lr12;;            # lr4 -> k=1's offset; lr5 -> 0
 
     # Peeled first iteration (k=0): ACC.FIRST seeds the accumulator (replaces RESET_ACC).
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
+    LD.MULT.CYCLIC lr4 cr11 lr15;
     BNE                 lr5 lr6 k_loop_pre;;
     B                   after_k_loop;;
 
@@ -86,18 +86,18 @@ k_loop_pre:
 k_loop:
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG lr4 cr11 lr15;
+    LD.MULT.CYCLIC lr4 cr11 lr15;
     BNE                 lr5 lr6 k_loop_pre;;
 
 after_k_loop:
     ACTIVATE.QUANTIZE identity cr15;
-    STR_POST_AAQ_REG         lr7 cr2;;
+    ST.AAQ         lr7 cr2;;
     ADD                 lr7 lr7 lr14;    # +256: pack N=64 outputs contiguously
     ADD                 lr0 lr0 lr13;;
 
     BREAK;;
 
-    BLT                 lr0 lr1 row_loop;;
+    BLT.S                 lr0 lr1 row_loop;;
 
 end:
-    BKPT;;
+    HALT;;

@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 # row size (128 B narrow, 512 B wide-vector debug). This app runs FP32
 # wide-vector only, so ROW_BYTES is always 512.
 #
-# R_CYCLIC operands (MULT.RC.* ``rc_idx`` reads and LDR_CYCLIC_MULT_REG's
+# R_CYCLIC operands (MULT.RC.* ``rc_idx`` reads and LD.MULT.CYCLIC's
 # ``index`` writes) are ELEMENT-indexed and the ring is 512 elements
 # regardless of mode, so they are already mode-blind and must NOT be
 # rescaled by ROW_BYTES.

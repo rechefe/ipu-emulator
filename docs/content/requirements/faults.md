@@ -29,7 +29,7 @@ Status: **Proposed**. Owner: Yuval Harary.
 | F-1 | A slot holds a reserved opcode or a reserved operand encoding. | CTRL | Halt |
 | F-2 | CTRL fetches at a PC at or beyond the program length, by sequential flow, branch or `BR`. | CTRL | Halt. Needs a program-length register per IMEM bank. |
 | F-3 | Two LR lanes of one word write the same LR. | CTRL | Halt |
-| F-4 | The index of `LDR_CYCLIC_MULT_REG` is not 0, 128, 256 or 384. | CTRL | Halt |
+| F-4 | The index of `LD.MULT.CYCLIC` is not 0, 128, 256 or 384. | CTRL | Halt |
 | F-5 | `ACC.RESHAPE` has a mask above 8, or a participating source or destination index of 128 or more. | CTRL | Halt |
 | F-6 | A load or a store addresses a table that is not configured, or a row beyond the table size. | Cache agent | Halt |
 | F-7 | A load addresses a write-only table, or a store addresses a read-only table. | Cache agent | Halt |
@@ -41,7 +41,7 @@ Reserved encodings for F-1, from the instruction reference:
 | Slot | Reserved encodings |
 |---|---|
 | `COND` | One opcode of the 3-bit field |
-| `LR` | Seven opcodes of the 4-bit field. `k` outside 1 to 9 in `INCR_MOD_POW2`. |
+| `LR` | Seven opcodes of the 4-bit field. `k` outside 1 to 9 in `INC.MODP2`. |
 | `LOAD` | `MultStageReg` values other than `R0` and `R1` |
 | `MULT` | Two opcodes of the 3-bit field. `MultStageReg` values other than `R0` and `R1`. |
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |

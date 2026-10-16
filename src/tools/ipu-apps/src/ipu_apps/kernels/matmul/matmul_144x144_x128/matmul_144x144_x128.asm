@@ -82,7 +82,7 @@
 
     # MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle snapshot while
     # keeping the LR index live (issue #157), so a MULT cannot consume the chunk
-    # that LDR_CYCLIC_MULT_REG loads in its own bundle. `;;` ends one VLIW word
+    # that LD.MULT.CYCLIC loads in its own bundle. `;;` ends one VLIW word
     # = one cycle = one snapshot, so a load and a MULT in the same bundle always
     # run in the same cycle regardless of textual order -- co-issuing is fine,
     # consuming the same-cycle load is not.
@@ -96,13 +96,13 @@
     # k_loop2 must NOT re-prime -- doing so would advance data_ptr an extra step
     # per output channel and drop real work.
     #
-    # k_index keeps its ADD CO-ISSUED with the MULT and the BLT, exactly as
+    # k_index keeps its ADD CO-ISSUED with the MULT and the BLT.S, exactly as
     # before the fix -- moving it into a separate *_pre word would cost a whole
     # extra cycle per contraction step (measured: 43345 -> 84819 cycles), which
     # is the trap this transform has to avoid.
     #
     # Co-issuing still works because both readers keep their original
-    # relationship: MULT reads k_index LIVE (post-ADD) and BLT reads the
+    # relationship: MULT reads k_index LIVE (post-ADD) and BLT.S reads the
     # SNAPSHOT (pre-ADD), so the harness's lr6/lr11 bounds stay valid unchanged.
     # The only adjustment is the STARTING value. The load now runs one bundle
     # ahead, so on the cycle a chunk is multiplied, k_index must name THAT chunk
@@ -112,8 +112,8 @@
     # read as-is; no harness constant changes.
 
 j_loop:
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_LO }};;       # r0[0..127] = W[j, 0..127]
-    LDR_MULT_REG r1 {{ w_ptr }} {{ W_BASE_HI }};;       # r1[0..127] = W[j, 128..143] + zeros
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_LO }};;       # r0[0..127] = W[j, 0..127]
+    LD.MULT r1 {{ w_ptr }} {{ W_BASE_HI }};;       # r1[0..127] = W[j, 128..143] + zeros
 
     # -- token group 0 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG0 }};;           # tg=0 startup offset: -256
@@ -121,26 +121,26 @@ j_loop:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased)
 
     # Prime k=0's chunk for this token group (see the note above j_loop).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
+    BLT.S {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
     B after_k_tg0;;
 
 k_loop1_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
+    BLT.S {{ k_index }} {{ k_bound_r0 }} k_loop1_tg0;;
 
 after_k_tg0:
     # No re-prime: k=128's chunk is already in flight from k_loop1's last
@@ -152,20 +152,20 @@ after_k_tg0:
 k_loop2_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
+    BLT.S {{ k_index }} {{ k_bound_r1 }} k_loop2_tg0;;
 
     # Hardware store path: ACTIVATE.QUANTIZE stages r_acc into post_aaq_reg and
-    # STR_POST_AAQ_REG drains it, CO-ISSUED in ONE VLIW word. AaQ and STR are
+    # ST.AAQ drains it, CO-ISSUED in ONE VLIW word. AaQ and STR are
     # consecutive pipeline stages within a word and the in-word slot order is
     # CTRL -> MULT -> ACC -> AaQ -> STR (docs/content/specs/stage-aaq-str.md
     # section 7.0), so STR consumes this cycle's AaQ result -- the store is free.
     # `identity` + DSTRUCT.valid_elements=128 makes this a lane-for-lane FP32
-    # copy of all 128 lanes, i.e. byte-identical to the STR_ACC_REG it replaces.
+    # copy of all 128 lanes, i.e. byte-identical to the ST.ACC it replaces.
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
 
     # -- token group 1 -------------------------------------------------------
     SET {{ data_ptr }} {{ DATA_START_TG1 }};;           # tg=1 startup offset: -128
@@ -173,26 +173,26 @@ k_loop2_tg0:
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;         # k-loop1 fixed_idx startup: -1 - 1 = -2 (biased)
 
     # Prime k=0's chunk for this token group.
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.ADD.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
+    BLT.S {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
     B after_k_tg1;;
 
 k_loop1_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
+    BLT.S {{ k_index }} {{ k_bound_r0 }} k_loop1_tg1;;
 
 after_k_tg1:
     # No re-prime: k=128's chunk is already in flight (see tg=0).
@@ -203,18 +203,18 @@ after_k_tg1:
 k_loop2_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
+    BLT.S {{ k_index }} {{ k_bound_r1 }} k_loop2_tg1;;
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;  # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};
     ADD {{ j_index }} {{ j_index }} {{ ONE }};;  # next j
-    BLT {{ j_index }} {{ j_limit }} j_loop;;
+    BLT.S {{ j_index }} {{ j_limit }} j_loop;;
 
 end:
-    BKPT;;
+    HALT;;

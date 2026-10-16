@@ -135,7 +135,7 @@ class AttnV16x60App(IpuApp):
         state.regfile.set_cr(4, self.obase_row)
         state.regfile.set_cr(5, PV_STRIDE_ROWS)  # P query / V channel stride (rows)
         state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
-        # Inner bound is count-1: the INC and the BLT share one bundle, so BLT
+        # Inner bound is count-1: the INC and the BLT.S share one bundle, so BLT.S
         # reads the pre-INC snapshot.
         state.regfile.set_cr(9, N_TOK - 1)  # 15: inner-loop bound -> 16 AGG bundles
         state.regfile.set_cr(10, D)  # t count (60)

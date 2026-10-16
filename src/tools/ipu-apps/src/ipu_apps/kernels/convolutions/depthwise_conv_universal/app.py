@@ -75,12 +75,12 @@ if TYPE_CHECKING:
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA: XMEM offset/base operands on LDR_*/STR_*
-# (including LDR_CYCLIC_MULT_REG's offset/base -- only its `index` is
+# (including LD.MULT.CYCLIC's offset/base -- only its `index` is
 # R_CYCLIC-element-space) are ROW numbers, not byte addresses. This app runs
 # FP32 wide-vector only, so ROW_BYTES is always 512.
 #
 # R_CYCLIC ELEMENT addressing is unaffected by row addressing: LR5 (the
-# LDR_CYCLIC_MULT_REG `index`) and LR3/LR4 (MULT.RC.VE `rc_idx` / read-slot
+# LD.MULT.CYCLIC `index`) and LR3/LR4 (MULT.RC.VE `rc_idx` / read-slot
 # rotation) index a 512-ELEMENT ring in both modes, so CR12/CR13/CR9/CR14 in
 # their R_CYCLIC role (slot-size 128, slot-step 256/384) are unchanged.
 
@@ -291,7 +291,7 @@ class DepthwiseConvUniversalApp(IpuApp):
 
         # Parameter CR registers
         state.regfile.set_cr(4, self.cols)
-        # CR6 = group_stride in ROWS (XMEM-space: feeds LDR_CYCLIC_MULT_REG's
+        # CR6 = group_stride in ROWS (XMEM-space: feeds LD.MULT.CYCLIC's
         # offset/base sum via LR2/LR14, and the chunk/loop-limit comparisons).
         state.regfile.set_cr(6, self.group_stride)
         state.regfile.set_cr(7, FPB)  # channel group inner-loop size, in rows

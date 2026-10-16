@@ -19,7 +19,7 @@ The structural differences from L3 are both consequences of N = 64 <= LANES:
   * A query axis fits in ONE row, so the L3 g=0/g=1 query-group split collapses
     to a single group: one ACC chain and one store per (block, channel).
   * All 64 keys of a value channel fit in R0 alone, so the L3 R0++R1 pair
-    (which spanned 256 keys) collapses to a single ``LDR_MULT_REG R0``.
+    (which spanned 256 keys) collapses to a single ``LD.MULT R0``.
 Rows are never shared: each output channel owns a whole 512 B row and the
 teardown crops the valid ``N_TOK``-element prefix.
 
@@ -121,7 +121,7 @@ class AttnVBcast48App(IpuApp):
         state.regfile.set_cr(6, -1)  # key fixed_idx startup
         state.regfile.set_cr(7, P_BLOCK_ROWS)  # 64: P rows per block
         # Loop bound is width-2: the load runs a bundle ahead of the MULT that
-        # consumes it, and the .asm raises this by one in-kernel for the BLT.
+        # consumes it, and the .asm raises this by one in-kernel for the BLT.S.
         state.regfile.set_cr(8, N_TOK - 2)  # 62: key-loop bound (width 64)
         state.regfile.set_cr(10, D)  # 48: channels t per block
         state.regfile.set_cr(11, N_BLOCK)  # 16: (stream, head) blocks

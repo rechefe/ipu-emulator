@@ -349,6 +349,17 @@ py_pytest_test(
     deps = ["//src/tools/ipu-gen:ipu_gen_lib", requirement("pytest")],
 )
 
+# The SV rename table published for the downstream RTL repo (E03-19).
+py_pytest_test(
+    name = "test_sv_rename_table",
+    srcs = ["test/test_sv_rename_table.py"],
+    data = [
+        "test/golden/ipu_instr_pkg.sv",
+        "//docs:doc_sources",
+    ],
+    deps = [requirement("pytest")],
+)
+
 # Generated-artifact snapshots (E02-04): the docs pages, the TextMate grammar,
 # isa.json and the union layout SVG, regenerated in-process and compared byte
 # for byte. `bazel run :update_generated_artifacts` rewrites them.

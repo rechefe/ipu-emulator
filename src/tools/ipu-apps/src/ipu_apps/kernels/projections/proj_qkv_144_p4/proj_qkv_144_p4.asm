@@ -57,7 +57,7 @@
 # FULL_BOUND=126 (width 128) and a harness-supplied TAIL_BOUND (width = K -
 # 128*(chunk_count-1), shape-specific). Each chunk iteration compares its
 # runtime chunk_idx against LAST_CHUNK_IDX and selects the bound register
-# accordingly (bound_sel: BLT chunk_idx LAST_CHUNK_IDX -> full width; else
+# accordingly (bound_sel: BLT.S chunk_idx LAST_CHUNK_IDX -> full width; else
 # tail width) -- this is what makes chunk_count and the tail width purely DATA
 # (harness-loaded registers), so the exact same .asm control-flow text will
 # handle K=288 (proj_ffn2_144_p4, 3 chunks) without new labels, same as this
@@ -65,7 +65,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157) -- same rule as every existing matmul
 # kernel: MULT.RC.VE reads its r_cyclic DATA from the start-of-cycle
-# snapshot, so it cannot consume a chunk LDR_CYCLIC_MULT_REG loads in its own
+# snapshot, so it cannot consume a chunk LD.MULT.CYCLIC loads in its own
 # bundle. Chunk 0 of each (j, tg) primes k=0's row one bundle ahead (startup
 # bias -1 -> -2); every later chunk's first row is already in flight from the
 # previous chunk's trailing prefetch (data pointer never resets within a tg
@@ -155,37 +155,37 @@ j_loop:
     SUB {{ tg0_data_start }} {{ tg0_data_start }} {{ ONE }};;        # -= 1 more: -2 total (N_TG=2 rows/channel bias)
     ADD {{ data_ptr }} {{ tg0_data_start }} {{ ZERO }};;             # data_ptr = tg0 startup
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ ZERO }};;          # chunk0 W row = weight_row_off
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;           # r0 = W[j, chunk0]
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;           # r0 = W[j, chunk0]
     SET {{ k_idx }} {{ NEG_ONE }};;                                  # fixed_idx startup: -1
     SUB {{ k_idx }} {{ k_idx }} {{ ONE }};;                          # biased to -2 (load runs a bundle ahead)
     SET {{ chunk_idx }} {{ ZERO }};;                                 # chunk_idx = 0
 
     # Prime k=0's row for tg0 chunk0 (snapshot contract, see header). data_ptr
     # already holds the ABSOLUTE row, so loads below use base=ZERO (cr0=0).
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     # Peeled first k-iter (k=0): ACC.FIRST seeds r_acc (replaces RESET_ACC).
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
     B tg0_after_chunk0;;
 
 tg0_k_chunk0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} tg0_k_chunk0;;
 
 tg0_after_chunk0:
     INC {{ chunk_idx }} 1;;                                          # chunk_idx = 1
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
     B tg0_store;;
 
     # ---- tg=0 chunk_loop: chunks 1 .. chunk_count-1 (runtime loop) ---------
@@ -194,10 +194,10 @@ tg0_after_chunk0:
     # is never reset), exactly as in the L4/L5 proj_*_p4 family.
 tg0_chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;     # this chunk's W row = weight_row_off + chunk_idx
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
     SET {{ k_idx }} {{ NEG_ONE }};;  # r0 = W[j, this chunk]; fixed_idx reset: -1 (not biased)
 
-    BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg0_use_full_bound;;
+    BLT.S {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg0_use_full_bound;;
     SET {{ bound }} {{ TAIL_BOUND }};;
     B tg0_chunk_body;;
 tg0_use_full_bound:
@@ -206,17 +206,17 @@ tg0_use_full_bound:
 tg0_chunk_body:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ bound }} tg0_chunk_body;;
+    BLT.S {{ k_idx }} {{ bound }} tg0_chunk_body;;
 
     INC {{ chunk_idx }} 1;;
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg0_chunk_loop;;
 
 tg0_store:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ ZERO }};;  # C[p,tg=0,j,:] = R_ACC
+    ST.AAQ {{ out_ptr }} {{ ZERO }};;  # C[p,tg=0,j,:] = R_ACC
 
     # ---- tg=1: chunk 0 (prime + peel first k-iter, ACC.ADD.FIRST) ----------
     # weight_row_off is UNCHANGED here -- tg=1 re-reads the SAME j's weights
@@ -225,42 +225,42 @@ tg0_store:
     SUB {{ tg1_data_start }} {{ tg1_data_start }} {{ ONE }};;        # -1
     ADD {{ data_ptr }} {{ tg1_data_start }} {{ ZERO }};;             # data_ptr = tg1 startup
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ ZERO }};;          # chunk0 W row = weight_row_off
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;           # r0 = W[j, chunk0]
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};;           # r0 = W[j, chunk0]
     SET {{ k_idx }} {{ NEG_ONE }};;
     SUB {{ k_idx }} {{ k_idx }} {{ ONE }};;                          # biased to -2
     SET {{ chunk_idx }} {{ ZERO }};;
 
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};;
 
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
     B tg1_after_chunk0;;
 
 tg1_k_chunk0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
+    BLT.S {{ k_idx }} {{ FULL_BOUND }} tg1_k_chunk0;;
 
 tg1_after_chunk0:
     INC {{ chunk_idx }} 1;;
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
     B tg1_store;;
 
 tg1_chunk_loop:
     ADD {{ chunk_w_ptr }} {{ weight_row_off }} {{ chunk_idx }};;
-    LDR_MULT_REG r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
+    LD.MULT r0 {{ chunk_w_ptr }} {{ WEIGHTS_BASE }};
     SET {{ k_idx }} {{ NEG_ONE }};;
 
-    BLT {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg1_use_full_bound;;
+    BLT.S {{ chunk_idx }} {{ LAST_CHUNK_IDX }} tg1_use_full_bound;;
     SET {{ bound }} {{ TAIL_BOUND }};;
     B tg1_chunk_body;;
 tg1_use_full_bound:
@@ -269,30 +269,30 @@ tg1_use_full_bound:
 tg1_chunk_body:
     MULT.RC.VE {{ rc_slot0 }} {{ k_idx }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ ZERO }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ tg_stride }};
     ADD {{ k_idx }} {{ k_idx }} {{ ONE }};
-    BLT {{ k_idx }} {{ bound }} tg1_chunk_body;;
+    BLT.S {{ k_idx }} {{ bound }} tg1_chunk_body;;
 
     INC {{ chunk_idx }} 1;;
-    BLT {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
+    BLT.S {{ chunk_idx }} {{ CHUNK_COUNT }} tg1_chunk_loop;;
 
 tg1_store:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr_tg1 }} {{ ZERO }};;  # C[p,tg=1,j,:] = R_ACC
+    ST.AAQ {{ out_ptr_tg1 }} {{ ZERO }};;  # C[p,tg=1,j,:] = R_ACC
 
     ADD {{ out_ptr }} {{ out_ptr }} {{ ONE }};;                      # advance tg=0 output ptr, packed (1 row/j)
     ADD {{ out_ptr_tg1 }} {{ out_ptr_tg1 }} {{ ONE }};;              # advance tg=1 output ptr, packed (1 row/j)
 
     ADD {{ weight_row_off }} {{ weight_row_off }} {{ W_STRIDE }};;   # advance to next j's weight base (post both tg blocks)
     INC {{ j_idx }} 1;;
-    BLT {{ j_idx }} {{ N_OUT_CR }} j_loop;;
+    BLT.S {{ j_idx }} {{ N_OUT_CR }} j_loop;;
 
     # ----- next stream: stream D/C bases += stride, p++ -----
     ADD {{ stream_data_base }} {{ stream_data_base }} {{ DATA_STREAM_STR }};;
     ADD {{ stream_out_base }} {{ stream_out_base }} {{ OUT_STREAM_STR }};;
     INC {{ stream_idx }} 1;;
-    BLT {{ stream_idx }} {{ STREAM_COUNT }} stream_loop;;
+    BLT.S {{ stream_idx }} {{ STREAM_COUNT }} stream_loop;;
 
 end:
-    BKPT;;
+    HALT;;

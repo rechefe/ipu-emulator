@@ -26,7 +26,7 @@
 
     MULT reads register snapshots. Prefetch the NEXT weight while multiplying
     the current tap, then load the next descriptor in a separate word.
-    Address arithmetic is live for loads/stores; BLT sees start-of-word LRs.
+    Address arithmetic is live for loads/stores; BLT.S sees start-of-word LRs.
     The final tap never prefetches beyond the input/weights allocation.
 -#}
     SET lr0 cr0 ; SET lr1 cr0 ; SET lr6 cr0 ;;
@@ -41,26 +41,26 @@ pixel_loop:
     SET lr5 cr0 ;;
 channel_loop:
     ADD lr11 lr6 lr5 ; ADD lr12 lr7 cr0 ;;
-    LDR_MULT_REG r0 lr12 cr4 ;;
-    LDR_CYCLIC_MULT_REG lr11 cr2 lr0 ;;
+    LD.MULT r0 lr12 cr4 ;;
+    LD.MULT.CYCLIC lr11 cr2 lr0 ;;
 {% for tap in range(8) %}
     ADD lr11 lr11 {{ 'cr6' if tap in (2,5) else 'cr9' }} ;
     ADD lr12 lr12 cr1 ;
-    LDR_MULT_REG r0 lr12 cr4 ;
+    LD.MULT r0 lr12 cr4 ;
     MULT.RC.VE lr0 lr9 0 lr0 cr15 ;
     {{ 'ACC.ADD.FIRST' if tap == 0 else 'ACC.ADD' }} ;;
-    LDR_CYCLIC_MULT_REG lr11 cr2 lr0 ;;
+    LD.MULT.CYCLIC lr11 cr2 lr0 ;;
 {% endfor %}
     ADD lr5 lr5 cr1 ;
     MULT.RC.VE lr0 lr9 0 lr0 cr15 ; ACC.ADD ;
-    ACTIVATE.QUANTIZE identity cr15 ; STR_POST_AAQ_REG lr10 cr3 ;;
-    ADD lr10 lr10 cr1 ; BLT lr5 cr9 channel_loop ;;
+    ACTIVATE.QUANTIZE identity cr15 ; ST.AAQ lr10 cr3 ;;
+    ADD lr10 lr10 cr1 ; BLT.S lr5 cr9 channel_loop ;;
     ADD lr4 lr4 cr1 ; ADD lr9 lr9 cr1 ;;
-    BLT lr4 cr10 pixel_loop ;;
+    BLT.S lr4 cr10 pixel_loop ;;
     ADD lr3 lr3 cr1 ; ADD lr10 lr10 cr11 ;;
-    BLT lr3 cr10 phase_row_loop ;;
+    BLT.S lr3 cr10 phase_row_loop ;;
     ADD lr2 lr2 cr1 ; ADD lr6 lr6 cr9 ; ADD lr7 lr7 cr13 ;;
-    INC lr8 16 ; BLT lr2 cr7 cell_loop ;;
+    INC lr8 16 ; BLT.S lr2 cr7 cell_loop ;;
     ADD lr1 lr1 cr1 ; INC lr6 4 ; ADD lr8 lr8 cr12 ;;
-    BLT lr1 cr8 row_loop ;;
-    BKPT ;;
+    BLT.S lr1 cr8 row_loop ;;
+    HALT ;;

@@ -15,7 +15,7 @@ start:
 
 // A label may follow `;;` on the same line: compounds are separated by `;;`,
 // not by newlines, so anchoring labels to start-of-line misses this one.
-    BKPT;; mid_line: BKPT;;
+    HALT;; mid_line: HALT;;
 
 // A label may be spelled like a mnemonic or a register. These are ordinary
 // identifiers in label position; the keyword terminals must not claim them.
@@ -47,13 +47,13 @@ lr0:
     BEQ lr0 lr1 lr0_scratch ;;
 
 bne_target:
-    BKPT ;;
+    HALT ;;
 lr0_scratch:
-    BKPT ;;
+    HALT ;;
 
 // Jinja renders before the parser sees anything, comments included, so a
 // template inside an assembly comment is live code and must be coloured as
 // Jinja, not hidden in the comment colour.
 # row {{ 1 + 1 }} of {% if true %}2{% endif %}
 // note {{ "x" }} {# a Jinja comment inside an assembly one #}
-    BKPT ;;
+    HALT ;;

@@ -7,4 +7,4 @@
     ADDBI lrd2 +0b101 ;;
     ADDBI lrd4 -0o17 ;;
     ADDBI lrd6 0x_7f ;;
-    BKPT ;;
+    HALT ;;

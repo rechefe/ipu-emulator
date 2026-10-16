@@ -240,6 +240,19 @@ py_pytest_test(
     ],
 )
 
+# Faithful and packed operand resolvers agree on every plan (E04-10).
+py_pytest_test(
+    name = "test_resolver",
+    srcs = ["test/test_resolver.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_test_support",
+        ":ipu_emu_lib",
+        "//src/tools/ipu-isa:ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_stats",
     srcs = ["test/test_stats.py"],

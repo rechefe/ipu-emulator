@@ -37,13 +37,13 @@ two sources, and it is worth being precise about which is which:
   `instruction_spec.py` and the register enums.
 
 The vocabulary cannot come from the parser: `asm_grammar.lark` has a single
-catch-all `TOKEN` terminal, so the parser genuinely does not distinguish `BKPT`
+catch-all `TOKEN` terminal, so the parser genuinely does not distinguish `HALT`
 from `lr0` from `my_label`. Neither layer is written by hand; both are
 enumerated.
 
 This matters because the previous, hand-written grammar drifted from the
 language: it coloured `BEQ lr0, cr0, +1;;` as valid (commas are a lex error) and
-failed to recognise `end:` in `BKPT;; end: BKPT;;` as a label. Nothing detected
+failed to recognise `end:` in `HALT;; end: HALT;;` as a label. Nothing detected
 either, because nothing compared the grammar to the parser. That is what the
 agreement test below now does.
 
@@ -212,7 +212,7 @@ covering all three stages:
 |---|---|---|
 | template | `{% for x in %}` | the template line |
 | parse | `BEQ lr0, cr0, +1;;` | the comma |
-| encode | `BGT lr0 lr1;;`, `mac.ee r0;;` | the mnemonic |
+| encode | `BGT.S lr0 lr1;;`, `mac.ee r0;;` | the mnemonic |
 
 Templates render in Jinja's sandbox, as the assembler does, because a file is
 checked as soon as it opens; in Restricted Mode nothing is checked at all (see

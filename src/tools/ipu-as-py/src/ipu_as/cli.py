@@ -12,6 +12,7 @@ import tomli
 
 from ipu_as import diagnostics, lark_tree, session, template
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_isa.codec.slot import ReservedEncoding
 
 
 def _exit_with(error: AssemblerError) -> NoReturn:
@@ -207,7 +208,7 @@ def disassemble(input: str, output: str, format: str | None, target: str):
             lark_tree.disassemble_from_mem_file(input, output, target)
     except AssemblerError as error:
         _exit_with(error)
-    except IndexError:
+    except ReservedEncoding:
         # A slot holds an opcode no instruction has: most often a file of the
         # other target's words.
         click.echo(f"Error disassembling: {input} is not a file of {target} words")

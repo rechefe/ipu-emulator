@@ -1,7 +1,7 @@
 """Wide-vector debug mode (GitHub issue #33).
 
 XMEM transfer sizes stay architectural (128-byte loads for r in normal mode);
-in wide-vector mode ``LDR_MULT_REG`` / ``LDR_CYCLIC_MULT_REG`` consume 512 bytes
+in wide-vector mode ``LD.MULT`` / ``LD.MULT.CYCLIC`` consume 512 bytes
 per transfer as 128×32-bit elements. LR/CR are unchanged.
 """
 
@@ -30,11 +30,11 @@ class TestWideVectorFp32:
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
         state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
         state.regfile.set_cr(7, 0x2000 // 512)
@@ -53,13 +53,13 @@ BKPT;;
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE.QUANTIZE identity cr15;;
-BKPT;;
+HALT;;
 """,
             cr={6: 0x1000 // 512, 7: 0x2000 // 512, 8: 0, 9: 128},
             fmt=ElementFormat.FP32,
@@ -78,13 +78,13 @@ BKPT;;
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
 SET lr0 cr9;;
 ACTIVATE.QUANTIZE identity cr15;;
-BKPT;;
+HALT;;
 """
         state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
         state.regfile.set_cr(7, 0x2000 // 512)
@@ -108,11 +108,11 @@ class TestWideVectorInt32:
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
         state.regfile.set_cr(6, 0x1000 // 512)  # row number (debug row = 512 B)
         state.regfile.set_cr(7, 0x2000 // 512)
@@ -152,12 +152,12 @@ SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
 SET lr3 cr9;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_MULT_REG r1 lr1 cr0;;
-LDR_CYCLIC_MULT_REG lr2 cr0 lr3;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT r1 lr1 cr0;;
+LD.MULT.CYCLIC lr2 cr0 lr3;;
 MULT.RC.VV lr3 {which} 0 lr3 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
             load_program(st, assemble_program(asm))
             run_until_complete(st)
@@ -168,7 +168,7 @@ BKPT;;
 
 
 class TestWideVectorCyclicIndex:
-    """``LDR_CYCLIC_MULT_REG`` writes must land on one of the four element-index
+    """``LD.MULT.CYCLIC`` writes must land on one of the four element-index
     slot boundaries (0/128/256/384) in wide-vector debug mode too -- writes only
     ever replace a whole slot, in either mode. A non-boundary index still raises;
     it is no longer restricted to index=0 (r_cyclic's 4-slot ring exists in debug
@@ -183,8 +183,8 @@ class TestWideVectorCyclicIndex:
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         with pytest.raises(EmulatorError, match="index must be one of"):
@@ -201,8 +201,8 @@ BKPT;;
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -216,7 +216,7 @@ class TestWideVectorWrap:
     """RC reads wrap after the 512th ELEMENT (byte 2048 in debug/FP32 -- 4 B/element),
     the same 512-element wrap as narrow mode, just at a different byte count (#180).
     Reads are allowed at any element index and may cross a slot boundary; only
-    LDR_CYCLIC_MULT_REG's WRITES are restricted to the four slot boundaries."""
+    LD.MULT.CYCLIC's WRITES are restricted to the four slot boundaries."""
 
     def test_mult_rc_ve_fp32_cr_scalar_wraps(self) -> None:
         # rc_idx=480 elements (aligned to a 4-byte lane, not a slot boundary --
@@ -236,7 +236,7 @@ SET lr0 cr6;;
 SET lr2 cr7;;
 MULT.RC.VE lr0 cr2 0 lr2 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -262,13 +262,13 @@ BKPT;;
         st.regfile.set_cr(8, 0)
         asm = """\
 SET lr4 cr10;;
-LDR_MULT_REG r0 lr4 cr0;;
+LD.MULT r0 lr4 cr0;;
 SET lr0 cr6;;
 SET lr2 cr7;;
 SET lr3 cr8;;
 MULT.RC.VE lr0 lr2 0 lr3 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -281,7 +281,7 @@ BKPT;;
 
 class TestWideVectorRcIdxElementAddressing:
     """rc_idx (MULT.RC.* operand) is an ELEMENT index into r_cyclic, the same
-    unit as LDR_CYCLIC_MULT_REG's index (issue #182 follow-up). Regression
+    unit as LD.MULT.CYCLIC's index (issue #182 follow-up). Regression
     coverage for the softmax_rows_partial Pass 4 bug: a reverse-slide placement
     computed as (RING_ELEMENTS - k) must land at r_cyclic element 0 data, not
     at a stale/unwritten byte offset from treating rc_idx as a byte quantity
@@ -302,7 +302,7 @@ class TestWideVectorRcIdxElementAddressing:
         asm = """\
 SET lr0 cr6;;
 MULT.RC.VE lr0 cr1 0 lr0 cr15;;
-BKPT;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -327,7 +327,7 @@ BKPT;;
         asm = """\
 SET lr0 cr6;;
 MULT.RC.VE lr0 cr1 0 lr0 cr15;;
-BKPT;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -351,7 +351,7 @@ class TestWideVectorAgg:
         """AGG.SUM.FIRST with INT32 wide elements: 128×4 = 512 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
-        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.INT32, mult_res)
+        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.INT32, mult_res)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
 
@@ -359,7 +359,7 @@ class TestWideVectorAgg:
         """AGG.SUM.FIRST with FP32 wide elements: 128×0.5 = 64.0 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
-        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
+        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
@@ -372,7 +372,7 @@ class TestWideVectorAgg:
         st.set_cr_dstructure(128)
         st.regfile.set_lr(0, 127)  # dest = r_acc lane 127
         struct.pack_into("<i", st.regfile.mutable("r_acc"), 127 * 4, 1000)
-        load_program(st, assemble_program("AGG.SUM LR0 cr15;;\nBKPT;;\n"))
+        load_program(st, assemble_program("AGG.SUM LR0 cr15;;\nHALT;;\n"))
         run_until_complete(st)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 1512
@@ -382,7 +382,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)
-        st = self._run_agg("AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
+        st = self._run_agg("AGG.MAX.FIRST LR0 cr15;;\nHALT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.mutable("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
 
@@ -405,11 +405,11 @@ class TestWideVectorAlignment:
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr9;;
 MULT.RC.VV lr3 r0 0 lr3 cr15;;
-BKPT;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
@@ -457,7 +457,7 @@ class TestElementAndRowSizeHelpers:
 
 class TestWideVectorCyclicFourSlotRing:
     """r_cyclic's 4-slot ring (element boundaries 0/128/256/384) exists in debug
-    mode exactly as in narrow mode -- LDR_CYCLIC_MULT_REG writes one slot at a
+    mode exactly as in narrow mode -- LD.MULT.CYCLIC writes one slot at a
     time; MULT.RC.* reads may start at any element index, including ones that
     cross a slot boundary (#180)."""
 
@@ -470,8 +470,8 @@ class TestWideVectorCyclicFourSlotRing:
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """
         load_program(st, assemble_program(asm))
         st.program_counter = 0  # reusing st across multiple runs -- rewind PC each time
@@ -525,7 +525,7 @@ class TestWindowActivationFp32:
         acc = state.regfile.mutable("r_acc")
         for i, x in enumerate((0.0, 0.05, -0.01, 0.1)):
             struct.pack_into("<f", acc, i * 4, x)
-        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n"))
+        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nHALT;;\n"))
         run_until_complete(state)
 
         result = state.regfile.get_post_aaq_reg()
@@ -542,7 +542,7 @@ class TestWindowActivationFp32:
         acc = state.regfile.mutable("r_acc")
         for i, x in enumerate((0.2, 0.25, 0.75)):
             struct.pack_into("<f", acc, i * 4, x)
-        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nBKPT;;\n"))
+        load_program(state, assemble_program("ACTIVATE.QUANTIZE window cr15;;\nHALT;;\n"))
         run_until_complete(state)
 
         result = state.regfile.get_post_aaq_reg()

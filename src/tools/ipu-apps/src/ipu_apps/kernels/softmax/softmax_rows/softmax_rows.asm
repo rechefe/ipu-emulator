@@ -60,27 +60,27 @@
 group_loop:
 {#- ---- exact group size: lr_bound = min(128, total_rows - rows_done) ------ -#}
     SUB {{lr_bound}} {{lr_total}} {{lr_done}} ;;         {#- bound = remaining = total - done (>=1) -#}
-    BLT {{lr_bound}} cr9 group_size_set ;;               {#- if remaining < 128, keep it ... -#}
+    BLT.S {{lr_bound}} cr9 group_size_set ;;               {#- if remaining < 128, keep it ... -#}
     SET {{lr_bound}} cr9 ;;                              {#- ... else cap bound = 128 -#}
 group_size_set:
 
 {#- ===================================================================== -#}
 {#- PASS 1 -- maxvec[r] = max_j (c * x[r, j]).  No row written.            -#}
 {#- ===================================================================== -#}
-    LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT.CYCLIC {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
     ADD {{lr_off}} {{lr_gbase}} cr0 ;                   {#- working offset = group base (SET takes CR only) -#}
     SET {{lr_row}} cr0 ;;
 
 pass1_loop:
-    LDR_MULT_REG  r0 {{lr_off}} cr10 ;;                 {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
+    LD.MULT  r0 {{lr_off}} cr10 ;;                 {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
     MULT.RC.VV    {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;          {#- mult_res = c*x[r] -#}
     AGG.MAX.FIRST {{lr_row}} cr15 ;;                       {#- r_acc[r] = max element -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} pass1_loop ;;
+    BLT.S {{lr_row}} {{lr_bound}} pass1_loop ;;
 
     ACTIVATE.QUANTIZE identity cr15;                     {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                  {#- MAXVEC_ADDR <- maxvec -#}
+    ST.AAQ {{lr_cyc}} cr5 ;;                  {#- MAXVEC_ADDR <- maxvec -#}
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[r] = 2^(c*x[r] - maxvec[r]).  Writes NUM region.         -#}
@@ -88,28 +88,28 @@ pass1_loop:
 {#-   k+1: mult_res = maxvec[r] (x CR1=1.0); ACC.SUB -> r_acc - maxvec[r]  -#}
 {#-   k+2: ACTIVATE exp2 (reads r_acc snapshot); store num[r]              -#}
 {#- ===================================================================== -#}
-    LDR_CYCLIC_MULT_REG {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
-    LDR_MULT_REG r1 {{lr_cyc}} cr5 ;;                   {#- R1 = maxvec row (resident; all rows) -#}
+    LD.MULT.CYCLIC {{lr_cyc}} cr3 {{lr_cyc}} ;;   {#- r_cyclic = C_VEC -#}
+    LD.MULT r1 {{lr_cyc}} cr5 ;;                   {#- R1 = maxvec row (resident; all rows) -#}
     ADD {{lr_off}} {{lr_gbase}} cr0 ;
     ADD {{lr_wr}}  {{lr_gbase}} cr0 ;
     SET {{lr_row}} cr0 ;;
     SET {{lr_max_idx}} cr9 ;;                           {#- lr_max_idx = 128 (R1[0] = maxvec[0]); CR9 = 128 -#}
 
 pass2_loop:
-    LDR_MULT_REG r0 {{lr_off}} cr10 ;;                   {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
+    LD.MULT r0 {{lr_off}} cr10 ;;                   {#- R0 = x[r] (snapshot: visible NEXT cycle, issue #157) -#}
     MULT.RC.VV   {{lr_cyc}} r0 0 {{lr_cyc}} cr15 ;           {#- mult_res = c*x[r] -#}
     acc.add.first ;;                                         {#- r_acc = c*x[r] -#}
 
     MULT.EE {{lr_max_idx}} cr1 0 {{lr_cyc}} cr15 ;           {#- mult_res = maxvec[r]*1.0 -#}
     acc.sub ;                                                {#- r_acc = c*x[r] - maxvec[r] -#}
     ACTIVATE.QUANTIZE exp2 cr15;                             {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_wr}} cr4 ;;                    {#- NUM[r] = 2^(...) -#}
+    ST.AAQ {{lr_wr}} cr4 ;;                    {#- NUM[r] = 2^(...) -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_wr}} {{lr_wr}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
     ADD {{lr_max_idx}} {{lr_max_idx}} cr1 ;;             {#- next maxvec element -#}
-    BLT {{lr_row}} {{lr_bound}} pass2_loop ;;
+    BLT.S {{lr_row}} {{lr_bound}} pass2_loop ;;
 
 {#- ===================================================================== -#}
 {#- PASS 3 -- sumvec[r] = SUM_j num[r,j]; rvec = 1/sumvec.  Staged.        -#}
@@ -119,34 +119,34 @@ pass2_loop:
     SET {{lr_row}} cr0 ;;
 
 pass3_loop:
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
     MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;         {#- mult_res = num[r]*1.0 -#}
     AGG.SUM.FIRST {{lr_row}} cr15 ;;                        {#- r_acc[r] = SUM num[r] -#}
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} pass3_loop ;;
+    BLT.S {{lr_row}} {{lr_bound}} pass3_loop ;;
 
     ACTIVATE.QUANTIZE reciprocal cr15;                   {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                   {#- RVEC_ADDR <- 1/sum -#}
+    ST.AAQ {{lr_cyc}} cr6 ;;                   {#- RVEC_ADDR <- 1/sum -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[r] = num[r] * rvec[r].  Writes OUTPUT region.            -#}
 {#-   r_cyclic = num[r]; R0 = rvec row; broadcast rvec[r] via LR-element.  -#}
 {#- ===================================================================== -#}
-    LDR_MULT_REG r0 {{lr_cyc}} cr6 ;;                    {#- R0 = rvec row (resident; elem r = rvec[r]) -#}
+    LD.MULT r0 {{lr_cyc}} cr6 ;;                    {#- R0 = rvec row (resident; elem r = rvec[r]) -#}
     ADD {{lr_off}} {{lr_gbase}} cr0 ;
     SET {{lr_row}} cr0 ;;
 
 pass4_loop:
-    LDR_CYCLIC_MULT_REG {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
+    LD.MULT.CYCLIC {{lr_off}} cr4 {{lr_cyc}} ;;    {#- r_cyclic = num[r] (snapshot: visible NEXT cycle) -#}
     MULT.RC.VE   {{lr_cyc}} {{lr_row}} 0 {{lr_cyc}} cr15 ;   {#- mult_res = num[r]*rvec[r] -#}
     acc.add.first ;
     ACTIVATE.QUANTIZE identity cr15;                     {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_off}} cr2 ;;                   {#- OUT[r] = softmax row -#}
+    ST.AAQ {{lr_off}} cr2 ;;                   {#- OUT[r] = softmax row -#}
 
     ADD {{lr_off}} {{lr_off}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} pass4_loop ;;
+    BLT.S {{lr_row}} {{lr_bound}} pass4_loop ;;
 
 {#- ---- advance: rows_done += bound; loop while done < total -------------- -#}
 {#- After Pass 4, lr_off = gbase + bound*512 (it stepped once per row), which -#}
@@ -154,7 +154,7 @@ pass4_loop:
 {#- has no multiply). Copy it into lr_gbase. -#}
     ADD {{lr_done}} {{lr_done}} {{lr_bound}} ;            {#- rows_done += this group -#}
     ADD {{lr_gbase}} {{lr_off}} cr0 ;;                   {#- next gbase = end of this group -#}
-    BLT {{lr_done}} {{lr_total}} group_loop ;;
+    BLT.S {{lr_done}} {{lr_total}} group_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;
