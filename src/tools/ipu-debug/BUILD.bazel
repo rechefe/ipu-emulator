@@ -64,6 +64,7 @@ py_pytest_test(
     imports = ["src"],
     deps = [
         ":ipu_debug_lib",
+        "//src/tools/ipu-as-py:ipu_as_lib",  # assembles the programs it views
         requirement("pytest"),
     ],
 )
