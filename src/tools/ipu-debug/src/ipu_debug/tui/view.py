@@ -8,7 +8,6 @@ handlers through ``ipu_debug.tui.keymap``.
 
 from __future__ import annotations
 
-import locale
 import re
 import struct
 import textwrap
@@ -17,7 +16,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ipu_debug import format as debug_format
 from ipu_debug.control import DebugControl
 from ipu_debug.format import (
     CELL16_BACKGROUND_SHIFT,
@@ -39,13 +37,26 @@ from ipu_debug.pipeline import (
     pipeline_occupancy,
     semantic_operations,
 )
-from ipu_debug.session import (
-    XMEM_FORMAT_ITEM_SIZE_BYTES,
-    XMEM_FORMATS,
-    DebugError,
-    DebugSession,
-    XmemRequest,
-    XmemWindow,
+from ipu_debug.session import DebugSession
+from ipu_debug.tui.draw import (
+    BITS_PER_REGISTER,
+    PANE_CONTENT_INDENT,
+    PANE_CONTENT_MARGIN,
+    SCROLLBAR_COLUMNS,
+    Canvas,
+    Glyphs,
+    Palette,
+    Theme,
+    detect_glyphs,
+    fit_segments,
+    format_bits,
+)
+from ipu_debug.tui.editor import (
+    EditedValue,
+    TabTarget,
+    scalar_editor,
+    tab_editor,
+    value_editor,
 )
 from ipu_debug.tui.keymap import (
     KEY_BINDINGS,
@@ -60,13 +71,23 @@ from ipu_debug.tui.keymap import (
     help_lines,
     lookup,
 )
-from ipu_debug.tui.pane import LegacyPane, Line, LineRecorder, Outcome, Pane, Rect
+from ipu_debug.tui.pane import (
+    Editor,
+    LegacyPane,
+    Line,
+    LineRecorder,
+    Outcome,
+    Pane,
+    Rect,
+    Reply,
+)
+from ipu_debug.tui.panes import xmem as xmem_pane
+from ipu_debug.tui.panes.xmem import XMEM_NON_CONTENT_ROWS, XmemPane, XmemTab
 from ipu_debug.tui.screen import (
     Input,
     Key,
     MouseEvent,
     Screen,
-    Style,
     overlay_style,
     run_in_terminal,
     terminal_available,
@@ -74,7 +95,6 @@ from ipu_debug.tui.screen import (
 from ipu_debug.tui.tabs import TabSet
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
-from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
@@ -92,14 +112,9 @@ MIN_PIPELINE_COLUMNS = 42
 # last on a border; the disassembly and register panes spend one more on a
 # column header.  The constants keep the drawing code and the cursor arithmetic
 # reading from the same numbers.
-XMEM_NON_CONTENT_ROWS = 3
 PIPELINE_NON_CONTENT_ROWS = 3
 DISASSEMBLY_NON_CONTENT_ROWS = 4
 REGISTER_NON_CONTENT_ROWS = 4
-# One content column on the right of a vertically scrollable pane is always
-# reserved for its scroll thumb, so the layout never reflows when the thumb
-# appears or disappears.
-SCROLLBAR_COLUMNS = 1
 _SCALAR_REGISTER_COUNTS = {
     descriptor.name: descriptor.count
     for descriptor in REGFILE_SCHEMA
@@ -126,16 +141,9 @@ EDITOR_HEIGHT = 7
 REGISTER_LABEL_WIDTH = len("L00 ")
 REGISTER_MIN_GUTTER = 2
 REGISTER_MAX_GUTTER = 4
-# Content starts this far inside a pane's left border and stops one column
-# short of the right one, so no value is ever painted against a frame.
-PANE_CONTENT_INDENT = 2
-PANE_CONTENT_MARGIN = 1
-# Border columns kept between a pane title and a readout sharing its row.
-TITLE_READOUT_GAP = 2
 REGISTER_GROUPS = ("lr", "cr")
 PIPELINE_PAGE_FRACTION_NUMERATOR = 2
 PIPELINE_PAGE_FRACTION_DENOMINATOR = 5
-BITS_PER_REGISTER = 32
 EMPTY_DISASSEMBLY_OPERATIONS = ("<nop>", "<NOP>", "NOP")
 # Parallel slots are stacked under their instruction and marked the way VLIW
 # assembly listings mark them, rather than run out across the pane.
@@ -162,12 +170,6 @@ PIPELINE_REGISTER_FORMATS = (
     "f32",
     "bits",
 )
-# A value made only of these characters is zero-padded rather than signed or
-# fractional, so a leading run of zeros in it carries no information.
-_PADDED_VALUE_CHARACTERS = frozenset("0123456789abcdef")
-# Narrow values such as a single hex byte are left alone: splitting ``01`` into
-# a dim and a bright half is more noise than help.
-MIN_PADDED_VALUE_WIDTH = 4
 _SCALAR_FORMAT_VALUE_WIDTHS = {
     "hex": 8,
     "u32": 10,
@@ -186,95 +188,12 @@ BORDER_DOWN = 4
 BORDER_LEFT = 8
 
 
-@dataclass(frozen=True)
-class Glyphs:
-    """The drawing characters for one terminal capability level."""
-
-    box: tuple[str, ...]
-    thumb: str
-    separator: str
-    current_row: str
-    normal_row: str
-    more_before: str
-    more_after: str
-    ellipsis: str
-
-
-UNICODE_GLYPHS = Glyphs(
-    box=(
-        " ",
-        "\u2502",
-        "\u2500",
-        "\u2514",
-        "\u2502",
-        "\u2502",
-        "\u250c",
-        "\u251c",
-        "\u2500",
-        "\u2518",
-        "\u2500",
-        "\u2534",
-        "\u2510",
-        "\u2524",
-        "\u252c",
-        "\u253c",
-    ),
-    thumb="\u2588",
-    separator="\u00b7",
-    current_row="\u25b6",
-    normal_row=" ",
-    more_before="\u2039",
-    more_after="\u203a",
-    ellipsis="\u2026",
-)
-ASCII_GLYPHS = Glyphs(
-    box=(
-        " ",
-        "|",
-        "-",
-        "+",
-        "|",
-        "|",
-        "+",
-        "+",
-        "-",
-        "+",
-        "-",
-        "+",
-        "+",
-        "+",
-        "+",
-        "+",
-    ),
-    thumb="#",
-    separator="|",
-    current_row=">",
-    normal_row=" ",
-    more_before="<",
-    more_after=">",
-    ellipsis="...",
-)
-
-
 def register_grid_rows(content_rows: int) -> int:
     """The tallest register-grid shape that fits in *content_rows*."""
     for rows in REGISTER_GRID_ROWS:
         if rows <= content_rows:
             return rows
     return min(REGISTER_GRID_ROWS)
-
-
-def _detect_glyphs() -> Glyphs:
-    """Use box-drawing characters only when the terminal encoding accepts them."""
-    encoding = locale.getpreferredencoding(False) or "ascii"
-    try:
-        "".join(UNICODE_GLYPHS.box).encode(encoding)
-        (UNICODE_GLYPHS.thumb + UNICODE_GLYPHS.separator).encode(encoding)
-        (UNICODE_GLYPHS.current_row + UNICODE_GLYPHS.ellipsis).encode(encoding)
-        (UNICODE_GLYPHS.more_before + UNICODE_GLYPHS.more_after).encode(encoding)
-    except (LookupError, UnicodeEncodeError):
-        return ASCII_GLYPHS
-    return UNICODE_GLYPHS
 
 
 FOOTER_PANE_LABELS = {
@@ -308,24 +227,6 @@ PIPELINE_REGISTERS = (
 )
 _PIPELINE_WORD_REGISTERS = frozenset({"r_acc", "mult_res"})
 _PIPELINE_WIDE_VALUE_REGISTERS = frozenset({"r0", "r1", "r_cyclic"} | _PIPELINE_WORD_REGISTERS)
-
-
-@dataclass
-class XmemTab:
-    """One symbolic XMEM request and its persistent presentation state."""
-
-    request: XmemRequest
-    scroll: int = 0
-    baseline_key: tuple[int, int, str, int] | None = None
-    baseline_data: bytes | None = None
-    cursor_line: int = 0
-    cursor_column: int = 0
-    horizontal_scroll: int = 0
-
-    @property
-    def title(self) -> str:
-        request = self.request
-        return f"{request.mode}:{request.base_token}+{request.offset_token} {request.fmt}"
 
 
 @dataclass
@@ -473,17 +374,7 @@ class DebugViewSession:
     def ensure_default_tab(self, state: IpuState) -> None:
         fresh = not self.initialized
         if fresh and not self.xmem.tabs:
-            numeric = (
-                "f32"
-                if state.wide_vector_debug and state.wide_vector_arithmetic.value == "fp32"
-                else "int8"
-            )
-            if state.wide_vector_debug and state.wide_vector_arithmetic.value == "int32":
-                numeric = "u32"
-            self.xmem.tabs.extend(
-                XmemTab(XmemRequest("row", "0", "0", xmem_row_size_bytes(state), fmt))
-                for fmt in ("hex", numeric)
-            )
+            self.xmem.tabs.extend(xmem_pane.default_tabs(state))
         if not self.disassembly.tabs:
             self.disassembly.tabs.extend(
                 DisassemblyTab(fmt=fmt) for fmt in (DISASSEMBLY_FORMATS if fresh else ("compact",))
@@ -515,15 +406,7 @@ class DebugViewSession:
             spec = _pipeline_spec(tab.register_key)
             tab.baseline_key = spec.key
             tab.baseline_data = _read_pipeline_register(state, spec)
-        for tab in self.xmem:
-            try:
-                resolved = debug.read_xmem(tab.request)
-            except DebugError:
-                tab.baseline_key = None
-                tab.baseline_data = None
-                continue
-            tab.baseline_key = _resolved_key(resolved)
-            tab.baseline_data = resolved.data
+        xmem_pane.commit_baselines(debug, self.xmem)
 
 
 def new_debug_view_session(state: IpuState) -> DebugViewSession:
@@ -532,15 +415,6 @@ def new_debug_view_session(state: IpuState) -> DebugViewSession:
     session = DebugViewSession()
     session.ensure_default_tab(state)
     return session
-
-
-def _resolved_key(resolved: XmemWindow) -> tuple[int, int, str, int]:
-    return (
-        resolved.byte_address,
-        resolved.byte_count,
-        resolved.request.fmt,
-        resolved.row_size,
-    )
 
 
 def _read_pipeline_register(
@@ -587,81 +461,6 @@ def _pipeline_spec(register_key: str) -> PipelineRegisterSpec:
     return next(spec for spec in PIPELINE_REGISTERS if spec.key == register_key)
 
 
-def _compact_color_set(colors: set[int]) -> str:
-    if colors == set(range(16)):
-        return "0-f"
-    if len(colors) <= 4:
-        return "/".join(f"{color:x}" for color in sorted(colors))
-    return f"{len(colors)} values"
-
-
-def _cell16_color_summary(data: bytes) -> str:
-    foregrounds: set[int] = set()
-    backgrounds: set[int] = set()
-    for offset in range(0, len(data), 2):
-        cell = struct.unpack_from("<H", data, offset)[0]
-        foregrounds.add((cell >> CELL16_FOREGROUND_SHIFT) & CELL16_COLOR_MASK)
-        backgrounds.add((cell >> CELL16_BACKGROUND_SHIFT) & CELL16_COLOR_MASK)
-    return f"fg={_compact_color_set(foregrounds)} bg={_compact_color_set(backgrounds)}"
-
-
-class Palette:
-    """The style of each kind of text, with monochrome fallbacks."""
-
-    def __init__(self, screen: Screen) -> None:
-        self._screen = screen
-        self.enabled = screen.has_colors
-        bold = Style.BOLD
-        self.current = bold
-        # Emphasis is layered, so no two of these may be the same attribute:
-        # ``changed`` marks a value, ``selected`` the cursor under it, and
-        # ``focus`` the frame of the pane they are in.
-        self.changed = bold | Style.UNDERLINE
-        self.selected = int(Style.REVERSE)
-        # Every pane shows where its cursor is; only the focused one shows it
-        # at full strength.
-        self.cursor = Style.REVERSE | Style.DIM
-        self.header = int(bold)
-        self.paused = bold | Style.REVERSE
-        self.breakpoint = int(self.changed)
-        self.pc_marker = int(bold)
-        self.key = int(bold)
-        self.border = int(Style.DIM)
-        self.plain = int(bold)
-        self.title = int(bold)
-        self.focus = int(bold)
-        self.status = int(Style.REVERSE)
-        self.error = int(bold)
-        self.cell_selected = int(Style.UNDERLINE)
-        self.cell_changed = int(Style.ITALIC)
-        if not self.enabled:
-            return
-        self.header = 0  # Respect the terminal's light or dark theme.
-        self.paused = screen.color(0, 3)
-        self.breakpoint = screen.color(9, -1) | bold
-        self.pc_marker = screen.color(10, -1) | bold
-        self.key = screen.color(14, -1) | bold
-        self.border = screen.color(8, -1)
-        self.title = screen.color(14, -1) | bold
-        self.focus = screen.color(14, -1) | bold
-        self.status = 0
-        self.error = screen.color(15, 1) | bold
-        self.selected = screen.color(0, 6)
-        # A dark foreground would be brightened into the background by the
-        # bold attribute rows carry, so the muted cursor keeps a light
-        # foreground and only drops the accent colour.
-        self.cursor = screen.color(15, 8)
-
-    def cell(self, fg: int, bg: int) -> int:
-        """A 16-colour text cell; bright foregrounds are bold."""
-        if not self.enabled:
-            return 0
-        style = self._screen.color(fg, bg)
-        if fg >= 8:
-            style |= Style.BOLD
-        return style
-
-
 class CursesDebugView:
     """Controller and renderer for one debugger stop, over a :class:`Screen`."""
 
@@ -686,12 +485,14 @@ class CursesDebugView:
             self.debug = DebugSession(state, self.control)
         self.session = session
         self.cycle = cycle
-        self.colors = Palette(screen)
-        self.glyphs = _detect_glyphs()
+        # Shared with the pane modules, which draw with the same styles.
+        self.theme = Theme(Palette(screen), detect_glyphs())
         # ``(y, x) -> (segment mask, attribute, priority)`` for the pane frames.
         self.borders: dict[tuple[int, int], tuple[int, int, int]] = {}
         self.command = ""
         self.cursor = 0
+        # The open editor, as the pane that asked for it described it.
+        self.editor: Editor | None = None
         self.editor_mode: str | None = None
         self.editor_pane: str | None = None
         # The scalar being edited, as ``DebugSession.set_register`` names it.
@@ -721,7 +522,6 @@ class CursesDebugView:
         self.scroll_origin: tuple[int, float] | None = None
         self.scroll_drag_moved = False
         self.scroll_thumb_hits: dict[str, Rect] = {}
-        self.editor_value: Any = None
         self.last_value_click: tuple[int, int, float] | None = None
         # ``(split, origin_y, origin_x, moved)`` while a border is held.
         self.drag: tuple[str, int, int, bool] | None = None
@@ -729,12 +529,6 @@ class CursesDebugView:
         # does, and instruction memory cannot change while the debugger is
         # stopped, so each PC is decoded at most once per stop.
         self._disassembly_cache: dict[int, str] = {}
-        # XMEM only changes through ``self.debug``, and one request can tokenise
-        # into far more lines than a pane shows, so reads are cached for as
-        # long as the session's generation stays the same.
-        self._xmem_cache: dict[tuple[int, int, str, int], list[Any]] = {}
-        self._xmem_requests: dict[XmemRequest, tuple[XmemWindow | None, str | None]] = {}
-        self._xmem_generation = self.debug.generation
         self.redraw = True
         self.disassembly_rect = Rect(0, 0, 0, 0)
         self.registers_rect = Rect(0, 0, 0, 0)
@@ -744,7 +538,24 @@ class CursesDebugView:
         # Where ``_add`` sends text: the screen, or a pane's line recorder.
         self._sink: Callable[[int, int, str, int], None] = self.screen.draw
         self.panes: dict[str, Pane] = self._legacy_panes()
+        self.panes["xmem"] = XmemPane(self.theme)
         self._commands = self._command_table()
+
+    @property
+    def colors(self) -> Palette:
+        return self.theme.colors
+
+    @colors.setter
+    def colors(self, colors: Palette) -> None:
+        self.theme.colors = colors
+
+    @property
+    def glyphs(self) -> Glyphs:
+        return self.theme.glyphs
+
+    @glyphs.setter
+    def glyphs(self, glyphs: Glyphs) -> None:
+        self.theme.glyphs = glyphs
 
     def run(self) -> DebugAction:
         while True:
@@ -952,9 +763,8 @@ class CursesDebugView:
         self._draw_header(layout["header"])
         for pane_id in PANE_DRAW_ORDER:
             if pane_id in layout:
-                pane = self.panes[pane_id]
-                for line in pane.render(self.debug, self.session.panes[pane_id], layout[pane_id]):
-                    self.screen.draw(line.y, line.x, line.text, line.style)
+                self._draw_tab_bar(pane_id, layout[pane_id])
+                self._draw_pane(pane_id, layout[pane_id])
         self._draw_scrollbars()
         self._draw_keys(layout["keys"])
         if self.help_visible:
@@ -969,9 +779,27 @@ class CursesDebugView:
     def _refresh(self) -> None:
         self.screen.refresh()
 
+    def _draw_pane(self, pane_id: str, rect: Rect) -> None:
+        """Paint one pane's content and keep what it reports for the pointer."""
+        drawing = self.panes[pane_id].render(
+            self.debug, self.session.panes[pane_id], rect, focused=self.session.focus == pane_id
+        )
+        for line in drawing.lines:
+            self.screen.draw(line.y, line.x, line.text, line.style)
+        if drawing.hits:
+            self.value_hits.setdefault(pane_id, []).extend(drawing.hits)
+        if drawing.scroll is not None:
+            self.scroll_state[pane_id] = drawing.scroll
+
+    def _pane_rect(self, pane_id: str) -> Rect:
+        rect: Rect = getattr(self, f"{pane_id}_rect")
+        return rect
+
     def _legacy_panes(self) -> dict[str, Pane]:
         """Each pane, wrapping the drawing code that still lives here."""
         commands: dict[Command, Callable[[], Outcome]] = {
+            Command.ADD_TAB: lambda: self._begin_tab_editor("add"),
+            Command.EDIT_TAB: lambda: self._begin_tab_editor("edit"),
             Command.CYCLE_FORMAT: self._cycle_focused_format,
             Command.EDIT_VALUE: self._edit_focused_value,
             Command.MOVE_UP: lambda: self._move_or_scroll_stages(dy=-1),
@@ -986,11 +814,19 @@ class CursesDebugView:
         draws: dict[str, Callable[[Rect], None]] = {
             "disassembly": self._draw_disassembly,
             "registers": self._draw_registers,
-            "xmem": self._draw_xmem,
             "pipeline": self._draw_pipeline_register,
         }
         return {
-            pane: LegacyPane(pane, draw, self._capture_lines, commands)
+            pane: LegacyPane(
+                pane,
+                draw,
+                self._capture_lines,
+                commands,
+                place=lambda payload, pane=pane: self._legacy_place_cursor(pane, payload),
+                row=lambda pane=pane: self._legacy_cursor_row(pane),
+                scroll=lambda row, pane=pane: self._legacy_scroll_to_row(pane, row),
+                step=lambda dx, dy: self._move_focused_cursor(dx=dx, dy=dy),
+            )
             for pane, draw in draws.items()
         }
 
@@ -1127,36 +963,6 @@ class CursesDebugView:
                 1,
             )
 
-    def _fresh_xmem_views(self) -> None:
-        """Drop cached XMEM reads once the session has changed state."""
-        if self._xmem_generation != self.debug.generation:
-            self._xmem_generation = self.debug.generation
-            self._xmem_requests = {}
-            self._xmem_cache = {}
-
-    def _resolve_xmem(self, request: XmemRequest) -> tuple[XmemWindow | None, str | None]:
-        self._fresh_xmem_views()
-        if request not in self._xmem_requests:
-            try:
-                self._xmem_requests[request] = (self.debug.read_xmem(request), None)
-            except DebugError as error:
-                self._xmem_requests[request] = (None, str(error))
-        return self._xmem_requests[request]
-
-    def _xmem_lines(self, resolved: XmemWindow) -> list[Any]:
-        self._fresh_xmem_views()
-        key = _resolved_key(resolved)
-        lines = self._xmem_cache.get(key)
-        if lines is None:
-            lines = debug_format.tokenize_xmem(
-                resolved.data,
-                resolved.byte_address,
-                resolved.request.fmt,
-                resolved.row_size,
-            )
-            self._xmem_cache[key] = lines
-        return lines
-
     def _disassembly(self, pc: int) -> str:
         text = self._disassembly_cache.get(pc)
         if text is None:
@@ -1170,7 +976,6 @@ class CursesDebugView:
 
     def _draw_disassembly(self, rect: Rect) -> None:
         tab = self.session.disassembly_tab()
-        self._draw_tab_bar("disassembly", rect)
         if tab.fmt == "stages":
             self._draw_stages(rect)
             return
@@ -1369,7 +1174,6 @@ class CursesDebugView:
 
     def _draw_registers(self, rect: Rect) -> None:
         tab = self.session.register_tab()
-        self._draw_tab_bar("registers", rect)
         groups = self._register_groups(tab)
         grid_rows = register_grid_rows(max(1, rect.height - REGISTER_NON_CONTENT_ROWS))
         column_count = len(groups) * _REGISTERS_PER_GROUP // grid_rows
@@ -1507,43 +1311,15 @@ class CursesDebugView:
 
     def _cursor_attr(self, pane: str) -> int:
         """The cursor highlight for *pane*, muted while it is not focused."""
-        return self.colors.selected if self.session.focus == pane else self.colors.cursor
+        return self.colors.cursor_for(self.session.focus == pane)
 
     def _value_attr(self, is_zero: bool) -> int:
         """Zero values recede, so the bytes that carry data stand out."""
-        return self.colors.border if is_zero else 0
+        return self.colors.value(is_zero)
 
-    def _add_value(
-        self,
-        y: int,
-        x: int,
-        text: str,
-        attr: int,
-        max_width: int,
-    ) -> None:
-        """Draw a numeric value with its leading zeros dimmed.
-
-        Only zero-padded fixed-width values qualify, so a float's ``0.5`` or a
-        negative decimal keeps every character at full weight.
-        """
-        significant = text.lstrip("0")
-        if (
-            significant
-            and len(text) >= MIN_PADDED_VALUE_WIDTH
-            and text.startswith("0")
-            and all(character in _PADDED_VALUE_CHARACTERS for character in text)
-        ):
-            padding = len(text) - len(significant)
-            self._add(y, x, text[:padding], overlay_style(self.colors.border, attr), max_width)
-            self._add(
-                y,
-                x + padding,
-                significant,
-                attr,
-                max_width - padding,
-            )
-            return
-        self._add(y, x, text, attr, max_width)
+    def _add_value(self, y: int, x: int, text: str, attr: int, max_width: int) -> None:
+        """Draw a numeric value with its leading zeros dimmed."""
+        self._canvas().add_value(y, x, text, attr, max_width)
 
     @staticmethod
     def _format_scalar_value(value: int, fmt: str, width: int) -> str:
@@ -1558,199 +1334,14 @@ class CursesDebugView:
             value = struct.unpack("<f", struct.pack("<I", unsigned))[0]
             text = f"{value:>{F32_DISPLAY_WIDTH}.{F32_SIGNIFICANT_DIGITS}g}"
         else:
-            text = CursesDebugView._format_bits(unsigned)
+            text = format_bits(unsigned)
         return text.rjust(width)[:width]
-
-    @staticmethod
-    def _format_bits(value: int) -> str:
-        return f"{value:0{BITS_PER_REGISTER}b}"
-
-    def _draw_xmem(self, rect: Rect) -> None:
-        focused = self.session.focus == "xmem"
-        self._draw_tab_bar("xmem", rect)
-
-        tab = self.session.xmem.current()
-        content_y = rect.y + 2
-        content_height = max(0, rect.height - XMEM_NON_CONTENT_ROWS)
-        limit = rect.x + rect.width - 1 - SCROLLBAR_COLUMNS
-        if tab is None:
-            self._draw_pane_title(rect, ["3 XMEM", "no tabs"], focused=focused)
-            self._add(
-                content_y,
-                rect.x + 2,
-                "No tabs. Press F2 or click [+].",
-                self.colors.border,
-                max(0, limit - rect.x - 2),
-            )
-            return
-
-        resolved, error = self._resolve_xmem(tab.request)
-        if error is not None or resolved is None:
-            self._draw_pane_title(
-                rect,
-                ["3 XMEM", tab.request.fmt],
-                focused=focused,
-            )
-            self._add(
-                content_y,
-                rect.x + 2,
-                f"Error: {error}",
-                self.colors.error,
-                max(0, limit - rect.x - 2),
-            )
-            return
-        lines = self._xmem_lines(resolved)
-        self._normalize_xmem_cursor(tab, lines)
-        max_scroll = max(0, len(lines) - content_height)
-        if self.session.focus == "xmem" and content_height > 0:
-            if tab.cursor_line < tab.scroll:
-                tab.scroll = tab.cursor_line
-            elif tab.cursor_line >= tab.scroll + content_height:
-                tab.scroll = tab.cursor_line - content_height + 1
-        tab.scroll = min(tab.scroll, max_scroll)
-        self._ensure_xmem_cursor_visible_horizontally(tab, lines, rect)
-        first_visible = min(len(lines), tab.scroll + 1)
-        last_visible = min(len(lines), tab.scroll + content_height)
-        segments = [
-            "3 XMEM",
-            f"0x{resolved.byte_address:08x}",
-            f"{resolved.byte_count} bytes",
-            resolved.request.fmt,
-        ]
-        if resolved.request.fmt == "cell16":
-            segments.append(_cell16_color_summary(resolved.data))
-        self._draw_pane_title(rect, segments, focused=focused)
-        # The title fills the top border at the 80-column minimum, so the
-        # position readout goes on the bottom border instead.
-        self._draw_position(
-            rect,
-            f" lines {first_visible}-{last_visible}/{len(lines)} ",
-        )
-        self.scroll_state["xmem"] = (tab.scroll, content_height, len(lines))
-        baseline_matches = tab.baseline_key == _resolved_key(resolved)
-        baseline = tab.baseline_data if baseline_matches else None
-
-        visible_line_numbers = range(
-            tab.scroll,
-            min(len(lines), tab.scroll + content_height),
-        )
-        for output_row, line_number in enumerate(visible_line_numbers):
-            line = lines[line_number]
-            y = content_y + output_row
-            x = rect.x + 1
-            prefix = line.prefix
-            prefix_attr = 0
-            if not line.tokens:
-                prefix = self._clean_xmem_marker(prefix)
-                prefix_attr = self.colors.border
-            elif prefix.strip():
-                prefix_attr = self.colors.border
-            self._add(
-                y,
-                x,
-                prefix,
-                prefix_attr,
-                max_width=max(0, limit - x),
-            )
-            x += len(prefix)
-            visible_tokens = enumerate(
-                line.tokens[tab.horizontal_scroll :],
-                start=tab.horizontal_scroll,
-            )
-            for token_number, token in visible_tokens:
-                if x + len(token.leading) + len(token.text) > limit:
-                    break
-                self.value_hits.setdefault("xmem", []).append(
-                    (
-                        Rect(y, x, 1, len(token.leading) + len(token.text)),
-                        (line_number, token_number),
-                    )
-                )
-                self._add(y, x, token.leading, max_width=limit - x)
-                x += len(token.leading)
-                is_colored_cell = token.fg is not None and token.bg is not None
-                raw = resolved.data[token.raw_start : token.raw_start + token.raw_size]
-                attr = (
-                    self.colors.cell(token.fg, token.bg)
-                    if is_colored_cell
-                    else self._value_attr(not any(raw))
-                )
-                changed = False
-                if baseline is not None:
-                    current = raw
-                    previous = baseline[token.raw_start : token.raw_start + token.raw_size]
-                    changed = current != previous
-                    if changed:
-                        attr |= self.colors.cell_changed if is_colored_cell else self.colors.changed
-                if (line_number, token_number) == (
-                    tab.cursor_line,
-                    tab.cursor_column,
-                ):
-                    attr = overlay_style(
-                        attr,
-                        (
-                            self.colors.cell_selected
-                            if is_colored_cell
-                            else self._cursor_attr("xmem")
-                        ),
-                    )
-                if is_colored_cell:
-                    self._add(y, x, token.text, attr, limit - x)
-                else:
-                    self._add_value(y, x, token.text, attr, limit - x)
-                x += len(token.text)
-
-    @staticmethod
-    def _clean_xmem_marker(prefix: str) -> str:
-        if prefix.startswith("--- ") and prefix.endswith(" ---"):
-            return "  " + prefix[4:-4]
-        return prefix
-
-    @staticmethod
-    def _normalize_xmem_cursor(tab: XmemTab, lines: list[Any]) -> None:
-        data_lines = [index for index, line in enumerate(lines) if line.tokens]
-        if not data_lines:
-            tab.cursor_line = 0
-            tab.cursor_column = 0
-            tab.horizontal_scroll = 0
-            return
-        if tab.cursor_line not in data_lines:
-            tab.cursor_line = data_lines[0]
-        token_count = len(lines[tab.cursor_line].tokens)
-        tab.cursor_column = min(tab.cursor_column, token_count - 1)
-        tab.horizontal_scroll = min(
-            tab.horizontal_scroll,
-            tab.cursor_column,
-        )
-
-    @staticmethod
-    def _ensure_xmem_cursor_visible_horizontally(
-        tab: XmemTab,
-        lines: list[Any],
-        rect: Rect,
-    ) -> None:
-        if not lines or not lines[tab.cursor_line].tokens:
-            return
-        line = lines[tab.cursor_line]
-        available = max(
-            1,
-            rect.width - 2 - SCROLLBAR_COLUMNS - len(line.prefix),
-        )
-        if tab.cursor_column < tab.horizontal_scroll:
-            tab.horizontal_scroll = tab.cursor_column
-        while tab.horizontal_scroll < tab.cursor_column:
-            tokens = line.tokens[tab.horizontal_scroll : tab.cursor_column + 1]
-            width = sum(len(token.leading) + len(token.text) for token in tokens)
-            if width <= available:
-                break
-            tab.horizontal_scroll += 1
 
     def _draw_pipeline_register(self, rect: Rect) -> None:
         tab = self.session.pipeline_tab()
         spec = _pipeline_spec(tab.register_key)
         data = _read_pipeline_register(self.state, spec)
         fmt = tab.fmt or _pipeline_format(self.state, spec)
-        self._draw_tab_bar("pipeline", rect)
 
         content_y = rect.y + 2
         content_height = max(0, rect.height - PIPELINE_NON_CONTENT_ROWS)
@@ -1953,7 +1544,7 @@ class CursesDebugView:
         if fmt == "int32":
             return f"{struct.unpack('<i', raw)[0]:>{width}d}"
         if fmt == "bits":
-            return CursesDebugView._format_bits(struct.unpack("<I", raw)[0])
+            return format_bits(struct.unpack("<I", raw)[0])
         value = struct.unpack("<f", raw)[0]
         return f"{value:>{width}.{F32_SIGNIFICANT_DIGITS}g}"
 
@@ -1976,23 +1567,6 @@ class CursesDebugView:
             for label, key in footer_actions(binding):
                 start = text.find(label)
                 self.action_hits.append((Rect(rect.y, rect.x + start, 1, len(label)), key))
-
-    def _draw_position(self, rect: Rect, text: str, *, top: bool = False) -> bool:
-        """Right-align a scroll-position readout on one of a pane's borders.
-
-        The top panes share their bottom border with the panes below them, so
-        they report on their own top border, beside the title, instead.
-        """
-        if not text or len(text) > rect.width - 8:
-            return False
-        self._add(
-            rect.y if top else rect.y + rect.height - 1,
-            max(rect.x + 1, rect.x + rect.width - 2 - len(text)),
-            text,
-            self.colors.border,
-            max(0, rect.width - 2),
-        )
-        return True
 
     # Every vertically scrollable pane reserves its right-most content column
     # for a thumb, so the bar never lands on a border shared with a neighbour.
@@ -2162,49 +1736,10 @@ class CursesDebugView:
         self.editor_rect = rect
         for row in range(rect.height):
             self._add(rect.y + row, rect.x, " " * rect.width, max_width=rect.width)
-        pane = self.editor_pane or self.session.focus
-        pane_label = {
-            "disassembly": "Disassembly",
-            "registers": "LR / CR",
-            "xmem": "XMEM",
-            "pipeline": "Pipeline",
-        }[pane]
-        action = "Add" if self.editor_mode == "add" else "Edit"
-        title = f"{action} {pane_label} tab"
-        if self.editor_register is not None:
-            title = f"Edit {self.editor_register.upper()} value"
-        if self.editor_mode == "value":
-            title = f"Edit {self.editor_value[4]}"
-        self._draw_overlay_frame(rect, [title])
-        descriptions = {
-            "disassembly": (
-                "Target: current or PC",
-                "Range: 0 through instruction memory size - 1",
-            ),
-            "registers": (
-                "Group: all, lr, or cr",
-                "Format is retained independently per tab",
-            ),
-            "xmem": (
-                "Address: row|byte BASE OFFSET COUNT",
-                "Formats: hex  int8  u8  cell16  u32  f32",
-            ),
-            "pipeline": (
-                "Register: R0, R1, R_C, R_MASK, R_ACC, POST_AAQ,",
-                "          MULT_RES, or MEM_BYPASS",
-            ),
-        }
-        first_description, second_description = descriptions[pane]
-        if self.editor_mode == "scalar":
-            first_description = "Integer value: decimal, 0x hex, or 0b binary"
-            second_description = (
-                "Range: 0 through instruction memory size - 1"
-                if self.editor_register == "pc"
-                else "Register masking applies; CR0 and CR1 are read-only"
-            )
-        if self.editor_mode == "value":
-            first_description = f"Format: {self.editor_value[3]} / {self.editor_value[2]} bytes"
-            second_description = "Enter a number; hex/binary prefixes accepted for integers"
+        assert self.editor is not None
+        pane = self.editor.pane
+        self._draw_overlay_frame(rect, [self.editor.title])
+        first_description, second_description = self.editor.hints
         self._add(
             y + 1,
             x + 2,
@@ -2307,8 +1842,6 @@ class CursesDebugView:
             Command.SPLIT_RIGHT: does(lambda: self._resize_vertical_split(PANE_RESIZE_STEP)),
             Command.SPLIT_UP: does(lambda: self._resize_horizontal_split(-1)),
             Command.SPLIT_DOWN: does(lambda: self._resize_horizontal_split(1)),
-            Command.ADD_TAB: does(lambda: self._begin_tab_editor("add")),
-            Command.EDIT_TAB: does(lambda: self._begin_tab_editor("edit")),
             Command.CLOSE_TAB: does(self._close_active_tab),
             Command.NEXT_TAB: does(lambda: self._select_tab_in_focused_pane(1)),
             Command.PREVIOUS_TAB: does(lambda: self._select_tab_in_focused_pane(-1)),
@@ -2341,7 +1874,9 @@ class CursesDebugView:
 
     def _pane_command(self, command: Command) -> Outcome:
         pane = self.session.focus
-        return self.panes[pane].handle(command, self.debug, self.session.panes[pane])
+        rect = self._pane_rect(pane)
+        self._apply(self.panes[pane].handle(command, self.debug, self.session.panes[pane], rect))
+        return None
 
     def _close_help_scroll_to_top(self) -> None:
         self.help_scroll = 0
@@ -2409,7 +1944,15 @@ class CursesDebugView:
 
     def _edit_focused_value(self) -> None:
         if self.session.focus == "disassembly":
-            self._begin_scalar_editor("pc")
+            self._apply(
+                scalar_editor(
+                    self.debug,
+                    "disassembly",
+                    "pc",
+                    self.state.program_counter,
+                    "Range: 0 through instruction memory size - 1",
+                )
+            )
         else:
             self._begin_value_editor()
 
@@ -2417,11 +1960,28 @@ class CursesDebugView:
         self.cursor = max(0, min(len(self.command), position))
 
     def _submit_editor(self) -> Outcome:
-        if self.editor_mode == "scalar":
-            return self._submit_scalar_editor()
-        if self.editor_mode == "value":
-            return self._submit_value_editor()
-        return self._submit_tab_editor(self.command.strip())
+        """Enter: the editor's pane applies the text; an error keeps it open."""
+        assert self.editor is not None
+        reply = self.editor.submit(self.command)
+        if not reply.error:
+            self._clear_editor()
+        self._apply(reply)
+        return None
+
+    def _apply(self, reply: Reply | None) -> None:
+        """Open the editor a pane asked for and show its message."""
+        if reply is None:
+            return
+        if reply.editor is not None:
+            editor = reply.editor
+            self.editor = editor
+            self.editor_mode = editor.mode
+            self.editor_pane = editor.pane
+            self.editor_register = editor.register
+            self.command = editor.text
+            self.cursor = len(editor.text)
+        if reply.message is not None:
+            self.session.set_message(reply.message, error=reply.error)
 
     def _edit_text(self, key: Input) -> None:
         """Typing in the editor: insert a character, or delete one."""
@@ -2516,7 +2076,7 @@ class CursesDebugView:
 
     def _wheel(self, y: int, x: int, delta: int, *, horizontal: bool = False) -> None:
         if self._focus_pane_at(y, x):
-            rect = getattr(self, f"{self.session.focus}_rect")
+            rect = self._pane_rect(self.session.focus)
             if y == rect.y + 1:
                 self._select_tab_in_focused_pane(1 if delta > 0 else -1)
             elif (
@@ -2526,9 +2086,9 @@ class CursesDebugView:
             ):
                 self.session.stages_scroll = max(0, self.session.stages_scroll + delta)
             elif horizontal:
-                self._move_focused_cursor(dx=delta)
+                self._move_focused(dx=delta)
             else:
-                self._move_focused_cursor(dy=delta)
+                self._move_focused(dy=delta)
 
     def _split_at(self, y: int, x: int) -> str | None:
         """The split whose border covers ``(y, x)``, if any."""
@@ -2605,7 +2165,7 @@ class CursesDebugView:
         for pane, rect in self.add_hits.items():
             if rect.contains(y, x):
                 self.session.focus = pane
-                self._begin_tab_editor("add")
+                self._pane_command(Command.ADD_TAB)
                 return
         for pane, rect in self.scrollbar_hits.items():
             if rect.contains(y, x):
@@ -2636,7 +2196,7 @@ class CursesDebugView:
                             and previous_click[:2] == (identity, payload)
                             and now - previous_click[2] <= DOUBLE_CLICK_SECONDS
                         ):
-                            self._begin_value_editor()
+                            self._pane_command(Command.EDIT_VALUE)
                         else:
                             self.last_value_click = (identity, payload, now)
                     return
@@ -2651,7 +2211,10 @@ class CursesDebugView:
                 return
 
     def _place_cursor(self, pane: str, payload: Any) -> None:
-        """Put the focused pane's cursor on the value that was clicked."""
+        """Put *pane*'s cursor on the value that was clicked."""
+        self.panes[pane].place_cursor(self.session.panes[pane], payload)
+
+    def _legacy_place_cursor(self, pane: str, payload: Any) -> None:
         if pane == "disassembly":
             tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
@@ -2660,37 +2223,35 @@ class CursesDebugView:
         if pane == "registers":
             self.session.register_tab().cursor = payload
             return
-        if pane == "pipeline":
-            self.session.pipeline_tab().cursor = payload
-            return
-        tab = self.session.xmem.current()
-        if tab is not None:
-            tab.cursor_line, tab.cursor_column = payload
+        self.session.pipeline_tab().cursor = payload
 
     def _scroll_cursor_fraction(self, pane: str) -> float:
         """Remember the selection at grab time, so a thumb press never jumps."""
         total = self.scroll_state[pane][2]
+        target = self.panes[pane].cursor_row(
+            self.debug, self.session.panes[pane], self._pane_rect(pane)
+        )
+        return (target + 0.5) / max(1, total)
+
+    def _legacy_cursor_row(self, pane: str) -> int:
         if pane == "disassembly":
             tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
-            target = base + tab.cursor_offset
-        elif pane == "pipeline":
-            tab = self.session.pipeline_tab()
-            spec = _pipeline_spec(tab.register_key)
-            fmt = tab.fmt or _pipeline_format(self.state, spec)
-            size, _ = self._pipeline_value_geometry(fmt)
-            items = len(_read_pipeline_register(self.state, spec)) // size
-            rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
-            per_line = self._pipeline_items_per_line(fmt, self.pipeline_rect)
-            target = next(
-                index
-                for index, first in enumerate(rows)
-                if first is not None and first <= tab.cursor < first + per_line
-            )
-        else:
-            tab = self.session.xmem.current()
-            target = tab.cursor_line if tab is not None else 0
-        return (target + 0.5) / max(1, total)
+            return base + tab.cursor_offset
+        if pane != "pipeline":
+            return 0
+        tab = self.session.pipeline_tab()
+        spec = _pipeline_spec(tab.register_key)
+        fmt = tab.fmt or _pipeline_format(self.state, spec)
+        size, _ = self._pipeline_value_geometry(fmt)
+        items = len(_read_pipeline_register(self.state, spec)) // size
+        rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
+        per_line = self._pipeline_items_per_line(fmt, self.pipeline_rect)
+        return next(
+            index
+            for index, first in enumerate(rows)
+            if first is not None and first <= tab.cursor < first + per_line
+        )
 
     def _scroll_to_fraction(self, pane: str, fraction: float) -> None:
         """Jump the pane's cursor to a position along its scrollbar."""
@@ -2698,26 +2259,28 @@ class CursesDebugView:
         if total <= 0:
             return
         target = max(0, min(total - 1, int(fraction * total)))
+        self.panes[pane].scroll_to_row(
+            self.debug, self.session.panes[pane], self._pane_rect(pane), target
+        )
+
+    def _legacy_scroll_to_row(self, pane: str, target: int) -> None:
         if pane == "disassembly":
             tab = self.session.disassembly_tab()
             base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = target - base
             return
-        if pane == "pipeline":
-            tab = self.session.pipeline_tab()
-            spec = _pipeline_spec(tab.register_key)
-            fmt = tab.fmt or _pipeline_format(self.state, spec)
-            item_size, _ = self._pipeline_value_geometry(fmt)
-            items = len(_read_pipeline_register(self.state, spec)) // item_size
-            rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
-            target = min(target, len(rows) - 1)
-            if rows[target] is None:
-                target = min(target + 1, len(rows) - 1)
-            tab.cursor = max(0, min(items - 1, rows[target]))
+        if pane != "pipeline":
             return
-        xmem_tab = self.session.xmem.current()
-        if xmem_tab is not None:
-            xmem_tab.cursor_line = target
+        tab = self.session.pipeline_tab()
+        spec = _pipeline_spec(tab.register_key)
+        fmt = tab.fmt or _pipeline_format(self.state, spec)
+        item_size, _ = self._pipeline_value_geometry(fmt)
+        items = len(_read_pipeline_register(self.state, spec)) // item_size
+        rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
+        target = min(target, len(rows) - 1)
+        if rows[target] is None:
+            target = min(target + 1, len(rows) - 1)
+        tab.cursor = max(0, min(items - 1, rows[target]))
 
     def _focus_pane_at(self, y: int, x: int) -> bool:
         panes = (
@@ -2731,25 +2294,6 @@ class CursesDebugView:
                 self.session.focus = name
                 return True
         return False
-
-    def _submit_tab_editor(self, command: str) -> Outcome:
-        pane = self.editor_pane or self.session.focus
-        mode = self.editor_mode
-        tabs = self.session.panes[pane]
-        existing = tabs[tabs.active] if mode == "edit" and tabs else None
-        tab, error = self._parse_editor_tab(pane, command, existing)
-        if error is not None or tab is None:
-            self.session.set_message(f"{pane} tab error: {error}", error=True)
-            return None
-        if mode == "add" or not tabs:
-            tabs.add(tab)
-        else:
-            tabs.tabs[tabs.active] = tab
-            tabs.select(tabs.active)
-        self._clear_editor()
-        action = "added" if mode == "add" else "updated"
-        self.session.set_message(f"{pane} tab {action}: {tab.title}")
-        return None
 
     def _parse_editor_tab(
         self,
@@ -2776,191 +2320,108 @@ class CursesDebugView:
                 return None, "expected all, lr, or cr"
             fmt = existing.fmt if isinstance(existing, RegisterTab) else "hex"
             return RegisterTab(group=group, fmt=fmt), None
-        if pane == "pipeline":
-            token = command.strip().lower()
-            spec = next(
-                (
-                    candidate
-                    for candidate in PIPELINE_REGISTERS
-                    if token in (candidate.key.lower(), candidate.label.lower())
-                ),
-                None,
-            )
-            if spec is None:
-                choices = ", ".join(item.label for item in PIPELINE_REGISTERS)
-                return None, f"expected one of: {choices}"
-            fmt = existing.fmt if isinstance(existing, PipelineTab) else None
-            return PipelineTab(register_key=spec.key, fmt=fmt), None
-
-        try:
-            request = self.debug.parse_xmem(command)
-        except DebugError as error:
-            return None, str(error)
-        _, error = self._resolve_xmem(request)
-        if error is not None:
-            return None, error
-        return XmemTab(request), None
+        token = command.strip().lower()
+        spec = next(
+            (
+                candidate
+                for candidate in PIPELINE_REGISTERS
+                if token in (candidate.key.lower(), candidate.label.lower())
+            ),
+            None,
+        )
+        if spec is None:
+            choices = ", ".join(item.label for item in PIPELINE_REGISTERS)
+            return None, f"expected one of: {choices}"
+        fmt = existing.fmt if isinstance(existing, PipelineTab) else None
+        return PipelineTab(register_key=spec.key, fmt=fmt), None
 
     def _begin_value_editor(self) -> None:
         if self.session.focus == "registers":
             self._begin_scalar_editor()
             return
-        pane = self.session.focus
-        if pane == "pipeline":
-            tab = self.session.pipeline_tab()
-            spec = _pipeline_spec(tab.register_key)
-            fmt = tab.fmt or _pipeline_format(self.state, spec)
-            size, _ = self._pipeline_value_geometry(fmt)
-            backing = (
-                spec.wide_backing
-                if self.state.wide_vector_debug and spec.wide_backing
-                else spec.backing
-            )
-            register = self.debug.register(backing, spec.index).value
-            assert isinstance(register, bytes)
-            register_size = len(register)
-            tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
-            start = tab.cursor * size
-            offset = spec.index * register_size + start
-            raw = register[start : start + size]
-            label = f"{spec.label}[{tab.cursor}]"
-        else:
-            tab = self.session.xmem.current()
-            if tab is None:
-                return
-            resolved, error = self._resolve_xmem(tab.request)
-            if error or resolved is None:
-                self.session.set_message(str(error or "No memory value selected"), error=True)
-                return
-            lines = self._xmem_lines(resolved)
-            self._normalize_xmem_cursor(tab, lines)
-            tokens = lines[tab.cursor_line].tokens
-            if not tokens:
-                return
-            token = tokens[tab.cursor_column]
-            offset, size = resolved.byte_address + token.raw_start, token.raw_size
-            fmt, backing = tab.request.fmt, None
-            raw = resolved.data[token.raw_start : token.raw_start + size]
-            label = f"XMEM 0x{offset:08x}"
-        if len(raw) != size:
-            self.session.set_message("Selected value is out of range", error=True)
-            return
-        self.editor_value = (backing, offset, size, fmt, label)
-        self.editor_register = None
-        self.editor_mode, self.editor_pane = "value", pane
-        if fmt == "f32":
-            self.command = repr(struct.unpack("<f", raw)[0])
-        else:
-            value = int.from_bytes(raw, "little", signed=fmt in ("int8", "int32"))
-            self.command = (
-                hex(value)
-                if fmt in ("hex", "cell16")
-                else bin(value)
-                if fmt == "bits"
-                else str(value)
-            )
-        self.cursor = len(self.command)
-        self.session.set_message(f"Editing {label}")
+        tab = self.session.pipeline_tab()
+        spec = _pipeline_spec(tab.register_key)
+        fmt = tab.fmt or _pipeline_format(self.state, spec)
+        size, _ = self._pipeline_value_geometry(fmt)
+        backing = (
+            spec.wide_backing
+            if self.state.wide_vector_debug and spec.wide_backing
+            else spec.backing
+        )
+        register = self.debug.register(backing, spec.index).value
+        assert isinstance(register, bytes)
+        register_size = len(register)
+        tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
+        start = tab.cursor * size
+        offset = spec.index * register_size + start
 
-    def _submit_value_editor(self) -> Outcome:
-        backing, offset, size, fmt, label = self.editor_value
-        try:
-            if fmt == "f32":
-                raw = struct.pack("<f", float(self.command.strip()))
-            else:
-                try:
-                    value = self.debug.parse_int(self.command.strip())
-                except DebugError:
-                    raise ValueError("Enter a valid integer") from None
-                raw = value.to_bytes(size, "little", signed=fmt in ("int8", "int32"))
-            if backing is None:
-                self.debug.write_xmem(offset, raw)
-            else:
-                self.debug.write_register_bytes(backing, offset, raw)
-        except (ValueError, OverflowError, struct.error, EmulatorError) as error:
-            self.session.set_message(f"Invalid value: {error}", error=True)
-            return None
-        self._clear_editor()
-        self.editor_value = None
-        self.session.set_message(f"Updated {label}")
-        return None
+        def write(data: bytes) -> None:
+            self.debug.write_register_bytes(backing, offset, data)
 
-    def _begin_scalar_editor(self, register: str | None = None) -> None:
-        """Edit one scalar: *register* (``"pc"``) or the LR / CR under the cursor."""
-        if register is None:
-            tab = self.session.register_tab()
-            groups = self._register_groups(tab)
-            position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
-            register = (
-                f"{groups[position // _REGISTERS_PER_GROUP]}{position % _REGISTERS_PER_GROUP}"
-            )
-        if register == "pc":
-            current = self.state.program_counter
-            self.editor_pane = "disassembly"
-        else:
-            desc, index = self.debug.resolve_register(register)
-            current = self.state.regfile.get_scalar(desc.name, index)
-            self.editor_pane = "registers"
-        self.editor_register = register
-        self.editor_mode = "scalar"
-        self.command = hex(current)
-        self.cursor = len(self.command)
-        self.session.set_message(f"Enter an integer for {register.upper()}")
+        value = EditedValue(
+            f"{spec.label}[{tab.cursor}]", fmt, register[start : start + size], size
+        )
+        self._apply(value_editor(self.debug, "pipeline", value, write))
 
-    def _submit_scalar_editor(self) -> Outcome:
-        assert self.editor_register is not None
-        try:
-            value = self.debug.parse_int(self.command.strip())
-        except DebugError:
-            self.session.set_message("Invalid integer value", error=True)
-            return None
-        try:
-            written = self.debug.set_register(self.editor_register, value)
-        except DebugError as error:
-            self.session.set_message(str(error), error=True)
-            return None
-        label = self.editor_register.upper()
-        self._clear_editor()
-        self.session.set_message(f"Set {label} = {written.value:#x}")
-        return None
+    def _begin_scalar_editor(self) -> None:
+        """Edit the LR / CR under the cursor."""
+        tab = self.session.register_tab()
+        groups = self._register_groups(tab)
+        position = max(0, min(tab.cursor, len(groups) * _REGISTERS_PER_GROUP - 1))
+        register = f"{groups[position // _REGISTERS_PER_GROUP]}{position % _REGISTERS_PER_GROUP}"
+        desc, index = self.debug.resolve_register(register)
+        current = self.state.regfile.get_scalar(desc.name, index)
+        hint = "Register masking applies; CR0 and CR1 are read-only"
+        self._apply(scalar_editor(self.debug, "registers", register, current, hint))
+
+    # The tab editor of each pane still drawn here: its label, hints and
+    # default target.
+    _TAB_EDITORS: dict[str, tuple[str, tuple[str, str], str]] = {
+        "disassembly": (
+            "Disassembly",
+            ("Target: current or PC", "Range: 0 through instruction memory size - 1"),
+            "current",
+        ),
+        "registers": (
+            "LR / CR",
+            ("Group: all, lr, or cr", "Format is retained independently per tab"),
+            "all",
+        ),
+        "pipeline": (
+            "Pipeline",
+            (
+                "Register: R0, R1, R_C, R_MASK, R_ACC, POST_AAQ,",
+                "          MULT_RES, or MEM_BYPASS",
+            ),
+            "R0",
+        ),
+    }
 
     def _begin_tab_editor(self, mode: str) -> None:
         pane = self.session.focus
         tabs = self.session.panes[pane]
-        tab = tabs[tabs.active] if tabs else None
-        if mode == "edit" and not tabs:
-            mode = "add"
+        tab = tabs[tabs.active]
+        label, hints, command = self._TAB_EDITORS[pane]
         if mode == "edit":
             if pane == "disassembly":
                 command = "current" if tab.target is None else str(tab.target)
             elif pane == "registers":
                 command = tab.group
-            elif pane == "pipeline":
-                command = _pipeline_spec(tab.register_key).label
             else:
-                command = tab.request.command()[len("xmem ") :]
-        else:
-            command = {
-                "disassembly": "current",
-                "registers": "all",
-                "pipeline": "R0",
-                "xmem": f"row 0 0 {xmem_row_size_bytes(self.state)} hex",
-            }[pane]
-        self.editor_mode = mode
-        self.editor_pane = pane
-        self.command = command
-        self.cursor = len(command)
-        self.session.set_message(
-            f"Enter a {pane} tab target; press Enter to apply or Esc to cancel"
-        )
+                command = _pipeline_spec(tab.register_key).label
+
+        def parse(text: str, existing: Any) -> tuple[Any | None, str | None]:
+            return self._parse_editor_tab(pane, text, existing)
+
+        self._apply(tab_editor(pane, TabTarget(label, hints, parse), mode, tabs, command))
 
     def _clear_editor(self) -> None:
         self.command = ""
         self.cursor = 0
+        self.editor = None
         self.editor_mode = None
         self.editor_pane = None
         self.editor_register = None
-        self.editor_value = None
         self.screen.cursor(False)
 
     def _select_relative_pane(self, delta: int) -> None:
@@ -3000,51 +2461,18 @@ class CursesDebugView:
             tab.column_scroll = 0
             self.session.set_message(f"LR / CR format: {tab.fmt}")
             return
-        if pane == "pipeline":
-            tab = self.session.pipeline_tab()
-            spec = _pipeline_spec(tab.register_key)
-            current = tab.fmt or _pipeline_format(self.state, spec)
-            selected = self._next_format(
-                current,
-                PIPELINE_REGISTER_FORMATS,
-                delta,
-            )
-            tab.fmt = selected
-            tab.scroll = 0
-            tab.cursor = 0
-            self.session.set_message(f"{spec.label} format: {selected}")
-            return
-        self._cycle_xmem_format(delta)
-
-    def _cycle_xmem_format(self, delta: int) -> None:
-        tab = self.session.xmem.current()
-        if tab is None:
-            self.session.set_message("XMEM has no tabs")
-            return
-        resolved, error = self._resolve_xmem(tab.request)
-        if error is not None or resolved is None:
-            self.session.set_message(f"XMEM format error: {error}", error=True)
-            return
-        current_index = XMEM_FORMATS.index(tab.request.fmt)
-        for distance in range(1, len(XMEM_FORMATS) + 1):
-            candidate = XMEM_FORMATS[(current_index + distance * delta) % len(XMEM_FORMATS)]
-            item_size = XMEM_FORMAT_ITEM_SIZE_BYTES[candidate]
-            if resolved.byte_address % item_size == 0 and resolved.byte_count % item_size == 0:
-                tab.request = XmemRequest(
-                    tab.request.mode,
-                    tab.request.base_token,
-                    tab.request.offset_token,
-                    resolved.byte_count // item_size,
-                    candidate,
-                )
-                tab.scroll = 0
-                tab.cursor_line = 0
-                tab.cursor_column = 0
-                tab.horizontal_scroll = 0
-                tab.baseline_key = None
-                tab.baseline_data = None
-                self.session.set_message(f"XMEM format: {candidate}")
-                return
+        tab = self.session.pipeline_tab()
+        spec = _pipeline_spec(tab.register_key)
+        current = tab.fmt or _pipeline_format(self.state, spec)
+        selected = self._next_format(
+            current,
+            PIPELINE_REGISTER_FORMATS,
+            delta,
+        )
+        tab.fmt = selected
+        tab.scroll = 0
+        tab.cursor = 0
+        self.session.set_message(f"{spec.label} format: {selected}")
 
     @staticmethod
     def _next_format(
@@ -3071,6 +2499,13 @@ class CursesDebugView:
         tabs.close(index)
         self.session.set_message(f"Closed {pane} tab")
 
+    def _move_focused(self, *, dx: int = 0, dy: int = 0) -> None:
+        """Move the focused pane's cursor by *dx* values and *dy* rows."""
+        pane = self.session.focus
+        self.panes[pane].move(
+            self.debug, self.session.panes[pane], self._pane_rect(pane), dx=dx, dy=dy
+        )
+
     def _move_focused_cursor(self, *, dx: int = 0, dy: int = 0) -> None:
         if self.session.focus == "disassembly":
             tab = self.session.disassembly_tab()
@@ -3091,11 +2526,7 @@ class CursesDebugView:
             column = max(0, min(column_count - 1, column + dx))
             tab.cursor = column * grid_rows + row
             return
-        if self.session.focus == "pipeline":
-            self._move_pipeline_cursor(dx, dy)
-            return
-        if self.session.focus == "xmem":
-            self._move_xmem_cursor(dx, dy)
+        self._move_pipeline_cursor(dx, dy)
 
     def _jump_focused_cursor(self, *, end: bool) -> None:
         """Move the focused pane's cursor to its first or last value."""
@@ -3109,72 +2540,12 @@ class CursesDebugView:
             groups = self._register_groups(tab)
             tab.cursor = len(groups) * _REGISTERS_PER_GROUP - 1 if end else 0
             return
-        if self.session.focus == "pipeline":
-            tab = self.session.pipeline_tab()
-            spec = _pipeline_spec(tab.register_key)
-            fmt = tab.fmt or _pipeline_format(self.state, spec)
-            item_size, _ = self._pipeline_value_geometry(fmt)
-            item_count = len(_read_pipeline_register(self.state, spec)) // item_size
-            tab.cursor = max(0, item_count - 1) if end else 0
-            return
-        self._jump_xmem_cursor(end=end)
-
-    def _jump_xmem_cursor(self, *, end: bool) -> None:
-        tab = self.session.xmem.current()
-        if tab is None:
-            return
-        resolved, error = self._resolve_xmem(tab.request)
-        if error is not None or resolved is None:
-            return
-        lines = self._xmem_lines(resolved)
-        self._normalize_xmem_cursor(tab, lines)
-        data_lines = [index for index, line in enumerate(lines) if line.tokens]
-        if not data_lines:
-            return
-        tab.cursor_line = data_lines[-1 if end else 0]
-        tokens = lines[tab.cursor_line].tokens
-        tab.cursor_column = len(tokens) - 1 if end else 0
-
-    def _move_xmem_cursor(self, dx: int, dy: int) -> None:
-        tab = self.session.xmem.current()
-        if tab is None:
-            return
-        resolved, error = self._resolve_xmem(tab.request)
-        if error is not None or resolved is None:
-            return
-        lines = self._xmem_lines(resolved)
-        self._normalize_xmem_cursor(tab, lines)
-        data_lines = [index for index, line in enumerate(lines) if line.tokens]
-        if not data_lines:
-            return
-        line_position = data_lines.index(tab.cursor_line)
-        if dy:
-            line_position = max(
-                0,
-                min(len(data_lines) - 1, line_position + dy),
-            )
-            tab.cursor_line = data_lines[line_position]
-            tab.cursor_column = min(
-                tab.cursor_column,
-                len(lines[tab.cursor_line].tokens) - 1,
-            )
-        while dx < 0:
-            if tab.cursor_column > 0:
-                tab.cursor_column -= 1
-            elif line_position > 0:
-                line_position -= 1
-                tab.cursor_line = data_lines[line_position]
-                tab.cursor_column = len(lines[tab.cursor_line].tokens) - 1
-            dx += 1
-        while dx > 0:
-            tokens = lines[tab.cursor_line].tokens
-            if tab.cursor_column + 1 < len(tokens):
-                tab.cursor_column += 1
-            elif line_position + 1 < len(data_lines):
-                line_position += 1
-                tab.cursor_line = data_lines[line_position]
-                tab.cursor_column = 0
-            dx -= 1
+        tab = self.session.pipeline_tab()
+        spec = _pipeline_spec(tab.register_key)
+        fmt = tab.fmt or _pipeline_format(self.state, spec)
+        item_size, _ = self._pipeline_value_geometry(fmt)
+        item_count = len(_read_pipeline_register(self.state, spec)) // item_size
+        tab.cursor = max(0, item_count - 1) if end else 0
 
     def _move_pipeline_cursor(self, dx: int, dy: int) -> None:
         tab = self.session.pipeline_tab()
@@ -3255,17 +2626,7 @@ class CursesDebugView:
 
     def _fit_segments(self, segments: list[str], width: int) -> str:
         """Join as many whole segments as fit; never cut one in half."""
-        separator = f" {self.glyphs.separator} "
-        text = segments[0] if segments else ""
-        for segment in segments[1:]:
-            candidate = f"{text}{separator}{segment}"
-            if len(candidate) > width:
-                break
-            text = candidate
-        if len(text) > width:
-            text = text[: max(0, width - len(self.glyphs.ellipsis))]
-            text += self.glyphs.ellipsis
-        return text
+        return fit_segments(segments, width, self.glyphs)
 
     def _overlay_rect(self, preferred_width: int, preferred_height: int) -> Rect:
         """Centre a modal overlay between the header and the footer."""
@@ -3286,6 +2647,15 @@ class CursesDebugView:
         self._flush_borders()
         self._draw_pane_title(rect, segments)
 
+    def _canvas(self) -> Canvas:
+        """The shared drawing helpers, writing through ``_add``'s sink."""
+        rows, columns = self.screen.size()
+
+        def emit(y: int, x: int, text: str, attr: int) -> None:
+            self._sink(y, x, text, attr)
+
+        return Canvas(self.theme, Rect(0, 0, rows, columns), emit)
+
     def _draw_pane_title(
         self,
         rect: Rect,
@@ -3294,17 +2664,8 @@ class CursesDebugView:
         reserved: int = 0,
         focused: bool = False,
     ) -> None:
-        """Draw a pane title on its top border, dropping segments that do not fit.
-
-        ``reserved`` keeps the right end of the border free for a position
-        readout that shares the row.
-        """
-        width = max(0, rect.width - 6 - reserved)
-        title = self._fit_segments(segments, width)
-        if not title:
-            return
-        attr = self.colors.title if focused else self.colors.plain
-        self._add(rect.y, rect.x + 2, f" {title} ", attr, width + 2)
+        """Draw a pane title on its top border (``Canvas.title``)."""
+        self._canvas().title(rect, segments, reserved=reserved, focused=focused)
 
     def _draw_top_pane_header(
         self,
@@ -3315,22 +2676,7 @@ class CursesDebugView:
         focused: bool = False,
     ) -> None:
         """Title and position readout for a pane whose bottom border is shared."""
-        # The title owns the border: the readout appears only when sharing the
-        # row costs the title nothing.
-        width = max(0, rect.width - 6)
-        shared = width - len(readout) - TITLE_READOUT_GAP
-        reserved = 0
-        if readout and self._fit_segments(segments, shared) == (
-            self._fit_segments(segments, width)
-        ):
-            if self._draw_position(rect, readout, top=True):
-                reserved = len(readout) + TITLE_READOUT_GAP
-        self._draw_pane_title(
-            rect,
-            segments,
-            reserved=reserved,
-            focused=focused,
-        )
+        self._canvas().top_pane_header(rect, segments, readout, focused=focused)
 
     def _add(
         self,

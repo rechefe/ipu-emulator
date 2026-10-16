@@ -79,6 +79,18 @@ py_pytest_test(
     ],
 )
 
+# The XMEM pane rendered on its own: no screen, no view (E08-09).
+py_pytest_test(
+    name = "test_tui_xmem_pane",
+    srcs = ["test/test_tui_xmem_pane.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        requirement("pytest"),
+    ],
+)
+
 # DebugSession on real states: parse, resolve, read and disassemble.
 py_pytest_test(
     name = "test_session",

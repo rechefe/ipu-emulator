@@ -100,6 +100,8 @@ class Command(enum.Enum):
 # that pane's ``Pane.handle``.
 PANE_COMMANDS = frozenset(
     {
+        Command.ADD_TAB,
+        Command.EDIT_TAB,
         Command.CYCLE_FORMAT,
         Command.EDIT_VALUE,
         Command.MOVE_UP,

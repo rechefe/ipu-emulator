@@ -10,6 +10,7 @@ from emu_support import ElementFormat, make_state, new_state
 # TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*) are tested
 # white-box until the TUI is split per pane (E08-08..E08-11).
 import ipu_debug.format as debug_format
+import ipu_debug.tui.draw as draw
 import ipu_debug.tui.view as debug_tui
 from ipu_debug.session import DebugSession, XmemRequest
 from ipu_debug.tui.keymap import footer_text, help_lines
@@ -395,27 +396,27 @@ class TestPaneFrames:
         )
 
     def test_ascii_glyphs_stay_ascii(self):
-        glyphs = debug_tui.ASCII_GLYPHS
+        glyphs = draw.ASCII_GLYPHS
         drawn = "".join(glyphs.box) + glyphs.thumb + glyphs.separator
         drawn += glyphs.current_row + glyphs.more_before + glyphs.more_after
         drawn += glyphs.ellipsis
         assert drawn.isascii()
-        assert len(glyphs.box) == len(debug_tui.UNICODE_GLYPHS.box) == 16
+        assert len(glyphs.box) == len(draw.UNICODE_GLYPHS.box) == 16
 
     def test_glyph_set_follows_the_terminal_encoding(self, monkeypatch):
         monkeypatch.setattr(
-            debug_tui.locale,
+            draw.locale,
             "getpreferredencoding",
             lambda _do_setlocale=False: "ascii",
         )
-        assert debug_tui._detect_glyphs() is debug_tui.ASCII_GLYPHS
+        assert draw.detect_glyphs() is draw.ASCII_GLYPHS
 
         monkeypatch.setattr(
-            debug_tui.locale,
+            draw.locale,
             "getpreferredencoding",
             lambda _do_setlocale=False: "utf-8",
         )
-        assert debug_tui._detect_glyphs() is debug_tui.UNICODE_GLYPHS
+        assert draw.detect_glyphs() is draw.UNICODE_GLYPHS
 
 
 class TestTitleFitting:
@@ -765,7 +766,7 @@ class TestXmemTabs:
 
     def test_palette_allocates_all_16_cell_colors(self):
         screen = FakeScreen(colors=16)
-        colors = debug_tui.Palette(screen)
+        colors = draw.Palette(screen)
 
         styles = {
             colors.cell(foreground, background)
@@ -1332,7 +1333,7 @@ class TestRenderCost:
         view.render()
         for _ in range(5):
             view.render()
-            view._move_focused_cursor(dy=1)
+            view.handle_key(Key.DOWN)
 
         assert len(tokenized) == 1
 
@@ -2187,7 +2188,7 @@ class TestDebuggerImprovements:
         assert view.editor_mode is None
         view.render()
         assert reads == [(0, 1), (128, 1)]
-        resolved, error = view._resolve_xmem(request)
+        resolved, error = view.panes["xmem"].resolve(view.debug, request)
         assert error is None
         assert resolved.data == b"\x22"
 
@@ -2199,7 +2200,7 @@ class TestDebuggerImprovements:
         request = XmemRequest("row", "0", "cr2", 1, "hex")
         session.xmem.tabs = [XmemTab(request)]
         view.render()
-        assert view._resolve_xmem(request)[0].data == b"\x11"
+        assert view.panes["xmem"].resolve(view.debug, request)[0].data == b"\x11"
         generation = view.debug.generation
         session.focus = "registers"
         session.registers.tabs[0].group = "cr"
@@ -2209,7 +2210,7 @@ class TestDebuggerImprovements:
         view.handle_key(Key.ENTER)
         assert view.editor_mode is None
         assert view.debug.generation == generation + 1
-        assert view._resolve_xmem(request)[0].data == b"\x22"
+        assert view.panes["xmem"].resolve(view.debug, request)[0].data == b"\x22"
 
     def test_disassembly_editor_sets_the_pc_through_the_session(self):
         view, screen, session = make_view()
@@ -2784,7 +2785,7 @@ class TestMemoryValueEditing:
             state.xmem.read_address(16, 16) == b"\x55" * 4 + struct.pack("<f", 1.25) + b"\x55" * 8
         )
         assert view.debug.generation > generation
-        resolved, error = view._resolve_xmem(tab.request)
+        resolved, error = view.panes["xmem"].resolve(view.debug, tab.request)
         assert error is None
         assert resolved.cells[1].value == 1.25
 
