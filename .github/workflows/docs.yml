@@ -17,6 +17,7 @@ on:
       - "GLOSSARY.md"
       - "src/tools/ipu-as-py/src/**"
       - "src/tools/ipu-isa/src/**"
+      - "src/tools/ipu-gen/src/**"
       - "src/tools/ipu-apps/src/ipu_apps/kernels/**/*.md"
       - ".github/workflows/docs.yml"
       - "requirements_lock.txt"
