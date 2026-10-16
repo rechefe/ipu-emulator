@@ -75,14 +75,14 @@ Structure:
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from ipu_isa import schema
 from ipu_isa.constants import CR_ONE_REG_INDEX, CR_ZERO_REG_INDEX
-from ipu_isa.operand_types import OPERAND_TYPES, OperandKind
-from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.operand_types import OPERAND_TYPES, OperandKind, OperandType
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot, SlotInfo
 from ipu_isa.tags import Tag
 
 # ===========================================================================
@@ -122,7 +122,7 @@ class InstructionDoc:
 
     title: str
     summary: str
-    operands: Sequence[str]
+    operands: Sequence[str]  # authored as a list, stored as a tuple
     operation: str | None = None
     example: str | None = None
     notes: str | None = None
@@ -159,12 +159,14 @@ SLOT_METADATA: dict[str, dict[str, Any]] = {
 }
 
 
-def instruction_tag(slot: str, inst_def: dict[str, Any]) -> Tag:
+def instruction_tag(
+    slot: str, inst_def: dict[str, Any], slots: Mapping[Slot, SlotInfo] = SLOTS
+) -> Tag:
     """An instruction's tag: its own ``"tag"`` if it has one, else its slot's.
 
     The schema requires the two to agree, so this is always the slot's tag.
     """
-    tag: Tag = inst_def.get("tag", SLOTS[Slot(slot)].tag)
+    tag: Tag = inst_def.get("tag", slots[Slot(slot)].tag)
     return tag
 
 
@@ -1307,8 +1309,9 @@ READABLE_OPERAND_TYPES = frozenset(
 )
 
 
-def _check_operands(path: str, operands: object) -> None:
+def _check_operands(path: str, operands: object, operand_types: Mapping[str, OperandType]) -> None:
     """Keys, name, type and ``read`` of each operand; names unique."""
+    readable = sorted(name for name, record in operand_types.items() if record.readable)
     if not isinstance(operands, list):
         raise schema.SpecError(f"{path}.operands: must be a list of dicts")
     for index, operand in enumerate(operands):
@@ -1319,21 +1322,20 @@ def _check_operands(path: str, operands: object) -> None:
             raise schema.SpecError(
                 f"{where}.name: {operand['name']!r} does not match [a-z][a-z0-9_]*"
             )
-        if operand["type"] not in VALID_OPERAND_TYPES:
+        if operand["type"] not in operand_types:
             raise schema.SpecError(
                 f"{where}.type: unknown operand type {operand['type']!r}; "
-                f"must be one of {sorted(VALID_OPERAND_TYPES)}"
+                f"must be one of {sorted(operand_types)}"
             )
         if "read" in operand:
             if operand["read"] not in schema.READ_SOURCES:
                 raise schema.SpecError(
                     f"{where}.read: {operand['read']!r} is not one of {sorted(schema.READ_SOURCES)}"
                 )
-            if operand["type"] not in READABLE_OPERAND_TYPES:
+            if operand["type"] not in readable:
                 raise schema.SpecError(
                     f"{where}.read: a {operand['type']} operand is not a register, "
-                    f"so it cannot be read; 'read' is allowed only on "
-                    f"{sorted(READABLE_OPERAND_TYPES)}"
+                    f"so it cannot be read; 'read' is allowed only on {readable}"
                 )
     schema.check_unique(path, "operand name", (op["name"] for op in operands))
 
@@ -1358,12 +1360,14 @@ def _check_doc(path: str, doc: object, operands: list[dict[str, Any]]) -> None:
         )
 
 
-def _check_instruction_tag(path: str, slot_type: str, inst_def: dict[str, Any]) -> None:
+def _check_instruction_tag(
+    path: str, slot_type: str, inst_def: dict[str, Any], slots: Mapping[Slot, SlotInfo]
+) -> None:
     """An instruction has its slot's tag: an instruction in an EMULATOR slot is
     EMULATOR, and an EMULATOR instruction may not sit in a HARDWARE slot."""
     if "tag" not in inst_def:
         return
-    tag, slot_tag = inst_def["tag"], SLOTS[Slot(slot_type)].tag
+    tag, slot_tag = inst_def["tag"], slots[Slot(slot_type)].tag
     if not isinstance(tag, Tag):
         raise schema.SpecError(f"{path}.tag: must be a Tag, got {tag!r}")
     if tag is not slot_tag:
@@ -1373,17 +1377,22 @@ def _check_instruction_tag(path: str, slot_type: str, inst_def: dict[str, Any]) 
 
 
 def validate_instruction_spec(
-    instruction_spec: dict[str, Any], slot_metadata: dict[str, Any]
+    instruction_spec: dict[str, Any],
+    slot_metadata: dict[str, Any],
+    *,
+    slots: Mapping[Slot, SlotInfo] = SLOTS,
+    operand_types: Mapping[str, OperandType] = OPERAND_TYPES,
 ) -> None:
-    """Check the instruction spec and slot metadata against the schema.
+    """Check the instruction spec and slot metadata against the schema, the
+    slot registry ``slots`` and the operand-type registry ``operand_types``.
 
     A pure function of its arguments, so a test can check a modified copy.
     Raises :class:`ipu_isa.schema.SpecError` naming the path and the rule.
     """
-    if set(instruction_spec) != {slot.value for slot in SLOTS}:
+    if set(instruction_spec) != {slot.value for slot in slots}:
         raise schema.SpecError(
             f"INSTRUCTION_SPEC: slots {sorted(instruction_spec)} do not match the slot "
-            f"registry {sorted(slot.value for slot in SLOTS)}"
+            f"registry {sorted(slot.value for slot in slots)}"
         )
     if set(slot_metadata) != set(instruction_spec):
         raise schema.SpecError(
@@ -1405,11 +1414,11 @@ def validate_instruction_spec(
         for inst_name, inst_def in instructions.items():
             path = f"{slot_type}.{inst_name}"
             schema.check_keys(path, inst_def, schema.INSTRUCTION)
-            _check_operands(path, inst_def["operands"])
+            _check_operands(path, inst_def["operands"], operand_types)
             _check_doc(path, inst_def["doc"], inst_def["operands"])
             if not isinstance(inst_def["execute_fn"], str):
                 raise schema.SpecError(f"{path}.execute_fn: must be a string")
-            _check_instruction_tag(path, slot_type, inst_def)
+            _check_instruction_tag(path, slot_type, inst_def, slots)
 
 
 _CR_LITERAL = re.compile(r"CR(\d+)", re.IGNORECASE)
@@ -1434,7 +1443,11 @@ def _check_constant_register_literal(where: str, name: str, arg: str, doc: Instr
 
 
 def validate_pseudo_instruction_spec(
-    pseudo_spec: dict[str, Any], instruction_spec: dict[str, Any]
+    pseudo_spec: dict[str, Any],
+    instruction_spec: dict[str, Any],
+    *,
+    slots: Mapping[Slot, SlotInfo] = SLOTS,
+    operand_types: Mapping[str, OperandType] = OPERAND_TYPES,
 ) -> None:
     """Check the pseudo-instruction spec against the schema and the real
     instructions it expands to.
@@ -1448,15 +1461,20 @@ def validate_pseudo_instruction_spec(
     for name, pseudo_def in pseudo_spec.items():
         path = f"pseudo.{name}"
         schema.check_keys(path, pseudo_def, schema.PSEUDO_INSTRUCTION)
-        _check_operands(path, pseudo_def["operands"])
+        _check_operands(path, pseudo_def["operands"], operand_types)
         _check_doc(path, pseudo_def["doc"], pseudo_def["operands"])
         if pseudo_tag(pseudo_def) is not Tag.ASSEMBLER:
             raise schema.SpecError(f"{path}.tag: a pseudo-instruction is Tag.ASSEMBLER")
-        _check_expansion(path, name, pseudo_def, instruction_spec)
+        _check_expansion(path, name, pseudo_def, instruction_spec, slots, operand_types)
 
 
-def _check_expansion(
-    path: str, name: str, pseudo_def: dict[str, Any], instruction_spec: dict[str, Any]
+def _check_expansion(  # noqa: PLR0913 -- the pseudo, its spec and the two registries
+    path: str,
+    name: str,
+    pseudo_def: dict[str, Any],
+    instruction_spec: dict[str, Any],
+    slots: Mapping[Slot, SlotInfo],
+    operand_types: Mapping[str, OperandType],
 ) -> None:
     """The pseudo's ``expands_to`` names a real instruction and fills each of
     its operands with a pseudo operand or a valid literal register."""
@@ -1481,7 +1499,7 @@ def _check_expansion(
         raise schema.SpecError(
             f"{path}.expands_to.instruction: {real_instruction!r} is not in slot {slot!r}"
         )
-    if instruction_tag(slot, real_def) not in (Tag.HARDWARE, Tag.EMULATOR):
+    if instruction_tag(slot, real_def, slots) not in (Tag.HARDWARE, Tag.EMULATOR):
         raise schema.SpecError(
             f"{path}.expands_to.instruction: {real_instruction!r} is not a HARDWARE "
             "or EMULATOR instruction"
@@ -1499,7 +1517,7 @@ def _check_expansion(
             raise schema.SpecError(f"{where}: must be a string")
         if arg in own_names:
             continue
-        target_type = OPERAND_TYPES[target["type"]]
+        target_type = operand_types[target["type"]]
         registers = {member.upper() for member in target_type.domain.members}
         if target_type.kind is not OperandKind.REGISTER or arg.upper() not in registers:
             raise schema.SpecError(

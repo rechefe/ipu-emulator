@@ -94,7 +94,7 @@ class PseudoInstruction:
     tag: Tag  # always ASSEMBLER
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Isa:
     """The whole ISA: slots, operand types, instructions and their layout."""
 
@@ -180,12 +180,17 @@ def load_isa(
 ) -> Isa:
     """Check the authoring dicts against the schema, then build the view.
 
-    Pure: it reads only its arguments, so a test can load a modified copy.
+    Pure: it reads only its arguments (the dicts and the slot and operand-type
+    registries), so a test can load a modified copy.
     Raises :class:`ipu_isa.schema.SpecError` on a schema violation.
     """
     slot_metadata = {slot.value: {"description": info.description} for slot, info in slots.items()}
-    validate_instruction_spec(dict(instruction_spec), slot_metadata)
-    validate_pseudo_instruction_spec(dict(pseudo_spec), dict(instruction_spec))
+    validate_instruction_spec(
+        dict(instruction_spec), slot_metadata, slots=slots, operand_types=operand_types
+    )
+    validate_pseudo_instruction_spec(
+        dict(pseudo_spec), dict(instruction_spec), slots=slots, operand_types=operand_types
+    )
     layout = compute_layout(instruction_spec, operand_types, slots, layout_order)
 
     instructions: dict[Slot, tuple[Instruction, ...]] = {}

@@ -9,7 +9,7 @@ Instruction counting: RunStats (ipu_emu/stats.py) tracks cycles and
 mult/acc-active cycles and XMEM accesses, but NOT a dynamic executed-
 instruction count. This counts every non-NOP slot of every executed cycle
 (LR slots aside), as the emulator itself classifies the opcode
-(get_instruction_by_opcode). It wraps the cycle entry points,
+(isa().by_opcode). It wraps the cycle entry points,
 Ipu.execute_vliw_cycle and Ipu.execute_vliw_cycle_skip_break, which both the
 faithful path and prototyping mode's fast path run through -- the fast path
 skips Ipu.dispatch_instruction, so counting there read zero in that mode. The
@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 from ipu_emu.execute import BreakResult
 from ipu_emu.ipu import _SLOT_FIELD_PREFIX, Ipu
-from ipu_isa.view import get_instruction_by_opcode
+from ipu_isa.slots import Slot
+from ipu_isa.view import isa
 
 #: The slots a cycle runs after its break slot (the LR slots are not counted).
 _AFTER_BREAK = tuple(slot for slot in _SLOT_FIELD_PREFIX if slot != "break")
@@ -47,7 +48,7 @@ class InstrCount:
             return
         for slot_type in slots:
             opcode = inst[f"{_SLOT_FIELD_PREFIX[slot_type]}_token_0_{slot_type}_inst_opcode"]
-            if get_instruction_by_opcode(slot_type, opcode)[0] != "NOP":
+            if isa().by_opcode(Slot(slot_type), opcode).mnemonic != "NOP":
                 self.by_slot[slot_type] = self.by_slot.get(slot_type, 0) + 1
 
 

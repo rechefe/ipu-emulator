@@ -135,9 +135,11 @@ def test_records_are_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
         view.layout = view.layout  # type: ignore[misc]
     assert isinstance(add.operands, tuple) and isinstance(add.doc.operands, tuple)
-    for mapping in (view.slots, view.operand_types, view.layout.unions):
+    for mapping in (view.slots, view.operand_types, view.layout.unions, view._instructions):
         with pytest.raises(TypeError):
             mapping[Slot.LR] = None  # type: ignore[index]
+    with pytest.raises(TypeError):
+        view.layout.operand_bits["LrIdx"] = 1  # type: ignore[index]
 
 
 def test_a_planted_schema_violation_is_rejected():
@@ -145,6 +147,28 @@ def test_a_planted_schema_violation_is_rejected():
     spec["lr"]["ADD"]["operands"][0]["raed"] = "snapshot"
     with pytest.raises(SpecError, match=r"lr\.ADD\.operands"):
         _load(spec)
+
+
+def test_load_isa_checks_against_the_registries_it_is_given():
+    """The slot and operand-type registries are arguments too (E03-24)."""
+    without_lr_idx = {name: record for name, record in OPERAND_TYPES.items() if name != "LrIdx"}
+    with pytest.raises(SpecError, match="unknown operand type 'LrIdx'"):
+        load_isa(INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC, SLOTS, without_lr_idx)
+
+    unreadable = dict(OPERAND_TYPES)
+    unreadable["LrIdx"] = dataclasses.replace(OPERAND_TYPES["LrIdx"], readable=False)
+    with pytest.raises(SpecError, match=r"\.read: a LrIdx operand is not a register"):
+        load_isa(INSTRUCTION_SPEC, PSEUDO_INSTRUCTION_SPEC, SLOTS, unreadable)
+
+    spec = copy.deepcopy(INSTRUCTION_SPEC)
+    spec["mult"]["NOP"]["tag"] = Tag.EMULATOR
+    emulator_mult = dict(SLOTS)
+    emulator_mult[Slot.MULT] = dataclasses.replace(SLOTS[Slot.MULT], tag=Tag.EMULATOR)
+    order = tuple(s for s in isa().layout.layout_order if s is not Slot.MULT) + (Slot.MULT,)
+    view = load_isa(spec, PSEUDO_INSTRUCTION_SPEC, emulator_mult, OPERAND_TYPES, order)
+    assert view.instruction(Slot.MULT, "NOP").tag is Tag.EMULATOR
+    assert {i.tag for i in view.instructions(Slot.MULT)} == {Tag.EMULATOR}
+    assert view.layout.word_bits(Tag.HARDWARE) < isa().layout.word_bits(Tag.HARDWARE)
 
 
 def test_a_modified_spec_loads_in_process():
