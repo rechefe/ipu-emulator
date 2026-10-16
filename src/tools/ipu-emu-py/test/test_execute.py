@@ -19,7 +19,7 @@ from ipu_emu.emulator import (
     run_with_debug,
     DebugAction,
 )
-from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
+from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
 from ipu_emu.debug_control import get_debug_control
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
@@ -33,55 +33,7 @@ from ipu_as.compound_inst import CompoundInst
 
 from ipu_common.activations import apply_activation
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_state(
-    asm_code: str,
-    *,
-    cr: dict[int, int] | None = None,
-    elu_alpha: float | None = None,
-    window_a: float | None = None,
-    window_b: float | None = None,
-) -> IpuState:
-    """Assemble *asm_code* and return a ready-to-run IpuState.
-
-    Optional *cr* presets configuration registers before the program is loaded
-    (e.g. constants read by ``SET lr* cr*``). Optional α and window-bound kwargs
-    are forwarded to :class:`IpuState` (emulator-only; not CR).
-    """
-    encoded = assemble(asm_code)
-    decoded = [decode_instruction_word(w) for w in encoded]
-    state = IpuState(elu_alpha=elu_alpha, window_a=window_a, window_b=window_b)
-    if cr:
-        for idx, val in cr.items():
-            state.regfile.set_cr(idx, val)
-    load_program(state, decoded)
-    return state
-
-
-def _run(
-    asm_code: str,
-    *,
-    cr: dict[int, int] | None = None,
-    elu_alpha: float | None = None,
-    window_a: float | None = None,
-    window_b: float | None = None,
-    max_cycles: int = 100_000,
-) -> IpuState:
-    """Assemble, load, run, and return the final state."""
-    state = _make_state(
-        asm_code,
-        cr=cr,
-        elu_alpha=elu_alpha,
-        window_a=window_a,
-        window_b=window_b,
-    )
-    run_until_complete(state, max_cycles)
-    return state
+from emu_support import ElementFormat, decode_program, make_state, new_state, run
 
 
 # ============================================================================
@@ -91,11 +43,11 @@ def _run(
 
 class TestRegisterOperations:
     def test_set_lr(self):
-        state = _run("SET lr13 cr8;;\nBKPT;;", cr={8: 0x1000})
+        state = run("SET lr13 cr8;;\nBKPT;;", cr={8: 0x1000})
         assert state.regfile.get_lr(13) == 0x1000
 
     def test_add_imm_accumulates_lr(self):
-        state = _run("""\
+        state = run("""\
 SET lr11 cr8;;
 INC lr11 5;;
 INC lr11 3;;
@@ -114,7 +66,7 @@ BKPT;;
         assert state.regfile.get_cr(2) == 0xABCDE
 
     def test_add_lr_lr(self):
-        state = _run("""\
+        state = run("""\
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr3 lr1 lr2;;
@@ -126,7 +78,7 @@ BKPT;;
         assert state.regfile.get_lr(3) == 150
 
     def test_add_lr_cr(self):
-        state = _make_state("""\
+        state = make_state("""\
 SET lr1 cr8;;
 ADD lr4 lr1 cr5;;
 BKPT;;
@@ -139,7 +91,7 @@ BKPT;;
         assert state.regfile.get_lr(4) == 275
 
     def test_add_lr_lr_imm5(self):
-        state = _run("""\
+        state = run("""\
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr4 lr1 lr2;;
@@ -149,7 +101,7 @@ BKPT;;
         assert state.regfile.get_lr(4) == 211
 
     def test_sub_lr_lr(self):
-        state = _run("""\
+        state = run("""\
 SET lr1 cr8;;
 SET lr2 cr9;;
 SUB lr3 lr1 lr2;;
@@ -159,7 +111,7 @@ BKPT;;
         assert state.regfile.get_lr(3) == 70
 
     def test_sub_lr_lr_cr(self):
-        state = _make_state("""\
+        state = make_state("""\
 SET lr2 cr8;;
 SUB lr5 lr2 cr3;;
 BKPT;;
@@ -170,7 +122,7 @@ BKPT;;
         assert state.regfile.get_lr(5) == (45 - 200) & 0xFFFFFFFF
 
     def test_sub_lr_lr_imm5(self):
-        state = _run("""\
+        state = run("""\
 SET lr2 cr8;;
 SET lr4 cr9;;
 SUB lr3 lr2 lr4;;
@@ -188,7 +140,7 @@ BKPT;;
 class TestIncrModPow2:
     def test_basic_wrap_small_k(self):
         """k=4 → mod 16; 15 + 1 wraps to 0."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INCR_MOD_POW2 lr0 lr1 4;;
@@ -199,7 +151,7 @@ BKPT;;
 
     def test_k9_mask_511(self):
         """k=9 → mask 511; largest legal k from spec."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INCR_MOD_POW2 lr0 lr1 9;;
@@ -210,7 +162,7 @@ BKPT;;
 
     def test_read_before_write_same_register(self):
         """dst and step both lr0: uses snapshot value of lr0 for the sum."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 lr0 3;;
 BKPT;;
@@ -219,7 +171,7 @@ BKPT;;
         assert state.regfile.get_lr(0) == (5 + 5) & 7
 
     def test_step_from_cr(self):
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 cr4 4;;
 BKPT;;
@@ -231,7 +183,7 @@ BKPT;;
 
     def test_large_unsigned_step_reduces_mod_mask(self):
         """Uint32 add before mask: step loaded from CR as full uint32."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 INCR_MOD_POW2 lr0 cr5 3;;
 BKPT;;
@@ -255,7 +207,7 @@ BKPT;;
 
     def test_two_incr_mod_pow2_different_dst_no_conflict(self):
         """Two INCR_MOD_POW2 writing different LRs must not raise a conflict error."""
-        state = _run("""\
+        state = run("""\
 SET lr5 cr8;;
 SET lr12 cr9;;
 SET lr13 cr10;;
@@ -269,7 +221,7 @@ BKPT;;
 
 class TestIncDec:
     def test_inc_dest(self):
-        state = _run("""\
+        state = run("""\
 SET lr5 cr8;;
 INC lr5 7;;
 BKPT;;
@@ -278,7 +230,7 @@ BKPT;;
         assert state.regfile.get_lr(5) == 107
 
     def test_dec_dest(self):
-        state = _run("""\
+        state = run("""\
 SET lr5 cr8;;
 DEC lr5 30;;
 BKPT;;
@@ -287,7 +239,7 @@ BKPT;;
         assert state.regfile.get_lr(5) == 70
 
     def test_inc_dec_same_cycle(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 INC lr0 5;;
@@ -312,7 +264,7 @@ class TestAddb:
 
     def test_addb_lr_source(self):
         """Register source: each of the 8 elements across LR0/LR1 gains the same byte."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr5 cr10;;
@@ -325,7 +277,7 @@ BKPT;;
 
     def test_addb_cr_source(self):
         """CR source: src_b's low byte is read directly from the CR (no intermediate SET)."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDB lrd0 cr11;;
@@ -337,7 +289,7 @@ BKPT;;
 
     def test_addbi_immediate(self):
         """Immediate source: unsigned 200 reinterprets as signed -56, decreasing each element."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDBI lrd0 200;;
@@ -350,7 +302,7 @@ BKPT;;
 
     def test_addbi_negative_literal_matches_unsigned_spelling(self):
         """``-56`` and ``200`` encode identically and produce the same result."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 ADDBI lrd0 -56;;
 BKPT;;
@@ -360,7 +312,7 @@ BKPT;;
 
     def test_addbi_saturates_at_255_ceiling(self):
         """An element already near 255 clamps at 255 instead of wrapping."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 ADDBI lrd0 20;;
 BKPT;;
@@ -372,7 +324,7 @@ BKPT;;
 
     def test_addbi_saturates_at_0_floor(self):
         """A negative byte pushes a low element below 0, clamping at 0 instead of wrapping."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 ADDBI lrd0 200;;
 BKPT;;
@@ -383,7 +335,7 @@ BKPT;;
 
     def test_addb_lrd_maps_to_correct_lr_pair(self):
         """LRD6 = LR7:LR6 (named after the lower register) — only LR6/LR7 change; other LRs are untouched."""
-        state = _run("""\
+        state = run("""\
 SET lr6 cr8;;
 SET lr7 cr9;;
 ADDBI lrd6 5;;
@@ -399,7 +351,7 @@ BKPT;;
     def test_addb_lrd_conflict_with_overlapping_lr_write(self):
         """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
         with pytest.raises(RuntimeError, match="LR conflict"):
-            _run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
+            run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
 
     def test_decode_addb_operand_fields(self):
         """``ADDB``'s dest/src_b share the same union fields as INC/SET.
@@ -432,7 +384,7 @@ BKPT;;
 class TestThreeLrSlots:
     def test_three_lr_instructions_parallel(self):
         """Three independent LR ops may execute in the same cycle."""
-        state = _run(
+        state = run(
             """\
 SET lr0 cr8; SET lr1 cr9; SET lr2 cr10;;
 BKPT;;
@@ -486,7 +438,7 @@ class TestMemoryOperations:
     def test_load_from_memory(self):
         """cr8=32 is a row number: row 32 * 128 B/row (narrow) = byte 0x1000."""
         test_data = bytes(range(128))
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
@@ -504,7 +456,7 @@ BKPT;;
         r1_data = bytes([2] * 128)
         cyclic_data = bytes([3] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 SET lr14 cr9;;
@@ -529,7 +481,7 @@ BKPT;;
 
     def test_cyclic_register_load(self):
         cyclic_data = bytes([(i * 2) & 0xFF for i in range(128)])
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -547,7 +499,7 @@ BKPT;;
         """index must be one of the four R_CYCLIC slot boundaries — no implicit wrap."""
         from ipu_emu.ipu import EmulatorError
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -559,7 +511,7 @@ BKPT;;
 
     def test_mask_register_load(self):
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
@@ -577,7 +529,7 @@ BKPT;;
         addr = 0x1000
         row = addr // 128  # row number for the shared cr8 base operand
         old_data = bytes([i & 0xFF for i in range(128)])
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 STR_ACC_REG lr0 cr0;;
@@ -603,7 +555,7 @@ BKPT;;
         for i in range(8):
             mask_data[i] = 0xFF
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -642,7 +594,7 @@ BKPT;;
         for i in range(16, 20):
             mask_data[i] = 0xFF
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -683,7 +635,7 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -723,7 +675,7 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.NEG_INF)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -761,7 +713,7 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -792,7 +744,7 @@ BKPT;;
         for i in range(8):
             mask_data[i] = 0xFF
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -808,9 +760,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32})
-        state.wide_vector_debug = True
-        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32}, fmt=ElementFormat.FP32)
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
@@ -836,7 +786,7 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -852,9 +802,7 @@ SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
 """,
-            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure})
-        state.wide_vector_debug = True
-        state.wide_vector_arithmetic = WideVectorArithmetic.FP32
+            cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure}, fmt=ElementFormat.FP32)
         assert state.dtype == DType.INT8  # unchanged default; must not gate the pad check
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
@@ -878,7 +826,7 @@ BKPT;;
             mask_data[i] = 0xFF
         dstructure = encode_dstructure(valid_elements=128, partition=0, pad_mode=PadMode.POS_INF)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -891,9 +839,7 @@ SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 BKPT;;
 """,
-            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure})
-        state.wide_vector_debug = True
-        state.wide_vector_arithmetic = WideVectorArithmetic.INT32
+            cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure}, fmt=ElementFormat.INT32)
         state.xmem.write_address(0x1000, bytes(128))
         state.xmem.write_address(0x2000, bytes(512))
         state.xmem.write_address(0x3000, mask_data)
@@ -908,7 +854,7 @@ BKPT;;
 
 class TestControlFlow:
     def test_unconditional_branch(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 b skip_section;;
 SET lr0 cr9;;
@@ -921,7 +867,7 @@ BKPT;;
         assert state.regfile.get_lr(1) == 3
 
     def test_bne(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BNE lr0 lr1 not_equal_branch;;
@@ -935,7 +881,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_beq(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr8;;
 BEQ lr0 lr1 equal_branch;;
@@ -949,7 +895,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_blt(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BLT lr0 lr1 less_branch;;
@@ -963,7 +909,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bge(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 ge_branch;;
@@ -977,7 +923,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_not_taken(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 ge_branch_not_taken;;
@@ -991,7 +937,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bnz(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 BNZ lr0 nonzero_branch;;
 SET lr2 cr9;;
@@ -1004,7 +950,7 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_bz(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 BZ lr0 zero_branch;;
 SET lr2 cr8;;
@@ -1018,7 +964,7 @@ BKPT;;
 
     def test_bne_lr_cr(self):
         """bne branches when LR does not equal a CR constant."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 BNE lr0 cr1 bne_cr_branch;;
 SET lr2 cr9;;
@@ -1033,7 +979,7 @@ BKPT;;
 
     def test_beq_lr_cr(self):
         """beq branches when LR equals a CR constant."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 BEQ lr0 cr3 beq_cr_branch;;
 SET lr2 cr9;;
@@ -1049,7 +995,7 @@ BKPT;;
 
     def test_blt_lr_cr(self):
         """blt branches when LR is less than a CR constant."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 BLT lr0 cr2 blt_cr_branch;;
 SET lr2 cr9;;
@@ -1065,7 +1011,7 @@ BKPT;;
 
     def test_blt_negative_counter(self):
         """BLT sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BLT lr0 lr1 neg_branch;;
@@ -1080,7 +1026,7 @@ BKPT;;
 
     def test_bge_negative_not_taken(self):
         """BGE sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BGE lr0 lr1 neg_ge_branch;;
@@ -1095,7 +1041,7 @@ BKPT;;
 
     def test_loop_with_cr_limit(self):
         """Loop using bne against a CR constant instead of an LR."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 cr_loop_start:
 INC lr0 1;;
@@ -1108,7 +1054,7 @@ BKPT;;
         assert state.regfile.get_lr(0) == 10
 
     def test_simple_loop(self):
-        state = _run("""\
+        state = run("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr2 cr8;;
@@ -1123,7 +1069,7 @@ BKPT;;
         assert state.regfile.get_lr(0) == 10
 
     def test_BKPT_halts(self):
-        state = _run(
+        state = run(
             """\
 SET lr0 cr10;;
 BKPT;;
@@ -1135,7 +1081,7 @@ SET lr0 cr8;;
 
     def test_br_cr(self):
         """br accepts a CR register as the branch target address."""
-        state = _make_state("""\
+        state = make_state("""\
 BR cr2;;
 SET lr0 cr8;;
 BKPT;;
@@ -1161,7 +1107,7 @@ BKPT;;
 class TestAccumulator:
     def test_acc_add_first(self):
         """ACC.ADD.FIRST sets r_acc to mult_res without adding previous r_acc."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.ADD.FIRST;;
 BKPT;;
@@ -1180,7 +1126,7 @@ BKPT;;
 
     def test_acc_add_accumulates(self):
         """ACC.ADD adds mult_res to existing r_acc (running sum)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.ADD;;
 BKPT;;
@@ -1198,7 +1144,7 @@ BKPT;;
 
     def test_acc_max_takes_larger(self):
         """ACC.MAX: each element takes max(R_ACC[i], MULT_RES[i])."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.MAX;;
 BKPT;;
@@ -1219,7 +1165,7 @@ BKPT;;
 
     def test_acc_max_first_overwrites(self):
         """ACC.MAX.FIRST: unconditionally overwrites R_ACC with MULT_RES (clean init)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.MAX.FIRST;;
 BKPT;;
@@ -1238,7 +1184,7 @@ BKPT;;
 
     def test_acc_sub_subtracts(self):
         """ACC.SUB: subtracts MULT_RES from each R_ACC element (running subtract)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.SUB;;
 BKPT;;
@@ -1257,7 +1203,7 @@ BKPT;;
 
     def test_acc_sub_first_negates(self):
         """ACC.SUB.FIRST: sets each R_ACC element to negated MULT_RES (clean init)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACC.SUB.FIRST;;
 BKPT;;
@@ -1277,7 +1223,7 @@ BKPT;;
 
     def test_acc_stride_no_stride(self):
         """ACC.STRIDE with both strides off copies all 128 mult_res words to r_acc from start 0."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 ACC.STRIDE 16 off off lr0;;
 BKPT;;
@@ -1294,7 +1240,7 @@ BKPT;;
 
     def test_acc_stride_horizontal(self):
         """ACC.STRIDE with horizontal on: take every 2nd column → 64 elements at r_acc[0:64]."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
 BKPT;;
@@ -1315,7 +1261,7 @@ BKPT;;
 
     def test_acc_stride_offset(self):
         """ACC.STRIDE with offset: (lr0 % 4)*32 is start index; 64 elements written at r_acc[32:96]."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
 BKPT;;
@@ -1344,7 +1290,7 @@ BKPT;;
 
     def test_agg_sum_first_basic(self):
         """AGG.SUM.FIRST: sum all 128 MULT_RES elements and write to R_ACC[dest] (clean init)."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
 BKPT;;
@@ -1366,7 +1312,7 @@ BKPT;;
         Dest is placed outside the active element range so its value would be added
         as a seed in the non-FIRST variant, but must be ignored here.
         """
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
 BKPT;;
@@ -1386,7 +1332,7 @@ BKPT;;
 
     def test_agg_sum_first_uses_valid_elements(self):
         """AGG.SUM.FIRST: only active MULT_RES prefix contributes; tail is excluded."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
 BKPT;;
@@ -1405,7 +1351,7 @@ BKPT;;
 
     def test_agg_sum_first_uses_named_cr_register(self):
         """AGG.SUM.FIRST naming CR3 uses CR3.valid_elements=128, ignoring CR15=4."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr3;;
 BKPT;;
@@ -1428,7 +1374,7 @@ BKPT;;
         Dest is placed outside the active element range so it acts as a pure accumulator
         that is not double-counted in the sum.
         """
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM LR0 cr15;;
 BKPT;;
@@ -1448,7 +1394,7 @@ BKPT;;
 
     def test_agg_max_first_basic(self):
         """AGG.MAX.FIRST: max of all 128 MULT_RES elements, no seed from dest."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
 BKPT;;
@@ -1472,7 +1418,7 @@ BKPT;;
         large garbage value; a seeded implementation would return it, the
         clean-init implementation must return the max of the active MULT_RES elements.
         """
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
 BKPT;;
@@ -1491,7 +1437,7 @@ BKPT;;
 
     def test_agg_max_first_zero_active_writes_identity_seed(self):
         """AGG.MAX.FIRST with valid_elements=0: dest gets the identity seed (INT32_MIN)."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
 BKPT;;
@@ -1508,7 +1454,7 @@ BKPT;;
 
     def test_agg_max_first_masks_tail(self):
         """AGG.MAX.FIRST: MULT_RES tail elements beyond valid_elements are excluded."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
 BKPT;;
@@ -1527,7 +1473,7 @@ BKPT;;
 
     def test_agg_max_seed_wins(self):
         """AGG.MAX: existing R_ACC[dest] seed beats all active MULT_RES elements — dest unchanged."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX LR0 cr15;;
 BKPT;;
@@ -1546,7 +1492,7 @@ BKPT;;
 
     def test_agg_max_lane_wins(self):
         """AGG.MAX: an active MULT_RES element beats the existing R_ACC[dest] seed — dest updated."""
-        state = _make_state(
+        state = make_state(
             """\
 AGG.MAX LR0 cr15;;
 BKPT;;
@@ -1573,7 +1519,7 @@ BKPT;;
         ACTIVATE.QUANTIZE must see that same-cycle write to r_acc, not the
         cycle-start snapshot.
         """
-        state = _make_state(
+        state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -1623,7 +1569,7 @@ class TestReshape:
         """reshape_mask=0: all 8 element slots participate; reads from MULT_RES not R_ACC."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1646,7 +1592,7 @@ BKPT;;
         """reshape_mask=7: only the trailing element (slot 7) participates; slots 0-6 untouched."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1671,7 +1617,7 @@ BKPT;;
         """reshape_mask=6: slots 6 and 7 participate; slots 0-5 are untouched."""
         src_lo, src_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 20, 21)
         dst_lo, dst_hi = _lrd_bytes(50, 51, 52, 53, 54, 55, 60, 61)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1698,7 +1644,7 @@ BKPT;;
         """reshape_mask=3: slots 0-2 (lowest-indexed) are masked out; slots 3-7 participate."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1725,7 +1671,7 @@ BKPT;;
         """A participating source[i] >= 128 raises rather than silently skipping."""
         src_lo, src_hi = _lrd_bytes(200, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1747,7 +1693,7 @@ BKPT;;
         """A participating dest[i] >= 128 raises rather than silently skipping."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(200, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1769,7 +1715,7 @@ BKPT;;
         """An out-of-range source/dest outside the participation range (masked out) is fine."""
         src_lo, src_hi = _lrd_bytes(200, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(200, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1793,7 +1739,7 @@ BKPT;;
         """ACC.RESHAPE copies from MULT_RES, not R_ACC; R_ACC source values are ignored."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1823,7 +1769,7 @@ BKPT;;
         """
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr4 cr12;;
 SET lr0 cr8;;
@@ -1849,7 +1795,7 @@ BKPT;;
         """LR4 value 8 (== RESHAPE_ELEMENT_COUNT) is valid: zero elements participate."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr4 cr12;;
 SET lr0 cr8;;
@@ -1873,7 +1819,7 @@ BKPT;;
         """LR4 value 14 exceeds RESHAPE_ELEMENT_COUNT (8): must raise, not clamp."""
         src_lo, src_hi = _lrd_bytes(0, 1, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(100, 101, 102, 103, 104, 105, 106, 107)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr4 cr12;;
 SET lr0 cr8;;
@@ -1896,7 +1842,7 @@ BKPT;;
         """MULT_RES is read from the pre-instruction snapshot (not live state)."""
         src_lo, src_hi = _lrd_bytes(5, 6, 2, 3, 4, 5, 6, 7)
         dst_lo, dst_hi = _lrd_bytes(10, 11, 12, 13, 14, 15, 16, 17)
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
@@ -1921,7 +1867,7 @@ class TestProgramCounter:
     def test_pc_advances(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 BKPT;;
@@ -1943,7 +1889,7 @@ class TestBreakpoints:
     def test_break_stops_execution(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 BREAK;;
 SET lr0 cr9;;
@@ -1960,7 +1906,7 @@ BKPT;;
     def test_break_ifeq(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
 BKPT;;
@@ -1975,7 +1921,7 @@ BKPT;;
     def test_break_ifeq_no_match(self):
         from ipu_emu.execute import execute_next_instruction
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
 BKPT;;
@@ -1991,7 +1937,7 @@ BKPT;;
         def callback(state, cycle):
             return next(actions, DebugAction.CONTINUE)
 
-        state = _make_state("""\
+        state = make_state("""\
 BREAK;;
 SET lr0 cr8;;
 BKPT;;
@@ -2008,7 +1954,7 @@ BKPT;;
 
 class TestDebuggerStops:
     def test_step_stops_before_next_instruction_and_counts_completed_cycles(self):
-        state = _make_state("BREAK;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("BREAK;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;")
         stops = []
 
         def callback(state, cycle):
@@ -2020,7 +1966,7 @@ class TestDebuggerStops:
         assert state.stats.total_cycles == 4
 
     def test_runtime_breakpoint_rearms_on_loop_visit(self):
-        state = _make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
+        state = make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
         control = get_debug_control(state)
         control.add_breakpoint(0)
         original = [inst.copy() if inst else None for inst in state.inst_mem]
@@ -2036,7 +1982,7 @@ class TestDebuggerStops:
         assert state.inst_mem == original
 
     def test_simultaneous_causes_stop_once(self):
-        state = _make_state("BREAK;;\nBREAK;;\nBKPT;;")
+        state = make_state("BREAK;;\nBREAK;;\nBKPT;;")
         control = get_debug_control(state)
         control.add_breakpoint(1)
         reasons = []
@@ -2056,7 +2002,7 @@ class TestDebuggerStops:
         assert control.run_target is None
 
     def test_run_target_stops_before_side_effects(self):
-        state = _make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
         control = get_debug_control(state)
         control.run_until(1, 0)
         stops = []
@@ -2072,7 +2018,7 @@ class TestDebuggerStops:
         assert state.stats.total_cycles == 1
 
     def test_intervening_break_cancels_run_target(self):
-        state = _make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
         control = get_debug_control(state)
         stops = []
 
@@ -2090,7 +2036,7 @@ class TestDebuggerStops:
 
     @pytest.mark.parametrize("termination", ["halt", "quit", "limit", "error"])
     def test_run_target_cleared_on_every_exit(self, termination):
-        state = _make_state("BREAK;;\nBKPT;;")
+        state = make_state("BREAK;;\nBKPT;;")
         control = get_debug_control(state)
 
         def callback(state, cycle):
@@ -2107,7 +2053,7 @@ class TestDebuggerStops:
         assert control.run_target is None
 
     def test_pc_and_register_edits_apply_to_resumed_instruction(self):
-        state = _make_state("BREAK;;\nSET lr1 cr2;;\nBKPT;;")
+        state = make_state("BREAK;;\nSET lr1 cr2;;\nBKPT;;")
 
         def callback(state, cycle):
             state.program_counter = 1
@@ -2150,6 +2096,7 @@ class TestDecodeRoundtrip:
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
         """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
+        # TODO(E04-13): use the element codec's public encode.
         from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
         fp_one_byte = _float32_to_fp8_scalar(1.0, 4)
@@ -2158,7 +2105,7 @@ class TestFp8:
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2201,7 +2148,7 @@ class TestMultRcVe:
         # CR scalar byte = 3, RC elements = all 2 → each result = 3*2 = 6
         cyclic_data = bytes([2] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2227,7 +2174,7 @@ BKPT;;
         # CR scalar byte = 0xFE = -2 (signed int8), RC elements = 5 → result = -10
         cyclic_data = bytes([5] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2254,7 +2201,7 @@ BKPT;;
         rc_fill = 4
         scalar = 7
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4 cr15;
@@ -2275,12 +2222,13 @@ BKPT;;
 
     def test_mult_rc_ve_cr_fp8e4m3(self):
         """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
+        # TODO(E04-13): use the element codec's public encode.
         from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
         one_fp8 = _float32_to_fp8_scalar(1.0, 4)
         cyclic_data = bytes([one_fp8] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2303,12 +2251,13 @@ BKPT;;
 
     def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
         """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
+        # TODO(E04-13): use the element codec's public encode.
         from ipu_emu.ipu_math import _float32_to_fp8_scalar
 
         two_fp8 = _float32_to_fp8_scalar(2.0, 5)
         scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr6 0 lr4 cr15;
@@ -2336,7 +2285,7 @@ BKPT;;
         r0_data = bytes([4] * 128)
         cyclic_data = bytes([5] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2363,7 +2312,7 @@ BKPT;;
         r0_data = bytearray(128)
         r0_data[0] = 3  # LR value 0 → Ra[0] = 3
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr1 cr9;;
@@ -2391,7 +2340,7 @@ BKPT;;
         r1_data[0] = 7  # LR value=128 → r1[0] = 7
         cyclic_data = bytes([4] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_REG r0 lr0 cr0;;
 SET lr0 cr9;;
@@ -2424,7 +2373,7 @@ class TestMultRcVs:
         """Each RC element multiplied by itself (4 × 4 = 16)."""
         cyclic_data = bytes([4] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2447,7 +2396,7 @@ BKPT;;
         """rc_idx near the 512-byte boundary wraps cyclically (3 × 3 = 9)."""
         cyclic_data = bytes([3] * 512)
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr2 cr10;;
 SET lr5 cr11;;
 MULT.RC.VS lr2 0 lr5 cr15;
@@ -2471,7 +2420,7 @@ BKPT;;
         for i in range(8):           # 64 bits set → first 64 lanes active
             mask_data[i] = 0xFF
 
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 SET lr1 cr9;;
 LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
@@ -2542,7 +2491,7 @@ BKPT;;
     ) -> bytearray:
         """Run MULT.RC.VS with given 128-bit base mask and mask_shift_idx; return r_acc."""
         mask_bytes = base_mask_bits.to_bytes(16, byteorder="little") + bytes(112)
-        state = _make_state(
+        state = make_state(
             self._ASM,
             cr={
                 self._RC_CR: self._RC_ROW,
@@ -2695,7 +2644,7 @@ class TestActivateQuantize:
 
     def test_relu_zeroes_negative_lane(self):
         """relu(-9) = 0 → byte 0; r_acc is unchanged."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -2710,7 +2659,7 @@ BKPT;;
 
     def test_relu_passes_positive_lane(self):
         """relu(5) = 5 → byte 5."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -2724,7 +2673,7 @@ BKPT;;
 
     def test_identity_clamp_positive(self):
         """identity(200) saturates to 127 byte; identity(-200) saturates to 0x80 byte."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
@@ -2741,7 +2690,7 @@ BKPT;;
 
     def test_in_range_values_pass_through(self):
         """Values in [-128, 127] are stored unchanged as bytes."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE identity cr15;;
 BKPT;;
@@ -2762,14 +2711,14 @@ BKPT;;
     def test_requires_int8_mode(self):
         """Raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
-        state = _make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
+        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
 
     def test_inactive_lanes_zeroed(self):
         """Inactive elements (beyond valid_elements) are zeroed in POST_AAQ_REG."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -2789,7 +2738,7 @@ BKPT;;
 
     def test_uses_named_cr_register(self):
         """CR3 with valid_elements=128 overrides CR15 with valid_elements=4."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr3;;
 BKPT;;
@@ -2809,7 +2758,7 @@ BKPT;;
 
     def test_cr15_uses_valid_elements(self):
         """CR15.valid_elements=4 → only 4 active elements; rest zeroed."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -2829,7 +2778,7 @@ BKPT;;
         """elu with IpuState alpha: elu(-1, alpha=0.5) quantized."""
         x = -1
         alpha = 0.5
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE elu cr15;;
 BKPT;;
@@ -2845,7 +2794,7 @@ BKPT;;
 
     def test_window_default_bounds(self):
         """window with default bounds [0.0, 0.1): only x = 0 is inside."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
 BKPT;;
@@ -2864,7 +2813,7 @@ BKPT;;
 
     def test_window_respects_ipu_state_bounds(self):
         """window with IpuState bounds is the half-open indicator on [a, b)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
 BKPT;;
@@ -2886,7 +2835,7 @@ BKPT;;
 
     def test_window_fractional_bounds(self):
         """Fractional bounds select the integer elements that fall inside [a, b)."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
 BKPT;;
@@ -2907,7 +2856,7 @@ BKPT;;
 
     def test_r_acc_not_modified(self):
         """ACTIVATE.QUANTIZE does not modify r_acc."""
-        state = _make_state(
+        state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
 BKPT;;
@@ -2939,9 +2888,8 @@ str_post_aaq_reg lr0 cr0;;
 BKPT;;
 """
         )
-        from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
+        decoded = decode_program(encoded)
         load_program(state, decoded)
         run_until_complete(state)
 
@@ -2954,9 +2902,8 @@ BKPT;;
         state.dtype = DType.INT8
 
         encoded = assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")
-        from ipu_emu.execute import decode_instruction_word
         from ipu_emu.emulator import load_program, run_until_complete
-        decoded = [decode_instruction_word(w) for w in encoded]
+        decoded = decode_program(encoded)
         load_program(state, decoded)
 
         with pytest.warns(DebugOnlyInstructionWarning, match="DEBUG ONLY") as record:
@@ -2967,8 +2914,8 @@ BKPT;;
         """A program is flagged by its non-NOP acc_store words, not its text."""
         from ipu_emu.execute import emulator_only_instructions
 
-        uses = [decode_instruction_word(w) for w in assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")]
-        plain = [decode_instruction_word(w) for w in assemble("SET lr0 cr8;;\nLDR_MULT_REG r0 lr0 cr0;;\nBKPT;;")]
+        uses = decode_program(assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;"))
+        plain = decode_program(assemble("SET lr0 cr8;;\nLDR_MULT_REG r0 lr0 cr0;;\nBKPT;;"))
         assert emulator_only_instructions(uses) == {"STR_ACC_REG"}
         assert emulator_only_instructions(plain) == set()
 
@@ -2986,7 +2933,7 @@ class TestXmemRowAddressing:
         """A narrow-mode row well past the old 8 KB test-suite footprint round-trips."""
         row = 100  # byte 12800 -- past 0x2000 (8192), still well inside the 2 MB narrow bound
         test_data = bytes(range(128))
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
@@ -3000,7 +2947,7 @@ BKPT;;
         """The last valid narrow-mode row (16383, byte 2097024) round-trips."""
         row = NARROW_MAX_ROW - 1
         test_data = bytes(range(128))
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
@@ -3012,7 +2959,7 @@ BKPT;;
 
     def test_narrow_row_at_2mb_bound_raises(self):
         """Row 16384 (the first row past the 2 MB narrow bound) is rejected in narrow mode."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
@@ -3030,17 +2977,17 @@ BKPT;;
     def test_debug_mode_accepts_rows_past_the_narrow_limit(self):
         """The first row narrow mode rejects is an ordinary row in debug mode,
         which is bounded by the allocation instead."""
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
+        state = new_state(fmt=ElementFormat.FP32)
         state.regfile.set_cr(8, NARROW_MAX_ROW)
         encoded = assemble("SET lr13 cr8;;\nLDR_MULT_REG r1 lr13 cr0;;\nBKPT;;\n")
-        load_program(state, [decode_instruction_word(w) for w in encoded])
+        load_program(state, decode_program(encoded))
         run_until_complete(state)
 
     def test_huge_unsigned_row_raises_narrow_range_error(self):
         """LR/CR values are unsigned 32-bit, so a 'negative' row arrives as a huge
         positive row number -- it is rejected by the narrow-mode range check, not a
         separate negative-row path (registers can never hold a negative row)."""
-        state = _make_state("""\
+        state = make_state("""\
 SET lr13 cr8;;
 LDR_MULT_REG r1 lr13 cr0;;
 BKPT;;
@@ -3059,8 +3006,7 @@ BKPT;;
         assert byte_addr > (1 << 21), "row's debug byte address must exceed narrow's 2 MB reach"
         r0 = struct.pack("<128f", *([2.0] * 128))
         rc = struct.pack("<128f", *([3.0] * 128))
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        state.dtype = DType.INT8
+        state = new_state(fmt=ElementFormat.FP32)
         state.xmem.write_address(byte_addr, r0)
         state.xmem.write_address(byte_addr + 512, rc)
         state.regfile.set_cr(6, row)
@@ -3077,7 +3023,7 @@ acc.add.first;;
 BKPT;;
 """
         encoded = assemble(asm)
-        decoded = [decode_instruction_word(w) for w in encoded]
+        decoded = decode_program(encoded)
         load_program(state, decoded)
         run_until_complete(state)
         acc = state.regfile.raw("r_acc")
@@ -3088,8 +3034,7 @@ BKPT;;
     def test_debug_mode_row_past_8mb_raises(self):
         """Both modes reject rows whose byte address would exceed the XMEM allocation."""
         max_debug_row = XMEM_SIZE_BYTES // 512
-        state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)
-        state.dtype = DType.INT8
+        state = new_state(fmt=ElementFormat.FP32)
         state.regfile.set_cr(6, max_debug_row)
         state.regfile.set_cr(7, 0)
         asm = """\
@@ -3098,7 +3043,7 @@ LDR_MULT_REG r0 lr0 cr0;;
 BKPT;;
 """
         encoded = assemble(asm)
-        decoded = [decode_instruction_word(w) for w in encoded]
+        decoded = decode_program(encoded)
         load_program(state, decoded)
         with pytest.raises(EmulatorError, match="exceeds"):
             run_until_complete(state)
@@ -3107,7 +3052,7 @@ BKPT;;
         """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""
         row = 50
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
-        state = _make_state("""\
+        state = make_state("""\
 SET lr0 cr8;;
 LDR_MULT_MASK_REG lr0 cr0;;
 BKPT;;
@@ -3120,7 +3065,7 @@ BKPT;;
     def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
         """STR_ACC_REG writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
         row = 40
-        state = _make_state("""\
+        state = make_state("""\
 SET lr9 cr12;;
 STR_ACC_REG lr9 cr0;;
 BKPT;;
@@ -3145,8 +3090,7 @@ class TestNarrowStoreOverflow:
     def test_acc_add_overflow_leaves_the_lane_by_lane_state(self) -> None:
         from ipu_emu.ipu import Ipu, LANES
 
-        state = IpuState()
-        state.dtype = DType.E4
+        state = make_state("ACC.ADD ;;", fmt=ElementFormat.E4)
         k = 7
         acc = [1.0] * LANES
         mult = [2.0] * LANES
@@ -3154,40 +3098,27 @@ class TestNarrowStoreOverflow:
         state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *acc)
         state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *mult)
 
-        ipu = Ipu(state)
-        ipu._take_snapshot()
         with pytest.raises(OverflowError, match="float too large to pack with f format"):
-            ipu.execute_acc_add()
+            Ipu(state).execute_vliw_cycle()
 
         expected = [3.0] * k + [0.0] + [1.0] * (LANES - k - 1)
         assert state.regfile.raw("r_acc")[:] == struct.pack(f"<{LANES}f", *expected)
 
 
 class TestFirstStoreBitExactness:
-    @pytest.mark.parametrize(
-        ("wide_vector_debug", "dtype"),
-        [
-            (False, DType.E4),
-            (True, DType.INT8),
-        ],
-    )
+    @pytest.mark.parametrize("fmt", [ElementFormat.E4, ElementFormat.FP32])
     @pytest.mark.parametrize(
         "handler_name",
         ["execute_acc_add_first", "execute_acc_max_first"],
     )
     def test_signaling_nan_is_quietened_like_parent_lane_store(
         self,
-        wide_vector_debug: bool,
-        dtype: DType,
+        fmt: ElementFormat,
         handler_name: str,
     ) -> None:
         from ipu_emu.ipu import Ipu
 
-        state = IpuState(
-            wide_vector_debug=wide_vector_debug,
-            wide_vector_arithmetic=WideVectorArithmetic.FP32,
-        )
-        state.dtype = dtype
+        state = new_state(fmt=fmt)
         signaling_nan = struct.pack("<I", 0x7F800001)
         quiet_nan = struct.pack("<I", 0x7FC00001)
         state.regfile.raw("mult_res")[:] = signaling_nan * 128
@@ -3201,7 +3132,7 @@ class TestInspectableSnapshot:
     def test_retained_snapshot_is_stable_and_lazily_replaced(self) -> None:
         from ipu_emu.ipu import Ipu
 
-        state = _make_state(
+        state = make_state(
             """\
 SET lr0 cr8;;
 SET lr0 cr9;;
@@ -3218,6 +3149,7 @@ BKPT;;
         assert first.get_lr(0) == 0
 
         ipu.execute_vliw_cycle()
+        # TODO(E04-07): the Cycle module owns the snapshot; assert laziness through it.
         assert ipu._public_snapshot is None
         assert first.get_lr(0) == 0
         second = ipu.snapshot
@@ -3228,6 +3160,7 @@ BKPT;;
 
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
+        # TODO(E04-08): per-word execution plans replace _build_plan.
         from ipu_emu.ipu import _build_plan
 
         spec = {"execute_fn": "execute_no_such_handler", "operands": []}
