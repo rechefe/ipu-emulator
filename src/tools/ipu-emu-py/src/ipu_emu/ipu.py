@@ -283,7 +283,7 @@ def _build_read_operand_types() -> dict[tuple[str, str], dict[str, tuple[str, st
     """Precompute which operands need auto-resolution for each instruction.
 
     Returns dict keyed by (slot_type, inst_name) → {operand_name: (operand_type, source)}
-    for operands with a ``"read"`` field (``"snapshot"`` or ``"live"``) in instruction_spec.
+    for operands with a ``"read"`` field (``"cycle_start"`` or ``"forwarded"``) in instruction_spec.
     """
     result: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
     for slot_type, instructions in INSTRUCTION_SPEC.items():
@@ -443,18 +443,18 @@ def _build_plan(slot_type: str, inst_name: str, spec: dict, field_map: dict) -> 
             name=name,
             op_type=op_type,
             code=_READ_CODES.get(op_type, _READ_OTHER),
-            from_snapshot=(source == "snapshot"),
+            from_snapshot=(source == "cycle_start"),
         )
         for name, (op_type, source) in _INSTRUCTION_READ_TYPES.get(
             (slot_type, inst_name), {}
         ).items()
     )
     # The LR slot needs the write target to detect two sub-instructions writing
-    # the same register; which operand carries it is fixed per instruction.
+    # the same register; the spec declares it with "write": True (E03-14).
     write_operand, write_is_lrd = None, False
     if slot_type == "lr":
         for op in spec["operands"]:
-            if op["name"] in ("dest", "reg") and "read" not in op:
+            if op.get("write"):
                 write_operand, write_is_lrd = op["name"], op["type"] == "LrdIdx"
                 break
     try:

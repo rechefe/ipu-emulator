@@ -120,7 +120,7 @@ def test_read_sources():
         op.read for slot in Slot for i in isa().instructions(slot) for op in i.operands if op.read
     }
     assert reads <= set(Read)
-    assert Read("snapshot") is Read.CYCLE_START
+    assert Read("cycle_start") is Read.CYCLE_START
 
 
 def test_records_are_immutable():
@@ -144,7 +144,7 @@ def test_records_are_immutable():
 
 def test_a_planted_schema_violation_is_rejected():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
-    spec["lr"]["ADD"]["operands"][0]["raed"] = "snapshot"
+    spec["lr"]["ADD"]["operands"][0]["raed"] = "cycle_start"
     with pytest.raises(SpecError, match=r"lr\.ADD\.operands"):
         _load(spec)
 

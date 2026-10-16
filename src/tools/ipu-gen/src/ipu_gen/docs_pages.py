@@ -7,6 +7,7 @@ and instruction-format pages. ``ipu-gen docs-pages OUT_DIR`` and
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from ipu_as.inst import Inst
@@ -22,6 +23,8 @@ from ipu_isa.instruction_spec import (
 from ipu_isa.layout import word_bits
 from ipu_isa.operand_types import operand_type
 from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
+from ipu_isa.view import isa
 
 
 def _operand_slug(typ: str) -> str:
@@ -99,7 +102,7 @@ load_inst; mult_inst; acc_inst; aaq_inst; store_inst; acc_store_inst; lr_inst_a;
 
 - Each slot appears a fixed number of times (see `SLOT_COUNT` in `instruction_spec.py`); unused slots are filled with that slot’s **NOP** by the assembler.
 - Slot order in the binary word (MSB → LSB) is defined by the toolchain: `cond`, three `lr` sub-slots, `load`, `mult`, `acc`, `aaq`, `store`, `acc_store`, `break` (see the layout diagram on the [Instruction reference](instructions.md#compound-instruction-layout)).
-- The emulator runs **BREAK** first (may halt), then resolves **LR** sub-instructions, then **LOAD**, **MULT**, **ACC**, **AAQ**, **STORE**, **ACC_STORE**, **COND** in one cycle (see `execute_vliw_cycle` in `ipu.py`). Same-cycle **load** + **store**: load resolves before store.
+- The slots of one word execute in a fixed order, and each register read sees either the value at cycle start or the value forwarded from an earlier slot of the same word: see [Execution order and timing](#execution-order-and-timing).
 - The **acc_store** slot (`STR_ACC_REG`) is **simulation-only** — not implemented in real IPU hardware.
 
 **Example (parallel slots):**
@@ -341,8 +344,95 @@ bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input prog.asm --output pro
 - [Adding instructions](adding-instruction.md)
 - [Building applications](building-applications.md)
 """
-    output_path.write_text(main + masking_section + jinja_tail)
+    output_path.write_text(main + timing_section() + masking_section + jinja_tail)
     print(f"Generated assembly syntax page at {output_path}")
+
+
+def _register(name: str) -> str:
+    return f"`{name.upper()}`"
+
+
+def _access(access: RegisterAccess) -> str:
+    """``LR`` via `dest_slot`, ``MULT_RES``."""
+    text = _register(access.register)
+    return f"{text} via `{access.via_operand}`" if access.via_operand else text
+
+
+def _accesses(accesses: Iterable[RegisterAccess]) -> str:
+    return ", ".join(_access(access) for access in accesses) or "—"
+
+
+def timing_section() -> str:
+    """The execution order, the timing contract, every instruction's register
+    reads and writes, and the known deviations, from ``ipu_isa.timing`` (E03-14)."""
+    order = " → ".join(f"**{slot.value.upper()}**" for slot in SLOT_EXECUTION_ORDER)
+    lines = [
+        "",
+        "## Execution order and timing",
+        "",
+        "This section is **generated** from `ipu_isa.timing` and the register accesses each "
+        "instruction declares in `instruction_spec.py`.",
+        "",
+        f"The slots of one instruction word execute in this order: {order}. "
+        "**BREAK** is evaluated before any slot writes (it may halt the word); the **LR** "
+        "sub-slots all read before any of them writes.",
+        "",
+        "A register read sees one of two values: the value at **cycle start** (when the word "
+        "began), or the **forwarded** value (after the writes of earlier slots of the same "
+        "word). The timing contract is four rules:",
+        "",
+        "1. The Control stage (**LR**, **COND**) reads LRs at cycle start; every other stage "
+        "reads LRs after the LR writes of the same word.",
+        "2. **MULT** reads `R0`, `R1`, `R_CYCLIC` and `R_MASK` at cycle start.",
+        "3. `MULT_RES` is forwarded to **ACC** (including AGG and RESHAPE); `R_ACC` is forwarded "
+        "to **AAQ**.",
+        "4. LR sub-slots read cycle-start values.",
+        "",
+        "Any other read is forwarded when every slot that writes the register runs earlier in "
+        "the word, and at cycle start otherwise. CRs are never written during a run, so CR "
+        "reads are at cycle start.",
+        "",
+        "### Register reads and writes",
+        "",
+        "`R` is the `R0`/`R1` pair. An operand of type `LcrIdx` reads an LR or a CR.",
+        "",
+        "| Instruction | Slot | Reads at cycle start | Reads forwarded | Writes |",
+        "|-------------|------|----------------------|-----------------|--------|",
+    ]
+    view = isa()
+    for slot in SLOT_EXECUTION_ORDER:
+        for instruction in view.instructions(slot):
+            if instruction.mnemonic == "NOP":
+                continue
+            reads = instruction.reads()
+            cycle_start = [a for a in reads if a.view is View.CYCLE_START]
+            forwarded = [a for a in reads if a.view is View.FORWARDED]
+            lines.append(
+                f"| `{instruction.mnemonic}` | `{slot.value.upper()}` | {_accesses(cycle_start)} "
+                f"| {_accesses(forwarded)} | {_accesses(instruction.writes())} |"
+            )
+    lines += [
+        "",
+        "### Known deviations",
+        "",
+        "Where the emulator differs from the contract today. Each row is removed by the "
+        "issue named in the last column.",
+        "",
+        "| Instruction | Read | Today | Contract | Fixed by |",
+        "|-------------|------|-------|----------|----------|",
+    ]
+    for deviation in KNOWN_DEVIATIONS:
+        access = RegisterAccess(deviation.register, deviation.via_operand)
+        lines.append(
+            f"| `{deviation.mnemonic}` | {_access(access)} | {_view(deviation.today)} "
+            f"| {_view(deviation.contract)} | {deviation.fixed_by} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _view(view: View) -> str:
+    return "cycle start" if view is View.CYCLE_START else "forwarded"
 
 
 def _generate_slots_section() -> str:
