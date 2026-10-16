@@ -1,3 +1,6 @@
+{#- ipu:params
+chunk_widths: tuple[int, ...]    # each weight chunk's width, in elements
+-#}
 # Packed-OUTPUT linear layer, GENERIC (K, N_OUT=8 fixed) -- K up to 240
 # (30 packed chunks) and beyond.
 #

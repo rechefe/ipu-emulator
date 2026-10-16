@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import jinja2
 import numpy as np
 from fixture_kernel_support import kernel_inst
 from fixture_packed_l5_measure import count_instructions
 
 from ipu_apps.kernels.normalize.layernorm_16x240.app import LayerNorm16x240App
 from ipu_as.lark_tree import assemble_to_bin_file
+from ipu_as.session import AssemblySession
 from ipu_emu.emulator import load_program_from_binary, run_until_complete
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
 from ipu_isa.constants import encode_dstructure
@@ -98,7 +98,7 @@ def test_packed_layernorm_correctness_and_cost(tmp_path: Path) -> None:
     # ---- Packed run ----
     packed_bin = tmp_path / "packed_layernorm.bin"
     template_text = _PACKED_ASM_SRC.read_text()
-    rendered = jinja2.Template(template_text).render()
+    rendered = AssemblySession(template_text).render()
     assemble_to_bin_file(rendered, str(packed_bin))
 
     state = IpuState(wide_vector_debug=True, wide_vector_arithmetic=WideVectorArithmetic.FP32)

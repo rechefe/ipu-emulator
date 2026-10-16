@@ -13,7 +13,16 @@ extend-exclude = ["*.md"]
 # E4/E7/E9/F: ruff's defaults. I: import order. UP: pyupgrade. B: bugbear.
 # C901/PLR0912/PLR0913/PLR0915: function size and complexity (Q66, about
 # 60-line functions); PLR0913 backs the "no flag arguments" convention.
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "PLR0915"]
+# TID251: the banned APIs below.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C901", "PLR0912", "PLR0913", "PLR0915", "TID251"]
+
+# One render path (E05-12): an assembly template is rendered only by
+# ipu_as.template, through AssemblySession or the CLI.
+[lint.flake8-tidy-imports.banned-api]
+"jinja2.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
+"jinja2.environment.Template".msg = "render assembly through ipu_as (AssemblySession(text, defines=...))"
+"jinja2.sandbox.SandboxedEnvironment".msg = "only ipu_as.template builds the sandbox"
+"jinja2.Environment".msg = "render assembly through ipu_as; only the SV generator builds its own"
 
 [lint.isort]
 # The repository's own packages (src/tools/*/src/<name>). Named explicitly so
@@ -40,6 +49,11 @@ max-statements = 50
 max-args = 6
 
 [lint.per-file-ignores]
+# The one module that renders assembly templates.
+"src/tools/ipu-as-py/src/ipu_as/template.py" = ["TID251"]
+# The SystemVerilog package generator renders its own (non-assembly) template.
+"src/tools/ipu-gen/src/ipu_gen/sv_package.py" = ["TID251"]
+
 # Baseline: existing offenders, removed as each refactor epic reaches the file.
 # Complexity rules only (C901, PLR0912, PLR0913, PLR0915), one file per line,
 # grouped by the epic that removes them. Do not add entries; fix the code instead.
@@ -79,7 +93,6 @@ max-args = 6
 
 # ipu-as-py assembler: removed by E05 (slot codec, assembly session).
 "src/tools/ipu-as-py/src/ipu_as/compound_inst.py" = ["C901"]
-"src/tools/ipu-as-py/src/ipu_as/diagnostics.py" = ["C901"]
 "src/tools/ipu-as-py/src/ipu_as/inst.py" = ["C901"]
 
 # ipu-emu-py emulator core: removed by E04 (cycle module, codecs, alias profiling).

@@ -1,6 +1,7 @@
 # Refactor the run loop into a host-drivable, steppable execution engine
 
 Part of the [RISC-V host integration epic](00-epic.md). Can proceed in parallel with #2.
+Depends on [E04-07](../architecture-deepening/04-emulator-core/07-cycle-module.md) (the `Cycle` module, landed).
 
 ## Goal
 
@@ -15,17 +16,29 @@ Today `emulator.run_until_complete()` owns the loop and the halt condition
 (`PC >= INST_MEM_SIZE`), and `run_with_debug()` layers breakpoints on top. There
 is no externally drivable "advance one cycle and tell me the status" primitive.
 
+What one VLIW word does is already one module: `ipu_emu.cycle.Cycle`
+(E04-07). It owns BREAK evaluation, the register snapshot, the slot order, the
+LR conflict check, the idle-word path and the observer hooks, and knows nothing
+about run control. Its interface is `step(*, honour_break=True) -> CycleOutcome`
+(`RETIRED` or `BREAK`), `evaluate_break()` and `retire()` (the break-then-resume
+pair a debugger needs) and `reset()`. The engine builds on it and must not
+call `Ipu.execute_vliw_cycle` / `check_break` / `execute_vliw_cycle_skip_break`:
+those are transitional delegates of `Cycle`.
+
 ## Implementation
 
 - Introduce an engine abstraction (e.g. `ipu_emu/engine.py`) over `IpuState`
   with:
   - `step() -> RunStatus` — execute exactly one VLIW cycle; report
-    `RUNNING` / `HALTED` / `BREAK`.
+    `RUNNING` / `HALTED` / `BREAK`. `Engine.step()` wraps `Cycle.step()`:
+    it is `Cycle.step(honour_break=...)` plus run-control bookkeeping (cycle
+    count, status flags, halt check).
   - `run(max_cycles) -> RunStatus` — loop `step()` until halt/break/limit
     (this is what `run_until_complete`/`run_with_debug` become, preserving
     current behavior).
   - `halt()` — request a cooperative stop at the next instruction boundary.
-  - `reset(preserve_imem=True)` — soft reset (see #2 reset semantics).
+  - `reset(preserve_imem=True)` — soft reset (see #2 reset semantics). Calls
+    `Cycle.reset()`, which drops cached schedules and the snapshot source.
   - `get_pc()` / `set_pc(value)` — PC read/write (set honored only when halted).
   - status surface: `running`, `halted`, `break_hit`, `cycles`, `error`.
 - Re-express `run_until_complete()` / `run_with_debug()` in terms of the engine

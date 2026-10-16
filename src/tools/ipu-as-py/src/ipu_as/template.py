@@ -281,7 +281,9 @@ def _environment(
     key = (tuple(Path(p).resolve() for p in search_path), transform)
     if key not in _ENVIRONMENTS:
         loader = _RootedLoader(key[0], transform) if key[0] else None
-        _ENVIRONMENTS[key] = SandboxedEnvironment(loader=loader)
+        # StrictUndefined: a misspelled or undeclared name fails at its line
+        # instead of rendering as "" inside an instruction.
+        _ENVIRONMENTS[key] = SandboxedEnvironment(loader=loader, undefined=jinja2.StrictUndefined)
     return _ENVIRONMENTS[key]
 
 

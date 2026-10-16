@@ -12,8 +12,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from ipu_apps.kernel_registry.programs import assemble_program
 from ipu_apps.kernel_registry.registry import create_harness, kernel_spec
-from ipu_as.lark_tree import assemble_to_bin_file
 from ipu_emu.emulator import DEFAULT_MAX_CYCLES
 
 
@@ -78,7 +78,7 @@ def assemble_kernel(kernel_name: str, directory) -> Path:
         raise ValueError(f"{kernel_name}: SPEC must declare asm")
     inst_path = Path(directory) / f"{kernel_name}.bin"
     source = files(spec.resource_package).joinpath(spec.asm)
-    assemble_to_bin_file(source.read_text(), str(inst_path))
+    inst_path.write_bytes(assemble_program(source).to_bin())
     return inst_path
 
 

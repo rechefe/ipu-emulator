@@ -19,8 +19,8 @@ from __future__ import annotations
 import math
 import struct
 import warnings
+import weakref
 from collections.abc import Callable
-from enum import IntEnum
 from functools import cache, lru_cache
 from typing import Any, NamedTuple
 
@@ -390,7 +390,7 @@ class _AliasCheck(NamedTuple):
     masked_window: bool
 
 
-class _Plan(NamedTuple):
+class SlotPlan(NamedTuple):
     """Everything dispatch needs for one (slot, opcode), precomputed."""
 
     inst_name: str
@@ -468,7 +468,7 @@ def _compile_alias_checks(slot_type: str, inst_name: str) -> tuple[_AliasCheck, 
     return tuple(checks)
 
 
-def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
+def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> SlotPlan:
     slot, inst_name = instruction.slot, instruction.mnemonic
     reads = tuple(
         _OperandRead(
@@ -510,7 +510,7 @@ def _build_plan(instruction: Instruction, field_map: dict[str, str]) -> _Plan:
         scalar_operand = SCALAR_MULT_OPERANDS[inst_name]
         scalar_type = instruction.operand(scalar_operand).type
         scalar_kind = _SCALAR_KINDS[_READ_CODES[scalar_type.name]]
-    return _Plan(
+    return SlotPlan(
         inst_name=inst_name,
         fn=fn,
         fields=tuple(field_map.items()),
@@ -560,11 +560,6 @@ def _build_slot_plans():
     return opcode_fields, plans, lr_plans, lr_opcode_fields
 
 
-class BreakResult(IntEnum):
-    CONTINUE = 0
-    BREAK = 1
-
-
 # ---------------------------------------------------------------------------
 # IPU Execution Engine
 # ---------------------------------------------------------------------------
@@ -597,9 +592,9 @@ class Ipu:
         # Prototyping mode's shortcuts, read once: the flag belongs to the run,
         # not to the cycle (see ipu_emu/prototyping.py).
         self._prototyping: bool = state.prototyping
-        # PC -> (instruction copy, work that instruction actually does). The
-        # copied fields detect debugger replacements and in-place edits without
-        # penalising the faithful path.
+        # PC -> (instruction copy, work that instruction actually does), for
+        # prototyping's NOP-skipping cycle. The copied fields detect debugger
+        # replacements and in-place edits without penalising the faithful path.
         self._cycle_cache: dict[int, tuple[dict[str, int], tuple]] = {}
         self._profile = None
         if state.alias_profile is not None:
@@ -612,37 +607,42 @@ class Ipu:
                 raise ConfigurationError("an AliasProfile belongs to a single IpuState")
             self._profile = profile._bridge
             state.stats.alias_profile = profile
-        # Snapshot buffer reused across cycles. Every register is refreshed from
-        # the live file at the start of each cycle, so the snapshot is exactly
-        # what a fresh copy would hold; reusing the object just avoids
-        # reallocating ~5.7 KB of bytearrays
-        # per cycle. Safe because no handler ever writes to the snapshot.
+        # The cycle's register snapshot, which handlers read. The Cycle owns
+        # it (bind_snapshot); no handler ever writes to it.
         self._snapshot_buffer: RegFile | None = None
-        self._snapshot_source: RegFile | None = None  # the file the buffer copies
         # Set by dispatch for the multiply in flight, read back by
         # _mult_mask_and_shift — the only place the active-lane count exists.
         self._mult_identity: bool = False
         self._mult_vector_identity = False
         self._mult_cr_identity = False
-        # Public/debug snapshot, materialized only when inspected. It is never
-        # recycled, so a debugger may retain it across later cycles just as it
-        # could before the execution buffer was introduced.
-        self._public_snapshot: RegFile | None = None
+        # One VLIW word's sequencing: snapshot, slot order, idle words, the LR
+        # conflict check and the profiler's begin/end hooks. The cycle gets a
+        # weak proxy: a strong back-reference would make every engine a
+        # reference cycle, keeping its state's XMEM alive until the cyclic
+        # garbage collector happens to run.
+        # So ``cycle`` works only while this Ipu is alive: hold the Ipu, or
+        # build a Cycle of your own (``Cycle(state, ipu)``).
+        self.cycle = Cycle(state, weakref.proxy(self), observer=self._profile)
 
     @property
     def snapshot(self) -> RegFile | None:
         """Inspectable, cycle-stable copy of the current execution snapshot.
 
-        Built-in handlers read ``_snapshot_buffer`` directly so normal execution
-        does not allocate here. Debuggers pay for one copy only if they inspect
-        this property, and repeated reads during the same cycle return that same
-        independent object.
+        See :attr:`Cycle.snapshot`.
         """
-        if self._snapshot_buffer is None:
-            return None
-        if self._public_snapshot is None:
-            self._public_snapshot = self._snapshot_buffer.snapshot()
-        return self._public_snapshot
+        return self.cycle.snapshot
+
+    def bind_snapshot(self, buffer: RegFile) -> None:
+        """Make *buffer* the register snapshot handlers read. Called by :class:`Cycle`.
+
+        Args:
+            buffer: The snapshot the cycle refreshes at each cycle start.
+        """
+        self._snapshot_buffer = buffer
+
+    def forget_cycle_plans(self) -> None:
+        """Drop prototyping's cycle plans cached by PC. Called by :meth:`Cycle.reset`."""
+        self._cycle_cache.clear()
 
     def _require_snapshot(self) -> None:
         """A handler reading the cycle's snapshot runs inside a cycle, which takes it."""
@@ -656,20 +656,6 @@ class Ipu:
         do, so alias and identity statistics stay as they were until E04-24."""
         regfile.forget_provenance(name)  # E04-24
         return regfile.view(name)
-
-    def _take_snapshot(self) -> None:
-        """Refresh the private execution snapshot at cycle start."""
-        regfile = self.state.regfile
-        if regfile is not self._snapshot_source:
-            # First cycle, or the state swapped in another register file:
-            # take a real copy of this one and reuse it from here on.
-            self._snapshot_buffer = regfile.snapshot()
-            self._snapshot_source = regfile
-        else:
-            regfile.copy_into(self._snapshot_buffer)
-        # A previously exposed snapshot must remain frozen for any debugger
-        # retaining it. The next public access lazily copies this cycle.
-        self._public_snapshot = None
 
     # -----------------------------------------------------------------------
     # Wide-vector debug mode (emulator-only; GitHub issue #33)
@@ -1207,47 +1193,28 @@ class Ipu:
         """Execute NOP in LR slot: No operation."""
         pass
 
-    def _dispatch_lr_slots(self, inst: dict[str, int]) -> None:
-        """Dispatch all LR sub-slots with conflict detection.
+    def dispatch_lr(self, ops: tuple[IssuedOp, ...], inst: dict[str, int]) -> None:
+        """Dispatch the LR sub-slots of one word. Called by :class:`Cycle`.
 
-        LR is special: the VLIW word contains multiple LR sub-instructions
-        (lr_inst_0, lr_inst_1, …). Each is dispatched independently
-        with named operands. Read operands are auto-resolved to values.
+        Every sub-slot's read operands are resolved before any of them writes.
+        The cycle has already checked that no two write the same register.
+
+        Args:
+            ops: ``Schedule.lr_ops`` of the word.
+            inst: The word, for the profiler's encoded operands.
         """
-        pending: list[tuple[Callable, dict[str, int]]] = []
-        all_targets: list[int] = []
-
-        for slot_idx, slot_plans in enumerate(_LR_PLANS):
-            plan = slot_plans[inst[_LR_OPCODE_FIELDS[slot_idx]]]
-            kwargs = {name: inst[field_key] for name, field_key in plan.fields}
-            self._resolve_reads(plan, kwargs)
-
-            # Which real LR indices this sub-instruction writes (an LrdIdx
-            # target expands to the two LRs of the pair).
-            if plan.write_operand is not None:
-                raw = kwargs[plan.write_operand]
-                if plan.write_is_lrd:
-                    all_targets.extend(lrd_pair(raw))
-                else:
-                    all_targets.append(raw)
-            pending.append((plan, kwargs))
-
-        # Conflict check: no two valid instructions may write to the same LR.
-        if len(all_targets) != len(set(all_targets)):
-            raise RuntimeError(
-                f"LR conflict: multiple writes to the same LR register in same cycle "
-                f"(targets: {all_targets})"
-            )
-
-        for plan, kwargs in pending:
+        pending = []
+        for op in ops:
+            kwargs = dict(op.operands)
+            self._resolve_reads(op.plan, kwargs)
+            pending.append((op, kwargs))
+        for op, kwargs in pending:
             token = (
-                self._profile.start(
-                    self, Slot.LR, plan, kwargs, {name: inst[key] for name, key in plan.fields}
-                )
+                self._profile.start(self, "lr", op.plan, kwargs, dict(op.operands))
                 if self._profile
                 else None
             )
-            plan.fn(self, **kwargs)
+            op.plan.fn(self, **kwargs)
             if self._profile:
                 self._profile.finish(self, token)
 
@@ -1977,10 +1944,24 @@ class Ipu:
             Return value from handler (BreakResult for break slot, None otherwise)
         """
         plan = _SLOT_PLANS[slot_type][inst[_SLOT_OPCODE_FIELDS[slot_type]]]
-
-        # Extract named operand values
         kwargs = {name: inst[field_key] for name, field_key in plan.fields}
+        return self._dispatch_plan(slot_type, plan, kwargs, inst)
 
+    def dispatch_op(self, op: IssuedOp, inst: dict[str, int]) -> Any:
+        """Dispatch one decoded slot of *inst*. Called by :class:`Cycle`.
+
+        Args:
+            op: The slot, from the word's :class:`~ipu_emu.cycle.Schedule`.
+            inst: The word itself (alias checks read co-issued slots).
+
+        Returns:
+            Return value from handler (BreakResult for break slot, None otherwise)
+        """
+        return self._dispatch_plan(op.slot, op.plan, dict(op.operands), inst)
+
+    def _dispatch_plan(
+        self, slot_type: str, plan: SlotPlan, kwargs: dict[str, Any], inst: dict[str, int]
+    ) -> Any:
         # Auto-resolve 'read' operands to register values.
         self._resolve_reads(plan, kwargs)
 
@@ -2083,7 +2064,7 @@ class Ipu:
         return self._mult_resolve_lcr_scalar(lcr) == _one_byte_for(self.state.dtype)
 
     def _record_alias(
-        self, plan: _Plan, kwargs: dict[str, Any], inst: dict[str, int]
+        self, plan: SlotPlan, kwargs: dict[str, Any], inst: dict[str, int]
     ) -> str | None:
         """Attribute this instruction to at most one declared ISA alias.
 
@@ -2105,7 +2086,7 @@ class Ipu:
             self.state.stats.alias_hits[check.alias_id] += 1
             return check.alias_id
 
-    def _resolve_reads(self, plan: _Plan, kwargs: dict[str, Any]) -> None:
+    def _resolve_reads(self, plan: SlotPlan, kwargs: dict[str, Any]) -> None:
         """Replace each ``read`` operand's raw index with its register value.
 
         The three scalar index types are inlined because they cover almost every
@@ -2127,7 +2108,7 @@ class Ipu:
             else:
                 kwargs[read.name] = self._resolve_operand(read.op_type, raw, source)
 
-    def _resolve_reads_prototype(self, plan: _Plan, kwargs: dict[str, Any]) -> None:
+    def _resolve_reads_prototype(self, plan: SlotPlan, kwargs: dict[str, Any]) -> None:
         """Resolve cached-plan reads without generic RegFile lookup overhead.
 
         LR and CR storage is always a packed array of little-endian uint32
@@ -2180,28 +2161,8 @@ class Ipu:
     # -----------------------------------------------------------------------
 
     def check_break(self) -> BreakResult:
-        """Evaluate the current instruction's BREAK slot before side effects."""
-        inst = self.state.inst_mem[self.state.program_counter]
-        if inst is None:
-            return BreakResult.CONTINUE
-        self._take_snapshot()
-        return self.dispatch_instruction(Slot.BREAK, inst)
-
-    def _dispatch_slots_after_break(self, inst: dict[str, int]) -> None:
-        """Dispatch every slot but BREAK, in ``SLOT_EXECUTION_ORDER``.
-
-        BREAK is evaluated first and separately (before any side effect); LR
-        has several sub-slots, so it goes through ``_dispatch_lr_slots``. The
-        order is read from the module global on every call, so the ISA package
-        is the one place it is declared.
-        """
-        for slot in SLOT_EXECUTION_ORDER:
-            if slot is Slot.BREAK:
-                continue
-            if slot is Slot.LR:
-                self._dispatch_lr_slots(inst)
-            else:
-                self.dispatch_instruction(slot.value, inst)
+        """Evaluate the current word's BREAK slot before side effects. See :meth:`Cycle.evaluate_break`."""
+        return self.cycle.evaluate_break()
 
     # Slots whose NOP handler is not a no-op (execute_cond_nop advances the PC).
     _SLOTS_WITH_ACTIVE_NOP = frozenset({Slot.COND})
@@ -2221,31 +2182,11 @@ class Ipu:
             if cached_inst == inst:
                 return cached_plan
 
-        break_plan = _SLOT_PLANS[Slot.BREAK][inst[_SLOT_OPCODE_FIELDS[Slot.BREAK]]]
-        if break_plan.inst_name == "NOP":
-            break_work = None
-        else:
-            break_work = (break_plan, {n: inst[k] for n, k in break_plan.fields})
-
-        lr_work = []
-        targets: list[int] = []
-        for slot_idx, slot_plans in enumerate(_LR_PLANS):
-            plan = slot_plans[inst[_LR_OPCODE_FIELDS[slot_idx]]]
-            kwargs = {name: inst[field_key] for name, field_key in plan.fields}
-            if plan.write_operand is not None:
-                raw = kwargs[plan.write_operand]
-                if plan.write_is_lrd:
-                    targets.extend(lrd_pair(raw))
-                else:
-                    targets.append(raw)
-            if plan.inst_name != "NOP":
-                lr_work.append((plan, kwargs))
-        conflict = (
-            f"LR conflict: multiple writes to the same LR register in same cycle "
-            f"(targets: {targets})"
-            if len(targets) != len(set(targets))
-            else None
-        )
+        schedule = schedule_word(inst)
+        break_op = schedule.break_op
+        break_work = None if break_op is None else (break_op.plan, break_op.operands)
+        lr_work = [(op.plan, op.operands) for op in schedule.lr_ops if op.plan.inst_name != "NOP"]
+        conflict = schedule.lr_conflict
 
         # A NOP is skippable only where its handler does nothing. The cond
         # slot's NOP is the exception: it advances the PC, so it always runs.
@@ -2255,19 +2196,17 @@ class Ipu:
         # LR keeps its place in the declared order: the ``_LR_WORK`` marker
         # stands where the LR sub-slots (and their conflict check) run.
         slot_work: list = []
-        for slot_enum in SLOT_EXECUTION_ORDER:
-            if slot_enum is Slot.BREAK:
-                continue
-            if slot_enum is Slot.LR:
+        for index, op in enumerate(schedule.slot_ops):
+            if index == schedule.lr_position:
                 slot_work.append(_LR_WORK)
-                continue
-            slot = slot_enum.value
-            plan = _SLOT_PLANS[slot][inst[_SLOT_OPCODE_FIELDS[slot]]]
-            if plan.inst_name != "NOP" or slot in Ipu._SLOTS_WITH_ACTIVE_NOP:
-                slot_work.append((plan, {name: inst[key] for name, key in plan.fields}))
+            plan = op.plan
+            if plan.inst_name != "NOP" or op.slot in Ipu._SLOTS_WITH_ACTIVE_NOP:
+                slot_work.append((plan, op.operands))
             elif plan.stat is not None:
                 # Kept in place with no operands: run it for the counter alone.
                 slot_work.append((plan, None))
+        if schedule.lr_position == len(schedule.slot_ops):
+            slot_work.append(_LR_WORK)
 
         cycle_plan = (break_work, conflict, tuple(lr_work), tuple(slot_work))
         self._cycle_cache[pc] = (dict(inst), cycle_plan)
@@ -2275,7 +2214,7 @@ class Ipu:
 
     def _run_plan(
         self,
-        plan: _Plan,
+        plan: SlotPlan,
         raw_kwargs: dict[str, int],
         stats: RunStats,
         inst: dict[str, int] | None = None,
@@ -2320,7 +2259,7 @@ class Ipu:
                 # Conflict detection runs before any LR write, as in the
                 # faithful path.
                 if conflict is not None:
-                    raise RuntimeError(conflict)
+                    raise lr_conflict_error(conflict)
                 for plan, raw_kwargs in lr_work:
                     self._run_plan(plan, raw_kwargs, stats)
                 continue
@@ -2335,86 +2274,32 @@ class Ipu:
         return BreakResult.CONTINUE
 
     def execute_vliw_cycle(self) -> BreakResult:
-        """Execute one VLIW cycle.
-
-        1. Fetch instruction at program counter
-        2. Snapshot the register file
-        3. Execute BREAK first (before side effects)
-        4. Execute the remaining slots from the snapshot, in
-           ``ipu_isa.timing.SLOT_EXECUTION_ORDER``
-
-        Returns:
-            BreakResult.BREAK if break condition occurred, CONTINUE otherwise
-        """
-        pc = self.state.program_counter
-        inst = self.state.inst_mem[pc]
-        if inst is None:
-            # NOP — just advance PC
-            if self._profile:
-                self._profile.begin(self)
-            self.state.stats.mult_idle_cycles += 1
-            self.state.program_counter += 1
-            if self._profile:
-                self._profile.end()
-            return BreakResult.CONTINUE
-
-        self._take_snapshot()
-
-        if self._prototyping and not self._profile:
-            # The fast path runs plans directly, bypassing the dispatchers that
-            # carry the profiler's hooks. A profiled run takes the faithful
-            # path so the profile describes every slot the cycle issued.
-            return self._execute_cycle_fast(inst, pc, with_break=True)
-
-        # Break runs first — may halt before side effects
-        result = self.dispatch_instruction(Slot.BREAK, inst)
-        if result == BreakResult.BREAK:
-            return BreakResult.BREAK
-
-        # Execute all other slots using the snapshot, in the declared order
-        if self._profile:
-            self._profile.begin(self)
-        self._dispatch_slots_after_break(inst)
-
-        if self._profile:
-            self._profile.end()
-
-        return BreakResult.CONTINUE
+        """Execute one VLIW cycle, honouring BREAK. See :meth:`Cycle.step`."""
+        return self.cycle.step()
 
     def execute_vliw_cycle_skip_break(self) -> None:
-        """Execute the current instruction without re-checking break.
-
-        Used after returning from a debug break to complete the cycle.
-        """
-        pc = self.state.program_counter
-        inst = self.state.inst_mem[pc]
-        if inst is None:
-            if self._profile:
-                self._profile.begin(self)
-            self.state.stats.mult_idle_cycles += 1
-            self.state.program_counter += 1
-            if self._profile:
-                self._profile.end()
-            return
-
-        self._take_snapshot()
-
-        if self._prototyping and not self._profile:
-            self._execute_cycle_fast(inst, pc, with_break=False)
-            return
-
-        # Execute all slots except break
-        if self._profile:
-            self._profile.begin(self)
-        self._dispatch_slots_after_break(inst)
-
-        if self._profile:
-            self._profile.end()
+        """Retire the current word without evaluating BREAK. See :meth:`Cycle.retire`."""
+        self.cycle.retire()
 
 
 # Built here rather than beside the other precomputed tables: a plan holds the
 # handler function itself, so ``Ipu`` has to exist first.
 _SLOT_OPCODE_FIELDS, _SLOT_PLANS, _LR_PLANS, _LR_OPCODE_FIELDS = _build_slot_plans()
+
+
+def plans_for(slot: Slot) -> tuple[tuple[str, tuple[SlotPlan, ...]], ...]:
+    """The decode tables of one slot, for :mod:`ipu_emu.cycle`.
+
+    Args:
+        slot: The slot.
+
+    Returns:
+        ``(opcode field, plans indexed by opcode)`` per issue position: one for
+        most slots, one per sub-slot for LR.
+    """
+    if slot is Slot.LR:
+        return tuple(zip(_LR_OPCODE_FIELDS, _LR_PLANS, strict=True))
+    return ((_SLOT_OPCODE_FIELDS[slot], _SLOT_PLANS[slot]),)
 
 
 def _check_execution_order_covers_plans() -> None:
@@ -2434,3 +2319,12 @@ def _check_execution_order_covers_plans() -> None:
 
 
 _check_execution_order_covers_plans()
+
+
+# ``Ipu`` builds its ``Cycle``, and the cycle module reads this module's decode
+# tables (``plans_for``). Each module imports the other last, so either can be
+# imported first (see the end of ``ipu_emu.cycle``).
+from ipu_emu.cycle import Cycle, CycleOutcome, IssuedOp, lr_conflict_error, schedule_word  # noqa: E402
+
+#: The old name of :class:`CycleOutcome`, kept until E08 migrates the debuggers.
+BreakResult = CycleOutcome

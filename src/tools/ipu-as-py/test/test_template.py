@@ -186,3 +186,11 @@ def test_the_cache_does_not_bypass_define_types() -> None:
 def test_an_apostrophe_in_a_note_does_not_swallow_it() -> None:
     spec = template.declared_params("{#- ipu:params\nm: str = don't  # a note\n-#}")
     assert spec.params[0].default == "don't"
+
+
+def test_an_undefined_name_is_a_template_error_naming_it_and_its_line() -> None:
+    # StrictUndefined (E05-11): `{{ lable }}` used to render as "" inside the
+    # instruction, and the error surfaced as an operand count far from the cause.
+    with pytest.raises(TemplateError, match="'lable' is undefined") as info:
+        template.render("BKPT;;\nBEQ LR0 LR1 {{ lable }};;\n", source_name="k.asm")
+    assert (info.value.location.line, info.value.location.source) == (2, "k.asm")
