@@ -4,21 +4,26 @@
 Usage (one-time historical backfill or full refresh):
     python docs/update_release_log.py
 
-Usage (add only the most recently merged PR, e.g. from CI):
+Usage (add only the most recently merged PR to the existing log, e.g. from CI):
     python docs/update_release_log.py --latest
 
 The script reads GITHUB_TOKEN from the environment when available so that the
 GitHub API rate limit is much higher (5 000 req/h vs 60 req/h unauthenticated).
+
+A network failure never fails the script: a full refresh writes a minimal log,
+and ``--latest`` leaves an existing log unchanged.
 """
 
 import argparse
+import http.client
+import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
-import json
 
 REPO = "rechefe/ipu-emulator"
 API_BASE = "https://api.github.com"
@@ -33,9 +38,18 @@ merge.
 
 | # | Title | Merged at (UTC) |
 |---|-------|----------------|
-""".format(
-    repo=REPO
+"""
+
+# One table row as written by format_row: | [#N](url) | title | YYYY-MM-DD HH:MM |
+# The title may contain escaped pipes (``\\|``).
+_ROW_RE = re.compile(
+    r"^\| \[#(?P<number>\d+)\]\((?P<url>[^)]*)\) \| (?P<title>(?:[^|\\]|\\.)*?) \| "
+    r"(?P<merged>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \|\s*$"
 )
+
+
+class FetchError(Exception):
+    """The GitHub API could not be reached or returned an error."""
 
 
 def _get(url: str, token: str | None) -> dict | list:
@@ -49,42 +63,44 @@ def _get(url: str, token: str | None) -> dict | list:
         return json.loads(resp.read().decode())
 
 
+def _fetch_page(page: int, per_page: int, token: str | None) -> list[dict]:
+    url = (
+        f"{API_BASE}/repos/{REPO}/pulls"
+        f"?state=closed&base=master&per_page={per_page}&page={page}"
+        f"&sort=updated&direction=desc"
+    )
+    try:
+        return _get(url, token)
+    # URLError covers HTTPError; TimeoutError (socket.timeout) and other socket
+    # errors are OSError subclasses, as is URLError itself.  HTTPException
+    # covers truncated responses; ValueError covers a body that is not JSON.
+    except (URLError, TimeoutError, OSError, http.client.HTTPException, ValueError) as exc:
+        raise FetchError(str(exc)) from exc
+
+
 def fetch_merged_prs(token: str | None, latest_only: bool = False) -> list[dict]:
-    """Return a list of merged-PR dicts, sorted newest-first."""
+    """Return merged-PR dicts, newest merge first.
+
+    With ``latest_only`` only the first page is fetched and the single PR with
+    the greatest ``merged_at`` on it is returned (the page is ordered by
+    ``updated``, not by merge time).
+
+    Raises FetchError when the API cannot be reached.
+    """
     prs: list[dict] = []
     page = 1
     per_page = 100
     while True:
-        url = (
-            f"{API_BASE}/repos/{REPO}/pulls"
-            f"?state=closed&base=master&per_page={per_page}&page={page}"
-            f"&sort=updated&direction=desc"
-        )
-        try:
-            batch = _get(url, token)
-        except HTTPError as exc:
-            print(
-                f"Warning: GitHub API error while fetching release log: {exc}. "
-                "Writing a minimal release log instead.",
-                file=sys.stderr,
-            )
-            return []
-
+        batch = _fetch_page(page, per_page, token)
         if not batch:
             break
-
-        for pr in batch:
-            if pr.get("merged_at"):
-                prs.append(pr)
-                if latest_only:
-                    return prs[:1]
-
+        prs.extend(pr for pr in batch if pr.get("merged_at"))
         if len(batch) < per_page or latest_only:
             break
         page += 1
 
     prs.sort(key=lambda p: p["merged_at"], reverse=True)
-    return prs
+    return prs[:1] if latest_only else prs
 
 
 def format_row(pr: dict) -> str:
@@ -98,19 +114,47 @@ def format_row(pr: dict) -> str:
     return f"| [#{number}]({url}) | {title} | {merged_str} |\n"
 
 
-def build_content(prs: list[dict]) -> str:
-    rows = "".join(format_row(pr) for pr in prs)
+def _assemble(rows: list[str]) -> str:
     updated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     footer = f"\n*Last updated: {updated} UTC*\n"
-    return HEADER + rows + footer
+    return HEADER + "".join(rows) + footer
 
 
-def main() -> None:
+def build_content(prs: list[dict]) -> str:
+    return _assemble([format_row(pr) for pr in prs])
+
+
+def parse_rows(text: str) -> dict[int, tuple[str, str]]:
+    """Parse a release log's table rows into {number: (merged, row_line)}."""
+    rows: dict[int, tuple[str, str]] = {}
+    for line in text.splitlines():
+        m = _ROW_RE.match(line)
+        if m:
+            rows[int(m["number"])] = (m["merged"], line.rstrip() + "\n")
+    return rows
+
+
+def merge_rows(existing_text: str, prs: list[dict]) -> str:
+    """Insert or replace ``prs`` (by number) in the log ``existing_text``.
+
+    Returns the full log with every row sorted by merge time, newest first.
+    No existing row is removed.
+    """
+    rows = parse_rows(existing_text)
+    for pr in prs:
+        line = format_row(pr)
+        rows[pr["number"]] = (_ROW_RE.match(line.rstrip("\n"))["merged"], line)
+    ordered = sorted(rows.items(), key=lambda kv: (kv[1][0], kv[0]), reverse=True)
+    return _assemble([line for _, (_, line) in ordered])
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--latest",
         action="store_true",
-        help="Fetch only the most-recently merged PR and rebuild the file (fast, for CI use).",
+        help="Fetch only the most recently merged PR and add it to the existing "
+        "log (fast, for CI use).",
     )
     parser.add_argument(
         "--output",
@@ -118,7 +162,7 @@ def main() -> None:
         default=_DEFAULT_OUTPUT,
         help="Path to write the generated release-log.md (default: docs/content/release-log.md).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -128,14 +172,39 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    prs = fetch_merged_prs(token, latest_only=args.latest)
+    existing = args.output.exists() if args.latest else False
+
+    try:
+        prs = fetch_merged_prs(token, latest_only=args.latest)
+    except FetchError as exc:
+        if existing:
+            print(
+                f"Warning: GitHub API error while fetching release log: {exc}. "
+                f"Leaving {args.output} unchanged.",
+                file=sys.stderr,
+            )
+            return 0
+        print(
+            f"Warning: GitHub API error while fetching release log: {exc}. "
+            "Writing a minimal release log instead.",
+            file=sys.stderr,
+        )
+        prs = []
+
     if not prs:
+        if existing:
+            print(f"No merged PRs found; leaving {args.output} unchanged.", file=sys.stderr)
+            return 0
         print("No merged PRs found; writing a minimal release log.", file=sys.stderr)
 
-    content = build_content(prs)
+    if existing:
+        content = merge_rows(args.output.read_text(encoding="utf-8"), prs)
+    else:
+        content = build_content(prs)
     args.output.write_text(content, encoding="utf-8")
     print(f"Written {len(prs)} PR(s) to {args.output}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

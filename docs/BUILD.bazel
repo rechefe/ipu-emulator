@@ -1,4 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("@ipu_as_deps//:requirements.bzl", "requirement")
 
 # All checked-in Markdown and static assets under docs/content/ (MkDocs docs_dir).
@@ -78,6 +79,16 @@ genrule(
     cmd = "$(location :update_release_log) --output $@",
     tags = ["no-sandbox"],
     tools = [":update_release_log"],
+)
+
+# Default tier (not tagged "docs"): runs offline, _get is monkeypatched.
+py_pytest_test(
+    name = "update_release_log_test",
+    srcs = [
+        "update_release_log.py",
+        "update_release_log_test.py",
+    ],
+    deps = [requirement("pytest")],
 )
 
 py_binary(
