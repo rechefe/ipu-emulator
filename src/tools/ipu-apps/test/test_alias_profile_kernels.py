@@ -7,6 +7,7 @@ import time
 import pytest
 from ipu_apps.kernel_registry import kernels, load
 from ipu_apps.kernel_registry.cases import load_cases, run_case
+from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
 from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.alias_detectors import default_registry
 from ipu_common.isa_alias_spec import ISA_ALIAS_SPEC
@@ -22,11 +23,14 @@ CASES = [(spec.name, name) for spec in kernels() if KERNEL in (None, spec.name)
 def test_profile_kernel(kernel, name, options=None, label=None):
     case = load_cases(kernel)[name]
     start = time.perf_counter()
-    baseline, baseline_cycles = run_case(kernel, case, options=options)
+    debug_only = kernel_uses_debug_only_instructions(kernel)
+    with debug_only_warning(debug_only):
+        baseline, baseline_cycles = run_case(kernel, case, options=options)
     baseline_seconds = time.perf_counter() - start
     profile = AliasProfile(metadata={'case': label or name})
     start = time.perf_counter()
-    state, cycles = run_case(kernel, case, alias_profile=profile, options=options)
+    with debug_only_warning(debug_only):
+        state, cycles = run_case(kernel, case, alias_profile=profile, options=options)
     profile_seconds = time.perf_counter() - start
     assert cycles == baseline_cycles == profile.cycles
     for key, value in vars(baseline.stats).items():

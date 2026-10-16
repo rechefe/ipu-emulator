@@ -11,6 +11,7 @@ import pytest
 
 from ipu_emu.debug_control import get_debug_control
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
+from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu import Ipu, LANES
 from ipu_emu.ipu_state import IpuState
@@ -86,7 +87,8 @@ class TestAliasAttribution:
         assert state.stats.alias_hits == {"A6_GATHER_SCATTER": 1}
 
     def test_simulation_only_store_is_flagged(self):
-        state = _run("STR_ACC_REG LR2 CR2 ;;\nBKPT;;")
+        with pytest.warns(DebugOnlyInstructionWarning):
+            state = _run("STR_ACC_REG LR2 CR2 ;;\nBKPT;;")
         assert state.stats.alias_hits == {"A16_STR_ACC_REG": 1}
 
     def test_hits_partition_identity_cycles(self):

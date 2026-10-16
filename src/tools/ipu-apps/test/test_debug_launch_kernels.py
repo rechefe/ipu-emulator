@@ -12,6 +12,7 @@ import pytest
 
 from ipu_apps.kernel_registry import kernels
 from ipu_apps.kernel_registry.cases import load_cases, run_case
+from ipu_apps.kernel_registry.testing import debug_only_warning, kernel_uses_debug_only_instructions
 from ipu_emu.emulator import DebugAction
 import ipu_emu.debug_tui as tui
 
@@ -42,7 +43,8 @@ def test_every_kernel_enters_debugger_and_completes(debug_terminal, monkeypatch,
         return DebugAction.CONTINUE
 
     monkeypatch.setattr(tui, "run_debug_tui", view)
-    state, cycles = run_case(kernel, load_cases(kernel)["default"])
+    with debug_only_warning(kernel_uses_debug_only_instructions(kernel)):
+        state, cycles = run_case(kernel, load_cases(kernel)["default"])
     assert state.is_halted and cycles > 0
     assert stops[0] == (0, 0)
     # Existing assembly BREAK instructions may reopen the debugger after entry.

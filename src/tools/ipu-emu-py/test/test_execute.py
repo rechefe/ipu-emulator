@@ -23,6 +23,7 @@ from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.debug_control import get_debug_control
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_config import encode_dstructure, PadMode
+from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu import EmulatorError, NARROW_MAX_ROW
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 
@@ -518,7 +519,8 @@ BKPT;;
             cr={8: 32, 9: 64, 10: 0, 11: 96})
         state.xmem.write_address(0x1000, r1_data)
         state.xmem.write_address(0x2000, cyclic_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x3000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
@@ -584,7 +586,8 @@ BKPT;;
             cr={8: row})
         state.xmem.write_address(addr, old_data)
         state.regfile.set_r_acc_bytes(bytes([0xAB] * 512))
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         # Load saw pre-store memory; store overwrote memory afterward.
         assert state.regfile.get_r(0) == bytearray(old_data)
@@ -620,7 +623,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
@@ -658,7 +662,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128i", acc_bytes)
@@ -699,7 +704,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128f", acc_bytes)
@@ -738,7 +744,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128f", acc_bytes)
@@ -807,7 +814,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128f", acc_bytes)
@@ -851,7 +859,8 @@ BKPT;;
         state.xmem.write_address(0x1000, r0_data)
         state.xmem.write_address(0x2000, cyclic_data)
         state.xmem.write_address(0x3000, mask_data)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
 
         acc_bytes = state.xmem.read_address(0x4000, 512)
         words = struct.unpack_from("<128f", acc_bytes)
@@ -2940,7 +2949,7 @@ BKPT;;
         assert stored == state.regfile.get_post_aaq_reg()
 
     def test_STR_ACC_REG_emits_warning(self):
-        """STR_ACC_REG emits a UserWarning about being debug-only."""
+        """STR_ACC_REG emits a DebugOnlyInstructionWarning (a UserWarning)."""
         state = IpuState()
         state.dtype = DType.INT8
 
@@ -2950,8 +2959,18 @@ BKPT;;
         decoded = [decode_instruction_word(w) for w in encoded]
         load_program(state, decoded)
 
-        with pytest.warns(UserWarning, match="DEBUG ONLY"):
+        with pytest.warns(DebugOnlyInstructionWarning, match="DEBUG ONLY") as record:
             run_until_complete(state)
+        assert all(issubclass(w.category, UserWarning) for w in record)
+
+    def test_emulator_only_instructions_reads_the_acc_store_slot(self):
+        """A program is flagged by its non-NOP acc_store words, not its text."""
+        from ipu_emu.execute import emulator_only_instructions
+
+        uses = [decode_instruction_word(w) for w in assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")]
+        plain = [decode_instruction_word(w) for w in assemble("SET lr0 cr8;;\nLDR_MULT_REG r0 lr0 cr0;;\nBKPT;;")]
+        assert emulator_only_instructions(uses) == {"STR_ACC_REG"}
+        assert emulator_only_instructions(plain) == set()
 
 
 # ============================================================================
@@ -3108,7 +3127,8 @@ BKPT;;
 """,
             cr={12: row})
         state.regfile.set_r_acc_bytes(bytes(range(1, 129)) * 4)
-        run_until_complete(state)
+        with pytest.warns(DebugOnlyInstructionWarning):
+            run_until_complete(state)
         stored = state.xmem.read_address(row * 128, 512)
         assert stored == state.regfile.get_r_acc_bytes()
 

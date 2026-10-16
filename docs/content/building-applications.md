@@ -284,6 +284,15 @@ a parametrized test: `case_tests(__package__, sweep=[dict(rows=8), dict(rows=300
 Tests may pass `inst_path` from a module-scoped fixture to reuse assembly. Use
 `workspace` when a test needs to inspect files.
 
+`STR_ACC_REG` is emulator-only: every execution emits
+`ipu_emu.errors.DebugOnlyInstructionWarning`. `case_tests` reads the assembled
+program and, when it contains the instruction, requires the warning in every
+case; for any other kernel the warning is an error. A test that calls
+`run_case` or `app.run` itself wraps the run in
+`pytest.warns(DebugOnlyInstructionWarning)`, or in
+`debug_only_warning(kernel_uses_debug_only_instructions(kernel))` from
+`ipu_apps.kernel_registry.testing`.
+
 ```bash
 bazel test //src/tools/ipu-apps:my_app
 ```

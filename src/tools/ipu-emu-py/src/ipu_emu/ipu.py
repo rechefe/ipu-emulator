@@ -29,7 +29,7 @@ from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE, WideVectorArithmetic
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_emu.regfile import RegFile
 from ipu_emu.stats import RunStats
-from ipu_emu.errors import EmulatorError
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
 from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_common.instruction_spec import (
@@ -1043,6 +1043,7 @@ class Ipu:
         warnings.warn(
             "[DEBUG ONLY] STR_ACC_REG is not a hardware instruction and is available "
             "for emulator debugging purposes only",
+            DebugOnlyInstructionWarning,
             stacklevel=2,
         )
         addr = self._xmem_row_addr(offset + base)

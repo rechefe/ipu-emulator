@@ -1,6 +1,7 @@
 """IPU cycle-functional emulator."""
 
 from ipu_emu.errors import (
+    DebugOnlyInstructionWarning,
     EmulatorError,
     RegisterIndexError,
     RegisterKindError,
@@ -14,6 +15,7 @@ from ipu_emu.ipu_math import DType, ipu_mult, ipu_add, fp32_to_fp8_bytes, fp8_by
 from ipu_emu.execute import (
     decode_instruction_word,
     load_binary_instructions,
+    emulator_only_instructions,
     execute_next_instruction,
     BreakResult,
 )
@@ -39,6 +41,7 @@ from ipu_emu.debug_cli import (
 )
 
 __all__ = [
+    "DebugOnlyInstructionWarning",
     "EmulatorError",
     "RegisterIndexError",
     "RegisterKindError",
@@ -54,6 +57,7 @@ __all__ = [
     "ipu_add",
     "decode_instruction_word",
     "load_binary_instructions",
+    "emulator_only_instructions",
     "execute_next_instruction",
     "BreakResult",
     "load_program",

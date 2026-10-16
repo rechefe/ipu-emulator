@@ -785,3 +785,92 @@ def test_convolution_case_tensors_share_no_values(kernel, case_name, monkeypatch
     assert not np.isin(bias, x).any()
     assert not np.isin(weights, x).any()
     assert not np.isin(bias, weights).any()
+
+
+# -- case_tests and the emulator-only STR_ACC_REG warning ----------------
+
+_TOY_PROGRAMS = {
+    "uses_str_acc_reg": "SET lr0 cr8;;\nSTR_ACC_REG lr0 cr0;;\nBKPT;;",
+    "hardware_only": "SET lr0 cr8;;\nBKPT;;",
+}
+
+
+def _toy_case_test(monkeypatch, program, *, run_hook=None):
+    """``case_tests`` for a one-case toy kernel assembled from ``program``.
+
+    The case runs the real emulator on the assembled binary; ``run_hook``
+    wraps that run to inject or suppress the warning.
+    """
+    import ipu_apps.kernel_registry.testing as testing
+    from ipu_as.lark_tree import assemble_to_bin_file
+    from ipu_emu.emulator import load_program_from_binary, run_until_complete
+    from ipu_emu.ipu_state import IpuState
+
+    def assemble(kernel, directory):
+        path = Path(directory) / f"{kernel}.bin"
+        assemble_to_bin_file(_TOY_PROGRAMS[program], str(path))
+        return path
+
+    def run(kernel, case, *, options, inst_path):
+        state = IpuState()
+        load_program_from_binary(state, inst_path)
+        with run_hook() if run_hook else contextlib.nullcontext():
+            run_until_complete(state)
+        assert state.is_halted
+
+    monkeypatch.setattr(testing, "package_kernel", lambda package: program)
+    monkeypatch.setattr(testing, "load_cases",
+                        lambda kernel: {"default": types.SimpleNamespace(defaults={})})
+    monkeypatch.setattr(testing, "assemble_kernel", assemble)
+    monkeypatch.setattr(testing, "run_case", run)
+    return testing.case_tests("toy")
+
+
+def test_case_tests_passes_a_kernel_that_uses_str_acc_reg_when_it_warns(monkeypatch, tmp_path_factory):
+    _toy_case_test(monkeypatch, "uses_str_acc_reg")("default", {}, tmp_path_factory)
+
+
+def test_case_tests_fails_a_kernel_that_uses_str_acc_reg_without_the_warning(monkeypatch, tmp_path_factory):
+    import warnings
+
+    @contextlib.contextmanager
+    def silence():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yield
+
+    test = _toy_case_test(monkeypatch, "uses_str_acc_reg", run_hook=silence)
+    with pytest.raises(pytest.fail.Exception, match="DID NOT WARN"):
+        test("default", {}, tmp_path_factory)
+
+
+def test_case_tests_fails_a_hardware_only_kernel_if_the_warning_appears(monkeypatch, tmp_path_factory):
+    import warnings
+
+    from ipu_emu.errors import DebugOnlyInstructionWarning
+
+    @contextlib.contextmanager
+    def inject():
+        warnings.warn("[DEBUG ONLY] injected", DebugOnlyInstructionWarning)
+        yield
+
+    # Without the injection the hardware-only kernel passes ...
+    _toy_case_test(monkeypatch, "hardware_only")("default", {}, tmp_path_factory)
+    # ... and with it, the warning is an error.
+    test = _toy_case_test(monkeypatch, "hardware_only", run_hook=inject)
+    with pytest.raises(DebugOnlyInstructionWarning, match="injected"):
+        test("default", {}, tmp_path_factory)
+
+
+def test_debug_only_detection_reads_the_assembled_words(tmp_path):
+    from ipu_apps.kernel_registry.testing import (
+        kernel_uses_debug_only_instructions, uses_debug_only_instructions,
+    )
+    from ipu_as.lark_tree import assemble_to_bin_file
+
+    for name, program in _TOY_PROGRAMS.items():
+        path = tmp_path / f"{name}.bin"
+        assemble_to_bin_file(program, str(path))
+        assert uses_debug_only_instructions(path) is (name == "uses_str_acc_reg")
+    assert kernel_uses_debug_only_instructions("fully_connected")
+    assert not kernel_uses_debug_only_instructions("maxpool2d_stride2")

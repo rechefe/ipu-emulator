@@ -32,6 +32,12 @@ from ipu_as.compound_inst import CompoundInst
 # Re-export Ipu class and BreakResult for backward compatibility
 from ipu_emu.ipu import Ipu, BreakResult
 from ipu_emu.ipu_state import IpuState
+from ipu_common.instruction_spec import (
+    INSTRUCTION_SPEC,
+    SLOT_COUNT,
+    get_instruction_by_opcode,
+    is_hardware_slot,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +90,28 @@ def load_binary_instructions(data: bytes) -> list[dict[str, int]]:
         word = int.from_bytes(chunk, byteorder="little")
         instructions.append(decode_instruction_word(word))
     return instructions
+
+
+def emulator_only_instructions(instructions) -> set[str]:
+    """Names of the emulator-only instructions a decoded program contains.
+
+    An instruction is emulator-only when it sits in a slot that real hardware
+    does not implement (``is_hardware_slot`` is false, today only
+    ``acc_store``) and is not that slot's ``NOP``. Reads opcodes from the
+    decoded words of :func:`load_binary_instructions`, so it does not depend
+    on mnemonic spelling.
+    """
+    slots = [slot for slot in INSTRUCTION_SPEC if not is_hardware_slot(slot)]
+    for slot in slots:
+        if SLOT_COUNT[slot] != 1:
+            raise NotImplementedError(f"emulator-only slot {slot!r} appears {SLOT_COUNT[slot]} times")
+    found: set[str] = set()
+    for inst in instructions:
+        for slot in slots:
+            name, _ = get_instruction_by_opcode(slot, inst[f"{slot}_inst_token_0_{slot}_inst_opcode"])
+            if name != "NOP":
+                found.add(name)
+    return found
 
 
 # ---------------------------------------------------------------------------

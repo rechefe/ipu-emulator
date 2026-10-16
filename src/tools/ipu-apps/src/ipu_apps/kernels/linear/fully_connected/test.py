@@ -5,12 +5,15 @@ from ipu_apps.kernels.linear.fully_connected.cases import CASES, DATA, MissingIn
 from ipu_apps.kernel_registry import create_harness, resolve
 from ipu_apps.kernel_registry.cases import run_case
 from ipu_apps.kernel_registry.testing import case_tests
+from ipu_emu.errors import DebugOnlyInstructionWarning
 
 test_case = case_tests(__package__)
 
 
 def _run(name):
-    state, cycles = run_case("fully_connected", CASES[name])
+    # The kernel stores each sample with the emulator-only STR_ACC_REG.
+    with pytest.warns(DebugOnlyInstructionWarning):
+        state, cycles = run_case("fully_connected", CASES[name])
     assert cycles > 0
     return state
 
@@ -28,8 +31,9 @@ def test_missing_input_fixture_fails(monkeypatch, tmp_path):
     # The input fixtures are checked in: a packaging mistake that drops one
     # must fail the target, not turn every case into a skip.
     monkeypatch.setitem(prepare.__globals__, "DATA", tmp_path)
+    # Preparation fails before the program runs, so no STR_ACC_REG warning.
     with pytest.raises(MissingInputFixture, match="missing fully connected fixture"):
-        _run("int8")
+        run_case("fully_connected", CASES["int8"])
 
 
 def test_missing_output_is_not_skipped(monkeypatch):

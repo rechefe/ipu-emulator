@@ -10,6 +10,7 @@ from ipu_as.lark_tree import assemble
 from ipu_emu.alias_profile import AliasDefinition, AliasProfile, DetectorRegistry, Event, Match
 from ipu_emu.alias_detectors import default_registry
 from ipu_emu.emulator import load_program, run_until_complete
+from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 
@@ -290,7 +291,7 @@ BKPT;;
 
 
 def test_hardware_only_alias_and_dtype_support():
-    with pytest.warns(UserWarning):
+    with pytest.warns(DebugOnlyInstructionWarning):
         state = run('STR_ACC_REG LR0 CR0;;\nBKPT;;')
     assert count(state, 'A16_STR_ACC_REG') == 1
     assert rows(state, 'A16_STR_ACC_REG')[0]['metrics']['write_bytes'] == 512

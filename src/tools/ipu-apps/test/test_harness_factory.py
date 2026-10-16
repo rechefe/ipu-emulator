@@ -275,12 +275,20 @@ def test_runtime_checks_survive_optimization():
     code = """
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import warnings
 from ipu_apps.kernel_registry.cases import load_cases, run_case
+from ipu_emu.errors import DebugOnlyInstructionWarning
 for name in ('identity', 'softmax_rows', 'fully_connected'):
     with TemporaryDirectory() as tmp:
         case = load_cases(name)['default']
         prepared = case.prepare(Path(tmp), **case.defaults)
-        run_case(name, case, workspace=Path(tmp))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always', DebugOnlyInstructionWarning)
+            run_case(name, case, workspace=Path(tmp))
+        # Only fully_connected uses the emulator-only STR_ACC_REG.
+        debug_only = any(issubclass(w.category, DebugOnlyInstructionWarning) for w in caught)
+        if debug_only != (name == 'fully_connected'):
+            raise SystemExit(name + ': unexpected DebugOnlyInstructionWarning state')
         out = Path(prepared.bindings['output_path'])
         raw = bytearray(out.read_bytes())
         if name == 'softmax_rows':

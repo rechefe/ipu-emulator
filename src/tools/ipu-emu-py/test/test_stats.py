@@ -15,7 +15,7 @@ from ipu_emu.emulator import (
     run_until_complete,
     run_with_debug,
 )
-from ipu_emu.errors import EmulatorError
+from ipu_emu.errors import DebugOnlyInstructionWarning, EmulatorError
 from ipu_emu.execute import decode_instruction_word
 from ipu_emu.ipu_state import IpuState
 from ipu_emu.stats import RunStats
@@ -148,10 +148,8 @@ BKPT;;
         decoded = [decode_instruction_word(w) for w in encoded]
         state.regfile.set_lr(0, 0)
         state.regfile.set_cr(2, 0x1000 // 128)  # row number
-        import warnings
         load_program(state, decoded)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        with pytest.warns(DebugOnlyInstructionWarning):
             run_until_complete(state)
         assert state.stats.xmem_writes == 1
         assert state.stats.xmem_reads == 0

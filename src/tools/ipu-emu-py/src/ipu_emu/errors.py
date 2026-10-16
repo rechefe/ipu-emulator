@@ -20,3 +20,12 @@ class RegisterSizeError(EmulatorError, ValueError):
 
 class RegisterKindError(EmulatorError, TypeError):
     """Scalar accessor used on a vector register."""
+
+
+class DebugOnlyInstructionWarning(UserWarning):
+    """An emulator-only instruction (no hardware equivalent) was executed.
+
+    Emitted by ``STR_ACC_REG`` (the ``acc_store`` slot). Tests that run such a
+    program assert it with ``pytest.warns``; every other test turns it into an
+    error, so a kernel cannot start relying on it by accident.
+    """
