@@ -46,6 +46,20 @@ __all__ = [
 #: rules from isa.json (``slotFill``).
 WILDCARD_OPCODES = frozenset({"nop"})
 
+
+def _check_nop_is_reserved() -> None:
+    """NOP is the one mnemonic the assembler knows by name: it must be every
+    slot's NOP and nothing else, and no other mnemonic may be a wildcard."""
+    for slot in LAYOUT_ORDER:
+        nops = [i for i in isa().instructions(slot) if i.mnemonic.lower() in WILDCARD_OPCODES]
+        if [i.mnemonic for i in nops] != ["NOP"] or nops[0].operands:
+            raise RuntimeError(f"slot {slot.value} must have exactly one NOP, with no operands")
+    if any(p.mnemonic.lower() in WILDCARD_OPCODES for p in isa().pseudos()):
+        raise RuntimeError("NOP is reserved; no pseudo-instruction may be named NOP")
+
+
+_check_nop_is_reserved()
+
 #: Every slot instance of a word, most significant first: the order slots are
 #: filled in, and the order of the disassembly text.
 SLOT_INSTANCES: tuple[tuple[Slot, int], ...] = tuple(
