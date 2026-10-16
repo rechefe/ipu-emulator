@@ -68,7 +68,11 @@ class AssemblyResult:
         return b"".join(word.to_bytes(width, byteorder="little") for word in self.words)
 
     def reissue_warnings(self) -> None:
-        """Raise the assembly's warnings again, as encoding did, for a caller handed this result."""
+        """Raise the assembly's warnings again, as encoding did.
+
+        Called by the public `assemble` functions, so each warning is attributed
+        to their caller, whether the result is new or came from the cache.
+        """
         for message, category in zip(self.warnings, self._warning_categories, strict=True):
             warnings.warn(message, category, stacklevel=3)
 
@@ -121,11 +125,30 @@ class AssemblySession:
         return self._parsed
 
     def assemble(self) -> AssemblyResult:
-        """Encode every instruction word. Raises TemplateError, ParseError or an EncodeError."""
+        """Encode every instruction word and raise the encoder's warnings.
+
+        Raises:
+            TemplateError, ParseError or an EncodeError subclass.
+        """
+        result = self._encode()
+        result.reissue_warnings()
+        return result
+
+    def _encode(self) -> AssemblyResult:
+        """Encode without raising warnings; they are recorded in the result."""
         parsed = self.parse()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            words = tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
+            try:
+                words = tuple(compound_inst.CompoundInst(instr).encode() for instr in parsed)
+                failure = None
+            except AssemblerError as error:
+                failure = error
+        if failure is not None:
+            # Raise what encoding warned about before it failed, then the error.
+            for warning in caught:
+                warnings.warn(warning.message, warning.category, stacklevel=3)
+            raise failure
         result = AssemblyResult(
             words=words,
             symbols=MappingProxyType(dict(self.symbols.items())),
@@ -133,7 +156,6 @@ class AssemblySession:
             warnings=tuple(str(w.message) for w in caught),
             _warning_categories=tuple(w.category for w in caught),
         )
-        result.reissue_warnings()
         return result
 
 
@@ -170,7 +192,8 @@ def assemble(
         _cache.move_to_end(key)
         cached.reissue_warnings()
         return cached
-    result = AssemblySession(source, defines=defines, name=name).assemble()
+    result = AssemblySession(source, defines=defines, name=name)._encode()
+    result.reissue_warnings()
     _cache[key] = result
     if len(_cache) > _CACHE_SIZE:
         _cache.popitem(last=False)

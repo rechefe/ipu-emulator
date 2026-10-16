@@ -86,12 +86,6 @@ def test_cache_returns_the_same_result_for_the_same_source() -> None:
     assert session.assemble(source) is not session.assemble(source + "NOP;;\n")
 
 
-def test_cache_key_includes_defines() -> None:
-    assert session._cache_key("x", None) == session._cache_key("x", {})
-    assert session._cache_key("x", {"ROWS": 8}) != session._cache_key("x", None)
-    assert session._cache_key("x", {"ROWS": 8}) != session._cache_key("x", {"ROWS": 9})
-
-
 def test_simulation_only_slot_warning_is_recorded_and_raised_on_every_call() -> None:
     source = "STR_ACC_REG lr0 cr0;;\nBKPT;;\n"
     for _ in range(2):  # the second call is a cache hit

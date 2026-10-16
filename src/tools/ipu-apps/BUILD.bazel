@@ -202,7 +202,12 @@ py_pytest_test(
     name = "test_session_outputs",
     srcs = ["test/test_session_outputs.py"],
     data = _ASM_CORPUS,
-    deps = [":asm_corpus", requirement("pytest")],
+    deps = [
+        ":asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("jinja2"),
+        requirement("pytest"),
+    ],
 )
 
 py_binary(

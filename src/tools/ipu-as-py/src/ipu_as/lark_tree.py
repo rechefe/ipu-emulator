@@ -6,6 +6,8 @@ their historical behaviour: a template error propagates as the jinja2 exception,
 and a parse or assemble error prints a message and exits with status 1.
 """
 
+from typing import NoReturn
+
 import lark
 
 import ipu_as.compound_inst as compound_inst
@@ -29,23 +31,35 @@ __all__ = [
 ]
 
 
-def _parse_failure(error: AssemblerError) -> lark.exceptions.LarkError | AssemblerError:
-    """What the parse stage reported before the session: lark's own exception text."""
+def _report_and_exit(error: AssemblerError) -> NoReturn:
+    """Print the line each stage printed before the session existed, and exit 1.
+
+    The session chains every parse-stage error to the lark exception it came
+    from (`raise ... from error`); that exception's text is what was printed.
+    """
     cause = error.__cause__
-    return cause if isinstance(cause, lark.exceptions.LarkError) else error
+    if isinstance(error, ParseError) or isinstance(cause, lark.exceptions.LarkError):
+        reported = cause if isinstance(cause, lark.exceptions.LarkError) else error
+        print(f"Error parsing code: {reported}")
+    else:
+        print(f"Error assembling code: {error}")
+    exit(1)
 
 
-def parse(text: str) -> list[dict[str, any]]:
+def _jinja_error(error: TemplateError) -> BaseException:
+    """The jinja2 exception a TemplateError wraps, which is what callers got before."""
+    return error.__cause__ or error
+
+
+def parse(text: str) -> list[dict]:
     """The compound instructions of `text`; prints and exits on a parse error."""
     try:
         return session.AssemblySession(text).parse()
     except TemplateError as error:
-        # The jinja2 exception itself, as before the session existed.
-        raise (error.__cause__ or error) from None
+        raise _jinja_error(error) from None
     except AssemblerError as error:
         if isinstance(error, ParseError) or isinstance(error.__cause__, lark.exceptions.LarkError):
-            print(f"Error parsing code: {_parse_failure(error)}")
-            exit(1)
+            _report_and_exit(error)
         raise
 
 
@@ -53,14 +67,9 @@ def _assemble(text: str) -> session.AssemblyResult:
     try:
         return session.assemble(text)
     except TemplateError as error:
-        # The jinja2 exception itself, as before the session existed.
-        raise (error.__cause__ or error) from None
+        raise _jinja_error(error) from None
     except AssemblerError as error:
-        if isinstance(error, ParseError) or isinstance(error.__cause__, lark.exceptions.LarkError):
-            print(f"Error parsing code: {_parse_failure(error)}")
-        else:
-            print(f"Error assembling code: {error}")
-        exit(1)
+        _report_and_exit(error)
     except ValueError as error:
         print(f"Error assembling code: {error}")
         exit(1)
