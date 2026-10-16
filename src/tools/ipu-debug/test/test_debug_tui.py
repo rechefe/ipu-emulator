@@ -10,9 +10,9 @@ from emu_support import ElementFormat, make_state, new_state
 
 # TODO(E08): debugger internals (CursesDebugView._*, debug_tui._*,
 # _resolve_xmem_request) are tested white-box until the debuggers move to ipu_debug.
-import ipu_emu.debug_tui as debug_tui
-from ipu_emu.debug_cli import XmemRequest, _resolve_xmem_request
-from ipu_emu.debug_tui import (
+import ipu_debug.tui as debug_tui
+from ipu_debug.cli import XmemRequest, _resolve_xmem_request
+from ipu_debug.tui import (
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
     PIPELINE_REGISTERS,
@@ -236,7 +236,7 @@ class TestLayout:
 
     def test_parallel_operations_are_stacked_under_their_instruction(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -257,7 +257,7 @@ class TestLayout:
 
     def test_no_instruction_spans_the_pane_sideways(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nMULT lr3 lr4 lr5\nSET cr0 lr6",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -270,7 +270,7 @@ class TestLayout:
 
     def test_every_row_of_an_instruction_carries_its_cursor(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: first\nsecond",
         )
         view, screen, session = make_view(screen=FakeScreen(columns=140))
@@ -288,7 +288,7 @@ class TestLayout:
 
     def test_mnemonics_share_one_column_across_every_slot(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1\nSTR_ACC_REG lr2 lr3",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -304,7 +304,7 @@ class TestLayout:
 
     def test_the_parallel_marker_recedes(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: ADD lr0 lr1 lr2\nADD lr3 lr4 lr5",
         )
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
@@ -321,7 +321,7 @@ class TestLayout:
             mnemonic = "STR_ACC_REG" if pc % 2 else "ADD"
             return f"PC {pc}: {mnemonic} lr0 lr1"
 
-        monkeypatch.setattr("ipu_emu.debug_cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
         view, screen, _ = make_view(screen=FakeScreen(columns=140))
 
         view.render()
@@ -331,7 +331,7 @@ class TestLayout:
 
     def test_nops_are_collapsed_in_disassembly(self, monkeypatch):
         monkeypatch.setattr(
-            "ipu_emu.debug_cli.disassemble_at",
+            "ipu_debug.cli.disassemble_at",
             lambda _state, pc: f"PC {pc}: NOP 0 lr0 lr0;\nADD lr0 lr1 lr2;;",
         )
         view, screen, _ = make_view()
@@ -1398,7 +1398,7 @@ class TestRenderCost:
             decoded.append(pc)
             return f"PC {pc}: ADD lr0 lr1 lr2"
 
-        monkeypatch.setattr("ipu_emu.debug_cli.disassemble_at", disassemble)
+        monkeypatch.setattr("ipu_debug.cli.disassemble_at", disassemble)
         view, _, _ = make_view()
 
         view.render()
@@ -1410,7 +1410,7 @@ class TestRenderCost:
         assert len(decoded) == first
 
     def test_an_xmem_request_is_tokenised_once_per_curses_entry(self, monkeypatch):
-        import ipu_emu.debug_cli as debug_cli
+        import ipu_debug.cli as debug_cli
 
         tokenized: list[int] = []
         real = debug_cli._tokenize_xmem
@@ -2700,7 +2700,7 @@ class TestPipelineStageView:
         return make_state(source)
 
     def test_stage_decoding_includes_each_metadata_slot(self):
-        from ipu_emu.debug_pipeline import SLOT_LABELS, stage_operations
+        from ipu_debug.pipeline import SLOT_LABELS, stage_operations
 
         state = self.program("SET lr2 cr1;;")
         slots = dict(stage_operations(state.inst_mem[0]))
@@ -2812,7 +2812,7 @@ class TestPipelineStageView:
         assert view.disassembly_rect.width == 31
 
     def test_display_uses_semantic_operand_order_and_omits_unused_fields(self):
-        from ipu_emu.debug_pipeline import stage_operations
+        from ipu_debug.pipeline import stage_operations
 
         state = self.program("SET lr2 cr1; ADD lr3 lr2 cr1;;")
         slots = dict(stage_operations(state.inst_mem[0]))
@@ -2823,7 +2823,7 @@ class TestPipelineStageView:
         assert view._active_operations(view._disassembly(0)) == ["SET lr2 cr1", "ADD lr3 lr2 cr1"]
 
     def test_concurrent_commands_occupy_separate_stages_and_nops_clear_them(self):
-        from ipu_emu.debug_pipeline import pipeline_occupancy
+        from ipu_debug.pipeline import pipeline_occupancy
 
         state = self.program(
             "SET lr2 cr1; ADD lr3 lr2 cr1; "
@@ -2838,7 +2838,7 @@ class TestPipelineStageView:
         assert all(not commands for _, commands in pipeline_occupancy(state.inst_mem[1]))
 
     def test_stage_occupancy_follows_branch_destination(self):
-        from ipu_emu.debug_pipeline import pipeline_occupancy
+        from ipu_debug.pipeline import pipeline_occupancy
         from ipu_emu.emulator import run_with_debug
 
         state = self.program("B +2;; SET lr2 cr1;; ADD lr3 lr2 cr1;;")

@@ -23,7 +23,7 @@ try:  # pragma: no cover - import availability is platform-dependent
 except ImportError:  # pragma: no cover
     curses = None  # type: ignore[assignment]
 
-from ipu_emu.debug_cli import (
+from ipu_debug.cli import (
     _CELL16_BACKGROUND_SHIFT,
     _CELL16_CHARACTER_MASK,
     _CELL16_CHARACTERS_PER_GROUP,
@@ -37,8 +37,8 @@ from ipu_emu.debug_cli import (
     _U32_DECIMAL_WIDTH,
     decode_16bit_cell,
 )
-from ipu_emu.debug_control import DebugControl
-from ipu_emu.debug_pipeline import (
+from ipu_debug.control import DebugControl
+from ipu_debug.pipeline import (
     SLOT_LABELS,
     display_operation,
     pipeline_occupancy,
@@ -51,7 +51,7 @@ from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 
 if TYPE_CHECKING:
-    from ipu_emu.debug_cli import ResolvedXmemRequest, XmemRequest
+    from ipu_debug.cli import ResolvedXmemRequest, XmemRequest
 
 
 MIN_TERMINAL_ROWS = 24
@@ -544,7 +544,7 @@ class DebugViewSession:
         self.message_is_error = error
 
     def ensure_default_tab(self, state: IpuState) -> None:
-        from ipu_emu.debug_cli import XmemRequest
+        from ipu_debug.cli import XmemRequest
 
         fresh = not self.initialized
         if fresh and not self.tabs:
@@ -602,7 +602,7 @@ class DebugViewSession:
         return snapshot
 
     def commit_baseline(self, state: IpuState) -> None:
-        from ipu_emu.debug_cli import _resolve_xmem_request
+        from ipu_debug.cli import _resolve_xmem_request
 
         register_snapshot = self.snapshot_registers(state)
         for tab in self.register_tabs:
@@ -1331,7 +1331,7 @@ class CursesDebugView:
             )
 
     def _resolve_xmem(self, request: XmemRequest) -> tuple[ResolvedXmemRequest | None, str | None]:
-        from ipu_emu.debug_cli import _resolve_xmem_request
+        from ipu_debug.cli import _resolve_xmem_request
 
         if request not in self._xmem_requests:
             self._xmem_requests[request] = _resolve_xmem_request(self.state, request)
@@ -1341,7 +1341,7 @@ class CursesDebugView:
         key = _resolved_key(resolved)
         lines = self._xmem_cache.get(key)
         if lines is None:
-            from ipu_emu.debug_cli import _tokenize_xmem
+            from ipu_debug.cli import _tokenize_xmem
 
             lines = _tokenize_xmem(
                 resolved.data,
@@ -1355,7 +1355,7 @@ class CursesDebugView:
     def _disassembly(self, pc: int) -> str:
         text = self._disassembly_cache.get(pc)
         if text is None:
-            from ipu_emu.debug_cli import disassemble_at
+            from ipu_debug.cli import disassemble_at
 
             text = disassemble_at(self.state, pc)
             operations = self._all_operations(text)
@@ -3105,7 +3105,7 @@ class CursesDebugView:
             fmt = existing.fmt if isinstance(existing, PipelineTab) else None
             return PipelineTab(register_key=spec.key, fmt=fmt), None
 
-        from ipu_emu.debug_cli import _parse_xmem_request
+        from ipu_debug.cli import _parse_xmem_request
 
         if command.lower().startswith("xmem "):
             command = command[5:]
@@ -3175,7 +3175,7 @@ class CursesDebugView:
         self.session.set_message(f"Editing {label}")
 
     def _submit_value_editor(self) -> object:
-        from ipu_emu.debug_cli import _parse_int
+        from ipu_debug.cli import _parse_int
 
         backing, offset, size, fmt, label = self.editor_value
         try:
@@ -3216,7 +3216,7 @@ class CursesDebugView:
         self.session.set_message(f"Enter an integer for {name.upper()}{index}")
 
     def _submit_scalar_editor(self) -> object:
-        from ipu_emu.debug_cli import _parse_int
+        from ipu_debug.cli import _parse_int
 
         assert self.editor_register is not None
         name, index = self.editor_register
@@ -3337,7 +3337,7 @@ class CursesDebugView:
         self._cycle_xmem_format(delta)
 
     def _cycle_xmem_format(self, delta: int) -> None:
-        from ipu_emu.debug_cli import (
+        from ipu_debug.cli import (
             _XMEM_FORMAT_ITEM_SIZE_BYTES,
             _XMEM_FORMATS,
             XmemRequest,

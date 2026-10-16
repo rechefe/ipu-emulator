@@ -590,20 +590,25 @@ class Language {
   // --- Labels ---
 
   /** Label definitions and references (operands of Label type) with literal names. Templated names
-   *  (`{{ name }}_loop`) are left out: their text is not in the file. */
+   *  (`{{ name }}_loop`) are left out: their text is not in the file. So are GNU local labels
+   *  (`1:` defined many times, referenced as `1f` / `1b`): renaming or going to `1` means nothing.
+   *  `locals` holds the numbers of the local labels the file defines. */
   labels(text) {
     return this.memo('labels', text, () => {
       const defs = [];
       const refs = [];
+      const locals = new Set();
       for (const t of this.scan(text).tokens) {
         if (t.templated) continue;
-        if (t.role === 'label') defs.push({ name: t.name, start: t.start, end: t.end });
-        else if (t.role === 'operand' && !/^[+-]/.test(t.text)) {
+        if (t.role === 'label') {
+          if (/^[0-9]+$/.test(t.name)) locals.add(String(Number(t.name))); // `01:` is `1:`, as in the assembler
+          else defs.push({ name: t.name, start: t.start, end: t.end });
+        } else if (t.role === 'operand' && !/^[+-]/.test(t.text) && !/^[0-9]+[fb]?$/.test(t.text)) {
           const typed = this.operandType(t.mnemonic, t.index);
           if (typed && typed.domain && typed.domain.kind === 'label') refs.push({ name: t.text, start: t.start, end: t.end });
         }
       }
-      return { defs, refs };
+      return { defs, refs, locals };
     });
   }
 

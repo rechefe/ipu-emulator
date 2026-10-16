@@ -18,7 +18,9 @@ def _tiny(monkeypatch):
 
 
 def test_every_module_runs_and_writes_valid_files(tmp_path):
-    assert {"imports", "assemble", "kernels", "emulator"} <= bench.benchmark_modules().keys()
+    assert {"imports", "assemble", "assemble_stages", "kernels", "emulator"} <= (
+        bench.benchmark_modules().keys()
+    )
     assert bench.main(["--quick", "--out", str(tmp_path)]) == 0
     smaller = json.loads((tmp_path / SMALLER_FILE).read_text())
     bigger = json.loads((tmp_path / BIGGER_FILE).read_text())
@@ -28,6 +30,9 @@ def test_every_module_runs_and_writes_valid_files(tmp_path):
         "import/ipu_emu",
         "import/ipu_apps",
         "assemble/all_kernels",
+        "assemble/render_s",
+        "assemble/parse_s",
+        "assemble/encode_s",
         "kernel/identity/peak_rss_mb",
         "emulator/ipu_state_construct_ms",
         "emulator/ipu_state_tracemalloc_peak_mb",

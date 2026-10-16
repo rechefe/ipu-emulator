@@ -11,7 +11,7 @@ exports_files([
     "ruff_runner.py",
 ])
 
-# Refresh //:requirements_lock.txt from the four pyproject.toml files and
+# Refresh //:requirements_lock.txt from the five pyproject.toml files and
 # tools/requirements-tools.in. Runs uv from the lock itself, so no host tool is
 # needed. Extra arguments go to `uv pip compile`:
 #
@@ -38,6 +38,8 @@ py_pytest_test(
         "//src/tools/ipu-apps:runtime_deps",
         "//src/tools/ipu-as-py:pyproject.toml",
         "//src/tools/ipu-as-py:runtime_deps",
+        "//src/tools/ipu-debug:pyproject.toml",
+        "//src/tools/ipu-debug:runtime_deps",
         "//src/tools/ipu-isa:pyproject.toml",
         "//src/tools/ipu-isa:runtime_deps",
         "//src/tools/ipu-emu-py:pyproject.toml",
@@ -68,6 +70,7 @@ py_pytest_test(
         "import_graph.toml",
         "//src/tools/ipu-apps:py_sources",
         "//src/tools/ipu-as-py:py_sources",
+        "//src/tools/ipu-debug:py_sources",
         "//src/tools/ipu-emu-py:py_sources",
         "//src/tools/ipu-gen:py_sources",
         "//src/tools/ipu-harness:py_sources",
@@ -78,6 +81,20 @@ py_pytest_test(
         requirement("pytest"),
         requirement("tomli"),
     ],
+)
+
+# tools/update_baselines.sh runs every update_* target of the packages that
+# hold baselines (docs/content/code-conventions.md, "Baselines").
+py_pytest_test(
+    name = "test_update_baselines",
+    size = "small",
+    srcs = ["test_update_baselines.py"],
+    data = [
+        "update_baselines.sh",
+        "//src/tools/ipu-apps:BUILD.bazel",
+        "//src/tools/ipu-as-py:BUILD.bazel",
+    ],
+    deps = [requirement("pytest")],
 )
 
 # Per-package line coverage of a combined lcov report, as a Markdown table.
@@ -123,6 +140,7 @@ test_suite(
         "//docs:ruff",
         "//src/tools/ipu-apps:ruff",
         "//src/tools/ipu-as-py:ruff",
+        "//src/tools/ipu-debug:ruff",
         "//src/tools/ipu-emu-py:ruff",
         "//src/tools/ipu-gen:ruff",
         "//src/tools/ipu-harness:ruff",

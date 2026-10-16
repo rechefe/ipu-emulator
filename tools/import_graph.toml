@@ -3,7 +3,7 @@
 # //tools:test_import_graph reads every Python source under
 # src/tools/*/src/<package>/ and fails on an import of a first-party package
 # that its row does not list. A package imports itself freely. A new package
-# (ipu_debug) adds, in the change that creates it, its row here, its
+# (such as ipu_debug) adds, in the change that creates it, its row here, its
 # :py_sources to the test's data, its name to known-first-party in ruff.toml
 # and its ruff_test to //tools:lint; until then the test fails on a package
 # with sources and no row, and on any import of an ipu_* package it has no
@@ -40,11 +40,22 @@ ipu_emu = [
     "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it; E04-18 checks)
 ]
 
-# ipu_isa is allowed but not imported today.
-ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu"]
+# The debugger (E08-03): one way onto the emulator and the ISA. Only the
+# runner imports it (ipu_apps today, ipu_harness after E06), so no other row
+# lists ipu_debug.
+ipu_debug = [
+    "ipu_isa",
+    "ipu_emu",
+    "ipu_as",  # temporary: disassembly and the pipeline view use CompoundInst (E03-18 removes it)
+]
+
+# ipu_isa is allowed but not imported today. ipu_debug: debug mode
+# (IPU_DEBUG_TUI=1) launches the TUI.
+ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_debug"]
 
 # The kernel framework (E06): the ISA, the assembler's session API and the
-# emulator's reference-model API. Never ipu_apps or ipu_debug. ipu_kernels only
+# emulator's reference-model API. Not ipu_apps, nor ipu_debug until the
+# runner takes over launching the debugger (E06-12). ipu_kernels only
 # inside a function ([deferred]): the registry loader (E06-16) and the
 # reference lookup (E06-09) load kernel-side modules by name when asked.
 ipu_harness = ["ipu_isa", "ipu_as", "ipu_emu", "ipu_kernels"]

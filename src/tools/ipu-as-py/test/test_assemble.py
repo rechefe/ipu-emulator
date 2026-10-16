@@ -2,6 +2,7 @@ import pytest
 from jinja2.exceptions import SecurityError
 
 import ipu_as.template as template
+from ipu_as.errors import OperandError, ParseError, SlotError, TemplateError
 from ipu_as.lark_tree import assemble
 
 
@@ -58,9 +59,18 @@ def test_pseudo_instructions_are_case_insensitive():
     ],
 )
 def test_pseudo_instruction_wrong_arity_raises_clear_error(code, capsys):
-    with pytest.raises(SystemExit):
+    with pytest.raises(OperandError, match="expects"):
         assemble(code)
-    assert "expects" in capsys.readouterr().out
+    assert capsys.readouterr().out == ""
+
+
+def test_bad_source_raises_instead_of_exiting(capsys):
+    with pytest.raises(ParseError):
+        assemble("BEQ lr0, cr0, +1;;")  # commas do not parse
+    # A bare word parses as an instruction, so it fails at encoding.
+    with pytest.raises(SlotError):
+        assemble("bogus")
+    assert capsys.readouterr().out == ""
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +86,9 @@ def test_template_escape_is_refused_and_does_not_run(tmp_path):
         "{{ self.__init__.__globals__.__builtins__.__import__('os')"
         ".popen('touch " + str(marker) + "').read() }}BKPT;;\n"
     )
-    with pytest.raises(SecurityError):
+    with pytest.raises(TemplateError) as info:
         assemble(code)
+    assert isinstance(info.value.__cause__, SecurityError)
     assert not marker.exists()
 
 
@@ -89,8 +100,9 @@ def test_template_escape_is_refused_and_does_not_run(tmp_path):
     ],
 )
 def test_attribute_traversal_out_of_the_sandbox_is_refused(code):
-    with pytest.raises(SecurityError):
+    with pytest.raises(TemplateError) as info:
         assemble(code)
+    assert isinstance(info.value.__cause__, SecurityError)
 
 
 def test_unsafe_attribute_yields_nothing_rather_than_the_object():

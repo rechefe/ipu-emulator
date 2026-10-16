@@ -9,8 +9,8 @@ from io import StringIO
 import pytest
 from emu_support import ElementFormat, make_state, new_state
 
-import ipu_emu.debug_cli as debug_cli_module
-from ipu_emu.debug_cli import (
+import ipu_debug.cli as debug_cli_module
+from ipu_debug.cli import (
     VISIBLE_ALPHABET,
     DebugAction,
     DebugCLI,
@@ -26,7 +26,7 @@ from ipu_emu.debug_cli import (
     save_state_json,
     state_to_json_dict,
 )
-from ipu_emu.debug_control import DebugControl
+from ipu_debug.control import DebugControl
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
@@ -59,7 +59,7 @@ def _run_cli(state: IpuState, commands: str, level: int = 0) -> tuple[DebugActio
 
 
 def test_active_tui_session_does_not_change_legacy_prompt(monkeypatch):
-    import ipu_emu.debug_tui as tui
+    import ipu_debug.tui as tui
 
     state = IpuState()
     tui.new_debug_view_session(state).active = True

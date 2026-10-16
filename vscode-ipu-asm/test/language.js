@@ -87,6 +87,8 @@ test('label definitions and references, as the assembler reads them', () => {
     // softmax_rows_partial.asm: a macro call where an instruction starts is whole words.
     ['run_p1:\n{{- block(0, true) }}\n    B drain ;;\ndrain:\n    BKPT ;;\n', ['run_p1', 'drain'], ['drain']],
     ['{% for w in ws %}\nskip_{{ w }}:\n{% endfor %}\ndone:\n    SET lr0 cr0;;\n', ['done'], []],
+    // GNU local labels are neither definitions nor references for rename and navigation.
+    ['1:\n    BNE lr0 lr1 1b;;\nout:\n    B 1f;;\n1:\n    B out;;\n', ['out'], ['out']],
   ]) {
     const found = lang.labels(text);
     eq(found.defs.map((d) => d.name), defs, text);
@@ -292,7 +294,9 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
     // Completion's view of every instruction the file uses: at each mnemonic, that mnemonic is offered;
     // at each operand, the context names the right instruction and position, and its type accepts it.
     const audit = (label, text) => {
-      const defs = lang.labels(text).defs.map((d) => d.name);
+      const { defs: defined, locals } = lang.labels(text);
+      const defs = defined.map((d) => d.name);
+      const local = (ref) => /^[0-9]+[fb]$/.test(ref) && locals.has(String(Number(ref.slice(0, -1))));
       const same = (a, b) => a.toLowerCase() === b.toLowerCase();
       for (const w of lang.scan(text).words) {
         for (const ins of w.instructions) {
@@ -309,7 +313,7 @@ if (corpusPath) test('the corpus: parser, completion, formatting and Jinja agree
             const typed = lang.operandType(ins.mnemonic.text, i);
             const right = oc.kind === 'operand' && oc.index === i && same(oc.mnemonic, ins.mnemonic.text) && typed;
             const accepted = right && (typed.domain.kind === 'label'
-              ? defs.includes(op.text) || /^\+\d+$/.test(op.text)
+              ? defs.includes(op.text) || /^\+\d+$/.test(op.text) || local(op.text)
               : lang.accepts(typed.domain, op.text));
             if (!accepted) fail(`${label}: operand ${i} of ${ins.mnemonic.text} ("${op.text}" at ${op.start}) is not offered where it is written`);
           });

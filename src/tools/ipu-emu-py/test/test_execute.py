@@ -13,12 +13,18 @@ import subprocess
 import sys
 
 import pytest
-from emu_support import ElementFormat, decode_program, make_state, new_state, run
+from emu_support import (
+    BreakpointRunControl,
+    ElementFormat,
+    decode_program,
+    make_state,
+    new_state,
+    run,
+)
 
 from ipu_as.compound_inst import CompoundInst
 from ipu_as.lark_tree import assemble, parse
 from ipu_emu.activations import apply_activation
-from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import (
     DebugAction,
     load_program,
@@ -1187,22 +1193,18 @@ SET lr0 cr8;;
 
     def test_br_cr(self):
         """br accepts a CR register as the branch target address."""
-        state = make_state(
-            """\
+        from ipu_as.session import AssemblySession
+
+        source = """\
 BR cr2;;
 SET lr0 cr8;;
 BKPT;;
 br_cr_target:
 SET lr0 cr9;;
 BKPT;;
-""",
-            cr={8: 0, 9: 1},
-        )
-        from ipu_as.label import ipu_labels
-
-        target_addr = ipu_labels.get_address(
-            type("T", (), {"value": "br_cr_target", "line": 0, "column": 0})()
-        )
+"""
+        state = make_state(source, cr={8: 0, 9: 1})
+        target_addr = AssemblySession(source).assemble().symbols["br_cr_target"]
         state.regfile.set_cr(2, target_addr)
         run_until_complete(state)
         assert state.regfile.get_lr(0) == 1
@@ -2105,7 +2107,7 @@ class TestDebuggerStops:
 
     def test_runtime_breakpoint_rearms_on_loop_visit(self):
         state = make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
-        control = DebugControl()
+        control = BreakpointRunControl()
         control.add_breakpoint(0)
         original = [inst.copy() if inst else None for inst in state.inst_mem]
         stops = []
@@ -2121,7 +2123,7 @@ class TestDebuggerStops:
 
     def test_simultaneous_causes_stop_once(self):
         state = make_state("BREAK;;\nBREAK;;\nBKPT;;")
-        control = DebugControl()
+        control = BreakpointRunControl()
         control.add_breakpoint(1)
         reasons = []
 
@@ -2141,7 +2143,7 @@ class TestDebuggerStops:
 
     def test_run_target_stops_before_side_effects(self):
         state = make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
-        control = DebugControl()
+        control = BreakpointRunControl()
         control.run_until(1, 0)
         stops = []
 
@@ -2157,7 +2159,7 @@ class TestDebuggerStops:
 
     def test_intervening_break_cancels_run_target(self):
         state = make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
-        control = DebugControl()
+        control = BreakpointRunControl()
         stops = []
 
         def callback(state, cycle):
@@ -2175,7 +2177,7 @@ class TestDebuggerStops:
     @pytest.mark.parametrize("termination", ["halt", "quit", "limit", "error"])
     def test_run_target_cleared_on_every_exit(self, termination):
         state = make_state("BREAK;;\nBKPT;;")
-        control = DebugControl()
+        control = BreakpointRunControl()
 
         def callback(state, cycle):
             control.run_until(10, state.program_counter)
@@ -2192,7 +2194,10 @@ class TestDebuggerStops:
 
     def test_importing_the_emulator_imports_no_debugger(self):
         # A fresh interpreter, so this test file's own imports do not count.
-        probe = "import sys, ipu_emu; print(sorted(m for m in sys.modules if m.startswith('ipu_emu.debug')))"
+        probe = (
+            "import sys, ipu_emu; "
+            "print(sorted(m for m in sys.modules if m.startswith(('ipu_emu.debug', 'ipu_debug'))))"
+        )
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
         result = subprocess.run(
             [sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True
@@ -2202,7 +2207,7 @@ class TestDebuggerStops:
     def test_two_states_keep_their_own_controls(self):
         program = "INC lr0 1;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;"
         first, second = make_state(program), make_state(program)
-        first_control, second_control = DebugControl(), DebugControl()
+        first_control, second_control = BreakpointRunControl(), BreakpointRunControl()
         first_control.add_breakpoint(1)
         second_control.add_breakpoint(2)
         stops = []

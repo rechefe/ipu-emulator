@@ -8,9 +8,15 @@ and the counters that separate real MAC work from data routing.
 from __future__ import annotations
 
 import pytest
-from emu_support import ElementFormat, assemble_program, make_state, new_state, run
+from emu_support import (
+    BreakpointRunControl,
+    ElementFormat,
+    assemble_program,
+    make_state,
+    new_state,
+    run,
+)
 
-from ipu_emu.debug_control import DebugControl
 from ipu_emu.emulator import DebugAction, load_program, run_until_complete, run_with_debug
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.ipu import LANES, Ipu
@@ -187,7 +193,7 @@ class TestIdleAccounting:
         state = make_state(
             "MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD.FIRST ;;\nADD LR1 LR1 CR1 ;;\nBKPT;;"
         )
-        control = DebugControl()
+        control = BreakpointRunControl()
         control.add_breakpoint(1)
         control.add_breakpoint(2)
         observed = []

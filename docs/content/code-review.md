@@ -7,7 +7,7 @@ Every pull request uses the template in `.github/pull_request_template.md`, whic
 1. Keep a PR small: one issue per PR.
 2. Fill in every section of the template.
 3. Mark the kind of change. A refactor changes no output; name the golden tests (or the full suite with digests) that prove it. A behaviour change is its own PR with the `behaviour change` label.
-4. Treat each golden update as a behaviour change. Give one sentence of justification per updated golden.
+4. Treat each golden update as a behaviour change. Give one sentence of justification per updated golden. The baseline rule and the one command that regenerates every baseline (`tools/update_baselines.sh`) are in [Code conventions, Baselines](code-conventions.md#baselines).
 5. Run all tests locally, including the heavy tier, and say so in the template:
 
     ```bash

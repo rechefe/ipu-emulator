@@ -130,9 +130,9 @@ def assemble(root: Path, entry: CorpusEntry) -> AssembledProgram:
 
     A context is rendered the way the tests that use it render it today
     (``jinja2.Template(...).render(**context)``); a standalone program goes to
-    the assembler as is, which renders any Jinja layer itself. Each call
-    parses afresh, and ``lark_tree.parse`` resets the label table, so entries
-    do not see each other's labels.
+    the assembler as is, which renders any Jinja layer itself. Each assembly
+    has its own label table (``ipu_as.session``), so entries do not see each
+    other's labels.
     """
     text = (root / entry.path).read_text()
     if entry.context is not None:

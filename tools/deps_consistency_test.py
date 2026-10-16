@@ -36,6 +36,7 @@ MANIFESTS = (
     Path("src/tools/ipu-emu-py/runtime_deps.json"),
     Path("src/tools/ipu-apps/runtime_deps.json"),
     Path("src/tools/ipu-isa/runtime_deps.json"),
+    Path("src/tools/ipu-debug/runtime_deps.json"),
 )
 
 # The repository's own distributions: Bazel wires them as py_library targets.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from ipu_as.lark_tree import assemble
@@ -20,8 +21,10 @@ from ipu_emu.emulator import DEFAULT_MAX_CYCLES, load_program, run_until_complet
 from ipu_emu.execute import BreakResult, Ipu, decode_instruction_word
 from ipu_emu.ipu_math import DType
 from ipu_emu.ipu_state import IpuState, WideVectorArithmetic
+from ipu_emu.run_control import RunControl
 
 __all__ = [
+    "BreakpointRunControl",
     "ElementFormat",
     "decode_program",
     "assemble_program",
@@ -30,6 +33,20 @@ __all__ = [
     "run",
     "run_both",
 ]
+
+
+@dataclass
+class BreakpointRunControl(RunControl):
+    """A :class:`RunControl` whose breakpoints and run target the emulator's own
+    ``run_with_debug`` tests set directly. The debugger's ``DebugControl`` lives
+    in ``ipu_debug``, which the emulator's tests do not depend on."""
+
+    def add_breakpoint(self, pc: int) -> None:
+        self._breakpoints = self._breakpoints | {pc}
+
+    def run_until(self, pc: int, current_pc: int) -> bool:
+        self.run_target = pc if pc != current_pc else None
+        return pc != current_pc
 
 
 class ElementFormat(enum.Enum):

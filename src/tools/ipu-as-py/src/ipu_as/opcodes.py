@@ -10,6 +10,7 @@ automatically without touching this file.
 """
 
 import ipu_as.ipu_token as ipu_token
+from ipu_as.errors import SlotError, SourceLocation
 from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.slots import SLOTS, Slot
 
@@ -31,13 +32,27 @@ def create_assembler_opcodes() -> dict[str, type]:
     class Opcode(ipu_token.EnumToken):
         """Base class for all opcode types."""
 
+        #: Lower-case opcode -> the Opcode subclass that has it, built on first use.
+        _class_by_opcode: dict[str, type["Opcode"]] | None = None
+
         @classmethod
         def find_opcode_class(cls, opcode_token) -> type["Opcode"]:
-            tv = opcode_token.value.lower()
-            for subclass in cls.__subclasses__():
-                if any(tv == name.lower() for name in subclass.enum_array()):
-                    return subclass
-            raise ValueError(f"Opcode '{opcode_token.value}' not found in any Opcode subclass")
+            if Opcode._class_by_opcode is None:
+                # In subclass order: the shared NOP maps to the first slot's class,
+                # as the scan this replaces did.
+                table: dict[str, type[Opcode]] = {}
+                for subclass in Opcode.__subclasses__():
+                    for name in subclass.enum_array():
+                        table.setdefault(name.lower(), subclass)
+                Opcode._class_by_opcode = table
+            subclass = Opcode._class_by_opcode.get(opcode_token.value.lower())
+            if subclass is not None:
+                return subclass
+            raise SlotError(
+                f"Opcode '{opcode_token.value}' not found in any Opcode subclass",
+                location=SourceLocation.of(opcode_token),
+                token=opcode_token.value,
+            )
 
     result = {}
     # INSTRUCTION_SPEC order: it fixes the order the token classes are created
