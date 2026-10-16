@@ -130,9 +130,7 @@ def flatten_to_matrix(shape: Shape, dim: int) -> tuple[Shape, int, str | None]:
     """
     ndim = len(shape)
     if not -ndim <= dim < ndim:
-        raise MalformedQuery(
-            f"dim {dim} is out of range for a rank-{ndim} shape {tuple(shape)}"
-        )
+        raise MalformedQuery(f"dim {dim} is out of range for a rank-{ndim} shape {tuple(shape)}")
     dim %= ndim
 
     if ndim == 1:

@@ -1,4 +1,5 @@
 """Tests for the union layout solver."""
+
 from __future__ import annotations
 
 from ipu_isa.instruction_spec import (
@@ -39,9 +40,7 @@ def test_all_opcodes_have_bindings():
     for slot, instructions in INSTRUCTION_SPEC.items():
         su = SLOT_UNIONS[slot]
         for opcode in instructions:
-            assert opcode in su.opcode_bindings, (
-                f"{slot}.{opcode} missing from opcode_bindings"
-            )
+            assert opcode in su.opcode_bindings, f"{slot}.{opcode} missing from opcode_bindings"
 
 
 def test_field_count_not_greater_than_max_operands():
@@ -71,9 +70,7 @@ def test_canonical_type_is_widest_in_bin():
 def test_lr_slot_sharing():
     """The LR slot uses exactly 3 fields (down from 6 in a naive struct layout)."""
     su = SLOT_UNIONS["lr"]
-    assert len(su.fields) == 3, (
-        f"Expected 3 union fields for LR slot, got {len(su.fields)}"
-    )
+    assert len(su.fields) == 3, f"Expected 3 union fields for LR slot, got {len(su.fields)}"
 
 
 def test_lr_slot_opcode_bits():

@@ -51,7 +51,10 @@ from ipu_apps.kernels.matmul.matmul_720x240_x128 import app as mm
 from ipu_apps.kernels.reshape.unfold_8x8x240 import app as uf
 
 from fixture_kernel_support import (
-    POISON, kernel_inst, poison, run_matmul_direct_xmem_handoff,
+    POISON,
+    kernel_inst,
+    poison,
+    run_matmul_direct_xmem_handoff,
 )
 
 assert uf.C == uf.N_OUT == mm.K == 240
@@ -60,7 +63,7 @@ assert uf.N_TOK == 16
 assert mm.N_TOK == 16
 _ROW_BYTES = uf.LANES * 4
 
-_STREAM = 0   # phase (0, 0) -- arbitrary but fixed single-stream choice
+_STREAM = 0  # phase (0, 0) -- arbitrary but fixed single-stream choice
 
 
 def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> bytes:
@@ -86,13 +89,22 @@ def _run_unfold_capture_stream_xmem(x: np.ndarray, tmp_path: Path, tag: str) -> 
     return raw
 
 
-def _run_matmul_720x240_direct_xmem_handoff(uf_raw: bytes, W, tmp_path: Path, tag: str) -> np.ndarray:
+def _run_matmul_720x240_direct_xmem_handoff(
+    uf_raw: bytes, W, tmp_path: Path, tag: str
+) -> np.ndarray:
     """Feed uf_raw verbatim into matmul_720x240_x128's DATA region. Returns
     the cropped [N_OUT, N_TOK] result, read directly from XMEM at full
     ROW_BYTES width (the harness runs with no output_path)."""
-    rows = run_matmul_direct_xmem_handoff(mm, mm.MatMul720x240x128App, data_raw=uf_raw, W=W,
-                                          tmp_path=tmp_path, tag=tag, output_file=False)
-    return rows[:, :mm.N_TOK]
+    rows = run_matmul_direct_xmem_handoff(
+        mm,
+        mm.MatMul720x240x128App,
+        data_raw=uf_raw,
+        W=W,
+        tmp_path=tmp_path,
+        tag=tag,
+        output_file=False,
+    )
+    return rows[:, : mm.N_TOK]
 
 
 def _unfold_stream_reference(x: np.ndarray) -> np.ndarray:
@@ -126,7 +138,7 @@ def test_unfold_8x8x240_output_is_not_byte_compatible_with_matmul_720x240_input_
     uf_raw[off : off + uf.N_TOK * 4] = np.full(uf.N_TOK, 999.0, dtype=np.float32).tobytes()
 
     got = _run_matmul_720x240_direct_xmem_handoff(bytes(uf_raw), W, tmp_path, tag="mut")
-    expected = W.astype(np.float64) @ _unfold_stream_reference(x)   # [N_OUT, N_TOK]
+    expected = W.astype(np.float64) @ _unfold_stream_reference(x)  # [N_OUT, N_TOK]
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
     assert max_err > 1.0, (
@@ -148,7 +160,7 @@ def test_unfold_8x8x240_feeds_matmul_720x240_via_direct_xmem_no_file_staging_l5(
 
     uf_raw = _run_unfold_capture_stream_xmem(x, tmp_path, tag="clean")
 
-    tail = np.frombuffer(uf_raw, dtype=np.float32).reshape(uf.N_OUT, uf.LANES)[:, uf.N_TOK:]
+    tail = np.frombuffer(uf_raw, dtype=np.float32).reshape(uf.N_OUT, uf.LANES)[:, uf.N_TOK :]
     print(
         f"unfold_8x8x240 stream {_STREAM} tail lanes [{uf.N_TOK}:{uf.LANES}] "
         f"all zero = {bool(np.all(tail == 0.0))} (docstring predicts True for this "
@@ -159,11 +171,16 @@ def test_unfold_8x8x240_feeds_matmul_720x240_via_direct_xmem_no_file_staging_l5(
     expected = W.astype(np.float64) @ _unfold_stream_reference(x)
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
-    print(f"seam unfold_8x8x240(direct XMEM, stream {_STREAM})->matmul_720x240_x128 "
-          f"max abs error = {max_err:.3e}")
+    print(
+        f"seam unfold_8x8x240(direct XMEM, stream {_STREAM})->matmul_720x240_x128 "
+        f"max abs error = {max_err:.3e}"
+    )
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "unfold_8x8x240's raw per-stream XMEM output, handed to "
             "matmul_720x240_x128 verbatim with NO file staging and NO "

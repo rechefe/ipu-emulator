@@ -29,9 +29,9 @@ from ipu_apps.kernels.elementwise.app import residual_add_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_CH   = 240                 # channels
-N_TOK  = 16                  # tokens per channel (one token group)
-N_ROWS = N_CH                # one XMEM row per channel
+N_CH = 240  # channels
+N_TOK = 16  # tokens per channel (one token group)
+N_ROWS = N_CH  # one XMEM row per channel
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -42,22 +42,22 @@ N_ROWS = N_CH                # one XMEM row per channel
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # One R_ACC store is 512 B = exactly one row in wide mode.
-OUTPUT_ROW_BYTES   = ROW_BYTES
-VALID_ROW_BYTES    = N_TOK * ELEM_BYTES      # 64 B of meaningful output per row
+OUTPUT_ROW_BYTES = ROW_BYTES
+VALID_ROW_BYTES = N_TOK * ELEM_BYTES  # 64 B of meaningful output per row
 OUTPUT_STRIDE_ROWS = 1
-ROW_STRIDE_ROWS    = 1                       # one A/B channel row per XMEM row
+ROW_STRIDE_ROWS = 1  # one A/B channel row per XMEM row
 
-A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+A_BASE_ROW = 0
+B_BASE_ROW = A_BASE_ROW + N_ROWS
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
-A_BASE      = A_BASE_ROW * ROW_BYTES
-B_BASE      = B_BASE_ROW * ROW_BYTES
+A_BASE = A_BASE_ROW * ROW_BYTES
+B_BASE = B_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
@@ -80,9 +80,7 @@ class ResidualAdd16x240App(IpuApp):
                 "(one full 512-byte row per channel)"
             )
         if len(raw_b) != N_ROWS * ROW_BYTES:
-            raise ValueError(
-                f"B is {len(raw_b)} bytes, expected {N_ROWS * ROW_BYTES}"
-            )
+            raise ValueError(f"B is {len(raw_b)} bytes, expected {N_ROWS * ROW_BYTES}")
         state.xmem.write_address(A_BASE, bytearray(raw_a))
         state.xmem.write_address(B_BASE, bytearray(raw_b))
 
@@ -93,10 +91,10 @@ class ResidualAdd16x240App(IpuApp):
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
-        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row
+        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)  # A/B ptr startup: -1 row
         state.regfile.set_cr(6, N_ROWS)
-        state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
-        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
+        state.regfile.set_cr(7, ROW_STRIDE_ROWS)  # A/B row stride (rows)
+        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)  # output row stride (rows)
         # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
         # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
         # pass-through multiplier.
@@ -111,15 +109,14 @@ class ResidualAdd16x240App(IpuApp):
             return
         raw_path = Path(self.output_path).with_suffix(".rows.bin")
         dump_xmem_to_binary(
-            state, raw_path,
-            OUTPUT_BASE, OUTPUT_ROW_BYTES, N_ROWS,
+            state,
+            raw_path,
+            OUTPUT_BASE,
+            OUTPUT_ROW_BYTES,
+            N_ROWS,
         )
-        rows = np.frombuffer(raw_path.read_bytes(), dtype=np.float32).reshape(
-            N_ROWS, LANES
-        )
-        Path(self.output_path).write_bytes(
-            np.ascontiguousarray(rows[:, :N_TOK]).tobytes()
-        )
+        rows = np.frombuffer(raw_path.read_bytes(), dtype=np.float32).reshape(N_ROWS, LANES)
+        Path(self.output_path).write_bytes(np.ascontiguousarray(rows[:, :N_TOK]).tobytes())
 
 
 SPEC = residual_add_spec(ResidualAdd16x240App, tokens=N_TOK, channels=N_CH)

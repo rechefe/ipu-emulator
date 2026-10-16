@@ -207,7 +207,9 @@ BKPT;;
 """
         load_program(st, assemble_program(asm))
         run_until_complete(st)
-        written = st.regfile.get_r_cyclic_wide_debug_at(128 * 4, 512)  # byte 512, wrap_size default (2048)
+        written = st.regfile.get_r_cyclic_wide_debug_at(
+            128 * 4, 512
+        )  # byte 512, wrap_size default (2048)
         assert written == bytearray(twos)
 
 
@@ -338,9 +340,7 @@ BKPT;;
 class TestWideVectorAgg:
     """Wide-vector coverage for the ACC-slot AGG.* instructions."""
 
-    def _run_agg(
-        self, asm: str, fmt: ElementFormat, mult_res: bytearray
-    ) -> IpuState:
+    def _run_agg(self, asm: str, fmt: ElementFormat, mult_res: bytearray) -> IpuState:
         def setup(st: IpuState) -> None:
             st.regfile.set_mult_res_bytes(mult_res)
             st.set_cr_dstructure(128)
@@ -352,9 +352,7 @@ class TestWideVectorAgg:
         """AGG.SUM.FIRST with INT32 wide elements: 128×4 = 512 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128i", mult_res, 0, *([4] * 128))
-        st = self._run_agg(
-            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.INT32, mult_res
-        )
+        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.INT32, mult_res)
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<i", raw, 127 * 4)[0] == 512
 
@@ -362,9 +360,7 @@ class TestWideVectorAgg:
         """AGG.SUM.FIRST with FP32 wide elements: 128×0.5 = 64.0 written to dest element."""
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([0.5] * 128))
-        st = self._run_agg(
-            "AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res
-        )
+        st = self._run_agg("AGG.SUM.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(64.0)
 
@@ -387,9 +383,7 @@ class TestWideVectorAgg:
         mult_res = bytearray(512)
         struct.pack_into("<128f", mult_res, 0, *([1.0] * 128))
         struct.pack_into("<f", mult_res, 3 * 4, 7.5)
-        st = self._run_agg(
-            "AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res
-        )
+        st = self._run_agg("AGG.MAX.FIRST LR0 cr15;;\nBKPT;;\n", ElementFormat.FP32, mult_res)
         raw = st.regfile.raw("r_acc")
         assert struct.unpack_from("<f", raw, 127 * 4)[0] == pytest.approx(7.5)
 
@@ -468,7 +462,9 @@ class TestWideVectorCyclicFourSlotRing:
     time; MULT.RC.* reads may start at any element index, including ones that
     cross a slot boundary (#180)."""
 
-    def _write_slot(self, st: IpuState, *, slot_element_idx: int, xmem_byte_addr: int, fill: float) -> None:
+    def _write_slot(
+        self, st: IpuState, *, slot_element_idx: int, xmem_byte_addr: int, fill: float
+    ) -> None:
         st.xmem.write_address(xmem_byte_addr, struct.pack("<128f", *([fill] * 128)))
         st.regfile.set_cr(6, xmem_byte_addr // 512)  # row number (debug row = 512 B)
         st.regfile.set_cr(7, slot_element_idx)
@@ -511,9 +507,13 @@ BKPT;;
         data = st.regfile.get_r_cyclic_wide_debug_at(64 * 4, 128 * 4)
         values = struct.unpack("<128f", data)
         for i in range(64):
-            assert values[i] == pytest.approx(1.0), f"element {64 + i} (from slot 0): got {values[i]}"
+            assert values[i] == pytest.approx(1.0), (
+                f"element {64 + i} (from slot 0): got {values[i]}"
+            )
         for i in range(64, 128):
-            assert values[i] == pytest.approx(2.0), f"element {64 + i} (from slot 1): got {values[i]}"
+            assert values[i] == pytest.approx(2.0), (
+                f"element {64 + i} (from slot 1): got {values[i]}"
+            )
 
 
 class TestWindowActivationFp32:
@@ -550,6 +550,8 @@ class TestWindowActivationFp32:
         assert result[0] == 0, "window(0.2) = 0 (below a = 0.25)"
         assert result[1] == 1, "window(0.25) = 1 (a is inclusive)"
         assert result[2] == 0, "window(0.75) = 0 (b is exclusive)"
+
+
 class TestWideVectorStoreOverflow:
     """A float32 store that overflows must fail exactly as the lane-by-lane store did.
 
@@ -588,12 +590,8 @@ class TestWideVectorNumpyErrorPolicy:
 
     def test_acc_invalid_ignores_caller_seterr(self) -> None:
         state = make_state("ACC.ADD ;;", fmt=ElementFormat.FP32)
-        state.regfile.raw("r_acc")[:] = struct.pack(
-            f"<{LANES}f", *([float("inf")] * LANES)
-        )
-        state.regfile.raw("mult_res")[:] = struct.pack(
-            f"<{LANES}f", *([float("-inf")] * LANES)
-        )
+        state.regfile.raw("r_acc")[:] = struct.pack(f"<{LANES}f", *([float("inf")] * LANES))
+        state.regfile.raw("mult_res")[:] = struct.pack(f"<{LANES}f", *([float("-inf")] * LANES))
         with np.errstate(all="raise"):
             Ipu(state).execute_vliw_cycle()
 
@@ -603,9 +601,7 @@ class TestWideVectorNumpyErrorPolicy:
     def test_mult_invalid_ignores_caller_seterr(self) -> None:
         # LR0 is 0 at reset: rc index 0, mask shift 0.
         state = make_state("MULT.RC.VV LR0 R0 0 LR0 CR15 ;;", fmt=ElementFormat.FP32)
-        state.regfile.raw("r_wide_debug")[: LANES * 4] = struct.pack(
-            f"<{LANES}f", *([0.0] * LANES)
-        )
+        state.regfile.raw("r_wide_debug")[: LANES * 4] = struct.pack(f"<{LANES}f", *([0.0] * LANES))
         state.regfile.raw("r_cyclic_wide_debug")[: LANES * 4] = struct.pack(
             f"<{LANES}f", *([float("inf")] * LANES)
         )

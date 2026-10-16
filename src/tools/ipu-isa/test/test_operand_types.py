@@ -31,12 +31,21 @@ def test_field_suffixes_are_unique():
 
 def test_readable_types_are_the_register_operands_with_a_read_flag():
     assert {r.name for r in OPERAND_TYPES.values() if r.readable} == {
-        "LrIdx", "CrIdx", "LcrIdx", "MultStageReg", "LrdIdx",
+        "LrIdx",
+        "CrIdx",
+        "LcrIdx",
+        "MultStageReg",
+        "LrdIdx",
     }
 
 
 def test_every_spec_operand_type_is_registered():
-    used = {op["type"] for slot in INSTRUCTION_SPEC.values() for d in slot.values() for op in d["operands"]}
+    used = {
+        op["type"]
+        for slot in INSTRUCTION_SPEC.values()
+        for d in slot.values()
+        for op in d["operands"]
+    }
     assert used <= set(OPERAND_TYPES)
     assert VALID_OPERAND_TYPES == frozenset(OPERAND_TYPES)
 

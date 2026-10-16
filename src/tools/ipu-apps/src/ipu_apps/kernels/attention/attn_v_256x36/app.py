@@ -31,10 +31,10 @@ from ipu_apps.kernels.attention.app import attention_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 256       # queries == keys
-D       = 36        # head_dim
-N_HEAD  = 4
-N_CHAN  = N_HEAD * D  # 144 value channels total
+N_TOK = 256  # queries == keys
+D = 36  # head_dim
+N_HEAD = 4
+N_CHAN = N_HEAD * D  # 144 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -45,17 +45,17 @@ N_CHAN  = N_HEAD * D  # 144 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts below are LANE counts -- element-width independent by construction.
-PV_STRIDE_ROWS     = N_TOK // LANES          # 2: rows per P query / V channel
-CHUNK_OFF_ROWS     = 1                       # second key chunk is the next row
-P_GROUP1_OFF_ROWS  = (LANES * N_TOK) // LANES  # 256: P group-1 offset
+PV_STRIDE_ROWS = N_TOK // LANES  # 2: rows per P query / V channel
+CHUNK_OFF_ROWS = 1  # second key chunk is the next row
+P_GROUP1_OFF_ROWS = (LANES * N_TOK) // LANES  # 256: P group-1 offset
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 512: rows per head in P
-O_GROUP_ROWS       = 1                       # one R_ACC store = one row (wide)
-O_CHAN_ROWS        = 2 * O_GROUP_ROWS        # 2 groups per output channel
+O_GROUP_ROWS = 1  # one R_ACC store = one row (wide)
+O_CHAN_ROWS = 2 * O_GROUP_ROWS  # 2 groups per output channel
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -70,7 +70,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 P_HEAD_STRIDE = P_HEAD_STRIDE_ROWS * ROW_BYTES
-O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
+O_CHAN_BYTES = O_CHAN_ROWS * ROW_BYTES
 
 
 class AttnV256x36App(IpuApp):
@@ -90,22 +90,25 @@ class AttnV256x36App(IpuApp):
         state.regfile.set_cr(2, PBASE_ROW)
         state.regfile.set_cr(3, VBASE_ROW)
         state.regfile.set_cr(4, OBASE_ROW)
-        state.regfile.set_cr(5, PV_STRIDE_ROWS)     # P query / V channel stride (rows)
-        state.regfile.set_cr(6, CHUNK_OFF_ROWS)     # chunk offset (rows)
+        state.regfile.set_cr(5, PV_STRIDE_ROWS)  # P query / V channel stride (rows)
+        state.regfile.set_cr(6, CHUNK_OFF_ROWS)  # chunk offset (rows)
         state.regfile.set_cr(7, P_GROUP1_OFF_ROWS)  # P group-1 offset (rows)
-        state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS) # P head stride (rows)
-        state.regfile.set_cr(9, 127)            # inner-loop bound
-        state.regfile.set_cr(10, D)             # t count (36)
-        state.regfile.set_cr(11, N_HEAD)        # head count (4)
-        state.regfile.set_cr(12, O_GROUP_ROWS)      # O group stride (rows, FP32)
-        state.regfile.set_cr(13, O_CHAN_ROWS)       # O channel stride (rows)
+        state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
+        state.regfile.set_cr(9, 127)  # inner-loop bound
+        state.regfile.set_cr(10, D)  # t count (36)
+        state.regfile.set_cr(11, N_HEAD)  # head count (4)
+        state.regfile.set_cr(12, O_GROUP_ROWS)  # O group stride (rows, FP32)
+        state.regfile.set_cr(13, O_CHAN_ROWS)  # O channel stride (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             # 144 channels, each 256 elements (two 128-lane FP32 group rows).
             dump_xmem_to_binary(
-                state, self.output_path,
-                OBASE, O_CHAN_BYTES, N_CHAN,
+                state,
+                self.output_path,
+                OBASE,
+                O_CHAN_BYTES,
+                N_CHAN,
             )
 
 

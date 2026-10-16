@@ -51,21 +51,30 @@ def _run_layernorm_256x144_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str
     row per (ch, tg), in (ch*N_TG + tg) order (N_TPG == LANES == 128 here so
     no padding is actually needed, but the shape is kept explicit)."""
     x_padded = np.zeros((ln.N_CH, ln.N_TG, LANES), dtype=np.float32)
-    x_padded[:, :, :ln.N_TPG] = x
-    return run_layernorm_capture_xmem(ln, ln.LayerNorm256x144App,
-                                      x_rows=x_padded.reshape(ln.N_CH * ln.N_TG, LANES),
-                                      gamma=gamma, beta=beta, tmp_path=tmp_path, tag=tag)
+    x_padded[:, :, : ln.N_TPG] = x
+    return run_layernorm_capture_xmem(
+        ln,
+        ln.LayerNorm256x144App,
+        x_rows=x_padded.reshape(ln.N_CH * ln.N_TG, LANES),
+        gamma=gamma,
+        beta=beta,
+        tmp_path=tmp_path,
+        tag=tag,
+    )
 
 
-def _run_matmul_144x144_direct_xmem_handoff(ln_raw: bytes, W, tmp_path: Path, tag: str) -> np.ndarray:
+def _run_matmul_144x144_direct_xmem_handoff(
+    ln_raw: bytes, W, tmp_path: Path, tag: str
+) -> np.ndarray:
     """Returns the [N_OUT, N_TG, N_TOK] result (tg-split, cropped)."""
-    rows = run_matmul_direct_xmem_handoff(mm, mm.MatMul144x144x128App, data_raw=ln_raw, W=W,
-                                          tmp_path=tmp_path, tag=tag)
+    rows = run_matmul_direct_xmem_handoff(
+        mm, mm.MatMul144x144x128App, data_raw=ln_raw, W=W, tmp_path=tmp_path, tag=tag
+    )
     # Output row order is tg-major: row (tg, j) at OUTPUT_BASE + tg*N_OUT*512
     # + j*512 (see matmul_144x144_x128.asm header) -- NOT (j*N_TG+tg) like the
     # DATA region. Reshape accordingly before transposing to [N_OUT, N_TG, ...].
     rows = rows.reshape(mm.N_TG, mm.N_OUT, LANES)
-    return rows[:, :, :mm.N_TOK].transpose(1, 0, 2)
+    return rows[:, :, : mm.N_TOK].transpose(1, 0, 2)
 
 
 def _layernorm_reference(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray) -> np.ndarray:
@@ -75,7 +84,7 @@ def _layernorm_reference(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray) -> 
     beta[ch]), not its internal implementation. x is [N_CH, N_TG, N_TPG].
     """
     xf = x.astype(np.float64)
-    mu = xf.mean(axis=0, keepdims=True)                       # [1, N_TG, N_TPG]
+    mu = xf.mean(axis=0, keepdims=True)  # [1, N_TG, N_TPG]
     var = ((xf - mu) ** 2).mean(axis=0, keepdims=True)
     sigma = np.sqrt(var)
     return (
@@ -139,7 +148,10 @@ def test_layernorm_256x144_feeds_matmul_144x144_via_direct_xmem_no_file_staging_
     print(f"seam layernorm_256x144(direct XMEM)->matmul_144x144_x128 max abs error = {max_err:.3e}")
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "layernorm_256x144's raw XMEM output, handed to matmul_144x144_x128 "
             "verbatim with NO file staging and NO _load_data repack, does not "

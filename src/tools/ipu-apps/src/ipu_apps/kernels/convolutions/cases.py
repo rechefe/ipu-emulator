@@ -12,6 +12,7 @@ options; the data generator, file bindings and check are shared. IPU FP32
 accumulation order differs from the reference's, so the comparison is
 ``max |actual - expected| < tol`` rather than bit-exact.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,16 +20,22 @@ import numpy as np
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 from ipu_apps.kernel_registry.case_support import random_values, tile_input, tiled_case
 
+
 def make_cases(app):
     def prepare(workspace, *, channels, height, width, out_channels):
         k = app.kernel_size
-        params = dict(shape=(channels, height, width), out_channels=out_channels,
-                      kernel_size=k, stride=1, padding=k//2,
-                      activation="none" if k == 1 else "relu")
+        params = dict(
+            shape=(channels, height, width),
+            out_channels=out_channels,
+            kernel_size=k,
+            stride=1,
+            padding=k // 2,
+            activation="none" if k == 1 else "relu",
+        )
         layout = app.memory_layout(**params)
         # One generator per case: x, weights and bias are independent draws.
         rng = np.random.default_rng(7)
-        x = random_values(params['shape'], rng)
+        x = random_values(params["shape"], rng)
         weights = random_values((out_channels, channels, k, k), rng) / 4
         bias = random_values((out_channels,), rng)
         group_size = 128 if k == 1 else 14
@@ -37,29 +44,37 @@ def make_cases(app):
         def weights_and_bias(image):
             for o in range(out_channels):
                 for g in range(groups):
-                    chunk = weights[o, g*group_size:(g+1)*group_size].ravel()
-                    image[layout.crs[4] + o*groups + g, :len(chunk)] = chunk
+                    chunk = weights[o, g * group_size : (g + 1) * group_size].ravel()
+                    image[layout.crs[4] + o * groups + g, : len(chunk)] = chunk
                 image[layout.crs[5] + o, 0] = bias[o]
 
-        padded = np.pad(x, ((0, 0), (k//2,)*2, (k//2,)*2))
+        padded = np.pad(x, ((0, 0), (k // 2,) * 2, (k // 2,) * 2))
         windows = np.lib.stride_tricks.sliding_window_view(padded, (k, k), axis=(1, 2))
-        expected = np.einsum('cyxij,ocij->oyx', windows, weights) + bias[:, None, None]
+        expected = np.einsum("cyxij,ocij->oyx", windows, weights) + bias[:, None, None]
         if k == 3:
             expected = np.maximum(expected, 0)
-        return tiled_case(workspace, params, layout,
-                          tile_input(x, halo=k//2, guard=not app.single_channel), expected,
-                          columns=128 if k == 1 else 126, constants=weights_and_bias)
+        return tiled_case(
+            workspace,
+            params,
+            layout,
+            tile_input(x, halo=k // 2, guard=not app.single_channel),
+            expected,
+            columns=128 if k == 1 else 126,
+            constants=weights_and_bias,
+        )
 
     def case(c, h, w, o):
         return KernelCase(prepare, dict(channels=c, height=h, width=w, out_channels=o))
 
-    cases = {'default': case(1 if app.single_channel else 3, 3, 8, 2),
-             'tile_boundary': case(1 if app.single_channel else 2, 2, 133, 2),
-             'single_pixel': case(1, 1, 1, 1)}
+    cases = {
+        "default": case(1 if app.single_channel else 3, 3, 8, 2),
+        "tile_boundary": case(1 if app.single_channel else 2, 2, 133, 2),
+        "single_pixel": case(1, 1, 1, 1),
+    }
     if not app.single_channel:
         cap = 128 if app.kernel_size == 1 else 14
-        cases['full_group'] = case(cap, 1, 2, 1)
-        cases['partial_group'] = case(cap + 1, 1, 2, 2)
+        cases["full_group"] = case(cap, 1, 2, 1)
+        cases["partial_group"] = case(cap + 1, 1, 2, 2)
     return cases
 
 
@@ -68,8 +83,7 @@ TOL_3X3 = 1e-2
 TOL_1X1 = 1e-3
 
 
-def conv2d_reference(x, weight, bias=None, *, stride=1, padding=0, groups=1,
-                     relu=False):
+def conv2d_reference(x, weight, bias=None, *, stride=1, padding=0, groups=1, relu=False):
     """NumPy ``conv2d`` of one ``[C, H, W]`` image, ``weight`` ``[O, C/groups, k, k]``."""
     x = np.asarray(x, dtype=np.float64)
     weight = np.asarray(weight, dtype=np.float64)
@@ -78,12 +92,16 @@ def conv2d_reference(x, weight, bias=None, *, stride=1, padding=0, groups=1,
     padded = np.pad(x, ((0, 0), (padding, padding), (padding, padding)))
     windows = np.lib.stride_tricks.sliding_window_view(padded, (k, k), axis=(1, 2))
     windows = windows[:, ::stride, ::stride]
-    out = np.concatenate([
-        np.einsum("cyxij,ocij->oyx",
-                  windows[g * group_in:(g + 1) * group_in],
-                  weight[g * group_out:(g + 1) * group_out])
-        for g in range(groups)
-    ])
+    out = np.concatenate(
+        [
+            np.einsum(
+                "cyxij,ocij->oyx",
+                windows[g * group_in : (g + 1) * group_in],
+                weight[g * group_out : (g + 1) * group_out],
+            )
+            for g in range(groups)
+        ]
+    )
     if bias is not None:
         out = out + np.asarray(bias, dtype=np.float64)[:, None, None]
     if relu:
@@ -112,8 +130,16 @@ def _data(seed, in_ch, out_ch, group_in, k, height, width, bias):
     return x, weights, b
 
 
-def conv2d_case(*, kernel_size=3, stride=1, depthwise=False, bias=False,
-                defaults, data="random", max_cycles=20_000_000):
+def conv2d_case(
+    *,
+    kernel_size=3,
+    stride=1,
+    depthwise=False,
+    bias=False,
+    defaults,
+    data="random",
+    max_cycles=20_000_000,
+):
     """A :class:`KernelCase` for one universal conv2d configuration family.
 
     ``defaults`` are the case options: ``height``, ``width``, ``seed`` and
@@ -152,20 +178,32 @@ def conv2d_case(*, kernel_size=3, stride=1, depthwise=False, bias=False,
             raise ValueError(f"unknown data generator {data!r}")
 
         params = dict(
-            in_channels=in_ch, out_channels=out_ch, kernel_size=kernel_size,
-            stride=stride, padding=padding, dilation=1, groups=groups,
-            has_bias=bias, apply_relu=bias, height=height, width=width,
+            in_channels=in_ch,
+            out_channels=out_ch,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=1,
+            groups=groups,
+            has_bias=bias,
+            apply_relu=bias,
+            height=height,
+            width=width,
         )
         paths = {name: workspace / f"{name}.bin" for name in ("input", "kernel", "bias", "output")}
         paths["input"].write_bytes(x.tobytes())
         paths["kernel"].write_bytes(weights.tobytes())
-        bindings = {"input_path": paths["input"], "kernel_path": paths["kernel"],
-                    "output_path": paths["output"]}
+        bindings = {
+            "input_path": paths["input"],
+            "kernel_path": paths["kernel"],
+            "output_path": paths["output"],
+        }
         if bias:
             paths["bias"].write_bytes(b.tobytes())
             bindings["bias_path"] = paths["bias"]
-        expected = conv2d_reference(x, weights, b, stride=stride, padding=padding,
-                                    groups=groups, relu=bias)
+        expected = conv2d_reference(
+            x, weights, b, stride=stride, padding=padding, groups=groups, relu=bias
+        )
 
         def check():
             raw = np.fromfile(paths["output"], dtype="<f4")

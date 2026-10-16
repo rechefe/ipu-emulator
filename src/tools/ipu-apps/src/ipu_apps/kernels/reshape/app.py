@@ -26,7 +26,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes
+from ipu_apps.kernel_registry import (
+    ExecutionConfig,
+    ShapeBundle,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
+)
 
 CONCAT_OP = "concat"
 
@@ -82,8 +89,15 @@ def unfold_query(shape) -> UnfoldQuery:
     return UnfoldQuery(h=h, w=w, c=c, bundle=bundle)
 
 
-def unfold_spec(app_class, *, op: str, h: int, w: int, c: int,
-                geometry: str = "stripe count, spatial row packing, register layout"):
+def unfold_spec(
+    app_class,
+    *,
+    op: str,
+    h: int,
+    w: int,
+    c: int,
+    geometry: str = "stripe count, spatial row packing, register layout",
+):
     """KernelSpec for a fixed-``(H, W, C)`` unfold or fold kernel.
 
     ``supports`` is an exact-shape match, since the stripe/packing geometry is
@@ -98,9 +112,7 @@ def unfold_spec(app_class, *, op: str, h: int, w: int, c: int,
         if bad:
             return no(bad)
         if (q.h, q.w, q.c) != (h, w, c):
-            return no(
-                f"handles exactly (H, W, C) = ({h}, {w}, {c}); got ({q.h}, {q.w}, {q.c})"
-            )
+            return no(f"handles exactly (H, W, C) = ({h}, {w}, {c}); got ({q.h}, {q.w}, {q.c})")
         return yes()
 
     return folder_spec(
@@ -149,9 +161,7 @@ def concat_query(shape) -> ConcatQuery:
     """Normalise a ``shape=(H, W, C_A, C_B)`` parameter into what kernels route on."""
     dims = tuple(int(d) for d in shape)
     if len(dims) != 4:
-        raise ValueError(
-            f"concat shape must be rank 4 (H, W, C_A, C_B); got {dims}"
-        )
+        raise ValueError(f"concat shape must be rank 4 (H, W, C_A, C_B); got {dims}")
     h, w, c_a, c_b = dims
     bundle = ShapeBundle.of(input_a=(h, w, c_a), input_b=(h, w, c_b)).with_shapes(
         derived={"output": (h, w, c_a + c_b)}
@@ -175,8 +185,7 @@ def concat_spec(app_class, *, h: int, w: int, c_a: int, c_b: int):
             return no(bad)
         if (q.h, q.w, q.c_a, q.c_b) != dims:
             return no(
-                f"handles exactly (H, W, C_A, C_B) = {dims}; "
-                f"got ({q.h}, {q.w}, {q.c_a}, {q.c_b})"
+                f"handles exactly (H, W, C_A, C_B) = {dims}; got ({q.h}, {q.w}, {q.c_a}, {q.c_b})"
             )
         return yes()
 

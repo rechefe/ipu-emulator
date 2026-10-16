@@ -20,9 +20,9 @@ from ipu_apps.kernels.matmul.app import matmul_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-K     = 144
+K = 144
 N_OUT = 288
-N_TG  = 2
+N_TG = 2
 N_TOK = 128
 
 # ---------------------------------------------------------------------------
@@ -36,32 +36,32 @@ N_TOK = 128
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-W_STRIDE_ROWS    = -(-K // LANES)            # rows per output channel (ceil)
-DATA_STRIDE_ROWS = (N_TG * N_TOK) // LANES   # rows per input channel
-W_STRIDE         = W_STRIDE_ROWS * LANES     # elements per output channel (padded)
+W_STRIDE_ROWS = -(-K // LANES)  # rows per output channel (ceil)
+DATA_STRIDE_ROWS = (N_TG * N_TOK) // LANES  # rows per input channel
+W_STRIDE = W_STRIDE_ROWS * LANES  # elements per output channel (padded)
 
 # One accumulator store writes all LANES elements of R_ACC -- exactly one row
 # in wide mode, so one output channel owns one row.
-OUTPUT_ROW_BYTES   = 512
+OUTPUT_ROW_BYTES = 512
 OUTPUT_STRIDE_ROWS = 1
 
-DATA_ROWS   = K * N_TG                       # one row per (k, tg)
+DATA_ROWS = K * N_TG  # one row per (k, tg)
 WEIGHT_ROWS = N_OUT * W_STRIDE_ROWS
 
 # D/W/C packed back to back, in rows.
-DATA_BASE_ROW    = 0
+DATA_BASE_ROW = 0
 WEIGHTS_BASE_ROW = DATA_BASE_ROW + DATA_ROWS
-OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+OUTPUT_BASE_ROW = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR/LR values below stay in rows.
-DATA_BASE    = DATA_BASE_ROW * ROW_BYTES
+DATA_BASE = DATA_BASE_ROW * ROW_BYTES
 WEIGHTS_BASE = WEIGHTS_BASE_ROW * ROW_BYTES
-OUTPUT_BASE  = OUTPUT_BASE_ROW * ROW_BYTES
+OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _load_data(state: "IpuState", data_path: str | Path) -> None:
@@ -76,8 +76,8 @@ def _load_data(state: "IpuState", data_path: str | Path) -> None:
 def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
     """Stage W, padding each output channel's K elements out to whole rows."""
     raw = Path(weights_path).read_bytes()
-    row_elems = LANES                      # elements per XMEM row
-    stride = W_STRIDE_ROWS * row_elems     # elements per output channel (padded)
+    row_elems = LANES  # elements per XMEM row
+    stride = W_STRIDE_ROWS * row_elems  # elements per output channel (padded)
     for j in range(N_OUT):
         row = raw[j * K * ELEM_BYTES : (j * K + K) * ELEM_BYTES]
         for chunk in range(W_STRIDE_ROWS):
@@ -86,9 +86,7 @@ def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
             buf = bytearray(row_elems * ELEM_BYTES)
             if hi > lo:
                 buf[: (hi - lo) * ELEM_BYTES] = row[lo * ELEM_BYTES : hi * ELEM_BYTES]
-            state.xmem.write_address(
-                WEIGHTS_BASE + (j * stride + lo) * ELEM_BYTES, buf
-            )
+            state.xmem.write_address(WEIGHTS_BASE + (j * stride + lo) * ELEM_BYTES, buf)
 
 
 class MatMul288x144x128App(IpuApp):
@@ -107,29 +105,32 @@ class MatMul288x144x128App(IpuApp):
         # writing anything else raises EmulatorError. WEIGHTS_BASE lives on CR9 (free).
         # CR0 (≡0) doubles as DATA_BASE, which is row 0; CR2 is writable.
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
-        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)           # W[j,128..143]: next row
-        state.regfile.set_cr(3, OUTPUT_BASE_ROW)                                    # tg=0 output
-        state.regfile.set_cr(4, OUTPUT_BASE_ROW + N_OUT * OUTPUT_STRIDE_ROWS)       # tg=1 output
-        state.regfile.set_cr(5, -DATA_STRIDE_ROWS)              # tg=0 data startup (rows)
-        state.regfile.set_cr(6, -(DATA_STRIDE_ROWS // N_TG))    # tg=1 data startup (rows)
-        state.regfile.set_cr(7, -1)                             # k-loop1 fixed_idx startup
-        state.regfile.set_cr(8, 127)                            # k-loop2 fixed_idx startup
-        state.regfile.set_lr(0, 0)                              # R_CYCLIC write-index 0
-        state.regfile.set_lr(2, DATA_STRIDE_ROWS)               # data stride (rows)
-        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)             # output stride (rows)
-        state.regfile.set_lr(6, 126)                            # k-loop1 bound: first_index=0, width=128 → 126
-        state.regfile.set_lr(7, 0)                              # output pointer
-        state.regfile.set_lr(8, 0)                              # weight row offset
-        state.regfile.set_lr(9, 0)                              # j counter
-        state.regfile.set_lr(10, N_OUT)                         # j-loop limit
-        state.regfile.set_lr(11, 142)                           # k-loop2 bound: first_index=128, width=16 → 142
-        state.regfile.set_lr(12, W_STRIDE_ROWS)                 # weight stride per j (rows)
+        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)  # W[j,128..143]: next row
+        state.regfile.set_cr(3, OUTPUT_BASE_ROW)  # tg=0 output
+        state.regfile.set_cr(4, OUTPUT_BASE_ROW + N_OUT * OUTPUT_STRIDE_ROWS)  # tg=1 output
+        state.regfile.set_cr(5, -DATA_STRIDE_ROWS)  # tg=0 data startup (rows)
+        state.regfile.set_cr(6, -(DATA_STRIDE_ROWS // N_TG))  # tg=1 data startup (rows)
+        state.regfile.set_cr(7, -1)  # k-loop1 fixed_idx startup
+        state.regfile.set_cr(8, 127)  # k-loop2 fixed_idx startup
+        state.regfile.set_lr(0, 0)  # R_CYCLIC write-index 0
+        state.regfile.set_lr(2, DATA_STRIDE_ROWS)  # data stride (rows)
+        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)  # output stride (rows)
+        state.regfile.set_lr(6, 126)  # k-loop1 bound: first_index=0, width=128 → 126
+        state.regfile.set_lr(7, 0)  # output pointer
+        state.regfile.set_lr(8, 0)  # weight row offset
+        state.regfile.set_lr(9, 0)  # j counter
+        state.regfile.set_lr(10, N_OUT)  # j-loop limit
+        state.regfile.set_lr(11, 142)  # k-loop2 bound: first_index=128, width=16 → 142
+        state.regfile.set_lr(12, W_STRIDE_ROWS)  # weight stride per j (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT * N_TG,
+                state,
+                self.output_path,
+                OUTPUT_BASE,
+                OUTPUT_ROW_BYTES,
+                N_OUT * N_TG,
             )
 
 
@@ -137,4 +138,6 @@ class MatMul288x144x128App(IpuApp):
 M = N_TG * N_TOK
 N = N_OUT
 
-SPEC = matmul_spec(MatMul288x144x128App, m=M, k=K, n=N, role="288x144 transformer matmul", activation="silu")
+SPEC = matmul_spec(
+    MatMul288x144x128App, m=M, k=K, n=N, role="288x144 transformer matmul", activation="silu"
+)

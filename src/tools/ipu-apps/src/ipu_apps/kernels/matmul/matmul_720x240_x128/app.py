@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
 # -- Dimensions -------------------------------------------------------------
 
-K      = 240   # input channels
-N_OUT  = 720   # output channels
-N_TOK  = 16    # tokens (single group, padded to LANES in XMEM)
+K = 240  # input channels
+N_OUT = 720  # output channels
+N_TOK = 16  # tokens (single group, padded to LANES in XMEM)
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -40,12 +40,12 @@ N_TOK  = 16    # tokens (single group, padded to LANES in XMEM)
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                    # FP32
-LANES      = 128                  # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES   # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-W_STRIDE_ROWS    = -(-K // LANES)   # weight chunks (rows) per output channel: 2
-DATA_STRIDE_ROWS = 1                # one row per input channel (N_TOK padded to LANES)
+W_STRIDE_ROWS = -(-K // LANES)  # weight chunks (rows) per output channel: 2
+DATA_STRIDE_ROWS = 1  # one row per input channel (N_TOK padded to LANES)
 
 # One accumulator store writes all LANES elements of R_ACC -- exactly one row
 # in wide mode, so one output channel owns one row.
@@ -54,22 +54,22 @@ DATA_STRIDE_ROWS = 1                # one row per input channel (N_TOK padded to
 # row; a caller that wants the densely-packed N_OUT x N_TOK form crops it
 # itself (cropping here would break residual_add_16x240's full-row input
 # contract).
-OUTPUT_ROW_BYTES   = 512
+OUTPUT_ROW_BYTES = 512
 OUTPUT_STRIDE_ROWS = 1
 
-DATA_ROWS   = K * DATA_STRIDE_ROWS
+DATA_ROWS = K * DATA_STRIDE_ROWS
 WEIGHT_ROWS = N_OUT * W_STRIDE_ROWS
 
 # D/W/C packed back to back, in rows.
-DATA_BASE_ROW    = 0
+DATA_BASE_ROW = 0
 WEIGHTS_BASE_ROW = DATA_BASE_ROW + DATA_ROWS
-OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+OUTPUT_BASE_ROW = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR/LR values below stay in rows.
-DATA_BASE    = DATA_BASE_ROW * ROW_BYTES
+DATA_BASE = DATA_BASE_ROW * ROW_BYTES
 WEIGHTS_BASE = WEIGHTS_BASE_ROW * ROW_BYTES
-OUTPUT_BASE  = OUTPUT_BASE_ROW * ROW_BYTES
+OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _load_data(state: "IpuState", data_path: str | Path) -> None:
@@ -84,9 +84,7 @@ def _load_data(state: "IpuState", data_path: str | Path) -> None:
         raise ValueError(f"{data_path}: expected >= {expected} B, got {len(raw)}")
     for k in range(K):
         buf = bytearray(ROW_BYTES)
-        buf[: N_TOK * ELEM_BYTES] = raw[
-            k * N_TOK * ELEM_BYTES : (k * N_TOK + N_TOK) * ELEM_BYTES
-        ]
+        buf[: N_TOK * ELEM_BYTES] = raw[k * N_TOK * ELEM_BYTES : (k * N_TOK + N_TOK) * ELEM_BYTES]
         state.xmem.write_address(DATA_BASE + k * DATA_STRIDE_ROWS * ROW_BYTES, buf)
 
 
@@ -108,9 +106,7 @@ def _load_weights(state: "IpuState", weights_path: str | Path) -> None:
             hi = min(lo + LANES, K)
             buf = bytearray(ROW_BYTES)
             buf[: (hi - lo) * ELEM_BYTES] = row[lo * ELEM_BYTES : hi * ELEM_BYTES]
-            state.xmem.write_address(
-                WEIGHTS_BASE + (j * W_STRIDE_ROWS + c) * ROW_BYTES, buf
-            )
+            state.xmem.write_address(WEIGHTS_BASE + (j * W_STRIDE_ROWS + c) * ROW_BYTES, buf)
 
 
 class MatMul720x240x128App(IpuApp):
@@ -126,20 +122,20 @@ class MatMul720x240x128App(IpuApp):
         _load_weights(state, self.weights_path)
         # CR1 (≡1) is a read-only hardwired constant; WEIGHTS_BASE lives in CR9.
         state.regfile.set_cr(9, WEIGHTS_BASE_ROW)
-        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)   # next weight row
+        state.regfile.set_cr(2, WEIGHTS_BASE_ROW + 1)  # next weight row
         state.regfile.set_cr(5, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(6, -DATA_STRIDE_ROWS)             # data startup (rows)
-        state.regfile.set_cr(8, -1)                            # per-chunk fixed_idx startup
-        state.regfile.set_lr(0, 0)                             # R_CYCLIC write-index 0
-        state.regfile.set_lr(2, DATA_STRIDE_ROWS)              # data stride (rows)
-        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)            # output stride (1 row/channel)
-        state.regfile.set_lr(6, 126)                           # width-128 chunk bound
-        state.regfile.set_lr(7, 0)                             # output pointer
-        state.regfile.set_lr(8, 0)                             # weight row offset
-        state.regfile.set_lr(9, 0)                             # j counter
-        state.regfile.set_lr(10, N_OUT)                        # j-loop limit
-        state.regfile.set_lr(11, 110)                          # tail-chunk bound: width=112
-        state.regfile.set_lr(12, W_STRIDE_ROWS)                # weight stride per j (rows)
+        state.regfile.set_cr(6, -DATA_STRIDE_ROWS)  # data startup (rows)
+        state.regfile.set_cr(8, -1)  # per-chunk fixed_idx startup
+        state.regfile.set_lr(0, 0)  # R_CYCLIC write-index 0
+        state.regfile.set_lr(2, DATA_STRIDE_ROWS)  # data stride (rows)
+        state.regfile.set_lr(3, OUTPUT_STRIDE_ROWS)  # output stride (1 row/channel)
+        state.regfile.set_lr(6, 126)  # width-128 chunk bound
+        state.regfile.set_lr(7, 0)  # output pointer
+        state.regfile.set_lr(8, 0)  # weight row offset
+        state.regfile.set_lr(9, 0)  # j counter
+        state.regfile.set_lr(10, N_OUT)  # j-loop limit
+        state.regfile.set_lr(11, 110)  # tail-chunk bound: width=112
+        state.regfile.set_lr(12, W_STRIDE_ROWS)  # weight stride per j (rows)
 
     def teardown(self, state: "IpuState") -> None:
         """Dump full, uncropped rows -- see the crop-convention note above
@@ -147,8 +143,11 @@ class MatMul720x240x128App(IpuApp):
         form crop it themselves (see matmul/cases.py for the pattern)."""
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_OUT,
+                state,
+                self.output_path,
+                OUTPUT_BASE,
+                OUTPUT_ROW_BYTES,
+                N_OUT,
             )
 
 

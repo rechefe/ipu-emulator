@@ -7,6 +7,7 @@ computed per (stream, token group) in FP32, ``C[p][tg] = act(W @ D[p][tg])``,
 and compared at a tolerance that allows for IPU FP32 accumulation order
 differing from NumPy's.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,7 +20,7 @@ SEED = 0xC0FFEE
 
 
 def silu(x):
-    return x * (1.0 / (1.0 + np.exp(-x)))       # silu = x * sigmoid(x)
+    return x * (1.0 / (1.0 + np.exp(-x)))  # silu = x * sigmoid(x)
 
 
 def reference(d, w, activation):
@@ -27,7 +28,7 @@ def reference(d, w, activation):
 
     ``d`` is ``(N_STREAM, N_TG, K, N_TOK)``; the result ``(N_STREAM, N_TG, N_OUT, N_TOK)``.
     """
-    pre_act = np.matmul(w, d)                   # C[p][tg][j, t] = sum_k W[j,k] * D[p][tg][k,t]
+    pre_act = np.matmul(w, d)  # C[p][tg][j, t] = sum_k W[j,k] * D[p][tg][k,t]
     return silu(pre_act) if activation == "silu" else pre_act
 
 
@@ -37,7 +38,7 @@ def read_output(path, layout: ProjectionLayout):
     want = int(np.prod(layout.output_shape))
     if raw.size != want:
         raise ValueError(f"output has {raw.size} FP32 values, expected {want}")
-    return raw.reshape(layout.output_shape)[..., :layout.n_tok]
+    return raw.reshape(layout.output_shape)[..., : layout.n_tok]
 
 
 def projection_case(workspace, layout: ProjectionLayout, d, w, activation, check=None):
@@ -61,12 +62,14 @@ def projection_case(workspace, layout: ProjectionLayout, d, w, activation, check
         for p in range(N_STREAM):
             for tg in range(layout.n_tg):
                 np.testing.assert_allclose(
-                    got[p, tg], expected[p, tg], rtol=RTOL, atol=ATOL,
+                    got[p, tg],
+                    expected[p, tg],
+                    rtol=RTOL,
+                    atol=ATOL,
                     err_msg=f"stream {p} tg {tg} output mismatch",
                 )
 
-    params = {"k": layout.k, "n_out": layout.n_out, "n_streams": N_STREAM,
-              "activation": activation}
+    params = {"k": layout.k, "n_out": layout.n_out, "n_streams": N_STREAM, "activation": activation}
     return PreparedCase(
         params,
         {"input_path": inp, "weights_path": weights, "output_path": out},
@@ -81,10 +84,14 @@ def projection_cases(app, *, max_cycles):
 
     def prepare(workspace, *, seed):
         rng = np.random.RandomState(seed)
-        d = np.stack([
-            rng.uniform(-1.0, 1.0, size=(layout.n_tg, layout.k, layout.n_tok)).astype(np.float32)
-            for _ in range(N_STREAM)
-        ])
+        d = np.stack(
+            [
+                rng.uniform(-1.0, 1.0, size=(layout.n_tg, layout.k, layout.n_tok)).astype(
+                    np.float32
+                )
+                for _ in range(N_STREAM)
+            ]
+        )
         w = rng.uniform(-1.0, 1.0, size=(layout.n_out, layout.k)).astype(np.float32)
         return projection_case(workspace, layout, d, w, activation)
 

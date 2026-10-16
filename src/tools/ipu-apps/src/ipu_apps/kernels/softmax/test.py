@@ -37,32 +37,50 @@ from ipu_apps.kernels.softmax.softmax_rows_partial.app import SoftmaxRowsPartial
 # Shapes are chosen so each app hits its padding-heavy regime -- that is where
 # an input/output layout divergence can hide.
 LAYOUT_CASES = [
-    ("rows",            SoftmaxRowsApp,          "softmax_rows",
-     dict(rows=6), (6, 128), 1),
+    ("rows", SoftmaxRowsApp, "softmax_rows", dict(rows=6), (6, 128), 1),
     # N < ps (20 of 32 lanes) AND rows % P != 0 (10 rows, P=4 -> padded to 12):
     # both padding kinds at once.
-    ("partial_pad",     SoftmaxRowsPartialApp,   "softmax_rows_partial",
-     dict(n=20, rows=10), (10, 20), 1),
+    (
+        "partial_pad",
+        SoftmaxRowsPartialApp,
+        "softmax_rows_partial",
+        dict(n=20, rows=10),
+        (10, 20),
+        1,
+    ),
     # N == ps and rows % P == 0: no padding at all, must still round-trip.
-    ("partial_exact",   SoftmaxRowsPartialApp,   "softmax_rows_partial",
-     dict(n=32, rows=8), (8, 32), 1),
-    ("partial_p8",      SoftmaxRowsPartialApp,   "softmax_rows_partial",
-     dict(n=5, rows=7), (7, 5), 1),
+    (
+        "partial_exact",
+        SoftmaxRowsPartialApp,
+        "softmax_rows_partial",
+        dict(n=32, rows=8),
+        (8, 32),
+        1,
+    ),
+    ("partial_p8", SoftmaxRowsPartialApp, "softmax_rows_partial", dict(n=5, rows=7), (7, 5), 1),
     # n % 128 != 0 -> a padded tail chunk on device.
-    ("long_tail",       SoftmaxRowsLongApp,      "softmax_rows_long",
-     dict(n=300, rows=5), (5, 300), 1),
-    ("long_exact",      SoftmaxRowsLongApp,      "softmax_rows_long",
-     dict(n=256, rows=3), (3, 256), 1),
+    ("long_tail", SoftmaxRowsLongApp, "softmax_rows_long", dict(n=300, rows=5), (5, 300), 1),
+    ("long_exact", SoftmaxRowsLongApp, "softmax_rows_long", dict(n=256, rows=3), (3, 256), 1),
     # width not a multiple of 128 -> padding lanes on device.
-    ("columns_pad",     SoftmaxColumnsApp,       "softmax_columns",
-     dict(rows=9, width=200), (9, 200), 0),
-    ("columns_exact",   SoftmaxColumnsApp,       "softmax_columns",
-     dict(rows=9, width=128), (9, 128), 0),
+    ("columns_pad", SoftmaxColumnsApp, "softmax_columns", dict(rows=9, width=200), (9, 200), 0),
+    ("columns_exact", SoftmaxColumnsApp, "softmax_columns", dict(rows=9, width=128), (9, 128), 0),
     # width not a pow2 and rows % rows_per_vec != 0.
-    ("cols_packed_pad", SoftmaxColumnsPackedApp, "softmax_columns_packed",
-     dict(rows=10, width=20), (10, 20), 0),
-    ("cols_packed_exact", SoftmaxColumnsPackedApp, "softmax_columns_packed",
-     dict(rows=8, width=32), (8, 32), 0),
+    (
+        "cols_packed_pad",
+        SoftmaxColumnsPackedApp,
+        "softmax_columns_packed",
+        dict(rows=10, width=20),
+        (10, 20),
+        0,
+    ),
+    (
+        "cols_packed_exact",
+        SoftmaxColumnsPackedApp,
+        "softmax_columns_packed",
+        dict(rows=8, width=32),
+        (8, 32),
+        0,
+    ),
 ]
 
 
@@ -85,8 +103,9 @@ def test_output_file_matches_input_layout(app_cls, kernel, kwargs, shape, axis):
         outp = Path(tmp) / "out.bin"
         inp.write_bytes(x.tobytes())
 
-        app_cls(inst_path=inst, input_path=inp, output_path=outp,
-                **kwargs).run(max_cycles=20_000_000)
+        app_cls(inst_path=inst, input_path=inp, output_path=outp, **kwargs).run(
+            max_cycles=20_000_000
+        )
 
         in_bytes = inp.stat().st_size
         out_bytes = outp.stat().st_size
@@ -142,24 +161,30 @@ def test_supported_column_verdicts_construct(width, rows):
         _construct(verdict)
 
 
-@pytest.mark.parametrize("n,expected", [
-    (1, "softmax_rows_partial"),
-    (64, "softmax_rows_partial"),
-    (127, "softmax_rows_partial"),
-    (128, "softmax_rows"),
-    (200, "softmax_rows_long"),
-    (300, "softmax_rows_long"),
-])
+@pytest.mark.parametrize(
+    "n,expected",
+    [
+        (1, "softmax_rows_partial"),
+        (64, "softmax_rows_partial"),
+        (127, "softmax_rows_partial"),
+        (128, "softmax_rows"),
+        (200, "softmax_rows_long"),
+        (300, "softmax_rows_long"),
+    ],
+)
 def test_rows_axis_routing(n, expected):
     assert _along_rows(8, n).app_name == expected
 
 
-@pytest.mark.parametrize("width,expected", [
-    (1, "softmax_columns_packed"),
-    (64, "softmax_columns_packed"),
-    (128, "softmax_columns"),
-    (384, "softmax_columns"),
-])
+@pytest.mark.parametrize(
+    "width,expected",
+    [
+        (1, "softmax_columns_packed"),
+        (64, "softmax_columns_packed"),
+        (128, "softmax_columns"),
+        (384, "softmax_columns"),
+    ],
+)
 def test_columns_axis_routing(width, expected):
     assert _down_columns(8, width).app_name == expected
 
@@ -169,10 +194,7 @@ def test_no_verdict_warns_about_packed_output():
     so no verdict should be telling callers to un-pack anything."""
     for n in (8, 20, 32, 64, 100, 128, 300):
         for rows in (7, 64, 300):
-            assert not any(
-                "PACKED" in c or "mis-align" in c
-                for c in _along_rows(rows, n).caveats
-            )
+            assert not any("PACKED" in c or "mis-align" in c for c in _along_rows(rows, n).caveats)
 
 
 @pytest.mark.parametrize("n", [256, 384, 512, 1024])
@@ -183,7 +205,7 @@ def test_rows_multiple_of_128_supported(n):
     assert verdict.app_name == "softmax_rows_long"
     app = _construct(verdict)
     assert app.tail == 0
-    assert app.chunks_per_row == n // 128   # no phantom tail chunk
+    assert app.chunks_per_row == n // 128  # no phantom tail chunk
 
 
 @pytest.mark.parametrize("width", [65, 96, 127])
@@ -246,9 +268,12 @@ def test_describe_reports_both_outcomes():
 
 # -- torch's dim convention ---------------------------------------------------
 
+
 @pytest.mark.parametrize("dim,equiv", [(-1, 1), (-2, 0)])
 def test_torch_negative_dims_count_from_the_end(dim, equiv):
-    assert resolve("softmax", shape=(32, 300), dim=dim) == resolve("softmax", shape=(32, 300), dim=equiv)
+    assert resolve("softmax", shape=(32, 300), dim=dim) == resolve(
+        "softmax", shape=(32, 300), dim=equiv
+    )
 
 
 @pytest.mark.parametrize("n", [16, 128, 300])
@@ -274,10 +299,13 @@ def test_torch_verdicts_construct():
         _construct(verdict)
 
 
-@pytest.mark.parametrize("shape,dim", [
-    ((2, 3, 4), -1),      # reduced axis last  -> (6, 4)
-    ((2, 2, 2, 2), 0),    # reduced axis first -> (2, 8)
-])
+@pytest.mark.parametrize(
+    "shape,dim",
+    [
+        ((2, 3, 4), -1),  # reduced axis last  -> (6, 4)
+        ((2, 2, 2, 2), 0),  # reduced axis first -> (2, 8)
+    ],
+)
 def test_higher_rank_is_flattened_and_disclosed(shape, dim):
     """Rank > 2 is a batch of 2-D problems, so it is flattened rather than
     refused -- and the reshape is stated in the verdict, never silent."""
@@ -319,8 +347,14 @@ def test_torch_agrees_with_real_pytorch_semantics():
     """
     torch = pytest.importorskip("torch")
 
-    for shape, dim in [((32, 300), 1), ((300, 32), 0), ((8, 128), -1),
-                       ((300, 16), 0), ((64, 1000), -2), ((129, 128), 1)]:
+    for shape, dim in [
+        ((32, 300), 1),
+        ((300, 32), 0),
+        ((8, 128), -1),
+        ((300, 16), 0),
+        ((64, 1000), -2),
+        ((129, 128), 1),
+    ]:
         x = torch.randn(*shape)
         y = torch.softmax(x, dim=dim)
         # The reduced axis is the one that sums to 1.
@@ -339,16 +373,20 @@ def test_torch_agrees_with_real_pytorch_semantics():
 
 def test_case_width_must_be_declared():
     from ipu_apps.kernels.softmax.cases import random_case
+
     with pytest.raises(ValueError, match="width"):
         random_case(axis=0, defaults={"widht": 10}, max_cycles=100)
 
 
-@pytest.mark.parametrize("app_cls,kwargs,message", [
-    (SoftmaxColumnsApp, dict(width=200), "rows"),               # rows omitted
-    (SoftmaxRowsPartialApp, dict(rows=10), "requires n="),       # own size omitted
-    (SoftmaxRowsLongApp, dict(rows=4, n=300, width=300), "not width="),
-    (SoftmaxColumnsPackedApp, dict(rows=4, n=16), "not n="),     # other axis's size
-])
+@pytest.mark.parametrize(
+    "app_cls,kwargs,message",
+    [
+        (SoftmaxColumnsApp, dict(width=200), "rows"),  # rows omitted
+        (SoftmaxRowsPartialApp, dict(rows=10), "requires n="),  # own size omitted
+        (SoftmaxRowsLongApp, dict(rows=4, n=300, width=300), "not width="),
+        (SoftmaxColumnsPackedApp, dict(rows=4, n=16), "not n="),  # other axis's size
+    ],
+)
 def test_constructors_require_their_sizes(app_cls, kwargs, message):
     """Defaulting a missing size would run the wrong problem without a word:
     128 rows of a 500-row file, silently truncating the output."""
@@ -362,7 +400,7 @@ def test_input_file_of_the_wrong_size_is_refused_by_name(tmp_path):
     from ipu_emu.ipu_state import IpuState
 
     short = tmp_path / "short.bin"
-    short.write_bytes(np.zeros(5 * 20, dtype="<f4").tobytes())   # 5 rows, not 10
+    short.write_bytes(np.zeros(5 * 20, dtype="<f4").tobytes())  # 5 rows, not 10
     app = SoftmaxRowsPartialApp(inst_path="x", input_path=short, output_path=None, rows=10, n=20)
     with pytest.raises(ValueError, match="10 x 20 FP32 values"):
         app.setup(IpuState(wide_vector_debug=True))

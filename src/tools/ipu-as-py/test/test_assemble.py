@@ -20,6 +20,7 @@ start:
 # in the binary as a distinct opcode).
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "pseudo_code, real_code",
     [

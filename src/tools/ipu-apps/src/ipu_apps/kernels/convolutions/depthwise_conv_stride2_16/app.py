@@ -150,9 +150,7 @@ class DepthwiseConvStride2_16App(IpuApp):
         # Place stage 2's output immediately after stage 1's real output
         # region ends, row-aligned (same convention as both stride2 siblings).
         stage1_output_elements = IN_ROW_GROUPS * channels * CHUNK_ELEMENTS
-        self.output_base_addr = (
-            self._stage1_app.output_base_addr + stage1_output_elements * 4
-        )
+        self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
@@ -198,9 +196,7 @@ class DepthwiseConvStride2_16App(IpuApp):
 
         if self.output_path is not None:
             total_elements = self.num_channel_pairs * CHUNK_ELEMENTS
-            raw = state2.xmem.read_address(
-                self.output_base_row * ROW_BYTES, total_elements * 4
-            )
+            raw = state2.xmem.read_address(self.output_base_row * ROW_BYTES, total_elements * 4)
             # raw is packed [channel_pair, 2, OUT_ROWS, OUT_COLS] -- the two
             # channels in a pair occupy R_ACC[0:64] / R_ACC[64:128]
             # respectively, and within each channel's 64 elements the layout
@@ -210,7 +206,10 @@ class DepthwiseConvStride2_16App(IpuApp):
             # output_path holds the TRUE [channels, OUT_ROWS, OUT_COLS]
             # tensor (see class docstring's file-layout contract).
             arr = np.frombuffer(raw, dtype=np.float32).reshape(
-                self.num_channel_pairs, 2, OUT_ROWS, OUT_COLS,
+                self.num_channel_pairs,
+                2,
+                OUT_ROWS,
+                OUT_COLS,
             )
             out = np.empty((self.channels, OUT_ROWS, OUT_COLS), dtype=np.float32)
             out[0::2] = arr[:, 0]
@@ -233,11 +232,14 @@ def _supports(q):
     if q.stride != 2:
         return f"handles only stride=2; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if q.apply_relu or q.has_bias:
         return "bias/ReLU are not supported by this kernel"
     if (q.height, q.width) != (ROWS, COLS):

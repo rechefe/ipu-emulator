@@ -1,4 +1,5 @@
 """conv1x1 memory-only harness and registry declaration."""
+
 from ipu_apps.kernels.convolutions.app import ConvApp
 from ipu_apps.kernel_registry.memory import memory_spec
 

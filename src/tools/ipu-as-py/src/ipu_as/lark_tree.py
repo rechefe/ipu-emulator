@@ -78,9 +78,7 @@ def _expand_pseudo_instructions(instructions: list[dict]) -> list[dict]:
             continue
 
         expansion = pseudo_def["expands_to"]
-        operand_by_name = dict(
-            zip((op["name"] for op in pseudo_def["operands"]), operands)
-        )
+        operand_by_name = dict(zip((op["name"] for op in pseudo_def["operands"]), operands))
         # Borrow the position of the pseudo-instruction being expanded. A bare
         # lark.Token() carries no line or column, so any later error about the
         # expansion reported "Line None, Column None" and could not be placed —

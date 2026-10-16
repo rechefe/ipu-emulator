@@ -1,4 +1,5 @@
 """Fully connected regression tests using the runtime cases."""
+
 import pytest
 
 from ipu_apps.kernels.linear.fully_connected.cases import CASES, DATA, MissingInputFixture, prepare

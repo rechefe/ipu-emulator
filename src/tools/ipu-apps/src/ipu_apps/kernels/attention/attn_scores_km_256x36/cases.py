@@ -11,6 +11,7 @@ matmul: each channel step is ``MULT.RC.VE`` (lane = query) followed by
 D channel steps; each query group starts its own fresh R_ACC. Head 1 exercises
 the head slicing.
 """
+
 from ipu_apps.kernels.attention.attn_scores_km_256x36 import app
 from ipu_apps.kernels.attention.cases import scores_km_cases
 

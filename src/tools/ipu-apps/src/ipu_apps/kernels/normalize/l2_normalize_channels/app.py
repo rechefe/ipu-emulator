@@ -1,5 +1,12 @@
 """L2 normalization of columns in a preformatted (channels, columns) matrix."""
-from ipu_apps.kernel_registry.memory import MemoryApp, MemoryLayout, ceildiv, positive_shape, memory_spec
+
+from ipu_apps.kernel_registry.memory import (
+    MemoryApp,
+    MemoryLayout,
+    ceildiv,
+    positive_shape,
+    memory_spec,
+)
 
 
 class App(MemoryApp):

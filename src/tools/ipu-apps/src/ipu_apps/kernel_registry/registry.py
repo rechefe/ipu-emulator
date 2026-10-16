@@ -89,10 +89,7 @@ def create_state(app: IpuApp) -> IpuState:
     config = execution(app) if callable(execution) else execution
     if not isinstance(config, ExecutionConfig):
         raise TypeError("SPEC.execution must produce an ExecutionConfig")
-    arithmetic = (
-        WideVectorArithmetic.INT32 if config.mode == "int32"
-        else WideVectorArithmetic.FP32
-    )
+    arithmetic = WideVectorArithmetic.INT32 if config.mode == "int32" else WideVectorArithmetic.FP32
     return IpuState(
         wide_vector_debug=config.mode != "native",
         wide_vector_arithmetic=arithmetic,
@@ -184,8 +181,7 @@ def resolve(op: str, *, package: str = "ipu_apps", **params: Any) -> Verdict:
 
     if not accepted:
         detail = (
-            "; ".join(_distinct(refusals, len(candidates)))
-            if refusals else "no kernel claimed it"
+            "; ".join(_distinct(refusals, len(candidates))) if refusals else "no kernel claimed it"
         )
         return Verdict(False, f"no {op} kernel covers this query -- {detail}")
 

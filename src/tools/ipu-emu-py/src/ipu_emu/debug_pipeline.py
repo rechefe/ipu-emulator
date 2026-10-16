@@ -1,12 +1,21 @@
 """Read-only VLIW stage descriptions derived from assembler metadata."""
+
 from __future__ import annotations
 
 from ipu_as.compound_inst import CompoundInst
-from ipu_isa.instruction_spec import COMPOUND_LAYOUT_SLOT_ORDER, SLOT_COUNT, SLOT_UNIONS, is_hardware_slot
+from ipu_isa.instruction_spec import (
+    COMPOUND_LAYOUT_SLOT_ORDER,
+    SLOT_COUNT,
+    SLOT_UNIONS,
+    is_hardware_slot,
+)
 
 SLOT_LABELS = tuple(
-    (slot.upper() + (str(index) if SLOT_COUNT[slot] > 1 else "")
-     + ("*" if not is_hardware_slot(slot) else ""))
+    (
+        slot.upper()
+        + (str(index) if SLOT_COUNT[slot] > 1 else "")
+        + ("*" if not is_hardware_slot(slot) else "")
+    )
     for slot in COMPOUND_LAYOUT_SLOT_ORDER
     for index in range(SLOT_COUNT[slot])
 )
@@ -66,13 +75,19 @@ PIPELINE_STAGES = (
 )
 
 
-def pipeline_occupancy(instruction: dict[str, int] | None) -> list[tuple[str, list[tuple[str, str]]]]:
+def pipeline_occupancy(
+    instruction: dict[str, int] | None,
+) -> list[tuple[str, list[tuple[str, str]]]]:
     """Commands ready in each physical stage at the paused cycle boundary.
 
     NOPs are empty stages, not previously completed commands held in flight.
     Several control operations may occupy CTRL concurrently.
     """
     slots = dict(stage_operations(instruction))
-    return [(stage, [(slot, slots[slot]) for slot in members
-                     if slots[slot].split()[0].upper() != "NOP"])
-            for stage, members in PIPELINE_STAGES]
+    return [
+        (
+            stage,
+            [(slot, slots[slot]) for slot in members if slots[slot].split()[0].upper() != "NOP"],
+        )
+        for stage, members in PIPELINE_STAGES
+    ]

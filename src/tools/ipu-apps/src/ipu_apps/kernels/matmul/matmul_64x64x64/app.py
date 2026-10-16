@@ -40,9 +40,9 @@ if TYPE_CHECKING:
 
 # -- Dimensions -------------------------------------------------------------
 
-M = 64    # rows of A / rows of C
-K = 64    # cols of A / cols of W per row  (< SIMD width; A rows zero-padded)
-N = 64    # rows of W (output neurons) / cols of C  (< SIMD width; T rows zero-padded)
+M = 64  # rows of A / rows of C
+K = 64  # cols of A / cols of W per row  (< SIMD width; A rows zero-padded)
+N = 64  # rows of W (output neurons) / cols of C  (< SIMD width; T rows zero-padded)
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -55,30 +55,30 @@ N = 64    # rows of W (output neurons) / cols of C  (< SIMD width; T rows zero-p
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                    # FP32
-LANES      = 128                  # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES   # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-INPUT_ROWS  = M   # one padded row per matrix row of A
-WEIGHT_ROWS = K   # T[k] is one row per k
+INPUT_ROWS = M  # one padded row per matrix row of A
+WEIGHT_ROWS = K  # T[k] is one row per k
 
 # An R_ACC store (LANES elements) is exactly one row in wide mode, so the output
 # stride is one row per matrix row of C -- N < LANES only means the row's tail
 # is unused, not that the stride is sub-row.
-OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # N valid elements at the start of each row
+OUTPUT_ROW_BYTES = N * ELEM_BYTES  # N valid elements at the start of each row
 OUTPUT_STRIDE_ROWS = 1
-VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
+VEC_STRIDE_ROWS = 1  # one LANES-element vector = 1 row
 
 # A / T / C packed back to back, in rows.
-INPUT_BASE_ROW   = 0
+INPUT_BASE_ROW = 0
 WEIGHTS_BASE_ROW = INPUT_BASE_ROW + INPUT_ROWS
-OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+OUTPUT_BASE_ROW = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR/LR values below stay in rows.
-INPUT_BASE_ADDR   = INPUT_BASE_ROW * ROW_BYTES
+INPUT_BASE_ADDR = INPUT_BASE_ROW * ROW_BYTES
 WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
-OUTPUT_BASE_ADDR  = OUTPUT_BASE_ROW * ROW_BYTES
+OUTPUT_BASE_ADDR = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _load_input_padded(state: "IpuState", input_path: str | Path) -> None:
@@ -137,11 +137,11 @@ class MatMul64x64x64App(IpuApp):
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         state.regfile.set_cr(3, 1)
-        state.regfile.set_cr(4, VEC_STRIDE_ROWS)                 # input/weight stride (1 row)
-        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)              # output stride (rows)
-        state.regfile.set_cr(6, M * VEC_STRIDE_ROWS)             # outer-loop limit, compared vs row ptr
+        state.regfile.set_cr(4, VEC_STRIDE_ROWS)  # input/weight stride (1 row)
+        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)  # output stride (rows)
+        state.regfile.set_cr(6, M * VEC_STRIDE_ROWS)  # outer-loop limit, compared vs row ptr
         state.regfile.set_cr(7, 0)
-        state.regfile.set_cr(8, -VEC_STRIDE_ROWS)                # weight-offset startup (-1 row)
+        state.regfile.set_cr(8, -VEC_STRIDE_ROWS)  # weight-offset startup (-1 row)
         state.regfile.set_cr(9, -1)
         state.regfile.set_cr(10, K - 1)
 
@@ -150,10 +150,12 @@ class MatMul64x64x64App(IpuApp):
         if self.output_path is None:
             return
         parts = [
-            bytes(state.xmem.read_address(
-                OUTPUT_BASE_ADDR + m * OUTPUT_STRIDE_ROWS * ROW_BYTES,
-                OUTPUT_ROW_BYTES,
-            ))
+            bytes(
+                state.xmem.read_address(
+                    OUTPUT_BASE_ADDR + m * OUTPUT_STRIDE_ROWS * ROW_BYTES,
+                    OUTPUT_ROW_BYTES,
+                )
+            )
             for m in range(M)
         ]
         Path(self.output_path).write_bytes(b"".join(parts))

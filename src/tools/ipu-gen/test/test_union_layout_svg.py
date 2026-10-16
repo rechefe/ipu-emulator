@@ -4,6 +4,7 @@ We don't try to assert visual fidelity here — just that the renderer produces
 a syntactically valid-looking SVG that mentions every slot, every opcode, and
 every field's canonical type.  Visual review is up to the docs build.
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET

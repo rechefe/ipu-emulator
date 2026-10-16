@@ -33,7 +33,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ipu_apps.kernel_registry import ExecutionConfig, ShapeBundle, folder_spec, kernel_folder, no, yes
+from ipu_apps.kernel_registry import (
+    ExecutionConfig,
+    ShapeBundle,
+    folder_spec,
+    kernel_folder,
+    no,
+    yes,
+)
 
 OP = "matmul"
 ACTIVATIONS = ("none", "silu")
@@ -73,16 +80,14 @@ def matmul_query(shape_a, shape_b_t, activation: str = "none") -> MatmulQuery:
     n, k_b = b
     if k != k_b:
         raise ValueError(
-            f"shape_a's K ({k}) does not match shape_b_t's K ({k_b}): "
-            f"shape_a={a}, shape_b_t={b}"
+            f"shape_a's K ({k}) does not match shape_b_t's K ({k_b}): shape_a={a}, shape_b_t={b}"
         )
     bundle = ShapeBundle.of(a=a, b=b).with_shapes(derived={"output": (m, n)})
     return MatmulQuery(m=m, k=k, n=n, activation=activation, bundle=bundle)
 
 
 def _query(params) -> MatmulQuery:
-    return matmul_query(params["shape_a"], params["shape_b_t"],
-                        params.get("activation", "none"))
+    return matmul_query(params["shape_a"], params["shape_b_t"], params.get("activation", "none"))
 
 
 def positive_dims(q: MatmulQuery) -> str | None:
@@ -106,7 +111,9 @@ def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str
         if reason is None and q.shape != (m, k, n):
             reason = f"handles exactly (M, K, N) == {(m, k, n)}; got {q.shape}"
         if reason is None and q.activation != activation:
-            reason = f"fuses activation={activation!r} into its store; query asks for {q.activation!r}"
+            reason = (
+                f"fuses activation={activation!r} into its store; query asks for {q.activation!r}"
+            )
         return no(reason) if reason else yes()
 
     act = "" if activation == "none" else f" with fused {activation}"
@@ -119,7 +126,8 @@ def matmul_spec(app_class, *, m: int, k: int, n: int, role: str, activation: str
         supports=supports,
         build=lambda **params: {},
         explain=lambda **params: (
-            f"(M, K, N) == {(m, k, n)} exactly: the fixed-shape {role} kernel{act}."),
+            f"(M, K, N) == {(m, k, n)} exactly: the fixed-shape {role} kernel{act}."
+        ),
         bundle=lambda **params: _query(params).bundle,
         # Exact-shape match: no two matmul kernels share a (triple, activation).
         cost=lambda **params: 0.0,

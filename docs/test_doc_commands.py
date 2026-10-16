@@ -22,6 +22,7 @@ from docs.doc_files import doc_files
 _INVOCATION = re.compile(r"\bipu-as(?![\w-])(?:[ \t]+--)?[ \t]+(?P<rest>[a-z].*)$")
 _SHELL_OPERATORS = {"|", "||", "&&", ";", ">", ">>", "<", "&", "2>&1"}
 
+
 @dataclass(frozen=True)
 class Command:
     path: str

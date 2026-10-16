@@ -1,4 +1,5 @@
 """maxpool2d_stride2 memory-only harness and registry declaration."""
+
 from ipu_apps.kernels.pooling.app import Stride2PoolApp, stride2_spec
 
 

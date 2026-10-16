@@ -35,6 +35,7 @@ from emu_support import ElementFormat, new_state
 # RegFile — scalar (LR / CR) access
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileScalars:
     def test_lr_set_get(self):
         rf = RegFile()
@@ -102,10 +103,7 @@ class TestRegFileOptimizedMode:
     """Validation must survive ``python -O`` (which strips ``assert``)."""
 
     def test_checks_hold_under_python_O(self):
-        script = (
-            "import sys\n"
-            "assert False, 'asserts are enabled'\n"
-        )
+        script = "import sys\nassert False, 'asserts are enabled'\n"
         # Sanity: the child really runs with asserts stripped.
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
         probe = subprocess.run(
@@ -144,6 +142,7 @@ print("ok")
 # ---------------------------------------------------------------------------
 # RegFile — R registers (128-byte)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileRRegs:
     def test_set_get_r0(self):
@@ -194,6 +193,7 @@ class TestRegFileRRegs:
 # ---------------------------------------------------------------------------
 # RegFile — R cyclic (512-byte, wraparound)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileCyclic:
     def test_no_wrap(self):
@@ -246,6 +246,7 @@ class TestRegFileCyclic:
 # RegFile — R mask
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileMask:
     def test_set_get_mask(self):
         rf = RegFile()
@@ -265,6 +266,7 @@ class TestRegFileMask:
 # ---------------------------------------------------------------------------
 # RegFile — Accumulator
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileAcc:
     def test_acc_bytes(self):
@@ -314,6 +316,7 @@ class TestRegFileAcc:
 # RegFile — Misc forwarding registers
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileMisc:
     def test_mult_res(self):
         rf = RegFile()
@@ -331,6 +334,7 @@ class TestRegFileMisc:
 # ---------------------------------------------------------------------------
 # RegFile — Generic accessor + aliases
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileGeneric:
     def test_alias_r0(self):
@@ -352,6 +356,7 @@ class TestRegFileGeneric:
 # ---------------------------------------------------------------------------
 # RegFile — Snapshot (deep copy)
 # ---------------------------------------------------------------------------
+
 
 class TestRegFileSnapshot:
     def test_snapshot_is_independent(self):
@@ -378,6 +383,7 @@ class TestRegFileSnapshot:
 # RegFile — Serialisation
 # ---------------------------------------------------------------------------
 
+
 class TestRegFileSerialization:
     def test_to_dict_has_all_keys(self):
         rf = RegFile()
@@ -397,6 +403,7 @@ class TestRegFileSerialization:
 # IpuState
 # ---------------------------------------------------------------------------
 
+
 class TestIpuState:
     def test_init(self):
         state = IpuState()
@@ -410,6 +417,7 @@ class TestIpuState:
 
     def test_dtype_attribute(self):
         from ipu_emu.ipu_math import DType
+
         state = IpuState()
         assert state.dtype == DType.INT8  # default
         state.dtype = DType.E4

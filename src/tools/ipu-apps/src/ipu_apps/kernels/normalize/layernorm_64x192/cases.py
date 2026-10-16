@@ -1,4 +1,5 @@
 """Runtime cases for layernorm_64x192 (Layer 4)."""
+
 from ipu_apps.kernels.normalize.layernorm_64x192 import app
 from ipu_apps.kernels.normalize.cases import layernorm_cases, uniform_inputs
 

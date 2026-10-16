@@ -1,4 +1,5 @@
 """Identity case regression tests."""
+
 from ipu_apps.kernel_registry import resolve
 from ipu_apps.kernel_registry.cases import load_cases, run_case
 from ipu_apps.kernel_registry.testing import case_tests

@@ -26,6 +26,7 @@ per row:
   ``ceil(tokens / LANES)`` rows; a row that is not full carries stale lanes
   after its valid prefix.
 """
+
 import numpy as np
 
 from ipu_emu.ipu import LANES
@@ -48,8 +49,8 @@ def stripe_input(x, n_stripes, fill=0.0):
     stripe_h = h // n_stripes
     src = np.full((n_stripes * c, LANES), fill, dtype=np.float32)
     for stripe in range(n_stripes):
-        block = x[:, stripe * stripe_h:(stripe + 1) * stripe_h, :]
-        src[stripe * c:(stripe + 1) * c, :stripe_h * w] = block.reshape(c, -1)
+        block = x[:, stripe * stripe_h : (stripe + 1) * stripe_h, :]
+        src[stripe * c : (stripe + 1) * c, : stripe_h * w] = block.reshape(c, -1)
     return src
 
 
@@ -66,7 +67,7 @@ def stream_rows(x, fill=0.0):
     """
     c = x.shape[0]
     per_row = stream_tokens(x)
-    streams = [x[:, s // 2::2, s % 2::2].reshape(c, -1) for s in range(N_STREAMS)]
+    streams = [x[:, s // 2 :: 2, s % 2 :: 2].reshape(c, -1) for s in range(N_STREAMS)]
     rows = streams[0].shape[1] // per_row
     out = np.full((N_STREAMS, c * rows, LANES), fill, dtype=np.float32)
     for s, tokens in enumerate(streams):
@@ -89,7 +90,10 @@ def check_streams(out_path, x, *, row_width=LANES, rtol=1e-6, atol=1e-6):
     got = got.reshape(want.shape[0], want.shape[1], row_width)
     for s in range(N_STREAMS):
         np.testing.assert_allclose(
-            got[s, :, :per_row], want[s, :, :per_row], rtol=rtol, atol=atol,
+            got[s, :, :per_row],
+            want[s, :, :per_row],
+            rtol=rtol,
+            atol=atol,
             err_msg=f"unfold stream {s} (phase {s // 2},{s % 2}) mismatch",
         )
 
@@ -100,7 +104,10 @@ def check_striped(out_path, x, n_stripes, *, rtol=1e-6, atol=1e-6):
     valid = (h // n_stripes) * w
     got = _read(out_path, n_stripes * c * LANES).reshape(n_stripes * c, LANES)
     np.testing.assert_allclose(
-        got[:, :valid], stripe_input(x, n_stripes)[:, :valid], rtol=rtol, atol=atol,
+        got[:, :valid],
+        stripe_input(x, n_stripes)[:, :valid],
+        rtol=rtol,
+        atol=atol,
         err_msg="fold output != original spatial tensor",
     )
 
@@ -112,9 +119,11 @@ def unfold_cases(app, *, seed):
         x = spatial_tensor(seed, app.C, app.H, app.W)
         inp, out = workspace / "input.bin", workspace / "output.bin"
         inp.write_bytes(stripe_input(x, app.N_STRIPES).tobytes())
-        return PreparedCase({"shape": (app.H, app.W, app.C)},
-                            {"input_path": inp, "output_path": out},
-                            lambda: check_streams(out, x))
+        return PreparedCase(
+            {"shape": (app.H, app.W, app.C)},
+            {"input_path": inp, "output_path": out},
+            lambda: check_streams(out, x),
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed}, MAX_CYCLES)}
 
@@ -132,9 +141,11 @@ def fold_cases(app, *, seed):
         x = spatial_tensor(seed, app.C, app.H, app.W)
         inp, out = workspace / "input.bin", workspace / "output.bin"
         inp.write_bytes(stream_rows(x, fill=np.nan).tobytes())
-        return PreparedCase({"shape": (app.H, app.W, app.C)},
-                            {"input_path": inp, "output_path": out},
-                            lambda: check_striped(out, x, n_stripes))
+        return PreparedCase(
+            {"shape": (app.H, app.W, app.C)},
+            {"input_path": inp, "output_path": out},
+            lambda: check_striped(out, x, n_stripes),
+        )
 
     return {"default": KernelCase(prepare, {"seed": seed}, MAX_CYCLES)}
 

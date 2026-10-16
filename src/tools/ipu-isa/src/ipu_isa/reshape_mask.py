@@ -23,7 +23,5 @@ RESHAPE_MASK_FIELD_BITS: int = 0
 def reshape_mask_field_max() -> int:
     """Return the maximum encodable value (inclusive) of the reshape_mask field."""
     if RESHAPE_MASK_FIELD_BITS <= 0:
-        raise RuntimeError(
-            "RESHAPE_MASK_FIELD_BITS is unset; union layout must be computed first"
-        )
+        raise RuntimeError("RESHAPE_MASK_FIELD_BITS is unset; union layout must be computed first")
     return (1 << RESHAPE_MASK_FIELD_BITS) - 1

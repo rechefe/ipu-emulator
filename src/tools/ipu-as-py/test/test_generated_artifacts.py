@@ -44,6 +44,4 @@ def test_artifact_matches_snapshot(name):
     shown = "".join(diff[:MAX_DIFF_LINES])
     if len(diff) > MAX_DIFF_LINES:
         shown += f"... {len(diff) - MAX_DIFF_LINES} more diff lines\n"
-    pytest.fail(
-        f"{name} changed. If intended, run {generated_artifacts.UPDATE_COMMAND}\n{shown}"
-    )
+    pytest.fail(f"{name} changed. If intended, run {generated_artifacts.UPDATE_COMMAND}\n{shown}")

@@ -18,10 +18,16 @@ from fixture_full_layer_chain import _stable_seed
 def _seed_in_subprocess(hash_seed: str) -> tuple[int, int]:
     env = dict(os.environ, PYTHONHASHSEED=hash_seed, PYTHONPATH=os.pathsep.join(sys.path))
     out = subprocess.run(
-        [sys.executable, "-c",
-         "from fixture_full_layer_chain import _stable_seed; "
-         "print(_stable_seed('a', 'filler'), hash(('a', 'filler')))"],
-        env=env, capture_output=True, text=True, check=True,
+        [
+            sys.executable,
+            "-c",
+            "from fixture_full_layer_chain import _stable_seed; "
+            "print(_stable_seed('a', 'filler'), hash(('a', 'filler')))",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.split()
     return int(out[0]), int(out[1])
 

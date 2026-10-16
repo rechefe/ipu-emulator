@@ -28,7 +28,10 @@ import pytest
 from ipu_apps.kernel_registry import create_harness, kernel_spec
 from ipu_apps.kernel_registry.cases import assemble_kernel
 from ipu_apps.kernels.reshape.cases import (
-    MAX_CYCLES, check_striped, spatial_tensor, stripe_input,
+    MAX_CYCLES,
+    check_striped,
+    spatial_tensor,
+    stripe_input,
 )
 from ipu_apps.kernels.reshape.unfold_8x8x240.app import pack_input_rows
 
@@ -47,7 +50,7 @@ def _poison(app):
 
     def poisoned(state):
         setup(state)
-        state.regfile.set_r_acc_bytes(bytearray(b"\xAA" * 512))
+        state.regfile.set_r_acc_bytes(bytearray(b"\xaa" * 512))
 
     app.setup = poisoned
 
@@ -55,9 +58,11 @@ def _poison(app):
 def _run(kernel, shape, workspace, input_path, *, poisoned=False):
     inst = assemble_kernel(kernel, workspace)
     output_path = workspace / f"{kernel}.out.bin"
-    app = create_harness(kernel, params={"shape": shape},
-                         bindings={"inst_path": inst, "input_path": input_path,
-                                   "output_path": output_path})
+    app = create_harness(
+        kernel,
+        params={"shape": shape},
+        bindings={"inst_path": inst, "input_path": input_path, "output_path": output_path},
+    )
     if poisoned:
         _poison(app)
     state, _ = app.run(max_cycles=MAX_CYCLES)

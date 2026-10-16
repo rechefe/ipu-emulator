@@ -19,6 +19,7 @@ Algorithm (per slot)
    alphabetical type name (first alphabetically wins).
 6. Field order = bin-creation order (deterministic by the sorted input).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -64,6 +65,7 @@ class UnionField:
             instruction that writes a meaningful value here.  Instructions
             that leave this field at its default are absent from the dict.
     """
+
     index: int
     canonical_type: str
     bits: int
@@ -82,6 +84,7 @@ class SlotUnion:
             in operand declaration order.  Every opcode appears here; those
             with no operands map to an empty list.
     """
+
     slot: str
     opcode_bits: int
     fields: list[UnionField]
@@ -143,9 +146,7 @@ def compute_slot_layout(
 
     # (t, slot_idx) → bin_index
     slot_to_bin: dict[tuple[str, int], int] = {
-        (t, si): bin_idx
-        for bin_idx, bin_ in enumerate(bins)
-        for (t, si, _) in bin_
+        (t, si): bin_idx for bin_idx, bin_ in enumerate(bins) for (t, si, _) in bin_
     }
 
     # ------------------------------------------------------------------ #
@@ -160,7 +161,7 @@ def compute_slot_layout(
 
         # Build users dict: opcode_name → (operand_name, actual_type)
         users_map: dict[str, tuple[str, str]] = {}
-        for (t, si, user_set) in bin_:
+        for t, si, user_set in bin_:
             for opcode_name in user_set:
                 count = 0
                 for op in instructions[opcode_name]["operands"]:
@@ -170,12 +171,14 @@ def compute_slot_layout(
                             break
                         count += 1
 
-        fields.append(UnionField(
-            index=bin_idx,
-            canonical_type=canonical,
-            bits=max_width,
-            users=users_map,
-        ))
+        fields.append(
+            UnionField(
+                index=bin_idx,
+                canonical_type=canonical,
+                bits=max_width,
+                users=users_map,
+            )
+        )
 
     # ------------------------------------------------------------------ #
     # Step 7: build opcode_bindings                                       #
@@ -219,9 +222,7 @@ def _pad_slot_to_target(su: SlotUnion) -> None:
         ):
             field.bits += deficit
             return
-    raise ValueError(
-        f"Cannot pad {su.slot} slot to {target} bits (currently {total})"
-    )
+    raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {total})")
 
 
 def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
@@ -235,9 +236,7 @@ def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
                     module, attr = target
                     setattr(module, attr, field.bits)
     if remaining:
-        raise ValueError(
-            f"Operand types not found in any slot union layout: {sorted(remaining)}"
-        )
+        raise ValueError(f"Operand types not found in any slot union layout: {sorted(remaining)}")
 
 
 def compute_slot_layouts(instruction_spec: dict) -> dict[str, SlotUnion]:

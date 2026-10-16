@@ -45,9 +45,9 @@ from ipu_apps.kernels.normalize.app import layernorm_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_CH  = 240    # channels -> one XMEM row each; also the normalization axis
-N_TG  = 1      # single token group
-N_TOK = 16     # tokens per group (valid lanes per row)
+N_CH = 240  # channels -> one XMEM row each; also the normalization axis
+N_TG = 1  # single token group
+N_TOK = 16  # tokens per group (valid lanes per row)
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -59,63 +59,65 @@ N_TOK = 16     # tokens per group (valid lanes per row)
 # hardcoded as bytes: a hardcoded byte map silently goes wrong the moment a
 # dimension changes, and regions overwrite each other with no crash.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-ROW_STRIDE_ROWS = 1              # one ROW_BYTES row = exactly 1 XMEM row
+ROW_STRIDE_ROWS = 1  # one ROW_BYTES row = exactly 1 XMEM row
 # With N_TG=1 the per-channel data stride IS the row stride: consecutive
 # channels are consecutive rows.
-DATA_STRIDE_ROWS = N_TG * ROW_STRIDE_ROWS    # 1
+DATA_STRIDE_ROWS = N_TG * ROW_STRIDE_ROWS  # 1
 
-VALID_ROW_BYTES = N_TOK * ELEM_BYTES         # N_TOK (16) meaningful elements per row
+VALID_ROW_BYTES = N_TOK * ELEM_BYTES  # N_TOK (16) meaningful elements per row
 
 # Sub-loop split for step 6: gamma/beta span ceil(240/128) = 2 rows.
-SUB_A_CHANNELS = LANES                       # 128 channels from gamma/beta row 0
-SUB_B_CHANNELS = N_CH - LANES                # 112 channels from gamma/beta row 1
+SUB_A_CHANNELS = LANES  # 128 channels from gamma/beta row 0
+SUB_B_CHANNELS = N_CH - LANES  # 112 channels from gamma/beta row 1
 
 # Region sizes in rows. Each is a row count, so no element-width factor.
-DATA_ROWS      = N_CH * N_TG         # one row per (ch, tg); N_TG=1 -> 240
-GAMMA_ROWS     = -(-N_CH // LANES)   # ceil: 240 channels span 2 rows
-BETA_ROWS      = GAMMA_ROWS
-CONST_ROWS     = 1               # ones / neg_inv_n / inv_n / neg_mean each
-CENTERED_ROWS  = N_CH            # centered/normalized scratch, one row per ch
-TEMP_ROWS      = 1
-INVSTD_ROWS    = 1
-OUTPUT_ROWS    = N_CH * N_TG
+DATA_ROWS = N_CH * N_TG  # one row per (ch, tg); N_TG=1 -> 240
+GAMMA_ROWS = -(-N_CH // LANES)  # ceil: 240 channels span 2 rows
+BETA_ROWS = GAMMA_ROWS
+CONST_ROWS = 1  # ones / neg_inv_n / inv_n / neg_mean each
+CENTERED_ROWS = N_CH  # centered/normalized scratch, one row per ch
+TEMP_ROWS = 1
+INVSTD_ROWS = 1
+OUTPUT_ROWS = N_CH * N_TG
 
 # Packed back to back, in rows.
-DATA_BASE_ROW      = 0
-GAMMA_BASE_ROW     = DATA_BASE_ROW      + DATA_ROWS
-BETA_BASE_ROW      = GAMMA_BASE_ROW     + GAMMA_ROWS
-ONES_BASE_ROW      = BETA_BASE_ROW      + BETA_ROWS
-NEG_INV_N_BASE_ROW = ONES_BASE_ROW      + CONST_ROWS
-INV_N_BASE_ROW     = NEG_INV_N_BASE_ROW + CONST_ROWS
-NEG_MEAN_BASE_ROW  = INV_N_BASE_ROW     + CONST_ROWS
-CENTERED_BASE_ROW  = NEG_MEAN_BASE_ROW  + CONST_ROWS
-TEMP_BASE_ROW      = CENTERED_BASE_ROW  + CENTERED_ROWS
-INVSTD_BASE_ROW    = TEMP_BASE_ROW      + TEMP_ROWS
-OUTPUT_BASE_ROW    = INVSTD_BASE_ROW    + INVSTD_ROWS
+DATA_BASE_ROW = 0
+GAMMA_BASE_ROW = DATA_BASE_ROW + DATA_ROWS
+BETA_BASE_ROW = GAMMA_BASE_ROW + GAMMA_ROWS
+ONES_BASE_ROW = BETA_BASE_ROW + BETA_ROWS
+NEG_INV_N_BASE_ROW = ONES_BASE_ROW + CONST_ROWS
+INV_N_BASE_ROW = NEG_INV_N_BASE_ROW + CONST_ROWS
+NEG_MEAN_BASE_ROW = INV_N_BASE_ROW + CONST_ROWS
+CENTERED_BASE_ROW = NEG_MEAN_BASE_ROW + CONST_ROWS
+TEMP_BASE_ROW = CENTERED_BASE_ROW + CENTERED_ROWS
+INVSTD_BASE_ROW = TEMP_BASE_ROW + TEMP_ROWS
+OUTPUT_BASE_ROW = INVSTD_BASE_ROW + INVSTD_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR values in setup() stay in rows.
-DATA_BASE      = DATA_BASE_ROW      * ROW_BYTES
-GAMMA_BASE     = GAMMA_BASE_ROW     * ROW_BYTES
-BETA_BASE      = BETA_BASE_ROW      * ROW_BYTES
-ONES_BASE      = ONES_BASE_ROW      * ROW_BYTES
+DATA_BASE = DATA_BASE_ROW * ROW_BYTES
+GAMMA_BASE = GAMMA_BASE_ROW * ROW_BYTES
+BETA_BASE = BETA_BASE_ROW * ROW_BYTES
+ONES_BASE = ONES_BASE_ROW * ROW_BYTES
 NEG_INV_N_BASE = NEG_INV_N_BASE_ROW * ROW_BYTES
-INV_N_BASE     = INV_N_BASE_ROW     * ROW_BYTES
-NEG_MEAN_BASE  = NEG_MEAN_BASE_ROW  * ROW_BYTES
-CENTERED_BASE  = CENTERED_BASE_ROW  * ROW_BYTES
-TEMP_BASE      = TEMP_BASE_ROW      * ROW_BYTES
-INVSTD_BASE    = INVSTD_BASE_ROW    * ROW_BYTES
-OUTPUT_BASE    = OUTPUT_BASE_ROW    * ROW_BYTES
+INV_N_BASE = INV_N_BASE_ROW * ROW_BYTES
+NEG_MEAN_BASE = NEG_MEAN_BASE_ROW * ROW_BYTES
+CENTERED_BASE = CENTERED_BASE_ROW * ROW_BYTES
+TEMP_BASE = TEMP_BASE_ROW * ROW_BYTES
+INVSTD_BASE = INVSTD_BASE_ROW * ROW_BYTES
+OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _fp32_row(values: np.ndarray) -> bytes:
     """Pack a 1-D float32 array into one 128-element row (zero-padded)."""
     if values.ndim != 1 or len(values) > LANES:
-        raise ValueError(f"expected a 1-D array of at most {LANES} values; got shape {values.shape}")
+        raise ValueError(
+            f"expected a 1-D array of at most {LANES} values; got shape {values.shape}"
+        )
     padded = np.zeros(LANES, dtype=np.float32)
     padded[: len(values)] = values
     return padded.tobytes()
@@ -135,7 +137,7 @@ class LayerNorm16x240App(IpuApp):
         super().__init__(**kwargs)
         self.input_path = Path(input_path)
         self.gamma_path = Path(gamma_path)
-        self.beta_path  = Path(beta_path)
+        self.beta_path = Path(beta_path)
 
     def setup(self, state: "IpuState") -> None:
         # Data: N_CH rows of LANES FP32 values, one channel per row, tokens in
@@ -152,45 +154,45 @@ class LayerNorm16x240App(IpuApp):
 
         # gamma and beta: 240 values each -> two 128-element rows (128 + 112).
         gamma = np.frombuffer(self.gamma_path.read_bytes(), dtype=np.float32)
-        beta  = np.frombuffer(self.beta_path.read_bytes(),  dtype=np.float32)
+        beta = np.frombuffer(self.beta_path.read_bytes(), dtype=np.float32)
         if len(gamma) != N_CH or len(beta) != N_CH:
             raise ValueError(
                 f"gamma and beta must hold {N_CH} FP32 values each; "
                 f"got {len(gamma)} and {len(beta)}"
             )
 
-        state.xmem.write_address(GAMMA_BASE,             bytearray(_fp32_row(gamma[:LANES])))
+        state.xmem.write_address(GAMMA_BASE, bytearray(_fp32_row(gamma[:LANES])))
         state.xmem.write_address(GAMMA_BASE + ROW_BYTES, bytearray(_fp32_row(gamma[LANES:])))
-        state.xmem.write_address(BETA_BASE,              bytearray(_fp32_row(beta[:LANES])))
-        state.xmem.write_address(BETA_BASE + ROW_BYTES,  bytearray(_fp32_row(beta[LANES:])))
+        state.xmem.write_address(BETA_BASE, bytearray(_fp32_row(beta[:LANES])))
+        state.xmem.write_address(BETA_BASE + ROW_BYTES, bytearray(_fp32_row(beta[LANES:])))
 
         # Constants. The reduction is over N_CH channels, so the mean/variance
         # normalizer is 1/N_CH -- NOT 1/N_TOK. Filling all LANES lanes keeps the
         # padding lanes arithmetically consistent (they stay 0).
         ones = np.ones(LANES, dtype=np.float32).tobytes()
-        state.xmem.write_address(ONES_BASE,     bytearray(ones))
+        state.xmem.write_address(ONES_BASE, bytearray(ones))
         neg_inv_n = np.full(LANES, -1.0 / N_CH, dtype=np.float32).tobytes()
         state.xmem.write_address(NEG_INV_N_BASE, bytearray(neg_inv_n))
-        inv_n = np.full(LANES,  1.0 / N_CH, dtype=np.float32).tobytes()
-        state.xmem.write_address(INV_N_BASE,    bytearray(inv_n))
+        inv_n = np.full(LANES, 1.0 / N_CH, dtype=np.float32).tobytes()
+        state.xmem.write_address(INV_N_BASE, bytearray(inv_n))
 
         # CR registers -- must match the ASM header.
         # NOTE: CR0 (=0) and CR1 (=1) are read-only hardwired constants; writing
         # either raises EmulatorError. DATA_BASE_ROW is 0 so CR0 is fine, and
         # GAMMA_BASE lives on CR11 rather than CR1.
-        state.regfile.set_cr(2,  BETA_BASE_ROW)
-        state.regfile.set_cr(3,  ONES_BASE_ROW)
-        state.regfile.set_cr(4,  NEG_INV_N_BASE_ROW)
-        state.regfile.set_cr(5,  INV_N_BASE_ROW)
-        state.regfile.set_cr(6,  NEG_MEAN_BASE_ROW)
-        state.regfile.set_cr(7,  CENTERED_BASE_ROW)
-        state.regfile.set_cr(8,  TEMP_BASE_ROW)
-        state.regfile.set_cr(9,  INVSTD_BASE_ROW)
+        state.regfile.set_cr(2, BETA_BASE_ROW)
+        state.regfile.set_cr(3, ONES_BASE_ROW)
+        state.regfile.set_cr(4, NEG_INV_N_BASE_ROW)
+        state.regfile.set_cr(5, INV_N_BASE_ROW)
+        state.regfile.set_cr(6, NEG_MEAN_BASE_ROW)
+        state.regfile.set_cr(7, CENTERED_BASE_ROW)
+        state.regfile.set_cr(8, TEMP_BASE_ROW)
+        state.regfile.set_cr(9, INVSTD_BASE_ROW)
         state.regfile.set_cr(10, OUTPUT_BASE_ROW)
-        state.regfile.set_cr(11, GAMMA_BASE_ROW)   # CR1 is read-only
-        state.regfile.set_cr(12, N_CH)             # 240 = full channel loop bound
+        state.regfile.set_cr(11, GAMMA_BASE_ROW)  # CR1 is read-only
+        state.regfile.set_cr(12, N_CH)  # 240 = full channel loop bound
         state.regfile.set_cr(13, ROW_STRIDE_ROWS)  # 1 row (also the data stride, N_TG=1)
-        state.regfile.set_cr(14, LANES)            # 128 = sub-loop A bound; R1 base offset
+        state.regfile.set_cr(14, LANES)  # 128 = sub-loop A bound; R1 base offset
         # CR15 holds this kernel's dstructure configuration and is not free,
         # so step 6's sub-loop B bound (112) is built in the ASM from CR1 and
         # CR14 rather than from a CR of its own.
@@ -201,15 +203,14 @@ class LayerNorm16x240App(IpuApp):
             return
         raw_path = Path(self.output_path).with_suffix(".rows.bin")
         dump_xmem_to_binary(
-            state, raw_path,
-            OUTPUT_BASE, ROW_BYTES, N_CH * N_TG,
+            state,
+            raw_path,
+            OUTPUT_BASE,
+            ROW_BYTES,
+            N_CH * N_TG,
         )
-        rows = np.frombuffer(raw_path.read_bytes(), dtype=np.float32).reshape(
-            N_CH * N_TG, LANES
-        )
-        Path(self.output_path).write_bytes(
-            np.ascontiguousarray(rows[:, :N_TOK]).tobytes()
-        )
+        rows = np.frombuffer(raw_path.read_bytes(), dtype=np.float32).reshape(N_CH * N_TG, LANES)
+        Path(self.output_path).write_bytes(np.ascontiguousarray(rows[:, :N_TOK]).tobytes())
 
 
 SPEC = layernorm_spec(LayerNorm16x240App, channels=N_CH, tokens=N_TOK)

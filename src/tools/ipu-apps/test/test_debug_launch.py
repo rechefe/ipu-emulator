@@ -234,8 +234,12 @@ def test_entry_uses_prepared_pc_and_combines_break_causes(program):
         return DebugAction.CONTINUE
 
     _, cycles = run_test(
-        inst_path=program, state=state, setup=setup,
-        debug_callback=callback, break_on_entry=True, debug_control=control,
+        inst_path=program,
+        state=state,
+        setup=setup,
+        debug_callback=callback,
+        break_on_entry=True,
+        debug_control=control,
     )
     assert stops == [(1, 0, "entry, breakpoint, BREAK instruction")]
     assert cycles == 2
@@ -278,6 +282,7 @@ def test_registry_case_completion_checks_and_exports(debug_terminal, monkeypatch
     from ipu_apps.kernel_registry.cases import load_cases, run_case
 
     stops = []
+
     def view(state, cycle, *, control, session):
         stops.append((state.program_counter, cycle))
         return DebugAction.CONTINUE

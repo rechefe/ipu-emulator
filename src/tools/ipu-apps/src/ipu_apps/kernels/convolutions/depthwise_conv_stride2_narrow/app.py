@@ -195,9 +195,7 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         # Place stage 2's output immediately after stage 1's real output
         # region ends, row-aligned (same convention as the cols=128 sibling).
         stage1_output_elements = self.in_row_groups * channels * CHUNK_ELEMENTS
-        self.output_base_addr = (
-            self._stage1_app.output_base_addr + stage1_output_elements * 4
-        )
+        self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
@@ -217,7 +215,8 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         stage1_stats = copy.copy(state.stats)
 
         stage2_src = render_asm(
-            kernel_asm("depthwise_conv_stride2_narrow"), elements_in_row=self.cols,
+            kernel_asm("depthwise_conv_stride2_narrow"),
+            elements_in_row=self.cols,
         )
         stage2_bin_path = tmp_dir / "stage2.bin"
         assemble_to_bin_file(stage2_src, str(stage2_bin_path))
@@ -250,14 +249,15 @@ class DepthwiseConvStride2NarrowApp(IpuApp):
         if self.output_path is not None:
             total_outputs = self.num_out_groups * self.channels
             total_elements = total_outputs * CHUNK_ELEMENTS
-            raw = state2.xmem.read_address(
-                self.output_base_row * ROW_BYTES, total_elements * 4
-            )
+            raw = state2.xmem.read_address(self.output_base_row * ROW_BYTES, total_elements * 4)
             # raw is packed [out_group, channel, out_rows_per_chunk, out_cols]
             # -- output_path holds the TRUE [channels, out_rows, out_cols]
             # tensor (see class docstring's file-layout contract).
             arr = np.frombuffer(raw, dtype=np.float32).reshape(
-                self.num_out_groups, self.channels, self.out_rows_per_chunk, self.out_cols,
+                self.num_out_groups,
+                self.channels,
+                self.out_rows_per_chunk,
+                self.out_cols,
             )
             out = np.empty((self.channels, self.out_rows, self.out_cols), dtype=np.float32)
             for og in range(self.num_out_groups):
@@ -282,16 +282,21 @@ def _supports(q):
     if q.stride != 2:
         return f"handles only stride=2; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if q.apply_relu or q.has_bias:
         return "bias/ReLU are not supported by this kernel"
     if q.width not in (16, 32, 64):
-        return (f"handles only width in (16, 32, 64) (see depthwise_conv_stride2_128 for "
-                f"width=128); got {q.width}")
+        return (
+            f"handles only width in (16, 32, 64) (see depthwise_conv_stride2_128 for "
+            f"width=128); got {q.width}"
+        )
     rows_per_chunk = 128 // q.width
     if q.height < 4 or q.height % 4 != 0 or (q.height // rows_per_chunk) % 4 != 0:
         return (

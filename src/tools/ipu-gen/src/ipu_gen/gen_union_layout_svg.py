@@ -6,6 +6,7 @@ Usage::
 
 The slot order matches the compound instruction binary layout (MSB → LSB).
 """
+
 from __future__ import annotations
 
 import sys

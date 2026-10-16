@@ -50,6 +50,7 @@ from ipu_emu.ipu_config import (
 # Without them a negative index addresses the end of the backing bytearray and
 # a wrong-length slice assignment resizes a register's storage.
 
+
 def _check_index(name: str, index: int, count: int, *, unit: str | None = None) -> None:
     if not 0 <= index < count:
         bound = f"{count} {unit}" if unit else f"count={count}"
@@ -87,7 +88,7 @@ def _without(observers: tuple, fn: Callable) -> tuple:
     """*observers* with the first occurrence of *fn* removed (if any)."""
     for i, observer in enumerate(observers):
         if observer is fn:
-            return observers[:i] + observers[i + 1:]
+            return observers[:i] + observers[i + 1 :]
     return observers
 
 
@@ -117,7 +118,7 @@ class RegFile:
             # register aliases
             for alias in desc.debug_aliases:
                 self._alias_map[alias] = desc.name
-        
+
         # Attach dynamically generated accessor methods
         # (eliminates duplication between REGISTER_DEFINITIONS and hard-coded methods).
         # The default schema attaches them to the class once; only a custom
@@ -183,7 +184,9 @@ class RegFile:
         # A previously handed-out mutable handle can still overwrite this buffer.
         if canon in self._mutable_exports:
             return
-        self._constant_one_bytes[canon] = self._constant_one_bytes.get(canon, 0) | (((1 << size) - 1) << start)
+        self._constant_one_bytes[canon] = self._constant_one_bytes.get(canon, 0) | (
+            ((1 << size) - 1) << start
+        )
 
     def has_constant_ones(self, name: str, start: int, size: int) -> bool:
         canon = self._resolve(name)
@@ -315,8 +318,11 @@ class RegFile:
         file with this layout; the caller is responsible for that.
         """
         dst = other._storage
-        other._constant_one_bytes = {name: bits for name, bits in self._constant_one_bytes.items()
-                                    if name not in other._mutable_exports}
+        other._constant_one_bytes = {
+            name: bits
+            for name, bits in self._constant_one_bytes.items()
+            if name not in other._mutable_exports
+        }
         for name, buf in self._storage.items():
             for observer in other._observers:
                 observer(name, 0, len(buf))
@@ -419,10 +425,12 @@ def _create_accessor_methods(schema: list[RegDescriptor]) -> dict[str, Any]:
 # Scalar accessors  (e.g. get_lr / set_lr)
 # ---------------------------------------------------------------------------
 
+
 def _add_scalar_accessors(methods: dict, name: str) -> None:
     def _make_get(n: str = name):
         def get_val(self, index: int) -> int:
             return self.get_scalar(n, index)
+
         get_val.__name__ = f"get_{n}"
         get_val.__doc__ = f"Get {n}[index] as a 32-bit integer."
         return get_val
@@ -430,6 +438,7 @@ def _add_scalar_accessors(methods: dict, name: str) -> None:
     def _make_set(n: str = name):
         def set_val(self, index: int, value: int) -> None:
             self.set_scalar(n, index, value)
+
         set_val.__name__ = f"set_{n}"
         set_val.__doc__ = f"Set {n}[index] = value (32-bit)."
         return set_val
@@ -443,10 +452,12 @@ def _add_scalar_accessors(methods: dict, name: str) -> None:
 #                                  or  get_r_acc_bytes / set_r_acc_bytes)
 # ---------------------------------------------------------------------------
 
+
 def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> None:
     def _make_get(n: str = name, sz: int = size):
         def get_blob(self) -> bytearray:
             return bytearray(self._storage[n])
+
         get_blob.__name__ = f"get_{n}{suffix}"
         get_blob.__doc__ = f"Return a copy of {n} ({sz} bytes)."
         return get_blob
@@ -456,6 +467,7 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
             _check_size(n, data, sz)
             self._forget_constant_ones(n, 0, sz)
             self._storage[n][:] = data
+
         set_blob.__name__ = f"set_{n}{suffix}"
         set_blob.__doc__ = f"Set {n} ({sz} bytes)."
         return set_blob
@@ -468,14 +480,14 @@ def _add_blob_accessors(methods: dict, name: str, size: int, *, suffix: str) -> 
 # Multi-element indexed blob accessors  (e.g. get_r / set_r)
 # ---------------------------------------------------------------------------
 
-def _add_indexed_vector_accessors(
-    methods: dict, name: str, count: int, elem_size: int
-) -> None:
+
+def _add_indexed_vector_accessors(methods: dict, name: str, count: int, elem_size: int) -> None:
     def _make_get(n: str = name, cnt: int = count, esz: int = elem_size):
         def get_elem(self, index: int) -> bytearray:
             _check_index(n, index, cnt)
             start = index * esz
             return bytearray(self._storage[n][start : start + esz])
+
         get_elem.__name__ = f"get_{n}"
         get_elem.__doc__ = f"Get {n}[index] ({esz} bytes, {cnt} elements)."
         return get_elem
@@ -487,6 +499,7 @@ def _add_indexed_vector_accessors(
             start = index * esz
             self._forget_constant_ones(n, start, esz)
             self._storage[n][start : start + esz] = data
+
         set_elem.__name__ = f"set_{n}"
         set_elem.__doc__ = f"Set {n}[index] ({esz} bytes, {cnt} elements)."
         return set_elem
@@ -498,6 +511,7 @@ def _add_indexed_vector_accessors(
 # ---------------------------------------------------------------------------
 # Cyclic (wrapping) accessors  (e.g. get_r_cyclic_at / set_r_cyclic_at)
 # ---------------------------------------------------------------------------
+
 
 def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     """Generate wrapping get/set accessors for a cyclic register.
@@ -514,8 +528,11 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
     (``total_size``), which is now always the right answer -- nothing in
     ``src/`` overrides it.
     """
+
     def _make_get(n: str = name, default_sz: int = total_size):
-        def get_at(self, start_idx: int, length: int = 128, wrap_size: int | None = None) -> bytearray:
+        def get_at(
+            self, start_idx: int, length: int = 128, wrap_size: int | None = None
+        ) -> bytearray:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
@@ -524,6 +541,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
             first = buf[start_idx:sz]
             second = buf[: length - len(first)]
             return bytearray(first + second)
+
         get_at.__name__ = f"get_{n}_at"
         get_at.__doc__ = (
             f"Read *length* bytes from {n} starting at *start_idx*, wrapping at "
@@ -532,7 +550,9 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
         return get_at
 
     def _make_set(n: str = name, default_sz: int = total_size):
-        def set_at(self, start_idx: int, data: bytes | bytearray, wrap_size: int | None = None) -> None:
+        def set_at(
+            self, start_idx: int, data: bytes | bytearray, wrap_size: int | None = None
+        ) -> None:
             buf = self._storage[n]
             sz = default_sz if wrap_size is None else wrap_size
             start_idx %= sz
@@ -547,6 +567,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
                 first_len = sz - start_idx
                 buf[start_idx : start_idx + first_len] = data[:first_len]
                 buf[: length - first_len] = data[first_len:]
+
         set_at.__name__ = f"set_{n}_at"
         set_at.__doc__ = (
             f"Write *data* into {n} at *start_idx*, wrapping at *wrap_size* "
@@ -562,6 +583,7 @@ def _add_cyclic_accessors(methods: dict, name: str, total_size: int) -> None:
 # Word-view accessors  (e.g. get_r_acc_words / get_r_acc_word / set_r_acc_word)
 # ---------------------------------------------------------------------------
 
+
 def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
     n_words = size // 4
 
@@ -572,6 +594,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
             self._constant_one_bytes.pop(n, None)
             self._mutable_exports.add(n)
             return np.frombuffer(self._storage[n], dtype=np.uint32)
+
         get_words.__name__ = f"get_{n}_words"
         get_words.__doc__ = f"View {n} as uint32 words ({n_words} words)."
         return get_words
@@ -580,6 +603,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
         def get_word(self, index: int) -> int:
             _check_index(f"{n} word", index, nw, unit="words")
             return struct.unpack_from("<I", self._storage[n], index * 4)[0]
+
         get_word.__name__ = f"get_{n}_word"
         get_word.__doc__ = f"Get one uint32 word from {n}."
         return get_word
@@ -594,6 +618,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
                 index * 4,
                 value & REGISTER_WORD_VALUE_MASK,
             )
+
         set_word.__name__ = f"set_{n}_word"
         set_word.__doc__ = f"Set one uint32 word in {n}."
         return set_word
@@ -606,6 +631,7 @@ def _add_word_view_accessors(methods: dict, name: str, size: int) -> None:
 # ---------------------------------------------------------------------------
 # Attach generated accessors to a RegFile instance
 # ---------------------------------------------------------------------------
+
 
 def _attach_dynamic_accessors(regfile_instance: RegFile) -> None:
     """Attach dynamically generated accessor methods to a RegFile instance.

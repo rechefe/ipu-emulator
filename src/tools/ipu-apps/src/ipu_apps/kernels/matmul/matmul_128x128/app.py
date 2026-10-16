@@ -36,9 +36,9 @@ if TYPE_CHECKING:
 
 # -- Dimensions -------------------------------------------------------------
 
-M = 128   # rows of A / rows of C
-K = 128   # cols of A / cols of W per row
-N = 128   # rows of W (output neurons) / cols of C  (must equal SIMD width = 128)
+M = 128  # rows of A / rows of C
+K = 128  # cols of A / cols of W per row
+N = 128  # rows of W (output neurons) / cols of C  (must equal SIMD width = 128)
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -51,30 +51,30 @@ N = 128   # rows of W (output neurons) / cols of C  (must equal SIMD width = 128
 # than hardcoded as bytes: a hardcoded byte map sized for 1-byte elements
 # overflows at 4 bytes/element and silently corrupts the run.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                    # FP32
-LANES      = 128                  # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES   # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # A row (padded to LANES elements) per matrix row; T[k] is one row per k.
-INPUT_ROWS   = M
-WEIGHT_ROWS  = K
+INPUT_ROWS = M
+WEIGHT_ROWS = K
 
 # One accumulator store writes all LANES elements of R_ACC -- exactly one row
 # in wide mode, so one output row of C owns one row.
-OUTPUT_ROW_BYTES   = N * ELEM_BYTES   # 512
+OUTPUT_ROW_BYTES = N * ELEM_BYTES  # 512
 OUTPUT_STRIDE_ROWS = 1
-VEC_STRIDE_ROWS    = 1                # one LANES-element vector = 1 row
+VEC_STRIDE_ROWS = 1  # one LANES-element vector = 1 row
 
 # A / T / C packed back to back, in rows.
-INPUT_BASE_ROW   = 0
+INPUT_BASE_ROW = 0
 WEIGHTS_BASE_ROW = INPUT_BASE_ROW + INPUT_ROWS
-OUTPUT_BASE_ROW  = WEIGHTS_BASE_ROW + WEIGHT_ROWS
+OUTPUT_BASE_ROW = WEIGHTS_BASE_ROW + WEIGHT_ROWS
 
 # Byte addresses for this harness's direct xmem staging (which bypasses row
 # translation); the CR/LR values below stay in rows.
-INPUT_BASE_ADDR   = INPUT_BASE_ROW * ROW_BYTES
+INPUT_BASE_ADDR = INPUT_BASE_ROW * ROW_BYTES
 WEIGHTS_BASE_ADDR = WEIGHTS_BASE_ROW * ROW_BYTES
-OUTPUT_BASE_ADDR  = OUTPUT_BASE_ROW * ROW_BYTES
+OUTPUT_BASE_ADDR = OUTPUT_BASE_ROW * ROW_BYTES
 
 
 def _load_input(state: "IpuState", input_path: str | Path) -> None:
@@ -134,19 +134,22 @@ class MatMul128x128App(IpuApp):
         state.regfile.set_cr(11, WEIGHTS_BASE_ROW)
         state.regfile.set_cr(2, OUTPUT_BASE_ROW)
         state.regfile.set_cr(3, 1)
-        state.regfile.set_cr(4, VEC_STRIDE_ROWS)                 # input/weight stride (1 row)
-        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)              # output stride (rows)
-        state.regfile.set_cr(6, M * VEC_STRIDE_ROWS)             # outer-loop limit, compared vs row ptr
+        state.regfile.set_cr(4, VEC_STRIDE_ROWS)  # input/weight stride (1 row)
+        state.regfile.set_cr(5, OUTPUT_STRIDE_ROWS)  # output stride (rows)
+        state.regfile.set_cr(6, M * VEC_STRIDE_ROWS)  # outer-loop limit, compared vs row ptr
         state.regfile.set_cr(7, 0)
-        state.regfile.set_cr(8, -VEC_STRIDE_ROWS)                # weight-offset startup (-1 row)
+        state.regfile.set_cr(8, -VEC_STRIDE_ROWS)  # weight-offset startup (-1 row)
         state.regfile.set_cr(9, -1)
         state.regfile.set_cr(10, K - 1)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE_ADDR, OUTPUT_ROW_BYTES, M,
+                state,
+                self.output_path,
+                OUTPUT_BASE_ADDR,
+                OUTPUT_ROW_BYTES,
+                M,
             )
 
 

@@ -177,9 +177,7 @@ class DepthwiseConvStride2_128App(IpuApp):
         # region ends, row-aligned, so it can never overlap stage 1's
         # still-unread tail chunks regardless of rows*channels.
         stage1_output_elements = rows * channels * CHUNK_ELEMENTS
-        self.output_base_addr = (
-            self._stage1_app.output_base_addr + stage1_output_elements * 4
-        )
+        self.output_base_addr = self._stage1_app.output_base_addr + stage1_output_elements * 4
         self.output_base_row = self.output_base_addr // ROW_BYTES
 
     def run(self, *, max_cycles: int = 2_000_000, **kwargs) -> tuple["IpuState", int]:
@@ -219,14 +217,15 @@ class DepthwiseConvStride2_128App(IpuApp):
         if self.output_path is not None:
             total_outputs = self.num_row_pairs * self.channels
             total_elements = total_outputs * CHUNK_ELEMENTS
-            raw = state2.xmem.read_address(
-                self.output_base_row * ROW_BYTES, total_elements * 4
-            )
+            raw = state2.xmem.read_address(self.output_base_row * ROW_BYTES, total_elements * 4)
             # raw is packed [row_pair, channel, 2, 64] -- output_path holds
             # the TRUE [channels, out_rows, 64] tensor (see class docstring's
             # file-layout contract).
             arr = np.frombuffer(raw, dtype=np.float32).reshape(
-                self.num_row_pairs, self.channels, 2, 64,
+                self.num_row_pairs,
+                self.channels,
+                2,
+                64,
             )
             out = np.empty((self.channels, self.out_rows, 64), dtype=np.float32)
             for rp in range(self.num_row_pairs):
@@ -250,16 +249,21 @@ def _supports(q):
     if q.stride != 2:
         return f"handles only stride=2; got {q.stride}"
     if not q.is_depthwise:
-        return (f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
-                f"in_channels={q.in_channels}")
+        return (
+            f"handles only depthwise (groups==in_channels); got groups={q.groups}, "
+            f"in_channels={q.in_channels}"
+        )
     if q.out_channels != q.in_channels:
-        return (f"depthwise requires out_channels==in_channels; got {q.out_channels} "
-                f"vs {q.in_channels}")
+        return (
+            f"depthwise requires out_channels==in_channels; got {q.out_channels} vs {q.in_channels}"
+        )
     if q.apply_relu or q.has_bias:
         return "bias/ReLU are not supported by this kernel"
     if q.width != 128:
-        return (f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in "
-                f"16/32/64); got {q.width}")
+        return (
+            f"handles only width=128 (see depthwise_conv_stride2_narrow for cols in "
+            f"16/32/64); got {q.width}"
+        )
     if q.height < 4 or q.height % 4 != 0:
         return f"height must be a multiple of 4 (>= 4) so out_rows/2 pairs evenly; got {q.height}"
     return None

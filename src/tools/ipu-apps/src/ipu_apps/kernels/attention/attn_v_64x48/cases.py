@@ -10,12 +10,18 @@ the emulator accumulates the MULT_RES lanes as a float64 left-fold and rounds
 the sum to float32 exactly once, on the R_ACC write. ``pad`` fills the unused
 64 lanes of every P and V row (see ``test.py``).
 """
+
 import numpy as np
 
 from ipu_apps.kernel_registry.cases import KernelCase, PreparedCase
 from ipu_apps.kernels.attention.attn_v_64x48.app import D, N_BLOCK, N_CHAN, N_TOK
 from ipu_apps.kernels.attention.cases import (
-    MAX_CYCLES, agg_fold, assert_close, pad_rows, read_fp32, uniform,
+    MAX_CYCLES,
+    agg_fold,
+    assert_close,
+    pad_rows,
+    read_fp32,
+    uniform,
 )
 
 
@@ -33,11 +39,11 @@ def prepare(workspace, *, seed, pad):
     def check():
         # Output: channel (b*D + t) is one cropped row of N_TOK FP32 queries.
         got = read_fp32(out, N_CHAN * N_TOK).reshape(N_BLOCK, D, N_TOK)
-        assert_close(got, agg_fold(P, V), rtol=1e-4, atol=1e-3,
-                     what="attn@V (query-major + AGG)")
+        assert_close(got, agg_fold(P, V), rtol=1e-4, atol=1e-3, what="attn@V (query-major + AGG)")
 
-    return PreparedCase({"n_tok": N_TOK, "d": D},
-                        {"p_path": p_path, "v_path": v_path, "output_path": out}, check)
+    return PreparedCase(
+        {"n_tok": N_TOK, "d": D}, {"p_path": p_path, "v_path": v_path, "output_path": out}, check
+    )
 
 
 CASES = {"default": KernelCase(prepare, {"seed": 0xA48, "pad": 0.0}, MAX_CYCLES)}

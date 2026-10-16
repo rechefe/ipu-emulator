@@ -102,33 +102,39 @@ class SoftmaxRowsPartialApp(SoftmaxApp):
         buf = bytearray(128)
         for p in range(self.parts_per_chunk):
             bits = ((1 << self.n) - 1) << (p * self.ps)
-            buf[p * 16:(p + 1) * 16] = bits.to_bytes(16, byteorder="little")
+            buf[p * 16 : (p + 1) * 16] = bits.to_bytes(16, byteorder="little")
         return bytes(buf)
 
     def _crs(self):
         return {
-            8: LANES,                              # R1 byte-index base for maxvec select
-            9: self.device_rows,                   # total chunks (group loop bound)
-            11: RING_ELEMENTS,                     # r_cyclic ring size (elements)
-            12: self.ps,                           # partition element stride
-            13: LANES // self.parts_per_chunk,     # chunks in a full group
-            14: self.parts_per_chunk,              # P
+            8: LANES,  # R1 byte-index base for maxvec select
+            9: self.device_rows,  # total chunks (group loop bound)
+            11: RING_ELEMENTS,  # r_cyclic ring size (elements)
+            12: self.ps,  # partition element stride
+            13: LANES // self.parts_per_chunk,  # chunks in a full group
+            14: self.parts_per_chunk,  # P
         }
 
 
 def _explain(q):
     ps = partition_size(q.n)
     p = LANES // ps
-    return (f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
-            f"P={p} logical rows per {LANES}-element chunk, in groups of "
-            f"{LANES // p} chunks.")
+    return (
+        f"n ({q.n}) < {LANES}: packed row kernel, partition size ps={ps}, "
+        f"P={p} logical rows per {LANES}-element chunk, in groups of "
+        f"{LANES // p} chunks."
+    )
 
 
 SPEC = softmax_spec(
-    SoftmaxRowsPartialApp, along_rows=True,
-    supports=lambda q: (None if q.n <= LANES else
-                        f"packs whole rows into one {LANES}-element chunk, so it needs a row "
-                        f"of at most {LANES} elements; this row has {q.n}"),
+    SoftmaxRowsPartialApp,
+    along_rows=True,
+    supports=lambda q: (
+        None
+        if q.n <= LANES
+        else f"packs whole rows into one {LANES}-element chunk, so it needs a row "
+        f"of at most {LANES} elements; this row has {q.n}"
+    ),
     explain=_explain,
     # This kernel also handles n == 128 (P=1), as does softmax_rows. `supports`
     # says what it CAN do; `cost` makes the specialised full-width kernel win

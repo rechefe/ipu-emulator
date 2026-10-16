@@ -80,9 +80,9 @@ ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output filter per chunk (FP32)
 
 SUPER_BLOCK_ELEMENTS = 2 * CHUNK_ELEMENTS  # 256 = R0 half + R1 half
-SUPER_BLOCK_ROWS = 2                       # the same super-block, in XMEM rows
-HALF_FPB = CHUNK_ELEMENTS // 9             # 14: channels per 128-element half (9 taps each)
-FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1 shared index)
+SUPER_BLOCK_ROWS = 2  # the same super-block, in XMEM rows
+HALF_FPB = CHUNK_ELEMENTS // 9  # 14: channels per 128-element half (9 taps each)
+FPB = 2 * HALF_FPB  # 28: channels per super-block (R0+R1 shared index)
 
 BIAS_ELEMENT_OFFSET = 1  # super-block element 0 is the bias; channels start at element 1
 
@@ -92,7 +92,8 @@ BIAS_ELEMENT_OFFSET = 1  # super-block element 0 is the bias; channels start at 
 
 
 def _pack_conv_weights_fpb28(
-    weights_reordered: np.ndarray, bias: np.ndarray,
+    weights_reordered: np.ndarray,
+    bias: np.ndarray,
 ) -> bytes:
     """Pack [out_ch, in_ch, 9] float32 (taps reordered) + per-filter bias
     into FPB=28 blocks.
@@ -125,7 +126,7 @@ def _pack_conv_weights_fpb28(
                 if ic >= in_ch:
                     break
                 dst = sb_base + BIAS_ELEMENT_OFFSET + s * 9  # 1,10,19,...
-                packed[dst:dst + 9] = weights_reordered[f, ic, :]
+                packed[dst : dst + 9] = weights_reordered[f, ic, :]
     return packed.tobytes()
 
 
@@ -201,12 +202,8 @@ class ConvUniversalBnActivationApp(IpuApp):
         self.num_chunks = (rows * cols) // CHUNK_ELEMENTS
         self.in_group_stride = in_channels
         self.blocks_per_filter = math.ceil(in_channels / FPB)
-        self.total_kernel_rows = (
-            out_channels * self.blocks_per_filter * SUPER_BLOCK_ROWS
-        )
-        self.total_kernel_elements = (
-            out_channels * self.blocks_per_filter * SUPER_BLOCK_ELEMENTS
-        )
+        self.total_kernel_rows = out_channels * self.blocks_per_filter * SUPER_BLOCK_ROWS
+        self.total_kernel_elements = out_channels * self.blocks_per_filter * SUPER_BLOCK_ELEMENTS
 
         # -- Dynamic region layout -------------------------------------------
         # Bias is folded into the kernel super-block here (see _pack_kernel),
@@ -214,12 +211,14 @@ class ConvUniversalBnActivationApp(IpuApp):
         # app. See conv_universal's identical comment for the underflow
         # rationale of the input-region headroom.
         input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
-        self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_ELEMENTS),
-            ("kernel", self.total_kernel_elements),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", self.num_chunks * out_channels * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", input_region_rows * CHUNK_ELEMENTS),
+                ("kernel", self.total_kernel_elements),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", self.num_chunks * out_channels * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
         self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
@@ -238,9 +237,8 @@ class ConvUniversalBnActivationApp(IpuApp):
                     f"kernel_path file has {len(raw)} bytes, "
                     f"expected {expected} (out_ch * in_ch * 9 * 4 B float32)"
                 )
-            weights = (
-                np.frombuffer(raw, dtype=np.float32)
-                .reshape(self.out_channels, self.in_channels, 3, 3)
+            weights = np.frombuffer(raw, dtype=np.float32).reshape(
+                self.out_channels, self.in_channels, 3, 3
             )
         w_reordered = weights.reshape(self.out_channels, self.in_channels, 9)
         return _pack_conv_weights_fpb28(w_reordered, self._bias_array)
@@ -249,16 +247,14 @@ class ConvUniversalBnActivationApp(IpuApp):
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
         padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.float32)
-        padded[:, :self.height, :self.width] = input_chw
+        padded[:, : self.height, : self.width] = input_chw
         input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
         kernel_packed = self._pack_kernel()
         state.xmem.write_address(self.kernel_base_row * ROW_BYTES, kernel_packed)
 
-        state.xmem.write_address(
-            self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols)
-        )
+        state.xmem.write_address(self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols))
 
         cols_to_partition = {
             128: Partition.P0,
@@ -292,12 +288,11 @@ class ConvUniversalBnActivationApp(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.out_channels
-            raw = state.xmem.read_address(
-                self.output_base_addr, total_outputs * ROW_BYTES
-            )
+            raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
             padded_out = unpack_output_chunked(raw, self.out_channels, self.rows, self.cols)
-            out = padded_out[:, :self.height, :self.width]
+            out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
+
 
 # -- registry declaration ---------------------------------------------------
 # Same domain as conv_universal except this twin REQUIRES apply_relu=True (it
@@ -310,7 +305,7 @@ def _supports(q):
     if q.dilation != 1:
         return f"handles only dilation=1; got {q.dilation}"
     if q.padding != 1:
-        return f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}"
+        return f'handles only padding=1 ("same" padding for a 3x3 kernel); got {q.padding}'
     if q.stride != 1:
         return f"handles only stride=1; got {q.stride}"
     if q.groups != 1:
@@ -322,10 +317,7 @@ def _supports(q):
             "no-activation path)"
         )
     if q.width > 128:
-        return (
-            f"width ({q.width}) exceeds 128, the largest width this app "
-            "supports"
-        )
+        return f"width ({q.width}) exceeds 128, the largest width this app supports"
     return None
 
 
@@ -339,8 +331,10 @@ SPEC = universal_spec(
     variant="standard_bn_activation",
     supports=_supports,
     build=lambda q: {
-        "height": q.height, "width": q.width,
-        "in_channels": q.in_channels, "out_channels": q.out_channels,
+        "height": q.height,
+        "width": q.width,
+        "in_channels": q.in_channels,
+        "out_channels": q.out_channels,
     },
     explain=lambda q: (
         f"kernel_size=3, groups=1, stride=1, padding=1, apply_relu=True: the "

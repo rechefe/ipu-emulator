@@ -236,36 +236,31 @@ def get_mult_stage_map() -> list[tuple[str, int]]:
 
 def create_regfile_schema() -> list[RegDescriptor]:
     """Generate the REGFILE_SCHEMA for the emulator from master definitions.
-    
+
     Returns a list of RegDescriptors in the correct order for initializing
     the emulator's register file.
     """
     schema = []
-    
+
     for name, metadata in REGISTER_DEFINITIONS.items():
         # Skip fields that aren't for RegDescriptor
         descriptor_fields = {
-            k: v for k, v in metadata.items()
-            if k in {
-                "kind", "size_bytes", "count", "dtype",
-                "cyclic", "word_view", "debug_aliases"
-            }
+            k: v
+            for k, v in metadata.items()
+            if k in {"kind", "size_bytes", "count", "dtype", "cyclic", "word_view", "debug_aliases"}
         }
-        
-        schema.append(RegDescriptor(
-            name=name,
-            **descriptor_fields
-        ))
-    
+
+        schema.append(RegDescriptor(name=name, **descriptor_fields))
+
     return schema
 
 
 def create_assembler_reg_enums() -> dict[str, list[str]]:
     """Generate assembler register enum definitions from master definitions.
-    
+
     Returns a dict mapping encoding_class names to their enum values.
     Used to generate EnumToken subclasses in ipu-as-py.
-    
+
     Example:
         {
             "MultStageRegField": ["r0", "r1"],
@@ -275,24 +270,24 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
         }
     """
     enums = {}
-    
+
     # First pass: collect values for each encoding class
     for name, metadata in REGISTER_DEFINITIONS.items():
         if "encoding_class" not in metadata:
             continue
-        
+
         enc_class = metadata["encoding_class"]
         values = metadata.get("assembler_values", [])
-        
+
         if enc_class not in enums:
             enums[enc_class] = []
-        
+
         enums[enc_class].extend(values)
-    
+
     # Special case: LcrRegField combines LR and CR
     if "LrRegField" in enums and "CrRegField" in enums:
         enums["LcrRegField"] = enums["LrRegField"] + enums["CrRegField"]
-    
+
     return enums
 
 
@@ -300,29 +295,30 @@ def create_assembler_reg_enums() -> dict[str, list[str]]:
 # Validation
 # ===========================================================================
 
+
 def validate_register_definitions() -> None:
     """Validate that master definitions are consistent.
-    
+
     Checks:
     - RegDescriptor creation succeeds for all definitions
     - Assembler enum values don't conflict
     - Required fields are present
-    
+
     Raises ValueError if validation fails.
     """
     try:
         schema = create_regfile_schema()
     except Exception as e:
         raise ValueError(f"Failed to create regfile schema: {e}")
-    
+
     if not schema:
         raise ValueError("Register schema is empty!")
-    
+
     try:
         enums = create_assembler_reg_enums()
     except Exception as e:
         raise ValueError(f"Failed to create assembler enums: {e}")
-    
+
     # Check for duplicate enum values across different classes
     # (except LcrRegField which is a composite of LR and CR)
     all_values = {}
@@ -330,7 +326,7 @@ def validate_register_definitions() -> None:
         # Skip checking LcrRegField as it's a composite
         if enc_class == "LcrRegField":
             continue
-        
+
         for value in values:
             if value in all_values:
                 raise ValueError(
@@ -338,15 +334,13 @@ def validate_register_definitions() -> None:
                     f"'{all_values[value]}' and '{enc_class}'"
                 )
             all_values[value] = enc_class
-    
+
     # Validate count in LcrRegField
     if "LcrRegField" in enums:
         expected_lcr = len(enums.get("LrRegField", [])) + len(enums.get("CrRegField", []))
         actual_lcr = len(enums["LcrRegField"])
         if expected_lcr != actual_lcr:
-            raise ValueError(
-                f"LcrRegField expected {expected_lcr} values, got {actual_lcr}"
-            )
+            raise ValueError(f"LcrRegField expected {expected_lcr} values, got {actual_lcr}")
 
 
 # Run validation on module import

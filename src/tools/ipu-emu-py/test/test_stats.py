@@ -46,8 +46,13 @@ class TestRunStatsProperties:
         assert s.xmem_accesses == 5
 
     def test_format_summary_contains_key_fields(self):
-        s = RunStats(total_cycles=100, mult_active_cycles=80, acc_active_cycles=60,
-                     xmem_reads=10, xmem_writes=5)
+        s = RunStats(
+            total_cycles=100,
+            mult_active_cycles=80,
+            acc_active_cycles=60,
+            xmem_reads=10,
+            xmem_writes=5,
+        )
         text = s.format_summary()
         assert "100" in text
         assert "80" in text
@@ -180,8 +185,11 @@ BKPT;;
 
 
 def _counters(stats: RunStats) -> dict:
-    return {f.name: getattr(stats, f.name) for f in dataclasses.fields(stats)
-            if f.name != "alias_profile"}
+    return {
+        f.name: getattr(stats, f.name)
+        for f in dataclasses.fields(stats)
+        if f.name != "alias_profile"
+    }
 
 
 def _never_called(state, cycles):  # no breakpoint in these programs

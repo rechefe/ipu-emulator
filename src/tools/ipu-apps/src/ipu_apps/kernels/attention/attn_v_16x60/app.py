@@ -45,10 +45,10 @@ from ipu_apps.kernels.attention.app import attention_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 16        # queries == keys
-D       = 60        # head_dim
-N_HEAD  = 4
-N_CHAN  = N_HEAD * D  # 240 value channels total
+N_TOK = 16  # queries == keys
+D = 60  # head_dim
+N_HEAD = 4
+N_CHAN = N_HEAD * D  # 240 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -59,16 +59,16 @@ N_CHAN  = N_HEAD * D  # 240 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts below are LANE counts -- element-width independent by construction.
 # One channel per row: 16 tokens live in a WHOLE row (ceil-div, never a
 # sub-row stride).
-PV_STRIDE_ROWS     = max(1, N_TOK // LANES)  # 1: rows per P query / V channel
+PV_STRIDE_ROWS = max(1, N_TOK // LANES)  # 1: rows per P query / V channel
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 16: rows per head in P
-O_CHAN_ROWS        = 1                       # one R_ACC store = one whole row
+O_CHAN_ROWS = 1  # one R_ACC store = one whole row
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -83,7 +83,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 P_HEAD_STRIDE = P_HEAD_STRIDE_ROWS * ROW_BYTES
-O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
+O_CHAN_BYTES = O_CHAN_ROWS * ROW_BYTES
 
 
 class AttnV16x60App(IpuApp):
@@ -134,21 +134,24 @@ class AttnV16x60App(IpuApp):
         state.regfile.set_cr(2, self.pbase_row)
         state.regfile.set_cr(3, self.vbase_row)
         state.regfile.set_cr(4, self.obase_row)
-        state.regfile.set_cr(5, PV_STRIDE_ROWS)     # P query / V channel stride (rows)
-        state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS) # P head stride (rows)
+        state.regfile.set_cr(5, PV_STRIDE_ROWS)  # P query / V channel stride (rows)
+        state.regfile.set_cr(8, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
         # Inner bound is count-1: the INC and the BLT share one bundle, so BLT
         # reads the pre-INC snapshot.
-        state.regfile.set_cr(9, N_TOK - 1)      # 15: inner-loop bound -> 16 AGG bundles
-        state.regfile.set_cr(10, D)             # t count (60)
-        state.regfile.set_cr(11, N_HEAD)        # head count (4)
-        state.regfile.set_cr(13, O_CHAN_ROWS)       # O channel stride (rows)
+        state.regfile.set_cr(9, N_TOK - 1)  # 15: inner-loop bound -> 16 AGG bundles
+        state.regfile.set_cr(10, D)  # t count (60)
+        state.regfile.set_cr(11, N_HEAD)  # head count (4)
+        state.regfile.set_cr(13, O_CHAN_ROWS)  # O channel stride (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             # N_CHAN channels, each ONE whole 512-B FP32 row (16 live lanes).
             dump_xmem_to_binary(
-                state, self.output_path,
-                self.obase, O_CHAN_BYTES, N_CHAN,
+                state,
+                self.output_path,
+                self.obase,
+                O_CHAN_BYTES,
+                N_CHAN,
             )
 
 

@@ -22,8 +22,8 @@ from typing import Callable, Iterator
 #: bytes for reads and writes, and is ``None`` for ``"clear"`` and ``fill``.
 MemoryObserver = Callable[[str, int, int, "bytes | bytearray | None"], None]
 
-XMEM_SIZE_BYTES = 1 << 29        # 512 MiB; full-resolution FP32 descriptors fit
-XMEM_WIDTH_BYTES = 128           # one "word" = 128 bytes
+XMEM_SIZE_BYTES = 1 << 29  # 512 MiB; full-resolution FP32 descriptors fit
+XMEM_WIDTH_BYTES = 128  # one "word" = 128 bytes
 XMEM_DEPTH_WORDS = XMEM_SIZE_BYTES // XMEM_WIDTH_BYTES
 
 # Storage granule. A multiple of the widest row (512 bytes in wide-vector
@@ -69,7 +69,7 @@ def _without(observers: tuple, fn: Callable) -> tuple:
     """*observers* with the first occurrence of *fn* removed (if any)."""
     for i, observer in enumerate(observers):
         if observer is fn:
-            return observers[:i] + observers[i + 1:]
+            return observers[:i] + observers[i + 1 :]
     return observers
 
 
@@ -109,8 +109,9 @@ class XMem:
 
     def _invalidate_constants(self, start: int, end: int) -> None:
         if self._constant_ones:
-            self._constant_ones = {a: d for a, d in self._constant_ones.items()
-                                   if a + len(d) <= start or a >= end}
+            self._constant_ones = {
+                a: d for a, d in self._constant_ones.items() if a + len(d) <= start or a >= end
+            }
 
     # -- paged storage ------------------------------------------------------
 
@@ -126,7 +127,7 @@ class XMem:
         page, offset = divmod(address, PAGE_BYTES)
         if offset + size <= PAGE_BYTES:  # the common case: one row, one page
             buf = self._pages.get(page)
-            return bytearray(size) if buf is None else buf[offset:offset + size]
+            return bytearray(size) if buf is None else buf[offset : offset + size]
         out = bytearray(size)
         pos = 0
         while pos < size:
@@ -134,7 +135,7 @@ class XMem:
             n = min(PAGE_BYTES - offset, size - pos)
             buf = self._pages.get(page)
             if buf is not None:
-                out[pos:pos + n] = memoryview(buf)[offset:offset + n]
+                out[pos : pos + n] = memoryview(buf)[offset : offset + n]
             pos += n
         return out
 
@@ -150,14 +151,14 @@ class XMem:
         while pos < size:
             page, offset = divmod(address + pos, PAGE_BYTES)
             n = min(PAGE_BYTES - offset, size - pos)
-            chunk = view[pos:pos + n]
+            chunk = view[pos : pos + n]
             buf = self._pages.get(page)
             if buf is None:
                 if _ZERO_PAGE.startswith(chunk):
                     pos += n
                     continue  # zeros into an absent page: nothing to store
                 buf = self._pages[page] = bytearray(PAGE_BYTES)
-            buf[offset:offset + n] = chunk
+            buf[offset : offset + n] = chunk
             pos += n
 
     # -- low-level access ---------------------------------------------------
@@ -196,12 +197,12 @@ class XMem:
             elif value == 0:
                 buf = self._pages.get(page)
                 if buf is not None:
-                    buf[offset:offset + n] = _ZERO_PAGE_VIEW[:n]
+                    buf[offset : offset + n] = _ZERO_PAGE_VIEW[:n]
             else:
                 buf = self._pages.get(page)
                 if buf is None:
                     buf = self._pages[page] = bytearray(PAGE_BYTES)
-                buf[offset:offset + n] = bytes((value,)) * n
+                buf[offset : offset + n] = bytes((value,)) * n
             pos += n
         self._notify("write", address, size, None)
 

@@ -77,9 +77,9 @@ ROW_BYTES = CHUNK_ELEMENTS * 4  # 512 B/row in FP32 wide-vector mode
 OUTPUT_CHUNK_BYTES = CHUNK_ELEMENTS * 4  # bytes per output filter per chunk (FP32)
 
 SUPER_BLOCK_ELEMENTS = 2 * CHUNK_ELEMENTS  # 256 = R0 half + R1 half
-SUPER_BLOCK_ROWS = 2                       # the same super-block, in XMEM rows
-HALF_FPB = CHUNK_ELEMENTS // 9             # 14: channels per 128-element half (9 taps each)
-FPB = 2 * HALF_FPB                         # 28: channels per super-block (R0+R1 shared index)
+SUPER_BLOCK_ROWS = 2  # the same super-block, in XMEM rows
+HALF_FPB = CHUNK_ELEMENTS // 9  # 14: channels per 128-element half (9 taps each)
+FPB = 2 * HALF_FPB  # 28: channels per super-block (R0+R1 shared index)
 
 
 # The border mask (slots 0 = none, 3 = top row, 6 = bottom row) is built by
@@ -112,7 +112,7 @@ def _pack_conv_weights_fpb28(weights_reordered: np.ndarray) -> bytes:
                 if ic >= in_ch:
                     break
                 dst = sb_base + s * 9  # linear layout: 0,9,18,...,243
-                packed[dst:dst + 9] = weights_reordered[f, ic, :]
+                packed[dst : dst + 9] = weights_reordered[f, ic, :]
     return packed.tobytes()
 
 
@@ -191,12 +191,8 @@ class ConvUniversalApp(IpuApp):
         self.in_group_stride = in_channels
         self.blocks_per_filter = math.ceil(in_channels / FPB)
         # A super-block spans SUPER_BLOCK_ROWS (= 2) rows: the R0 half + R1 half.
-        self.total_kernel_rows = (
-            out_channels * self.blocks_per_filter * SUPER_BLOCK_ROWS
-        )
-        self.total_kernel_elements = (
-            out_channels * self.blocks_per_filter * SUPER_BLOCK_ELEMENTS
-        )
+        self.total_kernel_rows = out_channels * self.blocks_per_filter * SUPER_BLOCK_ROWS
+        self.total_kernel_elements = out_channels * self.blocks_per_filter * SUPER_BLOCK_ELEMENTS
 
         # -- Dynamic region layout -------------------------------------------
         # Size each region from THIS configuration (see the family app.py's
@@ -209,12 +205,14 @@ class ConvUniversalApp(IpuApp):
         # are in ELEMENTS; setup() scales to bytes via ROW_BYTES (FP32,
         # 4 B/element, always).
         input_region_rows = self.in_group_stride + self.num_chunks * self.in_group_stride
-        self._regions = allocate_regions([
-            ("input", input_region_rows * CHUNK_ELEMENTS),
-            ("kernel", self.total_kernel_elements),
-            ("mask", CHUNK_ELEMENTS),
-            ("output", self.num_chunks * out_channels * CHUNK_ELEMENTS),
-        ])
+        self._regions = allocate_regions(
+            [
+                ("input", input_region_rows * CHUNK_ELEMENTS),
+                ("kernel", self.total_kernel_elements),
+                ("mask", CHUNK_ELEMENTS),
+                ("output", self.num_chunks * out_channels * CHUNK_ELEMENTS),
+            ]
+        )
         self.input_base_row = self._regions["input"] // CHUNK_ELEMENTS
         self.kernel_base_row = self._regions["kernel"] // CHUNK_ELEMENTS
         self.mask_base_row = self._regions["mask"] // CHUNK_ELEMENTS
@@ -233,9 +231,8 @@ class ConvUniversalApp(IpuApp):
                     f"kernel_path file has {len(raw)} bytes, "
                     f"expected {expected} (out_ch * in_ch * 9 * 4 B float32)"
                 )
-            weights = (
-                np.frombuffer(raw, dtype=np.float32)
-                .reshape(self.out_channels, self.in_channels, 3, 3)
+            weights = np.frombuffer(raw, dtype=np.float32).reshape(
+                self.out_channels, self.in_channels, 3, 3
             )
         # Tap order in the walking-pointer asm: kr=-1 → kr=0 → kr=+1, with
         # kc=-1 → 0 → +1 within each row.  That's natural row-major from the
@@ -249,7 +246,7 @@ class ConvUniversalApp(IpuApp):
         input_raw = np.frombuffer(self.input_path.read_bytes(), dtype=np.float32)
         input_chw = input_raw.reshape(self.in_channels, self.height, self.width)
         padded = np.zeros((self.in_channels, self.rows, self.cols), dtype=np.float32)
-        padded[:, :self.height, :self.width] = input_chw
+        padded[:, : self.height, : self.width] = input_chw
         input_data = pack_input_chunked(padded, self.cols)
         state.xmem.write_address(self.input_data_row * ROW_BYTES, input_data)
 
@@ -265,18 +262,16 @@ class ConvUniversalApp(IpuApp):
         # (see CR15 partition below). The mask blob does NOT widen -- it is 1
         # bit per lane regardless of element width -- only its row address
         # scales.
-        state.xmem.write_address(
-            self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols)
-        )
+        state.xmem.write_address(self.mask_base_row * ROW_BYTES, build_border_mask_blob(self.cols))
 
         # CR15 dstructure: partition so each partition group is exactly one
         # packed spatial row (group size == cols).  The asm's mask_shift then
         # injects the left/right edge-column zero at each packed-row boundary.
         cols_to_partition = {
             128: Partition.P0,  # 1 group of 128 lanes (one packed row per chunk)
-            64: Partition.P2,   # 2 groups of 64 lanes
-            32: Partition.P4,   # 4 groups of 32 lanes
-            16: Partition.P8,   # 8 groups of 16 lanes
+            64: Partition.P2,  # 2 groups of 64 lanes
+            32: Partition.P4,  # 4 groups of 32 lanes
+            16: Partition.P8,  # 8 groups of 16 lanes
         }
         state.set_cr_dstructure(
             valid_elements=128,
@@ -294,7 +289,7 @@ class ConvUniversalApp(IpuApp):
         state.regfile.set_cr(10, self.input_base_row)
         state.regfile.set_cr(5, self.kernel_base_row)
         state.regfile.set_cr(2, self.output_base_row)
-        state.regfile.set_cr(3, self.mask_base_row)      # single mask blob (slots 0/3/6)
+        state.regfile.set_cr(3, self.mask_base_row)  # single mask blob (slots 0/3/6)
 
         # Set parameter CR registers
         state.regfile.set_cr(4, self.cols)
@@ -302,7 +297,7 @@ class ConvUniversalApp(IpuApp):
         # lr_ch_ctr, which is added to lr_chunk_base to form the input-row
         # offset, so it must share lr_ch_ctr's unit (rows, not bytes).
         state.regfile.set_cr(6, self.in_group_stride)
-        state.regfile.set_cr(7, FPB)                # channel group = 28 rows
+        state.regfile.set_cr(7, FPB)  # channel group = 28 rows
         state.regfile.set_cr(8, self.total_kernel_rows)
         # CR11 = chunk-loop limit = (num_chunks - 1) * in_group_stride, in ROWS
         # (in_group_stride is row-granular). Used by asm to compare LR8 (chunk
@@ -319,8 +314,8 @@ class ConvUniversalApp(IpuApp):
         # The *XMEM* chunk advance (one chunk = one row) is served by the
         # read-only constant CR1 (= 1 row), since in row space a chunk stride is
         # literally 1, so CR12 carries only its R_CYCLIC role.
-        state.regfile.set_cr(12, CHUNK_ELEMENTS)     # 128 ELEMENTS (R_CYCLIC slot stride)
-        state.regfile.set_cr(13, SUPER_BLOCK_ROWS)   # 2 ROWS (kernel super-block stride)
+        state.regfile.set_cr(12, CHUNK_ELEMENTS)  # 128 ELEMENTS (R_CYCLIC slot stride)
+        state.regfile.set_cr(13, SUPER_BLOCK_ROWS)  # 2 ROWS (kernel super-block stride)
         # CR9 = ring advance = 3 * 128 = 384 ELEMENTS.  9-cyc role-rotating scheme:
         # lr_read (kr=0 slot) advances -128 (= +384 mod 512) per channel.
         state.regfile.set_cr(9, 3 * CHUNK_ELEMENTS)  # 384 ELEMENTS
@@ -333,13 +328,10 @@ class ConvUniversalApp(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             total_outputs = self.num_chunks * self.out_channels
-            raw = state.xmem.read_address(
-                self.output_base_addr, total_outputs * ROW_BYTES
-            )
+            raw = state.xmem.read_address(self.output_base_addr, total_outputs * ROW_BYTES)
             padded_out = unpack_output_chunked(raw, self.out_channels, self.rows, self.cols)
-            out = padded_out[:, :self.height, :self.width]
+            out = padded_out[:, : self.height, : self.width]
             self.output_path.write_bytes(out.astype(np.float32).tobytes())
-
 
 
 # -- registry declaration ---------------------------------------------------
@@ -356,7 +348,7 @@ def _supports(q):
     if q.dilation != 1:
         return f"handles only dilation=1; got {q.dilation}"
     if q.padding != 1:
-        return f"handles only padding=1 (\"same\" padding for a 3x3 kernel); got {q.padding}"
+        return f'handles only padding=1 ("same" padding for a 3x3 kernel); got {q.padding}'
     if q.stride != 1:
         return f"handles only stride=1; got {q.stride}"
     if q.groups != 1:
@@ -383,8 +375,10 @@ SPEC = universal_spec(
     variant="standard",
     supports=_supports,
     build=lambda q: {
-        "height": q.height, "width": q.width,
-        "in_channels": q.in_channels, "out_channels": q.out_channels,
+        "height": q.height,
+        "width": q.width,
+        "in_channels": q.in_channels,
+        "out_channels": q.out_channels,
     },
     explain=lambda q: (
         f"kernel_size=3, groups=1, stride=1, padding=1: the universal 3x3 "

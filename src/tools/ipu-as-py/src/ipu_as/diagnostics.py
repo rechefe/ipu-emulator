@@ -352,8 +352,14 @@ def _parse_diagnostic(error: lark.exceptions.LarkError, raw: str, rendered: str)
             # the file. Guessing by matching line content used to fill this gap
             # and was wrong often enough to be worse than saying so.
             return Diagnostic(
-                0, 0, 0, 0, _with_expected(found, expected),
-                "error", "parse", approximate=True,
+                0,
+                0,
+                0,
+                0,
+                _with_expected(found, expected),
+                "error",
+                "parse",
+                approximate=True,
             )
         mapped, exact = marked, True
         column = _column_in_source(raw, marked, needle)
@@ -460,7 +466,11 @@ def _recover(diagnostic: Diagnostic, text: str) -> Diagnostic:
     # The line is real; the column is not recoverable, since the offending text
     # spans the join between two source lines.
     return replace(
-        diagnostic, line=line, column=0, end_line=line, end_column=0,
+        diagnostic,
+        line=line,
+        column=0,
+        end_line=line,
+        end_column=0,
         approximate=False,
     )
 
@@ -484,9 +494,13 @@ def check(text: str) -> list[Diagnostic]:
             line = _template_runtime_line(error)
             return [
                 Diagnostic(
-                    line or 0, 0, line or 0, 0,
+                    line or 0,
+                    0,
+                    line or 0,
+                    0,
                     f"Template error: {type(error).__name__}: {error}",
-                    "error", "template",
+                    "error",
+                    "template",
                     approximate=line is None,
                 )
             ]

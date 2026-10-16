@@ -1,4 +1,5 @@
 """Runtime cases for layernorm_256x144 (normally-distributed inputs)."""
+
 from ipu_apps.kernels.normalize.layernorm_256x144 import app
 from ipu_apps.kernels.normalize.cases import layernorm_cases, randn_inputs
 

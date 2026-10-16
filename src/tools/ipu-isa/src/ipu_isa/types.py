@@ -14,10 +14,11 @@ from typing import Optional
 
 class RegDtype(Enum):
     """Data type for register storage and debug display.
-    
+
     Each register stores bytes that are interpreted as one of these types.
     UINT128 is used for mask registers that store 128-bit patterns.
     """
+
     UINT8 = "uint8"
     INT8 = "int8"
     UINT32 = "uint32"
@@ -35,6 +36,7 @@ class RegKind(Enum):
     CR:    Control-register file (cr0-cr15)
     MISC:  Miscellaneous registers
     """
+
     MULT = "mult"
     ACC = "acc"
     AAQ = "aaq"
@@ -46,11 +48,11 @@ class RegKind(Enum):
 @dataclass(frozen=True)
 class RegDescriptor:
     """Declarative description of a single register (or register array).
-    
+
     This type defines the metadata for a register needed by both the assembler
     (for validation) and emulator (for storage and access). Each register in the
     IPU register file has exactly one RegDescriptor.
-    
+
     Attributes:
         name:           Human-readable name (e.g., "r0", "lr", "cr1").
                        Used in assembly syntax and debug CLI.
@@ -65,6 +67,7 @@ class RegDescriptor:
         word_view:      If True, also expose a uint32 word view (for r_acc, mult_res).
         debug_aliases:  Extra names accepted by debug CLI (e.g., "r0" for r[0]).
     """
+
     name: str
     kind: RegKind
     size_bytes: int

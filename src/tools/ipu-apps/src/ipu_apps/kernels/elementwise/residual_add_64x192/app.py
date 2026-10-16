@@ -23,9 +23,9 @@ from ipu_emu.emulator import dump_xmem_to_binary
 from ipu_apps.kernel_registry.base import IpuApp
 from ipu_apps.kernels.elementwise.app import residual_add_spec
 
-N_CH   = 192                 # channels -> one XMEM row each
-N_TOK  = 64                  # valid tokens per row (lanes 0..63)
-N_ROWS = N_CH                # 192 vector rows, one per channel
+N_CH = 192  # channels -> one XMEM row each
+N_TOK = 64  # valid tokens per row (lanes 0..63)
+N_ROWS = N_CH  # 192 vector rows, one per channel
 
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
@@ -39,21 +39,21 @@ if TYPE_CHECKING:
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # One R_ACC store is 512 B = exactly one row in wide mode.
-OUTPUT_ROW_BYTES   = ROW_BYTES
+OUTPUT_ROW_BYTES = ROW_BYTES
 OUTPUT_STRIDE_ROWS = 1
-ROW_STRIDE_ROWS    = 1                       # one A/B vector row per XMEM row
+ROW_STRIDE_ROWS = 1  # one A/B vector row per XMEM row
 
-A_BASE_ROW      = 0
-B_BASE_ROW      = A_BASE_ROW + N_ROWS
+A_BASE_ROW = 0
+B_BASE_ROW = A_BASE_ROW + N_ROWS
 OUTPUT_BASE_ROW = B_BASE_ROW + N_ROWS
 
-A_BASE      = A_BASE_ROW * ROW_BYTES
-B_BASE      = B_BASE_ROW * ROW_BYTES
+A_BASE = A_BASE_ROW * ROW_BYTES
+B_BASE = B_BASE_ROW * ROW_BYTES
 OUTPUT_BASE = OUTPUT_BASE_ROW * ROW_BYTES
 
 
@@ -77,10 +77,10 @@ class ResidualAdd64x192App(IpuApp):
         state.regfile.set_cr(9, B_BASE_ROW)
         state.regfile.set_cr(3, OUTPUT_BASE_ROW)
         state.regfile.set_cr(4, 0)
-        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)          # A/B ptr startup: -1 row
+        state.regfile.set_cr(5, -ROW_STRIDE_ROWS)  # A/B ptr startup: -1 row
         state.regfile.set_cr(6, N_ROWS)
-        state.regfile.set_cr(7, ROW_STRIDE_ROWS)           # A/B row stride (rows)
-        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)        # output row stride (rows)
+        state.regfile.set_cr(7, ROW_STRIDE_ROWS)  # A/B row stride (rows)
+        state.regfile.set_cr(8, OUTPUT_STRIDE_ROWS)  # output row stride (rows)
         # CR10 = 1: in wide FP32 a CR scalar is its low byte read as a signed
         # int and converted to float, so 1 gives exactly 1.0 -- the MULT.RC.VE
         # pass-through multiplier that turns the multiplier into an adder.
@@ -89,8 +89,11 @@ class ResidualAdd64x192App(IpuApp):
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                OUTPUT_BASE, OUTPUT_ROW_BYTES, N_ROWS,
+                state,
+                self.output_path,
+                OUTPUT_BASE,
+                OUTPUT_ROW_BYTES,
+                N_ROWS,
             )
 
 

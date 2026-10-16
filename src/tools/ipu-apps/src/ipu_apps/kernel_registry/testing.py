@@ -19,6 +19,7 @@ they expect with :func:`debug_only_warning`.
 After its check passes, every case is also compared with its record in the
 kernel's ``baseline.json`` (see :mod:`ipu_apps.kernel_registry.baseline`).
 """
+
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
@@ -29,7 +30,11 @@ import pytest
 
 from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import (
-    assemble_kernel, load_cases, options_label, package_kernel, run_case,
+    assemble_kernel,
+    load_cases,
+    options_label,
+    package_kernel,
+    run_case,
 )
 from ipu_emu.errors import DebugOnlyInstructionWarning
 from ipu_emu.execute import emulator_only_instructions, load_binary_instructions
@@ -85,8 +90,10 @@ def case_tests(package, sweep=()):
     for options in sweep:
         unknown = set(options) - set(cases["default"].defaults)
         if unknown:
-            raise ValueError(f"{kernel}: sweep options {sorted(unknown)} are not options "
-                             f"of its default case {sorted(cases['default'].defaults)}")
+            raise ValueError(
+                f"{kernel}: sweep options {sorted(unknown)} are not options "
+                f"of its default case {sorted(cases['default'].defaults)}"
+            )
         params.append(("default", dict(options)))
         ids.append(options_label(options))
     assembled = []
@@ -100,8 +107,13 @@ def case_tests(package, sweep=()):
         inst_path, debug_only = assembled[0]
         recorder = baseline.Recorder()
         with debug_only_warning(debug_only):
-            run_case(kernel, load_cases(kernel)[case], options=options, inst_path=inst_path,
-                     recorder=recorder)
+            run_case(
+                kernel,
+                load_cases(kernel)[case],
+                options=options,
+                inst_path=inst_path,
+                recorder=recorder,
+            )
         case_id = options_label(options) if options else case
         check_baseline(kernel, case_id, recorder.record, updated)
 

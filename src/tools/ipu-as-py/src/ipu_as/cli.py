@@ -126,8 +126,7 @@ def check(input: str, as_json: bool, json_version: int | None):
                 end_line=0,
                 end_column=0,
                 message=(
-                    f"internal error while checking this file: "
-                    f"{type(error).__name__}: {error}"
+                    f"internal error while checking this file: {type(error).__name__}: {error}"
                 ),
                 severity="error",
                 stage="internal",
@@ -138,7 +137,10 @@ def check(input: str, as_json: bool, json_version: int | None):
     if as_json:
         # stdout is the protocol here; keep it pure JSON.
         listed = [d.to_dict() for d in found]
-        json.dump(listed if json_version in (None, 1) else {"schemaVersion": 2, "diagnostics": listed}, sys.stdout)
+        json.dump(
+            listed if json_version in (None, 1) else {"schemaVersion": 2, "diagnostics": listed},
+            sys.stdout,
+        )
         sys.stdout.write("\n")
     else:
         for d in found:

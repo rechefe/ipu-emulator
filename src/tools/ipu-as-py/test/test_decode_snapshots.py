@@ -28,9 +28,7 @@ def test_snapshot_matches(name):
                 f"{name} (current code)",
             )
         )
-        pytest.fail(
-            f"{name} changed. If intended, run {decode_snapshots.UPDATE_COMMAND}\n{diff}"
-        )
+        pytest.fail(f"{name} changed. If intended, run {decode_snapshots.UPDATE_COMMAND}\n{diff}")
 
 
 def test_word_is_186_bits():

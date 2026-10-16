@@ -30,17 +30,17 @@ def create_assembler_opcodes() -> Dict[str, Type]:
     Each class has an enum_array() classmethod returning instruction names
     in order (position = opcode).
     """
+
     class Opcode(ipu_token.EnumToken):
         """Base class for all opcode types."""
+
         @classmethod
         def find_opcode_class(cls, opcode_token) -> Type["Opcode"]:
             tv = opcode_token.value.lower()
             for subclass in cls.__subclasses__():
                 if any(tv == name.lower() for name in subclass.enum_array()):
                     return subclass
-            raise ValueError(
-                f"Opcode '{opcode_token.value}' not found in any Opcode subclass"
-            )
+            raise ValueError(f"Opcode '{opcode_token.value}' not found in any Opcode subclass")
 
     slot_to_class_name = {
         "load": "LoadInstOpcode",
@@ -65,7 +65,7 @@ def create_assembler_opcodes() -> Dict[str, Type]:
             (Opcode,),
             {
                 "enum_array": classmethod(lambda cls, ea=enum_array: ea),
-            }
+            },
         )
         result[class_name] = opcode_class
 

@@ -235,10 +235,14 @@ class Verdict:
     def to_dict(self) -> dict[str, Any]:
         """The same answer as :meth:`describe`, for tools (``query --json``)."""
         return {
-            "supported": self.supported, "reason": self.reason, "app": self.app_name, "use": self.app_class,
+            "supported": self.supported,
+            "reason": self.reason,
+            "app": self.app_name,
+            "use": self.app_class,
             "kwargs": {k: repr(v) for k, v in self.kwargs.items()},
             "shapes": self.shapes.describe() if self.shapes is not None else None,
-            "notes": (list(self.shapes.notes) if self.shapes is not None else []) + list(self.caveats),
+            "notes": (list(self.shapes.notes) if self.shapes is not None else [])
+            + list(self.caveats),
             "alternatives": list(self.alternatives),
         }
 
@@ -250,8 +254,7 @@ class Verdict:
             args = ", ".join(f"{k}={v!r}" for k, v in self.kwargs.items())
             lines.append(f"  app:  {self.kernel.name}")
             lines.append(
-                f"  use:  {self.app_class}(inst_path=..., input_path=..., "
-                f"output_path=..., {args})"
+                f"  use:  {self.app_class}(inst_path=..., input_path=..., output_path=..., {args})"
             )
         if self.shapes is not None:
             lines.append(f"  shapes: {self.shapes.describe()}   (* = derived)")

@@ -34,17 +34,17 @@ def get_elements_per_row(encoded: int) -> int:
 # ---------------------------------------------------------------------------
 
 HORIZONTAL_STRIDE_NAMES: tuple[str, ...] = (
-    "off",        # 0: disabled
-    "on",         # 1: enabled, not inverted
-    "on_inv",     # 2: enabled, inverted
+    "off",  # 0: disabled
+    "on",  # 1: enabled, not inverted
+    "on_inv",  # 2: enabled, inverted
     "reserved3",
 )
 
 
 _HORIZONTAL_STRIDE_DECODE: dict[int, tuple[bool, bool]] = {
     0: (False, False),  # off
-    1: (True,  False),  # on
-    2: (True,  True),   # on_inv
+    1: (True, False),  # on
+    2: (True, True),  # on_inv
 }
 
 
@@ -58,17 +58,17 @@ def get_horizontal_stride_bits(encoded: int) -> tuple[bool, bool]:
 # ---------------------------------------------------------------------------
 
 VERTICAL_STRIDE_NAMES: tuple[str, ...] = (
-    "off",        # 0: disabled
-    "on",         # 1: enabled, not inverted
-    "on_inv",     # 2: enabled, inverted
+    "off",  # 0: disabled
+    "on",  # 1: enabled, not inverted
+    "on_inv",  # 2: enabled, inverted
     "reserved3",
 )
 
 
 _VERTICAL_STRIDE_DECODE: dict[int, tuple[bool, bool]] = {
     0: (False, False),  # off
-    1: (True,  False),  # on
-    2: (True,  True),   # on_inv
+    1: (True, False),  # on
+    2: (True, True),  # on_inv
 }
 
 

@@ -40,7 +40,12 @@ from ipu_emu.debug_cli import (
 from ipu_emu.descriptors import REGFILE_SCHEMA
 from ipu_emu.emulator import DebugAction
 from ipu_emu.debug_control import DebugControl
-from ipu_emu.debug_pipeline import pipeline_occupancy, SLOT_LABELS, display_operation, semantic_operations
+from ipu_emu.debug_pipeline import (
+    pipeline_occupancy,
+    SLOT_LABELS,
+    display_operation,
+    semantic_operations,
+)
 from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import xmem_row_size_bytes
 from ipu_emu.ipu_state import IpuState, INST_MEM_SIZE
@@ -118,9 +123,7 @@ EMPTY_DISASSEMBLY_OPERATIONS = ("<nop>", "<NOP>", "NOP")
 DISASSEMBLY_PARALLEL_MARKER = "||"
 DISASSEMBLY_PREFIX_WIDTH = len("> 0000  ")
 # Number keys jump straight to a pane, in the same order as ``Shift-Tab``.
-PANE_FOCUS_KEYS = {
-    str(number + 1): pane for number, pane in enumerate(PANE_FOCUS_ORDER)
-}
+PANE_FOCUS_KEYS = {str(number + 1): pane for number, pane in enumerate(PANE_FOCUS_ORDER)}
 PANE_TITLES = {
     "disassembly": "Disassembly",
     "registers": "LR / CR",
@@ -180,8 +183,22 @@ class Glyphs:
 
 UNICODE_GLYPHS = Glyphs(
     box=(
-        " ", "\u2502", "\u2500", "\u2514", "\u2502", "\u2502", "\u250c", "\u251c",
-        "\u2500", "\u2518", "\u2500", "\u2534", "\u2510", "\u2524", "\u252c", "\u253c",
+        " ",
+        "\u2502",
+        "\u2500",
+        "\u2514",
+        "\u2502",
+        "\u2502",
+        "\u250c",
+        "\u251c",
+        "\u2500",
+        "\u2518",
+        "\u2500",
+        "\u2534",
+        "\u2510",
+        "\u2524",
+        "\u252c",
+        "\u253c",
     ),
     thumb="\u2588",
     separator="\u00b7",
@@ -193,8 +210,22 @@ UNICODE_GLYPHS = Glyphs(
 )
 ASCII_GLYPHS = Glyphs(
     box=(
-        " ", "|", "-", "+", "|", "|", "+", "+",
-        "-", "+", "-", "+", "+", "+", "+", "+",
+        " ",
+        "|",
+        "-",
+        "+",
+        "|",
+        "|",
+        "+",
+        "+",
+        "-",
+        "+",
+        "-",
+        "+",
+        "+",
+        "+",
+        "+",
+        "+",
     ),
     thumb="#",
     separator="|",
@@ -315,15 +346,27 @@ KEY_BINDINGS: tuple[KeyBinding, ...] = (
     KeyBinding(("F5",), "global", "Continue to the next breakpoint", "F5:Run", 0),
     KeyBinding(("F8",), "global", "Execute one instruction", "F8:Step", 0),
     KeyBinding(
-        ("F9",), "pane", "Disassembly: toggle breakpoint", "F9:Break", 1,
+        ("F9",),
+        "pane",
+        "Disassembly: toggle breakpoint",
+        "F9:Break",
+        1,
         panes=("disassembly",),
     ),
     KeyBinding(
-        ("F10",), "pane", "Disassembly: run to cursor or next stop", "F10:Until", 1,
+        ("F10",),
+        "pane",
+        "Disassembly: run to cursor or next stop",
+        "F10:Until",
+        1,
         panes=("disassembly",),
     ),
     KeyBinding(
-        ("e",), "pane", "Edit the selected register or memory value", "e:Value", 1,
+        ("e",),
+        "pane",
+        "Edit the selected register or memory value",
+        "e:Value",
+        1,
         panes=("registers", "pipeline", "xmem"),
     ),
     KeyBinding(
@@ -368,10 +411,7 @@ class Rect:
     width: int
 
     def contains(self, y: int, x: int) -> bool:
-        return (
-            self.y <= y < self.y + self.height
-            and self.x <= x < self.x + self.width
-        )
+        return self.y <= y < self.y + self.height and self.x <= x < self.x + self.width
 
 
 @dataclass(frozen=True)
@@ -396,9 +436,7 @@ PIPELINE_REGISTERS = (
     PipelineRegisterSpec("mem_bypass", "MEM_BYPASS", "mem_bypass"),
 )
 _PIPELINE_WORD_REGISTERS = frozenset({"r_acc", "mult_res"})
-_PIPELINE_WIDE_VALUE_REGISTERS = frozenset(
-    {"r0", "r1", "r_cyclic"} | _PIPELINE_WORD_REGISTERS
-)
+_PIPELINE_WIDE_VALUE_REGISTERS = frozenset({"r0", "r1", "r_cyclic"} | _PIPELINE_WORD_REGISTERS)
 
 
 @dataclass
@@ -416,10 +454,7 @@ class XmemTab:
     @property
     def title(self) -> str:
         request = self.request
-        return (
-            f"{request.mode}:{request.base_token}+{request.offset_token} "
-            f"{request.fmt}"
-        )
+        return f"{request.mode}:{request.base_token}+{request.offset_token} {request.fmt}"
 
 
 @dataclass
@@ -464,9 +499,7 @@ class PipelineTab:
 
     @property
     def title(self) -> str:
-        spec = next(
-            spec for spec in PIPELINE_REGISTERS if spec.key == self.register_key
-        )
+        spec = next(spec for spec in PIPELINE_REGISTERS if spec.key == self.register_key)
         return f"{spec.label} {self.fmt or 'auto'}"
 
 
@@ -506,7 +539,6 @@ class DebugViewSession:
     def stages_visible(self, visible: bool) -> None:
         self.selected_disassembly_tab().fmt = "stages" if visible else "compact"
 
-
     def set_message(self, text: str, *, error: bool = False) -> None:
         self.message = text.replace("\n", " ").strip() or "Ready"
         self.message_is_error = error
@@ -516,20 +548,30 @@ class DebugViewSession:
 
         fresh = not self.initialized
         if fresh and not self.tabs:
-            numeric = "f32" if state.wide_vector_debug and state.wide_vector_arithmetic.value == "fp32" else "int8"
+            numeric = (
+                "f32"
+                if state.wide_vector_debug and state.wide_vector_arithmetic.value == "fp32"
+                else "int8"
+            )
             if state.wide_vector_debug and state.wide_vector_arithmetic.value == "int32":
                 numeric = "u32"
-            self.tabs.extend(XmemTab(XmemRequest("row", "0", "0", xmem_row_size_bytes(state), fmt))
-                             for fmt in ("hex", numeric))
+            self.tabs.extend(
+                XmemTab(XmemRequest("row", "0", "0", xmem_row_size_bytes(state), fmt))
+                for fmt in ("hex", numeric)
+            )
         if not self.disassembly_tabs:
-            self.disassembly_tabs.extend(DisassemblyTab(fmt=fmt) for fmt in
-                                         (DISASSEMBLY_FORMATS if fresh else ("compact",)))
+            self.disassembly_tabs.extend(
+                DisassemblyTab(fmt=fmt) for fmt in (DISASSEMBLY_FORMATS if fresh else ("compact",))
+            )
         if not self.register_tabs:
-            self.register_tabs.extend(RegisterTab(group=group) for group in
-                                      (("all", "lr", "cr") if fresh else ("all",)))
+            self.register_tabs.extend(
+                RegisterTab(group=group) for group in (("all", "lr", "cr") if fresh else ("all",))
+            )
         if not self.pipeline_tabs:
-            self.pipeline_tabs.extend(PipelineTab(register_key=spec.key, fmt=_default_pipeline_format(state, spec))
-                                      for spec in (PIPELINE_REGISTERS if fresh else PIPELINE_REGISTERS[:1]))
+            self.pipeline_tabs.extend(
+                PipelineTab(register_key=spec.key, fmt=_default_pipeline_format(state, spec))
+                for spec in (PIPELINE_REGISTERS if fresh else PIPELINE_REGISTERS[:1])
+            )
         self.initialized = True
 
     def selected_tab(self) -> XmemTab | None:
@@ -545,15 +587,11 @@ class DebugViewSession:
         return self.disassembly_tabs[self.active_disassembly_tab]
 
     def selected_register_tab(self) -> RegisterTab:
-        self.active_register_tab = min(
-            self.active_register_tab, len(self.register_tabs) - 1
-        )
+        self.active_register_tab = min(self.active_register_tab, len(self.register_tabs) - 1)
         return self.register_tabs[self.active_register_tab]
 
     def selected_pipeline_tab(self) -> PipelineTab:
-        self.active_pipeline_tab = min(
-            self.active_pipeline_tab, len(self.pipeline_tabs) - 1
-        )
+        self.active_pipeline_tab = min(self.active_pipeline_tab, len(self.pipeline_tabs) - 1)
         return self.pipeline_tabs[self.active_pipeline_tab]
 
     def snapshot_registers(self, state: IpuState) -> dict[tuple[str, int], int]:
@@ -632,7 +670,11 @@ def _default_pipeline_format(state: IpuState, spec: PipelineRegisterSpec) -> str
         if state.wide_vector_debug and not state.wide_vector_quantize_output:
             return "f32" if state.wide_vector_arithmetic.value == "fp32" else "int32"
         return "int8"
-    if not state.wide_vector_debug and state.dtype.value == 0 and spec.key in ("r0", "r1", "r_cyclic"):
+    if (
+        not state.wide_vector_debug
+        and state.dtype.value == 0
+        and spec.key in ("r0", "r1", "r_cyclic")
+    ):
         return "int8"
     return _pipeline_format(state, spec)
 
@@ -654,16 +696,9 @@ def _cell16_color_summary(data: bytes) -> str:
     backgrounds: set[int] = set()
     for offset in range(0, len(data), 2):
         cell = struct.unpack_from("<H", data, offset)[0]
-        foregrounds.add(
-            (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK
-        )
-        backgrounds.add(
-            (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK
-        )
-    return (
-        f"fg={_compact_color_set(foregrounds)} "
-        f"bg={_compact_color_set(backgrounds)}"
-    )
+        foregrounds.add((cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK)
+        backgrounds.add((cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK)
+    return f"fg={_compact_color_set(foregrounds)} bg={_compact_color_set(backgrounds)}"
 
 
 def _overlay_attr(base: int, overlay: int) -> int:
@@ -684,15 +719,11 @@ class _ColorManager:
         # Emphasis is layered, so no two of these may be the same attribute:
         # ``changed`` marks a value, ``selected`` the cursor under it, and
         # ``focus`` the frame of the pane they are in.
-        self.changed = self.current | (
-            getattr(curses, "A_UNDERLINE", 0) if curses else 0
-        )
+        self.changed = self.current | (getattr(curses, "A_UNDERLINE", 0) if curses else 0)
         self.selected = getattr(curses, "A_REVERSE", 0) if curses else 0
         # Every pane shows where its cursor is; only the focused one shows it
         # at full strength.
-        self.cursor = self.selected | (
-            getattr(curses, "A_DIM", 0) if curses else 0
-        )
+        self.cursor = self.selected | (getattr(curses, "A_DIM", 0) if curses else 0)
         self.header = self.current
         self.paused = self.current | self.selected
         self.breakpoint = self.changed
@@ -704,12 +735,8 @@ class _ColorManager:
         self.focus = self.current
         self.status = getattr(curses, "A_REVERSE", 0) if curses else 0
         self.error = self.current
-        self.cell_selected = (
-            getattr(curses, "A_UNDERLINE", 0) if curses else 0
-        )
-        self.cell_changed = (
-            getattr(curses, "A_ITALIC", 0) if curses else 0
-        ) or self.cell_selected
+        self.cell_selected = getattr(curses, "A_UNDERLINE", 0) if curses else 0
+        self.cell_changed = (getattr(curses, "A_ITALIC", 0) if curses else 0) or self.cell_selected
         if curses is None:
             return
         try:
@@ -831,9 +858,7 @@ class CursesDebugView:
         # XMEM is frozen for the same reason, and one request can tokenise into
         # far more lines than a pane shows.
         self._xmem_cache: dict[tuple[int, int, str, int], list[Any]] = {}
-        self._xmem_requests: dict[
-            XmemRequest, tuple[ResolvedXmemRequest | None, str | None]
-        ] = {}
+        self._xmem_requests: dict[XmemRequest, tuple[ResolvedXmemRequest | None, str | None]] = {}
         self.redraw = True
         self.disassembly_rect = Rect(0, 0, 0, 0)
         self.registers_rect = Rect(0, 0, 0, 0)
@@ -942,8 +967,7 @@ class CursesDebugView:
                 curses.curs_set(0)
                 try:
                     curses.mousemask(
-                        curses.ALL_MOUSE_EVENTS
-                        | getattr(curses, "REPORT_MOUSE_POSITION", 0)
+                        curses.ALL_MOUSE_EVENTS | getattr(curses, "REPORT_MOUSE_POSITION", 0)
                     )
                     curses.mouseinterval(0)
                 except curses.error:
@@ -954,14 +978,10 @@ class CursesDebugView:
     def _natural_register_columns(self, top_rows: int) -> int:
         """The width the active LR/CR tab needs at the grid shape it will use."""
         tab = self.session.selected_register_tab()
-        grid_rows = register_grid_rows(
-            max(1, top_rows - REGISTER_NON_CONTENT_ROWS)
-        )
+        grid_rows = register_grid_rows(max(1, top_rows - REGISTER_NON_CONTENT_ROWS))
         groups = self._register_groups(tab)
         columns = len(groups) * _REGISTERS_PER_GROUP // grid_rows
-        column_width = (
-            REGISTER_LABEL_WIDTH + _SCALAR_FORMAT_VALUE_WIDTHS[tab.fmt]
-        )
+        column_width = REGISTER_LABEL_WIDTH + _SCALAR_FORMAT_VALUE_WIDTHS[tab.fmt]
         return (
             columns * column_width
             + (columns - 1) * REGISTER_MAX_GUTTER
@@ -992,8 +1012,7 @@ class CursesDebugView:
         """Clamp the visible pipeline width without changing its preference."""
         requested = self.session.pipeline_pane_columns or max(
             MIN_PIPELINE_COLUMNS,
-            columns
-            // 2,
+            columns // 2,
         )
         width = max(
             MIN_PIPELINE_COLUMNS,
@@ -1024,9 +1043,7 @@ class CursesDebugView:
             self.session.pipeline_pane_columns = current + delta
             width = self._clamped_pipeline_columns(columns)
             self.session.pipeline_pane_columns = width
-            self.session.set_message(
-                f"Pipeline pane width: {width} columns"
-            )
+            self.session.set_message(f"Pipeline pane width: {width} columns")
             return
         current = self._clamped_register_columns(columns, top_rows)
         self.session.register_pane_columns = current - delta
@@ -1052,8 +1069,7 @@ class CursesDebugView:
 
     def _single_pane(self) -> bool:
         rows, columns = self.screen.getmaxyx()
-        return (self.session.maximized or rows < MIN_TERMINAL_ROWS
-                or columns < MIN_TERMINAL_COLUMNS)
+        return self.session.maximized or rows < MIN_TERMINAL_ROWS or columns < MIN_TERMINAL_COLUMNS
 
     def layout(self) -> dict[str, Rect] | None:
         rows, columns = self.screen.getmaxyx()
@@ -1062,9 +1078,7 @@ class CursesDebugView:
         if self._single_pane():
             return {
                 "header": Rect(0, 0, HEADER_ROWS, columns),
-                self.session.focus: Rect(
-                    HEADER_ROWS, 0, rows - HEADER_ROWS - FOOTER_ROWS, columns
-                ),
+                self.session.focus: Rect(HEADER_ROWS, 0, rows - HEADER_ROWS - FOOTER_ROWS, columns),
                 "status": Rect(rows - 1, 0, 1, columns),
                 "keys": Rect(rows - 1, 0, 1, columns),
             }
@@ -1078,8 +1092,7 @@ class CursesDebugView:
         layout = {
             "header": Rect(0, 0, HEADER_ROWS, columns),
             "pipeline": Rect(top_y, 0, top_rows, pipeline_width),
-            "disassembly": Rect(top_y, pipeline_width - 1, top_rows,
-                                columns - pipeline_width + 1),
+            "disassembly": Rect(top_y, pipeline_width - 1, top_rows, columns - pipeline_width + 1),
             "xmem": Rect(xmem_y, 0, memory_rows, columns - register_width + 1),
             "registers": Rect(xmem_y, columns - register_width, memory_rows, register_width),
             "status": Rect(rows - 1, 0, 1, columns),
@@ -1174,7 +1187,7 @@ class CursesDebugView:
             message = "! " + message
         message_width = min(len(message), max(0, (rect.width - 12) // 2))
         if len(message) > message_width:
-            message = message[:max(0, message_width - 1)] + self.glyphs.ellipsis
+            message = message[: max(0, message_width - 1)] + self.glyphs.ellipsis
         width = max(0, rect.width - 12 - (len(message) + 2 if message else 0))
         summary = self._fit_segments(segments[:4], width)
         separator = f" {self.glyphs.separator} "
@@ -1196,9 +1209,13 @@ class CursesDebugView:
         label = "[? Help]"
         x = rect.x + rect.width - len(label) - 1
         if message:
-            self._add(rect.y, x - len(message) - 2, message,
-                      self.colors.error if self.session.message_is_error else self.colors.status,
-                      len(message))
+            self._add(
+                rect.y,
+                x - len(message) - 2,
+                message,
+                self.colors.error if self.session.message_is_error else self.colors.status,
+                len(message),
+            )
         self._add(rect.y, x, label, self.colors.key, len(label))
         self.action_hits.append((Rect(rect.y, x, 1, len(label)), "?"))
 
@@ -1253,11 +1270,7 @@ class CursesDebugView:
         tab_y = rect.y + 1
         x = rect.x + 1
         add_label = "[+]"
-        add_attr = (
-            self.colors.current
-            if pane == self.session.focus
-            else self.colors.border
-        )
+        add_attr = self.colors.current if pane == self.session.focus else self.colors.border
         self._add(tab_y, x, add_label, add_attr)
         self.add_hits[pane] = Rect(tab_y, x, 1, len(add_label))
         # The column after ``[+]`` always belongs to the "earlier tabs" marker,
@@ -1272,8 +1285,7 @@ class CursesDebugView:
             offset = active
         while offset < active:
             active_span = sum(
-                len(tab_label(tabs[index])) + 1
-                for index in range(offset, active + 1)
+                len(tab_label(tabs[index])) + 1 for index in range(offset, active + 1)
             )
             if active_span <= available_width:
                 break
@@ -1299,17 +1311,11 @@ class CursesDebugView:
                 break
             attr = self.colors.border
             if index == active:
-                attr = (
-                    self.colors.selected
-                    if pane == self.session.focus
-                    else self.colors.current
-                )
+                attr = self.colors.selected if pane == self.session.focus else self.colors.current
             self._add(tab_y, x, label, attr)
             hit = Rect(tab_y, x, 1, len(label))
             self.tab_hits[pane].append((hit, index))
-            self.tab_close_hits[pane].append(
-                (Rect(tab_y, x + len(label) - 2, 1, 1), index)
-            )
+            self.tab_close_hits[pane].append((Rect(tab_y, x + len(label) - 2, 1, 1), index))
             x += len(label) + 1
             shown += 1
         if offset + shown < len(tabs):
@@ -1322,9 +1328,7 @@ class CursesDebugView:
                 1,
             )
 
-    def _resolve_xmem(
-        self, request: XmemRequest
-    ) -> tuple[ResolvedXmemRequest | None, str | None]:
+    def _resolve_xmem(self, request: XmemRequest) -> tuple[ResolvedXmemRequest | None, str | None]:
         from ipu_emu.debug_cli import _resolve_xmem_request
 
         if request not in self._xmem_requests:
@@ -1397,9 +1401,7 @@ class CursesDebugView:
             y = rect.y + 3 + row
             x = rect.x + 1
             limit = x + row_width
-            self.value_hits.setdefault("disassembly", []).append(
-                (Rect(y, x, 1, row_width), pc)
-            )
+            self.value_hits.setdefault("disassembly", []).append((Rect(y, x, 1, row_width), pc))
             if slot:
                 # The parallel-slot marker recedes without breaking the bar
                 # the cursor draws behind it.
@@ -1420,11 +1422,7 @@ class CursesDebugView:
                     max(0, limit - x - DISASSEMBLY_PREFIX_WIDTH + 1),
                 )
             else:
-                marker = (
-                    self.glyphs.current_row
-                    if is_current
-                    else self.glyphs.normal_row
-                )
+                marker = self.glyphs.current_row if is_current else self.glyphs.normal_row
                 breakpoint = "B" if pc in self.control.breakpoints else " "
                 self._add(y, x, f"{marker}{breakpoint}{pc:04d}  ", attr, limit - x)
                 if is_current:
@@ -1435,28 +1433,28 @@ class CursesDebugView:
             if row_width >= 60:
                 limit -= 12
             mnemonic, _, operands = operation.partition(" ")
-            text = (
-                f"{mnemonic.ljust(mnemonic_width)} {operands}"
-                if operands
-                else mnemonic
-            )
+            text = f"{mnemonic.ljust(mnemonic_width)} {operands}" if operands else mnemonic
             available = max(0, limit - x)
             if len(text) > available and available >= len(self.glyphs.ellipsis):
-                text = text[:available - len(self.glyphs.ellipsis)] + self.glyphs.ellipsis
+                text = text[: available - len(self.glyphs.ellipsis)] + self.glyphs.ellipsis
             self._add(y, x, text.ljust(available), attr, available)
             if not is_empty and pc != centered_pc:
                 self._add(y, x, mnemonic, self.colors.key, min(available, len(mnemonic)))
             if row_width >= 60:
                 if pc not in slot_labels:
                     ops = self._all_operations(self._disassembly(pc))
-                    slot_labels[pc] = [
-                        name for name, op in zip(SLOT_LABELS, ops)
-                        if tab.fmt == "full" or op.upper().split(" ", 1)[0] != "NOP"
-                    ] if self.state.inst_mem[pc] is not None else []
+                    slot_labels[pc] = (
+                        [
+                            name
+                            for name, op in zip(SLOT_LABELS, ops)
+                            if tab.fmt == "full" or op.upper().split(" ", 1)[0] != "NOP"
+                        ]
+                        if self.state.inst_mem[pc] is not None
+                        else []
+                    )
                 names = slot_labels[pc]
                 label = names[slot] if slot < len(names) else ""
-                self._add(y, limit, label.rjust(11) + " ",
-                          _overlay_attr(self.colors.key, attr), 12)
+                self._add(y, limit, label.rjust(11) + " ", _overlay_attr(self.colors.key, attr), 12)
         self.scroll_state["disassembly"] = (
             first,
             last - first + 1,
@@ -1533,8 +1531,13 @@ class CursesDebugView:
         pc = self.state.program_counter
         instruction = self.state.inst_mem[pc] if 0 <= pc < INST_MEM_SIZE else None
         width = max(1, rect.width - 3)
-        self._add(rect.y + 2, rect.x + 1, f"Pipeline stages / PC {pc:04d} / cycle {self.cycle} / ready",
-                  self.colors.border, width)
+        self._add(
+            rect.y + 2,
+            rect.x + 1,
+            f"Pipeline stages / PC {pc:04d} / cycle {self.cycle} / ready",
+            self.colors.border,
+            width,
+        )
         lines: list[tuple[str, int]] = []
         for stage, commands in pipeline_occupancy(instruction):
             if not commands:
@@ -1542,26 +1545,27 @@ class CursesDebugView:
             for index, (slot, operation) in enumerate(commands):
                 name = stage if index == 0 else ""
                 text = f"{name:<10} {display_operation(operation)}"
-                lines.extend((line, self.colors.key) for line in
-                             textwrap.wrap(text, width, subsequent_indent="  "))
+                lines.extend(
+                    (line, self.colors.key)
+                    for line in textwrap.wrap(text, width, subsequent_indent="  ")
+                )
         visible = max(1, rect.height - 4)
         self.session.stages_scroll = max(0, min(self.session.stages_scroll, len(lines) - visible))
         first = self.session.stages_scroll
         self._draw_top_pane_header(
-            rect, ["2 Instructions", "Stages"],
+            rect,
+            ["2 Instructions", "Stages"],
             f" {first + 1}-{min(len(lines), first + visible)}/{len(lines)} ",
             focused=self.session.focus == "disassembly",
         )
-        for index, (line, attr) in enumerate(lines[first:first + visible]):
+        for index, (line, attr) in enumerate(lines[first : first + visible]):
             self._add(rect.y + 3 + index, rect.x + 1, line, attr, width)
 
     def _draw_registers(self, rect: Rect) -> None:
         tab = self.session.selected_register_tab()
         self._draw_tab_bar("registers", rect)
         groups = self._register_groups(tab)
-        grid_rows = register_grid_rows(
-            max(1, rect.height - REGISTER_NON_CONTENT_ROWS)
-        )
+        grid_rows = register_grid_rows(max(1, rect.height - REGISTER_NON_CONTENT_ROWS))
         column_count = len(groups) * _REGISTERS_PER_GROUP // grid_rows
         value_width = _SCALAR_FORMAT_VALUE_WIDTHS[tab.fmt]
         column_width = REGISTER_LABEL_WIDTH + value_width
@@ -1582,8 +1586,7 @@ class CursesDebugView:
             1,
             min(
                 column_count,
-                (content_width + REGISTER_MIN_GUTTER)
-                // (column_width + REGISTER_MIN_GUTTER),
+                (content_width + REGISTER_MIN_GUTTER) // (column_width + REGISTER_MIN_GUTTER),
             ),
         )
         gaps = visible_columns - 1
@@ -1621,8 +1624,7 @@ class CursesDebugView:
             self._add(
                 rect.y + 2,
                 x,
-                f"{name.upper()} {first_index:02d}-"
-                f"{first_index + grid_rows - 1:02d}",
+                f"{name.upper()} {first_index:02d}-{first_index + grid_rows - 1:02d}",
                 self.colors.border,
                 min(column_width, limit - x),
             )
@@ -1641,8 +1643,7 @@ class CursesDebugView:
                     value_width,
                 )
         readout = (
-            f" cols {tab.column_scroll + 1}-"
-            f"{tab.column_scroll + visible_columns}/{column_count} "
+            f" cols {tab.column_scroll + 1}-{tab.column_scroll + visible_columns}/{column_count} "
             if column_count > visible_columns
             else ""
         )
@@ -1659,9 +1660,7 @@ class CursesDebugView:
 
     def _register_grid(self, tab: RegisterTab) -> tuple[int, int]:
         """The ``(rows, columns)`` shape the register pane is drawing now."""
-        rows = register_grid_rows(
-            max(1, self.registers_rect.height - REGISTER_NON_CONTENT_ROWS)
-        )
+        rows = register_grid_rows(max(1, self.registers_rect.height - REGISTER_NON_CONTENT_ROWS))
         groups = self._register_groups(tab)
         return rows, len(groups) * _REGISTERS_PER_GROUP // rows
 
@@ -1687,9 +1686,7 @@ class CursesDebugView:
             cursor_attr = self._cursor_attr("registers")
             label_attr = _overlay_attr(label_attr, cursor_attr)
             value_attr = _overlay_attr(value_attr, cursor_attr)
-        self.value_hits.setdefault("registers", []).append(
-            (Rect(y, x, 1, width), visual_index)
-        )
+        self.value_hits.setdefault("registers", []).append((Rect(y, x, 1, width), visual_index))
         self._add(y, x, label, label_attr, min(len(label), width))
         remaining = width - len(label)
         if remaining <= 0:
@@ -1704,11 +1701,7 @@ class CursesDebugView:
 
     def _cursor_attr(self, pane: str) -> int:
         """The cursor highlight for *pane*, muted while it is not focused."""
-        return (
-            self.colors.selected
-            if self.session.focus == pane
-            else self.colors.cursor
-        )
+        return self.colors.selected if self.session.focus == pane else self.colors.cursor
 
     def _value_attr(self, is_zero: bool) -> int:
         """Zero values recede, so the bytes that carry data stand out."""
@@ -1870,9 +1863,7 @@ class CursesDebugView:
                 self._add(y, x, token.leading, max_width=limit - x)
                 x += len(token.leading)
                 is_colored_cell = token.fg is not None and token.bg is not None
-                raw = resolved.data[
-                    token.raw_start : token.raw_start + token.raw_size
-                ]
+                raw = resolved.data[token.raw_start : token.raw_start + token.raw_size]
                 attr = (
                     self.colors.cell(token.fg, token.bg)
                     if is_colored_cell
@@ -1881,25 +1872,22 @@ class CursesDebugView:
                 changed = False
                 if baseline is not None:
                     current = raw
-                    previous = baseline[
-                        token.raw_start : token.raw_start + token.raw_size
-                    ]
+                    previous = baseline[token.raw_start : token.raw_start + token.raw_size]
                     changed = current != previous
                     if changed:
-                        attr |= (
-                            self.colors.cell_changed
-                            if is_colored_cell
-                            else self.colors.changed
-                        )
+                        attr |= self.colors.cell_changed if is_colored_cell else self.colors.changed
                 if (line_number, token_number) == (
                     tab.cursor_line,
                     tab.cursor_column,
                 ):
-                    attr = _overlay_attr(attr, (
-                        self.colors.cell_selected
-                        if is_colored_cell
-                        else self._cursor_attr("xmem")
-                    ))
+                    attr = _overlay_attr(
+                        attr,
+                        (
+                            self.colors.cell_selected
+                            if is_colored_cell
+                            else self._cursor_attr("xmem")
+                        ),
+                    )
                 if is_colored_cell:
                     self._add(y, x, token.text, attr, limit - x)
                 else:
@@ -1970,8 +1958,11 @@ class CursesDebugView:
             max(0, item_count - 1),
         )
         display_rows = self._pipeline_display_rows(fmt, rect, item_count)
-        cursor_line = next(index for index, first in enumerate(display_rows)
-                           if first is not None and first <= tab.cursor < first + items_per_line)
+        cursor_line = next(
+            index
+            for index, first in enumerate(display_rows)
+            if first is not None and first <= tab.cursor < first + items_per_line
+        )
         line_count = len(display_rows)
         max_scroll = max(0, line_count - content_height)
         if self.session.focus == "pipeline" and content_height > 0:
@@ -1996,7 +1987,8 @@ class CursesDebugView:
         visible_first = visible_items[0] if visible_items else 0
         visible_last = min(item_count, visible_items[-1] + items_per_line) if visible_items else 0
         self._draw_top_pane_header(
-            rect, ["1 Pipeline Registers", fmt],
+            rect,
+            ["1 Pipeline Registers", fmt],
             f" items {visible_first + 1}-{visible_last}/{item_count} ",
             focused=self.session.focus == "pipeline",
         )
@@ -2004,7 +1996,9 @@ class CursesDebugView:
             first_item = display_rows[line_index]
             y = content_y + output_row
             if first_item is None:
-                self._add(y, content_x + 2, "------------", self.colors.border, limit - content_x - 2)
+                self._add(
+                    y, content_x + 2, "------------", self.colors.border, limit - content_x - 2
+                )
                 continue
             offset = first_item * item_size
             prefix = f"  {offset:04x}: "
@@ -2031,19 +2025,14 @@ class CursesDebugView:
                     cell = struct.unpack("<H", raw)[0]
                     text, foreground, background = decode_16bit_cell(
                         cell & _CELL16_CHARACTER_MASK,
-                        (cell >> _CELL16_FOREGROUND_SHIFT)
-                        & _CELL16_COLOR_MASK,
-                        (cell >> _CELL16_BACKGROUND_SHIFT)
-                        & _CELL16_COLOR_MASK,
+                        (cell >> _CELL16_FOREGROUND_SHIFT) & _CELL16_COLOR_MASK,
+                        (cell >> _CELL16_BACKGROUND_SHIFT) & _CELL16_COLOR_MASK,
                     )
                 else:
                     text = self._format_pipeline_value(raw, fmt, value_width)
-                is_colored_cell = (
-                    foreground is not None and background is not None
-                )
+                is_colored_cell = foreground is not None and background is not None
                 changed = (
-                    baseline is not None
-                    and raw != baseline[raw_start : raw_start + item_size]
+                    baseline is not None and raw != baseline[raw_start : raw_start + item_size]
                 )
                 selected = item_index == tab.cursor
                 attr = (
@@ -2052,24 +2041,23 @@ class CursesDebugView:
                     else self._value_attr(not any(raw))
                 )
                 if changed:
-                    attr |= (
-                        self.colors.cell_changed
-                        if is_colored_cell
-                        else self.colors.changed
-                    )
+                    attr |= self.colors.cell_changed if is_colored_cell else self.colors.changed
                 if selected:
-                    attr = _overlay_attr(attr, (
-                        self.colors.cell_selected
-                        if is_colored_cell
-                        else self._cursor_attr("pipeline")
-                    ))
+                    attr = _overlay_attr(
+                        attr,
+                        (
+                            self.colors.cell_selected
+                            if is_colored_cell
+                            else self._cursor_attr("pipeline")
+                        ),
+                    )
                 if is_colored_cell:
                     self._add(y, x, text, attr, available)
                 elif available < len(text):
                     marker = self.glyphs.ellipsis
                     if len(marker) > available:
                         marker = ">"
-                    clipped = text[:available - len(marker)] + marker
+                    clipped = text[: available - len(marker)] + marker
                     self._add(y, x, clipped, attr, available)
                 else:
                     self._add_value(y, x, text, attr, available)
@@ -2126,19 +2114,18 @@ class CursesDebugView:
         if self.session.selected_pipeline_tab().register_key == "r_mask":
             size, _ = self._pipeline_value_geometry(fmt)
             slot_items = 16 // size
-            item_count = max(count for count in range(1, slot_items + 1)
-                             if count <= max(1, item_count) and slot_items % count == 0)
+            item_count = max(
+                count
+                for count in range(1, slot_items + 1)
+                if count <= max(1, item_count) and slot_items % count == 0
+            )
         return max(1, item_count)
 
     def _pipeline_item_spacing(self, fmt: str, item_in_line: int) -> int:
         if item_in_line == 0:
             return 0
         if fmt == "cell16":
-            return (
-                1
-                if item_in_line % _CELL16_CHARACTERS_PER_GROUP == 0
-                else 0
-            )
+            return 1 if item_in_line % _CELL16_CHARACTERS_PER_GROUP == 0 else 0
         if (
             fmt == "hex"
             and self.state.wide_vector_debug
@@ -2181,9 +2168,9 @@ class CursesDebugView:
                 if start >= 0:
                     if binding.keys == ("d", "a"):
                         for label, key in (("a:Prev", "a"), ("d:Next", "d")):
-                            self.action_hits.append((
-                                Rect(rect.y, rect.x + text.index(label), 1, len(label)), key
-                            ))
+                            self.action_hits.append(
+                                (Rect(rect.y, rect.x + text.index(label), 1, len(label)), key)
+                            )
                         continue
                     key = binding.keys[0]
                     if key.startswith("F") and key[1:].isdigit():
@@ -2201,24 +2188,35 @@ class CursesDebugView:
                     if key == "KEY_BTAB":
                         key = getattr(curses, key, None)
                     if key is not None:
-                        self.action_hits.append((Rect(rect.y, rect.x + start, 1, len(binding.footer)), key))
+                        self.action_hits.append(
+                            (Rect(rect.y, rect.x + start, 1, len(binding.footer)), key)
+                        )
 
     def _footer_text(self, width: int) -> str:
         """Fit whole shortcut labels, most important first, never clipping."""
         # Execution, navigation, view/editing, layout, exit.
-        groups = (("F5", "F8", "F9", "F10"),
-                  ("Arrows", "Tab", "d", "Shift-Tab"),
-                  ("f", "e", "F2", "F3", "F4"),
-                  ("Shift-Left", "Shift-Up", "="), ("q",))
-        candidates = [binding for binding in KEY_BINDINGS
-                      if binding.footer and binding.scope in ("global", "pane")
-                      and self.session.focus in binding.panes]
+        groups = (
+            ("F5", "F8", "F9", "F10"),
+            ("Arrows", "Tab", "d", "Shift-Tab"),
+            ("f", "e", "F2", "F3", "F4"),
+            ("Shift-Left", "Shift-Up", "="),
+            ("q",),
+        )
+        candidates = [
+            binding
+            for binding in KEY_BINDINGS
+            if binding.footer
+            and binding.scope in ("global", "pane")
+            and self.session.focus in binding.panes
+        ]
 
         def format_bindings(selected: list[KeyBinding]) -> str:
             parts = []
             for group in groups:
-                ordered = sorted((binding for binding in selected if binding.keys[0] in group),
-                                 key=lambda binding: group.index(binding.keys[0]))
+                ordered = sorted(
+                    (binding for binding in selected if binding.keys[0] in group),
+                    key=lambda binding: group.index(binding.keys[0]),
+                )
                 if ordered:
                     parts.append(" ".join(binding.footer for binding in ordered))
             return " " + " | ".join(parts)
@@ -2294,7 +2292,9 @@ class CursesDebugView:
         self.scrollbar_hits[pane] = Rect(top, column, track, 1)
         self.scroll_thumb_hits[pane] = Rect(top + start, column, size, 1)
         for row in range(track):
-            self._add(top + row, column, self.glyphs.box[BORDER_UP | BORDER_DOWN], self.colors.border)
+            self._add(
+                top + row, column, self.glyphs.box[BORDER_UP | BORDER_DOWN], self.colors.border
+            )
         for row in range(size):
             self._add(
                 top + start + row,
@@ -2307,12 +2307,12 @@ class CursesDebugView:
     def _help_lines(width: int = 72) -> list[tuple[str, int]]:
         """Every binding as ``(text, attribute_kind)`` where 1 marks a heading."""
         lines: list[tuple[str, int]] = []
-        key_width = max(
-            len(" / ".join(binding.keys)) for binding in KEY_BINDINGS
-        )
+        key_width = max(len(" / ".join(binding.keys)) for binding in KEY_BINDINGS)
         for scope, title in HELP_SCOPE_TITLES:
             bindings = [
-                binding for binding in KEY_BINDINGS if binding.scope == scope and binding.keys != ("q",)
+                binding
+                for binding in KEY_BINDINGS
+                if binding.scope == scope and binding.keys != ("q",)
             ]
             if not bindings:
                 continue
@@ -2325,7 +2325,8 @@ class CursesDebugView:
                     keys = keys.ljust(key_width)
                 indent = " " * (key_width + 2)
                 for line in textwrap.wrap(
-                    f"{keys}  {binding.description}", width=width,
+                    f"{keys}  {binding.description}",
+                    width=width,
                     subsequent_indent=indent if width >= 60 else "  ",
                 ):
                     lines.append((line, 0))
@@ -2349,12 +2350,16 @@ class CursesDebugView:
             start = round((visible - size) * self.help_scroll / self.help_max_scroll)
             self.help_thumb = Rect(self.help_track.y + start, self.help_track.x, size, 1)
             for row in range(visible):
-                self._add(self.help_track.y + row, self.help_track.x,
-                          self.glyphs.thumb if start <= row < start + size else self.glyphs.box[BORDER_UP | BORDER_DOWN],
-                          self.colors.key if start <= row < start + size else self.colors.border, 1)
-        for row, (text, kind) in enumerate(
-            lines[self.help_scroll : self.help_scroll + visible]
-        ):
+                self._add(
+                    self.help_track.y + row,
+                    self.help_track.x,
+                    self.glyphs.thumb
+                    if start <= row < start + size
+                    else self.glyphs.box[BORDER_UP | BORDER_DOWN],
+                    self.colors.key if start <= row < start + size else self.colors.border,
+                    1,
+                )
+        for row, (text, kind) in enumerate(lines[self.help_scroll : self.help_scroll + visible]):
             self._add(
                 rect.y + 1 + row,
                 rect.x + 2,
@@ -2362,11 +2367,16 @@ class CursesDebugView:
                 self.colors.current if kind else 0,
                 rect.width - 4,
             )
-        footer = ("Esc Close / Wheel Scroll" if rect.width < 70
-                  else "Esc / ? Close   Up Down PgUp PgDn Scroll")
+        footer = (
+            "Esc Close / Wheel Scroll"
+            if rect.width < 70
+            else "Esc / ? Close   Up Down PgUp PgDn Scroll"
+        )
         if len(lines) > visible:
-            footer += f"   {self.help_scroll + 1}-" \
+            footer += (
+                f"   {self.help_scroll + 1}-"
                 f"{min(len(lines), self.help_scroll + visible)}/{len(lines)}"
+            )
         self._add(
             rect.y + rect.height - 1,
             max(rect.x + 1, rect.x + rect.width - 2 - len(footer) - 2),
@@ -2375,8 +2385,9 @@ class CursesDebugView:
             rect.width - 2,
         )
 
-    def _handle_help_mouse(self, y: int, x: int, pressed: bool,
-                           released: bool, wheel: int) -> object:
+    def _handle_help_mouse(
+        self, y: int, x: int, pressed: bool, released: bool, wheel: int
+    ) -> object:
         self.redraw = True
         if wheel:
             self.help_scroll = max(0, min(self.help_max_scroll, self.help_scroll + wheel))
@@ -2384,8 +2395,13 @@ class CursesDebugView:
         if self.help_drag is not None and self.help_track and self.help_thumb:
             origin_y, origin_scroll = self.help_drag
             travel = max(1, self.help_track.height - self.help_thumb.height)
-            self.help_scroll = max(0, min(self.help_max_scroll,
-                origin_scroll + round((y - origin_y) * self.help_max_scroll / travel)))
+            self.help_scroll = max(
+                0,
+                min(
+                    self.help_max_scroll,
+                    origin_scroll + round((y - origin_y) * self.help_max_scroll / travel),
+                ),
+            )
             if released:
                 self.help_drag = None
             return _NO_OUTCOME
@@ -2406,11 +2422,7 @@ class CursesDebugView:
 
     def _handle_help_key(self, key: Any) -> object:
         """Consume every key while the help overlay is up."""
-        if (
-            key in (27, "\x1b", "\n", "\r", 10, 13)
-            or key == "?"
-            or self._key_is("KEY_ENTER", key)
-        ):
+        if key in (27, "\x1b", "\n", "\r", 10, 13) or key == "?" or self._key_is("KEY_ENTER", key):
             self.help_visible = False
             self.help_drag = None
             self.help_scroll = 0
@@ -2498,9 +2510,7 @@ class CursesDebugView:
         visible_start = max(0, self.cursor - available + 1)
         visible = self.command[visible_start : visible_start + available]
         self._add(y + 4, x + 2 + len(label), visible, max_width=available)
-        self.editor_field = (
-            Rect(y + 4, x + 2 + len(label), 1, available), visible_start
-        )
+        self.editor_field = (Rect(y + 4, x + 2 + len(label), 1, available), visible_start)
         if self.session.message_is_error:
             self._add(
                 y + 5,
@@ -2518,10 +2528,17 @@ class CursesDebugView:
             rect.width - 2,
         )
         hint_x = max(rect.x + 1, rect.x + rect.width - 4 - len(hint)) + 1
-        self.overlay_hits.extend([
-            (Rect(rect.y + rect.height - 1, hint_x, 1, len("Enter Apply")), "\n"),
-            (Rect(rect.y + rect.height - 1, hint_x + hint.index("Esc"), 1, len("Esc Cancel")), "\x1b"),
-        ])
+        self.overlay_hits.extend(
+            [
+                (Rect(rect.y + rect.height - 1, hint_x, 1, len("Enter Apply")), "\n"),
+                (
+                    Rect(
+                        rect.y + rect.height - 1, hint_x + hint.index("Esc"), 1, len("Esc Cancel")
+                    ),
+                    "\x1b",
+                ),
+            ]
+        )
         cursor_x = x + 2 + len(label) + self.cursor - visible_start
         try:
             if curses is not None:
@@ -2552,7 +2569,11 @@ class CursesDebugView:
         if self.help_visible:
             return self._handle_help_key(key)
         if key in (27, "\x1b"):
-            if self.session.stages_visible and self.session.focus == "disassembly" and not self.editor_mode:
+            if (
+                self.session.stages_visible
+                and self.session.focus == "disassembly"
+                and not self.editor_mode
+            ):
                 self.session.stages_visible = False
                 return _NO_OUTCOME
             if self.editor_mode:
@@ -2564,9 +2585,12 @@ class CursesDebugView:
         if self.editor_mode:
             return self._handle_editor_key(key)
         if self.session.stages_visible and self.session.focus == "disassembly":
-            movements = {"KEY_DOWN": 1, "KEY_UP": -1,
-                         "KEY_NPAGE": max(1, self.disassembly_rect.height - 4),
-                         "KEY_PPAGE": -max(1, self.disassembly_rect.height - 4)}
+            movements = {
+                "KEY_DOWN": 1,
+                "KEY_UP": -1,
+                "KEY_NPAGE": max(1, self.disassembly_rect.height - 4),
+                "KEY_PPAGE": -max(1, self.disassembly_rect.height - 4),
+            }
             for name, delta in movements.items():
                 if self._key_is(name, key):
                     self.session.stages_scroll = max(0, self.session.stages_scroll + delta)
@@ -2685,16 +2709,9 @@ class CursesDebugView:
         elif self._key_is("KEY_END", key):
             self.cursor = len(self.command)
         elif self._key_is("KEY_DC", key) and self.cursor < len(self.command):
-            self.command = (
-                self.command[: self.cursor] + self.command[self.cursor + 1 :]
-            )
-        elif (
-            key in ("\b", "\x7f", 8)
-            or self._key_is("KEY_BACKSPACE", key)
-        ) and self.cursor > 0:
-            self.command = (
-                self.command[: self.cursor - 1] + self.command[self.cursor :]
-            )
+            self.command = self.command[: self.cursor] + self.command[self.cursor + 1 :]
+        elif (key in ("\b", "\x7f", 8) or self._key_is("KEY_BACKSPACE", key)) and self.cursor > 0:
+            self.command = self.command[: self.cursor - 1] + self.command[self.cursor :]
             self.cursor -= 1
         elif key in ("\n", "\r", 10, 13) or self._key_is("KEY_ENTER", key):
             if self.editor_mode == "scalar":
@@ -2703,9 +2720,7 @@ class CursesDebugView:
                 return self._submit_value_editor()
             return self._submit_tab_editor(self.command.strip())
         elif isinstance(key, str) and key.isprintable():
-            self.command = (
-                self.command[: self.cursor] + key + self.command[self.cursor :]
-            )
+            self.command = self.command[: self.cursor] + key + self.command[self.cursor :]
             self.cursor += len(key)
         return _NO_OUTCOME
 
@@ -2717,11 +2732,14 @@ class CursesDebugView:
         except curses.error:
             return _NO_OUTCOME
         released = bool(button_state & getattr(curses, "BUTTON1_RELEASED", 0))
-        pressed = bool(button_state & (
-            getattr(curses, "BUTTON1_PRESSED", 0)
-            | getattr(curses, "BUTTON1_CLICKED", 0)
-            | getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0)
-        ))
+        pressed = bool(
+            button_state
+            & (
+                getattr(curses, "BUTTON1_PRESSED", 0)
+                | getattr(curses, "BUTTON1_CLICKED", 0)
+                | getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0)
+            )
+        )
         wheel = 0
         if button_state & getattr(curses, "BUTTON4_PRESSED", 0):
             wheel = -MOUSE_WHEEL_LINES
@@ -2760,9 +2778,7 @@ class CursesDebugView:
                 delta = y - origin_y
                 if delta or self.scroll_drag_moved:
                     self.scroll_drag_moved = True
-                    self._scroll_to_fraction(
-                        pane, fraction + delta / max(1, track.height - 1)
-                    )
+                    self._scroll_to_fraction(pane, fraction + delta / max(1, track.height - 1))
                     self.redraw = True
             if released:
                 self.scroll_drag = None
@@ -2774,7 +2790,9 @@ class CursesDebugView:
             self.last_value_click = None
             self.redraw = True
             self._wheel(
-                y, x, wheel,
+                y,
+                x,
+                wheel,
                 horizontal=bool(button_state & getattr(curses, "BUTTON_SHIFT", 0)),
             )
             return _NO_OUTCOME
@@ -2792,9 +2810,7 @@ class CursesDebugView:
                         self.last_value_click = None
                         thumb = self.scroll_thumb_hits.get(pane)
                         if thumb is None or not thumb.contains(y, x):
-                            self._scroll_to_fraction(
-                                pane, (y - track.y) / max(1, track.height - 1)
-                            )
+                            self._scroll_to_fraction(pane, (y - track.y) / max(1, track.height - 1))
                         self.scroll_origin = (y, self._scroll_cursor_fraction(pane))
                         return _NO_OUTCOME
                 split = self._split_at(y, x)
@@ -2811,7 +2827,11 @@ class CursesDebugView:
             rect = getattr(self, f"{self.session.focus}_rect")
             if y == rect.y + 1:
                 self._select_tab_in_focused_pane(1 if delta > 0 else -1)
-            elif self.session.focus == "disassembly" and self.session.stages_visible and not horizontal:
+            elif (
+                self.session.focus == "disassembly"
+                and self.session.stages_visible
+                and not horizontal
+            ):
                 self.session.stages_scroll = max(0, self.session.stages_scroll + delta)
             elif horizontal:
                 self._move_focused_cursor(dx=delta)
@@ -2890,9 +2910,7 @@ class CursesDebugView:
                     self.session.focus = pane
                     self._set_active_pane_tab_index(pane, index)
                     self._ensure_active_tab_visible(pane)
-                    self.session.set_message(
-                        f"Selected {self._pane_tabs(pane)[index].title}"
-                    )
+                    self.session.set_message(f"Selected {self._pane_tabs(pane)[index].title}")
                     return
         for pane, rect in self.add_hits.items():
             if rect.contains(y, x):
@@ -2904,9 +2922,7 @@ class CursesDebugView:
                 self.session.focus = pane
                 thumb = self.scroll_thumb_hits.get(pane)
                 if thumb is None or not thumb.contains(y, x):
-                    self._scroll_to_fraction(
-                        pane, (y - rect.y) / max(1, rect.height - 1)
-                    )
+                    self._scroll_to_fraction(pane, (y - rect.y) / max(1, rect.height - 1))
                 return
         for rect, pc in self.value_hits.get("disassembly", []):
             if rect.contains(y, x) and x < rect.x + 2:
@@ -2924,9 +2940,11 @@ class CursesDebugView:
                     if pane in ("registers", "pipeline", "xmem"):
                         now = time.monotonic()
                         identity = id(self._pane_tabs(pane)[self._active_pane_tab_index(pane)])
-                        if double or (previous_click is not None
-                                      and previous_click[:2] == (identity, payload)
-                                      and now - previous_click[2] <= DOUBLE_CLICK_SECONDS):
+                        if double or (
+                            previous_click is not None
+                            and previous_click[:2] == (identity, payload)
+                            and now - previous_click[2] <= DOUBLE_CLICK_SECONDS
+                        ):
                             self._begin_value_editor()
                         else:
                             self.last_value_click = (identity, payload, now)
@@ -2945,9 +2963,7 @@ class CursesDebugView:
         """Put the focused pane's cursor on the value that was clicked."""
         if pane == "disassembly":
             tab = self.session.selected_disassembly_tab()
-            base = (
-                self.state.program_counter if tab.target is None else tab.target
-            )
+            base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = payload - base
             return
         if pane == "registers":
@@ -2975,8 +2991,11 @@ class CursesDebugView:
             items = len(_read_pipeline_register(self.state, spec)) // size
             rows = self._pipeline_display_rows(fmt, self.pipeline_rect, items)
             per_line = self._pipeline_items_per_line(fmt, self.pipeline_rect)
-            target = next(index for index, first in enumerate(rows)
-                          if first is not None and first <= tab.cursor < first + per_line)
+            target = next(
+                index
+                for index, first in enumerate(rows)
+                if first is not None and first <= tab.cursor < first + per_line
+            )
         else:
             tab = self.session.selected_tab()
             target = tab.cursor_line if tab is not None else 0
@@ -2990,9 +3009,7 @@ class CursesDebugView:
         target = max(0, min(total - 1, int(fraction * total)))
         if pane == "disassembly":
             tab = self.session.selected_disassembly_tab()
-            base = (
-                self.state.program_counter if tab.target is None else tab.target
-            )
+            base = self.state.program_counter if tab.target is None else tab.target
             tab.cursor_offset = target - base
             return
         if pane == "pipeline":
@@ -3111,11 +3128,15 @@ class CursesDebugView:
             spec = _pipeline_spec(tab.register_key)
             fmt = tab.fmt or _pipeline_format(self.state, spec)
             size, _ = self._pipeline_value_geometry(fmt)
-            backing = spec.wide_backing if self.state.wide_vector_debug and spec.wide_backing else spec.backing
+            backing = (
+                spec.wide_backing
+                if self.state.wide_vector_debug and spec.wide_backing
+                else spec.backing
+            )
             register_size = self.state.regfile._desc(backing).size_bytes
             tab.cursor = max(0, min(tab.cursor, register_size // size - 1))
             offset = spec.index * register_size + tab.cursor * size
-            raw = bytes(self.state.regfile.raw(backing)[offset:offset + size])
+            raw = bytes(self.state.regfile.raw(backing)[offset : offset + size])
             label = f"{spec.label}[{tab.cursor}]"
         else:
             tab = self.session.selected_tab()
@@ -3145,7 +3166,13 @@ class CursesDebugView:
             self.command = repr(struct.unpack("<f", raw)[0])
         else:
             value = int.from_bytes(raw, "little", signed=fmt in ("int8", "int32"))
-            self.command = hex(value) if fmt in ("hex", "cell16") else bin(value) if fmt == "bits" else str(value)
+            self.command = (
+                hex(value)
+                if fmt in ("hex", "cell16")
+                else bin(value)
+                if fmt == "bits"
+                else str(value)
+            )
         self.cursor = len(self.command)
         self.session.set_message(f"Editing {label}")
 
@@ -3167,7 +3194,7 @@ class CursesDebugView:
                 buffer = self.state.regfile.raw(backing)
                 if offset < 0 or offset + size > len(buffer):
                     raise ValueError("Selected value is out of range")
-                buffer[offset:offset + size] = raw
+                buffer[offset : offset + size] = raw
         except (ValueError, OverflowError, struct.error, EmulatorError) as error:
             self.session.set_message(f"Invalid value: {error}", error=True)
             return _NO_OUTCOME
@@ -3329,14 +3356,9 @@ class CursesDebugView:
             return
         current_index = _XMEM_FORMATS.index(tab.request.fmt)
         for distance in range(1, len(_XMEM_FORMATS) + 1):
-            candidate = _XMEM_FORMATS[
-                (current_index + distance * delta) % len(_XMEM_FORMATS)
-            ]
+            candidate = _XMEM_FORMATS[(current_index + distance * delta) % len(_XMEM_FORMATS)]
             item_size = _XMEM_FORMAT_ITEM_SIZE_BYTES[candidate]
-            if (
-                resolved.byte_address % item_size == 0
-                and resolved.byte_count % item_size == 0
-            ):
+            if resolved.byte_address % item_size == 0 and resolved.byte_count % item_size == 0:
                 tab.request = XmemRequest(
                     tab.request.mode,
                     tab.request.base_token,
@@ -3371,9 +3393,7 @@ class CursesDebugView:
         offset = getattr(self.session, offset_attribute)
         if active < offset:
             offset = active
-        elif (
-            active > offset + VISIBLE_TAB_LOOKBEHIND
-        ):
+        elif active > offset + VISIBLE_TAB_LOOKBEHIND:
             offset = max(0, active - VISIBLE_TAB_LOOKBEHIND)
         setattr(self.session, offset_attribute, offset)
 
@@ -3441,9 +3461,7 @@ class CursesDebugView:
         if self.session.focus == "registers":
             tab = self.session.selected_register_tab()
             groups = self._register_groups(tab)
-            tab.cursor = (
-                len(groups) * _REGISTERS_PER_GROUP - 1 if end else 0
-            )
+            tab.cursor = len(groups) * _REGISTERS_PER_GROUP - 1 if end else 0
             return
         if self.session.focus == "pipeline":
             tab = self.session.selected_pipeline_tab()
@@ -3557,15 +3575,11 @@ class CursesDebugView:
         right = rect.x + rect.width - 1
         bottom = rect.y + rect.height - 1
         for x in range(rect.x, right + 1):
-            mask = (BORDER_LEFT if x > rect.x else 0) | (
-                BORDER_RIGHT if x < right else 0
-            )
+            mask = (BORDER_LEFT if x > rect.x else 0) | (BORDER_RIGHT if x < right else 0)
             for y in (rect.y, bottom):
                 self._mark_border(y, x, mask, attr, priority)
         for y in range(rect.y, bottom + 1):
-            mask = (BORDER_UP if y > rect.y else 0) | (
-                BORDER_DOWN if y < bottom else 0
-            )
+            mask = (BORDER_UP if y > rect.y else 0) | (BORDER_DOWN if y < bottom else 0)
             for x in (rect.x, right):
                 self._mark_border(y, x, mask, attr, priority)
 
@@ -3698,9 +3712,7 @@ class CursesDebugView:
 _NO_OUTCOME = object()
 # ``curses`` is optional, so the guarded excepts need a tuple that is valid
 # even when the import failed.
-_CURSES_ERRORS: tuple[type[BaseException], ...] = (
-    (curses.error,) if curses is not None else ()
-)
+_CURSES_ERRORS: tuple[type[BaseException], ...] = (curses.error,) if curses is not None else ()
 
 
 def run_debug_tui(

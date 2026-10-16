@@ -95,7 +95,9 @@ def _xmem_digest(state: IpuState, digest) -> None:
     """Feed every non-zero 64 KiB XMEM page, with its index, into ``digest``."""
     for base, page in state.xmem.touched_pages():
         if len(page) != _PAGE:
-            raise ValueError(f"XMEM page is {len(page)} bytes; the baselines hash {_PAGE}-byte pages")
+            raise ValueError(
+                f"XMEM page is {len(page)} bytes; the baselines hash {_PAGE}-byte pages"
+            )
         if page != _ZERO_PAGE:
             digest.update((base // _PAGE).to_bytes(4, "little"))
             digest.update(page)

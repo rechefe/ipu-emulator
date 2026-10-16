@@ -1,4 +1,5 @@
 """Runtime cases for residual_add_64x192 (L4): one channel per row, full output rows."""
+
 from ipu_apps.kernels.elementwise.residual_add_64x192 import app
 from ipu_apps.kernels.elementwise.cases import residual_add_cases
 

@@ -54,7 +54,9 @@ class NumberToken(IpuToken):
             self._raise_error(f"Value {self.token.value} is not a valid integer")
         min_val, max_val = self.value_range()
         if not (min_val <= self.int <= max_val):
-            self._raise_error(f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits")
+            self._raise_error(
+                f"Value {self.int} out of range [{min_val}, {max_val}] for {self.bits()} bits"
+            )
 
     @classmethod
     def default(cls) -> "IpuToken":
@@ -95,9 +97,7 @@ class EnumToken(IpuToken):
 
     @classmethod
     def enum_array(cls) -> list[str]:
-        raise NotImplementedError(
-            "enum_array property must be implemented by subclasses"
-        )
+        raise NotImplementedError("enum_array property must be implemented by subclasses")
 
     @classmethod
     def default(cls) -> "IpuToken":
@@ -164,9 +164,7 @@ class LabelToken(IpuToken):
             try:
                 offset = int(self.token.value, 0)
             except ValueError:
-                self._raise_error(
-                    f"Relative label value {self.token.value} is not a valid integer"
-                )
+                self._raise_error(f"Relative label value {self.token.value} is not a valid integer")
             target_address = self.instr_id + offset
             if not (0 <= target_address < MAX_PROGRAM_SIZE):
                 self._raise_error(

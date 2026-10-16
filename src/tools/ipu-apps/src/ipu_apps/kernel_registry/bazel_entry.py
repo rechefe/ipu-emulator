@@ -5,6 +5,7 @@ rules. `bazel test` uses a hermetic test environment without that variable.
 BAZEL_TEST alone cannot distinguish them: both commands use test-setup.sh.
 See https://bazel.build/docs/user-manual#running-executables.
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -17,8 +18,7 @@ import sys
 @contextmanager
 def app_terminal():
     """Undo test-setup.sh's stdout tee for an interactive debug run only."""
-    if (os.environ.get("IPU_DEBUG_TUI") != "1"
-            or not sys.stdin.isatty() or sys.stdout.isatty()):
+    if os.environ.get("IPU_DEBUG_TUI") != "1" or not sys.stdin.isatty() or sys.stdout.isatty():
         yield
         return
     # stdin still refers to the terminal. Preserve the original stdout so

@@ -62,9 +62,12 @@ def test_planted_immediate_change_fails_and_names_the_file(tmp_path):
     asm = _copy_into(tmp_path, _IDENTITY)
     entry = asm_corpus.CorpusEntry(_IDENTITY)
     expected = MANIFEST[entry.key]
-    assert asm_corpus.digest_mismatch(
-        entry.key, expected, asm_corpus.record(asm_corpus.assemble(tmp_path, entry))
-    ) is None
+    assert (
+        asm_corpus.digest_mismatch(
+            entry.key, expected, asm_corpus.record(asm_corpus.assemble(tmp_path, entry))
+        )
+        is None
+    )
 
     # Change one immediate: the MULT.VE mask offset, 0 -> 1.
     source = asm.read_text()

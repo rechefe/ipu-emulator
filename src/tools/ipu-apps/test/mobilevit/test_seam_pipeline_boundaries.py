@@ -73,6 +73,7 @@ from fixture_kernel_support import POISON, kernel_inst
 # Seam 1 (was a DEFECT, fixed): matmul_240x240_x128 (L5 OutProj) -> residual_add_16x240
 # ---------------------------------------------------------------------------
 
+
 def test_seam_outproj_240x240_to_residual_add_16x240_agrees(tmp_path: Path) -> None:
     """L5 OutProj's output now agrees with residual_add_16x240 verbatim.
 
@@ -131,13 +132,16 @@ def test_seam_outproj_240x240_to_residual_add_16x240_agrees(tmp_path: Path) -> N
     # residual_add_16x240 is the FINAL consumer in this chain, so (per the
     # crop convention) it crops its own output to N_TOK -- unlike
     # residual_add_64x192 in the L4 control below, which emits full rows.
-    got = np.frombuffer(
-        Path(residual_app.output_path).read_bytes(), dtype=np.float32
-    ).reshape(ra5.N_CH, ra5.N_TOK)
+    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
+        ra5.N_CH, ra5.N_TOK
+    )
 
-    expected = W @ D   # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
+    expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(
-        got, expected, rtol=1e-4, atol=1e-3,
+        got,
+        expected,
+        rtol=1e-4,
+        atol=1e-3,
         err_msg=(
             "L5 OutProj -> residual_add_16x240 seam: real OutProj output, "
             "fed verbatim, did not reproduce the matmul result through the "
@@ -192,13 +196,16 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
     _, cycles = residual_app.run(max_cycles=1_000_000)
     assert cycles > 0
 
-    got = np.frombuffer(
-        Path(residual_app.output_path).read_bytes(), dtype=np.float32
-    ).reshape(ra4.N_ROWS, op4.LANES)
+    got = np.frombuffer(Path(residual_app.output_path).read_bytes(), dtype=np.float32).reshape(
+        ra4.N_ROWS, op4.LANES
+    )
 
     expected = W @ D  # [N_OUT, N_TOK], the OutProj matmul result (B is all zero)
     np.testing.assert_allclose(
-        got[:, :op4.N_TOK], expected, rtol=1e-4, atol=1e-3,
+        got[:, : op4.N_TOK],
+        expected,
+        rtol=1e-4,
+        atol=1e-3,
         err_msg=(
             "L4 OutProj -> residual_add_64x192 seam: real OutProj output, "
             "fed verbatim, did not reproduce the matmul result through the "
@@ -210,6 +217,7 @@ def test_seam_outproj_192x192_to_residual_add_64x192_agrees(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 # Seam 3 (DEFECT): layernorm_64x192 -> matmul_576x192_x128 (L4 QKV)
 # ---------------------------------------------------------------------------
+
 
 def test_seam_layernorm_64x192_to_matmul_576x192_qkv_pitch_mismatch(tmp_path: Path) -> None:
     """LayerNorm's full-row output cannot feed matmul_576x192_x128's _load_data.
@@ -232,10 +240,10 @@ def test_seam_layernorm_64x192_to_matmul_576x192_qkv_pitch_mismatch(tmp_path: Pa
     rng = np.random.RandomState(0x14192)
 
     x = np.zeros((ln4.N_CH, 128), dtype=np.float32)
-    x[:, :ln4.N_TOK] = rng.uniform(-2.0, 2.0, size=(ln4.N_CH, ln4.N_TOK))
+    x[:, : ln4.N_TOK] = rng.uniform(-2.0, 2.0, size=(ln4.N_CH, ln4.N_TOK))
     # Distinctive poison in the padding lanes: a chained producer would leave
     # real (non-zero) data there, not the harness's usual zero-fill.
-    x[:, ln4.N_TOK:] = POISON
+    x[:, ln4.N_TOK :] = POISON
     gamma = np.ones(ln4.N_CH, dtype=np.float32)
     beta = np.zeros(ln4.N_CH, dtype=np.float32)
 
@@ -298,10 +306,10 @@ def test_seam_layernorm_64x192_to_matmul_576x192_qkv_pitch_mismatch(tmp_path: Pa
     # What the tightly-packed contract WOULD have produced, if LayerNorm's
     # output had been correctly cropped to N_TOK*4 B/channel before staging
     # (i.e. the restaging step this seam is missing).
-    ln_valid = np.frombuffer(ln_raw, dtype=np.float32).reshape(ln4.N_CH, 128)[:, :ln4.N_TOK]
-    expected = qkv_weights @ ln_valid.astype(np.float32)   # [N_OUT, N_TOK]
+    ln_valid = np.frombuffer(ln_raw, dtype=np.float32).reshape(ln4.N_CH, 128)[:, : ln4.N_TOK]
+    expected = qkv_weights @ ln_valid.astype(np.float32)  # [N_OUT, N_TOK]
 
-    max_err = float(np.max(np.abs(got[:, :qkv4.N_TOK] - expected)))
+    max_err = float(np.max(np.abs(got[:, : qkv4.N_TOK] - expected)))
     print(f"layernorm_64x192 -> matmul_576x192_x128 verbatim-feed max abs error = {max_err:.3e}")
 
     # The verbatim (mis-staged) feed must NOT reproduce the correctly-staged

@@ -4,6 +4,7 @@
 validation; the kernel never uses it. Builders take the kernel's harness class
 (a :class:`~ipu_apps.kernels.sampling.app.DescriptorApp`).
 """
+
 from functools import partial
 
 import numpy as np
@@ -51,35 +52,37 @@ def precompute_weights(shape=(60, 80, 256), mode="shared"):
     return ky[:, None, :, None, :, None] * kx[None, :, None, :, None, :]
 
 
-def pack_input(descriptors, app, *, mode="shared", weights=None,
-               cell_row_start=0, cell_row_count=None):
+def pack_input(
+    descriptors, app, *, mode="shared", weights=None, cell_row_start=0, cell_row_count=None
+):
     """Return (preformatted FP32 XMEM input rows, MemoryLayout) for ``app``.
 
     Caller-supplied coefficients are supported in shared mode. Halo packing
     retains the whole coarse map even when a sub-band is requested.
     A separable ``app`` (the compact stock kernel) requires mode="stock".
     """
-    descriptors = np.asarray(descriptors, dtype='<f4')
+    descriptors = np.asarray(descriptors, dtype="<f4")
     shape = descriptors.shape
     separable = app.separable
-    layout = app.memory_layout(shape=shape, mode=mode,
-                              cell_row_start=cell_row_start, cell_row_count=cell_row_count)
+    layout = app.memory_layout(
+        shape=shape, mode=mode, cell_row_start=cell_row_start, cell_row_count=cell_row_count
+    )
     if not np.isfinite(descriptors).all():
         raise ValueError("descriptors must be finite")
     if weights is not None and mode != "shared":
         raise ValueError("caller-provided weights require shared mode")
     h, w, _ = shape
     descriptor_rows = (h + 2) * (w + 2) * 2
-    image = np.zeros((layout.input_rows, 128), dtype='<f4')
+    image = np.zeros((layout.input_rows, 128), dtype="<f4")
     image[:descriptor_rows].reshape(h + 2, w + 2, 256)[1:-1, 1:-1] = descriptors
     if separable:
         ky, kx = precompute_axis_weights(shape)
-        image[descriptor_rows:descriptor_rows+h, :24] = ky.reshape(h, 24)
-        image[descriptor_rows+h:descriptor_rows+h+w, :24] = kx.reshape(w, 24)
+        image[descriptor_rows : descriptor_rows + h, :24] = ky.reshape(h, 24)
+        image[descriptor_rows + h : descriptor_rows + h + w, :24] = kx.reshape(w, 24)
     else:
         if weights is None:
             weights = precompute_weights(shape, mode)
-        weights = np.asarray(weights, dtype='<f4')
+        weights = np.asarray(weights, dtype="<f4")
         expected = (3, 3, 8, 8) if mode == "shared" else (*shape[:2], 3, 3, 8, 8)
         if weights.shape != expected or not np.isfinite(weights).all():
             raise ValueError(f"weights must be finite with shape {expected}")
@@ -111,23 +114,34 @@ def reference_rows(descriptors, mode, y_start=0, y_count=None):
     for dy, wy in ((0, 1 - fy), (1, fy)):
         for dx, wx in ((0, 1 - fx), (1, fx)):
             ix, iy = x0 + dx, y0 + dy
-            valid = ((iy[:, None] >= 0) & (iy[:, None] < h)
-                     & (ix[None, :] >= 0) & (ix[None, :] < w))
+            valid = (iy[:, None] >= 0) & (iy[:, None] < h) & (ix[None, :] >= 0) & (ix[None, :] < w)
             weight = (wy[:, None] * wx[None, :] * valid).astype(np.float32)
             values = descriptors[np.clip(iy, 0, h - 1)[:, None], np.clip(ix, 0, w - 1)[None, :]]
             result += values * weight[..., None]
     return result
 
 
-def prepare(app, workspace, *, height=2, width=3, mode="shared", amplitude=1.0,
-            start=0, count=0, compare_stock=False):
+def prepare(
+    app,
+    workspace,
+    *,
+    height=2,
+    width=3,
+    mode="shared",
+    amplitude=1.0,
+    start=0,
+    count=0,
+    compare_stock=False,
+):
     if not np.isfinite(amplitude) or not 0 < amplitude <= np.finfo(np.float32).max:
         raise ValueError("amplitude must be positive, finite, and representable in FP32")
-    values = np.random.default_rng(31).uniform(-amplitude, amplitude, (height, width, 256)).astype('<f4')
-    params = dict(shape=values.shape, mode=mode, cell_row_start=start,
-                  cell_row_count=count or None)
-    image, layout = pack_input(values, app, mode=mode,
-                              cell_row_start=start, cell_row_count=count or None)
+    values = (
+        np.random.default_rng(31).uniform(-amplitude, amplitude, (height, width, 256)).astype("<f4")
+    )
+    params = dict(shape=values.shape, mode=mode, cell_row_start=start, cell_row_count=count or None)
+    image, layout = pack_input(
+        values, app, mode=mode, cell_row_start=start, cell_row_count=count or None
+    )
 
     def check(raw):
         actual = raw.reshape(-1, width * 8, 256)
@@ -142,18 +156,23 @@ def prepare(app, workspace, *, height=2, width=3, mode="shared", amplitude=1.0,
                 stock_max = max(stock_max, float(np.max(np.abs(difference))))
                 absolute_sum += float(np.sum(np.abs(difference)))
                 squared_sum += float(np.sum(difference * difference))
-        print(f"{mode}: shape={actual.shape}, {actual.nbytes} bytes, seed=31, "
-              f"uniform[-{amplitude:g},{amplitude:g}], max_abs_error={error:.9g}")
+        print(
+            f"{mode}: shape={actual.shape}, {actual.nbytes} bytes, seed=31, "
+            f"uniform[-{amplitude:g},{amplitude:g}], max_abs_error={error:.9g}"
+        )
         if compare_stock:
-            print(f"{mode} vs stock reference: max_abs_error={stock_max:.9g}, "
-                  f"mean_abs_error={absolute_sum / actual.size:.9g}, "
-                  f"rmse={np.sqrt(squared_sum / actual.size):.9g}")
+            print(
+                f"{mode} vs stock reference: max_abs_error={stock_max:.9g}, "
+                f"mean_abs_error={absolute_sum / actual.size:.9g}, "
+                f"rmse={np.sqrt(squared_sum / actual.size):.9g}"
+            )
 
     return prepared_image(workspace, params, image, layout, check)
 
 
-DEFAULTS = dict(height=2, width=3, mode="shared", amplitude=1.0,
-                start=0, count=0, compare_stock=False)
+DEFAULTS = dict(
+    height=2, width=3, mode="shared", amplitude=1.0, start=0, count=0, compare_stock=False
+)
 
 
 def make_cases(app):

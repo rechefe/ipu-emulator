@@ -96,16 +96,16 @@ def _addressing_only_slice(raw_per_stream: dict[int, bytes], row0: int) -> bytes
     (512 B/channel produced vs 256 B/channel -- i.e. N*4 -- expected), which
     means a strip/re-pack step is unavoidable and pure addressing fails.
     """
-    mm_row_bytes = mm.OUTPUT_ROW_BYTES           # 512: matmul's store pitch
-    km_row_bytes = N * 4                          # 256: score kernel's expected pitch
+    mm_row_bytes = mm.OUTPUT_ROW_BYTES  # 512: matmul's store pitch
+    km_row_bytes = N * 4  # 256: score kernel's expected pitch
     if mm_row_bytes != km_row_bytes:
         return None
     # (unreachable while pitches disagree, kept for completeness / future-proofing)
     out = bytearray(P * N_HEAD * D * N * 4)
     for p, raw in raw_per_stream.items():
-        block = raw[row0 * mm_row_bytes:(row0 + N_HEAD * D) * mm_row_bytes]
+        block = raw[row0 * mm_row_bytes : (row0 + N_HEAD * D) * mm_row_bytes]
         lo = p * N_HEAD * D * N * 4
-        out[lo:lo + len(block)] = block
+        out[lo : lo + len(block)] = block
     return bytes(out)
 
 
@@ -130,7 +130,9 @@ def test_qkv_matmul_output_pitch_blocks_pure_addressing_into_scores_km(tmp_path:
     )
 
     W, D_acts = _streams(0x9EC0)
-    raw_per_stream = {p: _run_qkv_matmul_one_stream(D_acts[p], W, tmp_path, tag=str(p)) for p in range(P)}
+    raw_per_stream = {
+        p: _run_qkv_matmul_one_stream(D_acts[p], W, tmp_path, tag=str(p)) for p in range(P)
+    }
 
     q_bytes = _addressing_only_slice(raw_per_stream, _Q_ROW0)
     k_bytes = _addressing_only_slice(raw_per_stream, _K_ROW0)
@@ -149,14 +151,16 @@ def test_qkv_matmul_to_scores_km_agrees_after_repack(tmp_path: Path) -> None:
     already line up.
     """
     W, D_acts = _streams(0x9EC1)
-    raw_per_stream = {p: _run_qkv_matmul_one_stream(D_acts[p], W, tmp_path, tag=f"r{p}") for p in range(P)}
+    raw_per_stream = {
+        p: _run_qkv_matmul_one_stream(D_acts[p], W, tmp_path, tag=f"r{p}") for p in range(P)
+    }
 
     # Minimal repack: strip the 64 padding lanes from each 512 B row (the ONE
     # byte-layout disagreement), keep every index (row order, block order)
     # exactly as the matmul produced it.
     def block_tightly_packed(raw: bytes, row0: int) -> np.ndarray:
         rows = np.frombuffer(raw, dtype=np.float32).reshape(mm.N_OUT, mm.LANES)
-        return rows[row0:row0 + N_HEAD * D, :N]     # [N_HEAD*D, N], padding stripped
+        return rows[row0 : row0 + N_HEAD * D, :N]  # [N_HEAD*D, N], padding stripped
 
     q_blocks = np.stack([block_tightly_packed(raw_per_stream[p], _Q_ROW0) for p in range(P)])
     k_blocks = np.stack([block_tightly_packed(raw_per_stream[p], _K_ROW0) for p in range(P)])
@@ -186,9 +190,9 @@ def test_qkv_matmul_to_scores_km_agrees_after_repack(tmp_path: Path) -> None:
     # for `head` directly from W/D_act -- not from either kernel's own golden.
     expected = np.zeros((P, N, N), dtype=np.float64)
     for p in range(P):
-        C = W.astype(np.float64) @ D_acts[p].astype(np.float64)    # [576, 64]
-        Qh = C[_Q_ROW0 + head * D: _Q_ROW0 + (head + 1) * D, :]     # [D, N]
-        Kh = C[_K_ROW0 + head * D: _K_ROW0 + (head + 1) * D, :]     # [D, N]
+        C = W.astype(np.float64) @ D_acts[p].astype(np.float64)  # [576, 64]
+        Qh = C[_Q_ROW0 + head * D : _Q_ROW0 + (head + 1) * D, :]  # [D, N]
+        Kh = C[_K_ROW0 + head * D : _K_ROW0 + (head + 1) * D, :]  # [D, N]
         # S[p, i, s] = sum_c Q[p,i,c] * K[p,s,c]; kernel stores key-major:
         # row (p*N + s) holds S[p, 0:N, s].
         expected[p] = np.einsum("ci,cs->is", Qh, Kh).T
@@ -198,7 +202,10 @@ def test_qkv_matmul_to_scores_km_agrees_after_repack(tmp_path: Path) -> None:
     print(f"seam qkv_matmul->scores_km max abs error = {max_err:.3e}")
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "chained matmul_576x192_x128 -> attn_scores_km_64x48 (after "
             "padding-strip repack) mismatch vs independent reference"

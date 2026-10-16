@@ -45,13 +45,13 @@ from ipu_apps.kernels.attention.app import attention_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N       = 64            # tokens per stream (queries == keys)
-D       = 48            # head_dim (contraction width)
-P       = 4             # streams / partitions
-N_HEAD  = 4             # attention heads
-N_BLOCK = P * N_HEAD    # 16 independent (stream, head) score problems
-N_TG    = 1             # key groups: 64 keys fit in one 128-lane row
-N_TPG   = N            # keys per group
+N = 64  # tokens per stream (queries == keys)
+D = 48  # head_dim (contraction width)
+P = 4  # streams / partitions
+N_HEAD = 4  # attention heads
+N_BLOCK = P * N_HEAD  # 16 independent (stream, head) score problems
+N_TG = 1  # key groups: 64 keys fit in one 128-lane row
+N_TPG = N  # keys per group
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -62,37 +62,37 @@ N_TPG   = N            # keys per group
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows 4x at FP32 and silently corrupts results.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts are LANE counts -- element-width independent by construction.
 # N = 64 <= LANES, so one K channel column is one whole row (tail unused).
-K_STRIDE_ROWS    = 1                         # rows per K channel column
-QROW_STRIDE_ROWS = 1                         # one staged query row per query
-ACC_STORE_ROWS   = 1                         # one R_ACC store = one row (wide)
+K_STRIDE_ROWS = 1  # rows per K channel column
+QROW_STRIDE_ROWS = 1  # one staged query row per query
+ACC_STORE_ROWS = 1  # one R_ACC store = one row (wide)
 
-K_BLOCK_ROWS = D * K_STRIDE_ROWS             # 48 rows per (stream, head) block
-Q_BLOCK_ROWS = N * QROW_STRIDE_ROWS          # 64 rows per block
-S_BLOCK_ROWS = N * N_TG * ACC_STORE_ROWS     # 64 rows per block
+K_BLOCK_ROWS = D * K_STRIDE_ROWS  # 48 rows per (stream, head) block
+Q_BLOCK_ROWS = N * QROW_STRIDE_ROWS  # 64 rows per block
+S_BLOCK_ROWS = N * N_TG * ACC_STORE_ROWS  # 64 rows per block
 
-K_ROWS    = N_BLOCK * K_BLOCK_ROWS           # 768
-QROW_ROWS = N_BLOCK * Q_BLOCK_ROWS           # 1024
-S_ROWS    = N_BLOCK * S_BLOCK_ROWS           # 1024
+K_ROWS = N_BLOCK * K_BLOCK_ROWS  # 768
+QROW_ROWS = N_BLOCK * Q_BLOCK_ROWS  # 1024
+S_ROWS = N_BLOCK * S_BLOCK_ROWS  # 1024
 
-K_BASE_ROW    = 0
+K_BASE_ROW = 0
 QROW_BASE_ROW = K_BASE_ROW + K_ROWS
-S_BASE_ROW    = QROW_BASE_ROW + QROW_ROWS
+S_BASE_ROW = QROW_BASE_ROW + QROW_ROWS
 
-K_BASE    = K_BASE_ROW * ROW_BYTES
+K_BASE = K_BASE_ROW * ROW_BYTES
 QROW_BASE = QROW_BASE_ROW * ROW_BYTES
-S_BASE    = S_BASE_ROW * ROW_BYTES
+S_BASE = S_BASE_ROW * ROW_BYTES
 
 QROW_STRIDE = QROW_STRIDE_ROWS * ROW_BYTES
-K_STRIDE    = K_STRIDE_ROWS * ROW_BYTES
+K_STRIDE = K_STRIDE_ROWS * ROW_BYTES
 
 # One store = one whole row; only the first N lanes are valid scores.
-OUTPUT_ROW_BYTES = N * ELEM_BYTES            # 256 valid bytes per stored row
+OUTPUT_ROW_BYTES = N * ELEM_BYTES  # 256 valid bytes per stored row
 
 
 class QkScores64x48App(IpuApp):
@@ -116,23 +116,22 @@ class QkScores64x48App(IpuApp):
         want = N_BLOCK * D * N
         if q.size != want or k.size != want:
             raise ValueError(
-                f"expected {want} FP32 elements in each of Q/K; "
-                f"got {q.size} and {k.size}"
+                f"expected {want} FP32 elements in each of Q/K; got {q.size} and {k.size}"
             )
-        q = q.reshape(N_BLOCK, D, N)          # [block, channel, token]
+        q = q.reshape(N_BLOCK, D, N)  # [block, channel, token]
         k = k.reshape(N_BLOCK, D, N)
 
         # K: one channel column per row, 64 keys in the first 64 lanes.
         k_buf = np.zeros((N_BLOCK * D, LANES), dtype=np.float32)
         for b in range(N_BLOCK):
-            k_buf[b * D:(b + 1) * D, :N] = k[b]
+            k_buf[b * D : (b + 1) * D, :N] = k[b]
         state.xmem.write_address(K_BASE, bytearray(k_buf.tobytes()))
 
         # Q: gather the strided channels into contiguous query-major rows.
         #    QROW[b, i] = Q[b, i, 0..47] at the row start, rest zero.
         q_buf = np.zeros((N_BLOCK * N, LANES), dtype=np.float32)
         for b in range(N_BLOCK):
-            q_buf[b * N:(b + 1) * N, :D] = q[b].T   # [token, channel]
+            q_buf[b * N : (b + 1) * N, :D] = q[b].T  # [token, channel]
         state.xmem.write_address(QROW_BASE, bytearray(q_buf.tobytes()))
 
     def setup(self, state: "IpuState") -> None:
@@ -144,30 +143,30 @@ class QkScores64x48App(IpuApp):
 
         # Startup skew, in rows: the load runs one bundle ahead of the MULT that
         # consumes it, so the pointer starts one channel stride low.
-        k_start_rows = -K_STRIDE_ROWS        # first live K column = block base
+        k_start_rows = -K_STRIDE_ROWS  # first live K column = block base
 
         # CR0 (==0) and CR1 (==1) are hardwired read-only, so every base lives
         # on a writable CR -- K_BASE_ROW happening to be 0 must not be relied on.
-        state.regfile.set_cr(2, K_BASE_ROW)             # channel-major K base
-        state.regfile.set_cr(9, QROW_BASE_ROW)          # staged query rows
-        state.regfile.set_cr(3, S_BASE_ROW)             # score output base
-        state.regfile.set_cr(5, k_start_rows)           # K-data startup (rows)
-        state.regfile.set_cr(7, -1)                     # channel fixed_idx startup
-        state.regfile.set_cr(8, D - 2)                  # contraction bound (46)
-        state.regfile.set_cr(10, N_BLOCK)               # block-loop limit (16)
-        state.regfile.set_cr(11, K_BLOCK_ROWS)          # K rows per block (48)
+        state.regfile.set_cr(2, K_BASE_ROW)  # channel-major K base
+        state.regfile.set_cr(9, QROW_BASE_ROW)  # staged query rows
+        state.regfile.set_cr(3, S_BASE_ROW)  # score output base
+        state.regfile.set_cr(5, k_start_rows)  # K-data startup (rows)
+        state.regfile.set_cr(7, -1)  # channel fixed_idx startup
+        state.regfile.set_cr(8, D - 2)  # contraction bound (46)
+        state.regfile.set_cr(10, N_BLOCK)  # block-loop limit (16)
+        state.regfile.set_cr(11, K_BLOCK_ROWS)  # K rows per block (48)
 
-        state.regfile.set_lr(0, 0)                      # R_CYCLIC write-index / mask_shift
-        state.regfile.set_lr(2, K_STRIDE_ROWS)          # K stride per channel (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC write-index / mask_shift
+        state.regfile.set_lr(2, K_STRIDE_ROWS)  # K stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
-        state.regfile.set_lr(6, D - 2)                  # contraction BLT bound
-        state.regfile.set_lr(7, 0)                      # output row offset
-        state.regfile.set_lr(8, 0)                      # Q-row row offset
-        state.regfile.set_lr(9, 0)                      # query counter
-        state.regfile.set_lr(10, N)                     # query-loop limit
-        state.regfile.set_lr(12, QROW_STRIDE_ROWS)      # Q-row stride per query (rows)
-        state.regfile.set_lr(13, 0)                     # K block base offset (rows)
-        state.regfile.set_lr(14, 0)                     # block counter
+        state.regfile.set_lr(6, D - 2)  # contraction BLT bound
+        state.regfile.set_lr(7, 0)  # output row offset
+        state.regfile.set_lr(8, 0)  # Q-row row offset
+        state.regfile.set_lr(9, 0)  # query counter
+        state.regfile.set_lr(10, N)  # query-loop limit
+        state.regfile.set_lr(12, QROW_STRIDE_ROWS)  # Q-row stride per query (rows)
+        state.regfile.set_lr(13, 0)  # K block base offset (rows)
+        state.regfile.set_lr(14, 0)  # block counter
 
     def teardown(self, state: "IpuState") -> None:
         """Crop each score row's valid N keys out of its whole 512 B row.

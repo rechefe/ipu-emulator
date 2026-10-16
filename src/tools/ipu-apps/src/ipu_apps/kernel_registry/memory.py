@@ -4,6 +4,7 @@ The input file contains every row before the output region, including weights,
 constants, padding and scratch. Layout preparation belongs to cases/callers;
 the harness only validates file size, loads memory, sets CRs and dumps output.
 """
+
 from dataclasses import dataclass
 import inspect
 from pathlib import Path
@@ -67,17 +68,22 @@ class MemoryApp(IpuApp):
             raise ValueError(f"preformatted input must contain {expected} bytes")
 
     def setup(self, state):
-        load_binary_to_xmem(state, self.input_path, 0, R_ACC_SIZE,
-                            max_chunks=self.layout.input_rows)
+        load_binary_to_xmem(
+            state, self.input_path, 0, R_ACC_SIZE, max_chunks=self.layout.input_rows
+        )
         for register, value in self.layout.crs.items():
             state.regfile.set_cr(register, value)
         state.set_cr_dstructure(valid_elements=LANES)
 
     def teardown(self, state):
         if self.output_path is not None:
-            dump_xmem_to_binary(state, self.output_path,
-                                self.layout.input_rows * R_ACC_SIZE, R_ACC_SIZE,
-                                num_chunks=self.layout.output_rows)
+            dump_xmem_to_binary(
+                state,
+                self.output_path,
+                self.layout.input_rows * R_ACC_SIZE,
+                R_ACC_SIZE,
+                num_chunks=self.layout.output_rows,
+            )
 
 
 def memory_spec(op, app_class, *, cost=0, **fields):
@@ -87,6 +93,7 @@ def memory_spec(op, app_class, *, cost=0, **fields):
     whatever ``memory_layout`` accepts, and ``requires`` defaults to
     ``memory_layout``'s keyword-only parameters that have no default.
     """
+
     def supports(**params):
         try:
             app_class.memory_layout(**params)
@@ -97,12 +104,17 @@ def memory_spec(op, app_class, *, cost=0, **fields):
     name = kernel_folder(app_class)
     layout_params = inspect.signature(app_class.memory_layout).parameters.values()
     defaults = dict(
-        op=op, supports=supports,
-        requires=tuple(p.name for p in layout_params
-                       if p.kind is p.KEYWORD_ONLY and p.default is p.empty),
+        op=op,
+        supports=supports,
+        requires=tuple(
+            p.name for p in layout_params if p.kind is p.KEYWORD_ONLY and p.default is p.empty
+        ),
         build=lambda **params: {"params": params},
         explain=lambda **params: f"{name} with preformatted FP32 XMEM rows",
-        caveats=lambda **params: ("input includes padding, constants and scratch; output is raw tiled FP32",),
-        execution=ExecutionConfig(mode="fp32"), cost=lambda **params: cost,
+        caveats=lambda **params: (
+            "input includes padding, constants and scratch; output is raw tiled FP32",
+        ),
+        execution=ExecutionConfig(mode="fp32"),
+        cost=lambda **params: cost,
     )
     return folder_spec(app_class, **(defaults | fields))

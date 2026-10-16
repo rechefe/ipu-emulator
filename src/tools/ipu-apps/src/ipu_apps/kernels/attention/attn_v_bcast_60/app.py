@@ -57,10 +57,10 @@ from ipu_apps.kernels.attention.app import attention_spec
 if TYPE_CHECKING:
     from ipu_emu.ipu_state import IpuState
 
-N_TOK   = 16        # queries == keys
-D       = 60        # head_dim
-N_HEAD  = 4
-N_CHAN  = N_HEAD * D  # 240 value channels total
+N_TOK = 16  # queries == keys
+D = 60  # head_dim
+N_HEAD = 4
+N_CHAN = N_HEAD * D  # 240 value channels total
 
 # ---------------------------------------------------------------------------
 # Wide-vector FP32 only. Elements are 4 bytes and an XMEM row is LANES * 4 =
@@ -71,16 +71,16 @@ N_CHAN  = N_HEAD * D  # 240 value channels total
 # from row counts, not hardcoded bytes: a byte map sized for 1-byte elements
 # overflows at 4 bytes/element and regions silently overwrite each other.
 # ---------------------------------------------------------------------------
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
 # Row counts below are LANE counts -- element-width independent by construction.
 # One channel per row: 16 tokens live in a WHOLE row (ceil-div, never a
 # sub-row stride).  These match ``attn_v_16x60`` exactly for V and O.
-PV_STRIDE_ROWS     = max(1, N_TOK // LANES)  # 1: rows per P key / V channel
+PV_STRIDE_ROWS = max(1, N_TOK // LANES)  # 1: rows per P key / V channel
 P_HEAD_STRIDE_ROWS = N_TOK * PV_STRIDE_ROWS  # 16: rows per head in P
-O_CHAN_ROWS        = 1                       # one R_ACC store = one whole row
+O_CHAN_ROWS = 1  # one R_ACC store = one whole row
 
 P_ROWS = N_HEAD * P_HEAD_STRIDE_ROWS
 V_ROWS = N_CHAN * PV_STRIDE_ROWS
@@ -95,7 +95,7 @@ VBASE = VBASE_ROW * ROW_BYTES
 OBASE = OBASE_ROW * ROW_BYTES
 
 P_HEAD_STRIDE = P_HEAD_STRIDE_ROWS * ROW_BYTES
-O_CHAN_BYTES  = O_CHAN_ROWS * ROW_BYTES
+O_CHAN_BYTES = O_CHAN_ROWS * ROW_BYTES
 
 
 class AttnVBcast60App(IpuApp):
@@ -120,24 +120,27 @@ class AttnVBcast60App(IpuApp):
         state.regfile.set_cr(2, PBASE_ROW)
         state.regfile.set_cr(3, VBASE_ROW)
         state.regfile.set_cr(4, OBASE_ROW)
-        state.regfile.set_cr(6, -1)                 # key-index startup
-        state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS) # P head stride (rows)
+        state.regfile.set_cr(6, -1)  # key-index startup
+        state.regfile.set_cr(7, P_HEAD_STRIDE_ROWS)  # P head stride (rows)
         # Loop bounds are count-1: the counter ADD and the BLT share one bundle,
         # so BLT reads the pre-ADD snapshot (branch taken while snapshot < bound).
-        state.regfile.set_cr(8, N_TOK - 2)          # 14: key-loop bound (width 16, peeled+startup)
-        state.regfile.set_cr(9, D - 1)              # 59: t-loop bound (60 channels)
-        state.regfile.set_cr(10, N_HEAD - 1)        # 3: head-loop bound (4 heads)
+        state.regfile.set_cr(8, N_TOK - 2)  # 14: key-loop bound (width 16, peeled+startup)
+        state.regfile.set_cr(9, D - 1)  # 59: t-loop bound (60 channels)
+        state.regfile.set_cr(10, N_HEAD - 1)  # 3: head-loop bound (4 heads)
         # LRs
-        state.regfile.set_lr(0, 0)                  # R_CYCLIC index / mask_shift
-        state.regfile.set_lr(1, PV_STRIDE_ROWS)     # P key stride / V channel stride (rows)
-        state.regfile.set_lr(2, O_CHAN_ROWS)        # output-row stride (rows)
+        state.regfile.set_lr(0, 0)  # R_CYCLIC index / mask_shift
+        state.regfile.set_lr(1, PV_STRIDE_ROWS)  # P key stride / V channel stride (rows)
+        state.regfile.set_lr(2, O_CHAN_ROWS)  # output-row stride (rows)
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             # N_CHAN channels, each ONE whole 512-B FP32 row (16 live lanes).
             dump_xmem_to_binary(
-                state, self.output_path,
-                OBASE, O_CHAN_BYTES, N_CHAN,
+                state,
+                self.output_path,
+                OBASE,
+                O_CHAN_BYTES,
+                N_CHAN,
             )
 
 

@@ -39,14 +39,17 @@ LANES = 128
 
 def _harness(verdict, params, **bindings):
     assert verdict.supported, verdict.reason
-    return create_harness(verdict.kernel.name, params=params,
-                          bindings={"inst_path": kernel_inst(verdict.kernel.name), **bindings})
+    return create_harness(
+        verdict.kernel.name,
+        params=params,
+        bindings={"inst_path": kernel_inst(verdict.kernel.name), **bindings},
+    )
 
 
 def _rows(x: np.ndarray) -> np.ndarray:
     """Zero-pad each row of a 2-D FP32 array out to LANES lanes."""
     out = np.zeros((x.shape[0], LANES), dtype=np.float32)
-    out[:, :x.shape[1]] = x
+    out[:, : x.shape[1]] = x
     return out
 
 
@@ -70,8 +73,9 @@ def test_resolved_matmul_computes_the_operation(tmp_path):
     input_path.write_bytes(A.tobytes())
     weights_path.write_bytes(W.tobytes())
 
-    app = _harness(verdict, query, input_path=input_path, weights_path=weights_path,
-                   output_path=output_path)
+    app = _harness(
+        verdict, query, input_path=input_path, weights_path=weights_path, output_path=output_path
+    )
     _, cycles = app.run(max_cycles=20_000_000)
     assert cycles > 0
 
@@ -101,10 +105,7 @@ def test_resolved_projection_computes_the_operation(tmp_path):
     assert verdict.kernel.name == "proj_qkv_144_p4", verdict.reason
 
     rng = np.random.RandomState(0xC0FFEE)
-    D = [
-        rng.uniform(-1.0, 1.0, size=(N_TG, K, N_TOK)).astype(np.float32)
-        for _ in range(N_STREAM)
-    ]
+    D = [rng.uniform(-1.0, 1.0, size=(N_TG, K, N_TOK)).astype(np.float32) for _ in range(N_STREAM)]
     W = rng.uniform(-1.0, 1.0, size=(N_OUT, K)).astype(np.float32)
 
     # The harness takes all streams in one file, (N_STREAM, N_TG, K, N_TOK),
@@ -115,12 +116,15 @@ def test_resolved_projection_computes_the_operation(tmp_path):
     weights_path.write_bytes(W.tobytes())
     output_path = tmp_path / "output.bin"
 
-    app = _harness(verdict, query, input_path=input_path, weights_path=weights_path,
-                   output_path=output_path)
+    app = _harness(
+        verdict, query, input_path=input_path, weights_path=weights_path, output_path=output_path
+    )
     _, cycles = app.run(max_cycles=20_000_000)
     assert cycles > 0
 
-    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_STREAM, N_TG, N_OUT, LANES)
+    got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(
+        N_STREAM, N_TG, N_OUT, LANES
+    )
     for p in range(N_STREAM):
         for tg in range(N_TG):
             np.testing.assert_allclose(got[p, tg][:, :N_TOK], W @ D[p][tg], rtol=1e-4, atol=1e-3)
@@ -161,8 +165,14 @@ def test_resolved_layernorm_computes_the_operation(tmp_path):
     beta_path.write_bytes(_rows(beta[None, :]).tobytes())
     output_path = tmp_path / "out.bin"
 
-    app = _harness(verdict, query, input_path=input_path, gamma_path=gamma_path,
-                   beta_path=beta_path, output_path=output_path)
+    app = _harness(
+        verdict,
+        query,
+        input_path=input_path,
+        gamma_path=gamma_path,
+        beta_path=beta_path,
+        output_path=output_path,
+    )
     _, cycles = app.run(max_cycles=500_000)
     assert cycles > 0
 
@@ -190,8 +200,9 @@ def test_resolved_residual_add_computes_the_operation(tmp_path):
     b_path.write_bytes(_rows(b).tobytes())
     output_path = tmp_path / "out.bin"
 
-    app = _harness(verdict, query, input_a_path=a_path, input_b_path=b_path,
-                   output_path=output_path)
+    app = _harness(
+        verdict, query, input_a_path=a_path, input_b_path=b_path, output_path=output_path
+    )
     _, cycles = app.run(max_cycles=5_000_000)
     assert cycles > 0
 
@@ -263,8 +274,9 @@ def test_resolved_qk_scores_computes_the_operation(tmp_path):
     got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N, N_TG, LANES)
     for g in range(N_TG):
         lo = g * N_TPG
-        np.testing.assert_allclose(got[:, g, :N_TPG], expected[:, lo : lo + N_TPG],
-                                   rtol=1e-4, atol=1e-3)
+        np.testing.assert_allclose(
+            got[:, g, :N_TPG], expected[:, lo : lo + N_TPG], rtol=1e-4, atol=1e-3
+        )
 
 
 # -- attn_scores_km (key-major chain) ------------------------------------
@@ -303,8 +315,9 @@ def test_resolved_attn_scores_km_computes_the_operation(tmp_path):
     got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_TOK, N_TG, LANES)
     for g in range(N_TG):
         lo_q = g * N_TPG
-        np.testing.assert_allclose(got[:, g, :N_TPG], expected[lo_q : lo_q + N_TPG, :].T,
-                                   rtol=1e-4, atol=1e-3)
+        np.testing.assert_allclose(
+            got[:, g, :N_TPG], expected[lo_q : lo_q + N_TPG, :].T, rtol=1e-4, atol=1e-3
+        )
 
 
 # -- attn_v (query-major chain, AGG) -------------------------------------
@@ -312,7 +325,12 @@ def test_resolved_attn_scores_km_computes_the_operation(tmp_path):
 
 def test_resolved_attn_v_computes_the_operation(tmp_path):
     from ipu_apps.kernels.attention.attn_v_16x60.app import (
-        N_TOK, D, N_HEAD, N_CHAN, PV_STRIDE_ROWS, P_HEAD_STRIDE_ROWS,
+        N_TOK,
+        D,
+        N_HEAD,
+        N_CHAN,
+        PV_STRIDE_ROWS,
+        P_HEAD_STRIDE_ROWS,
     )
 
     query = dict(n_tok=N_TOK, d=D)
@@ -355,7 +373,9 @@ def test_resolved_attn_v_computes_the_operation(tmp_path):
     got = np.frombuffer(output_path.read_bytes(), dtype=np.float32).reshape(N_CHAN, LANES)
     for h in range(N_HEAD):
         for t in range(D):
-            np.testing.assert_allclose(got[h * D + t, :N_TOK], expected[h, :, t], rtol=1e-4, atol=1e-3)
+            np.testing.assert_allclose(
+                got[h * D + t, :N_TOK], expected[h, :, t], rtol=1e-4, atol=1e-3
+            )
 
 
 # -- attn_v_bcast (key-major chain, single ACC.ADD fold) -----------------
@@ -363,7 +383,12 @@ def test_resolved_attn_v_computes_the_operation(tmp_path):
 
 def test_resolved_attn_v_bcast_computes_the_operation(tmp_path):
     from ipu_apps.kernels.attention.attn_v_bcast_36.app import (
-        N_TOK, D, N_HEAD, N_CHAN, PV_STRIDE_ROWS, P_HEAD_STRIDE_ROWS,
+        N_TOK,
+        D,
+        N_HEAD,
+        N_CHAN,
+        PV_STRIDE_ROWS,
+        P_HEAD_STRIDE_ROWS,
     )
 
     query = dict(d=D)

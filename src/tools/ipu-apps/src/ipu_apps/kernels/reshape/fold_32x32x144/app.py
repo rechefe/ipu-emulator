@@ -34,39 +34,40 @@ if TYPE_CHECKING:
 
 # -- Dimensions (shared with unfold_32x32x144; same (H, W, C) triple) -------
 
-H         = 32    # spatial height
-W         = 32    # spatial width
-C         = 144   # channels
-N_STRIPES = 8     # 128-element row = 4 spatial rows x 32 cols -> H/4 = 8 stripes
-N_STREAMS = 4     # TL, TR, BL, BR
-N_TG      = 2     # token groups per channel (unfold_32x32x144's stream rows)
-N_TOK     = 128   # valid tokens per stream row -- a FULL 128-lane row (no padding)
+H = 32  # spatial height
+W = 32  # spatial width
+C = 144  # channels
+N_STRIPES = 8  # 128-element row = 4 spatial rows x 32 cols -> H/4 = 8 stripes
+N_STREAMS = 4  # TL, TR, BL, BR
+N_TG = 2  # token groups per channel (unfold_32x32x144's stream rows)
+N_TOK = 128  # valid tokens per stream row -- a FULL 128-lane row (no padding)
 
 # -- Memory map ---------------------------------------------------------
 #
 # Wide-vector FP32 only, same convention as fold_16x16x192: an XMEM row is
 # LANES * 4 = 512 bytes unconditionally, and .asm XMEM operands are ROW
 # numbers, not byte offsets.
-ELEM_BYTES = 4                               # FP32
-LANES      = 128                             # elements per XMEM row
-ROW_BYTES  = LANES * ELEM_BYTES              # 512
+ELEM_BYTES = 4  # FP32
+LANES = 128  # elements per XMEM row
+ROW_BYTES = LANES * ELEM_BYTES  # 512
 
-DST_ROW_BYTES = ROW_BYTES                    # 512 bytes/row in wide-vector debug mode
+DST_ROW_BYTES = ROW_BYTES  # 512 bytes/row in wide-vector debug mode
 
-_STREAM_ROWS = C * N_TG                      # rows per input stream (2 tgs per channel)
-SRC_STRIDE_ROWS = N_TG                       # one src (ch,tg0/tg1) pair per channel step
-DST_STRIDE_ROWS = 1                          # one dst row per channel, per stripe
+_STREAM_ROWS = C * N_TG  # rows per input stream (2 tgs per channel)
+SRC_STRIDE_ROWS = N_TG  # one src (ch,tg0/tg1) pair per channel step
+DST_STRIDE_ROWS = 1  # one dst row per channel, per stripe
 
 SRC_BASE_ROW = 0
 DST_BASE_ROW = SRC_BASE_ROW + N_STREAMS * _STREAM_ROWS
 ONES_BASE_ROW = DST_BASE_ROW + N_STRIPES * C
 
-SRC_BASE  = SRC_BASE_ROW * ROW_BYTES
-DST_BASE  = DST_BASE_ROW * ROW_BYTES
+SRC_BASE = SRC_BASE_ROW * ROW_BYTES
+DST_BASE = DST_BASE_ROW * ROW_BYTES
 ONES_BASE = ONES_BASE_ROW * ROW_BYTES
 
 
 # -- XMEM loaders -------------------------------------------------------
+
 
 def _load_input(state: "IpuState", input_path: str | Path) -> None:
     """Write the 4 channel-major streams directly into XMEM at SRC_BASE.
@@ -99,6 +100,7 @@ def _pack_bytes(values: list[int]) -> int:
 
 # -- App ------------------------------------------------------------------
 
+
 class Fold32x32x144App(IpuApp):
     """Fold 4 channel-major streams (TL, TR, BL, BR) into a 32x32x144 spatial tensor.
 
@@ -128,7 +130,7 @@ class Fold32x32x144App(IpuApp):
         # CR8: ones base (for R_CYCLIC loading in assembly init)
         state.regfile.set_cr(8, ONES_BASE_ROW)
         # CR9..CR12: per-stream SOURCE bases (TL, TR, BL, BR)
-        state.regfile.set_cr(9,  SRC_BASE_ROW)
+        state.regfile.set_cr(9, SRC_BASE_ROW)
         state.regfile.set_cr(10, SRC_BASE_ROW + _STREAM_ROWS)
         state.regfile.set_cr(11, SRC_BASE_ROW + 2 * _STREAM_ROWS)
         state.regfile.set_cr(12, SRC_BASE_ROW + 3 * _STREAM_ROWS)
@@ -157,19 +159,26 @@ class Fold32x32x144App(IpuApp):
         # across the ENTIRE kernel (0 .. N_STRIPES*C - 1) rather than
         # resetting to 0 at each stripe boundary -- there is no per-stripe CR
         # to add a reset value back onto.
-        state.regfile.set_lr(0, 0)      # R_CYCLIC slot 0
-        state.regfile.set_lr(6, 0)      # src row offset within a stream = ch*N_TG+tg; reset every stripe
-        state.regfile.set_lr(7, SRC_STRIDE_ROWS)   # src stride per channel (2 rows: tg0, tg1)
-        state.regfile.set_lr(8, 0)      # dst row offset = stripe*C + ch (relative to DST_BASE_ROW); += 1 per channel, never reset
-        state.regfile.set_lr(9, DST_STRIDE_ROWS)   # dst stride per channel (1 row)
-        state.regfile.set_lr(10, 0)     # channel counter (inner loop); reset every stripe
-        state.regfile.set_lr(11, C)     # inner loop limit
+        state.regfile.set_lr(0, 0)  # R_CYCLIC slot 0
+        state.regfile.set_lr(
+            6, 0
+        )  # src row offset within a stream = ch*N_TG+tg; reset every stripe
+        state.regfile.set_lr(7, SRC_STRIDE_ROWS)  # src stride per channel (2 rows: tg0, tg1)
+        state.regfile.set_lr(
+            8, 0
+        )  # dst row offset = stripe*C + ch (relative to DST_BASE_ROW); += 1 per channel, never reset
+        state.regfile.set_lr(9, DST_STRIDE_ROWS)  # dst stride per channel (1 row)
+        state.regfile.set_lr(10, 0)  # channel counter (inner loop); reset every stripe
+        state.regfile.set_lr(11, C)  # inner loop limit
 
     def teardown(self, state: "IpuState") -> None:
         if self.output_path is not None:
             dump_xmem_to_binary(
-                state, self.output_path,
-                DST_BASE, DST_ROW_BYTES, N_STRIPES * C,
+                state,
+                self.output_path,
+                DST_BASE,
+                DST_ROW_BYTES,
+                N_STRIPES * C,
             )
 
 

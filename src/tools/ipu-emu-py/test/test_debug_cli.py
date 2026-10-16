@@ -37,7 +37,10 @@ from emu_support import ElementFormat, make_state, new_state
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_cli(state: IpuState, commands: str, control: DebugControl | None = None) -> tuple[DebugCLI, StringIO]:
+
+def _make_cli(
+    state: IpuState, commands: str, control: DebugControl | None = None
+) -> tuple[DebugCLI, StringIO]:
     """Create a CLI with pre-canned input and capture output."""
     inp = StringIO(commands)
     out = StringIO()
@@ -84,6 +87,7 @@ def test_legacy_cli_has_no_tui_command():
 # ============================================================================
 # Register resolution
 # ============================================================================
+
 
 class TestResolveRegister:
     def test_lr_by_index(self):
@@ -133,6 +137,7 @@ class TestResolveRegister:
 # ============================================================================
 # CLI commands
 # ============================================================================
+
 
 class TestCLICommands:
     def test_terminal_streams_enable_readline_history(self):
@@ -261,6 +266,7 @@ class TestCLICommands:
 # XMEM inspection
 # ============================================================================
 
+
 class TestXmemCommand:
     def test_byte_address_hex(self):
         state = IpuState()
@@ -380,8 +386,7 @@ class TestXmemCommand:
         _, output = _run_cli(state, "xmem byte 508 0 8 u8\ncontinue\n")
 
         assert (
-            "XMEM row 0 starts at byte address 0x00000000; "
-            "display starts at 0x000001fc"
+            "XMEM row 0 starts at byte address 0x00000000; display starts at 0x000001fc"
         ) in output
         assert "0x000001fc: 000 001 002 003" in output
         assert "XMEM row 1 starts at byte address 0x00000200" in output
@@ -432,6 +437,7 @@ class Test16BitCellEncoding:
 # Debug levels
 # ============================================================================
 
+
 class TestDebugLevels:
     def test_level0_shows_lr(self):
         state = IpuState()
@@ -455,6 +461,7 @@ class TestDebugLevels:
 # ============================================================================
 # Disassembly
 # ============================================================================
+
 
 class TestDisassembly:
     def test_disasm_set_lr(self):
@@ -480,6 +487,7 @@ class TestDisassembly:
 # ============================================================================
 # JSON export
 # ============================================================================
+
 
 class TestJsonExport:
     def test_state_to_json_has_all_keys(self):
@@ -559,9 +567,7 @@ class TestJsonExport:
         state.xmem.write_address(3 * 512, expected)
         path = tmp_path / "row-state.json"
 
-        action, output = _run_cli(
-            state, f"save {path} xmem row cr4 lr0 2\ncontinue\n"
-        )
+        action, output = _run_cli(state, f"save {path} xmem row cr4 lr0 2\ncontinue\n")
 
         assert action == DebugAction.CONTINUE
         assert "XMEM saved" in output
@@ -634,6 +640,7 @@ class TestJsonExport:
 # format_register
 # ============================================================================
 
+
 class TestFormatRegister:
     def test_scalar(self):
         state = IpuState()
@@ -660,6 +667,7 @@ class TestFormatRegister:
 # ============================================================================
 # print_all_registers
 # ============================================================================
+
 
 class TestPrintAllRegisters:
     def test_returns_string(self):

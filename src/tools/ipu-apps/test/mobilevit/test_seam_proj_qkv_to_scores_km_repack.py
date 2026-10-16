@@ -52,7 +52,12 @@ _Q_ROW0 = 0
 
 
 def repack_qkv_to_km(
-    stream_outputs: list[np.ndarray], *, n_head: int, d: int, n_tok: int, row0: int,
+    stream_outputs: list[np.ndarray],
+    *,
+    n_head: int,
+    d: int,
+    n_tok: int,
+    row0: int,
 ) -> np.ndarray:
     """Strip-padding repack: proj_qkv_*_p4's per-stream [N_OUT, LANES] raw
     output rows -> attn_scores_km_*'s canonical [P, N_HEAD, D, N] flat block.
@@ -64,15 +69,15 @@ def repack_qkv_to_km(
     exactly as the projection kernel produced them.
     """
     P = len(stream_outputs)
-    blocks = np.stack([
-        stream_outputs[p][row0:row0 + n_head * d, :n_tok]
-        for p in range(P)
-    ])  # [P, N_HEAD*D, N]
+    blocks = np.stack(
+        [stream_outputs[p][row0 : row0 + n_head * d, :n_tok] for p in range(P)]
+    )  # [P, N_HEAD*D, N]
     return blocks.reshape(P, n_head, d, n_tok)
 
 
-def _run_proj_qkv_p4(module, app_class, D_acts: list[np.ndarray], W: np.ndarray,
-                     tmp_path: Path, tag: str) -> list[np.ndarray]:
+def _run_proj_qkv_p4(
+    module, app_class, D_acts: list[np.ndarray], W: np.ndarray, tmp_path: Path, tag: str
+) -> list[np.ndarray]:
     """One proj_qkv_*_p4 invocation over all 4 streams.
 
     The harness takes all streams in ONE input file, ``(N_STREAM, N_TG, K,
@@ -80,13 +85,17 @@ def _run_proj_qkv_p4(module, app_class, D_acts: list[np.ndarray], W: np.ndarray,
     ``(N_STREAM, N_TG, N_OUT, LANES)``. Returns stream p's [N_OUT, LANES] rows.
     """
     input_path = tmp_path / f"d_{tag}.bin"
-    input_path.write_bytes(np.stack(D_acts).astype(np.float32).tobytes())   # N_TG = 1
+    input_path.write_bytes(np.stack(D_acts).astype(np.float32).tobytes())  # N_TG = 1
     weights_path = tmp_path / f"w_{tag}.bin"
     weights_path.write_bytes(W.astype(np.float32).tobytes())
     output_path = tmp_path / f"out_{tag}.bin"
 
-    app = app_class(inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-                    input_path=input_path, weights_path=weights_path, output_path=output_path)
+    app = app_class(
+        inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
+        input_path=input_path,
+        weights_path=weights_path,
+        output_path=output_path,
+    )
     _, cycles = app.run(max_cycles=20_000_000)
     assert cycles > 0
 
@@ -103,8 +112,13 @@ def _run_scores_km(module, app_class, q_blocks, k_blocks, head, out_rows, tmp_pa
     k_path.write_bytes(k_blocks.astype(np.float32).tobytes())
     output_path = tmp_path / f"scores_{tag}.bin"
 
-    app = app_class(inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
-                    input_path=q_path, weights_path=k_path, output_path=output_path, head=head)
+    app = app_class(
+        inst_path=kernel_inst(module.__package__.rpartition(".")[2]),
+        input_path=q_path,
+        weights_path=k_path,
+        output_path=output_path,
+        head=head,
+    )
     state = app.make_state()
     poison(state, module.SBASE, module.S_ROWS)
     state, cycles = app.run(max_cycles=20_000_000, state=state)
@@ -115,8 +129,10 @@ def _run_scores_km(module, app_class, q_blocks, k_blocks, head, out_rows, tmp_pa
 def _l4_inputs(seed):
     rng = np.random.RandomState(seed)
     W = rng.uniform(-1.0, 1.0, size=(qkv4.N_OUT, qkv4.K)).astype(np.float32)
-    D_acts = [rng.uniform(-1.0, 1.0, size=(qkv4.K, qkv4.N_TOK)).astype(np.float32)
-              for _ in range(qkv4.N_STREAM)]
+    D_acts = [
+        rng.uniform(-1.0, 1.0, size=(qkv4.K, qkv4.N_TOK)).astype(np.float32)
+        for _ in range(qkv4.N_STREAM)
+    ]
     return W, D_acts
 
 
@@ -124,8 +140,8 @@ def _l4_expected(W, D_acts, head, k_row0):
     expected = np.zeros((km4.P, km4.N, km4.N), dtype=np.float64)
     for p in range(km4.P):
         C = W.astype(np.float64) @ D_acts[p].astype(np.float64)
-        Qh = C[head * km4.D:(head + 1) * km4.D, :]
-        Kh = C[k_row0 + head * km4.D: k_row0 + (head + 1) * km4.D, :]
+        Qh = C[head * km4.D : (head + 1) * km4.D, :]
+        Kh = C[k_row0 + head * km4.D : k_row0 + (head + 1) * km4.D, :]
         expected[p] = np.einsum("ci,cs->is", Qh, Kh).T
     return expected.reshape(km4.P * km4.N, km4.N)
 
@@ -141,7 +157,8 @@ def test_repack_is_padding_strip_only_no_permutation() -> None:
     n_head, d, n_tok, P, n_out, lanes = 4, 48, 64, 4, 576, 128
 
     p_idx, h_idx, c_idx, t_idx = np.meshgrid(
-        np.arange(P), np.arange(n_head), np.arange(d), np.arange(n_tok), indexing="ij")
+        np.arange(P), np.arange(n_head), np.arange(d), np.arange(n_tok), indexing="ij"
+    )
     # Injective encoding into a plain float -- decodable by inspection.
     encoded = (p_idx * 10_000 + h_idx * 1_000 + c_idx * 10 + t_idx).astype(np.float32)
 
@@ -149,7 +166,7 @@ def test_repack_is_padding_strip_only_no_permutation() -> None:
     for p in range(P):
         block = np.zeros((n_out, lanes), dtype=np.float32)
         # padding lanes stay 0 -- must never appear in valid output
-        block[:n_head * d, :n_tok] = encoded[p].reshape(n_head * d, n_tok)
+        block[: n_head * d, :n_tok] = encoded[p].reshape(n_head * d, n_tok)
         stream_outputs.append(block)
 
     got = repack_qkv_to_km(stream_outputs, n_head=n_head, d=d, n_tok=n_tok, row0=0)
@@ -172,15 +189,20 @@ def test_repack_control_mismatch_is_detected(tmp_path: Path) -> None:
 
     head = 2
     k_row0 = km4.N_HEAD * km4.D
-    q_blocks = repack_qkv_to_km(stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=_Q_ROW0)
-    k_blocks = repack_qkv_to_km(stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=k_row0)
+    q_blocks = repack_qkv_to_km(
+        stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=_Q_ROW0
+    )
+    k_blocks = repack_qkv_to_km(
+        stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=k_row0
+    )
 
     # Corrupt one element of Q for the selected head.
     q_blocks[1, head, 3, :] = 999.0
 
-    rows = _run_scores_km(km4, km4.AttnScoresKM64x48App, q_blocks, k_blocks, head,
-                          km4.P * km4.N, tmp_path, tag="ctrl")
-    got = rows[:, :km4.N]
+    rows = _run_scores_km(
+        km4, km4.AttnScoresKM64x48App, q_blocks, k_blocks, head, km4.P * km4.N, tmp_path, tag="ctrl"
+    )
+    got = rows[:, : km4.N]
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - _l4_expected(W, D_acts, head, k_row0))))
     assert max_err > 1.0, (
@@ -199,19 +221,34 @@ def test_proj_qkv_192_p4_to_scores_km_64x48_agrees_l4(tmp_path: Path) -> None:
 
     head = 1
     k_row0 = km4.N_HEAD * km4.D
-    q_blocks = repack_qkv_to_km(stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=_Q_ROW0)
-    k_blocks = repack_qkv_to_km(stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=k_row0)
+    q_blocks = repack_qkv_to_km(
+        stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=_Q_ROW0
+    )
+    k_blocks = repack_qkv_to_km(
+        stream_outputs, n_head=km4.N_HEAD, d=km4.D, n_tok=km4.N, row0=k_row0
+    )
 
-    rows = _run_scores_km(km4, km4.AttnScoresKM64x48App, q_blocks, k_blocks, head,
-                          km4.P * km4.N, tmp_path, tag="clean")
-    got = rows[:, :km4.N]
+    rows = _run_scores_km(
+        km4,
+        km4.AttnScoresKM64x48App,
+        q_blocks,
+        k_blocks,
+        head,
+        km4.P * km4.N,
+        tmp_path,
+        tag="clean",
+    )
+    got = rows[:, : km4.N]
     expected = _l4_expected(W, D_acts, head, k_row0)
 
     max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
     print(f"seam proj_qkv_192_p4(repacked)->attn_scores_km_64x48 max abs error = {max_err:.3e}")
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg="proj_qkv_192_p4 -> repack -> attn_scores_km_64x48 (L4) mismatch",
     )
 
@@ -224,7 +261,7 @@ def _repack_one_stream_to_km5_file(stream_output: np.ndarray, *, row0: int) -> n
     crop each row to its first N_TOK lanes -- row order (== head*D+c order)
     is preserved exactly.
     """
-    return stream_output[row0:row0 + km5.N_HEADS * km5.D, :km5.N_TOK]  # [N_HEADS*D, N_TOK]
+    return stream_output[row0 : row0 + km5.N_HEADS * km5.D, : km5.N_TOK]  # [N_HEADS*D, N_TOK]
 
 
 def test_proj_qkv_240_p4_to_scores_km_16x60_agrees_l5(tmp_path: Path) -> None:
@@ -236,8 +273,10 @@ def test_proj_qkv_240_p4_to_scores_km_16x60_agrees_l5(tmp_path: Path) -> None:
     """
     rng = np.random.RandomState(0xF00D5)
     W = rng.uniform(-1.0, 1.0, size=(qkv5.N_OUT, qkv5.K)).astype(np.float32)
-    D_acts = [rng.uniform(-1.0, 1.0, size=(qkv5.K, qkv5.N_TOK)).astype(np.float32)
-              for _ in range(qkv5.N_STREAM)]
+    D_acts = [
+        rng.uniform(-1.0, 1.0, size=(qkv5.K, qkv5.N_TOK)).astype(np.float32)
+        for _ in range(qkv5.N_STREAM)
+    ]
 
     stream_outputs = _run_proj_qkv_p4(qkv5, qkv5.ProjQKV240P4App, D_acts, W, tmp_path, tag="clean5")
 
@@ -247,20 +286,33 @@ def test_proj_qkv_240_p4_to_scores_km_16x60_agrees_l5(tmp_path: Path) -> None:
     for p in range(qkv5.N_STREAM):
         q_block = _repack_one_stream_to_km5_file(stream_outputs[p], row0=_Q_ROW0)
         k_block = _repack_one_stream_to_km5_file(stream_outputs[p], row0=k_row0)
-        rows = _run_scores_km(km5, km5.AttnScoresKM16x60App, q_block, k_block, head,
-                              km5.N_TOK, tmp_path, tag=f"clean5_p{p}")
-        got = rows[:, :km5.N_TOK]
+        rows = _run_scores_km(
+            km5,
+            km5.AttnScoresKM16x60App,
+            q_block,
+            k_block,
+            head,
+            km5.N_TOK,
+            tmp_path,
+            tag=f"clean5_p{p}",
+        )
+        got = rows[:, : km5.N_TOK]
 
         C = W.astype(np.float64) @ D_acts[p].astype(np.float64)
-        Qh = C[head * km5.D:(head + 1) * km5.D, :]
-        Kh = C[k_row0 + head * km5.D: k_row0 + (head + 1) * km5.D, :]
-        expected = np.einsum("ci,cs->is", Qh, Kh).T   # key-major
+        Qh = C[head * km5.D : (head + 1) * km5.D, :]
+        Kh = C[k_row0 + head * km5.D : k_row0 + (head + 1) * km5.D, :]
+        expected = np.einsum("ci,cs->is", Qh, Kh).T  # key-major
 
         max_err = float(np.max(np.abs(got.astype(np.float64) - expected)))
-        print(f"seam proj_qkv_240_p4(repacked, stream {p})->attn_scores_km_16x60 "
-              f"max abs error = {max_err:.3e}")
+        print(
+            f"seam proj_qkv_240_p4(repacked, stream {p})->attn_scores_km_16x60 "
+            f"max abs error = {max_err:.3e}"
+        )
 
         np.testing.assert_allclose(
-            got, expected, rtol=2e-3, atol=2e-2,
+            got,
+            expected,
+            rtol=2e-3,
+            atol=2e-2,
             err_msg=f"proj_qkv_240_p4 -> repack -> attn_scores_km_16x60 (L5, stream {p}) mismatch",
         )

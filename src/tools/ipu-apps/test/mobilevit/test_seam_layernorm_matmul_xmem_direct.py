@@ -63,16 +63,26 @@ def _run_layernorm_64x192_capture_xmem(x, gamma, beta, tmp_path: Path, tag: str)
     """layernorm_64x192.setup() writes its input file to XMEM verbatim, so the
     file is pre-padded to one zero-padded 128-lane row per channel."""
     x_padded = np.zeros((ln4.N_CH, ln4.LANES), dtype=np.float32)
-    x_padded[:, :ln4.N_TOK] = x
-    return run_layernorm_capture_xmem(ln4, ln4.LayerNorm64x192App, x_rows=x_padded,
-                                      gamma=gamma, beta=beta, tmp_path=tmp_path, tag=tag)
+    x_padded[:, : ln4.N_TOK] = x
+    return run_layernorm_capture_xmem(
+        ln4,
+        ln4.LayerNorm64x192App,
+        x_rows=x_padded,
+        gamma=gamma,
+        beta=beta,
+        tmp_path=tmp_path,
+        tag=tag,
+    )
 
 
-def _run_matmul_192x192_direct_xmem_handoff(ln_raw: bytes, W, tmp_path: Path, tag: str) -> np.ndarray:
+def _run_matmul_192x192_direct_xmem_handoff(
+    ln_raw: bytes, W, tmp_path: Path, tag: str
+) -> np.ndarray:
     """Returns the cropped [N_OUT, N_TOK] result."""
-    rows = run_matmul_direct_xmem_handoff(mm4, mm4.MatMul192x192x128App, data_raw=ln_raw, W=W,
-                                          tmp_path=tmp_path, tag=tag)
-    return rows[:, :mm4.N_TOK]
+    rows = run_matmul_direct_xmem_handoff(
+        mm4, mm4.MatMul192x192x128App, data_raw=ln_raw, W=W, tmp_path=tmp_path, tag=tag
+    )
+    return rows[:, : mm4.N_TOK]
 
 
 def _layernorm_reference(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray) -> np.ndarray:
@@ -81,7 +91,7 @@ def _layernorm_reference(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray) -> 
     its internal implementation.
     """
     xf = x.astype(np.float64)
-    mu = xf.mean(axis=0, keepdims=True)                       # [1, N_TOK]
+    mu = xf.mean(axis=0, keepdims=True)  # [1, N_TOK]
     var = ((xf - mu) ** 2).mean(axis=0, keepdims=True)
     sigma = np.sqrt(var)
     return gamma.astype(np.float64)[:, None] * (xf - mu) / sigma + beta.astype(np.float64)[:, None]
@@ -139,7 +149,10 @@ def test_layernorm_output_feeds_matmul_via_direct_xmem_no_file_staging_l4(
     print(f"seam layernorm_64x192(direct XMEM)->matmul_192x192_x128 max abs error = {max_err:.3e}")
 
     np.testing.assert_allclose(
-        got, expected, rtol=2e-3, atol=2e-2,
+        got,
+        expected,
+        rtol=2e-3,
+        atol=2e-2,
         err_msg=(
             "layernorm_64x192's raw XMEM output, handed to matmul_192x192_x128 "
             "verbatim with NO file staging and NO _load_data repack, does not "
