@@ -137,13 +137,16 @@ markdown_extensions:
 
 extra:
   docs_git_branch: master
-  # giscus: set repo_id + category_id from https://giscus.app (Discussions must be on).
-  # CI: add repository secrets GISCUS_REPO_ID and GISCUS_CATEGORY_ID (optional: GISCUS_CATEGORY, …).
-  # Local: export the same env vars before `mkdocs build` or `bazel build --config=docs //docs:build_docs`.
-  # Build with --config=docs: without it Bazel does not forward GISCUS_* and the widget is omitted.
+  # giscus IDs are public (they are rendered into every page), so they are committed
+  # here (IMPLEMENTATION-DECISIONS.md, E00-06). Values come from https://giscus.app,
+  # or GraphQL: repository.id and repository.discussionCategories[].id.
+  # category_id: the "Announcements" category id (DIC_...) still has to be filled in;
+  # until then the widget is omitted and the docs workflow's giscus check fails.
+  # GISCUS_* environment variables override these values; Bazel forwards them only
+  # with `bazel build --config=docs //docs:build_docs` (see .bazelrc).
   giscus:
     repo: rechefe/ipu-emulator
-    repo_id: ""
+    repo_id: "R_kgDOQZJnxQ"
     category: Announcements
     category_id: ""
     mapping: pathname
