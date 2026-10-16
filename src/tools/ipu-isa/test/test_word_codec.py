@@ -16,6 +16,7 @@ from ipu_isa.codec.word import (
     opcode_field,
     pack_program,
     unpack_program,
+    unpack_words,
     word_bytes,
 )
 from ipu_isa.slots import Slot
@@ -48,7 +49,7 @@ def test_field_names():
     assert field_name(Slot.BREAK, 0, 1) == "break_inst_token_1_break_immediate_type"
 
 
-@pytest.mark.parametrize("word", _WORDS)
+@pytest.mark.parametrize("word", _WORDS, ids=lambda word: f"{word:#x}"[:12])
 def test_decode_encode_round_trip(word):
     decoded = DecodedWord.from_word(word)
     assert decoded.to_word() == word
@@ -78,11 +79,16 @@ def test_word_bytes():
 def test_hardware_word_drops_the_emulator_slots():
     emulator = [f for f in WORD_LAYOUT if isa().slots[f.slot].tag is Tag.EMULATOR]
     assert {f.slot for f in emulator} == {Slot.ACC_STORE, Slot.BREAK}
-    low_bits = sum(f.bits for f in emulator)
+    low_bits = 186 - 155  # emulator word minus hardware word (E03-07)
+    assert sum(f.bits for f in emulator) == low_bits
     assert all(f.shift < low_bits for f in emulator)
     for word in _WORDS:
         assert hardware_word(word) == word >> low_bits
         assert hardware_word(word).bit_length() <= isa().layout.word_bits(Tag.HARDWARE)
+
+
+def test_unpack_words():
+    assert unpack_words(bytes(range(24)) + b"\xff") == [int.from_bytes(bytes(range(24)), "little")]
 
 
 def test_program_round_trip():

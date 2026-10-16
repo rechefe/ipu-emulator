@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ipu_isa.schema import SpecError
 from ipu_isa.slots import Slot
 from ipu_isa.tags import Tag
 from ipu_isa.view import Isa, isa
@@ -70,7 +71,7 @@ def word_layout(view: Isa | None = None) -> tuple[FieldSpec, ...]:
                 fields.append(FieldSpec(name, slot, instance, index, widths[index], shift))
                 shift += widths[index]
     if shift != view.layout.word_bits():
-        raise AssertionError(f"word layout is {shift} bits, the ISA says {view.layout.word_bits()}")
+        raise SpecError(f"word layout is {shift} bits, the ISA says {view.layout.word_bits()}")
     return tuple(fields)
 
 
@@ -78,12 +79,13 @@ def word_layout(view: Isa | None = None) -> tuple[FieldSpec, ...]:
 WORD_LAYOUT: tuple[FieldSpec, ...] = word_layout()
 
 _BY_POSITION = {(f.slot, f.instance, f.index): f for f in WORD_LAYOUT}
-_BY_INSTANCE: dict[tuple[Slot, int], tuple[FieldSpec, ...]] = {}
-for _field in WORD_LAYOUT:
-    _BY_INSTANCE[(_field.slot, _field.instance)] = (
-        *_BY_INSTANCE.get((_field.slot, _field.instance), ()),
-        _field,
-    )
+_BY_INSTANCE: dict[tuple[Slot, int], tuple[FieldSpec, ...]] = {
+    key: tuple(f for f in WORD_LAYOUT if (f.slot, f.instance) == key)
+    for key in dict.fromkeys((f.slot, f.instance) for f in WORD_LAYOUT)
+}
+
+# (name, shift, mask) of every field, for the decode and encode loops.
+_FIELDS = tuple((f.name, f.shift, (1 << f.bits) - 1) for f in WORD_LAYOUT)
 
 
 def field_name(slot: Slot, instance: int, index: int) -> str:
@@ -105,12 +107,25 @@ class DecodedWord(dict[str, int]):
 
     @classmethod
     def from_word(cls, word: int) -> DecodedWord:
-        return cls((f.name, (word >> f.shift) & ((1 << f.bits) - 1)) for f in WORD_LAYOUT)
+        """Split ``word`` into its fields.
+
+        Args:
+            word: An emulator word.
+
+        Returns:
+            Every field of ``WORD_LAYOUT``, by wire name.
+        """
+        return cls((name, (word >> shift) & mask) for name, shift, mask in _FIELDS)
 
     def to_word(self) -> int:
+        """Pack the fields back into a word; a field this dict lacks is 0.
+
+        Returns:
+            The emulator word.
+        """
         word = 0
-        for f in WORD_LAYOUT:
-            word |= (self.get(f.name, 0) & ((1 << f.bits) - 1)) << f.shift
+        for name, shift, mask in _FIELDS:
+            word |= (self.get(name, 0) & mask) << shift
         return word
 
     def slot_value(self, slot: Slot, instance: int = 0) -> int:
@@ -124,38 +139,49 @@ class DecodedWord(dict[str, int]):
 
 
 def word_bytes(tag: Tag | None = None) -> int:
-    """Bytes per word in a program file: 24 for the emulator word, 20 for the
-    hardware word (``tag=Tag.HARDWARE``)."""
+    """Bytes per word in a program file, padded to 32 bits.
+
+    Args:
+        tag: ``None`` for the whole emulator word (24 bytes), ``Tag.HARDWARE``
+            for the hardware word (20 bytes); ``Tag.EMULATOR`` gives the width
+            of the EMULATOR slots alone.
+
+    Returns:
+        The byte count.
+    """
     bits = isa().layout.word_bits(tag)
     return -(-bits // _ALIGN_BITS) * (_ALIGN_BITS // 8)
 
 
 def hardware_word(word: int) -> int:
     """The hardware part of an emulator word: its top ``word_bits(HARDWARE)``
-    bits, the EMULATOR slots being the least significant (Q41)."""
+    bits. The slot registry rejects a HARDWARE slot after an EMULATOR one
+    (E03-07, Q41), so the EMULATOR slots are the least significant bits."""
     return word >> isa().layout.word_bits(Tag.EMULATOR)
+
+
+def unpack_words(data: bytes) -> list[int]:
+    """The words of a program file; a trailing partial word is ignored.
+
+    Args:
+        data: Program file bytes (``pack_program``'s layout).
+
+    Returns:
+        One emulator word per instruction.
+    """
+    width = word_bytes()
+    return [
+        int.from_bytes(data[offset : offset + width], "little")
+        for offset in range(0, len(data) - width + 1, width)
+    ]
 
 
 def unpack_program(data: bytes) -> list[DecodedWord]:
     """Decode a program file; a trailing partial word is ignored."""
-    width = word_bytes()
-    return [
-        DecodedWord.from_word(int.from_bytes(data[offset : offset + width], "little"))
-        for offset in range(0, len(data) - width + 1, width)
-    ]
+    return [DecodedWord.from_word(word) for word in unpack_words(data)]
 
 
 def pack_program(words: Sequence[int]) -> bytes:
     """The program file bytes of ``words``."""
     width = word_bytes()
     return b"".join(word.to_bytes(width, byteorder="little") for word in words)
-
-
-def _check_emulator_slots_are_lowest() -> None:
-    """``hardware_word`` relies on the EMULATOR slots holding the low bits."""
-    emulator = {f.shift + f.bits for f in WORD_LAYOUT if isa().slots[f.slot].tag is Tag.EMULATOR}
-    if emulator and max(emulator) != isa().layout.word_bits(Tag.EMULATOR):
-        raise AssertionError("EMULATOR slots must be the least significant bits of the word")
-
-
-_check_emulator_slots_are_lowest()

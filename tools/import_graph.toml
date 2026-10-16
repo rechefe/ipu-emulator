@@ -40,10 +40,9 @@ ipu_gen = [
 
 ipu_as = ["ipu_isa"]
 
-ipu_emu = [
-    "ipu_isa",
-    "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it; E04-18 checks)
-]
+# E03-16 removed the emulator's last assembler import (decoding moved to the
+# ISA's word codec), so the temporary ipu_as edge is gone ahead of E03-18.
+ipu_emu = ["ipu_isa"]
 
 # The debugger (E08-03): one way onto the emulator and the ISA. Only the
 # runner imports it (ipu_apps today, ipu_harness after E06), so no other row

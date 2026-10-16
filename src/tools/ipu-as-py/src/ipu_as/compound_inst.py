@@ -224,9 +224,12 @@ def check_word_fields(compound: type[CompoundInst]) -> None:
     ours = list(compound.get_fields())
     isa_fields = [(f.name, f.bits) for f in WORD_LAYOUT]
     if ours != isa_fields:
+        first = next(
+            ((a, b) for a, b in zip(ours, isa_fields, strict=False) if a != b),
+            f"{len(ours)} fields against {len(isa_fields)}",
+        )
         raise SpecError(
-            "CompoundInst.get_fields() differs from ipu_isa.codec.word.WORD_LAYOUT: "
-            f"{next((a, b) for a, b in zip(ours, isa_fields, strict=False) if a != b)}"
+            f"CompoundInst.get_fields() differs from ipu_isa.codec.word.WORD_LAYOUT: {first}"
         )
 
 

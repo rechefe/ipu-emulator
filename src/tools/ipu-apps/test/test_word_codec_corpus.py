@@ -2,7 +2,9 @@
 
 For each program of the E02-01 corpus: decoding the `.bin` with
 ``unpack_program`` and re-encoding gives the same words, and ``pack_program``
-of those words gives the same bytes the assembler wrote.
+of those words gives the same bytes the assembler wrote. The assembler now
+writes `.bin` through ``pack_program`` too, so the independent proof that the
+bytes did not change is the E02-01 digest test (``test_asm_digests``).
 """
 
 from __future__ import annotations
