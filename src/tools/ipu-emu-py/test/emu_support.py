@@ -84,13 +84,15 @@ def new_state(
     cr: Mapping[int, int] | None = None,
     fmt: ElementFormat | None = None,
     dstructure: Mapping[str, Any] | None = None,
+    setup: Callable[[IpuState], None] | None = None,
     **state_kw: Any,
 ) -> IpuState:
     """Build an ``IpuState`` with no program loaded.
 
     *fmt* selects the element format. *dstructure* is passed to
     ``set_cr_dstructure`` before *cr* presets the configuration registers, so a
-    ``cr`` entry for CR15 wins. Other keywords go to ``IpuState``.
+    ``cr`` entry for CR15 wins. *setup* then runs on the state (XMEM contents,
+    register presets). Other keywords go to ``IpuState``.
     """
     kwargs = dict(state_kw)
     if fmt is not None:
@@ -101,6 +103,8 @@ def new_state(
     if cr:
         for idx, val in cr.items():
             state.regfile.set_cr(idx, val)
+    if setup is not None:
+        setup(state)
     return state
 
 
@@ -130,15 +134,14 @@ def run(asm: str, *, max_cycles: int = DEFAULT_MAX_CYCLES, **kw: Any) -> IpuStat
 def run_both(
     asm: str,
     *,
-    setup: Callable[[IpuState], None] | None = None,
     on_cycle: Callable[[Sequence[Ipu]], None] | None = None,
     max_cycles: int = 100_000,
     **kw: Any,
 ) -> tuple[IpuState, IpuState]:
     """Run *asm* on a faithful and a prototyping state in lockstep.
 
-    Both states are built with :func:`new_state` (keywords *kw*), then *setup*
-    runs on each. After every cycle the two cycle outcomes must agree and
+    Both states are built with :func:`new_state` (keywords *kw*, including
+    *setup*, which runs on each). After every cycle the two cycle outcomes must agree and
     *on_cycle* gets both engines (faithful first) to compare state. Breakpoints
     are resumed. Each state's ``stats.total_cycles`` is set to the cycle count.
     Requires a ``--define=ipu_proto=1`` build.
@@ -146,8 +149,6 @@ def run_both(
     decoded = assemble_program(asm)
     states = tuple(new_state(prototyping=mode, **kw) for mode in (False, True))
     for state in states:
-        if setup is not None:
-            setup(state)
         load_program(state, [dict(inst) for inst in decoded])
     engines = [Ipu(state) for state in states]
 
