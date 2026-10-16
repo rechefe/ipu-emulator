@@ -87,11 +87,13 @@ def encode(values: Array, fmt: ElementFormat) -> bytes:
     Returns:
         ``values.size * element_bytes(fmt)`` bytes, little-endian.
     """
-    in_format = held(values, fmt).ravel()
     native = _numpy_dtype(fmt)
     if native is not None:
-        return in_format.astype(native).tobytes()
-    return fp32_to_fp8_bytes(in_format.astype(np.float32), DType(FORMATS[fmt].exp_bits))
+        return held(values, fmt).ravel().astype(native).tobytes()
+    # FP8: the encoder rounds; clipping to the range first makes it saturate.
+    lo, hi = limits(fmt)
+    clipped = np.clip(np.asarray(values, dtype=np.float64), lo, hi).ravel()
+    return fp32_to_fp8_bytes(clipped.astype(np.float32), DType(FORMATS[fmt].exp_bits))
 
 
 def decode(raw: bytes, fmt: ElementFormat) -> Array:

@@ -13,8 +13,9 @@ import pytest
 from ipu_apps.kernels.projections.app import ProjectionLayout, ProjectionP4App
 from ipu_harness._codec import held
 from ipu_harness.manifest import KernelManifest, load_manifest
-from ipu_harness.packing import pack, transform_for, unpack
+from ipu_harness.packing import pack, stored_rows, transform_for, unpack
 from ipu_harness.params import PlanError, plan_case
+from ipu_harness.placement import default_rows, place
 from ipu_isa.formats import ElementFormat as F
 
 KERNELS = Path(__file__).resolve().parents[1] / "src" / "ipu_kernels"
@@ -71,6 +72,64 @@ def test_unpack_of_pack_is_the_tensor_rounded_to_the_format(tmp_path, fmt, name)
     assert np.array_equal(unpack(m.tensors["x"], raw, plan), held(x, fmt).astype(np.float64))
 
 
+@pytest.mark.parametrize(
+    "fmt, value, first",
+    [
+        (F.FP32, 1.0, bytes.fromhex("0000803f")),  # IEEE 754, little-endian
+        (F.INT8, -1.0, b"\xff"),  # two's complement
+        (F.INT8, 1.5, b"\x02"),  # to nearest, ties to even
+        (F.INT8, 300.0, b"\x7f"),  # saturates
+        (F.E4, 1.0, b"\x38"),  # 0 0111 000: exponent 7 = bias
+        (F.E4, 1e6, b"\x77"),  # saturates to 240 = 0 1110 111
+        (F.E5, 1.0, b"\x3c"),  # 0 01111 00: exponent 15 = bias
+    ],
+)
+def test_element_bytes_by_hand(tmp_path, fmt, value, first):
+    m = manifest(tmp_path)
+    plan = plan_case(m, {"c": 1, "h": 1, "w": 1}, fmt)
+    raw = pack(m.tensors["x"], np.full((1, 1, 1), value), plan)
+    assert raw[: len(first)] == first and raw[len(first) :] == bytes(len(raw) - len(first))
+
+
+def test_a_row_major_width_over_128_takes_several_zero_padded_rows(tmp_path):
+    m = manifest(tmp_path)
+    plan = plan_case(m, {"c": 1, "h": 1, "w": 200}, F.INT8)
+    x = np.arange(200, dtype=np.float64).reshape(1, 1, 200) % 100
+    raw = pack(m.tensors["x"], x, plan)
+    assert len(raw) == 256 and raw[200:] == bytes(56)
+    assert np.array_equal(unpack(m.tensors["x"], raw, plan), x)
+
+
+@pytest.mark.parametrize(
+    "name, params, message",
+    [
+        ("channel_major", {"w": 130}, r"the width \(130\) must fit one row"),
+        ("chunk_interleaved", {"w": 48}, r"cols \(48\) must divide 128"),
+    ],
+)
+def test_a_shape_a_transform_cannot_lay_out_is_located_at_pack(tmp_path, name, params, message):
+    m = manifest(tmp_path, pack=f'pack = "{name}"\n')
+    plan = plan_case(m, params, F.FP32)
+    shape = plan.shapes["x"]
+    for call in (
+        lambda: pack(m.tensors["x"], np.zeros(shape), plan),
+        lambda: stored_rows(m.tensors["x"], plan),
+    ):
+        with pytest.raises(PlanError, match=message) as error:
+            call()
+        assert error.value.key == "inputs.x.pack"
+
+
+def test_stored_rows_are_placements_row_counts(tmp_path):
+    m = manifest(tmp_path, store='store = "accumulator"\n')
+    for fmt in (F.FP32, F.INT8, F.E4):
+        plan = plan_case(m, {"c": 1, "h": 2, "w": 128}, fmt)
+        for name in ("x", "y"):
+            assert stored_rows(m.tensors[name], plan) == default_rows(plan, m.tensors[name])
+    int8 = plan_case(m, {"c": 1, "h": 2, "w": 128}, F.INT8)
+    assert stored_rows(m.tensors["y"], int8) == 8  # 2 vectors of 128 INT32: 4 narrow rows each
+
+
 def test_packed_sizes_follow_the_format(tmp_path):
     m = manifest(tmp_path)
     x = np.zeros((3, 5, 32))
@@ -97,8 +156,9 @@ def test_an_accumulator_output_is_read_in_the_accumulator_format(tmp_path):
     y = np.arange(256, dtype=np.int32).reshape(1, 2, 128) * 1000  # past INT8: INT32 holds it
     raw = y.astype("<i4").tobytes()  # 2 vectors x 128 x 4 B = 8 narrow rows
     assert np.array_equal(unpack(m.tensors["y"], raw, plan), y)
-    with pytest.raises(PlanError, match="y's region holds 1024 bytes in int32, given 256"):
+    with pytest.raises(PlanError, match="y's region holds 1024 bytes in int32, given 256") as error:
         unpack(m.tensors["y"], raw[:256], plan)
+    assert error.value.key == "outputs.y.size"
 
 
 @pytest.mark.parametrize("shape", [(3, 5, 31), (3, 5, 33), (3, 6, 32), (15, 32)])
@@ -122,6 +182,48 @@ def test_a_kernel_pack_py_overrides_a_shared_transform_of_its_name(tmp_path):
     plan = plan_case(m, {}, F.FP32)
     assert type(transform_for(m.tensors["x"], plan)).__name__ == "Flat"
     assert pack(m.tensors["x"], np.ones((3, 5, 32)), plan) == bytes(15 * 512)
+
+
+FAMILY_PACK = """\
+from ipu_harness.packing import RowMajor
+
+
+class Family(RowMajor):
+    pass
+
+
+channel_major = Family()
+"""
+
+
+def test_a_family_transform_overrides_a_shared_one_of_its_name(tmp_path, monkeypatch):
+    base = tmp_path / "site" / "fake_kernels"
+    for sub in ("", "family", "pack"):
+        (base / sub).mkdir(parents=True, exist_ok=True)
+        (base / sub / "__init__.py").write_text("")
+    (base / "family" / "pack.py").write_text(FAMILY_PACK)
+    (base / "pack" / "__init__.py").write_text(
+        "from ipu_kernels.pack import channel_major, chunk_interleaved\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path / "site"))
+    plan = plan_case(manifest(tmp_path, pack='pack = "channel_major"\n'), {}, F.FP32)
+    m = plan.manifest
+    assert type(transform_for(m.tensors["x"], plan, package="fake_kernels")).__name__ == "Family"
+    other = manifest(tmp_path, pack='pack = "chunk_interleaved"\n', name="k2")
+    plan2 = plan_case(other, {}, F.FP32)
+    found = transform_for(other.tensors["x"], plan2, package="fake_kernels")
+    assert type(found).__name__ == "ChunkInterleaved"  # not in the family: the shared one
+
+
+def test_a_name_that_is_no_transform_or_a_broken_pack_py_is_located(tmp_path):
+    m = manifest(tmp_path, pack='pack = "channel_major"\n')
+    (m.directory / "pack.py").write_text("channel_major = 3\n")
+    with pytest.raises(PlanError, match="defines channel_major, but not as a transform") as error:
+        transform_for(m.tensors["x"], plan_case(m, {}, F.FP32))
+    assert error.value.key == "inputs.x.pack"
+    (m.directory / "pack.py").write_text("def broken(:\n")
+    with pytest.raises(PlanError, match="SyntaxError"):
+        transform_for(m.tensors["x"], plan_case(m, {}, F.FP32))
 
 
 def test_an_unknown_transform_is_a_located_error(tmp_path):
@@ -207,6 +309,11 @@ def test_projection_packing_is_byte_identical_to_the_loaders(tmp_path, name):
         pack(m.tensors["weights"], weights, plan)
         == state.xmem.written[layout.weights_base_row * row]
     )
+    # Placed with packing's row counts and the logical shapes, the bases are today's.
+    placement = place(plan, {name: stored_rows(t, plan) for name, t in m.tensors.items()})
+    assert placement.region("data").base_row == layout.data_base_row
+    assert placement.region("weights").base_row == layout.weights_base_row
+    assert placement.region("out").base_row == layout.output_base_row
 
 
 # --- what the acceptance criteria forbid ----------------------------------------------------

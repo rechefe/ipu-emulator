@@ -19,21 +19,35 @@ its file), then in ``ipu_kernels.<family>.pack``, then in ``ipu_kernels.pack``
 
 from __future__ import annotations
 
+import functools
+import importlib
 import importlib.util
 import math
+from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from types import ModuleType
+from typing import Protocol, TypeVar, cast
 
 import numpy as np
 
-from ipu_emu.errors import ConfigurationError
 from ipu_harness._codec import Array, decode, encode
 from ipu_harness.manifest import TensorDecl
 from ipu_harness.params import CasePlan, PlanError
 from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.geometry import LANES
 
-__all__ = ["DEFAULT", "PackTransform", "RowMajor", "pack", "transform_for", "unpack"]
+__all__ = [
+    "DEFAULT",
+    "PackTransform",
+    "RowMajor",
+    "pack",
+    "stored_format",
+    "stored_rows",
+    "transform_for",
+    "unpack",
+]
+
+T = TypeVar("T")
 
 
 class PackTransform(Protocol):
@@ -57,15 +71,18 @@ class RowMajor:
     rows (``ceil(n / 128)`` rows per index of the other dimensions)."""
 
     def rows(self, shape: tuple[int, ...]) -> int:
+        """``ceil(n / 128)`` rows for each index of the other dimensions."""
         return math.prod(shape[:-1]) * -(-shape[-1] // LANES)
 
     def to_rows(self, a: Array, plan: CasePlan) -> Array:
+        """``a`` as ``(rows, 128)``, each last-dimension run zero-padded to whole rows."""
         width = -(-a.shape[-1] // LANES) * LANES
         padded = np.zeros((*a.shape[:-1], width), dtype=np.float64)
         padded[..., : a.shape[-1]] = a
         return padded.reshape(-1, LANES)
 
     def from_rows(self, r: Array, plan: CasePlan, shape: tuple[int, ...]) -> Array:
+        """The ``shape`` tensor ``r`` holds (inverse of :meth:`to_rows`)."""
         width = -(-shape[-1] // LANES) * LANES
         return r.reshape(*shape[:-1], width)[..., : shape[-1]]
 
@@ -76,19 +93,33 @@ DEFAULT: PackTransform = RowMajor()
 PACK_FILE = "pack.py"
 
 
-def _named(source: object, name: str) -> PackTransform | None:
+_PARTS = ("rows", "to_rows", "from_rows")
+
+
+def _named(source: object, name: str, where: str) -> PackTransform | None:
+    """``source``'s attribute ``name`` if it has one: a transform, or a ``ValueError``."""
     found = getattr(source, name, None)
-    return found if found is not None and callable(getattr(found, "to_rows", None)) else None
+    if found is None:
+        return None
+    if not all(callable(getattr(found, part, None)) for part in _PARTS):
+        raise ValueError(f"{where} defines {name}, but not as a transform ({', '.join(_PARTS)})")
+    return cast(PackTransform, found)
+
+
+@functools.lru_cache(maxsize=64)
+def _load_local(path: Path, mtime_ns: int) -> ModuleType:
+    """A kernel folder's ``pack.py``, executed once per version of the file."""
+    spec = importlib.util.spec_from_file_location(f"_ipu_pack_{path.parent.name}", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"no loader for {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _local(path: Path, name: str) -> PackTransform | None:
     """Transform ``name`` from a kernel folder's ``pack.py``, if it defines one."""
-    spec = importlib.util.spec_from_file_location(f"_ipu_pack_{path.parent.name}", path)
-    if spec is None or spec.loader is None:
-        raise ConfigurationError(f"{path}: cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return _named(module, name)
+    return _named(_load_local(path, path.stat().st_mtime_ns), name, str(path))
 
 
 def _shared(module: str, name: str) -> PackTransform | None:
@@ -99,7 +130,7 @@ def _shared(module: str, name: str) -> PackTransform | None:
         if error.name is not None and (module + ".").startswith(error.name + "."):
             return None
         raise
-    return _named(found, name)
+    return _named(found, name, module)
 
 
 def transform_for(
@@ -123,13 +154,20 @@ def transform_for(
         return DEFAULT
     family = plan.manifest.directory.parent.name
     local = plan.manifest.directory / PACK_FILE
-    found = _local(local, tensor.pack) if local.is_file() else None
-    for module in (f"{package}.{family}.pack", f"{package}.pack"):
-        found = found or _shared(module, tensor.pack)
+    key = f"{tensor.section}.{tensor.name}.pack"
+    try:
+        found = _local(local, tensor.pack) if local.is_file() else None
+        for module in (f"{package}.{family}.pack", f"{package}.pack"):
+            if found is None:
+                found = _shared(module, tensor.pack)
+    except Exception as error:
+        raise PlanError(
+            plan.manifest, key, f"looking up {tensor.pack!r}: {type(error).__name__}: {error}"
+        ) from error
     if found is None:
         raise PlanError(
             plan.manifest,
-            f"{tensor.section}.{tensor.name}.pack",
+            key,
             f"no transform {tensor.pack!r} in the kernel's {PACK_FILE}, "
             f"{package}.{family}.pack or {package}.pack",
         )
@@ -139,11 +177,36 @@ def transform_for(
 # --- pack and unpack ----------------------------------------------------------------------
 
 
-def _stored_format(tensor: TensorDecl, fmt: ElementFormat) -> ElementFormat:
-    """The format an output's bytes are in: the element format, or its accumulator's."""
+def stored_format(tensor: TensorDecl, fmt: ElementFormat) -> ElementFormat:
+    """The format a tensor's bytes are in: its accumulator format (FP32 or
+    INT32) for an ``accumulator`` output, else ``fmt``."""
     if tensor.store == "accumulator":
         return ElementFormat(FORMATS[fmt].accumulator.value)
     return fmt
+
+
+def _laid_out(
+    tensor: TensorDecl, plan: CasePlan, package: str, step: Callable[[PackTransform], T]
+) -> T:
+    """``step(transform)``; a shape the transform cannot lay out is located at ``pack``."""
+    transform = transform_for(tensor, plan, package=package)
+    try:
+        return step(transform)
+    except ValueError as error:
+        raise PlanError(plan.manifest, f"{tensor.section}.{tensor.name}.pack", str(error)) from None
+
+
+def stored_rows(tensor: TensorDecl, plan: CasePlan, *, package: str = "ipu_kernels") -> int:
+    """The XMEM rows ``tensor`` takes as stored: its transform's rows, times the
+    accumulator stride for an ``accumulator`` output (E06-04's row counts).
+
+    Raises:
+        PlanError: The transform is unknown or cannot lay out the planned shape.
+    """
+    shape = plan.shapes[tensor.name]
+    rows = _laid_out(tensor, plan, package, lambda t: t.rows(shape))
+    stored = FORMATS[stored_format(tensor, plan.format)].element_bytes
+    return rows * stored // FORMATS[plan.format].element_bytes
 
 
 def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_kernels") -> bytes:
@@ -156,12 +219,12 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
         package: Where family and shared transforms live.
 
     Returns:
-        ``rows * row_bytes`` bytes: the transform's rows, each value rounded to
-        the format and encoded.
+        ``stored_rows x row_bytes`` bytes: the transform's rows, each value
+        rounded to the stored format and encoded.
 
     Raises:
         PlanError: ``a``'s shape is not the planned one (oversize included), or
-            the transform is unknown.
+            the transform is unknown or cannot lay it out.
     """
     shape = plan.shapes[tensor.name]
     if a.shape != shape:
@@ -170,9 +233,9 @@ def pack(tensor: TensorDecl, a: Array, plan: CasePlan, *, package: str = "ipu_ke
             f"{tensor.section}.{tensor.name}.shape",
             f"{tensor.name} has shape {a.shape}; the case's is {shape}",
         )
-    transform = transform_for(tensor, plan, package=package)
-    rows = transform.to_rows(np.asarray(a, dtype=np.float64), plan)
-    return encode(rows, _stored_format(tensor, plan.format))
+    values = np.asarray(a, dtype=np.float64)
+    rows = _laid_out(tensor, plan, package, lambda t: t.to_rows(values, plan))
+    return encode(rows, stored_format(tensor, plan.format))
 
 
 def unpack(
@@ -182,11 +245,11 @@ def unpack(
 
     An ``accumulator`` output is read in the accumulator format: one vector of
     128 accumulator elements spans ``accumulator_bytes x 128 / row_bytes``
-    narrow rows, the stride placement allocated (E06-04).
+    narrow rows, the stride placement allocated (E06-04, :func:`stored_rows`).
 
     Args:
         tensor: The declared tensor.
-        raw: The region's bytes, exactly as many as its values take.
+        raw: The region's bytes, exactly ``stored_rows x row_bytes``.
         plan: The checked case.
         package: Where family and shared transforms live.
 
@@ -194,17 +257,17 @@ def unpack(
         A float64 array of the planned shape.
 
     Raises:
-        PlanError: ``raw`` is not the region's size, or the transform is unknown.
+        PlanError: ``raw`` is not the region's size, or the transform is
+            unknown or cannot lay the shape out.
     """
     shape = plan.shapes[tensor.name]
-    transform = transform_for(tensor, plan, package=package)
-    stored = _stored_format(tensor, plan.format)
-    want = transform.rows(shape) * LANES * FORMATS[stored].element_bytes
+    want = stored_rows(tensor, plan, package=package) * FORMATS[plan.format].row_bytes
+    stored = stored_format(tensor, plan.format)
     if len(raw) != want:
         raise PlanError(
             plan.manifest,
-            f"{tensor.section}.{tensor.name}",
+            f"{tensor.section}.{tensor.name}.size",
             f"{tensor.name}'s region holds {want} bytes in {stored.value}, given {len(raw)}",
         )
     rows = decode(raw, stored).reshape(-1, LANES)
-    return transform.from_rows(rows, plan, shape)
+    return _laid_out(tensor, plan, package, lambda t: t.from_rows(rows, plan, shape))
