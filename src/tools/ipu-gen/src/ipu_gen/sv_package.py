@@ -343,7 +343,11 @@ _check_operand_enum_order()
 
 
 def _hardware_slots(view: Isa, order: Iterable[Slot]) -> tuple[Slot, ...]:
-    """The hardware-tagged slots of ``order``, in that order."""
+    """The hardware-tagged slots of ``order``, in that order.
+
+    Takes the order because the enums and slot structs follow spec order while
+    the compound struct follows layout order (``layout.slots_with_tag``).
+    """
     return tuple(slot for slot in order if view.slots[slot].tag is Tag.HARDWARE)
 
 

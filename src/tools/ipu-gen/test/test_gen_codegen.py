@@ -182,23 +182,25 @@ def test_compound_comment_lists_the_layout_order():
     assert "emulator-only\n  // slots (acc_store, break) below bit 0" in text
 
 
-def test_reserved_word_instruction_names_get_a_suffix():
-    assert sv_package._instruction_struct_name("BREAK") == "break_inst"
-    assert sv_package._instruction_struct_name("LD.MULT") == "ld_mult"
-
-
-def test_no_emulator_only_slot_instruction_or_enum_in_the_package():
+def test_no_emulator_only_slot_or_instruction_in_the_package():
+    # By hand: the names the ACC_STORE and BREAK slots had in the 186-bit package.
     text = sv_package.render_sv_package()
-    for slot in slots_with_tag(Tag.EMULATOR):
-        info = SLOTS[slot]
-        assert f"{info.sv_struct_base}_t" not in text
-        assert f"{info.sv_struct_base}_u" not in text
-        assert f"{info.opcode_enum}_t" not in text
-        for instruction in isa().instructions(slot):
-            if instruction.mnemonic != "NOP":
-                assert (
-                    f"}} {sv_package._instruction_struct_name(instruction.mnemonic)};" not in text
-                )
+    for name in (
+        "acc_store_slot_t",
+        "acc_store_slot_u",
+        "break_slot_t",
+        "break_slot_u",
+        "acc_store_inst_opcode_t",
+        "break_inst_opcode_t",
+        "ACC_STORE_INST_OPCODE_",
+        "BREAK_INST_OPCODE_",
+        "} st_acc;",
+        "} break_inst;",
+        "} break_ifeq;",
+        "acc_store_slot;",
+        "break_slot;",
+    ):
+        assert name not in text, name
 
 
 def _subclasses(cls):

@@ -6,6 +6,7 @@ check each generated artifact names it, and that the default output does not.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 
 import pytest
@@ -52,3 +53,30 @@ def test_sv_package(view):
 def test_sv_package_takes_a_context_or_a_view():
     with pytest.raises(TypeError):
         sv_package.render_sv_package(sv_package.build_codegen_context(), view=isa())
+
+
+def test_an_enum_only_an_emulator_slot_uses_is_left_out():
+    # ElementsInRow has one user, ACC.STRIDE (ACC, hardware). Move its only use
+    # to an emulator-only BREAK instruction: its typedef must leave the package.
+    spec, pseudo = authoring_copies()
+    del spec["acc"]["ACC.STRIDE"]
+    entry = copy.deepcopy(spec["break"]["BREAK"])
+    entry["operands"] = [{"name": "row", "type": "ElementsInRow"}]
+    entry["doc"] = dataclasses.replace(
+        entry["doc"], operands=["row: elements per row"], example="BREAK.ROW 32;;"
+    )
+    spec["break"]["BREAK.ROW"] = entry
+    view = load_isa(spec, pseudo, SLOTS, OPERAND_TYPES)
+    assert "elements_in_row_field_t" in sv_package.render_sv_package()
+    assert "elements_in_row" not in sv_package.render_sv_package(view=view)
+
+
+def test_a_reserved_word_mnemonic_gets_a_suffix():
+    # FINAL is a SystemVerilog keyword, so its union member is final_inst.
+    spec, pseudo = authoring_copies()
+    entry = spec["lr"]["ADD"]
+    entry["doc"] = dataclasses.replace(entry["doc"], example="FINAL LR0 LR1 LR2;;")
+    spec["lr"]["FINAL"] = entry
+    text = sv_package.render_sv_package(view=load_isa(spec, pseudo, SLOTS, OPERAND_TYPES))
+    assert "} final_inst;" in text
+    assert "} final;" not in text
