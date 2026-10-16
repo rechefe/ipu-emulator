@@ -173,7 +173,7 @@ bazel test //...
 bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/prog.asm" --output "$PWD/prog.bin" --format bin
 ```
 
-Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, conditionals). The CLI has no option to set template variables yet.
+Assembly files support full **Jinja2 preprocessing** (variables, loops, macros, conditionals). The CLI has no option to set template variables yet; `--define` is planned (E05-10).
 
 ---
 

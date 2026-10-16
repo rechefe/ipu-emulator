@@ -11,6 +11,8 @@ Adding an instruction takes three edits, then two checks:
 1. **Add to instruction_spec** — define the instruction with operands and documentation (instruction **mnemonic keys** are **upper case**; each operand’s `"name"` is **lower case**)
 2. **Implement execution handler** — write the Python method in the emulator's `Ipu` class  
 3. **Add tests** — verify the instruction works correctly
+4. **Verify integration** — the assembler accepts it and `bazel test //...` passes
+5. **Check the SystemVerilog package** — its widths are wire format
 
 The assembler accepts mnemonics in any case; written examples and the spec use upper case by convention.
 
