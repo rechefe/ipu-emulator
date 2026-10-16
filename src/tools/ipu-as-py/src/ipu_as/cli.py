@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 from typing import NoReturn
 
 import click
@@ -29,6 +30,19 @@ def _exit_with(error: AssemblerError) -> NoReturn:
     sys.exit(1)
 
 
+def _parse_defines(
+    _ctx: click.Context, _param: click.Parameter, values: tuple[str, ...]
+) -> dict[str, str]:
+    """`KEY=VALUE` options as a mapping; the header's types coerce the strings."""
+    defines: dict[str, str] = {}
+    for value in values:
+        key, sep, text = value.partition("=")
+        if not sep or not key:
+            raise click.BadParameter(f"{value!r} is not KEY=VALUE", param_hint="--define")
+        defines[key] = text
+    return defines
+
+
 @click.group()
 def cli():
     pass
@@ -39,9 +53,26 @@ def cli():
 @click.option("--output", type=click.Path(exists=False), required=True)
 @click.option(
     "--format",
-    prompt="Choose a file format",
     type=click.Choice(["mem", "bin"]),
-    default="mem",
+    default=None,
+    help="Output format; by default bin for a .bin --output, else mem.",
+)
+@click.option(
+    "--define",
+    "defines",
+    multiple=True,
+    callback=_parse_defines,
+    metavar="KEY=VALUE",
+    help="A template value, checked against the source's ipu:params header. Repeatable.",
+)
+@click.option(
+    "-I",
+    "--include-dir",
+    "include_dirs",
+    multiple=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="A directory {% include %} and {% import %} resolve in, after the input's "
+    "own directory. Repeatable.",
 )
 @click.option(
     "--abi",
@@ -51,7 +82,14 @@ def cli():
     help="A kernel.toml whose [abi] table names the registers the template reads "
     "as {{ cr.<name> }} / {{ lr.<name> }}.",
 )
-def assemble(input: click.Path, output: click.Path, format: str, abi_path: str | None):
+def assemble(  # noqa: PLR0913 - one argument per option
+    input: str,
+    output: str,
+    format: str | None,
+    defines: dict[str, str],
+    include_dirs: tuple[str, ...],
+    abi_path: str | None,
+):
     """Assembles the given input file."""
     click.echo(f"Assembling file: {input}")
     if output:
@@ -60,15 +98,31 @@ def assemble(input: click.Path, output: click.Path, format: str, abi_path: str |
         text = source.read()
     abi = _read_abi(abi_path) if abi_path else None
     try:
-        result = session.assemble(text, abi=abi)
+        result = session.assemble(
+            text,
+            defines=defines,
+            search_path=_search_path(input, include_dirs),
+            abi=abi,
+        )
     except AssemblerError as error:
         _exit_with(error)
-    if format == "mem":
-        with open(output, "w") as f:
-            f.write(result.to_mem())
-    elif format == "bin":
+    if (format or _format_of(output)) == "bin":
         with open(output, "wb") as f:
             f.write(result.to_bin())
+    else:
+        with open(output, "w") as f:
+            f.write(result.to_mem())
+
+
+def _format_of(path: str) -> str:
+    """The file format a path's suffix names: `bin` for `.bin`, else `mem`."""
+    return "bin" if Path(path).suffix == ".bin" else "mem"
+
+
+def _search_path(input: str, include_dirs: tuple[str, ...]) -> tuple[Path, ...]:
+    """The input's own directory (unless it is stdin), then each `-I` directory."""
+    own = () if input == "-" else (Path(input).resolve().parent,)
+    return own + tuple(Path(d) for d in include_dirs)
 
 
 def _read_abi(path: str) -> dict[str, dict[str, str]]:
@@ -91,20 +145,20 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
 @click.option("--output", type=click.Path(exists=False), required=True)
 @click.option(
     "--format",
-    prompt="Choose a file format",
     type=click.Choice(["mem", "bin"]),
-    default="mem",
+    default=None,
+    help="Input format; by default bin for a .bin --input, else mem.",
 )
-def disassemble(input: click.Path, output: click.Path, format: str):
+def disassemble(input: str, output: str, format: str | None):
     """Disassembles the given input file."""
     click.echo(f"Disassembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
     try:
-        if format == "mem":
-            lark_tree.disassemble_from_mem_file(input, output)
-        elif format == "bin":
+        if (format or _format_of(input)) == "bin":
             lark_tree.disassemble_from_bin_file(input, output)
+        else:
+            lark_tree.disassemble_from_mem_file(input, output)
     except AssemblerError as error:
         _exit_with(error)
 
@@ -146,7 +200,29 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
     callback=_print_json_versions,
     help="Print the --json versions this assembler supports, as a JSON array, and exit.",
 )
-def check(input: str, as_json: bool, json_version: int | None):
+@click.option(
+    "--define",
+    "defines",
+    multiple=True,
+    callback=_parse_defines,
+    metavar="KEY=VALUE",
+    help="A template value, as for assemble. Repeatable.",
+)
+@click.option(
+    "-I",
+    "--include-dir",
+    "include_dirs",
+    multiple=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="A directory includes resolve in, as for assemble. Repeatable.",
+)
+def check(
+    input: str,
+    as_json: bool,
+    json_version: int | None,
+    defines: dict[str, str],
+    include_dirs: tuple[str, ...],
+):
     """Report errors in an assembly source without producing output.
 
     Unlike `assemble`, this never exits on the first problem and never writes a
@@ -161,7 +237,9 @@ def check(input: str, as_json: bool, json_version: int | None):
     source = sys.stdin.read() if input == "-" else open(input).read()
 
     try:
-        found = diagnostics.check(source)
+        found = diagnostics.check(
+            source, defines=defines, search_path=_search_path(input, include_dirs)
+        )
     except Exception as error:  # noqa: BLE001 - see below
         # A crash in the checker must not read as "this program is fine". The
         # editor treats non-JSON output as a broken toolchain and clears the

@@ -119,7 +119,13 @@ Use a **fresh `IpuState`** (or a new `run_test` call with different α kwargs) w
 
 ## Step 1: Write the Assembly Program
 
-Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. The `ipu-as` command line has no option to set template variables yet; `--define` is planned in E05-10.
+Create your IPU assembly program (e.g., `fully_connected.asm`). The assembly program contains the compute logic that runs on the IPU. See the [Assembly Syntax Guide](assembly-syntax.md) for details on writing IPU assembly code with Jinja2 preprocessing. To assemble a template from the command line, give each value its header declares with `--define`, and each extra include directory with `-I` (the input's own directory is always searched first). The output format follows the `--output` suffix (`.bin` gives `bin`, anything else `mem`) unless `--format` says otherwise:
+
+```bash
+bazel run //src/tools/ipu-as-py:ipu-as -- assemble --input "$PWD/fully_connected.asm" --output "$PWD/fully_connected.bin" --define rows=8 -I "$PWD/lib"
+```
+
+The `check` subcommand takes the same `--define` and `-I` options.
 
 ## Step 2: Define Bazel Build Targets
 

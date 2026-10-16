@@ -100,6 +100,18 @@ py_pytest_test(
     ],
 )
 
+# The CLI: no prompt, --define and -I (E05-10).
+py_pytest_test(
+    name = "test_cli",
+    srcs = ["test/test_cli.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("pytest"),
+    ],
+)
+
 # `cr` / `lr` ABI namespaces in templates (E05-13).
 py_pytest_test(
     name = "test_abi",
