@@ -53,7 +53,7 @@ OUTPUT_NEURONS = 64
 # registers below feed the .asm's XMEM instructions instead, so they carry
 # the same addresses converted to rows (divide by the 128-byte row size).
 ROW_SIZE_BYTES = 128
-# STR_ACC_REG always writes all 512 B of r_acc regardless of mode (issue
+# ST.ACC always writes all 512 B of r_acc regardless of mode (issue
 # #179's fixed-payload outlier), which spans 4 rows in narrow mode -- the
 # stride between successive output vectors must match that, not the
 # 256-byte/2-row footprint of one INT32 output vector alone, or narrow-mode
@@ -178,7 +178,7 @@ class FullyConnectedApp(IpuApp):
         state.regfile.set_cr(4, 1)
         state.regfile.set_cr(5, 512 // row_size)
         # Constants for ``SET lr* cr*`` in ``fully_connected.asm`` (issue #82).
-        # cr7 is the BLT lr0/lr1 loop bound: lr0 now increments by 1 row per
+        # cr7 is the BLT.S lr0/lr1 loop bound: lr0 now increments by 1 row per
         # sample (was 128 bytes), so the bound is SAMPLES_NUM rows, not the
         # old byte count (10 * 128 = 1280).
         state.regfile.set_cr(6, 0)
@@ -197,7 +197,7 @@ class FullyConnectedApp(IpuApp):
 
     def teardown(self, state: IpuState) -> None:
         if self.output_path is not None:
-            # STR_ACC_REG writes each sample 512 B apart (OUTPUT_STRIDE_ROWS
+            # ST.ACC writes each sample 512 B apart (OUTPUT_STRIDE_ROWS
             # rows), but only the first OUTPUT_NEURONS*4 bytes of each are
             # real output -- dump_xmem_to_binary can't express a stride
             # different from its chunk size, so read samples individually.

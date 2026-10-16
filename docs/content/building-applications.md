@@ -58,7 +58,7 @@ For aggregation (`AGG.SUM`, `AGG.MAX`, etc.) the element count is controlled by 
 
 ## Wide-vector debug mode (optional)
 
-The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`STR_POST_AAQ_REG`** / `STR_ACC_REG` in that mode.
+The emulator can run multiply/accumulate paths with **128×32-bit elements** (FP32 or INT32) instead of 8-bit vectors, for debugging without quantization on that path. XMEM addresses stay the same; load sizes and alignment rules change. See **[Wide-vector debug mode](wide-vector-debug-mode.md)** for how to construct `IpuState`, prepare 512-byte loads, and use `ACTIVATE.QUANTIZE` / **`ST.AAQ`** / `ST.ACC` in that mode.
 
 ## Activations, `ACTIVATE.QUANTIZE`, and virtual α (Python emulator) {#activations-emulator}
 
@@ -73,13 +73,13 @@ ACTIVATE.QUANTIZE relu CR15;;
 - **Syntax:** `ACTIVATE.QUANTIZE activation_fn, cr_idx`, where *activation_fn* is a **keyword** (`identity`, `relu`, `relu6`, `sigmoid`, `tanh`, `gelu`, `softplus`, `elu`, `exp2`, `reciprocal`, `rsqrt`, `silu`, `window`). The active element count comes from `cr_idx`'s `valid_elements`, the same dstructure field used by the `AGG.*` instructions; `cr_idx` is mandatory (any `CR0`–`CR15`, no implicit default).
 - **Single source of truth:** the keyword order is the ISA's `ActivationFn` operand, in `src/tools/ipu-isa/src/ipu_isa/activations.py` (`ACTIVATION_FN_NAMES`); the pure-Python math is the emulator's, in `src/tools/ipu-emu-py/src/ipu_emu/activations.py` (`apply_activation`).
 
-### `R_ACC`, `POST_AAQ_REG`, and `STR_POST_AAQ_REG` (staging vs export)
+### `R_ACC`, `POST_AAQ_REG`, and `ST.AAQ` (staging vs export)
 
 - **Accumulation** stays in **`R_ACC`** (512 bytes = 128×32-bit elements). The ACC-slot **`AGG.SUM`** / **`AGG.SUM.FIRST`** / **`AGG.MAX`** / **`AGG.MAX.FIRST`** reduce **`R_ACC`** in place, writing a single `R_ACC` slot selected by an LR register; hardware uses the `act_cr_idx` path described in the AAQ spec for activation selection.
 - **`ACTIVATE.QUANTIZE`** (emulator) reads **`R_ACC`**, activates each active element and writes the result into **`POST_AAQ_REG`**; **`R_ACC`** is left unchanged.
 - **`POST_AAQ_REG`** is **temporarily a 512-byte** wide staging register (same element layout as **`R_ACC`**) until end-to-end quantization and export are finalized.
 - Activation and quantization are **one instruction**; there is no separate activate-only or quantize-only opcode. In **INT8 mode** the activated elements are clamped to `[-128, 127]` and written as **128 bytes** into the **leading** bytes of **`POST_AAQ_REG`**, with the remainder zeroed. In **wide-vector debug mode** the activated **32-bit** elements are written wide instead, and are quantized to that same byte prefix only when `wide_vector_quantize_output` is set.
-- **`STR_POST_AAQ_REG`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
+- **`ST.AAQ`** stores **`POST_AAQ_REG`** — **512 bytes** — to XMEM (whatever wide or quantized layout that buffer holds at issue time).
 
 ### Virtual α and window bounds in the emulator (elu, window)
 
@@ -290,7 +290,7 @@ a parametrized test: `case_tests(__package__, sweep=[dict(rows=8), dict(rows=300
 Tests may pass `inst_path` from a module-scoped fixture to reuse assembly. Use
 `workspace` when a test needs to inspect files.
 
-`STR_ACC_REG` is emulator-only: every execution emits
+`ST.ACC` is emulator-only: every execution emits
 `ipu_emu.errors.DebugOnlyInstructionWarning`. `case_tests` reads the assembled
 program and, when it contains the instruction, requires the warning in every
 case; for any other kernel the warning is an error. A test that calls
@@ -319,8 +319,8 @@ Available fields:
 - `total_cycles` — VLIW cycles executed
 - `mult_active_cycles` — cycles whose MULT slot was not `MULT_NOP`
 - `acc_active_cycles` — cycles whose ACC slot was not `ACC_NOP`
-- `xmem_reads` — count of `LDR_MULT_REG`, `LDR_CYCLIC_MULT_REG`, `LDR_MULT_MASK_REG`
-- `xmem_writes` — count of `STR_ACC_REG`, `STR_POST_AAQ_REG`
+- `xmem_reads` — count of `LD.MULT`, `LD.MULT.CYCLIC`, `LD.MASK`
+- `xmem_writes` — count of `ST.ACC`, `ST.AAQ`
 - `xmem_accesses` — sum of reads + writes
 - `mult_utilization`, `acc_utilization` — active-cycle fraction (0.0–1.0)
 
@@ -360,14 +360,14 @@ The IPU assembly implements the core computation: activations for the current sa
     SET                 lr2 cr8 ;;
 
 input_loop:
-    LDR_MULT_REG        r0 lr0 cr0;;
+    LD.MULT        r0 lr0 cr0;;
 
     SET                 lr4 cr9 ;;
     SET                 lr5 cr10 ;;
     SET                 lr6 cr11 ;;
     SET                 lr15 cr12 ;;
 
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LD.MULT.CYCLIC lr4 cr1 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
@@ -376,7 +376,7 @@ input_loop:
     B                   after_element_loop;;
 
 element_loop:
-    LDR_CYCLIC_MULT_REG lr4 cr1 lr15;
+    LD.MULT.CYCLIC lr4 cr1 lr15;
     ADD                 lr4 lr4 cr3;
     ADD                 lr5 lr5 cr4;
     MULT.RC.VE          lr15 lr5 0 lr15 cr15;
@@ -384,16 +384,16 @@ element_loop:
     BNE                 lr5 lr6 element_loop;;
 
 after_element_loop:
-    STR_ACC_REG         lr7 cr2;;
+    ST.ACC              lr7 cr2;;
     ADD                 lr7 lr7 cr5;
     ADD                 lr0 lr0 cr3;;
 
     BREAK;;
 
-    BLT                 lr0 lr1 input_loop;;
+    BLT.S               lr0 lr1 input_loop;;
 
 end:
-    BKPT;;
+    HALT;;
 ```
 
 ### Python Application Class

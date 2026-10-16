@@ -1,7 +1,7 @@
 """Disassembly snapshots of the assembled-program corpus (E02-02).
 
 One text file per ``asm_corpus`` entry under ``disassembly/``, one line per
-instruction word: ``<index>: <CompoundInst.decode(word)>``, with the decoder's
+instruction word: ``<index>: <ipu_isa.codec.disasm.disassemble(word)>``, with the
 line breaks between slots folded into single spaces. Text rather than a digest,
 so a mnemonic rename or a formatting change shows as a readable diff, local to
 the programs it touches.
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import asm_corpus
 
-from ipu_as.compound_inst import CompoundInst
+from ipu_isa.codec.disasm import disassemble as disassemble_word
 
 #: Where the snapshots live, repo-relative.
 SNAPSHOT_DIR = "src/tools/ipu-apps/test/baselines/disassembly"
@@ -52,7 +52,7 @@ def snapshot_name(entry: asm_corpus.CorpusEntry) -> str:
 def disassemble(words: list[int]) -> str:
     lines = []
     for index, word in enumerate(words):
-        text = " ".join(part.strip() for part in CompoundInst.decode(word).splitlines())
+        text = " ".join(part.strip() for part in disassemble_word(word).splitlines())
         lines.append(f"{index}: {text}\n")
     return "".join(lines)
 

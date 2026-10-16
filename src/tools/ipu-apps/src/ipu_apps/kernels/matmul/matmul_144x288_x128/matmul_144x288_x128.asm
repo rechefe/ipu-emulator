@@ -36,7 +36,7 @@
 #   data_ptr (data pointer) advances continuously; NOT reset between chunks.
 #   k_index reset to -1 at the start of each chunk via SET k_index K_START.
 #
-# Loop-bound formula (do-while with live MULT/XMEM, snapshot BLT):
+# Loop-bound formula (do-while with live MULT/XMEM, snapshot BLT.S):
 #   body runs for live index [k_index start + 1 … k_bound + 1]
 #   for width=128 starting at index 0: k_index start = -1, k_bound = 126
 #   exit cycle lands on live index 127 (the last real term), data_ptr advances 128 times total.
@@ -85,7 +85,7 @@
 
 j_loop:
     SET {{ data_ptr }} {{ DATA_START_TG0 }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=0 startup; r0 = W[j, 0..127]
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=0 startup; r0 = W[j, 0..127]
     SET {{ k_index }} {{ K_START }};;                                                           # chunk0 fixed_idx startup: -1
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;                                                  # biased to -2 (load runs a bundle ahead)
 
@@ -94,49 +94,49 @@ j_loop:
     # start-of-cycle snapshot (issue #157), so it cannot consume a chunk loaded
     # in its OWN bundle. Later chunks must NOT re-prime -- their first row is
     # already in flight from the previous chunk's trailing prefetch.
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
     B after_chunk0_tg0;;
 
 k_chunk0_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk0_tg0;;
 
 after_chunk0_tg0:
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;  # chunk1 startup; r0 = W[j, 128..255]
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;  # chunk1 startup; r0 = W[j, 128..255]
 
 k_chunk1_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk1_tg0;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk1_tg0;;
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;  # chunk2 startup; r0 = W[j, 256..287]+zeros
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;  # chunk2 startup; r0 = W[j, 256..287]+zeros
 
 k_chunk2_tg0:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_tail }} k_chunk2_tg0;;
+    BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg0;;
 
     # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
@@ -144,10 +144,10 @@ k_chunk2_tg0:
     # result and the store is free. `identity` + valid_elements=128 (the CR
     # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG0 }};;  # store 512B → OUTPUT[j, tg=0]
 
     SET {{ data_ptr }} {{ DATA_START_TG1 }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=1 startup; r0 = W[j, 0..127]
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK0 }};;  # tg=1 startup; r0 = W[j, 0..127]
     SET {{ k_index }} {{ K_START }};;
     SUB {{ k_index }} {{ k_index }} {{ ONE }};;                                                  # biased to -2 (load runs a bundle ahead)
 
@@ -156,49 +156,49 @@ k_chunk2_tg0:
     # start-of-cycle snapshot (issue #157), so it cannot consume a chunk loaded
     # in its OWN bundle. Later chunks must NOT re-prime -- their first row is
     # already in flight from the previous chunk's trailing prefetch.
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};;
 
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
     B after_chunk0_tg1;;
 
 k_chunk0_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk0_tg1;;
 
 after_chunk0_tg1:
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK1 }};;
 
 k_chunk1_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound }} k_chunk1_tg1;;
+    BLT.S {{ k_index }} {{ k_bound }} k_chunk1_tg1;;
 
     SET {{ k_index }} {{ K_START }};
-    LDR_MULT_REG r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
+    LD.MULT r0 {{ w_ptr }} {{ W_BASE_CHUNK2 }};;
 
 k_chunk2_tg1:
     MULT.RC.VE {{ rc_slot0 }} {{ k_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ data_ptr }} {{ DATA_BASE }} {{ rc_slot0 }};
     ADD {{ data_ptr }} {{ data_ptr }} {{ data_stride }};
     ADD {{ k_index }} {{ k_index }} {{ ONE }};
-    BLT {{ k_index }} {{ k_bound_tail }} k_chunk2_tg1;;
+    BLT.S {{ k_index }} {{ k_bound_tail }} k_chunk2_tg1;;
 
     # Hardware store path (see docs/content/specs/stage-aaq-str.md section 7.0):
     # AaQ and STR are consecutive pipeline stages WITHIN one VLIW word
@@ -206,12 +206,12 @@ k_chunk2_tg1:
     # result and the store is free. `identity` + valid_elements=128 (the CR
     # default) makes it a lane-for-lane FP32 copy of r_acc in wide mode.
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE_TG1 }};;  # store 512B → OUTPUT[j, tg=1]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;                                          # advance output ptr
 
     ADD {{ w_ptr }} {{ w_ptr }} {{ w_stride }};
     ADD {{ j_index }} {{ j_index }} {{ ONE }};;  # next j: weight offset += W_STRIDE, j++
-    BLT {{ j_index }} {{ j_limit }} j_loop;;
+    BLT.S {{ j_index }} {{ j_limit }} j_loop;;
 
 end:
-    BKPT;;
+    HALT;;

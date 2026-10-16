@@ -24,7 +24,7 @@
 # the full pipelining rationale, unchanged here. The only difference is the
 # loop trip count: 30 packed rows instead of 240 unpacked rows.
 #
-# CROSS-KERNEL R_MASK HAZARD: this kernel never calls LDR_MULT_MASK_REG --
+# CROSS-KERNEL R_MASK HAZARD: this kernel never calls LD.MASK --
 # it relies entirely on R_MASK's regfile-init all-ones default, which is
 # correct standalone but breaks if a prior kernel in the same IpuState left
 # R_MASK non-default (e.g. asm_packed_output_linear_generic.asm's one-hot
@@ -63,23 +63,23 @@
     SET                 {{ row_limit }} {{ ROW_COUNT }};;
     SET                 {{ row_stride }} {{ ROW_STRIDE }};;
     SET                 {{ out_stride }} {{ OUT_STRIDE }};;
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
 
 row_loop:
-    LDR_CYCLIC_MULT_REG {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ b_ptr }} {{ B_BASE }} {{ rc_slot0 }};
     ADD {{ b_ptr }} {{ b_ptr }} {{ row_stride }};
     MULT.RC.VE {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;;
     MULT.RC.VE          {{ rc_slot0 }} {{ DTYPE_ONE }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;;
     ACTIVATE.QUANTIZE   identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ OUT_BASE }};
+    ST.AAQ {{ out_ptr }} {{ OUT_BASE }};
     ADD {{ row_index }} {{ row_index }} {{ ONE }};
-    LDR_CYCLIC_MULT_REG {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ a_ptr }} {{ A_BASE }} {{ rc_slot0 }};
     ADD {{ a_ptr }} {{ a_ptr }} {{ row_stride }};;
     ADD                 {{ out_ptr }} {{ out_ptr }} {{ out_stride }};
-    BLT {{ row_index }} {{ row_limit }} row_loop;;
+    BLT.S {{ row_index }} {{ row_limit }} row_loop;;
 
 end:
-    BKPT;;
+    HALT;;

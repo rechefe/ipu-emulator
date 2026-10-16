@@ -104,6 +104,8 @@ PANE_COMMANDS = frozenset(
         Command.EDIT_TAB,
         Command.CYCLE_FORMAT,
         Command.EDIT_VALUE,
+        Command.TOGGLE_BREAKPOINT,
+        Command.RUN_TO_CURSOR,
         Command.MOVE_UP,
         Command.MOVE_DOWN,
         Command.MOVE_LEFT,

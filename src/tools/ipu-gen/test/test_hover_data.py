@@ -52,7 +52,7 @@ def assemble_snippet(example: str):
         names = {n for d in found for n in _UNDEFINED_LABEL_RE.findall(d.message)}
         if not names:
             return found
-        text = text.rstrip("\n") + "\n" + "".join(f"{n}: BKPT;;\n" for n in sorted(names))
+        text = text.rstrip("\n") + "\n" + "".join(f"{n}: HALT;;\n" for n in sorted(names))
     return check(text)
 
 

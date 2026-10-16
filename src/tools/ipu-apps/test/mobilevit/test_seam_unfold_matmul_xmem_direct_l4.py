@@ -5,7 +5,7 @@ with NO file round-trip and NO ``_load_data()`` re-packing step at all?
 
 Structural question under test: unfold_16x16x192 emits, per stream, N_OUT=192
 channel-major rows of 512 B, each row holding only N_TOK=64 valid FP32 tokens
-(256 B) followed by 256 B of STALE r_acc garbage (STR_ACC_REG always writes
+(256 B) followed by 256 B of STALE r_acc garbage (ST.ACC always writes
 the full register -- see the module docstring). This is structurally
 DIFFERENT from LayerNorm's zero-padded rows. matmul_576x192_x128's own
 _load_data pads each channel's N_TOK=64 elements out to a whole row with

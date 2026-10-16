@@ -38,38 +38,38 @@ _REQUIRES_PROTO_BUILD = pytest.mark.skipif(
 PROGRAMS = {
     "mult_acc_agg": """
         SET LR0 CR0 ; SET LR1 CR1 ;;
-        LDR_MULT_REG R0 LR0 CR2 ;;
-        LDR_CYCLIC_MULT_REG LR0 CR3 LR0 ;;
+        LD.MULT R0 LR0 CR2 ;;
+        LD.MULT.CYCLIC LR0 CR3 LR0 ;;
         MULT.RC.VV LR0 R0 0 LR0 CR15 ; ACC.ADD.FIRST ;;
         MULT.RC.VE LR0 CR1 0 LR0 CR15 ; ACC.ADD ;;
         MULT.RC.VS LR0 0 LR0 CR15 ; ACC.MAX ;;
         MULT.VE LR0 CR1 0 LR0 CR15 ; ACC.SUB ;;
         MULT.EE LR0 CR1 0 LR0 CR15 ; AGG.SUM.FIRST LR1 CR15 ;;
         MULT.RC.VV LR0 R0 0 LR0 CR15 ; AGG.MAX LR1 CR15 ;;
-        ACTIVATE.QUANTIZE relu CR15 ; STR_POST_AAQ_REG LR1 CR4 ;;
-        BKPT ;;
+        ACTIVATE.QUANTIZE relu CR15 ; ST.AAQ LR1 CR4 ;;
+        HALT ;;
     """,
     "masked": """
         SET LR0 CR0 ; SET LR2 CR1 ;;
-        LDR_MULT_MASK_REG LR0 CR6 ;;
-        LDR_CYCLIC_MULT_REG LR0 CR3 LR0 ;;
+        LD.MASK LR0 CR6 ;;
+        LD.MULT.CYCLIC LR0 CR3 LR0 ;;
         MULT.RC.VS LR0 0 LR2 CR15 ; ACC.ADD.FIRST ;;
         MULT.RC.VS LR0 1 LR0 CR15 ; ACC.ADD ;;
-        ACTIVATE.QUANTIZE identity CR15 ; STR_POST_AAQ_REG LR0 CR4 ;;
-        BKPT ;;
+        ACTIVATE.QUANTIZE identity CR15 ; ST.AAQ LR0 CR4 ;;
+        HALT ;;
     """,
     "loop_and_lr_ops": """
         SET LR0 CR0 ; SET LR1 CR1 ; SET LR3 CR7 ;;
-        INC LR0 1 ; DEC LR3 1 ; INCR_MOD_POW2 LR1 CR1 3 ;;
+        INC LR0 1 ; DEC LR3 1 ; INC.MODP2 LR1 CR1 3 ;;
         ADDB LRD4 LR1 ;;
         ADDBI LRD6 3 ;;
     loop:
         ADD LR0 LR0 CR1 ; SUB LR3 LR3 CR1 ;;
-        BLT LR0 CR7 loop ;;
+        BLT.S LR0 CR7 loop ;;
         BEQ LR0 CR7 done ;;
         SET LR0 CR0 ;;
     done:
-        BKPT ;;
+        HALT ;;
     """,
 }
 
@@ -192,10 +192,10 @@ def _probe_setup(probe):
 @pytest.mark.parametrize(("name", "mode"), _PROBE_RUNS)
 def test_timing_probes_are_identical(name, mode):
     probe = timing_probes.PROBES[name]
-    # STR_ACC_REG is emulator-only and says so on every run.
+    # ST.ACC is emulator-only and says so on every run.
     expected = (
         pytest.warns(DebugOnlyInstructionWarning)
-        if "STR_ACC_REG" in probe.asm
+        if "ST.ACC" in probe.asm
         else contextlib.nullcontext()
     )
     with expected:
@@ -250,7 +250,7 @@ def test_the_cond_slots_nop_still_advances_the_pc():
     program with no branch at all is the sharpest check that prototyping mode
     does not skip it.
     """
-    asm = "SET LR0 CR1 ;;\nADD LR0 LR0 CR1 ;;\nBKPT ;;"
+    asm = "SET LR0 CR1 ;;\nADD LR0 LR0 CR1 ;;\nHALT ;;"
     _, fast = _run_equivalence(asm)
     assert fast.stats.total_cycles == 3
 
@@ -354,7 +354,7 @@ def test_cached_scalar_read_invalid_index_exception_is_bit_exact():
 @_REQUIRES_PROTO_BUILD
 def test_an_lr_conflict_still_raises():
     """Conflict detection is precomputed per PC; it must still fire every time."""
-    asm = "SET LR0 CR1 ; SET LR0 CR2 ;;\nBKPT ;;"
+    asm = "SET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;"
     states = []
     exceptions = []
     for prototyping in (False, True):
@@ -375,7 +375,7 @@ def test_an_lr_conflict_still_raises():
     ("asm", "fault", "pc"),
     [
         ("INC LR0 1 ;;\nINC LR0 1 ;;", FaultId.F2, 2),
-        ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nBKPT ;;", FaultId.F5, 1),
+        ("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;", FaultId.F5, 1),
     ],
 )
 def test_both_modes_raise_the_same_fault_at_the_same_pc(asm, fault, pc):
@@ -401,7 +401,7 @@ def test_a_disabled_f1_runs_the_same_nop_in_both_modes():
     states = []
     for prototyping in (False, True):
         state = new_state(prototyping=prototyping)
-        load_program(state, [word, assemble_program("BKPT ;;")[0]])
+        load_program(state, [word, assemble_program("HALT ;;")[0]])
         state.faults.set_enabled(FaultId.F1, False)
         run_until_complete(state)
         assert state.faults.sticky == {FaultId.F1}

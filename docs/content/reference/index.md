@@ -8,7 +8,7 @@ These pages are for looking things up: instructions, operands, commands and term
 | [Operand types](../operand-types.md) | The operand types the instruction reference uses. |
 | [Assembly syntax](../assembly-syntax.md) | Instruction words, separators, labels, registers and Jinja2 preprocessing. |
 | [Instruction format](../instruction-format.md) | The bit layout of the instruction word, and the SystemVerilog package download. |
-| [Programmer's guide](../programmer-guide.md) | The pseudo-instructions the assembler expands, such as `BGT` and `BZ`. |
+| [Programmer's guide](../programmer-guide.md) | The pseudo-instructions the assembler expands, such as `BGT.S` and `BZ`. |
 | [IPU configuration](../ipu-configuration.md) | Element formats, CR constants and the dstructure fields. |
 | [Command-line tools](cli.md) | Every command-line tool (`ipu-as`, the kernel runner and the debugger), with its subcommands and options. |
 | [Reference model API](reference-model-api.md) | The stable emulator API and the trace schema. |

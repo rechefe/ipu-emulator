@@ -5,7 +5,8 @@ program need not exist in the file. `instrument` tags every source line with
 an origin marker before rendering (`#@ipu-src-line:<N>` in the open file,
 `#@ipu-src:<template>:<N>` in an included one), and Jinja carries the markers
 through whatever it does; `source_line_at` reads the line back. Positions here
-are 0-based, matching LSP and the VS Code API.
+are 0-based, as LSP and the VS Code API count them; a column counts code
+points (Python string indices), not the UTF-16 code units of those APIs.
 """
 
 from __future__ import annotations
@@ -60,6 +61,22 @@ def include_note(rendered: str, offset: int) -> str:
     if match is None or match.group("name") is None:
         return ""
     return f" (in {match.group('name')}:{match.group('line')})"
+
+
+def strip_markers(text: str) -> str:
+    """`text` up to its first origin marker, without the whitespace before it.
+
+    A marker is appended to a line's comment when the line has one, so the
+    rendered comment token carries it.
+
+    Args:
+        text: Rendered text, such as one comment token of an instrumented render.
+
+    Returns:
+        The text before its first marker; all of `text` when it has none.
+    """
+    match = _ANY_MARKER_RE.search(text)
+    return text if match is None else text[: match.start()].rstrip()
 
 
 def instrument(source: str, prefix: str = _LINE_MARKER) -> str | None:
@@ -119,6 +136,23 @@ def linecol_to_offset(text: str, line: int, column: int) -> int | None:
     if line >= len(lines):
         return None
     return sum(len(source_line) for source_line in lines[:line]) + column
+
+
+def next_marker_offset(rendered: str, offset: int) -> int:
+    """Where the first open-file origin marker at or after `offset` starts.
+
+    Text up to a marker came from that marker's source line; each loop pass
+    has a marker occurrence of its own.
+
+    Args:
+        rendered: An instrumented render.
+        offset: An offset in it.
+
+    Returns:
+        The marker's offset, or `len(rendered)` if no marker follows.
+    """
+    match = _MARKER_RE.search(rendered, offset)
+    return match.start() if match else len(rendered)
 
 
 def source_line_at(rendered: str, offset: int) -> int | None:

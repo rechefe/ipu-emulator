@@ -119,7 +119,7 @@ sub_loop:
 plane_loop:
     SET lr12 cr12 ;
     SET lr13 cr13 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- src = [0..7]; slot0 <- plane b -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- src = [0..7]; slot0 <- plane b -#}
     ADD {{lr_addr}} {{lr_addr}} cr4 ;
     ADD {{lr_b}} {{lr_b}} cr1 ;
     SET {{lr_k}} cr0 ;;                                  {#- next plane; k = 0 -#}
@@ -130,27 +130,27 @@ reshape_loop:
     ADDBI lrd12 8 ;
     ADDB lrd14 cr10 ;
     ADD {{lr_k}} {{lr_k}} cr1 ;
-    BLT {{lr_k}} cr11 reshape_loop ;;                    {#- pre-increment: bound E/8 - 1 -#}
+    BLT.S {{lr_k}} cr11 reshape_loop ;;                    {#- pre-increment: bound E/8 - 1 -#}
 
     ADDBI lrd14 -127 ;;                                  {#- undo the 128 drift, +1 for the next plane -#}
-    BLT {{lr_b}} cr8 plane_loop ;;
+    BLT.S {{lr_b}} cr8 plane_loop ;;
 
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- OUT[r*h + a, wt*r + sub] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- OUT[r*h + a, wt*r + sub] -#}
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_s}} {{lr_s}} cr9 ;
     ADD {{lr_sub}} {{lr_sub}} cr1 ;;
-    BLT {{lr_sub}} cr8 sub_loop ;;
+    BLT.S {{lr_sub}} cr8 sub_loop ;;
 
     ADD {{lr_wt}} {{lr_wt}} cr1 ;;
-    BLT {{lr_wt}} cr6 wt_loop ;;
+    BLT.S {{lr_wt}} cr6 wt_loop ;;
 
     ADD {{lr_pl0}} {{lr_pl0}} cr5 ;                      {#- next sub-row: += r * IN_PLANE_STRIDE -#}
     ADD {{lr_a}} {{lr_a}} cr1 ;;
-    BLT {{lr_a}} cr8 a_loop ;;
+    BLT.S {{lr_a}} cr8 a_loop ;;
 
     ADD {{lr_hbase}} {{lr_hbase}} cr6 ;;                 {#- next input row: += IN_TILES_PER_ROW -#}
-    BLT {{lr_hbase}} cr4 h_loop ;;                       {#- hbase reaches H * IN_TPR exactly -#}
+    BLT.S {{lr_hbase}} cr4 h_loop ;;                       {#- hbase reaches H * IN_TPR exactly -#}
 
 end:
-    BKPT ;;
+    HALT ;;

@@ -1,14 +1,16 @@
 """The instruction word as the assembler's callers have always used it.
 
 A thin shim over ``ipu_as.encode`` and the ``ipu_isa`` codec (E05-02): the
-encoding, the field layout and the disassembly text all come from there. The
+encoding, the field layout and the disassembly text (``ipu_isa.codec.disasm``)
+all come from there. The
 debugger, the emulator tests and the generators still call these names; E08
 moves the generators onto the codec directly.
 """
 
 import functools
 
-from ipu_as.encode import WILDCARD_OPCODES, disassemble_word, encode_word
+from ipu_as.encode import WILDCARD_OPCODES, encode_word
+from ipu_isa.codec.disasm import disassemble
 from ipu_isa.codec.word import WORD_LAYOUT
 from ipu_isa.view import isa
 
@@ -36,8 +38,8 @@ class CompoundInst:
 
     @classmethod
     def decode(cls, value: int) -> str:
-        """The assembly text of the word ``value`` (``encode.disassemble_word``)."""
-        return disassemble_word(value)
+        """The assembly text of the word ``value`` (``ipu_isa.codec.disasm.disassemble``)."""
+        return disassemble(value)
 
     @classmethod
     @functools.cache

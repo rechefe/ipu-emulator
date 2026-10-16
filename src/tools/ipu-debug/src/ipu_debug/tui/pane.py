@@ -4,30 +4,25 @@ A pane renders its tabs into a rectangle and handles the commands aimed at
 it. The view owns layout, the frame, each pane's tab bar, the footer and the
 overlays; the panes own what is inside their frame.
 
-A pane module (``ipu_debug.tui.panes.*``) renders purely: session and tabs
-in, a :class:`PaneDrawing` out, with no screen and no view. It never touches
-the view either: :meth:`Pane.handle` answers with a :class:`Reply`, which can
-carry a status message and an :class:`Editor` for the view to open.
-
-The panes not yet moved into a module of their own (disassembly and pipeline,
-E08-11) are each a :class:`LegacyPane`, which wraps the drawing and command
-code still living in ``CursesDebugView``. The golden screen tests in
-``test_tui_shell`` prove those moves change nothing on screen.
+Every pane is a module of its own (``ipu_debug.tui.panes.*``) and renders
+purely: session and tabs in, a :class:`PaneDrawing` out, with no screen and no
+view. It never touches the view either: :meth:`Pane.handle` answers with a
+:class:`Reply`, which can carry a status message, an :class:`Editor` for the
+view to open and an execution action that ends the stop. The golden screen
+tests in ``test_tui_shell`` prove the moves into those modules changed
+nothing on screen.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from ipu_debug.session import DebugSession
 from ipu_debug.tui.keymap import Command, PaneId
 from ipu_debug.tui.tabs import TabSet
 from ipu_emu.emulator import DebugAction
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 @dataclass(frozen=True)
@@ -70,11 +65,16 @@ class PaneDrawing:
 
 @dataclass(frozen=True)
 class Reply:
-    """What handling a command asks of the view: a status message, an editor."""
+    """What handling a command asks of the view.
+
+    A status message, an editor to open, or an ``action`` (such as
+    ``DebugAction.CONTINUE``) that ends this stop.
+    """
 
     message: str | None = None
     error: bool = False
     editor: Editor | None = None
+    action: DebugAction | None = None
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ class Pane(Protocol):
         """Carry out *command* on *view*, laid out in *rect*."""
         ...
 
-    def place_cursor(self, view: PaneState, payload: Any) -> None:
+    def place_cursor(self, session: DebugSession, view: PaneState, payload: Any) -> None:
         """Put the cursor on the value a :attr:`PaneDrawing.hits` entry names."""
         ...
 
@@ -138,68 +138,3 @@ class Pane(Protocol):
     ) -> None:
         """Move the cursor *dx* values sideways and *dy* rows down (the wheel)."""
         ...
-
-
-class LineRecorder:
-    """Collects the lines a drawing function emits, for :meth:`Pane.render`."""
-
-    def __init__(self) -> None:
-        self.lines: list[Line] = []
-
-    def __call__(self, y: int, x: int, text: str, style: int) -> None:
-        self.lines.append(Line(y, x, text, style))
-
-    def __iter__(self) -> Iterator[Line]:
-        return iter(self.lines)
-
-
-@dataclass
-class LegacyPane:
-    """A pane whose drawing and commands are still methods of the view.
-
-    *draw* paints the pane into a rectangle through the view's line sink, and
-    *commands* maps each pane command to the view method that carries it out.
-    The wrapped code records its own hits and scroll state on the view.
-    """
-
-    id: PaneId
-    draw: Callable[[Rect], None]
-    capture: Callable[[Callable[[Rect], None], Rect], list[Line]]
-    commands: dict[Command, Callable[[], Outcome]]
-    place: Callable[[Any], None]
-    row: Callable[[], int]
-    scroll: Callable[[int], None]
-    step: Callable[[int, int], None]
-
-    def render(
-        self, session: DebugSession, view: PaneState, rect: Rect, *, focused: bool = False
-    ) -> PaneDrawing:
-        del session, view, focused  # The wrapped drawing code reads them from the view.
-        return PaneDrawing(self.capture(self.draw, rect))
-
-    def handle(
-        self, command: Command, session: DebugSession, view: PaneState, rect: Rect
-    ) -> Reply | None:
-        del session, view, rect
-        action = self.commands.get(command)
-        if action is not None:
-            action()
-        return None
-
-    def place_cursor(self, view: PaneState, payload: Any) -> None:
-        del view
-        self.place(payload)
-
-    def cursor_row(self, session: DebugSession, view: PaneState, rect: Rect) -> int:
-        del session, view, rect
-        return self.row()
-
-    def scroll_to_row(self, session: DebugSession, view: PaneState, rect: Rect, row: int) -> None:
-        del session, view, rect
-        self.scroll(row)
-
-    def move(
-        self, session: DebugSession, view: PaneState, rect: Rect, *, dx: int = 0, dy: int = 0
-    ) -> None:
-        del session, view, rect
-        self.step(dx, dy)

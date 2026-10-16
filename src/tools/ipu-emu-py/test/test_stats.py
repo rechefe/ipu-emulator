@@ -71,24 +71,24 @@ class TestRunStatsProperties:
 class TestStatsCountedDuringExecution:
     def test_nop_program_has_zero_active_cycles(self):
         # All NOPs: no mult, acc, or xmem activity
-        state = run("BKPT;;")
+        state = run("HALT;;")
         assert state.stats.mult_active_cycles == 0
         assert state.stats.acc_active_cycles == 0
         assert state.stats.xmem_reads == 0
         assert state.stats.xmem_writes == 0
 
     def test_total_cycles_matches_instruction_count(self):
-        # BKPT halts but counts as one cycle
-        state = run("BKPT;;")
+        # HALT halts but counts as one cycle
+        state = run("HALT;;")
         assert state.stats.total_cycles == 1
 
     def test_mult_active_counted(self):
-        # LDR_MULT_REG (1 read) + MULT.EE in one cycle, then BKPT
+        # LD.MULT (1 read) + MULT.EE in one cycle, then HALT
         # MULT.EE syntax: ra_idx(LR), cr_idx(CR), mask_offset(imm), mask_shift(LR), dstructure_cr_idx(CR)
         asm = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
-BKPT;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+HALT;;
 """
         state = make_state(asm)
         state.xmem.write_address(0, bytearray(128))
@@ -98,17 +98,17 @@ BKPT;;
     def test_acc_active_counted(self):
         asm = """\
 ACC.ADD;;
-BKPT;;
+HALT;;
 """
         state = run(asm)
         assert state.stats.acc_active_cycles >= 1
 
     def test_xmem_read_counted(self):
-        # LDR_MULT_REG reads from xmem
+        # LD.MULT reads from xmem
         asm = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr2;;
-BKPT;;
+LD.MULT r0 lr0 cr2;;
+HALT;;
 """
         state = make_state(asm)
         state.regfile.set_cr(2, 0x1000 // 128)  # row number
@@ -118,10 +118,10 @@ BKPT;;
         assert state.stats.xmem_writes == 0
 
     def test_xmem_write_counted(self):
-        # STR_ACC_REG writes to xmem
+        # ST.ACC writes to xmem
         asm = """\
-STR_ACC_REG lr0 cr2;;
-BKPT;;
+ST.ACC lr0 cr2;;
+HALT;;
 """
         state = make_state(asm)
         state.regfile.set_lr(0, 0)
@@ -132,12 +132,12 @@ BKPT;;
         assert state.stats.xmem_reads == 0
 
     def test_multiple_cycles_accumulate(self):
-        # 3 independent ACC cycles, then BKPT
+        # 3 independent ACC cycles, then HALT
         asm = """\
 ACC.ADD;;
 ACC.ADD;;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """
         state = run(asm)
         assert state.stats.total_cycles == 4
@@ -149,7 +149,7 @@ BKPT;;
 SET lr0 cr0;;
 ADD lr1 lr0 cr1;;
 ADD lr2 lr1 cr1;;
-BKPT;;
+HALT;;
 """
         state = run(asm)
         assert state.stats.mult_active_cycles == 0
@@ -164,10 +164,10 @@ BKPT;;
 
 _MULT_ACC_PROGRAM = """\
 SET lr0 cr0;;
-LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
 ACC.ADD;;
-LDR_MULT_REG r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
-BKPT;;
+LD.MULT r0 lr0 cr0;MULT.EE lr0 cr0 0 lr0 cr15;;
+HALT;;
 """
 
 # Branches to itself forever.
@@ -176,21 +176,21 @@ spin:
 BEQ lr0 lr0 spin;;
 """
 
-# LR0 counts up to CR8 in a two-word loop, then BKPT (HALT): 2 * CR8 + 2 cycles.
+# LR0 counts up to CR8 in a two-word loop, then HALT (HALT): 2 * CR8 + 2 cycles.
 _COUNTED_LOOP = """\
 SET lr1 cr8;;
 loop:
 INC lr0 1;;
 BNE lr0 lr1 loop;;
-BKPT;;
+HALT;;
 """
 
 # Two cycles complete, then the third raises an EmulatorError.
 _FAULTING_PROGRAM = """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """
 
 
@@ -324,7 +324,7 @@ class TestRunStatsArithmetic:
         from ipu_emu.alias_profile import AliasProfile
 
         profile = AliasProfile()
-        state = make_state("BKPT;;", alias_profile=profile)
+        state = make_state("HALT;;", alias_profile=profile)
         run_until_complete(state)
         assert state.stats.alias_profile is profile
 

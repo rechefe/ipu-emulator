@@ -81,13 +81,13 @@
     SET {{ mask_shift0 }} {{ ZERO }};;
     SET {{ row_stride }} {{ ROW_STRIDE }};;
     SET {{ slot0_lr }} {{ ZERO }};;
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
     SET {{ read_ptr }} {{ UNPACKED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: STR_POST_AAQ_REG's offset is a LIVE read and dispatches after this bundle's own ADD
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a LIVE read and dispatches after this bundle's own ADD
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime unpacked row 0 into slot 0
 
     # ---- chunk 0 (peeled) ----
@@ -97,11 +97,11 @@
     {%- set is_first = (p_out == 0) %}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 {%- endfor %}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ PACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ PACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;
 
     SET {{ row_idx }} {{ ZERO }};;
@@ -118,25 +118,25 @@ pack_loop:
         accumulation, not a continuation of the PREVIOUS chunk's r_acc. #}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
-    {#- p_out=1's load+row_idx/BLT all fuse into ONE bundle. This load
+    {#- p_out=1's load+row_idx/BLT.S all fuse into ONE bundle. This load
         prefetches the NEXT packed chunk's p_out=0 row;
         on the LAST loop;
         pass (processing chunk 95) it harmlessly reads one row past the
         last valid input (row 192) -- the result is never consumed. #}
     MULT.RC.VE {{ rc_idx_reg }} {{ ONE }} {{ p_out }} {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- endif %}
 {%- endfor %}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ PACKED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ PACKED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} pack_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} pack_loop;;
 
 end:
-    BKPT;;
+    HALT;;

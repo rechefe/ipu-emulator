@@ -57,7 +57,7 @@ The kernel library is the throughput benchmark. Area and power are not constrain
 | Locked | A locked context rejects host writes. [Execution flow](execution-flow.md#contexts) defines when a context is locked. |
 | Armed | The inactive context is queued to run when the running kernel ends. |
 | Retire | A word retires when the IPU has committed its last effect, including its store. |
-| Done | A kernel is done when its `END` word retires. |
+| Done | A kernel is done when its `HALT` word retires. |
 | Host | The RISC-V processor that loads kernels and controls the IPU. |
 | Cache unit | The CRM, XMEM and DMA. It moves data between DRAM and XMEM. |
 | XMEM bank | One of 16 on-chip memory banks. Each bank holds 1024 rows. |

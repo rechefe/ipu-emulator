@@ -266,6 +266,35 @@ py_pytest_test(
     ],
 )
 
+# The language service behind `check --json --json-version 2 --tokens --words
+# --jinja` (E08-22): each analysis on the extension's corpus and on every kernel,
+# the v2 schema, and the analyse time of the largest kernel (tracked, printed).
+py_pytest_test(
+    name = "test_language_service",
+    size = "medium",
+    srcs = [
+        "test/check_corpus.py",
+        "test/test_language_service.py",
+    ],
+    data = [
+        "test/test_diagnostics.py",
+        "//src/tools/ipu-apps:asm_corpus_files",
+        "//vscode-ipu-asm:check_json_contract",
+        "//vscode-ipu-asm:corpus",
+    ],
+    imports = [
+        "src",
+        "test",
+    ],
+    deps = [
+        ":ipu_as_lib",
+        requirement("click"),
+        requirement("jsonschema"),
+        requirement("pytest"),
+        requirement("referencing"),
+    ],
+)
+
 # diagnostics.check on the AssemblySession stages (E05-07).
 py_pytest_test(
     name = "test_diagnostics_session",
@@ -347,6 +376,17 @@ py_pytest_test(
     data = ["test/golden/ipu_instr_pkg.sv"],
     imports = ["test/golden"],
     deps = ["//src/tools/ipu-gen:ipu_gen_lib", requirement("pytest")],
+)
+
+# The SV rename table published for the downstream RTL repo (E03-19).
+py_pytest_test(
+    name = "test_sv_rename_table",
+    srcs = ["test/test_sv_rename_table.py"],
+    data = [
+        "test/golden/ipu_instr_pkg.sv",
+        "//docs:doc_sources",
+    ],
+    deps = [requirement("pytest")],
 )
 
 # Generated-artifact snapshots (E02-04): the docs pages, the TextMate grammar,

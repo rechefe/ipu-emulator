@@ -67,24 +67,24 @@
     SET {{lr_r}}    cr0 ;;
     SET {{lr_tau}}  cr10 ;;                              {#- 128 -#}
     ADD {{lr_ttau}} {{lr_tau}} {{lr_tau}} ;;             {#- 256 -#}
-    LDR_CYCLIC_MULT_REG {{lr_zero}} cr6 {{lr_tau}} ;;    {#- slot1 <- tau, resident -#}
-    LDR_CYCLIC_MULT_REG {{lr_zero}} cr7 {{lr_ttau}} ;;   {#- slot2 <- T*tau, resident -#}
-    LDR_MULT_REG r0 {{lr_zero}} cr8 ;;                   {#- R0 <- T, resident -#}
+    LD.MULT.CYCLIC {{lr_zero}} cr6 {{lr_tau}} ;;    {#- slot1 <- tau, resident -#}
+    LD.MULT.CYCLIC {{lr_zero}} cr7 {{lr_ttau}} ;;   {#- slot2 <- T*tau, resident -#}
+    LD.MULT r0 {{lr_zero}} cr8 ;;                   {#- R0 <- T, resident -#}
 
 {#- ---- PASS 1: the gate, and the staged sigmoid plane -------------------- -#}
 pass1_loop:
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- s[row] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- s[row] -#}
     ADD {{lr_r}} {{lr_r}} cr1 ;;                         {#- slot0 visible NEXT word -#}
     MULT.RC.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;;   {#- R_ACC = s -#}
     MULT.RC.VE {{lr_tau}} cr1 0 {{lr_zero}} cr15 ; ACC.SUB ;
     ACTIVATE.QUANTIZE relu cr15 ;
-    STR_POST_AAQ_REG {{lr_addr}} cr3 ;;                  {#- SELECTED = relu(s - tau) -#}
+    ST.AAQ {{lr_addr}} cr3 ;;                  {#- SELECTED = relu(s - tau) -#}
     MULT.RC.VV {{lr_zero}} r0 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;;    {#- R_ACC = T*s -#}
     MULT.RC.VE {{lr_ttau}} cr1 0 {{lr_zero}} cr15 ; ACC.SUB ;
     ACTIVATE.QUANTIZE sigmoid cr15 ;
-    STR_POST_AAQ_REG {{lr_addr}} cr4 ;;                  {#- STAGED = sigmoid(T*(s - tau)) -#}
+    ST.AAQ {{lr_addr}} cr4 ;;                  {#- STAGED = sigmoid(T*(s - tau)) -#}
     ADD {{lr_addr}} {{lr_addr}} cr1 ;
-    BLT {{lr_r}} cr9 pass1_loop ;;                       {#- post-increment: bound ROWS -#}
+    BLT.S {{lr_r}} cr9 pass1_loop ;;                       {#- post-increment: bound ROWS -#}
 
 {#- ---- PASS 2: 128 running partial sums down the staged plane ------------ -#}
     MULT.RC.VE {{lr_zero}} cr0 0 {{lr_zero}} cr15 ; ACC.ADD.FIRST ;
@@ -93,19 +93,19 @@ pass1_loop:
 
 pass2_loop:
     ADD {{lr_r}} {{lr_r}} cr1 ;
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr4 {{lr_zero}} ;;   {#- slot0 <- staged[row] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr4 {{lr_zero}} ;;   {#- slot0 <- staged[row] -#}
     ADD {{lr_addr}} {{lr_addr}} cr1 ;
     MULT.RC.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ; ACC.ADD ;
-    BLT {{lr_r}} cr9 pass2_loop ;;
+    BLT.S {{lr_r}} cr9 pass2_loop ;;
 
 {#- ---- DRAIN: collapse the 128 partials to one scalar -------------------- -#}
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_zero}} cr5 ;;                  {#- stage the partial vector -#}
-    LDR_CYCLIC_MULT_REG {{lr_zero}} cr5 {{lr_zero}} ;;
+    ST.AAQ {{lr_zero}} cr5 ;;                  {#- stage the partial vector -#}
+    LD.MULT.CYCLIC {{lr_zero}} cr5 {{lr_zero}} ;;
     NOP ;;                                               {#- slot0 visible NEXT word -#}
     MULT.RC.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ; AGG.SUM.FIRST {{lr_zero}} cr15 ;;
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_zero}} cr5 ;;                  {#- COUNT[0] = the soft survivor count -#}
+    ST.AAQ {{lr_zero}} cr5 ;;                  {#- COUNT[0] = the soft survivor count -#}
 
 end:
-    BKPT ;;
+    HALT ;;

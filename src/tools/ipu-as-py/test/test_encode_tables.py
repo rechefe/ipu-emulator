@@ -24,8 +24,8 @@ ENUM_SNAPSHOT = Path.cwd() / "src/tools/ipu-as-py/test/baselines/enum_descriptor
 #: label (so the program can be repeated in one source).
 PROGRAM = """\
 1:
-SET LR0 CR1; LDR_MULT_REG R0 LR0 CR0; MULT.RC.VV LR0 R0 0 LR2 CR15; ACC.ADD;;
-ADD LR0 LR1 LR2; SUB LR3 LR1 CR5; STR_POST_AAQ_REG LR0 CR0; ACC.MAX;;
+SET LR0 CR1; LD.MULT R0 LR0 CR0; MULT.RC.VV LR0 R0 0 LR2 CR15; ACC.ADD;;
+ADD LR0 LR1 LR2; SUB LR3 LR1 CR5; ST.AAQ LR0 CR0; ACC.MAX;;
 ACTIVATE.QUANTIZE relu CR15; BREAK.IFEQ LR0 10; BNE LR0 CR0 1b;;
 NOP;;
 """

@@ -236,12 +236,18 @@ def _parse_diagnostic(parse_error: ParseError, raw: str, rendered: str) -> Diagn
     )
 
 
-def _tidy(message: str) -> str:
+def tidy_message(message: str) -> str:
     """Flatten a multi-line assembler message and drop its trailing location.
 
     The assembler appends "At: Line 1, Column 1" for humans reading a terminal.
     A diagnostic already carries the position, and repeating it in the hover
     text is noise.
+
+    Args:
+        message: An assembler error's text.
+
+    Returns:
+        The message on one line, without its location clause.
     """
     # Case-insensitive: the assembler writes both "At: Line 4, Column 5" and
     # "... , in Line 11, Column 5." mid-sentence. The trailing period goes too,
@@ -278,7 +284,7 @@ def _encode_diagnostic(error: EncodeError, raw: str, rendered: str) -> Diagnosti
         column=column if exact else 0,
         end_line=mapped,
         end_column=(column + 1) if exact else 0,
-        message=_tidy(str(error)) + note,
+        message=tidy_message(str(error)) + note,
         severity="error",
         stage="assemble",
         approximate=not exact,
@@ -359,13 +365,21 @@ def _template_failure(wrapped: TemplateError) -> Diagnostic:
     )
 
 
-def _render_for_diagnosis(
+def render_for_diagnosis(
     text: str, inputs: template.TemplateInputs
 ) -> tuple[str, Diagnostic | None]:
-    """(The text to diagnose, or the template-stage diagnostic if rendering fails).
+    """The text to diagnose, and the template-stage diagnostic if rendering fails.
 
     The text is the instrumented render when it lexes like the plain one, so
-    each position maps back to its source line; otherwise the plain render.
+    each position maps back to its source line (`source_map.source_line_at`);
+    otherwise the plain render. A source without Jinja markers is its own render.
+
+    Args:
+        text: The source, as the editor shows it.
+        inputs: What it is rendered with.
+
+    Returns:
+        (rendered text, None), or (`text`, the diagnostic) when rendering fails.
     """
     if not any(marker in text for marker in _JINJA_MARKERS):
         return text, None
@@ -413,9 +427,30 @@ def check(
         search_path=tuple(Path(p) for p in search_path),
         namespaces=abi or {},
     )
-    rendered, failed = _render_for_diagnosis(text, inputs)
+    rendered, failed = render_for_diagnosis(text, inputs)
     if failed is not None:
         return [failed]
+    return check_rendered(text, rendered, inputs, target)
+
+
+def check_rendered(
+    text: str, rendered: str, inputs: template.TemplateInputs, target: str = "emulator"
+) -> list[Diagnostic]:
+    """The parse and encode diagnostics of a source already rendered for diagnosis.
+
+    `check` is `render_for_diagnosis` followed by this, so a caller that needs
+    the render too (`ipu_as.language_service`) renders once and gets the same
+    diagnostics.
+
+    Args:
+        text: The source, as the editor shows it.
+        rendered: Its render, from `render_for_diagnosis`.
+        inputs: What it was rendered with (a fallback re-render uses them).
+        target: `"emulator"` or `"hardware"`, as for `check`.
+
+    Returns:
+        At most one diagnostic; empty means it assembles.
+    """
     stages = AssemblySession(text)
     try:
         stages.encode(stages.parse_rendered(rendered), target)

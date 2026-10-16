@@ -200,6 +200,16 @@ py_pytest_test(
     ],
 )
 
+py_pytest_test(
+    name = "test_disasm",
+    srcs = ["test/test_disasm.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_isa_lib",
+        requirement("pytest"),
+    ],
+)
+
 # mypy over ipu_isa_lib with the locked mypy and //:mypy.ini (tools/typecheck.bzl).
 mypy_test(
     name = "mypy",

@@ -1,6 +1,7 @@
 import functools
 import json
 import sys
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,8 +11,9 @@ import click
 import lark
 import tomli
 
-from ipu_as import diagnostics, lark_tree, session, template
+from ipu_as import diagnostics, language_service, lark_tree, session, template
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_isa.codec.slot import ReservedEncoding
 
 
 def _exit_with(error: AssemblerError) -> NoReturn:
@@ -207,7 +209,7 @@ def disassemble(input: str, output: str, format: str | None, target: str):
             lark_tree.disassemble_from_mem_file(input, output, target)
     except AssemblerError as error:
         _exit_with(error)
-    except IndexError:
+    except ReservedEncoding:
         # A slot holds an opcode no instruction has: most often a file of the
         # other target's words.
         click.echo(f"Error disassembling: {input} is not a file of {target} words")
@@ -223,6 +225,78 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
     if value and not ctx.resilient_parsing:
         click.echo(json.dumps(list(JSON_VERSIONS)))
         ctx.exit(0)
+
+
+#: The `check --json --json-version 2` options that each add one analysis to the
+#: output, by the key they add (`ipu_as.language_service.FEATURES`).
+_ANALYSIS_FLAGS = {
+    "tokens": "Add the semantic tokens of the source.",
+    "words": "Add whether each word's instructions fit its slots.",
+    "jinja": "Add the Jinja regions, with the names each defines and uses.",
+}
+
+
+def _analysis_options(command: Callable) -> Callable:
+    """Add `--tokens`, `--words` and `--jinja` to `command`, which receives them as one `features`."""
+
+    @functools.wraps(command)
+    def with_features(*args, **kwargs):
+        features = frozenset(name for name in _ANALYSIS_FLAGS if kwargs.pop(name))
+        return command(*args, features=features, **kwargs)
+
+    for name, text in reversed(_ANALYSIS_FLAGS.items()):
+        with_features = click.option(f"--{name}", is_flag=True, help=text + " Needs v2.")(
+            with_features
+        )
+    return with_features
+
+
+def _internal_error(error: Exception) -> diagnostics.Diagnostic:
+    """The diagnostic for a crash in the checker itself."""
+    return diagnostics.Diagnostic(
+        line=0,
+        column=0,
+        end_line=0,
+        end_column=0,
+        message=f"internal error while checking this file: {type(error).__name__}: {error}",
+        severity="error",
+        stage="internal",
+        approximate=True,
+    )
+
+
+def _analyse(
+    source: str, input: str, template_args: TemplateArgs, target: str, features: frozenset[str]
+) -> tuple[list[diagnostics.Diagnostic], dict[str, list[dict]]]:
+    """The diagnostics of `source`, and each of `features` as its JSON key and value.
+
+    A crash in the checker must not read as "this program is fine". The editor
+    treats non-JSON output as a broken toolchain and clears the squiggles, so
+    an unhandled exception here would silently hide real errors. It is
+    reported as an `internal` diagnostic instead, without the features.
+    """
+    try:
+        if not features:
+            found = diagnostics.check(
+                source,
+                defines=template_args.defines,
+                search_path=template_args.search_path(input),
+                target=target,
+            )
+            return found, {}
+        analysis = language_service.analyse(
+            source,
+            defines=template_args.defines,
+            search_path=template_args.search_path(input),
+            target=target,
+            want=features | {"diagnostics"},
+        )
+        extra = analysis.to_dict()
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        traceback.print_exc(file=sys.stderr)
+        return [_internal_error(error)], {}
+    extra.pop("diagnostics")
+    return list(analysis.diagnostics or ()), extra
 
 
 @click.command()
@@ -253,12 +327,14 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
 )
 @_template_options
 @_target_option
+@_analysis_options
 def check(
     input: str,
     as_json: bool,
     json_version: int | None,
     template_args: TemplateArgs,
     target: str,
+    features: frozenset[str],
 ):
     """Report errors in an assembly source without producing output.
 
@@ -268,46 +344,24 @@ def check(
 
     Reading from stdin matters for the editor: it checks the buffer as typed,
     which is not what is on disk.
+
+    With `--json --json-version 2`, `--tokens`, `--words` and `--jinja` each add
+    one more analysis of the same source to the output, under its own key.
     """
     if json_version is not None and not as_json:
         raise click.UsageError("--json-version applies to --json output only")
+    if features and json_version != 2:
+        raise click.UsageError("--tokens, --words and --jinja need --json --json-version 2")
     source = sys.stdin.read() if input == "-" else open(input).read()
-
-    try:
-        found = diagnostics.check(
-            source,
-            defines=template_args.defines,
-            search_path=template_args.search_path(input),
-            target=target,
-        )
-    except Exception as error:  # noqa: BLE001 - see below
-        # A crash in the checker must not read as "this program is fine". The
-        # editor treats non-JSON output as a broken toolchain and clears the
-        # squiggles, so an unhandled exception here silently hides real errors.
-        # Report it as a diagnostic instead, and keep the exit code non-zero.
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
-        found = [
-            diagnostics.Diagnostic(
-                line=0,
-                column=0,
-                end_line=0,
-                end_column=0,
-                message=(
-                    f"internal error while checking this file: {type(error).__name__}: {error}"
-                ),
-                severity="error",
-                stage="internal",
-                approximate=True,
-            )
-        ]
+    found, extra = _analyse(source, input, template_args, target, features)
 
     if as_json:
         # stdout is the protocol here; keep it pure JSON.
         listed = [d.to_dict() for d in found]
         json.dump(
-            listed if json_version in (None, 1) else {"schemaVersion": 2, "diagnostics": listed},
+            listed
+            if json_version in (None, 1)
+            else {"schemaVersion": 2, "diagnostics": listed, **extra},
             sys.stdout,
         )
         sys.stdout.write("\n")

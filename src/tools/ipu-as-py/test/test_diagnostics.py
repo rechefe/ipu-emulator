@@ -10,7 +10,7 @@ from ipu_as.diagnostics import check
 
 
 def test_valid_program_has_no_diagnostics():
-    assert check("start:\n  BKPT;;\n") == []
+    assert check("start:\n  HALT;;\n") == []
 
 
 def test_comma_is_reported_at_the_comma():
@@ -25,7 +25,7 @@ def test_comma_is_reported_at_the_comma():
 def test_unknown_mnemonic_points_at_the_mnemonic():
     # This error carries no location of its own, so the position is recovered
     # by locating the name the message quotes.
-    (found,) = check("BKPT;;\nmac.ee r0;;\n")
+    (found,) = check("HALT;;\nmac.ee r0;;\n")
     assert found.stage == "assemble"
     assert found.line == 1
     assert "mac.ee" in found.message
@@ -34,15 +34,15 @@ def test_unknown_mnemonic_points_at_the_mnemonic():
 def test_pseudo_instruction_arity_is_reported():
     # Raised inside the AST transformer, which lark wraps in VisitError -- a
     # LarkError. Without unwrapping it is misreported as a parse error at 0.
-    (found,) = check("BGT lr0 lr1;;\n")
+    (found,) = check("BGT.S lr0 lr1;;\n")
     assert found.stage == "assemble"
     assert found.line == 0
-    assert "BGT" in found.message
+    assert "BGT.S" in found.message
 
 
 def test_location_suffix_is_stripped_from_the_message():
     # The position is carried by the diagnostic; repeating it in the hover is noise.
-    (found,) = check("BGT lr0 lr1;;\n")
+    (found,) = check("BGT.S lr0 lr1;;\n")
     assert "Line 1, Column 1" not in found.message
 
 
@@ -54,7 +54,7 @@ def test_bad_operand_is_reported_at_the_operand():
 
 
 def test_template_syntax_error_reports_the_template_line():
-    (found,) = check("BKPT;;\n{% for x in %}\n")
+    (found,) = check("HALT;;\n{% for x in %}\n")
     assert found.stage == "template"
     assert found.line == 1
 
@@ -63,7 +63,7 @@ def test_error_inside_a_jinja_file_maps_back_to_the_source_line():
     # The parser sees rendered text, the editor sees the template, so offsets
     # do not correspond. Origin markers are carried through the render so the
     # source line is recovered exactly rather than guessed.
-    source = "{% for i in range(2) %}\nBKPT;;\n{% endfor %}\nmac.ee r0;;\n"
+    source = "{% for i in range(2) %}\nHALT;;\n{% endfor %}\nmac.ee r0;;\n"
     (found,) = check(source)
     assert source.splitlines()[found.line] == "mac.ee r0;;"
     assert not found.approximate
@@ -99,7 +99,7 @@ def test_instrumentation_does_not_change_what_the_parser_sees():
     # program assembles, only where an error is reported.
     from ipu_as.source_map import instrument
 
-    source = '{%- set a = "lr0" -%}\n    SET {{a}} cr0;;\n    BKPT;;\n'
+    source = '{%- set a = "lr0" -%}\n    SET {{a}} cr0;;\n    HALT;;\n'
     assert check(source) == []
     assert check(instrument(source)) == []
 
@@ -107,9 +107,9 @@ def test_instrumentation_does_not_change_what_the_parser_sees():
 @pytest.mark.parametrize(
     "source",
     [
-        "start:\n  BKPT;;\n",
-        "BKPT;; mid: BKPT;;\n",
-        "add:\n  BKPT;;\n",
+        "start:\n  HALT;;\n",
+        "HALT;; mid: HALT;;\n",
+        "add:\n  HALT;;\n",
         "  acc.add.first ;;\n",
     ],
 )
@@ -123,9 +123,9 @@ def test_legal_constructs_are_not_flagged(source):
 @pytest.mark.parametrize(
     "source",
     [
-        '{{ 1 + "a" }}\nBKPT;;\n',  # TypeError
-        "{{ 1 / 0 }}\nBKPT;;\n",  # ZeroDivisionError
-        "{{ (1).missing() }}\nBKPT;;\n",  # AttributeError via UndefinedError
+        '{{ 1 + "a" }}\nHALT;;\n',  # TypeError
+        "{{ 1 / 0 }}\nHALT;;\n",  # ZeroDivisionError
+        "{{ (1).missing() }}\nHALT;;\n",  # AttributeError via UndefinedError
     ],
 )
 def test_jinja_runtime_errors_are_reported_not_raised(source):
@@ -145,7 +145,7 @@ def test_empty_program_is_reported_not_crashed():
 
 def test_an_undefined_name_is_a_template_error_at_its_line():
     # StrictUndefined (E05-11): an undefined name no longer iterates as empty.
-    (found,) = check("{% for i in undefined_var %}\nBKPT;;\n{% endfor %}\n")
+    (found,) = check("{% for i in undefined_var %}\nHALT;;\n{% endfor %}\n")
     assert (found.stage, found.line) == ("template", 0)  # 0-based: source line 1
     assert "'undefined_var' is undefined" in found.message
 
@@ -213,7 +213,7 @@ def test_duplicate_label_is_reported_without_polluting_stdout(capsys):
     # `ipu-as check --json` writes diagnostics to stdout, so a stray print there
     # makes the output unparseable and the editor reports a broken toolchain
     # rather than the error. A debug print in the duplicate-label path did that.
-    found = check("a:\n  BKPT;;\na:\n  BKPT;;\n")
+    found = check("a:\n  HALT;;\na:\n  HALT;;\n")
     assert found and "second time" in found[0].message
     assert capsys.readouterr().out == ""
 
@@ -248,9 +248,9 @@ def test_disabling_whitespace_control_leaves_normal_templates_alone():
 @pytest.mark.parametrize(
     "source,expected_line",
     [
-        ('BKPT;;\nBKPT;;\n{{ 1 + "a" }}\nBKPT;;\n', 2),
-        ("BKPT;;\n{{ 1 / 0 }}\n", 1),
-        ("{{ (1).nope() }}\nBKPT;;\n", 0),
+        ('HALT;;\nHALT;;\n{{ 1 + "a" }}\nHALT;;\n', 2),
+        ("HALT;;\n{{ 1 / 0 }}\n", 1),
+        ("{{ (1).nope() }}\nHALT;;\n", 0),
     ],
 )
 def test_jinja_runtime_error_reports_its_template_line(source, expected_line):
@@ -282,10 +282,10 @@ def test_pseudo_instruction_expansion_keeps_its_position():
     [
         # The editor checks a file the moment it is opened, so an unsandboxed render
         # here ran a received .asm's payload without it ever being assembled.
-        "{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}BKPT;;\n",
+        "{{ self.__init__.__globals__.__builtins__.__import__('os').popen('touch MARKER').read() }}HALT;;\n",
         # Attribute traversal out of the sandbox.
-        "{% for c in ''.__class__.__mro__ %}\nBKPT;;\n{% endfor %}\n",
-        "{{ ({}).__class__.__base__.__subclasses__() }}BKPT;;\n",
+        "{% for c in ''.__class__.__mro__ %}\nHALT;;\n{% endfor %}\n",
+        "{{ ({}).__class__.__base__.__subclasses__() }}HALT;;\n",
     ],
 )
 def test_template_escape_is_reported_and_does_not_run(source, tmp_path):

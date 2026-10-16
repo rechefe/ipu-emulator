@@ -247,15 +247,27 @@ class IsaLayout:
         """Bits of one instance of ``slot``."""
         return self.unions[slot].bits
 
-    def slots_with_tag(self, tag: Tag) -> tuple[Slot, ...]:
-        """The slots tagged ``tag``, in layout order."""
+    def slots_with_tag(self, tag: Tag | str) -> tuple[Slot, ...]:
+        """The slots tagged ``tag``, in layout order.
+
+        Args:
+            tag: A ``Tag``, or its value (``"hardware"``).
+
+        Returns:
+            The slots, in layout order.
+
+        Raises:
+            ValueError: ``tag`` names no tag.
+        """
+        tag = Tag(tag)
         return tuple(slot for slot in self.layout_order if self.slots[slot].tag is tag)
 
-    def word_bits(self, tag: Tag | None = None) -> int:
+    def word_bits(self, tag: Tag | str | None = None) -> int:
         """Width of the emulator word (``None``) or of its ``tag`` slots only.
 
         ``word_bits(Tag.HARDWARE)`` is the hardware word: the most significant
-        bits of the emulator word (Q41).
+        bits of the emulator word (Q41). A tag's value (``"hardware"``) works
+        too; any other string raises ``ValueError``.
         """
         slots = self.layout_order if tag is None else self.slots_with_tag(tag)
         return sum(self.slot_width(slot) * self.slots[slot].count for slot in slots)

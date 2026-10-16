@@ -393,7 +393,7 @@ class TestDebugLevels:
         assert "42" in output
 
     def test_level1_shows_disasm(self):
-        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
+        state = make_state("SET lr0 cr8;;\nHALT;;", cr={8: 100})
         action, output = _run_cli(state, "continue\n", level=1)
         assert "Current Instruction" in output
 
@@ -412,7 +412,7 @@ class TestDebugLevels:
 
 class TestDisassembly:
     def test_disasm_set_lr(self):
-        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 100})
+        state = make_state("SET lr0 cr8;;\nHALT;;", cr={8: 100})
         text = disassemble_current(state)
         tl = text.lower()
         assert "set" in tl

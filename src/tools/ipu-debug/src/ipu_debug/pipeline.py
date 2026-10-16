@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ipu_as.encode import SLOT_INSTANCES, operation_text
+from ipu_isa.codec.disasm import operation_text
 from ipu_isa.codec.slot import SLOT_CODECS
 from ipu_isa.codec.word import DecodedWord
-from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.timing import CONTROL_SLOTS
+
+#: Every slot instance of a word, most significant first.
+SLOT_INSTANCES: tuple[tuple[Slot, int], ...] = tuple(
+    (slot, instance) for slot in LAYOUT_ORDER for instance in range(SLOTS[slot].count)
+)
 
 
 def _label(slot: Slot, instance: int) -> str:

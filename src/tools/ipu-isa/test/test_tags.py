@@ -76,7 +76,7 @@ def test_a_debug_only_slot_must_be_emulator():
 @pytest.mark.parametrize(
     "slot, mnemonic, tag",
     [
-        ("acc_store", "STR_ACC_REG", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR instructions
+        ("acc_store", "ST.ACC", Tag.HARDWARE),  # an EMULATOR slot holds EMULATOR instructions
         ("lr", "ADD", Tag.EMULATOR),  # no EMULATOR instruction in a HARDWARE slot (yet)
         ("lr", "ADD", Tag.ASSEMBLER),
         ("lr", "ADD", "hardware"),
@@ -91,7 +91,7 @@ def test_an_instruction_has_its_slot_tag(slot, mnemonic, tag):
 
 def test_an_instruction_may_state_its_slot_tag():
     spec = copy.deepcopy(INSTRUCTION_SPEC)
-    spec["acc_store"]["STR_ACC_REG"]["tag"] = Tag.EMULATOR
+    spec["acc_store"]["ST.ACC"]["tag"] = Tag.EMULATOR
     validate_instruction_spec(spec, SLOT_METADATA)
 
 
@@ -113,3 +113,12 @@ def test_a_pseudo_must_expand_to_a_real_instruction():
     spec[target["slot"]][real]["tag"] = Tag.ASSEMBLER
     with pytest.raises(SpecError, match=rf"pseudo\.{name}\.expands_to\.instruction"):
         validate_pseudo_instruction_spec(pseudo, spec)
+
+
+def test_a_tag_value_string_works_and_an_unknown_one_raises():
+    # isa().layout.word_bits("emulator") once returned 0 (an `is` compare).
+    assert word_bits("emulator") == 186 - 155
+    assert word_bits("hardware") == 155
+    assert slots_with_tag("emulator") == (Slot.ACC_STORE, Slot.BREAK)
+    with pytest.raises(ValueError):
+        word_bits("emulater")

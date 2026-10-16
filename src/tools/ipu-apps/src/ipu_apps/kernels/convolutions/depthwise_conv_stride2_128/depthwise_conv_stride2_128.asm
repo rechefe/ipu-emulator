@@ -19,7 +19,7 @@
 #   cr6 = num_row_pairs (outer loop bound)
 #
 # Per channel: load stage1 row 4*rp's chunk -> R0, stage1 row (4*rp+2)'s
-# chunk -> R1 (plain ldr_mult_reg, XMEM-space -- no r_cyclic/tap/border
+# chunk -> R1 (plain ld.mult, XMEM-space -- no r_cyclic/tap/border
 # logic, this is a pure reshuffle+decimate). ACC.STRIDE needs its source in
 # MULT_RES, so R0/R1 are passed through an identity MULT.VE (x1 via CR1)
 # first.
@@ -50,14 +50,14 @@ rowpair_loop:
 ch_loop:
     # lr5 = this channel's stage1-row-(4*rp) chunk row = lr3 + lr4.
     ADD                 lr5 lr3 lr4;
-    ldr_mult_reg        r0 lr5 cr3;;
+    ld.mult        r0 lr5 cr3;;
 
     # R1 = stage1 row (4*rp + 2)'s chunk: +2*channels rows from R0's row.
     # Two separate ADDs (ADD's src_a reads snapshot, so a same-word double
     # ADD into lr5 would not see the first result) -- split into two words.
     ADD                 lr5 lr5 cr4;;
     ADD                 lr5 lr5 cr4;;
-    ldr_mult_reg        r1 lr5 cr3;;
+    ld.mult        r1 lr5 cr3;;
 
     MULT.VE             lr0 cr1 0 lr0 cr15;;
     acc.stride          64 on off lr0;;
@@ -65,10 +65,10 @@ ch_loop:
     acc.stride          64 on off lr6;
     ACTIVATE.QUANTIZE   identity cr15;
     ADD                 lr5 lr2 lr4;
-    str_post_aaq_reg    lr5 cr5;;
+    st.aaq    lr5 cr5;;
 
     INC                 lr4 1;
-    blt                 lr4 cr4 ch_loop;;
+    blt.s                 lr4 cr4 ch_loop;;
 
     ADD                 lr2 lr2 cr4;
     ADD                 lr3 lr3 cr4;;
@@ -77,7 +77,7 @@ ch_loop:
     ADD                 lr3 lr3 cr4;;
 
     INC                 lr1 1;;
-    blt                 lr1 cr6 rowpair_loop;;
+    blt.s                 lr1 cr6 rowpair_loop;;
 
 end:
-    bkpt;;
+    halt;;

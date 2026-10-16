@@ -91,7 +91,7 @@ def test_the_cursor_is_highlighted_more_strongly_when_focused():
 
 
 def test_values_changed_by_a_step_are_marked():
-    state = make_state("SET lr2 cr1;; NOP;; BKPT;;")
+    state = make_state("SET lr2 cr1;; NOP;; HALT;;")
     control = DebugControl()
     session = DebugSession(state, control)
     pane, _, tabs = make()

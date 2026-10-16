@@ -29,7 +29,7 @@ Status: **Proposed**. Owner: Yuval Harary.
 | F-1 | A slot holds a reserved opcode or a reserved operand encoding. | CTRL | Halt |
 | F-2 | CTRL fetches at a PC at or beyond the program length, by sequential flow, branch or `BR`. | CTRL | Halt. Needs a program-length register per IMEM bank. |
 | F-3 | Two LR lanes of one word write the same LR. | CTRL | Halt |
-| F-4 | The index of `LDR_CYCLIC_MULT_REG` is not 0, 128, 256 or 384. | CTRL | Halt |
+| F-4 | The index of `LD.MULT.CYCLIC` is not 0, 128, 256 or 384. | CTRL | Halt |
 | F-5 | `ACC.RESHAPE` has a mask above 8, or a participating source or destination index of 128 or more. | CTRL | Halt |
 | F-6 | A load or a store addresses a table that is not configured, or a row beyond the table size. | Cache agent | Halt |
 | F-7 | A load addresses a write-only table, or a store addresses a read-only table. | Cache agent | Halt |
@@ -41,7 +41,7 @@ Reserved encodings for F-1, from the instruction reference:
 | Slot | Reserved encodings |
 |---|---|
 | `COND` | One opcode of the 3-bit field |
-| `LR` | Seven opcodes of the 4-bit field. `k` outside 1 to 9 in `INCR_MOD_POW2`. |
+| `LR` | Seven opcodes of the 4-bit field. `k` outside 1 to 9 in `INC.MODP2`. |
 | `LOAD` | `MultStageReg` values other than `R0` and `R1` |
 | `MULT` | Two opcodes of the 3-bit field. `MultStageReg` values other than `R0` and `R1`. |
 | `ACC` | Three opcodes of the 4-bit field. Values above 2 of `elements_in_row`, `horizontal_stride` and `vertical_stride`. |
@@ -51,7 +51,7 @@ The fault list and this table are mirrored as data in `ipu_isa.faults`, which de
 
 ## In the emulator
 
-The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A `BKPT` (HALT) word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
+The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception carries the fault (`FaultId`) and the PC of the faulting word. The cycle that raises it first records `IpuState.halt` as `HaltRecord("fault", pc, fault)`. A `HALT` word records `HaltRecord("halt", pc, None)`. `run_until_complete` re-raises the fault, unless it is called with `raise_on_fault=False`.
 
 `IpuState.faults` (`ipu_emu.fault_control.FaultControl`) holds each fault's enable bit, all set at construction, and the sticky flags, which every fault sets, enabled or not (IPU-FLT-5, IPU-FLT-6). With F-1 disabled, the slot with the reserved encoding runs as `NOP` and the rest of the word retires (the proposal in OQ-2). With F-9 disabled, the run goes on past its limit. Clearing the bit of F-2 to F-6 raises `ConfigurationError`, because OQ-2 does not say what the word then does; clearing F-7 or F-8 changes nothing, as neither is modelled.
 
@@ -60,7 +60,7 @@ The emulator raises `ipu_emu.errors.EmulatorFault` for a fault. The exception ca
 | F-1 | At fetch: an opcode the ISA does not define, or an operand code that is reserved (the table above) or past its operand type's width (a union column can be wider). |
 | F-2 | A fetch at or past `IpuState.program_length`, which `load_program` sets, by sequential flow, branch or `BR`, including a target past IMEM. A state whose IMEM is written directly keeps all of IMEM. |
 | F-3 | Two LR sub-slots write the same LR, detected before any LR write. |
-| F-4 | An `LDR_CYCLIC_MULT_REG` index that is not a slot boundary. |
+| F-4 | An `LD.MULT.CYCLIC` index that is not a slot boundary. |
 | F-5 | An `ACC.RESHAPE` mask above 8, or an index of 128 or more. |
 | F-6 | An XMEM row beyond the address space, or an access past the XMEM allocation. There is no table model yet, so the row is checked against XMEM. |
 | F-7 | Not modelled. The emulator has no table configuration, so no table is read-only or write-only. |

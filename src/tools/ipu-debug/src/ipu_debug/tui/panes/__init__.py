@@ -1,5 +1,7 @@
 """One module per TUI pane, each implementing ``ipu_debug.tui.pane.Pane``.
 
+- ``ipu_debug.tui.panes.pipeline``: the vector pipeline registers (E08-11);
+- ``ipu_debug.tui.panes.disassembly``: instruction memory and the stage view (E08-11);
 - ``ipu_debug.tui.panes.xmem``: XMEM windows (E08-09);
 - ``ipu_debug.tui.panes.registers``: the LR / CR scalar registers (E08-10).
 

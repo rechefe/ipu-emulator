@@ -12,7 +12,7 @@ test_case = case_tests(__package__)
 
 
 def _run(name):
-    # The kernel stores each sample with the emulator-only STR_ACC_REG.
+    # The kernel stores each sample with the emulator-only ST.ACC.
     with pytest.warns(DebugOnlyInstructionWarning):
         state, cycles = run_case("fully_connected", CASES[name])
     assert cycles > 0
@@ -32,7 +32,7 @@ def test_missing_input_fixture_fails(monkeypatch, tmp_path):
     # The input fixtures are checked in: a packaging mistake that drops one
     # must fail the target, not turn every case into a skip.
     monkeypatch.setitem(prepare.__globals__, "DATA", tmp_path)
-    # Preparation fails before the program runs, so no STR_ACC_REG warning.
+    # Preparation fails before the program runs, so no ST.ACC warning.
     with pytest.raises(MissingInputFixture, match="missing fully connected fixture"):
         run_case("fully_connected", CASES["int8"])
 

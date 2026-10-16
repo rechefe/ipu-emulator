@@ -3,7 +3,7 @@
 
     P logical rows share one 128-element chunk. C_VEC=log2(e) resident in R0
     (broadcast); x-chunk in r_cyclic. Per partition p, MULT.RC.VV rc_idx=p*ps
-    (ELEMENT offset -- matches LDR_CYCLIC_MULT_REG's index; issue #182/PR #196)
+    (ELEMENT offset -- matches LD.MULT.CYCLIC's index; issue #182/PR #196)
     reads r_cyclic[p*ps + i]*R0[i] = c*x[p][i] into mult_res elements 0..N-1; masked
     AGG/ACTIVATE.QUANTIZE name CR15 (valid_elements=N) to act on those N elements
     only. The full-row drains (MAXVEC/RVEC/output chunk) instead name CR8, whose
@@ -67,17 +67,17 @@
 group_loop:
 {#- ---- exact group size: lr_cbound = min(128/P, total_chunks - chunks_done) -#}
     SUB {{lr_cbound}} {{lr_ctotal}} {{lr_cdone}} ;;   {#- remaining chunks (>=1) -#}
-    BLT {{lr_cbound}} cr13 group_size_set ;;          {#- fewer than a full group -> keep -#}
+    BLT.S {{lr_cbound}} cr13 group_size_set ;;          {#- fewer than a full group -> keep -#}
     SET {{lr_cbound}} cr13 ;;                         {#- ... else cap at 128/P chunks -#}
 group_size_set:
 
-    LDR_MULT_REG r0 {{lr_cyc}} cr3 ;;          {#- R0 = C_VEC (broadcast) -#}
+    LD.MULT r0 {{lr_cyc}} cr3 ;;          {#- R0 = C_VEC (broadcast) -#}
     SET {{lr_row}} cr0 ;
     SET {{lr_chunk}} cr0 ;
     ADD {{lr_coff}} {{lr_gbase}} cr0 ;;        {#- input walks from this group's base -#}
 
 p1_chunk:
-    LDR_CYCLIC_MULT_REG {{lr_coff}} cr10 {{lr_cyc}} ;;   {#- r_cyclic = x chunk -#}
+    LD.MULT.CYCLIC {{lr_coff}} cr10 {{lr_cyc}} ;;   {#- r_cyclic = x chunk -#}
     SET {{lr_p}} cr0 ;
     SET {{lr_slide}} cr0 ;;
 
@@ -87,24 +87,24 @@ p1_part:
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_p}} {{lr_p}} cr1 ;;
-    BLT {{lr_p}} cr14 p1_part ;;
+    BLT.S {{lr_p}} cr14 p1_part ;;
     ADD {{lr_coff}} {{lr_coff}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
-    BLT {{lr_chunk}} {{lr_cbound}} p1_chunk ;;
+    BLT.S {{lr_chunk}} {{lr_cbound}} p1_chunk ;;
 
 {#- lr_row stepped once per partition per chunk, so it now equals this group's -#}
 {#- logical row count (cbound*P). Capture it -- the LR slot has no multiply,   -#}
 {#- and Pass 3 (which counts rows, not chunks) needs exactly this bound.       -#}
     ADD {{lr_bound}} {{lr_row}} cr0 ;;
     ACTIVATE.QUANTIZE identity cr8;                        {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr5 ;;                     {#- MAXVEC <- maxvec -#}
+    ST.AAQ {{lr_cyc}} cr5 ;;                     {#- MAXVEC <- maxvec -#}
 
 {#- ===================================================================== -#}
 {#- PASS 2 -- num[row] = 2^(c*x[p] - maxvec[row]).  Unpacked, 1 chunk/row. -#}
 {#- ===================================================================== -#}
     SET {{lr_cyc}} cr0 ;;
-    LDR_MULT_REG r0 {{lr_cyc}} cr3 ;;          {#- R0 = C_VEC -#}
-    LDR_MULT_REG r1 {{lr_cyc}} cr5 ;;          {#- R1 = maxvec (elem row = maxvec[row]) -#}
+    LD.MULT r0 {{lr_cyc}} cr3 ;;          {#- R0 = C_VEC -#}
+    LD.MULT r1 {{lr_cyc}} cr5 ;;          {#- R1 = maxvec (elem row = maxvec[row]) -#}
     SET {{lr_row}} cr0 ;
     SET {{lr_chunk}} cr0 ;
     ADD {{lr_coff}} {{lr_gbase}} cr0 ;;         {#- input walks from this group's base -#}
@@ -112,7 +112,7 @@ p1_part:
     SET {{lr_maxid}} cr8 ;;                      {#- R1 byte index = 128 (CR8) + row -#}
 
 p2_chunk:
-    LDR_CYCLIC_MULT_REG {{lr_coff}} cr10 {{lr_cyc}} ;;
+    LD.MULT.CYCLIC {{lr_coff}} cr10 {{lr_cyc}} ;;
     SET {{lr_p}} cr0 ;
     SET {{lr_slide}} cr0 ;;
 
@@ -122,16 +122,16 @@ p2_part:
     MULT.EE {{lr_maxid}} cr1 0 {{lr_cyc}} cr15 ;              {#- maxvec[row]*1.0 -#}
     acc.sub ;                                                {#- r_acc = c*x[p] - maxvec[row] -#}
     ACTIVATE.QUANTIZE exp2 cr15;                                     {#- reads r_acc LIVE (upstream fix); masked -> num[row] elements 0..N-1 -#}
-    STR_POST_AAQ_REG {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
+    ST.AAQ {{lr_num}} cr4 ;;                    {#- NUM[row] (unpacked) -#}
     ADD {{lr_slide}} {{lr_slide}} cr12 ;
     ADD {{lr_num}} {{lr_num}} cr7 ;
     ADD {{lr_maxid}} {{lr_maxid}} cr1 ;;
     ADD {{lr_row}} {{lr_row}} cr1 ;
     ADD {{lr_p}} {{lr_p}} cr1 ;;
-    BLT {{lr_p}} cr14 p2_part ;;
+    BLT.S {{lr_p}} cr14 p2_part ;;
     ADD {{lr_coff}} {{lr_coff}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
-    BLT {{lr_chunk}} {{lr_cbound}} p2_chunk ;;
+    BLT.S {{lr_chunk}} {{lr_cbound}} p2_chunk ;;
 
 {#- ===================================================================== -#}
 {#- PASS 3 -- sumvec[row] = SUM num[row]; rvec = 1/sumvec.  Per row.       -#}
@@ -141,15 +141,15 @@ p2_part:
     SET {{lr_cyc}} cr0 ;;
 
 p3_row:
-    LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;;      {#- r_cyclic = num[row] (snapshot: visible NEXT cycle) -#}
+    LD.MULT.CYCLIC {{lr_num}} cr4 {{lr_cyc}} ;;      {#- r_cyclic = num[row] (snapshot: visible NEXT cycle) -#}
     MULT.RC.VE    {{lr_cyc}} cr1 0 {{lr_cyc}} cr15 ;           {#- *1.0 -#}
     AGG.SUM.FIRST {{lr_row}} cr15 ;;                          {#- masked -> sumvec[row] -#}
     ADD {{lr_num}} {{lr_num}} cr7 ;
     ADD {{lr_row}} {{lr_row}} cr1 ;;
-    BLT {{lr_row}} {{lr_bound}} p3_row ;;      {#- this group's row count (from Pass 1) -#}
+    BLT.S {{lr_row}} {{lr_bound}} p3_row ;;      {#- this group's row count (from Pass 1) -#}
 
     ACTIVATE.QUANTIZE reciprocal cr8;                       {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_cyc}} cr6 ;;                     {#- RVEC <- 1/sum -#}
+    ST.AAQ {{lr_cyc}} cr6 ;;                     {#- RVEC <- 1/sum -#}
 
 {#- ===================================================================== -#}
 {#- PASS 4 -- out[row] = num[row]*rvec[row], RE-PACKED to chunk elements.     -#}
@@ -165,7 +165,7 @@ p3_row:
 {#-   other's r_acc elements regardless of P (fixes the cross-partition        -#}
 {#-   contamination bug in STATUS.md, uniformly for P=1/2/4/8).             -#}
 {#-   RING = r_cyclic's full ring size, 512 ELEMENTS (rc_idx is an element  -#}
-{#-   offset, matching LDR_CYCLIC_MULT_REG's index -- issue #182/PR #196),  -#}
+{#-   offset, matching LD.MULT.CYCLIC's index -- issue #182/PR #196),  -#}
 {#-   NOT the 128-element row size -- MULT.RC's rc_idx wraps at the ring    -#}
 {#-   boundary, not the row boundary. p=0 -> rc_idx=0 directly (RING-0=RING -#}
 {#-   would itself need a further wrap); p>=1 -> RING - p*ps.               -#}
@@ -180,7 +180,7 @@ p3_row:
     MULT.RC.VE {{lr_cyc}} {{lr_row}} {{p}} {{lr_cyc}} cr15 ;        {#- rc_idx=0 directly; mask_offset={{p}} -#}
     acc.add.first ;;
     {%- else %}
-    LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
+    LD.MULT.CYCLIC {{lr_num}} cr4 {{lr_cyc}} ;
     SUB {{lr_rslide}} {{lr_c512}} {{lr_slide}} ;;                    {#- rslide = RING - {{p}}*ps -#}
     MULT.RC.VE {{lr_rslide}} {{lr_row}} {{p}} {{lr_cyc}} cr15 ;    {#- mask_offset={{p}} -#}
     acc.add ;;
@@ -192,7 +192,7 @@ p3_row:
     {%- endif %}
 {%- endmacro %}
     SET {{lr_cyc}} cr0 ;;
-    LDR_MULT_REG r0 {{lr_cyc}} cr6 ;;          {#- R0 = rvec (elem row = rvec[row]) -#}
+    LD.MULT r0 {{lr_cyc}} cr6 ;;          {#- R0 = rvec (elem row = rvec[row]) -#}
     SET {{lr_row}} cr0 ;
     SET {{lr_chunk}} cr0 ;
     ADD {{lr_coff}} {{lr_gbase}} cr0 ;;         {#- output chunk offset (group base) -#}
@@ -200,9 +200,9 @@ p3_row:
     SET {{lr_c512}} cr11 ;
     SET {{lr_two}} cr6 ;;                        {#- lr_c512 = RING (512 elements); lr_two = RVEC row (for mask row below) -#}
     ADD {{lr_two}} {{lr_two}} cr1 ;;             {#- lr_two = RVEC row + 1 = PART_MASK row -#}
-    LDR_MULT_MASK_REG {{lr_two}} cr0 ;;         {#- R_MASK <- PART_MASK image (8 per-partition slots), loaded once -#}
+    LD.MASK {{lr_two}} cr0 ;;         {#- R_MASK <- PART_MASK image (8 per-partition slots), loaded once -#}
 p4_chunk:
-    LDR_CYCLIC_MULT_REG {{lr_num}} cr4 {{lr_cyc}} ;
+    LD.MULT.CYCLIC {{lr_num}} cr4 {{lr_cyc}} ;
     SET {{lr_slide}} cr0 ;
     SET {{lr_p}} cr1 ;;
     BEQ cr14 {{lr_p}} p4_run_p1 ;;
@@ -237,17 +237,17 @@ p4_run_p8:
 
 p4_drain:
     ACTIVATE.QUANTIZE identity cr8;                         {#- reads r_acc LIVE (upstream fix) -#}
-    STR_POST_AAQ_REG {{lr_coff}} cr2 ;;                    {#- packed output chunk -#}
+    ST.AAQ {{lr_coff}} cr2 ;;                    {#- packed output chunk -#}
     ADD {{lr_coff}} {{lr_coff}} cr7 ;
     ADD {{lr_chunk}} {{lr_chunk}} cr1 ;;
-    BLT {{lr_chunk}} {{lr_cbound}} p4_chunk ;;
+    BLT.S {{lr_chunk}} {{lr_cbound}} p4_chunk ;;
 
 {#- ---- advance: chunks_done += cbound; loop while done < total ------------ -#}
 {#- Pass 4 stepped lr_coff once per chunk, so it now equals gbase + cbound -- -#}
 {#- exactly the next group's base chunk (the LR slot has no multiply).        -#}
     ADD {{lr_cdone}} {{lr_cdone}} {{lr_cbound}} ;
     ADD {{lr_gbase}} {{lr_coff}} cr0 ;;
-    BLT {{lr_cdone}} {{lr_ctotal}} group_loop ;;
+    BLT.S {{lr_cdone}} {{lr_ctotal}} group_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

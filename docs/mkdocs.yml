@@ -124,6 +124,7 @@ nav:
           - Accumulator Stage Specification: specs/stage-accumulator.md
           - Control Stage Specification: specs/stage-control.md
           - RISC-V Host Integration: specs/riscv-host-integration.md
+          - Mnemonic rename (SV names): specs/mnemonic-rename.md
       - HW requirements:
           - Overview and goals: requirements/index.md
           - Architecture and pipeline: requirements/architecture.md

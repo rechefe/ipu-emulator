@@ -7,7 +7,7 @@ Computes the query-major score matrix for a single attention head::
 Inputs Q, K are logically channel-major (head_dim D=36, N=256 tokens). K is
 loaded channel-major verbatim; Q is staged query-major (a gather of its strided
 channels) so one query's 36 head-channels load into R0 with a single
-``LDR_MULT_REG`` — the matmul broadcast template (scalar = Q[i,c] from R0,
+``LD.MULT`` — the matmul broadcast template (scalar = Q[i,c] from R0,
 vector = K's channel-c column in R_CYCLIC, ``MULT.RC.VE``).
 
 The score row is stored RAW (full-precision R_ACC, one 128-lane row per
@@ -128,7 +128,7 @@ class QkScores256x36App(IpuApp):
         state.regfile.set_lr(0, 0)  # R_CYCLIC write-index / mask_shift
         state.regfile.set_lr(2, K_STRIDE_ROWS)  # K data stride per channel (rows)
         state.regfile.set_lr(3, N_TG * ACC_STORE_ROWS)  # output stride per query (rows)
-        state.regfile.set_lr(6, D - 2)  # contraction BLT bound
+        state.regfile.set_lr(6, D - 2)  # contraction BLT.S bound
         state.regfile.set_lr(7, 0)  # output query row offset
         state.regfile.set_lr(8, 0)  # Q-row row offset
         state.regfile.set_lr(9, 0)  # query counter

@@ -493,7 +493,7 @@ class TestIpuState:
         """Load data into XMEM, then load into R register, verify.
 
         load_r_reg_from_xmem takes a ROW number (narrow row = 128 B), matching
-        LDR_MULT_REG's addressing (#179): row 2 = byte 256.
+        LD.MULT's addressing (#179): row 2 = byte 256.
         """
         state = IpuState()
         data = bytearray(range(128))
@@ -511,7 +511,7 @@ class TestIpuState:
 
     def test_load_r_reg_from_xmem_debug_mode_row_size(self):
         """In debug mode a row is 512 B, not 128, and lands in r_wide_debug --
-        the register LDR_MULT_REG loads in that mode -- not the 128-byte r."""
+        the register LD.MULT loads in that mode -- not the 128-byte r."""
         state = new_state(fmt=ElementFormat.FP32)
         data = struct.pack("<128f", *([2.5] * 128))
         state.xmem.write_address(3 * 512, data)  # row 3, debug row size = 512 B

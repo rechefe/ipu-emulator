@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import pytest
 
@@ -12,6 +13,9 @@ from ipu_isa.formats import (
     ElementFormat,
     FormatInfo,
     addressable_rows,
+    decode_element,
+    element_values,
+    encode_element,
     register_layout,
     validate_formats,
 )
@@ -139,3 +143,72 @@ def test_records_are_frozen():
         FORMATS[ElementFormat.INT8].element_bits = 16  # type: ignore[misc]
     with pytest.raises(TypeError):
         FORMATS[ElementFormat.INT8] = FORMATS[ElementFormat.E4]  # type: ignore[index]
+
+
+# --- the 8-bit element codec (E04-13) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("code", "fmt", "value"),
+    [
+        (0x38, ElementFormat.E4, 1.0),
+        (0x40, ElementFormat.E4, 2.0),
+        (0x77, ElementFormat.E4, 240.0),  # largest finite: exponent 14, mantissa 7
+        (0x01, ElementFormat.E4, 2.0**-9),  # smallest subnormal
+        (0xB8, ElementFormat.E4, -1.0),
+        (0x3C, ElementFormat.E5, 1.0),
+        (0x01, ElementFormat.E1, 2.0**-5),  # E1: bias 0, all subnormal
+        (0x3E, ElementFormat.E7, 2.0**-1),  # E7: powers of two only
+        (0x7F, ElementFormat.INT8, 127.0),
+        (0xFF, ElementFormat.INT8, -1.0),
+        (0x80, ElementFormat.INT8, -128.0),
+    ],
+)
+def test_decode_element_known_codes(code, fmt, value):
+    assert decode_element(code, fmt) == value
+
+
+def test_decode_element_nan_and_negative_zero():
+    assert math.isnan(decode_element(0x7F, ElementFormat.E4))
+    assert math.copysign(1.0, decode_element(0x80, ElementFormat.E4)) == -1.0
+
+
+@pytest.mark.parametrize("fmt", [f for f, i in FORMATS.items() if i.element_bits == 8], ids=str)
+def test_encode_inverts_decode_on_every_code(fmt):
+    values = element_values(fmt)
+    assert len(values) == 256
+    for code, value in enumerate(values):
+        if math.isnan(value):
+            continue
+        assert encode_element(value, fmt) == code
+
+
+@pytest.mark.parametrize(
+    ("value", "fmt", "code"),
+    [
+        (1.0625, ElementFormat.E4, 0x38),  # tie between 1.0 and 1.125: even code
+        (1.1875, ElementFormat.E4, 0x3A),  # tie between 1.125 and 1.25: even code
+        (1e6, ElementFormat.E4, 0x77),  # saturates
+        (-math.inf, ElementFormat.E4, 0xF7),
+        (math.nan, ElementFormat.E4, 0x79),  # canonical NaN
+        (-0.0, ElementFormat.E4, 0x80),
+        (127.6, ElementFormat.INT8, 0x7F),
+        (-200.0, ElementFormat.INT8, 0x80),
+        (2.5, ElementFormat.INT8, 0x02),
+        (-1.0, ElementFormat.INT8, 0xFF),
+    ],
+)
+def test_encode_element_rounds_and_saturates(value, fmt, code):
+    assert encode_element(value, fmt) == code
+
+
+def test_element_codec_rejects_other_formats():
+    for fmt in (ElementFormat.FP32, ElementFormat.INT32):
+        with pytest.raises(ValueError, match="not an 8-bit format"):
+            decode_element(0, fmt)
+        with pytest.raises(ValueError, match="not an 8-bit format"):
+            encode_element(1.0, fmt)
+    with pytest.raises(ValueError, match="not a byte"):
+        decode_element(256, ElementFormat.E4)
+    with pytest.raises(ValueError, match="NaN"):
+        encode_element(math.nan, ElementFormat.INT8)

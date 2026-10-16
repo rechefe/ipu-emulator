@@ -55,7 +55,7 @@ def test_no_source_falls_back_on_an_undefined_name(path):
     ],
 )
 def test_a_planted_fallback_is_found(line):
-    assert fallbacks(f"BKPT;;\n{line}\n") == [2]
+    assert fallbacks(f"HALT;;\n{line}\n") == [2]
 
 
 def test_the_corpus_is_scanned():

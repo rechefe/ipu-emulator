@@ -90,7 +90,7 @@ OUT_ROW_GROUP = OUT_CHANNELS * OUT_COLS  # 2048 elements: one output row, all 16
 # -- Memory layout -----------------------------------------------------------
 #
 # Row-addressed ISA: every XMEM offset/base operand this app uses
-# (LDR_MULT_REG / LDR_CYCLIC_MULT_REG's offset+base / STR_POST_AAQ_REG) is a
+# (LD.MULT / LD.MULT.CYCLIC's offset+base / ST.AAQ) is a
 # ROW number, not a byte address -- *_BASE_ADDR below stay byte constants used
 # only to derive the ROW numbers; *_BASE_ROW feeds the CR registers the asm
 # loads through. This app runs FP32 wide-vector only, so ROW_BYTES is always

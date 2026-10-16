@@ -39,6 +39,8 @@ from ipu_emu.ipu_state import HaltRecord, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
 from ipu_isa.constants import PadMode, encode_dstructure
 from ipu_isa.faults import FaultId
+from ipu_isa.formats import ElementFormat as IsaFormat
+from ipu_isa.formats import encode_element
 
 # ============================================================================
 # Basic Register Operations
@@ -47,7 +49,7 @@ from ipu_isa.faults import FaultId
 
 class TestRegisterOperations:
     def test_set_lr(self):
-        state = run("SET lr13 cr8;;\nBKPT;;", cr={8: 0x1000})
+        state = run("SET lr13 cr8;;\nHALT;;", cr={8: 0x1000})
         assert state.regfile.get_lr(13) == 0x1000
 
     def test_add_imm_accumulates_lr(self):
@@ -56,7 +58,7 @@ class TestRegisterOperations:
 SET lr11 cr8;;
 INC lr11 5;;
 INC lr11 3;;
-BKPT;;
+HALT;;
 """,
             cr={8: 10},
         )
@@ -77,7 +79,7 @@ BKPT;;
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr3 lr1 lr2;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100, 9: 50},
         )
@@ -90,7 +92,7 @@ BKPT;;
             """\
 SET lr1 cr8;;
 ADD lr4 lr1 cr5;;
-BKPT;;
+HALT;;
 """,
             cr={8: 200},
         )
@@ -106,7 +108,7 @@ BKPT;;
 SET lr1 cr8;;
 SET lr2 cr9;;
 ADD lr4 lr1 lr2;;
-BKPT;;
+HALT;;
 """,
             cr={8: 200, 9: 11},
         )
@@ -118,7 +120,7 @@ BKPT;;
 SET lr1 cr8;;
 SET lr2 cr9;;
 SUB lr3 lr1 lr2;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100, 9: 30},
         )
@@ -129,7 +131,7 @@ BKPT;;
             """\
 SET lr2 cr8;;
 SUB lr5 lr2 cr3;;
-BKPT;;
+HALT;;
 """,
             cr={8: 45},
         )
@@ -143,7 +145,7 @@ BKPT;;
 SET lr2 cr8;;
 SET lr4 cr9;;
 SUB lr3 lr2 lr4;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100, 9: 30},
         )
@@ -151,7 +153,7 @@ BKPT;;
 
 
 # ============================================================================
-# INCR_MOD_POW2 (Issue #47): dst <- (dst + step) mod 2^k
+# INC.MODP2 (Issue #47): dst <- (dst + step) mod 2^k
 # ============================================================================
 
 
@@ -162,8 +164,8 @@ class TestIncrModPow2:
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-INCR_MOD_POW2 lr0 lr1 4;;
-BKPT;;
+INC.MODP2 lr0 lr1 4;;
+HALT;;
 """,
             cr={8: 15, 9: 1},
         )
@@ -175,8 +177,8 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-INCR_MOD_POW2 lr0 lr1 9;;
-BKPT;;
+INC.MODP2 lr0 lr1 9;;
+HALT;;
 """,
             cr={8: 500, 9: 20},
         )
@@ -187,8 +189,8 @@ BKPT;;
         state = run(
             """\
 SET lr0 cr8;;
-INCR_MOD_POW2 lr0 lr0 3;;
-BKPT;;
+INC.MODP2 lr0 lr0 3;;
+HALT;;
 """,
             cr={8: 5},
         )
@@ -198,8 +200,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-INCR_MOD_POW2 lr0 cr4 4;;
-BKPT;;
+INC.MODP2 lr0 cr4 4;;
+HALT;;
 """,
             cr={8: 2},
         )
@@ -212,8 +214,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-INCR_MOD_POW2 lr0 cr5 3;;
-BKPT;;
+INC.MODP2 lr0 cr5 3;;
+HALT;;
 """,
             cr={8: 3},
         )
@@ -223,25 +225,25 @@ BKPT;;
 
     def test_k_encoded_four_bits(self):
         """k operand uses 4 bits: semantic k=9 encodes as 8 in the instruction word."""
-        encoded = assemble("INCR_MOD_POW2 lr0 lr1 9;; BKPT;;")
+        encoded = assemble("INC.MODP2 lr0 lr1 9;; HALT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_3_lr_reg_field"] == 8
 
     def test_assembler_rejects_k_out_of_range(self):
-        with pytest.raises(ValueError, match=r"INCR_MOD_POW2 k operand"):
-            CompoundInst(parse("INCR_MOD_POW2 lr0 lr1 0;;")[0])
-        with pytest.raises(ValueError, match=r"INCR_MOD_POW2 k operand"):
-            CompoundInst(parse("INCR_MOD_POW2 lr0 lr1 10;;")[0])
+        with pytest.raises(ValueError, match=r"INC.MODP2 k operand"):
+            CompoundInst(parse("INC.MODP2 lr0 lr1 0;;")[0])
+        with pytest.raises(ValueError, match=r"INC.MODP2 k operand"):
+            CompoundInst(parse("INC.MODP2 lr0 lr1 10;;")[0])
 
     def test_two_incr_mod_pow2_different_dst_no_conflict(self):
-        """Two INCR_MOD_POW2 writing different LRs must not raise a conflict error."""
+        """Two INC.MODP2 writing different LRs must not raise a conflict error."""
         state = run(
             """\
 SET lr5 cr8;;
 SET lr12 cr9;;
 SET lr13 cr10;;
-INCR_MOD_POW2 lr5 lr12 7; INCR_MOD_POW2 lr6 lr13 8;;
-BKPT;;
+INC.MODP2 lr5 lr12 7; INC.MODP2 lr6 lr13 8;;
+HALT;;
 """,
             cr={8: 0, 9: 1, 10: 128},
         )
@@ -255,7 +257,7 @@ class TestIncDec:
             """\
 SET lr5 cr8;;
 INC lr5 7;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100},
         )
@@ -266,7 +268,7 @@ BKPT;;
             """\
 SET lr5 cr8;;
 DEC lr5 30;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100},
         )
@@ -279,7 +281,7 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 INC lr0 5;;
 DEC lr1 2;;
-BKPT;;
+HALT;;
 """,
             cr={8: 10, 9: 20},
         )
@@ -288,7 +290,7 @@ BKPT;;
 
     def test_decode_inc_imm_operand_field(self):
         """``INC`` immediate uses the union-derived LrIncDecImmediate field."""
-        encoded = assemble("INC lr2 7;; BKPT;;")
+        encoded = assemble("INC lr2 7;; HALT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 4  # inc
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2
@@ -308,7 +310,7 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 SET lr5 cr10;;
 ADDB lrd0 lr5;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0x01020304, 9: 0x05060708, 10: 10},
         )
@@ -322,7 +324,7 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDB lrd0 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0x01020304, 9: 0x05060708, 11: 10},
         )
@@ -336,7 +338,7 @@ BKPT;;
 SET lr0 cr8;;
 SET lr1 cr9;;
 ADDBI lrd0 200;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0x64646464, 9: 0x64646464},
         )
@@ -350,7 +352,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ADDBI lrd0 -56;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0x64646464},
         )
@@ -362,7 +364,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ADDBI lrd0 20;;
-BKPT;;
+HALT;;
 """,
             cr={8: 250},
         )  # LR0 = 0x000000FA: low lane 250, others 0
@@ -376,7 +378,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ADDBI lrd0 200;;
-BKPT;;
+HALT;;
 """,
             cr={8: 5},
         )  # LR0 = 0x00000005; 200 decodes as signed -56
@@ -390,7 +392,7 @@ BKPT;;
 SET lr6 cr8;;
 SET lr7 cr9;;
 ADDBI lrd6 5;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100, 9: 50},
         )
@@ -403,7 +405,7 @@ BKPT;;
     def test_addb_lrd_conflict_with_overlapping_lr_write(self):
         """ADDBI on LRD0 (LR0/LR1) conflicts with a same-cycle plain write to LR1."""
         with pytest.raises(EmulatorFault, match="LR conflict") as caught:
-            run("ADDBI lrd0 5; INC lr1 3;;\nBKPT;;\n")
+            run("ADDBI lrd0 5; INC lr1 3;;\nHALT;;\n")
         assert (caught.value.fault, caught.value.pc) == (FaultId.F3, 0)
 
     def test_decode_addb_operand_fields(self):
@@ -411,7 +413,7 @@ BKPT;;
 
         ``lrd4`` is the 3rd pair (LR4/LR5), so it encodes as index 2.
         """
-        encoded = assemble("ADDB lrd4 lr5;; BKPT;;")
+        encoded = assemble("ADDB lrd4 lr5;; HALT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 6  # addb
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lrd4 (pair index 2)
@@ -422,7 +424,7 @@ BKPT;;
 
         ``lrd8`` is the 5th pair (LR8/LR9), so it encodes as index 4.
         """
-        encoded = assemble("ADDBI lrd8 200;; BKPT;;")
+        encoded = assemble("ADDBI lrd8 200;; HALT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 7  # addbi
         assert d["lr_inst_0_token_2_lr_reg_field"] == 4  # dest = lrd8 (pair index 4)
@@ -440,7 +442,7 @@ class TestThreeLrSlots:
         state = run(
             """\
 SET lr0 cr8; SET lr1 cr9; SET lr2 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1, 9: 2, 10: 3},
         )
@@ -458,7 +460,7 @@ BKPT;;
 
     def test_decode_three_lr_sub_slots(self):
         """Assemble → decode exposes lr_inst_0, lr_inst_1, lr_inst_2."""
-        encoded = assemble("SET lr4 cr8; SET lr5 cr9; SET lr6 cr10;;\nBKPT;;")
+        encoded = assemble("SET lr4 cr8; SET lr5 cr9; SET lr6 cr10;;\nHALT;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 0  # set
@@ -474,7 +476,7 @@ BKPT;;
 
     def test_decode_add_lcr_operand_field(self):
         """``ADD`` third operand uses LcrRegField (register-only), sharing a field with AddbiImmediate."""
-        encoded = assemble("ADD lr2 lr1 cr7;; BKPT;;")
+        encoded = assemble("ADD lr2 lr1 cr7;; HALT;;")
         d = decode_instruction_word(encoded[0])
         assert d["lr_inst_0_token_0_lr_inst_opcode"] == 1  # add
         assert d["lr_inst_0_token_2_lr_reg_field"] == 2  # dest = lr2
@@ -494,8 +496,8 @@ class TestMemoryOperations:
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
-BKPT;;
+LD.MULT r1 lr13 cr0;;
+HALT;;
 """,
             cr={8: 32},
         )
@@ -514,15 +516,15 @@ BKPT;;
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
+LD.MULT r1 lr13 cr0;;
 SET lr14 cr9;;
 SET lr15 cr10;;
-LDR_CYCLIC_MULT_REG lr14 cr0 lr15;;
+LD.MULT.CYCLIC lr14 cr0 lr15;;
 MULT.RC.VV lr0 r1 0 lr0 cr15;
 ACC.ADD;;
 SET lr0 cr11;;
-STR_ACC_REG lr0 cr0;;
-BKPT;;
+ST.ACC lr0 cr0;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96},
         )
@@ -542,8 +544,8 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """,
             cr={8: 160, 9: 0},
         )
@@ -560,8 +562,8 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
-BKPT;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
+HALT;;
 """,
             cr={8: 160, 9: 64},
         )
@@ -575,8 +577,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_MASK_REG lr0 cr0;;
-BKPT;;
+LD.MASK lr0 cr0;;
+HALT;;
 """,
             cr={8: 192},
         )
@@ -595,9 +597,9 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-STR_ACC_REG lr0 cr0;;
-BKPT;;
+LD.MULT r0 lr0 cr0;;
+ST.ACC lr0 cr0;;
+HALT;;
 """,
             cr={8: row},
         )
@@ -623,19 +625,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128},
         )
@@ -664,19 +666,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr12;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 1 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr13;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 1, 13: 128},
         )
@@ -707,19 +709,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
         )
@@ -749,19 +751,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 12: 128, 15: dstructure},
         )
@@ -789,16 +791,16 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0, 11: 96, 15: dstructure},
         )
@@ -822,19 +824,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32},
             fmt=ElementFormat.FP32,
@@ -867,19 +869,19 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={8: 8, 9: 16, 10: 0, 11: 24, 12: 32, 15: dstructure},
             fmt=ElementFormat.FP32,
@@ -910,16 +912,16 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr11;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
-BKPT;;
+HALT;;
 """,
             cr={8: 4096, 9: 8192, 10: 0, 11: 12288, 15: dstructure},
             fmt=ElementFormat.INT32,
@@ -945,7 +947,7 @@ b skip_section;;
 SET lr0 cr9;;
 skip_section:
 SET lr1 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1, 9: 2, 10: 3},
         )
@@ -959,10 +961,10 @@ SET lr0 cr8;;
 SET lr1 cr9;;
 BNE lr0 lr1 not_equal_branch;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 not_equal_branch:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: 10, 9: 20, 10: 0, 11: 1},
         )
@@ -975,10 +977,10 @@ SET lr0 cr8;;
 SET lr1 cr8;;
 BEQ lr0 lr1 equal_branch;;
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 equal_branch:
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 42, 9: 0, 10: 1},
         )
@@ -989,12 +991,12 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BLT lr0 lr1 less_branch;;
+BLT.S lr0 lr1 less_branch;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 less_branch:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: 5, 9: 6, 10: 0, 11: 1},
         )
@@ -1005,12 +1007,12 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BGE lr0 lr1 ge_branch;;
+BGE.S lr0 lr1 ge_branch;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 ge_branch:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: 6, 9: 5, 10: 0, 11: 1},
         )
@@ -1021,12 +1023,12 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BGE lr0 lr1 ge_branch_not_taken;;
+BGE.S lr0 lr1 ge_branch_not_taken;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 ge_branch_not_taken:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: 5, 9: 6, 10: 1, 11: 0},
         )
@@ -1038,10 +1040,10 @@ BKPT;;
 SET lr0 cr8;;
 BNZ lr0 nonzero_branch;;
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 nonzero_branch:
 SET lr2 cr8;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1, 9: 0},
         )
@@ -1053,10 +1055,10 @@ BKPT;;
 SET lr0 cr8;;
 BZ lr0 zero_branch;;
 SET lr2 cr8;;
-BKPT;;
+HALT;;
 zero_branch:
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0, 9: 1},
         )
@@ -1069,10 +1071,10 @@ BKPT;;
 SET lr0 cr8;;
 BNE lr0 cr1 bne_cr_branch;;
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 bne_cr_branch:
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 10, 9: 0, 10: 1},
         )
@@ -1086,10 +1088,10 @@ BKPT;;
 SET lr0 cr8;;
 BEQ lr0 cr3 beq_cr_branch;;
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 beq_cr_branch:
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 42, 9: 0, 10: 1},
         )
@@ -1098,16 +1100,16 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_lr_cr(self):
-        """blt branches when LR is less than a CR constant."""
+        """blt.s branches when LR is less than a CR constant."""
         state = make_state(
             """\
 SET lr0 cr8;;
-BLT lr0 cr2 blt_cr_branch;;
+BLT.S lr0 cr2 blt_cr_branch;;
 SET lr2 cr9;;
-BKPT;;
+HALT;;
 blt_cr_branch:
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 """,
             cr={8: 5, 9: 0, 10: 1},
         )
@@ -1116,34 +1118,34 @@ BKPT;;
         assert state.regfile.get_lr(2) == 1
 
     def test_blt_negative_counter(self):
-        """BLT sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
+        """BLT.S sign-extends at 32 bits: -1 < 0 must branch (issue #142)."""
         state = run(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BLT lr0 lr1 neg_branch;;
+BLT.S lr0 lr1 neg_branch;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 neg_branch:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: -1, 9: 0, 10: 0, 11: 1},
         )
         assert state.regfile.get_lr(2) == 1
 
     def test_bge_negative_not_taken(self):
-        """BGE sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
+        """BGE.S sign-extends at 32 bits: -1 >= 0 must not branch (issue #142)."""
         state = run(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BGE lr0 lr1 neg_ge_branch;;
+BGE.S lr0 lr1 neg_ge_branch;;
 SET lr2 cr10;;
-BKPT;;
+HALT;;
 neg_ge_branch:
 SET lr2 cr11;;
-BKPT;;
+HALT;;
 """,
             cr={8: -1, 9: 0, 10: 1, 11: 0},
         )
@@ -1157,7 +1159,7 @@ SET lr0 cr8;;
 cr_loop_start:
 INC lr0 1;;
 BNE lr0 cr5 cr_loop_start;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0},
         )
@@ -1174,7 +1176,7 @@ SET lr2 cr8;;
 loop_start:
 INC lr0 1;;
 BNE lr0 lr1 loop_start;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0, 9: 10},
             max_cycles=1000,
@@ -1185,12 +1187,12 @@ BKPT;;
         state = run(
             """\
 SET lr0 cr10;;
-BKPT;;
+HALT;;
 SET lr0 cr8;;
 """,
             cr={8: 0, 9: 10, 10: 99},
         )
-        # BKPT sets PC = INST_MEM_SIZE, so `SET lr0 0` is never reached
+        # HALT sets PC = INST_MEM_SIZE, so `SET lr0 0` is never reached
         assert state.regfile.get_lr(0) == 99
 
     def test_br_cr(self):
@@ -1200,10 +1202,10 @@ SET lr0 cr8;;
         source = """\
 BR cr2;;
 SET lr0 cr8;;
-BKPT;;
+HALT;;
 br_cr_target:
 SET lr0 cr9;;
-BKPT;;
+HALT;;
 """
         state = make_state(source, cr={8: 0, 9: 1})
         target_addr = AssemblySession(source).assemble().symbols["br_cr_target"]
@@ -1223,7 +1225,7 @@ class TestAccumulator:
         state = make_state(
             """\
 ACC.ADD.FIRST;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1244,7 +1246,7 @@ BKPT;;
         state = make_state(
             """\
 ACC.ADD;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1264,7 +1266,7 @@ BKPT;;
         state = make_state(
             """\
 ACC.MAX;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1285,7 +1287,7 @@ BKPT;;
         state = make_state(
             """\
 ACC.MAX.FIRST;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1304,7 +1306,7 @@ BKPT;;
         state = make_state(
             """\
 ACC.SUB;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1323,7 +1325,7 @@ BKPT;;
         state = make_state(
             """\
 ACC.SUB.FIRST;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1344,7 +1346,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ACC.STRIDE 16 off off lr0;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0},
         )
@@ -1363,7 +1365,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
-BKPT;;
+HALT;;
 """,
             cr={8: 0},
         )
@@ -1386,7 +1388,7 @@ BKPT;;
             """\
 SET lr0 cr8;;
 ACC.STRIDE 16 on off lr0;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1},
         )
@@ -1418,7 +1420,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1440,7 +1442,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1460,7 +1462,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1479,7 +1481,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr3;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1502,7 +1504,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1522,7 +1524,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1548,7 +1550,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1569,7 +1571,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1586,7 +1588,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX.FIRST LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1605,7 +1607,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1626,7 +1628,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.MAX LR0 cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1653,7 +1655,7 @@ BKPT;;
         state = make_state(
             """\
 AGG.SUM.FIRST LR0 cr15; ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -1708,7 +1710,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 0;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1731,7 +1733,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 7;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1756,7 +1758,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 6;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1783,7 +1785,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 3;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1810,7 +1812,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 0;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1834,7 +1836,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 0;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1858,7 +1860,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 1;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1882,7 +1884,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 0;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -1913,7 +1915,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 lr4;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi, 12: 6},
         )
@@ -1939,7 +1941,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 lr4;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi, 12: 8},
         )
@@ -1963,7 +1965,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 lr4;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi, 12: 14},
         )
@@ -1987,7 +1989,7 @@ SET lr1 cr9;;
 SET lr2 cr10;;
 SET lr3 cr11;;
 ACC.RESHAPE lrd0 lrd2 6;;
-BKPT;;
+HALT;;
 """,
             cr={8: src_lo, 9: src_hi, 10: dst_lo, 11: dst_hi},
         )
@@ -2009,7 +2011,7 @@ class TestProgramCounter:
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-BKPT;;
+HALT;;
 """,
             cr={8: 100, 9: 200},
         )
@@ -2034,7 +2036,7 @@ class TestBreakpoints:
 SET lr0 cr8;;
 BREAK;;
 SET lr0 cr9;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1, 9: 2},
         )
@@ -2052,7 +2054,7 @@ BKPT;;
             """\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
-BKPT;;
+HALT;;
 """,
             cr={8: 42},
         )
@@ -2069,7 +2071,7 @@ BKPT;;
             """\
 SET lr5 cr8;;
 BREAK.IFEQ lr5 42;;
-BKPT;;
+HALT;;
 """,
             cr={8: 10},
         )
@@ -2087,7 +2089,7 @@ BKPT;;
             """\
 BREAK;;
 SET lr0 cr8;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1},
         )
@@ -2102,7 +2104,7 @@ BKPT;;
 
 class TestDebuggerStops:
     def test_step_stops_before_next_instruction_and_counts_completed_cycles(self):
-        state = make_state("BREAK;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("BREAK;;\nINC lr0 1;;\nINC lr0 1;;\nHALT;;")
         stops = []
 
         def callback(state, cycle):
@@ -2114,7 +2116,7 @@ class TestDebuggerStops:
         assert state.stats.total_cycles == 4
 
     def test_runtime_breakpoint_rearms_on_loop_visit(self):
-        state = make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nBKPT;;", cr={2: 3})
+        state = make_state("loop:\nINC lr0 1;;\nBNE lr0 cr2 loop;;\nHALT;;", cr={2: 3})
         control = BreakpointRunControl()
         control.add_breakpoint(0)
         original = [inst.copy() if inst else None for inst in state.inst_mem]
@@ -2130,7 +2132,7 @@ class TestDebuggerStops:
         assert state.inst_mem == original
 
     def test_simultaneous_causes_stop_once(self):
-        state = make_state("BREAK;;\nBREAK;;\nBKPT;;")
+        state = make_state("BREAK;;\nBREAK;;\nHALT;;")
         control = BreakpointRunControl()
         control.add_breakpoint(1)
         reasons = []
@@ -2150,7 +2152,7 @@ class TestDebuggerStops:
         assert control.run_target is None
 
     def test_run_target_stops_before_side_effects(self):
-        state = make_state("INC lr0 1;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("INC lr0 1;;\nINC lr0 1;;\nHALT;;")
         control = BreakpointRunControl()
         control.run_until(1, 0)
         stops = []
@@ -2166,7 +2168,7 @@ class TestDebuggerStops:
         assert state.stats.total_cycles == 1
 
     def test_intervening_break_cancels_run_target(self):
-        state = make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nBKPT;;")
+        state = make_state("BREAK;;\nBREAK;;\nINC lr0 1;;\nHALT;;")
         control = BreakpointRunControl()
         stops = []
 
@@ -2184,7 +2186,7 @@ class TestDebuggerStops:
 
     @pytest.mark.parametrize("termination", ["halt", "quit", "limit", "error"])
     def test_run_target_cleared_on_every_exit(self, termination):
-        state = make_state("BREAK;;\nBKPT;;")
+        state = make_state("BREAK;;\nHALT;;")
         control = BreakpointRunControl()
 
         def callback(state, cycle):
@@ -2213,7 +2215,7 @@ class TestDebuggerStops:
         assert result.stdout.strip() == "[]"
 
     def test_two_states_keep_their_own_controls(self):
-        program = "INC lr0 1;;\nINC lr0 1;;\nINC lr0 1;;\nBKPT;;"
+        program = "INC lr0 1;;\nINC lr0 1;;\nINC lr0 1;;\nHALT;;"
         first, second = make_state(program), make_state(program)
         first_control, second_control = BreakpointRunControl(), BreakpointRunControl()
         first_control.add_breakpoint(1)
@@ -2236,7 +2238,7 @@ class TestDebuggerStops:
         assert (first_control.last_completed_pc, second_control.last_completed_pc) == (3, 3)
 
     def test_without_a_control_only_embedded_breaks_stop(self):
-        state = make_state("INC lr0 1;;\nBREAK;;\nBKPT;;")
+        state = make_state("INC lr0 1;;\nBREAK;;\nHALT;;")
         stops = []
 
         def callback(state, cycle):
@@ -2247,7 +2249,7 @@ class TestDebuggerStops:
         assert stops == [1]
 
     def test_pc_and_register_edits_apply_to_resumed_instruction(self):
-        state = make_state("BREAK;;\nSET lr1 cr2;;\nBKPT;;")
+        state = make_state("BREAK;;\nSET lr1 cr2;;\nHALT;;")
 
         def callback(state, cycle):
             state.program_counter = 1
@@ -2273,7 +2275,7 @@ class TestDecodeRoundtrip:
 
     def test_roundtrip(self):
         """Assemble → decode → verify known fields."""
-        encoded = assemble("SET lr13 cr8;;\nBKPT;;")
+        encoded = assemble("SET lr13 cr8;;\nHALT;;")
         assert len(encoded) == 2
         d = decode_instruction_word(encoded[0])
         # LR opcode should be 'set' = index 0
@@ -2290,11 +2292,8 @@ class TestDecodeRoundtrip:
 class TestFp8:
     def test_fp8_e4m3_mult_ee(self):
         """FP8 E4 (e4m3): 1.0 × 2.0 → 2.0 for every element."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        fp_one_byte = _float32_to_fp8_scalar(1.0, 4)
-        fp_two_byte = _float32_to_fp8_scalar(2.0, 4)
+        fp_one_byte = encode_element(1.0, IsaFormat.E4)
+        fp_two_byte = encode_element(2.0, IsaFormat.E4)
 
         r0_data = bytes([fp_one_byte] * 128)
         cyclic_data = bytes([fp_two_byte] * 512)
@@ -2302,15 +2301,15 @@ class TestFp8:
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr5 cr10;;
 SET lr6 cr10;;
 MULT.RC.VV lr6 r0 0 lr5 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
@@ -2348,12 +2347,12 @@ class TestMultRcVe:
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 0},
         )
@@ -2376,12 +2375,12 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr2 0 lr4 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 0},
         )
@@ -2407,7 +2406,7 @@ SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr3 0 lr4 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 450, 9: 0},
         )
@@ -2424,22 +2423,19 @@ BKPT;;
 
     def test_mult_rc_ve_cr_fp8e4m3(self):
         """MULT.RC.VE fp8_e4: scalar 1.0 × RC elements 1.0 → result 1.0 each."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        one_fp8 = _float32_to_fp8_scalar(1.0, 4)
+        one_fp8 = encode_element(1.0, IsaFormat.E4)
         cyclic_data = bytes([one_fp8] * 512)
 
         state = make_state(
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr2 cr9;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr5 0 lr4 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 0},
         )
@@ -2455,11 +2451,8 @@ BKPT;;
 
     def test_mult_rc_ve_cr_wraps_fp8e5m2(self):
         """MULT.RC.VE fp8_e5: RC indices wrap modulo 512 (cyclic, no padding)."""
-        # TODO(E04-13): use the element codec's public encode.
-        from ipu_emu.ipu_math import _float32_to_fp8_scalar
-
-        two_fp8 = _float32_to_fp8_scalar(2.0, 5)
-        scalar_fp8 = _float32_to_fp8_scalar(3.0, 5)
+        two_fp8 = encode_element(2.0, IsaFormat.E5)
+        scalar_fp8 = encode_element(3.0, IsaFormat.E5)
 
         state = make_state(
             """\
@@ -2467,7 +2460,7 @@ SET lr2 cr8;;
 SET lr4 cr9;;
 MULT.RC.VE lr2 cr6 0 lr4 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 500, 9: 0},
         )
@@ -2494,13 +2487,13 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
@@ -2523,13 +2516,13 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr1 cr9;;
 SET lr2 cr10;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VE lr2 lr2 0 lr2 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 64, 10: 0},
         )
@@ -2553,16 +2546,16 @@ BKPT;;
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
+LD.MULT r0 lr0 cr0;;
 SET lr0 cr9;;
-LDR_MULT_REG r1 lr0 cr0;;
+LD.MULT r1 lr0 cr0;;
 SET lr1 cr10;;
 SET lr2 cr11;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 SET lr3 cr12;;
 MULT.RC.VE lr2 lr3 0 lr2 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 34, 10: 64, 11: 0, 12: 128},
         )
@@ -2589,11 +2582,11 @@ class TestMultRcVs:
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 0},
         )
@@ -2616,7 +2609,7 @@ SET lr2 cr10;;
 SET lr5 cr11;;
 MULT.RC.VS lr2 0 lr5 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={10: 450, 11: 0},
         )
@@ -2640,13 +2633,13 @@ BKPT;;
             """\
 SET lr0 cr8;;
 SET lr1 cr9;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr3 cr10;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr9;;
 MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """,
             cr={8: 32, 9: 0, 10: 64},
         )
@@ -2691,13 +2684,13 @@ class TestMaskShiftSequential:
     _ASM = """\
 SET lr0 cr8;;
 SET lr1 cr0;;
-LDR_CYCLIC_MULT_REG lr0 cr0 lr1;;
+LD.MULT.CYCLIC lr0 cr0 lr1;;
 SET lr3 cr9;;
-LDR_MULT_MASK_REG lr3 cr0;;
+LD.MASK lr3 cr0;;
 SET lr5 cr2;;
 MULT.RC.VS lr1 0 lr5 cr15;
 ACC.ADD;;
-BKPT;;
+HALT;;
 """
 
     def _run_mask_shift(
@@ -2865,7 +2858,7 @@ class TestActivateQuantize:
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2880,7 +2873,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2894,7 +2887,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE identity cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2911,7 +2904,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE identity cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2930,7 +2923,7 @@ BKPT;;
         """Raises EmulatorError when not in INT8 mode."""
         from ipu_emu.ipu import EmulatorError
 
-        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nBKPT;;")
+        state = make_state("ACTIVATE.QUANTIZE relu cr15;;\nHALT;;")
         state.dtype = DType.E4
         with pytest.raises(EmulatorError, match="INT8 mode"):
             run_until_complete(state)
@@ -2940,7 +2933,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2960,7 +2953,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr3;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -2980,7 +2973,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -3000,7 +2993,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE elu cr15;;
-BKPT;;
+HALT;;
 """,
             elu_alpha=alpha,
         )
@@ -3016,7 +3009,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -3035,7 +3028,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
-BKPT;;
+HALT;;
 """,
             window_a=-3.0,
             window_b=5.0,
@@ -3057,7 +3050,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE window cr15;;
-BKPT;;
+HALT;;
 """,
             window_a=1.5,
             window_b=3.5,
@@ -3078,7 +3071,7 @@ BKPT;;
         state = make_state(
             """\
 ACTIVATE.QUANTIZE relu cr15;;
-BKPT;;
+HALT;;
 """
         )
         state.dtype = DType.INT8
@@ -3090,10 +3083,10 @@ BKPT;;
 
 
 class TestPostAaqReg:
-    """Tests for STR_POST_AAQ_REG and STR_ACC_REG (store instructions)."""
+    """Tests for ST.AAQ and ST.ACC (store instructions)."""
 
     def test_str_post_aaq_reg_writes_post_aaq_reg_512_to_xmem(self):
-        """STR_POST_AAQ_REG stores POST_AAQ_REG (512 B) to XMEM."""
+        """ST.AAQ stores POST_AAQ_REG (512 B) to XMEM."""
         state = IpuState()
         state.dtype = DType.INT8
         state.regfile.set_cr(8, 0x4000 // 128)  # row number for base
@@ -3103,8 +3096,8 @@ class TestPostAaqReg:
         encoded = assemble(
             """\
 SET lr0 cr8;;
-str_post_aaq_reg lr0 cr0;;
-BKPT;;
+st.aaq lr0 cr0;;
+HALT;;
 """
         )
         from ipu_emu.emulator import load_program, run_until_complete
@@ -3117,11 +3110,11 @@ BKPT;;
         assert stored == state.regfile.get_post_aaq_reg()
 
     def test_STR_ACC_REG_emits_warning(self):
-        """STR_ACC_REG emits a DebugOnlyInstructionWarning (a UserWarning)."""
+        """ST.ACC emits a DebugOnlyInstructionWarning (a UserWarning)."""
         state = IpuState()
         state.dtype = DType.INT8
 
-        encoded = assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;")
+        encoded = assemble("ST.ACC lr0 cr0;;\nHALT;;")
         from ipu_emu.emulator import load_program, run_until_complete
 
         decoded = decode_program(encoded)
@@ -3135,9 +3128,9 @@ BKPT;;
         """A program is flagged by its non-NOP acc_store words, not its text."""
         from ipu_emu.execute import emulator_only_instructions
 
-        uses = decode_program(assemble("STR_ACC_REG lr0 cr0;;\nBKPT;;"))
-        plain = decode_program(assemble("SET lr0 cr8;;\nLDR_MULT_REG r0 lr0 cr0;;\nBKPT;;"))
-        assert emulator_only_instructions(uses) == {"STR_ACC_REG"}
+        uses = decode_program(assemble("ST.ACC lr0 cr0;;\nHALT;;"))
+        plain = decode_program(assemble("SET lr0 cr8;;\nLD.MULT r0 lr0 cr0;;\nHALT;;"))
+        assert emulator_only_instructions(uses) == {"ST.ACC"}
         assert emulator_only_instructions(plain) == set()
 
 
@@ -3157,8 +3150,8 @@ class TestXmemRowAddressing:
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
-BKPT;;
+LD.MULT r1 lr13 cr0;;
+HALT;;
 """,
             cr={8: row},
         )
@@ -3173,8 +3166,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
-BKPT;;
+LD.MULT r1 lr13 cr0;;
+HALT;;
 """,
             cr={8: row},
         )
@@ -3187,8 +3180,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
-BKPT;;
+LD.MULT r1 lr13 cr0;;
+HALT;;
 """,
             cr={8: NARROW_MAX_ROW},
         )
@@ -3208,7 +3201,7 @@ BKPT;;
         which is bounded by the allocation instead."""
         state = new_state(fmt=ElementFormat.FP32)
         state.regfile.set_cr(8, NARROW_MAX_ROW)
-        encoded = assemble("SET lr13 cr8;;\nLDR_MULT_REG r1 lr13 cr0;;\nBKPT;;\n")
+        encoded = assemble("SET lr13 cr8;;\nLD.MULT r1 lr13 cr0;;\nHALT;;\n")
         load_program(state, decode_program(encoded))
         run_until_complete(state)
 
@@ -3219,8 +3212,8 @@ BKPT;;
         state = make_state(
             """\
 SET lr13 cr8;;
-LDR_MULT_REG r1 lr13 cr0;;
-BKPT;;
+LD.MULT r1 lr13 cr0;;
+HALT;;
 """,
             cr={8: 0xFFFFFFFF},
         )
@@ -3244,16 +3237,16 @@ BKPT;;
         state.xmem.write_address(byte_addr + 512, rc)
         state.regfile.set_cr(6, row)
         state.regfile.set_cr(7, row + 1)
-        state.regfile.set_cr(8, 0)  # LDR_CYCLIC_MULT_REG index must be 0 in debug mode
+        state.regfile.set_cr(8, 0)  # LD.MULT.CYCLIC index must be 0 in debug mode
         asm = """\
 SET lr0 cr6;;
 SET lr1 cr7;;
 SET lr2 cr8;;
-LDR_MULT_REG r0 lr0 cr0;;
-LDR_CYCLIC_MULT_REG lr1 cr0 lr2;;
+LD.MULT r0 lr0 cr0;;
+LD.MULT.CYCLIC lr1 cr0 lr2;;
 MULT.RC.VV lr2 r0 0 lr2 cr15;;
 acc.add.first;;
-BKPT;;
+HALT;;
 """
         encoded = assemble(asm)
         decoded = decode_program(encoded)
@@ -3272,8 +3265,8 @@ BKPT;;
         state.regfile.set_cr(7, 0)
         asm = """\
 SET lr0 cr6;;
-LDR_MULT_REG r0 lr0 cr0;;
-BKPT;;
+LD.MULT r0 lr0 cr0;;
+HALT;;
 """
         encoded = assemble(asm)
         decoded = decode_program(encoded)
@@ -3284,14 +3277,14 @@ BKPT;;
         assert caught.value.fault is FaultId.F6
 
     def test_ldr_mult_mask_reg_reads_row_start_128_bytes_both_modes(self):
-        """LDR_MULT_MASK_REG translates the row address but always reads 128 B."""
+        """LD.MASK translates the row address but always reads 128 B."""
         row = 50
         mask_data = bytes([(i + 1) & 0xFF for i in range(128)])
         state = make_state(
             """\
 SET lr0 cr8;;
-LDR_MULT_MASK_REG lr0 cr0;;
-BKPT;;
+LD.MASK lr0 cr0;;
+HALT;;
 """,
             cr={8: row},
         )
@@ -3300,13 +3293,13 @@ BKPT;;
         assert state.regfile.get_r_mask() == bytearray(mask_data)
 
     def test_str_acc_reg_writes_512_bytes_at_translated_row_narrow(self):
-        """STR_ACC_REG writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
+        """ST.ACC writes all 512 B of R_ACC unconditionally, spanning 4 narrow rows."""
         row = 40
         state = make_state(
             """\
 SET lr9 cr12;;
-STR_ACC_REG lr9 cr0;;
-BKPT;;
+ST.ACC lr9 cr0;;
+HALT;;
 """,
             cr={12: row},
         )
@@ -3375,7 +3368,7 @@ class TestInspectableSnapshot:
             """\
 SET lr0 cr8;;
 SET lr0 cr9;;
-BKPT;;
+HALT;;
 """,
             cr={8: 1, 9: 2},
         )
@@ -3408,10 +3401,10 @@ BKPT;;
 
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
-        # _build_plan is the per-opcode plan the per-word schedules hold.
+        # build_plan is the per-opcode plan the per-word schedules hold.
         import dataclasses
 
-        from ipu_emu.ipu import _build_plan
+        from ipu_emu.ipu import build_plan
         from ipu_isa.slots import Slot
         from ipu_isa.view import isa
 
@@ -3423,7 +3416,7 @@ class TestDispatchPlans:
         with pytest.raises(
             RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
         ):
-            _build_plan(fake, {})
+            build_plan(fake, {})
 
 
 # ============================================================================
@@ -3467,7 +3460,7 @@ class TestDeclaredSlotOrder:
         monkeypatch.setattr(Issuer, "dispatch_all", spy_lr)
 
         # The BREAK.IFEQ does not fire (LR1 is 0), so the word retires.
-        state = make_state("SET lr0 cr8 ; BREAK.IFEQ lr1 5;;\nBKPT;;", cr={8: 7}, prototyping=False)
+        state = make_state("SET lr0 cr8 ; BREAK.IFEQ lr1 5;;\nHALT;;", cr={8: 7}, prototyping=False)
         engine = ipu_mod.Ipu(state)
         if skip_break:
             engine.execute_vliw_cycle_skip_break()
@@ -3486,7 +3479,7 @@ class TestDeclaredSlotOrder:
         monkeypatch.setattr(cycle_mod, "SLOT_EXECUTION_ORDER", order)
         # The NOP-skipping schedule is built and run directly, so this runs in
         # a build without --define=ipu_proto=1 as well.
-        state = make_state("SET lr0 cr8;;\nBKPT;;", cr={8: 7}, prototyping=False)
+        state = make_state("SET lr0 cr8;;\nHALT;;", cr={8: 7}, prototyping=False)
         schedule = cycle_mod.schedule_word(state.inst_mem[0], skip_idle_nops=True)
         seen = [op.slot for op in schedule.slot_ops]
         seen.insert(schedule.lr_position, "lr")

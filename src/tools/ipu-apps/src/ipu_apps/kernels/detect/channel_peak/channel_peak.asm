@@ -22,7 +22,7 @@
       ACC.MAX.FIRST seeds R_ACC from plane 0 without needing a -inf vector, but
       the channel count is a run-time bound, so the first iteration cannot carry
       a different accumulate mode. Plane 0 is therefore issued before the loop,
-      and a BGE skips the loop entirely when there is only one plane.
+      and a BGE.S skips the loop entirely when there is only one plane.
 
     THE THRESHOLD IS A RESIDENT VECTOR:
       CR scalars are integer-only in wide-vector mode (MULT.*'s CR operand
@@ -59,32 +59,32 @@
     SET {{lr_zero}} cr0 ;
     SET {{lr_t}}    cr0 ;
     SET {{lr_tau}}  cr10 ;;                              {#- 128 -#}
-    LDR_CYCLIC_MULT_REG {{lr_zero}} cr5 {{lr_tau}} ;;    {#- slot1 <- tau, resident -#}
+    LD.MULT.CYCLIC {{lr_zero}} cr5 {{lr_tau}} ;;    {#- slot1 <- tau, resident -#}
 
 tile_loop:
     ADD {{lr_addr}} {{lr_t}} cr0 ;
     SET {{lr_c}} cr0 ;;                                  {#- plane 0 of this tile -#}
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[0, t] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[0, t] -#}
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
     ADD {{lr_c}} {{lr_c}} cr1 ;;
     MULT.RC.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ; ACC.MAX.FIRST ;;
-    BGE {{lr_c}} cr7 peak_done ;;                        {#- one plane only: nothing to fold in -#}
+    BGE.S {{lr_c}} cr7 peak_done ;;                        {#- one plane only: nothing to fold in -#}
 
 chan_loop:
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[c, t] -#}
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;;   {#- slot0 <- x[c, t] -#}
     ADD {{lr_addr}} {{lr_addr}} cr6 ;
     ADD {{lr_c}} {{lr_c}} cr1 ;;
     MULT.RC.VE {{lr_zero}} cr1 0 {{lr_zero}} cr15 ; ACC.MAX ;
-    BLT {{lr_c}} cr7 chan_loop ;;                        {#- post-increment: bound CHANNELS -#}
+    BLT.S {{lr_c}} cr7 chan_loop ;;                        {#- post-increment: bound CHANNELS -#}
 
 peak_done:
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_t}} cr3 ;;                     {#- CONF[t] = max over planes -#}
+    ST.AAQ {{lr_t}} cr3 ;;                     {#- CONF[t] = max over planes -#}
     MULT.RC.VE {{lr_tau}} cr1 0 {{lr_zero}} cr15 ; ACC.SUB ;
     ACTIVATE.QUANTIZE relu cr15 ;
-    STR_POST_AAQ_REG {{lr_t}} cr4 ;;                     {#- KEEP[t] = relu(conf - tau) -#}
+    ST.AAQ {{lr_t}} cr4 ;;                     {#- KEEP[t] = relu(conf - tau) -#}
     ADD {{lr_t}} {{lr_t}} cr1 ;;
-    BLT {{lr_t}} cr6 tile_loop ;;
+    BLT.S {{lr_t}} cr6 tile_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

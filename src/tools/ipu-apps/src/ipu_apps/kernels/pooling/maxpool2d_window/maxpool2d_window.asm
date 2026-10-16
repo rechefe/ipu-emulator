@@ -46,10 +46,10 @@
       unconditionally -- there is no top/bottom special case anywhere.
 
     THE TWO LOOP BOUNDS ARE NOT THE SAME NUMBER, AND THAT IS DELIBERATE:
-      BLT reads its register from the start-of-word SNAPSHOT. The dx counter is
-      incremented in the same word as its own BLT, so the branch sees the
+      BLT.S reads its register from the start-of-word SNAPSHOT. The dx counter is
+      incremented in the same word as its own BLT.S, so the branch sees the
       PRE-increment value and must compare against K-1 (CR11). The dy counter is
-      incremented several words before its BLT, so that branch sees the
+      incremented several words before its BLT.S, so that branch sees the
       POST-increment value and compares against K (CR9). Making both compare
       against K would run one tap too many per row.
 
@@ -91,7 +91,7 @@
     SET {{lr_out}}   cr0 ;;
     SET {{lr_cbase}} cr0 ;
     SET {{lr_seed}}  cr10 ;;                             {#- 384 -#}
-    LDR_CYCLIC_MULT_REG {{lr_zero}} cr4 {{lr_seed}} ;;   {#- slot3 <- -FLT_MAX, resident -#}
+    LD.MULT.CYCLIC {{lr_zero}} cr4 {{lr_seed}} ;;   {#- slot3 <- -FLT_MAX, resident -#}
 
 chan_loop:
     SET {{lr_y}} cr0 ;
@@ -107,7 +107,7 @@ tile_loop:
                                                          {#- R_ACC = -FLT_MAX -#}
 
 dy_loop:
-    LDR_CYCLIC_MULT_REG {{lr_addr}} cr2 {{lr_zero}} ;
+    LD.MULT.CYCLIC {{lr_addr}} cr2 {{lr_zero}} ;
     SUB {{lr_rc}} {{lr_zero}} cr1 ;
     SET {{lr_dx}} cr0 ;;                                 {#- slot0 <- padded row y+dy -#}
     ADD {{lr_addr}} {{lr_addr}} cr5 ;
@@ -118,23 +118,23 @@ dx_loop:
     ADD {{lr_rc}} {{lr_rc}} cr1 ;
     ADD {{lr_dx}} {{lr_dx}} cr1 ;
     MULT.RC.VE {{lr_rc}} cr1 0 {{lr_zero}} cr15 ; ACC.MAX ;
-    BLT {{lr_dx}} cr11 dx_loop ;;                        {#- pre-increment: bound is K-1 -#}
+    BLT.S {{lr_dx}} cr11 dx_loop ;;                        {#- pre-increment: bound is K-1 -#}
 
-    BLT {{lr_dy}} cr9 dy_loop ;;                         {#- post-increment: bound is K -#}
+    BLT.S {{lr_dy}} cr9 dy_loop ;;                         {#- post-increment: bound is K -#}
 
     ACTIVATE.QUANTIZE identity cr15 ;
-    STR_POST_AAQ_REG {{lr_out}} cr3 ;;                   {#- OUT[c, y, tile] -#}
+    ST.AAQ {{lr_out}} cr3 ;;                   {#- OUT[c, y, tile] -#}
     ADD {{lr_out}} {{lr_out}} cr1 ;
     ADD {{lr_t}} {{lr_t}} cr1 ;;
-    BLT {{lr_t}} cr5 tile_loop ;;
+    BLT.S {{lr_t}} cr5 tile_loop ;;
 
     ADD {{lr_rowb}} {{lr_rowb}} cr5 ;                    {#- next spatial row: += TPR -#}
     ADD {{lr_y}} {{lr_y}} cr1 ;;
-    BLT {{lr_y}} cr7 row_loop ;;
+    BLT.S {{lr_y}} cr7 row_loop ;;
 
     ADD {{lr_cbase}} {{lr_cbase}} cr6 ;                  {#- next channel plane -#}
     ADD {{lr_c}} {{lr_c}} cr1 ;;
-    BLT {{lr_c}} cr8 chan_loop ;;
+    BLT.S {{lr_c}} cr8 chan_loop ;;
 
 end:
-    BKPT ;;
+    HALT ;;

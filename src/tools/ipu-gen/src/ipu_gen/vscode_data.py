@@ -15,7 +15,7 @@ on the next build.
 **Vocabulary** — which identifiers are instructions and which are registers —
 comes from ``instruction_spec`` and the register enums. It cannot come from the
 parser: ``asm_grammar.lark`` has a single catch-all ``TOKEN`` terminal, so the
-parser genuinely does not distinguish ``BKPT`` from ``lr0`` from ``my_label``.
+parser genuinely does not distinguish ``HALT`` from ``lr0`` from ``my_label``.
 Both layers are enumerated rather than listed by hand, so adding an instruction
 to the spec also reaches the editor on the next build.
 
@@ -552,10 +552,10 @@ def build_hover_data(facts: dict | None = None, view: Isa | None = None) -> dict
             # So a name lookup does not take `for` or `in` for a variable.
             "jinjaKeywords": list(_JINJA_KEYWORDS),
             "caseInsensitive": {
-                "mnemonics": _case_insensitive("BKPT;;", "bkpt;;"),
-                "registers": _case_insensitive("SET lr0 cr0;;\nBKPT;;", "SET LR0 CR0;;\nBKPT;;"),
+                "mnemonics": _case_insensitive("HALT;;", "halt;;"),
+                "registers": _case_insensitive("SET lr0 cr0;;\nHALT;;", "SET LR0 CR0;;\nHALT;;"),
                 "labels": _case_insensitive(
-                    "Top:\n    B Top;;\nBKPT;;", "Top:\n    B top;;\nBKPT;;"
+                    "Top:\n    B Top;;\nHALT;;", "Top:\n    B top;;\nHALT;;"
                 ),
             },
         },

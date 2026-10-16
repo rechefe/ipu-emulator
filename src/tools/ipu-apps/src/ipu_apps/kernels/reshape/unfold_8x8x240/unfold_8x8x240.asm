@@ -38,12 +38,12 @@
 #   *** Each row carries 16 valid FP32 tokens (64 bytes); lanes 16..127 are
 #   *** STALE and must be ignored. A stream fills only 16 of the 32 elements
 #   *** of one ACC.STRIDE slot, ACTIVATE.QUANTIZE identity stages all 128 lanes
-#   *** of r_acc, and STR_POST_AAQ_REG writes the full 512-byte row.
+#   *** of r_acc, and ST.AAQ writes the full 512-byte row.
 #   Rows are NEVER shared between channels -- the harness teardown crops each
 #   row to its 16-token prefix.
 #
 # Pass-through multiply: MULT.RC.VV with r_cyclic preloaded to 1.0 and the
-#   stripe row in r0 (via LDR_MULT_REG r0):
+#   stripe row in r0 (via LD.MULT r0):
 #     MULT.RC.VV lr0 r0 0 lr0: r0[i] x r_cyclic[i] = stripe[i] x 1.0 = stripe[i].
 #   r_cyclic[0..127] = 1.0 (loaded once at startup, never overwritten).
 #
@@ -61,7 +61,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VV reads its r0 DATA from the
 # start-of-cycle snapshot, so a MULT cannot consume a chunk loaded by an
-# LDR_MULT_REG in its own bundle -- it would see the PREVIOUS contents of r0.
+# LD.MULT in its own bundle -- it would see the PREVIOUS contents of r0.
 # `;;` ends one VLIW word = one cycle = one snapshot, so a load and a MULT in
 # the same bundle always execute in the same cycle regardless of textual order;
 # co-issuing them is fine, consuming the same-cycle load is not.
@@ -70,7 +70,7 @@
 # The load for channel ch+1 rides in the last store bundle of channel ch, which
 # is why src_off's ADD must precede it.
 #
-# STR_POST_AAQ_REG reads its offset LIVE -- never co-issue an ADD on the offset
+# ST.AAQ reads its offset LIVE -- never co-issue an ADD on the offset
 # LR in the same bundle as the store, or the row lands one slot late.
 # dst_off advances in its own bundle at the end of the channel loop, clear of
 # every store.
@@ -106,13 +106,13 @@
 {% set DST_S3     = "cr12" %}  {# stream 3 output base #}
 {% set DSTRUCT    = "cr15" %}  {# reserved dstructure register #}
 
-    LDR_CYCLIC_MULT_REG {{ slot0 }} {{ ONES_BASE }} {{ slot0 }};;   # r_cyclic[0..127] = 1.0
+    LD.MULT.CYCLIC {{ slot0 }} {{ ONES_BASE }} {{ slot0 }};;   # r_cyclic[0..127] = 1.0
 
 # ---------------------------------------------------------------------------
 # Main channel loop  (ch = 0..239)
 # ---------------------------------------------------------------------------
 
-    LDR_MULT_REG        r0 {{ src_off }} {{ SRC_BASE }};;   # prime: channel 0
+    LD.MULT        r0 {{ src_off }} {{ SRC_BASE }};;   # prime: channel 0
 
 ch_loop:
 
@@ -124,19 +124,19 @@ ch_loop:
     MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
     ACC.STRIDE 16 on on {{ slot0 }};;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S0 }};;
+    ST.AAQ {{ dst_off }} {{ DST_S0 }};;
 
     # -- Stream 1  (h=on_inv=odd cols, v=on=even spatial rows) ---------------
     MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
     ACC.STRIDE 16 on_inv on {{ slot0 }};;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S1 }};;
+    ST.AAQ {{ dst_off }} {{ DST_S1 }};;
 
     # -- Stream 2  (h=on=even cols, v=on_inv=odd spatial rows) ---------------
     MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
     ACC.STRIDE 16 on on_inv {{ slot0 }};;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S2 }};;
+    ST.AAQ {{ dst_off }} {{ DST_S2 }};;
 
     # -- Stream 3  (h=on_inv=odd cols, v=on_inv=odd spatial rows) ------------
     MULT.RC.VV {{ slot0 }} r0 0 {{ slot0 }} {{ DSTRUCT }};
@@ -147,13 +147,13 @@ ch_loop:
     # Prefetch channel ch+1 into r0 for the next iteration's first MULT.
     # dst_off is read LIVE by the store, so it is NOT touched in this word.
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ dst_off }} {{ DST_S3 }};
-    LDR_MULT_REG r0 {{ src_off }} {{ SRC_BASE }};;
+    ST.AAQ {{ dst_off }} {{ DST_S3 }};
+    LD.MULT r0 {{ src_off }} {{ SRC_BASE }};;
 
     # -- Advance pointers; loop ----------------------------------------------
     ADD                 {{ dst_off }} {{ dst_off }} {{ dst_stride }};;
     ADD                 {{ ch_index }} {{ ch_index }} {{ ONE }};;
-    BLT                 {{ ch_index }} {{ ch_limit }} ch_loop;;
+    BLT.S                 {{ ch_index }} {{ ch_limit }} ch_loop;;
 
 end:
-    BKPT;;
+    HALT;;

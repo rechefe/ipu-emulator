@@ -23,7 +23,7 @@
 #     collapses away).
 #   Q staged query-major by the harness (gather of the strided channels):
 #     QROW[b, i] = Q[b, i, 0..47] contiguous on row (b*64 + i). This lets r0
-#     hold one query's 48 channels with a single LDR_MULT_REG, exactly the
+#     hold one query's 48 channels with a single LD.MULT, exactly the
 #     matmul broadcast template (scalar from r0 indexed by c).
 #
 # Broadcast template (mirrors qk_scores_256x36, width 48):
@@ -33,7 +33,7 @@
 #                   -> mult_res[s] = Q[i,c] * K[s,c]
 #                 ACC.ADD.FIRST (c=0) / ACC.ADD      -> R_ACC[s] += Q[i,c] * K[s,c]
 #   after 48 channels R_ACC[s] = S[b, i, s] for the 64 keys of the block.
-#   ACTIVATE.QUANTIZE identity + STR_POST_AAQ_REG
+#   ACTIVATE.QUANTIZE identity + ST.AAQ
 #                 -> one whole row per query (the leading 64 FP32 lanes are the
 #                    scores; the harness crops them in teardown -- rows are
 #                    never shared between queries).
@@ -43,7 +43,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
-# consume a K column loaded by LDR_CYCLIC_MULT_REG in its own bundle -- it
+# consume a K column loaded by LD.MULT.CYCLIC in its own bundle -- it
 # would see the previous column. `;;` ends one VLIW word = one cycle = one
 # snapshot, so a load and a MULT in the same bundle always run in the same
 # cycle regardless of textual order; co-issuing is fine, consuming the
@@ -55,8 +55,8 @@
 #   bundle ahead, k_ptr naturally addresses the NEXT channel's column.
 #   chan_index (the r0 scalar selector) is read LIVE by MULT and must name the
 #   channel just loaded, so its ADD moves into a c_loop_pre block that falls
-#   through into the loop body. That changes what BLT sees: with the ADD in the
-#   same word, BLT read the pre-ADD snapshot; with the ADD one word earlier it
+#   through into the loop body. That changes what BLT.S sees: with the ADD in the
+#   same word, BLT.S read the pre-ADD snapshot; with the ADD one word earlier it
 #   reads the already-incremented value and would exit a channel early. The
 #   loop bound is therefore raised by one, in-kernel, into chan_last
 #   (= chan_bound + 1 = D-1 = 47), leaving the harness's lr6 untouched.
@@ -65,7 +65,7 @@
 #
 # Loop nest:  for b in 0..15 { for i in 0..63 {
 #                 prime c=0; for c in 0..47: MULT.RC.VE + ACC
-#                 ACTIVATE.QUANTIZE + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE + ST.AAQ
 #             }}
 #
 # Addressing is split offset(LR) + base(CR) and all .asm operands are ROW
@@ -91,7 +91,7 @@
 {% set k_ptr       = "lr4"  %}  {# row offset into K, walks head channels c #}
 {% set chan_index  = "lr5"  %}  {# head-channel index c -> selects Q[i,c] in r0 #}
 {% set chan_bound  = "lr6"  %}  {# 46 = contraction bound (first=0, width=48) #}
-{% set chan_last   = "lr11" %}  {# 47 = chan_bound + 1; BLT bound now that chan_index's ADD sits a word ahead of the branch #}
+{% set chan_last   = "lr11" %}  {# 47 = chan_bound + 1; BLT.S bound now that chan_index's ADD sits a word ahead of the branch #}
 {% set out_ptr     = "lr7"  %}  {# row offset into S, += out_stride per query #}
 {% set q_ptr       = "lr8"  %}  {# row offset into staged QROW, += qrow_stride #}
 {% set q_index     = "lr9"  %}  {# query counter i within the block #}
@@ -114,7 +114,7 @@
 {% set DSTRUCT     = "cr15" %}  {# reserved dstructure register #}
 
     # chan_last = chan_bound + 1 (= D-1 = 47). See the snapshot note in the
-    # header: chan_index's ADD now sits one word ahead of the BLT, so the branch
+    # header: chan_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
     ADD {{ chan_last }} {{ chan_bound }} {{ ONE }};;
 
@@ -123,23 +123,23 @@ blk_loop:
     ADD {{ k_start }} {{ k_block_off }} {{ K_START }};;   # per-query k_ptr seed = block base - 1 row
 
 q_loop:
-    LDR_MULT_REG r0 {{ q_ptr }} {{ QROW_BASE }};;         # r0 = QROW[b, i] = Q[b, i, 0..47] (rest pad)
+    LD.MULT r0 {{ q_ptr }} {{ QROW_BASE }};;         # r0 = QROW[b, i] = Q[b, i, 0..47] (rest pad)
 
     ADD {{ k_ptr }} {{ k_start }} {{ ZERO }};;            # K-data startup: block base - 1 row (LR copy)
     SET {{ chan_index }} {{ CHAN_START }};;               # channel fixed_idx startup: -1
 
     # Prime c=0's K column: MULT reads r_cyclic from the snapshot, so the column
     # it consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
 
     # Peeled first channel (c=0): ACC.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
     B after_c;;
 
 c_loop_pre:
@@ -148,22 +148,22 @@ c_loop_pre:
 c_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ chan_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ k_ptr }} {{ K_BASE }} {{ rc_slot0 }};
     ADD {{ k_ptr }} {{ k_ptr }} {{ k_stride }};
-    BLT {{ chan_index }} {{ chan_last }} c_loop_pre;;
+    BLT.S {{ chan_index }} {{ chan_last }} c_loop_pre;;
 
 after_c:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ out_ptr }} {{ S_BASE }};;  # store row -> S[b, i, keys 0..63]
+    ST.AAQ {{ out_ptr }} {{ S_BASE }};;  # store row -> S[b, i, keys 0..63]
     ADD {{ out_ptr }} {{ out_ptr }} {{ out_stride }};;    # advance output row
 
     ADD {{ q_ptr }} {{ q_ptr }} {{ qrow_stride }};
     ADD {{ q_index }} {{ q_index }} {{ ONE }};;  # next query
-    BLT {{ q_index }} {{ q_limit }} q_loop;;
+    BLT.S {{ q_index }} {{ q_limit }} q_loop;;
 
     ADD {{ k_block_off }} {{ k_block_off }} {{ K_BLOCK }};;   # next block: K base += 48 rows
     ADD {{ blk_index }} {{ blk_index }} {{ ONE }};;
-    BLT {{ blk_index }} {{ BLK_LIMIT }} blk_loop;;
+    BLT.S {{ blk_index }} {{ BLK_LIMIT }} blk_loop;;
 
 end:
-    BKPT;;
+    HALT;;

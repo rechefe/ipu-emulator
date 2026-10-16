@@ -31,7 +31,7 @@ def fault_of(state, **kw) -> EmulatorFault:
 
 
 def test_halt_records_the_pc_of_the_halt_word():
-    state = make_state("INC LR0 1 ;;\nINC LR0 1 ;;\nBKPT ;;")
+    state = make_state("INC LR0 1 ;;\nINC LR0 1 ;;\nHALT ;;")
     assert state.halt is None and not state.is_halted
     assert run_until_complete(state) == 3
     assert state.halt == HaltRecord("halt", 2, None)
@@ -39,7 +39,7 @@ def test_halt_records_the_pc_of_the_halt_word():
 
 
 def test_a_new_run_clears_the_halt():
-    state = make_state("INC LR0 1 ;;\nBKPT ;;")
+    state = make_state("INC LR0 1 ;;\nHALT ;;")
     run_until_complete(state)
     state.program_counter = 0
     assert run_until_complete(state) == 2
@@ -56,14 +56,14 @@ def test_running_past_the_program_is_f2():
 
 
 def test_a_branch_past_the_program_is_f2_at_the_next_fetch():
-    state = make_state("BR CR2 ;;\nBKPT ;;", cr={2: 40})
+    state = make_state("BR CR2 ;;\nHALT ;;", cr={2: 40})
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F2, 40)
 
 
 @pytest.mark.parametrize("target", [1024, 1029, 0xFFFFFFFF])
 def test_a_branch_past_imem_is_f2_not_a_quiet_halt(target):
-    state = make_state("BR CR2 ;;\nBKPT ;;", cr={2: target})
+    state = make_state("BR CR2 ;;\nHALT ;;", cr={2: target})
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F2, target)
 
@@ -101,8 +101,8 @@ def with_operand(asm: str, slot: Slot, mnemonic: str, operand: str, value: int) 
 @pytest.mark.parametrize(
     ("asm", "slot", "mnemonic", "operand", "value"),
     [
-        ("LDR_MULT_REG R0 LR0 CR2 ;;", Slot.LOAD, "LDR_MULT_REG", "dest", 2),
-        ("INCR_MOD_POW2 LR0 LR1 4 ;;", Slot.LR, "INCR_MOD_POW2", "k", 9),
+        ("LD.MULT R0 LR0 CR2 ;;", Slot.LOAD, "LD.MULT", "dest", 2),
+        ("INC.MODP2 LR0 LR1 4 ;;", Slot.LR, "INC.MODP2", "k", 9),
         ("ACC.STRIDE 16 off off LR0 ;;", Slot.ACC, "ACC.STRIDE", "elements_in_row", 3),
         ("ACTIVATE.QUANTIZE relu CR15 ;;", Slot.AAQ, "ACTIVATE.QUANTIZE", "activation_fn", 15),
         # SET's source shares a column wider than CrIdx: a code past CR15.
@@ -119,27 +119,27 @@ def test_a_reserved_operand_encoding_is_f1(asm, slot, mnemonic, operand, value):
 
 
 def test_an_lr_conflict_is_f3_at_its_word():
-    state = make_state("NOP ;;\nSET LR0 CR1 ; SET LR0 CR2 ;;\nBKPT ;;")
+    state = make_state("NOP ;;\nSET LR0 CR1 ; SET LR0 CR2 ;;\nHALT ;;")
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F3, 1)
 
 
 def test_a_cyclic_index_off_a_slot_boundary_is_f4():
-    state = make_state("LDR_CYCLIC_MULT_REG LR0 CR0 LR1 ;;\nBKPT ;;")
+    state = make_state("LD.MULT.CYCLIC LR0 CR0 LR1 ;;\nHALT ;;")
     state.regfile.set_lr(1, 64)
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F4, 0)
 
 
 def test_a_reshape_mask_above_the_element_count_is_f5():
-    state = make_state("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nBKPT ;;")
+    state = make_state("NOP ;;\nACC.RESHAPE LRD0 LRD2 LR4 ;;\nHALT ;;")
     state.regfile.set_lr(4, 9)
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F5, 1)
 
 
 def test_an_xmem_row_out_of_range_is_f6():
-    state = make_state("LDR_MULT_REG R0 LR0 CR2 ;;\nBKPT ;;", cr={2: 0xFFFFFFFF})
+    state = make_state("LD.MULT R0 LR0 CR2 ;;\nHALT ;;", cr={2: 0xFFFFFFFF})
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F6, 0)
 
@@ -147,7 +147,7 @@ def test_an_xmem_row_out_of_range_is_f6():
 def test_an_access_beyond_the_xmem_allocation_is_f6(monkeypatch):
     # XMem's own bounds check (the row is valid, its bytes run past the end):
     # shrink the allocation XMem checks against, not the row check's.
-    state = make_state("LDR_MULT_REG R0 LR0 CR2 ;;\nBKPT ;;", cr={2: 3})
+    state = make_state("LD.MULT R0 LR0 CR2 ;;\nHALT ;;", cr={2: 3})
     monkeypatch.setattr(xmem, "XMEM_SIZE_BYTES", 256)
     fault = fault_of(state)
     assert (fault.fault, fault.pc) == (FaultId.F6, 0)
@@ -159,7 +159,7 @@ def test_an_access_beyond_the_xmem_allocation_is_f6(monkeypatch):
 
 def test_an_acc_stride_past_r_acc_is_an_error_before_any_write():
     # Not a fault: the ISA leaves the overrun undefined (an open question).
-    state = make_state("ACC.STRIDE 16 off off LR0 ;;\nBKPT ;;")
+    state = make_state("ACC.STRIDE 16 off off LR0 ;;\nHALT ;;")
     state.regfile.set_lr(0, 1)  # start at lane 32, then 128 elements
     before = bytes(state.regfile.get_r_acc_bytes())
     with pytest.raises(EmulatorError, match="past the end of R_ACC"):
@@ -196,7 +196,7 @@ def test_f1_disabled_runs_the_slot_as_nop_and_the_word_retires():
         15,
     )
     state = new_state()
-    load_program(state, [word, assemble_program("BKPT ;;")[0]])
+    load_program(state, [word, assemble_program("HALT ;;")[0]])
     state.faults.set_enabled(FaultId.F1, False)
     assert run_until_complete(state) == 2
     assert state.halt == HaltRecord("halt", 1, None)
@@ -211,7 +211,7 @@ def test_f1_disabled_runs_the_slot_as_nop_and_the_word_retires():
 
 def test_f9_disabled_runs_past_the_limit_and_sets_the_flag():
     state = make_state(
-        "SET LR1 CR8 ;;\nloop:\nINC LR0 1 ;;\nBNE LR0 LR1 loop ;;\nBKPT ;;", cr={8: 10}
+        "SET LR1 CR8 ;;\nloop:\nINC LR0 1 ;;\nBNE LR0 LR1 loop ;;\nHALT ;;", cr={8: 10}
     )
     state.faults.set_enabled(FaultId.F9, False)
     assert run_until_complete(state, max_cycles=5) == 22
@@ -221,7 +221,7 @@ def test_f9_disabled_runs_past_the_limit_and_sets_the_flag():
 
 @pytest.mark.parametrize("fault", [FaultId.F2, FaultId.F3, FaultId.F4, FaultId.F5, FaultId.F6])
 def test_disabling_an_undecided_fault_is_refused_at_setup(fault):
-    state = make_state("BKPT ;;")
+    state = make_state("HALT ;;")
     with pytest.raises(ConfigurationError, match=f"{fault.label} cannot be disabled.*OQ-2"):
         state.faults.set_enabled(fault, False)
     # A direct write past set_enabled is refused when the run starts, before
@@ -234,7 +234,7 @@ def test_disabling_an_undecided_fault_is_refused_at_setup(fault):
 
 
 def test_fault_state_survives_a_step():
-    state = make_state("INC LR0 1 ;;\nBKPT ;;")
+    state = make_state("INC LR0 1 ;;\nHALT ;;")
     state.faults.set_enabled(FaultId.F7, False)  # not modelled: allowed, changes nothing
     state.faults.sticky.add(FaultId.F1)
     ipu = Ipu(state)  # held: the cycle keeps only a weak reference to it

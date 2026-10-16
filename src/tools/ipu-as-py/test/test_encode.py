@@ -17,6 +17,7 @@ from ipu_as import encode
 from ipu_as.errors import OperandError, SlotError
 from ipu_as.inst import OPERAND_TYPE_MAP
 from ipu_as.session import AssemblySession
+from ipu_isa.codec.disasm import type_text
 from ipu_isa.codec.slot import WORD_CODEC
 from ipu_isa.codec.word import DecodedWord
 from ipu_isa.slots import LAYOUT_ORDER, Slot
@@ -31,7 +32,7 @@ def _word(source: str) -> int:
 
 
 def _text(operand_type: str, value: int) -> str:
-    text = OPERAND_TYPE_MAP[operand_type].decode(value)
+    text = type_text(isa().operand_types[operand_type], value)
     # A label decodes to its address; at address 0 that is the offset +N.
     return f"+{text}" if operand_type == "Label" else text
 
@@ -122,7 +123,7 @@ def test_operand_errors_are_checked_before_the_next_instruction_is_placed():
 
 def test_a_simulation_only_slot_warns():
     with pytest.warns(UserWarning, match="simulation-only acc_store slot"):
-        AssemblySession("STR_ACC_REG LR0 CR0;;").assemble()
+        AssemblySession("ST.ACC LR0 CR0;;").assemble()
 
 
 def test_disassembling_fields_is_disassembling_the_word():
@@ -140,3 +141,33 @@ def test_operation_text_is_assembly_order_without_unused_fields():
     decoded = WORD_CODEC.unpack(word)[(Slot.LR, 0)]
     assert encode.operation_text(decoded) == "SET lr0 cr1"
     assert encode.operation_text(WORD_CODEC.unpack(word)[(Slot.ACC, 0)]) == "NOP"
+
+
+def _pseudos():
+    for pseudo in isa().pseudos():
+        yield pytest.param(pseudo, id=f"{pseudo.mnemonic}/{len(pseudo.operands)}")
+
+
+@pytest.mark.parametrize("pseudo", _pseudos())
+def test_every_pseudo_instruction_assembles_to_its_expansion(pseudo):
+    classes = [OPERAND_TYPE_MAP[op.type.name] for op in pseudo.operands]
+    operands = [_distinct_operand(cls, i) for i, cls in enumerate(classes)]
+    word = _word(" ".join([pseudo.mnemonic, *operands]) + ";;")
+    slot = isa().find_slot(pseudo.expands_to.mnemonic)
+    assert WORD_CODEC.unpack(word)[(slot, 0)].instruction == pseudo.expands_to
+
+
+@pytest.mark.parametrize("mnemonic", ["LD.MULT.CYCLIC", "BLT.S", "ld.mult.cyclic"])
+def test_a_dotted_mnemonic_is_one_token(mnemonic):
+    # Multi-part names (Q45): the grammar's TOKEN takes the dots.
+    found = [
+        i for s in LAYOUT_ORDER for i in isa().instructions(s) if i.mnemonic == mnemonic.upper()
+    ]
+    assert found, f"{mnemonic} is not in the ISA (renamed again?)"
+    (instruction,) = found
+    classes = [OPERAND_TYPE_MAP[op.type.name] for op in instruction.operands]
+    operands = [_distinct_operand(cls, i) for i, cls in enumerate(classes)]
+    (compound,) = AssemblySession(" ".join([mnemonic, *operands]) + ";;").parse()
+    (parsed,) = compound["instructions"]
+    assert parsed["opcode"].token.value == mnemonic
+    assert len(parsed["operands"]) == len(classes)

@@ -36,7 +36,7 @@ Branch target: a symbolic **`label`** or a relative offset accepted by the cond 
 
 ## `LcrIdx` {: #lcridx }
 
-LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INCR_MOD_POW2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte is the scalar directly).
+LR **or** CR index in one field: lower indices map to **`lr0`–`lr15`**, higher indices to **`cr0`–`cr15`** in the usual combined ordering used by the assembler. Used as **`src_b`** on **`ADD`**/**`SUB`**, as **`step`** on **`INC.MODP2`**, and as **`src`** on **`MULT.RC.VE`** (an LR's stored value selects an element from `R0`/`R1`; a CR's low byte is the scalar directly).
 
 ## `LrIdx` {: #lridx }
 
@@ -48,7 +48,7 @@ Unsigned immediate for **`INC`** / **`DEC`** in the LR slot. The bit width **W**
 
 ## `LrModPow2KImmediate` {: #lrmodpow2kimmediate }
 
-Four-bit immediate for **`INCR_MOD_POW2`**: encodes exponent **k** with semantic **k ∈ [1, 9]** as **(k − 1)** in the word.
+Four-bit immediate for **`INC.MODP2`**: encodes exponent **k** with semantic **k ∈ [1, 9]** as **(k − 1)** in the word.
 
 ## `LrOrReshapeMaskImmediate` {: #lrorreshapemaskimmediate }
 
@@ -64,7 +64,7 @@ Unsigned **3-bit** immediate on multiply instructions: **`mask_offset`** selects
 
 ## `MultStageReg` {: #multstagereg }
 
-Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LDR_MULT_REG` and as the **`ra`** operand of `MULT.RC.VV`.
+Multiply-stage field in the VLIW encoding. Assembly accepts **`r0`** and **`r1`** only; the field is **two bits** wide (encoding `2` is reserved). Used as the destination of `LD.MULT` and as the **`ra`** operand of `MULT.RC.VV`.
 
 ## `VerticalStride` {: #verticalstride }
 

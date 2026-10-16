@@ -29,7 +29,7 @@
 #   * A query axis is ONE row, so the L3 g=0/g=1 query-group split collapses to
 #     a single group -- one ACC chain and one store per (block, channel).
 #   * All 64 keys of a value channel fit in R0 alone, so the L3 R0++R1 pair
-#     (which spanned 256 keys) collapses to a single LDR_MULT_REG r0. The
+#     (which spanned 256 keys) collapses to a single LD.MULT r0. The
 #     scalar index s (0..63) then selects V[s,t] directly with NO mid-loop
 #     reload.
 #
@@ -47,7 +47,7 @@
 # Loop nest:  for b in 0..15 { for t in 0..47 {
 #                 load V[b,:,t] -> r0 (all 64 keys, the scalar source)
 #                 prime key 0's P row; for s in 0..63: MULT.RC.VE + ACC
-#                 ACTIVATE.QUANTIZE + STR_POST_AAQ_REG
+#                 ACTIVATE.QUANTIZE + ST.AAQ
 #             }}
 #
 # Counts: 16 blocks x 48 channels x 64 keys = 49152 MULT+ACC bundles + 768
@@ -62,7 +62,7 @@
 #
 # MULT SNAPSHOT CONTRACT (issue #157): MULT.RC.VE reads its r_cyclic DATA from
 # the start-of-cycle snapshot while keeping the LR index live, so it cannot
-# consume a P row loaded by LDR_CYCLIC_MULT_REG in its own bundle -- it would
+# consume a P row loaded by LD.MULT.CYCLIC in its own bundle -- it would
 # see the previous row. `;;` ends one VLIW word = one cycle = one snapshot, so a
 # load and a MULT in the same bundle always run in the same cycle regardless of
 # textual order; co-issuing is fine, consuming the same-cycle load is not.
@@ -73,8 +73,8 @@
 #   p_ptr naturally addresses the NEXT key's row.
 #   key_index (the r0 scalar selector) is read LIVE by MULT and must name the
 #   key just loaded, so its ADD moves into an s_loop_pre block that falls
-#   through into the loop body. That changes what BLT sees: with the ADD in the
-#   same word, BLT read the pre-ADD snapshot; with the ADD one word earlier it
+#   through into the loop body. That changes what BLT.S sees: with the ADD in the
+#   same word, BLT.S read the pre-ADD snapshot; with the ADD one word earlier it
 #   reads the already-incremented value and would drop the last key. The loop
 #   bound is therefore raised by one, in-kernel, into key_last
 #   (= KEY_BOUND + 1 = N-1 = 63), leaving the harness's CR untouched.
@@ -99,7 +99,7 @@
 {% set key_index   = "lr5"  %}  {# contraction key index s -> selects V[s,t] in r0 #}
 {% set blk_index   = "lr6"  %}  {# block counter b (stream, head) #}
 {% set chan_index  = "lr7"  %}  {# head-channel counter t #}
-{% set key_last    = "lr8"  %}  {# 63 = KEY_BOUND + 1; BLT bound now that key_index's ADD sits a word ahead of the branch #}
+{% set key_last    = "lr8"  %}  {# 63 = KEY_BOUND + 1; BLT.S bound now that key_index's ADD sits a word ahead of the branch #}
 {% set chan_off    = "lr9"  %}  {# V/O channel row offset, += 1 per (b,t) step #}
 {% set p_block_off = "lr12" %}  {# P block row offset, += 64 per block #}
 {% set p_start     = "lr13" %}  {# p_block_off + P_START; per-channel p_ptr seed #}
@@ -119,7 +119,7 @@
 {% set DSTRUCT     = "cr15" %}  {# reserved dstructure register #}
 
     # key_last = KEY_BOUND + 1 (= N-1 = 63). See the snapshot note in the
-    # header: key_index's ADD now sits one word ahead of the BLT, so the branch
+    # header: key_index's ADD now sits one word ahead of the BLT.S, so the branch
     # compares an already-incremented index and needs the higher bound.
     SET {{ key_last }} {{ KEY_BOUND }};;
     ADD {{ key_last }} {{ key_last }} {{ ONE }};;
@@ -134,23 +134,23 @@ blk_loop:
 
 t_loop:
     # V channel -> r0: all 64 keys of channel (b,t), the broadcast scalars.
-    LDR_MULT_REG r0 {{ chan_off }} {{ V_BASE }};;          # r0 = V[b, 0..63, t]
+    LD.MULT r0 {{ chan_off }} {{ V_BASE }};;          # r0 = V[b, 0..63, t]
 
     ADD {{ p_ptr }} {{ p_start }} {{ ZERO }};;             # P-data startup: block base - 1 row (LR copy)
     SET {{ key_index }} {{ KEY_START }};;                  # fixed_idx s startup: -1
 
     # Prime key 0's P row: MULT reads r_cyclic from the snapshot, so the row it
     # consumes must be loaded a cycle earlier (see header).
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
     ADD {{ key_index }} {{ key_index }} {{ ONE }};;
 
     # Peeled first key (s=0): ACC.FIRST seeds r_acc.
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD.FIRST;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
-    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
+    BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
     B s_done;;
 
 s_loop_pre:
@@ -159,21 +159,21 @@ s_loop_pre:
 s_loop:
     MULT.RC.VE {{ rc_slot0 }} {{ key_index }} 0 {{ rc_slot0 }} {{ DSTRUCT }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
+    LD.MULT.CYCLIC {{ p_ptr }} {{ P_BASE }} {{ rc_slot0 }};
     ADD {{ p_ptr }} {{ p_ptr }} {{ key_stride }};
-    BLT {{ key_index }} {{ key_last }} s_loop_pre;;
+    BLT.S {{ key_index }} {{ key_last }} s_loop_pre;;
 
 s_done:
     ACTIVATE.QUANTIZE identity {{ DSTRUCT }};
-    STR_POST_AAQ_REG {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
+    ST.AAQ {{ chan_off }} {{ OUT_BASE }};;  # O[b, 0..63, t] = R_ACC
 
     ADD {{ chan_off }} {{ chan_off }} {{ CHAN_STRIDE }};;  # next channel row (V and O share the offset)
     ADD {{ chan_index }} {{ chan_index }} {{ ONE }};;
-    BLT {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
+    BLT.S {{ chan_index }} {{ CHAN_COUNT }} t_loop;;
 
     ADD {{ p_block_off }} {{ p_block_off }} {{ P_BLOCK }};;   # next block: P base += 64 rows
     ADD {{ blk_index }} {{ blk_index }} {{ ONE }};;
-    BLT {{ blk_index }} {{ BLOCK_COUNT }} blk_loop;;
+    BLT.S {{ blk_index }} {{ BLOCK_COUNT }} blk_loop;;
 
 end:
-    BKPT;;
+    HALT;;

@@ -21,10 +21,39 @@ class Terminal(StringIO):
         return True
 
 
+class InterruptCycle:
+    """A CycleObserver: Ctrl-C as the next cycle starts, after *skip* cycles.
+
+    Attached to the state (IpuState.add_cycle_observer), so nothing in the
+    engine is patched. *check*, if given, runs on the PC first.
+    """
+
+    def __init__(self, skip=0, check=None):
+        self.skip = skip
+        self.check = check
+
+    def begin(self, pc):
+        if self.skip:
+            self.skip -= 1
+            return
+        if self.check is not None:
+            self.check(pc)
+        raise KeyboardInterrupt
+
+    def issued(self, facts):
+        pass
+
+    def retired(self, facts, result):
+        pass
+
+    def end(self):
+        pass
+
+
 @pytest.fixture
 def program(tmp_path):
     path = tmp_path / "program.bin"
-    assemble_to_bin_file("INC lr0 1;;\nINC lr0 1;;\nBKPT;;", str(path))
+    assemble_to_bin_file("INC lr0 1;;\nINC lr0 1;;\nHALT;;", str(path))
     return path
 
 
@@ -163,18 +192,18 @@ def test_interrupt_after_continue_cancels_without_teardown(app, debug_terminal, 
     state = IpuState()
     stops = []
 
+    def check(pc):
+        # Entry resumed and completed one instruction before the interrupt.
+        assert pc == state.program_counter == 1
+        assert state.regfile.get_lr(0) == 42
+
     def view(state, cycle, **frontend):
         stops.append((state.program_counter, cycle))
+        # The resumed entry word runs; the interrupt hits the next one.
+        state.add_cycle_observer(InterruptCycle(skip=1, check=check))
         return DebugAction.CONTINUE
 
-    def interrupt(engine):
-        # Entry resumed and completed one instruction before the interrupt.
-        assert engine.state.program_counter == 1
-        assert engine.state.regfile.get_lr(0) == 42
-        raise KeyboardInterrupt
-
     monkeypatch.setattr(tui, "run_debug_tui", view)
-    monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
     assert app.run(state=state) == (state, 1)
     assert state.quit_requested
     assert stops == [(0, 0)]
@@ -187,20 +216,18 @@ def test_interrupt_after_continue_cancels_without_teardown(app, debug_terminal, 
 def test_normal_run_interrupt_still_propagates(app, monkeypatch, with_callback):
     monkeypatch.delenv("IPU_DEBUG_TUI", raising=False)
 
-    def interrupt(engine):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
+    state = IpuState()
+    state.add_cycle_observer(InterruptCycle())
     callback = (lambda state, cycle: DebugAction.CONTINUE) if with_callback else None
     with pytest.raises(KeyboardInterrupt):
-        app.run(debug_callback=callback)
+        app.run(state=state, debug_callback=callback)
     assert app.events == ["setup"]
     assert not app.output_path.exists()
 
 
 def test_explicit_callback_keeps_normal_behavior(program, tmp_path, monkeypatch):
     monkeypatch.delenv("IPU_DEBUG_TUI", raising=False)
-    assemble_to_bin_file("BREAK;;\nBKPT;;", str(program))
+    assemble_to_bin_file("BREAK;;\nHALT;;", str(program))
     app = App(inst_path=program, output_path=tmp_path / "out.bin")
     stops = []
 
@@ -222,7 +249,7 @@ def test_noninteractive_debug_is_rejected_before_setup(app, monkeypatch):
 
 
 def test_entry_uses_prepared_pc_and_combines_break_causes(program):
-    assemble_to_bin_file("INC lr0 1;;\nBREAK;;\nBKPT;;", str(program))
+    assemble_to_bin_file("INC lr0 1;;\nBREAK;;\nHALT;;", str(program))
     state = IpuState()
     control = DebugControl()
     control.add_breakpoint(1)
@@ -265,14 +292,12 @@ def test_registry_case_cancel_skips_check_and_cleans_workspace(debug_terminal, m
     def view(state, cycle, **frontend):
         assert cycle == 0 and state.program_counter == 0
         assert state.regfile.get_cr(4) == 1
-        return DebugAction.QUIT if cancel == "quit" else DebugAction.CONTINUE
-
-    def interrupt(engine):
-        raise KeyboardInterrupt
+        if cancel == "quit":
+            return DebugAction.QUIT
+        state.add_cycle_observer(InterruptCycle(skip=1))
+        return DebugAction.CONTINUE
 
     monkeypatch.setattr(tui, "run_debug_tui", view)
-    if cancel == "interrupt_after_continue":
-        monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
     state, _ = run_case("identity", KernelCase(prepare))
     assert state.quit_requested
     assert not checks
@@ -309,15 +334,13 @@ def test_runner_quit_exits_zero_without_pass(debug_terminal, monkeypatch, cancel
             return str(workspaces[-1])
 
     def view(state, cycle, **frontend):
-        return DebugAction.QUIT if cancel == "quit" else DebugAction.CONTINUE
-
-    def interrupt(engine):
-        raise KeyboardInterrupt
+        if cancel == "quit":
+            return DebugAction.QUIT
+        state.add_cycle_observer(InterruptCycle(skip=1))
+        return DebugAction.CONTINUE
 
     monkeypatch.setattr(cases, "TemporaryDirectory", RecordingTemporaryDirectory)
     monkeypatch.setattr(tui, "run_debug_tui", view)
-    if cancel == "interrupt_after_continue":
-        monkeypatch.setattr("ipu_emu.ipu.Ipu.execute_vliw_cycle", interrupt)
     try:
         code = runner.main(["--kernel", "identity", "--case", "single_row"])
     except SystemExit as exc:  # pragma: no cover - the failure being guarded

@@ -38,7 +38,7 @@ test('the cursor context: mnemonic, operand index, comment or Jinja', () => {
   for (const [marked, expected] of [
     ['SET lr0 cr0;;\n    |', { kind: 'mnemonic' }],
     ['MULT.RC.VE lr15 lr5 |', { kind: 'operand', mnemonic: 'MULT.RC.VE', index: 2 }],
-    ['loop: BLT lr1 |', { mnemonic: 'BLT', index: 1 }], // a label is not the mnemonic
+    ['loop: BLT.S lr1 |', { mnemonic: 'BLT.S', index: 1 }], // a label is not the mnemonic
     ['# SET |', { kind: 'comment' }], ['// SET |', { kind: 'comment' }], ['{% set x = | %}', { kind: 'jinja' }],
     ['{% set x = |', { kind: 'jinja' }], ['SET lr0 {{ lr|', { kind: 'jinja' }], // unclosed at the end of the file
     ['SET {{ lr_row }} |', { index: 1 }], // a {{ }} operand is one operand
@@ -56,8 +56,8 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   // maxpool2d_nms*.asm: if / else alternatives are alternatives, not a mnemonic and its operand.
   const alternatives = 'MULT.VE lr0 cr1 0 lr0 cr15 ; {% if a %}ACC.MAX.FIRST{% else %}ACC.MAX|{% endif %} ;;';
   for (const [marked, absent, present] of [
-    ['SET lr0 cr0; SET lr1 cr0; SET lr2 cr0; |', ['SET'], ['BKPT']], // three fill the LR slots
-    ['| ; BLT lr0 cr4 top;;', ['BEQ', 'B'], ['SET']], // pseudo B also expands to cond
+    ['SET lr0 cr0; SET lr1 cr0; SET lr2 cr0; |', ['SET'], ['HALT']], // three fill the LR slots
+    ['| ; BLT.S lr0 cr4 top;;', ['BEQ', 'B'], ['SET']], // pseudo B also expands to cond
     [alternatives, [], ['ACC.MAX']],
   ]) {
     const names = lang.mnemonicsFor(contextAt(marked).others).map((m) => m.mnemonic);
@@ -67,11 +67,11 @@ test('only mnemonics that fit the word\'s free slots are offered; operand types 
   const ctx = contextAt(alternatives);
   eq([ctx.kind, ctx.others.before], ['mnemonic', ['MULT.VE']], 'the other branch is not in this word');
   // ipu_as.encode.assign_slots: in source order, NOP takes the first free slot in order -- cond.
-  eq([lang.fits(['NOP', 'BKPT']), lang.fits(['BKPT', 'NOP'])], [false, true]);
+  eq([lang.fits(['NOP', 'HALT']), lang.fits(['HALT', 'NOP'])], [false, true]);
   // Operand types come from isa.json; accepts follows the domain, case and number bases.
   const t = lang.operandType('ACTIVATE.QUANTIZE', 0);
   assert(t.operand.type === 'ActivationFn' && t.domain.values.includes('window'));
-  assert.strictEqual(lang.operandType('BKPT', 0), null);
+  assert.strictEqual(lang.operandType('HALT', 0), null);
   const lr = isa.operandTypes.LrIdx;
   assert(lang.accepts(lr, 'LR3') && !lang.accepts(lr, 'cr3'));
   const inc = isa.operandTypes.LrIncDecImmediate;
@@ -102,7 +102,7 @@ test('numbers and slot fill follow isa.json (schema 1); an isa.json without a ve
     instructions: { ...isa.instructions, 'X.A': twoSlots(['cond', 'mult']), 'X.B': twoSlots(['cond', 'mult']) },
     slotFill: { ...isa.slotFill, kinds: { ...isa.slotFill.kinds, 'X.A': 'mult', 'X.B': 'mult' } },
   });
-  eq([withMulti.fits(['X.A']), withMulti.fits(['X.A', 'X.B']), withMulti.fits(['X.A', 'BKPT'])], [true, false, true]);
+  eq([withMulti.fits(['X.A']), withMulti.fits(['X.A', 'X.B']), withMulti.fits(['X.A', 'HALT'])], [true, false, true]);
   // Version 0 (no schemaVersion): the old rules, kept for an older checkout's bundled isa.json.
   const { schemaVersion, numberPattern, slotFill, ...v0 } = isa;
   const old = new Language({ ...v0, instructions: withMulti.isa.instructions });
@@ -111,7 +111,7 @@ test('numbers and slot fill follow isa.json (schema 1); an isa.json without a ve
   // A mnemonic slotFill gives no kind does not fit (generator drift shows), and a fill rule this
   // file does not know keeps the old rule.
   const noKind = new Language({ ...isa, slotFill: { ...isa.slotFill, kinds: {} } });
-  assert(!noKind.fits(['BKPT']) && noKind.fits(['NOP']));
+  assert(!noKind.fits(['HALT']) && noKind.fits(['NOP']));
   const unknownRule = new Language({ ...isa, instructions: withMulti.isa.instructions, slotFill: { ...withMulti.isa.slotFill, rule: 'later' } });
   assert(unknownRule.fits(['X.A', 'X.B']), 'an unknown rule falls back to the version-0 rule');
 });
@@ -120,10 +120,10 @@ test('numbers and slot fill follow isa.json (schema 1); an isa.json without a ve
 
 test('label definitions and references, as the assembler reads them', () => {
   for (const [text, defs, refs] of [
-    ['top:\n    SET lr0 cr0;;\n    BLT lr0 cr4 top;;\n    B +1;;\n', ['top'], ['top']], // `+1` is an offset
+    ['top:\n    SET lr0 cr0;;\n    BLT.S lr0 cr4 top;;\n    B +1;;\n', ['top'], ['top']], // `+1` is an offset
     ['{{ name }}_loop:\n    B {{ name }}_loop;;\n', [], []], // templated labels are no literal names
     // softmax_rows_partial.asm: a macro call where an instruction starts is whole words.
-    ['run_p1:\n{{- block(0, true) }}\n    B drain ;;\ndrain:\n    BKPT ;;\n', ['run_p1', 'drain'], ['drain']],
+    ['run_p1:\n{{- block(0, true) }}\n    B drain ;;\ndrain:\n    HALT ;;\n', ['run_p1', 'drain'], ['drain']],
     ['{% for w in ws %}\nskip_{{ w }}:\n{% endfor %}\ndone:\n    SET lr0 cr0;;\n', ['done'], []],
     // GNU local labels are neither definitions nor references for rename and navigation.
     ['1:\n    BNE lr0 lr1 1b;;\nout:\n    B 1f;;\n1:\n    B out;;\n', ['out'], ['out']],
@@ -166,7 +166,7 @@ test('name uses skip strings, attributes and Jinja words; symbolAt finds every u
   const uses = lang.jinjaNames('{% for x in items if x.lr_row %}{{ "lr_row" }}{{ lr_row }}{% endfor %}').map((u) => u.name);
   assert.strictEqual(uses.filter((u) => u === 'lr_row').length, 1);
   assert(!uses.includes('for') && !uses.includes('in') && !uses.includes('if'));
-  const text = '{% set r = "lr1" %}\ntop: SET {{ r }} cr0;;\n    BLT {{ r }} cr4 top;;';
+  const text = '{% set r = "lr1" %}\ntop: SET {{ r }} cr0;;\n    BLT.S {{ r }} cr4 top;;';
   const jinja = lang.symbolAt(text, text.indexOf('{{ r }}') + 3);
   const label = lang.symbolAt(text, text.lastIndexOf('top') + 1);
   eq([jinja.kind, jinja.refs.length, label.kind, label.refs.length], ['jinja', 3, 'label', 2]);
@@ -222,82 +222,82 @@ test('a {{ name }} shows the literal value in force there; unused labels and set
   eq(lang.jinjaHints(text).map((h) => [text.slice(text.lastIndexOf('{{', h.at), h.at), h.value]), [['{{ r }}', 'lr0'], ['{{- r -}}', 'lr1']]);
   const unused = (t) => lang.unused(t).map((u) => `${u.kind}:${u.name}`);
   eq(unused('{% set a = 1 %}{% set b = 2 %}{% set n = 0 %}{% set n = n + 1 %}{% set c = 1 %}{% set c = 2 %}\n'
-    + 'top:\nend:\n    BLT lr0 cr0 top ;;\n    SET {{ b }} cr0 ;;\n'), ['label:end', 'set:a', 'set:c', 'set:c']);
+    + 'top:\nend:\n    BLT.S lr0 cr0 top ;;\n    SET {{ b }} cr0 ;;\n'), ['label:end', 'set:a', 'set:c', 'set:c']);
   eq(unused('{# loop: see far_loop #}\nfar_loop:\n{% set t = "far_loop" %}{{ t }}\n'), []); // named anywhere else: used
 });
 
 test('symbols list labels, sets and macros in order; folding pairs blocks and multi-line comments', () => {
-  eq(lang.symbols('{% set r = "lr1" %}\n{% macro m() %}{% endmacro %}\ntop: BKPT;;').map((s) => `${s.kind}:${s.name}`),
+  eq(lang.symbols('{% set r = "lr1" %}\n{% macro m() %}{% endmacro %}\ntop: HALT;;').map((s) => `${s.kind}:${s.name}`),
     ['set:r', 'macro:m', 'label:top']);
-  const text = '{#\n header\n#}\n{% for i in range(2) %}\n{% if i %}\nBKPT;;\n{% endif %}\n{% endfor %}\n{# one line #}';
+  const text = '{#\n header\n#}\n{% for i in range(2) %}\n{% if i %}\nHALT;;\n{% endif %}\n{% endfor %}\n{# one line #}';
   const folds = lang.folding(text).map((f) => [f.kind, text.slice(f.start, f.start + 6)]).sort();
   eq(folds, [['comment', '{#\n he'], ['region', '{% for'], ['region', '{% if ']]);
 });
 
 // --- formatting and word separation -------------------------------------------------------------
 
-const [B, NO, BL] = ['    BKPT;;', { blankLine: false }, { blankLine: true }];
-const words = 'top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    BKPT;;';
-const forLoop = 'BKPT;;\n{% for i in range(2) %}\nBKPT;;\n{% endfor %}\nBKPT;;';
-const spanning = 'SET lr0 {{ f(a,\n b) }};;\nBKPT;;\nBKPT;;\nBKPT;;';
-const callAfter = '    BKPT;; {{ block(0) }}\n    BKPT;;';
+const [B, NO, BL] = ['    HALT;;', { blankLine: false }, { blankLine: true }];
+const words = 'top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    HALT;;';
+const forLoop = 'HALT;;\n{% for i in range(2) %}\nHALT;;\n{% endfor %}\nHALT;;';
+const spanning = 'SET lr0 {{ f(a,\n b) }};;\nHALT;;\nHALT;;\nHALT;;';
+const callAfter = '    HALT;; {{ block(0) }}\n    HALT;;';
 const callAlone = `${B}\n\n    {{ block(0) }}\n\n${B}`;
-const tagAfter = '    BKPT;; {% set s = "a\nb" %}\n    BKPT;;';
+const tagAfter = '    HALT;; {% set s = "a\nb" %}\n    HALT;;';
 
 test('Format Document and Format Selection', () => {
   // [input, options, output (undefined: unchanged)]
   for (const [text, options, expected] of [
     ['  top:\nSET lr0 cr0;;', NO, 'top:\n    SET lr0 cr0;;'], // labels at column 0, instructions one level in
-    ['\t\tBKPT;;', { indent: '\t' }, '\tBKPT;;'],
-    ['BKPT;; BKPT;;', NO, `${B}\n${B}`], // a second word after ;; moves to its own line
-    ['a: BKPT;; b: BKPT;;', NO, `a:\n${B}\nb:\n${B}`],
-    [words, BL, 'top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n\n    BKPT;;'], // an empty line between words, not in one
+    ['\t\tHALT;;', { indent: '\t' }, '\tHALT;;'],
+    ['HALT;; HALT;;', NO, `${B}\n${B}`], // a second word after ;; moves to its own line
+    ['a: HALT;; b: HALT;;', NO, `a:\n${B}\nb:\n${B}`],
+    [words, BL, 'top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n\n    HALT;;'], // an empty line between words, not in one
     [words, undefined, undefined], // off by default
-    ['BKPT;;\n\n\nBKPT;;', BL, `${B}\n\n\n${B}`], // existing blank lines stay
+    ['HALT;;\n\n\nHALT;;', BL, `${B}\n\n\n${B}`], // existing blank lines stay
     ['{%- set r = "lr0" -%}\n# note\n    MULT.VE {{r}}   cr1 0 {{r}} cr15 ;     {#- aligned -#}\n    ACC.ADD.FIRST ;; // done', NO, undefined], // spacing kept
-    ['    BKPT;; # BKPT;; more', undefined, undefined], // code after ;; in a comment or tag is not split off
-    ['    BKPT;; {# x;; y #}', undefined, undefined],
+    ['    HALT;; # HALT;; more', undefined, undefined], // code after ;; in a comment or tag is not split off
+    ['    HALT;; {# x;; y #}', undefined, undefined],
     ['{%- macro m(a,\n      b) -%}\n{{ block(0) }}\n{% endmacro %}', undefined, undefined], // multi-line tags and calls
-    ['  a:\nBKPT;;\nBKPT;;', { fromLine: 1, toLine: 1, blankLine: false }, B], // a range: its lines only, but it sees
-    ['BKPT;;\nBKPT;;\nBKPT;;', { blankLine: true, fromLine: 1, toLine: 2 }, `\n${B}\n\n${B}`], // the word before it
-    ['BKPT;;\nBKPT;;\nBKPT;;', { blankLine: true, fromLine: 1, toLine: 1 }, `\n${B}`],
-    ['top: BKPT;; BKPT;;  \r\nBKPT;;\r\n', undefined, `top:\r\n${B}\r\n${B}\r\n${B}\r\n`], // CRLF stays CRLF
+    ['  a:\nHALT;;\nHALT;;', { fromLine: 1, toLine: 1, blankLine: false }, B], // a range: its lines only, but it sees
+    ['HALT;;\nHALT;;\nHALT;;', { blankLine: true, fromLine: 1, toLine: 2 }, `\n${B}\n\n${B}`], // the word before it
+    ['HALT;;\nHALT;;\nHALT;;', { blankLine: true, fromLine: 1, toLine: 1 }, `\n${B}`],
+    ['top: HALT;; HALT;;  \r\nHALT;;\r\n', undefined, `top:\r\n${B}\r\n${B}\r\n${B}\r\n`], // CRLF stays CRLF
     ['  top:  # c \r\n', undefined, 'top:  # c\r\n'],
-    ['a: BKPT;;\r\nBKPT;; BKPT;;\nBKPT;;', undefined, `a:\r\n${B}\r\n${B}\n${B}\n${B}`], // mixed: each line its own
+    ['a: HALT;;\r\nHALT;; HALT;;\nHALT;;', undefined, `a:\r\n${B}\r\n${B}\n${B}\n${B}`], // mixed: each line its own
     // A comment or Jinja block goes with the word after it; a closing tag with the word before.
-    ['BKPT;;\n# next\nBKPT;;', BL, `${B}\n\n# next\n${B}`],
+    ['HALT;;\n# next\nHALT;;', BL, `${B}\n\n# next\n${B}`],
     [forLoop, BL, `${B}\n\n{% for i in range(2) %}\n${B}\n{% endfor %}\n\n${B}`],
-    ['BKPT;;\n\n# c\nBKPT;;', BL, `${B}\n\n# c\n${B}`],
-    ['BKPT;;\n{{ lbl(0) }}:\nBKPT;;\nBKPT;;', BL, `${B}\n\n{{ lbl(0) }}:\n${B}\n\n${B}`], // a macro call as a label
+    ['HALT;;\n\n# c\nHALT;;', BL, `${B}\n\n# c\n${B}`],
+    ['HALT;;\n{{ lbl(0) }}:\nHALT;;\nHALT;;', BL, `${B}\n\n{{ lbl(0) }}:\n${B}\n\n${B}`], // a macro call as a label
     ['    SET lr0\n        cr0;;', undefined, undefined], // a continuation line keeps its deeper indent
     ['SET lr0\ncr0;;', undefined, '    SET lr0\n    cr0;;'],
-    ['SET lr0 cr0;\n        BKPT;;', undefined, `    SET lr0 cr0;\n${B}`],
+    ['SET lr0 cr0;\n        HALT;;', undefined, `    SET lr0 cr0;\n${B}`],
     [callAfter, BL, callAlone], // a macro call split onto its own line ends its word...
     [callAlone, BL, undefined], // ...so formatting is idempotent
-    [tagAfter, BL, `    BKPT;; {% set s = "a\nb" %}\n\n${B}`], // no gap inside a tag that spans lines
+    [tagAfter, BL, `    HALT;; {% set s = "a\nb" %}\n\n${B}`], // no gap inside a tag that spans lines
   ]) assert.strictEqual(lang.format(text, options), expected === undefined ? text : expected, JSON.stringify([text, options]));
 });
 
 test('separators go under each word that another follows, space above the word after, past comments and Jinja', () => {
   for (const [text, ends] of [
-    ['BKPT;;\r\nBKPT;;\r\n', [0]],
-    ['top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    BKPT;; # x\n{{ block(0) }}\n{# a;; #}\n    BKPT;;\n', [2, 3, 4]],
+    ['HALT;;\r\nHALT;;\r\n', [0]],
+    ['top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    HALT;; # x\n{{ block(0) }}\n{# a;; #}\n    HALT;;\n', [2, 3, 4]],
     [spanning, [1, 2, 3]], // line numbers stay right after a {{ }} spanning lines
-    ['BKPT;;\n{{ lbl(0) }}:\nBKPT;;\nBKPT;;', [0, 2]],
+    ['HALT;;\n{{ lbl(0) }}:\nHALT;;\nHALT;;', [0, 2]],
     [callAfter, [0]], // separators and formatting agree on a macro call after ;; or a label
-    ['a: {{ block(0) }}\nBKPT;;', [0]],
+    ['a: {{ block(0) }}\nHALT;;', [0]],
   ]) eq(lang.wordEndLines(text), ends, text);
   for (const [text, gaps] of [
-    ['top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    BKPT;;\n\n    BKPT;;\n    BKPT;;', [3, 6]], // unless a line is empty
+    ['top:\n    SET lr0 cr0;\n    SET lr1 cr0;;\n    HALT;;\n\n    HALT;;\n    HALT;;', [3, 6]], // unless a line is empty
     [spanning, [2, 3, 4]],
-    ['BKPT;;\n# next\nBKPT;;', [1]], [forLoop, [1, 4]], ['BKPT;;\n\n# c\nBKPT;;', []], [callAlone, []], [tagAfter, [2]],
+    ['HALT;;\n# next\nHALT;;', [1]], [forLoop, [1, 4]], ['HALT;;\n\n# c\nHALT;;', []], [callAlone, []], [tagAfter, [2]],
   ]) eq(lang.wordGapLines(text), gaps, text);
-  for (const text of [callAfter, 'a: {{ block(0) }}\nBKPT;;', '    BKPT;;\n{# a\nb #} BKPT;;']) {
+  for (const text of [callAfter, 'a: {{ block(0) }}\nHALT;;', '    HALT;;\n{# a\nb #} HALT;;']) {
     eq(lang.wordGapLines(lang.format(text, BL)), [], `formatted ${text}`);
   }
   for (const [text, line, ends] of [
-    ['BKPT;; # x', 0, true], ['{# ;; #}', 0, false], ['SET lr0 cr0;', 0, false],
-    [spanning, 0, false], [spanning, 1, true], ['BKPT;;\n{{ block(0) }}\nBKPT;;', 1, true],
+    ['HALT;; # x', 0, true], ['{# ;; #}', 0, false], ['SET lr0 cr0;', 0, false],
+    [spanning, 0, false], [spanning, 1, true], ['HALT;;\n{{ block(0) }}\nHALT;;', 1, true],
   ]) assert.strictEqual(lang.lineEndsWord(text, line), ends, `lineEndsWord ${text} @${line}`);
 });
 

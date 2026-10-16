@@ -7,13 +7,19 @@ into a frozen ``FormatInfo``. Element bytes, row bytes, the accumulator type,
 the per-register element layout and the addressable XMEM rows are derived from
 it, never restated.
 
-Numeric semantics (bias, special values, rounding, saturation) are not here:
-they belong to the emulator's codecs (E04-13) and to the open questions
-(OQ-19).
+The element codec of the 8-bit formats is here too (E04-13), so the harness
+and the conformance tooling round and pack values without the emulator:
+:func:`decode_element`, :func:`encode_element` and :func:`element_values`.
+It is pure Python, one element at a time; the emulator's lane codecs
+(``ipu_emu.numerics``) build their vectorised tables from it. The arithmetic
+on accumulators belongs to those codecs, and the numeric questions still open
+to OQ-19.
 """
 
 from __future__ import annotations
 
+import functools
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -234,3 +240,171 @@ def addressable_rows(fmt: ElementFormat) -> int:
     limit is an open question.
     """
     return XMEM_BYTES // FORMATS[ElementFormat(fmt)].row_bytes
+
+
+# --- the 8-bit element codec (E04-13) ----------------------------------------
+#
+# An Ex format (x = 1..7) is 1 sign bit, x exponent bits and 7 - x mantissa
+# bits, with bias 2^(x-1) - 1. The all-ones exponent is NaN (no infinities);
+# the zero exponent is subnormal. E1 is degenerate: bias 0, and its only
+# non-zero exponent is the NaN exponent, so every finite value is subnormal.
+# E7 has no mantissa bits: its magnitudes are powers of two. INT8 is a signed
+# byte. Encoding rounds to nearest, ties to even, and saturates; NaN encodes
+# as the canonical NaN.
+
+
+def _eight_bit_info(fmt: ElementFormat) -> FormatInfo:
+    info = FORMATS[ElementFormat(fmt)]
+    if info.element_bits != 8:
+        raise ValueError(f"{info.format} is not an 8-bit format")
+    return info
+
+
+def _fp8_max_finite(exp_bits: int, man_bits: int) -> int:
+    """The code of the largest positive finite value."""
+    max_exp_raw = (1 << exp_bits) - 1  # all-ones = NaN, so the largest normal is one below
+    return ((max_exp_raw - 1) << man_bits) | ((1 << man_bits) - 1)
+
+
+def _fp8_decode(code: int, exp_bits: int) -> float:
+    man_bits = 7 - exp_bits
+    sign = (code >> 7) & 1
+    exp_raw = (code >> man_bits) & ((1 << exp_bits) - 1)
+    man_raw = code & ((1 << man_bits) - 1)
+    if exp_raw == (1 << exp_bits) - 1:
+        return float("nan")
+    bias = (1 << (exp_bits - 1)) - 1
+    if exp_raw == 0:
+        # Subnormal: 0.man * 2^(1-bias)
+        value = (man_raw / (1 << man_bits)) * (2.0 ** (1 - bias))
+    else:
+        # Normal: 1.man * 2^(exp-bias)
+        value = (1 + man_raw / (1 << man_bits)) * (2.0 ** (exp_raw - bias))
+    return -value if sign else value
+
+
+def _fp8_encode_subnormal(val: float, exp_bits: int, man_bits: int, sign: int) -> int:
+    """Encode a positive magnitude below the smallest normal."""
+    bias = (1 << (exp_bits - 1)) - 1
+    max_man = (1 << man_bits) - 1
+    # val = (man_int / 2^man_bits) * 2^(1-bias)  ->  man_int = val * 2^(man_bits+bias-1)
+    man_int = round(val * (2.0 ** (man_bits + bias - 1)))
+    if man_int > max_man:
+        # Rounded up out of the subnormal range. (1 << man_bits) is exponent
+        # field 1, mantissa 0: the smallest normal. E1 has no normal range
+        # (exponent field 1 is NaN), so it saturates instead.
+        if exp_bits == 1:
+            return (sign << 7) | _fp8_max_finite(exp_bits, man_bits)
+        man_int = 1 << man_bits
+    return (sign << 7) | man_int
+
+
+def _fp8_encode_normal(frac: float, fp8_exp: int, exp_bits: int, sign: int) -> int:
+    """Encode a normal value given its biased exponent and frexp fraction."""
+    man_bits = 7 - exp_bits
+    max_exp_raw = (1 << exp_bits) - 1
+    max_man = (1 << man_bits) - 1
+    # man_int is in [0, 2^man_bits]; round() is round half to even, and since
+    # the mantissa holds the low bits of the code, an even mantissa is an even
+    # code. E7 (man_bits=0) has no mantissa bit to make even: a tie lies
+    # halfway between two powers of two, and it goes to the even code, i.e.
+    # it carries into the next exponent when fp8_exp is odd.
+    scaled = (2 * frac - 1) * (1 << man_bits)
+    man_int = round(scaled)
+    if man_bits == 0 and scaled == 0.5 and (fp8_exp & 1):
+        man_int = 1
+    if man_int > max_man:
+        # Rounding carried into the exponent.
+        man_int = 0
+        fp8_exp += 1
+    if fp8_exp >= max_exp_raw:
+        return (sign << 7) | _fp8_max_finite(exp_bits, man_bits)
+    return (sign << 7) | (fp8_exp << man_bits) | man_int
+
+
+def _fp8_encode(val: float, exp_bits: int) -> int:
+    man_bits = 7 - exp_bits
+    max_exp_raw = (1 << exp_bits) - 1
+    if math.isnan(val):
+        return (max_exp_raw << man_bits) | 1  # canonical NaN
+    sign = 1 if val < 0 or (val == 0.0 and math.copysign(1.0, val) < 0) else 0
+    val = abs(val)
+    if val == 0.0:
+        return sign << 7  # -0.0 encodes as 0x80
+    if math.isinf(val):
+        return (sign << 7) | _fp8_max_finite(exp_bits, man_bits)
+    frac, exp = math.frexp(val)  # val = frac * 2^exp, 0.5 <= frac < 1
+    bias = (1 << (exp_bits - 1)) - 1
+    fp8_exp = (exp - 1) + bias  # biased exponent (exp-1 is the IEEE exponent)
+    if fp8_exp >= max_exp_raw:
+        return (sign << 7) | _fp8_max_finite(exp_bits, man_bits)
+    if fp8_exp <= 0:
+        return _fp8_encode_subnormal(val, exp_bits, man_bits, sign)
+    return _fp8_encode_normal(frac, fp8_exp, exp_bits, sign)
+
+
+def decode_element(code: int, fmt: ElementFormat) -> float:
+    """The value of one element of an 8-bit format.
+
+    Args:
+        code: The element's byte, 0..255.
+        fmt: ``INT8`` or one of ``E1``..``E7``.
+
+    Returns:
+        The value as a float: a signed integer for ``INT8``; NaN (positive,
+        whatever the sign bit) for an all-ones exponent.
+
+    Raises:
+        ValueError: ``fmt`` is not an 8-bit format, or ``code`` is not a byte.
+    """
+    info = _eight_bit_info(fmt)
+    if not 0 <= code <= 0xFF:
+        raise ValueError(f"element code {code} is not a byte")
+    if not info.is_float:
+        return float(code - 0x100 if code & 0x80 else code)
+    return _fp8_decode(code, info.exp_bits)
+
+
+def encode_element(value: float, fmt: ElementFormat) -> int:
+    """The byte of the 8-bit-format element nearest to ``value``.
+
+    Rounds to nearest, ties to even, and saturates to the largest finite
+    value (infinities too). An Ex NaN encodes as the canonical NaN (exponent
+    all ones, mantissa 1); ``-0.0`` keeps its sign. ``INT8`` rounds to the
+    nearest integer and saturates to -128..127; it has no NaN.
+
+    Args:
+        value: The value to encode.
+        fmt: ``INT8`` or one of ``E1``..``E7``.
+
+    Returns:
+        The element's byte, 0..255.
+
+    Raises:
+        ValueError: ``fmt`` is not an 8-bit format, or ``value`` is NaN and
+            ``fmt`` is ``INT8``.
+    """
+    info = _eight_bit_info(fmt)
+    if info.is_float:
+        return _fp8_encode(float(value), info.exp_bits)
+    if math.isnan(value):
+        raise ValueError("NaN has no INT8 encoding")
+    clipped = min(127.0, max(-128.0, float(value)))
+    return round(clipped) & 0xFF
+
+
+@functools.cache
+def element_values(fmt: ElementFormat) -> tuple[float, ...]:
+    """Every code's value of an 8-bit format: entry ``c`` is ``decode_element(c, fmt)``.
+
+    Args:
+        fmt: ``INT8`` or one of ``E1``..``E7``.
+
+    Returns:
+        256 floats, indexed by code (the decode table).
+
+    Raises:
+        ValueError: ``fmt`` is not an 8-bit format.
+    """
+    fmt = _eight_bit_info(fmt).format
+    return tuple(decode_element(code, fmt) for code in range(256))

@@ -7,9 +7,11 @@ memory into a single object — the Python equivalent of ``ipu__obj_t``.
 from __future__ import annotations
 
 import struct
+import weakref
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ipu_emu import activations as _activations
 from ipu_emu.fault_control import FaultControl
@@ -30,6 +32,9 @@ from ipu_isa.constants import (
 )
 from ipu_isa.faults import FaultId
 from ipu_isa.geometry import INST_MEM_WORDS
+
+if TYPE_CHECKING:
+    from ipu_emu.cycle import CycleObserver
 
 #: Instruction-memory depth, as the emulator names it.
 INST_MEM_SIZE = INST_MEM_WORDS
@@ -121,6 +126,8 @@ class IpuState:
         self.alias_profile = alias_profile
         self.stats.alias_profile = alias_profile
         self._inst_mem = InstMem(INST_MEM_SIZE)
+        #: Observers every cycle on this state calls (add_cycle_observer).
+        self.cycle_observers: tuple[CycleObserver, ...] = ()
         # Set when a debugger quit the last run before the program finished
         # (emulator-only; cleared at the start of every run).
         self.quit_requested: bool = False
@@ -156,6 +163,32 @@ class IpuState:
         self.window_b: float = (
             float(window_b) if window_b is not None else float(_activations.DEFAULT_WINDOW_B)
         )
+
+    # -- observers -----------------------------------------------------------
+
+    def add_cycle_observer(self, observer: CycleObserver) -> Callable[[], None]:
+        """Attach *observer* to every cycle that runs on this state.
+
+        For a caller that never sees the engine (``run_until_complete`` builds
+        its own): any ``Cycle`` on this state calls it, before the cycle's own
+        observers (``Cycle.add_observer``).
+
+        Args:
+            observer: The :class:`~ipu_emu.cycle.CycleObserver` to call.
+
+        Returns:
+            A function that detaches it; calling it twice is harmless.
+        """
+        self.cycle_observers = self.cycle_observers + (observer,)
+        # Weak, so an observer that keeps its remover does not pin the state.
+        ref = weakref.ref(self)
+
+        def remove() -> None:
+            state = ref()
+            if state is not None:
+                state.cycle_observers = tuple(o for o in state.cycle_observers if o is not observer)
+
+        return remove
 
     # -- CR dstructure convenience (CR15 = valid_elements[7:0] | partition[11:8]) --
 
@@ -234,7 +267,7 @@ class IpuState:
 
     # Debug/test conveniences, not on any instruction execution path. Each
     # takes a ROW number and mirrors its instruction in the active mode:
-    # LDR_MULT_REG, LDR_CYCLIC_MULT_REG, STR_ACC_REG, LDR_MULT_MASK_REG.
+    # LD.MULT, LD.MULT.CYCLIC, ST.ACC, LD.MASK.
 
     def _row_address(self, xmem_row: int) -> int:
         return xmem_row * _ipu().xmem_row_size_bytes(self)
@@ -266,7 +299,7 @@ class IpuState:
         """Load one row from XMEM into r_cyclic at *slot_element_idx*.
 
         An element index on a slot boundary (``R_CYCLIC_VALID_INDICES``), as
-        for LDR_CYCLIC_MULT_REG. Defaults to slot 0.
+        for LD.MULT.CYCLIC. Defaults to slot 0.
         """
         ipu = _ipu()
         if slot_element_idx not in ipu.R_CYCLIC_VALID_INDICES:

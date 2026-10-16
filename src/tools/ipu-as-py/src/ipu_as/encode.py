@@ -5,24 +5,26 @@ token means, and where an error is. The bits are the codec's: each slot value
 comes from ``SLOT_CODECS[slot].encode`` and the word from ``WORD_CODEC.pack``.
 
     words = [encode_word(compound) for compound in parsed]
-    text = disassemble_word(word)
+    text = disassemble_word(word)   # ipu_isa.codec.disasm (E03-18)
 """
 
 from __future__ import annotations
 
 import functools
 import warnings
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError, SlotError
 from ipu_as.inst import OPERAND_TYPE_MAP
-from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC, DecodedSlot
+from ipu_isa.codec import disasm
+from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
-from ipu_isa.codec.word import WORD_LAYOUT, DecodedWord, FieldSpec
 from ipu_isa.faults import reserved_operand_codes
+from ipu_isa.mnemonics import RESERVED_MNEMONICS
+from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.tags import Tag
 from ipu_isa.view import isa
@@ -44,6 +46,22 @@ __all__ = [
 #: other instruction takes a free slot of its own kind. The editor takes both
 #: rules from isa.json (``slotFill``).
 WILDCARD_OPCODES = frozenset({"nop"})
+
+
+def _check_nop_is_reserved() -> None:
+    """NOP is the one mnemonic the assembler knows by name: it must be every
+    slot's NOP and nothing else. The ISA already requires one NOP per slot;
+    the assembler also relies on it taking no operands and on no
+    pseudo-instruction being named NOP."""
+    for slot in LAYOUT_ORDER:
+        nops = [i for i in isa().instructions(slot) if i.mnemonic.lower() in WILDCARD_OPCODES]
+        if [i.mnemonic for i in nops] != ["NOP"] or nops[0].operands:
+            raise SpecError(f"slot {slot.value} must have exactly one NOP, with no operands")
+    if any(p.mnemonic.lower() in WILDCARD_OPCODES for p in isa().pseudos()):
+        raise SpecError("NOP is reserved; no pseudo-instruction may be named NOP")
+
+
+_check_nop_is_reserved()
 
 #: Every slot instance of a word, most significant first: the order slots are
 #: filled in, and the order of the disassembly text.
@@ -82,6 +100,12 @@ def _operand_classes(slot: Slot, mnemonic: str) -> tuple[type[ipu_token.IpuToken
 
 def _slot_of(opcode: ipu_token.AnnotatedToken) -> Slot:
     slot = OPCODE_SLOT.get(opcode.token.value.upper())
+    if slot is None and opcode.token.value.upper() in RESERVED_MNEMONICS:
+        raise SlotError(
+            f"Opcode '{opcode.token.value}' is reserved, not implemented.",
+            location=opcode.location(),
+            token=opcode.token.value,
+        )
     if slot is None:
         raise SlotError(
             f"Opcode '{opcode.token.value}' not found in any Inst subclass.",
@@ -213,11 +237,8 @@ def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
     return value
 
 
-_TARGETS = (Tag.EMULATOR, Tag.HARDWARE)
-
-
 def target_tag(target: str) -> Tag:
-    """The word a target assembles to.
+    """The word a target assembles to (``ipu_isa.codec.disasm.target_tag``).
 
     Args:
         target: ``"emulator"`` or ``"hardware"`` (or the ``Tag`` itself).
@@ -228,9 +249,7 @@ def target_tag(target: str) -> Tag:
     Raises:
         ValueError: any other target.
     """
-    if target not in _TARGETS:
-        raise ValueError(f"target must be emulator or hardware, not {target!r}")
-    return Tag(target)
+    return disasm.target_tag(target)
 
 
 def _check_target(placed: Placed, target: Tag) -> None:
@@ -296,72 +315,15 @@ def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
 
 
 # -- disassembly text -------------------------------------------------------------
-
-
-_Decoder = Callable[[int], str]
-
-#: Each slot instance's fields, opcode first.
-_INSTANCE_FIELDS: Mapping[tuple[Slot, int], tuple[FieldSpec, ...]] = MappingProxyType(
-    {
-        key: tuple(
-            sorted((f for f in WORD_LAYOUT if (f.slot, f.instance) == key), key=lambda f: f.index)
-        )
-        for key in SLOT_INSTANCES
-    }
-)
-
-
-@functools.cache
-def _field_decoders(slot: Slot, opcode: int) -> tuple[_Decoder, ...]:
-    """How to print each union field of ``slot`` when its opcode is ``opcode``.
-
-    A field an operand of the instruction occupies prints as that operand's
-    type; any other field prints as the field's canonical type.
-
-    Raises:
-        IndexError: ``opcode`` is no instruction of the slot.
-    """
-    view = isa()
-    instruction = view.instructions(slot)[opcode]
-    union = view.layout.unions[slot]
-    types = [field.canonical_type for field in union.fields]
-    by_name = {op.name: op.type.name for op in instruction.operands}
-    for index, name in union.opcode_bindings[instruction.mnemonic]:
-        types[index] = by_name[name]
-    return tuple(OPERAND_TYPE_MAP[name].decode for name in types)
-
-
-def _field(fields: Mapping[str, int], spec: FieldSpec) -> int:
-    """A field's value, as packing would leave it: missing is 0, extra bits are dropped."""
-    return fields.get(spec.name, 0) & ((1 << spec.bits) - 1)
-
-
-def _instance_text(fields: Mapping[str, int], key: tuple[Slot, int]) -> str:
-    specs = _INSTANCE_FIELDS[key]
-    opcode = _field(fields, specs[0])
-    mnemonic = isa().instructions(key[0])[opcode].mnemonic
-    decoders = _field_decoders(key[0], opcode)
-    operands = (
-        decode(_field(fields, spec)) for decode, spec in zip(decoders, specs[1:], strict=True)
-    )
-    return " ".join((mnemonic, *operands))
-
-
-#: The slot instances of each target's word, most significant first.
-_TARGET_INSTANCES: Mapping[Tag, tuple[tuple[Slot, int], ...]] = MappingProxyType(
-    {
-        Tag.EMULATOR: SLOT_INSTANCES,
-        Tag.HARDWARE: tuple(key for key in SLOT_INSTANCES if SLOTS[key[0]].tag is Tag.HARDWARE),
-    }
-)
+# The text is made in one place, ipu_isa.codec.disasm (E03-18); these names are
+# the assembler's entry points to it.
 
 
 def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
-    """The assembly text of one word: every slot instance, NOP and unused fields included.
+    """The assembly text of one word (``ipu_isa.codec.disasm.disassemble``).
 
     Args:
-        word: An instruction word: the emulator word, or for ``Tag.HARDWARE``
-            the hardware word (its top bits, ``hardware_word``).
+        word: The emulator word, or for ``Tag.HARDWARE`` the hardware word.
         target: Which word ``word`` is; the hardware text has the hardware
             slots only.
 
@@ -370,46 +332,25 @@ def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
         first, joined by ``;`` and ending in ``;;``.
 
     Raises:
-        IndexError: a slot holds an opcode no instruction uses.
+        ValueError: An unknown target.
+        ReservedEncoding: A slot holds an opcode no instruction uses.
     """
-    target = target_tag(target)
-    if target is Tag.HARDWARE:
-        word <<= isa().layout.word_bits(Tag.EMULATOR)  # the emulator slots are the low bits
-    return disassemble_fields(DecodedWord.from_word(word), target)
+    return disasm.disassemble(word, target=target)
 
 
 def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) -> str:
-    """``disassemble_word`` of a word already split into its fields (``DecodedWord``).
+    """``disassemble_word`` of a word already split into its fields
+    (``ipu_isa.codec.disasm.disassemble_fields``).
 
     Args:
-        fields: Wire field name -> value; a missing field is 0, and a value
-            wider than its field is cut to the field, as packing would.
+        fields: Wire field name -> value; missing is 0, extra bits are dropped.
         target: Which slots to print: every slot, or the hardware slots.
 
     Returns:
         As ``disassemble_word``.
-
-    Raises:
-        IndexError: a slot holds an opcode no instruction uses.
     """
-    instances = _TARGET_INSTANCES[target_tag(target)]
-    return ";\n\t\t\t".join(_instance_text(fields, key) for key in instances) + ";;"
+    return disasm.disassemble_fields(fields, target=target)
 
 
-def operation_text(decoded: DecodedSlot) -> str:
-    """One slot's instruction as written in assembly: the mnemonic, then its operands.
-
-    Unlike the disassembly text, operands are in assembly order and fields the
-    instruction does not use are left out.
-
-    Args:
-        decoded: A slot value decoded by its ``SlotCodec``.
-
-    Returns:
-        ``"ADD lr0 lr1 lr2"``; a bare ``"NOP"``.
-    """
-    texts = (
-        OPERAND_TYPE_MAP[op.type.name].decode(value)
-        for op, value in zip(decoded.instruction.operands, decoded.operands, strict=True)
-    )
-    return " ".join((decoded.instruction.mnemonic, *texts))
+#: One slot's instruction in assembly order (``ipu_isa.codec.disasm.operation_text``).
+operation_text = disasm.operation_text

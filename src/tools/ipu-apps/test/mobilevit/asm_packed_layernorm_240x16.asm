@@ -76,7 +76,7 @@
 # produced 1954 static instructions, blowing the 1024-instruction
 # program-memory ceiling ~1.9x over (same lesson
 # asm_packed_output_linear_generic.asm already logged for its own
-# per-chunk loop). Steps 1/3/4a/6 are therefore genuine runtime BLT loops
+# per-chunk loop). Steps 1/3/4a/6 are therefore genuine runtime BLT.S loops
 # over the chunk counter; only the 8-way partition unroll WITHIN one
 # chunk (steps 1/4a) stays statically unrolled, since it is fixed-size
 # and small (8 x ~2 static instructions per chunk-loop body).
@@ -93,7 +93,7 @@
 # VLIW rules: same MULT-snapshot contract as every other kernel here (a
 # same-bundle load is not visible to that bundle's MULT; every loop primes
 # its first row before entry and prefetches the next row from inside the
-# body). Loop counters seeded to 1, tested with BLT against the
+# body). Loop counters seeded to 1, tested with BLT.S against the
 # pre-increment snapshot -- see layernorm_16x240.asm's header for the
 # shared rationale, unchanged here.
 #
@@ -114,7 +114,7 @@
 # CR[cr_idx].partition when shift != 0, so `partition` never matters here.
 
 {% set rc_idx_reg   = "lr0"  %}  {# r_cyclic base ELEMENT offset for masked gather/scatter/multiply #}
-{% set mask_off_lr  = "lr1"  %}  {# mask_offset carrier / LDR_MULT_MASK_REG offset / LDR_CYCLIC_MULT_REG index carrier #}
+{% set mask_off_lr  = "lr1"  %}  {# mask_offset carrier / LD.MASK offset / LD.MULT.CYCLIC index carrier #}
 {% set read_ptr     = "lr2"  %}  {# per-step row read pointer (offset from a ZERO base -- absolute row number) #}
 {% set write_ptr    = "lr3"  %}  {# per-step row write pointer #}
 {% set gb_ptr       = "lr4"  %}  {# gamma/beta row pointer in step 6, recomputed each chunk from base + running chunk offset #}
@@ -122,8 +122,8 @@
 {% set row_limit    = "lr6"  %}  {# runtime loop bound, set per step #}
 {% set row_stride   = "lr7"  %}  {# 1 = row stride #}
 {% set mask_shift0  = "lr8"  %}  {# const 0: mask_shift (no partition-boundary shifting used) #}
-{% set slot0_lr     = "lr9"  %}  {# const 0: LDR_CYCLIC_MULT_REG index for slot 0 #}
-{% set slot128_lr   = "lr10" %}  {# const 128: LDR_CYCLIC_MULT_REG index for slot 128 #}
+{% set slot0_lr     = "lr9"  %}  {# const 0: LD.MULT.CYCLIC index for slot 0 #}
+{% set slot128_lr   = "lr10" %}  {# const 128: LD.MULT.CYCLIC index for slot 128 #}
 
 {#- SCRATCH16 is ONE physical row shared by every 16-value-wide intermediate
     (-mean, raw sum-of-squares, 1/sigma): each write fully supersedes the
@@ -154,11 +154,11 @@
 {% set DSTRUCT128      = "cr14" %}  {# dstructure: valid_elements=128 (shared by every masked and unmasked 128-lane step -- see header note) #}
 {% set ALLONES_MASK_BASE = "cr15" %}  {# R_MASK source row: all 1024 bits set -- see note below #}
 
-{#- R_MASK is a single 1024-bit register (8 x 128-bit slots); LDR_MULT_MASK_REG
+{#- R_MASK is a single 1024-bit register (8 x 128-bit slots); LD.MASK
     replaces ALL of it in one call, and there is no default it reverts to
     between calls within a kernel run (only IpuState's own INITIAL value is
     all-ones -- ipu.py's RegFile.__init__ -- which this kernel's own
-    LDR_MULT_MASK_REG for the one-hot mask overwrites early on). Steps 1/2/
+    LD.MASK for the one-hot mask overwrites early on). Steps 1/2/
     4a/5 need the one-hot 8-slot mask (MASK_BASE) to select a 16-lane
     gather/scatter window;
     steps 3/6 are ordinary full-row elementwise;
@@ -193,7 +193,7 @@
     SET {{ slot0_lr }} {{ ZERO }};;
     SET {{ slot128_lr }} {{ ZERO }};;
     {{- inc(slot128_lr, SLOT_STRIDE) }}
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 1: -mean[t] = sum over 240 channels of x[ch,t] * (-1/240)
@@ -202,11 +202,11 @@
 # position); a runtime loop then covers chunks 1..29.
 # -----------------------------------------------------------------------
 
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ NEG_INV_N_BASE }};;   # r0 <- -1/240 (every lane)
+    LD.MULT r0 {{ mask_off_lr }} {{ NEG_INV_N_BASE }};;   # r0 <- -1/240 (every lane)
 
     SET {{ read_ptr }} {{ DATA_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime chunk 0 into slot 0
 
 {%- for p_in in range(8) %}
@@ -217,7 +217,7 @@
     {%- if is_last_p %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -228,23 +228,23 @@
     SET {{ row_idx }} {{ ZERO }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
     SET {{ row_limit }} {{ ROW_COUNT }};;
-    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT check before the loop is ever entered)
+    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step1_loop:
 {%- for p_in in range(8) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, 16 * p_in) }}
     {%- if loop.last %}
-    {#- row_idx's ADD and the BLT must be in the SAME bundle as this trailing
+    {#- row_idx's ADD and the BLT.S must be in the SAME bundle as this trailing
         load, mirroring layernorm_16x240.asm's step1 loop exactly (line 98/
         102: 'LDR_CYCLIC...;
         ADD read_ptr...;
         ADD ch_index...;
-        BLT ch_index;
-        ch_limit') -- BLT's operands are snapshot reads (instruction_spec.py),
+        BLT.S ch_index;
+        ch_limit') -- BLT.S's operands are snapshot reads (instruction_spec.py),
         so it sees row_idx's value from BEFORE this bundle's own ADD. An
-        earlier draft put row_idx's ADD/BLT in a SEPARATE bundle one cycle
-        after this load: that shifts the snapshot BLT sees by one full
+        earlier draft put row_idx's ADD/BLT.S in a SEPARATE bundle one cycle
+        after this load: that shifts the snapshot BLT.S sees by one full
         cycle relative to the reference kernel's fused structure, making
         the loop run ONE EXTRA iteration (248 MULT.RC.VV calls observed for
         30 chunks x 8 partitions = 240 expected) -- it silently accumulated
@@ -256,10 +256,10 @@ step1_loop:
         later in step 3). #}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step1_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step1_loop;;
     {%- else %}
     MULT.RC.VV {{ rc_idx_reg }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
@@ -267,7 +267,7 @@ step1_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ NEG_MEAN_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 2: broadcast NEG_MEAN (16 values) into a 128-lane tile, one 16-lane
@@ -276,7 +276,7 @@ step1_loop:
 # runtime loop needed (8 static instructions, negligible).
 # -----------------------------------------------------------------------
 
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ NEG_MEAN_BASE }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ NEG_MEAN_BASE }} {{ slot0_lr }};;
 
 {%- for p in range(8) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
@@ -286,7 +286,7 @@ step1_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ NEG_MEAN_TILE }};;
+    ST.AAQ {{ mask_off_lr }} {{ NEG_MEAN_TILE }};;
 
 # -----------------------------------------------------------------------
 # Step 3: centered[c] = x[c] + NEG_MEAN_TILE, partition-local elementwise.
@@ -294,14 +294,14 @@ step1_loop:
 # Chunk 0 peeled; runtime loop covers chunks 1..29.
 # -----------------------------------------------------------------------
 
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ NEG_MEAN_TILE }} {{ slot128_lr }};;
+    LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ NEG_MEAN_TILE }} {{ slot128_lr }};;
 
     SET {{ read_ptr }} {{ DATA_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: STR_POST_AAQ_REG's offset is a LIVE read and a same-bundle ADD (lr slot) dispatches before store, so the store sees the POST-increment value -- the -1 startup offset compensates, same convention layernorm_16x240.asm uses throughout
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: ST.AAQ's offset is a LIVE read and a same-bundle ADD (lr slot) dispatches before store, so the store sees the POST-increment value -- the -1 startup offset compensates, same convention layernorm_16x240.asm uses throughout
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime chunk 0 into slot 0
 
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -325,27 +325,27 @@ step1_loop:
         (instruction_spec.py's SLOT_COUNT), so this fits alongside
         write_ptr's advance in the same store-bundle. #}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
 
     SET {{ row_idx }} {{ ZERO }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
     SET {{ row_limit }} {{ ROW_COUNT }};;
-    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT check before the loop is ever entered)
+    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step3_loop:
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     MULT.RC.VE {{ slot128_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
-    {#- write_ptr, read_ptr, AND row_idx's advances, plus the BLT, must ALL
+    {#- write_ptr, read_ptr, AND row_idx's advances, plus the BLT.S, must ALL
         land in this ONE bundle -- exactly layernorm_16x240.asm's step1
-        pattern (load + ch_index-ADD + BLT fused in one bundle). Splitting
-        row_idx's ADD/BLT into a separate trailing bundle (an earlier
+        pattern (load + ch_index-ADD + BLT.S fused in one bundle). Splitting
+        row_idx's ADD/BLT.S into a separate trailing bundle (an earlier
         draft's mistake) inserts an extra cycle between the load and the
-        loop-exit check that BLT's SNAPSHOT read doesn't compensate for,
+        loop-exit check that BLT.S's SNAPSHOT read doesn't compensate for,
         making the loop run ONE EXTRA pass -- caught by counting STR_POST_
         AAQ_REG calls to CENTERED_BASE (31 observed for 30 expected rows;
         the 31st write landed on row CENTERED_BASE+30, silently corrupting
@@ -354,12 +354,12 @@ step3_loop:
         (instruction_spec.py SLOT_COUNT) -- write_ptr+read_ptr+row_idx
         uses all three, with no room to spare. #}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ CENTERED_BASE }};
+    ST.AAQ {{ write_ptr }} {{ CENTERED_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step3_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step3_loop;;
 
 # -----------------------------------------------------------------------
 # Step 4a: raw sum of squares (unscaled) -- same gather shape as step 1,
@@ -367,10 +367,10 @@ step3_loop:
 # split as step 1.
 # -----------------------------------------------------------------------
 
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ MASK_BASE }};;   # back to the one-hot mask -- step 3 switched to all-ones
+    LD.MASK {{ mask_off_lr }} {{ MASK_BASE }};;   # back to the one-hot mask -- step 3 switched to all-ones
     SET {{ read_ptr }} {{ CENTERED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime chunk 0 into slot 0
 
 {%- for p_in in range(8) %}
@@ -381,7 +381,7 @@ step3_loop:
     {%- if is_last_p %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD{{ ".FIRST" if is_first else "" }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     {%- else %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
@@ -392,22 +392,22 @@ step3_loop:
     SET {{ row_idx }} {{ ZERO }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
     SET {{ row_limit }} {{ ROW_COUNT }};;
-    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT check before the loop is ever entered)
+    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step4a_loop:
 {%- for p_in in range(8) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
     {{- inc(rc_idx_reg, 16 * p_in) }}
     {%- if loop.last %}
-    {#- read_ptr's advance AND row_idx's ADD+BLT fused into this ONE
+    {#- read_ptr's advance AND row_idx's ADD+BLT.S fused into this ONE
         bundle -- see step1's identical note on why splitting them causes
         an off-by-one extra loop pass. #}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step4a_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step4a_loop;;
     {%- else %}
     MULT.RC.VS {{ rc_idx_reg }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
@@ -415,26 +415,26 @@ step4a_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT16 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 4b: 1/sigma = rsqrt((1/240) * sum_of_squares)
 # -----------------------------------------------------------------------
 
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ INV_N_BASE }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ INV_N_BASE }} {{ slot0_lr }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
 
     ACTIVATE.QUANTIZE rsqrt {{ DSTRUCT16 }};;
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ INVSTD_BASE }};;
+    ST.AAQ {{ mask_off_lr }} {{ INVSTD_BASE }};;
 
 # -----------------------------------------------------------------------
 # Step 5: broadcast INVSTD (16 values) into a 128-lane tile, same
 # construction as step 2.
 # -----------------------------------------------------------------------
 
-    LDR_CYCLIC_MULT_REG {{ mask_off_lr }} {{ INVSTD_BASE }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ mask_off_lr }} {{ INVSTD_BASE }} {{ slot0_lr }};;
 
 {%- for p in range(8) %}
     SET {{ rc_idx_reg }} {{ ZERO }};;
@@ -444,7 +444,7 @@ step4a_loop:
 {%- endfor %}
 
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ INVSTD_TILE }};;
+    ST.AAQ {{ mask_off_lr }} {{ INVSTD_TILE }};;
 
 # -----------------------------------------------------------------------
 # Step 6: output[c] = centered[c] * INVSTD_TILE * GAMMA_TILE[c] + BETA_TILE[c]
@@ -458,7 +458,7 @@ step4a_loop:
 # comparing r_acc directly against the expected product: kernel gave
 # -1.9153+0.5930=-1.3223, not -1.9153*0.5930=-1.1358). INVSTD_TILE is
 # loaded ONCE into R1 (a full 128-lane mult-stage register, via
-# LDR_MULT_REG -- constant across chunks, so R_CYCLIC slot 128 is not
+# LD.MULT -- constant across chunks, so R_CYCLIC slot 128 is not
 # needed for it at all in this step); normalized[c] is staged through
 # SCRATCH16 into R0 for the gamma multiply exactly as before. The final
 # ADDITION (+ beta_tile[c]) correctly stays a MULT.RC.VE(x1)+ACC.ADD pass.
@@ -482,7 +482,7 @@ step4a_loop:
 #   2. AAQ store r_acc -> SCRATCH16;           SET gb_ptr <- GAMMA_TILE_BASE
 #   3. ADD gb_ptr, gb_ptr, row_idx
 #   4. LDR_CYCLIC(gb_ptr -> slot0)  [gamma_tile[c]]
-#   5. LDR_MULT_REG r0 <- SCRATCH16 (normalized[c])
+#   5. LD.MULT r0 <- SCRATCH16 (normalized[c])
 #   6. MULT.RC.VV(slot0=gamma_tile[c], ra=r0=normalized[c]); ACC.ADD.FIRST -> normalized*gamma
 #   7. AAQ store r_acc -> SCRATCH16;           SET gb_ptr <- BETA_TILE_BASE
 #   8. ADD gb_ptr, gb_ptr, row_idx
@@ -490,7 +490,7 @@ step4a_loop:
 #  10. MULT.RC.VE(slot0=beta_tile[c]) x1;      ACC.ADD          -> + beta = output[c]
 #  11. AAQ store r_acc -> OUTPUT_BASE[c]; advance pointers, row_idx, and
 #      branch, all fused in one bundle (see step1/step3/step4a's note on
-#      why the loop counter's ADD and BLT must share the closing load's
+#      why the loop counter's ADD and BLT.S must share the closing load's
 #      bundle -- splitting them causes an extra pass).
 #
 # Chunk 0 peeled (row_idx == 0 throughout the peel, set explicitly before
@@ -509,86 +509,86 @@ step4a_loop:
         kernel gave centered[0,0]+invstd[0] = -1.9153+0.5930 = -1.3223,
         not centered[0,0]*invstd[0] = -1.1358. Fixed by loading
         INVSTD_TILE into R1 (a full 128-lane mult-stage register, via
-        LDR_MULT_REG, not R_CYCLIC) ONCE before the loop -- it is constant
+        LD.MULT, not R_CYCLIC) ONCE before the loop -- it is constant
         across all chunks -- then using MULT.RC.VV(rc_idx=slot0,
         ra=r1)+ACC.ADD.FIRST, which computes R_CYCLIC[i]*R1[i] directly in
         ONE instruction per chunk (the same mechanism GAMMA_TILE[c]'s
         multiply already used correctly, since that one multiplies
         R_CYCLIC by R0 via MULT.RC.VV rather than by two ACC.ADD passes).
         slot 128 of R_CYCLIC is no longer needed in this step. #}
-    LDR_MULT_MASK_REG {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
-    LDR_MULT_REG r1 {{ mask_off_lr }} {{ INVSTD_TILE }};;
+    LD.MASK {{ mask_off_lr }} {{ ALLONES_MASK_BASE }};;   # unmasked full-row pass -- see header note on the two mask rows
+    LD.MULT r1 {{ mask_off_lr }} {{ INVSTD_TILE }};;
 
     SET {{ read_ptr }} {{ CENTERED_BASE }};;
     SUB {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     SET {{ write_ptr }} {{ ZERO }};;
-    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: see step 3's note on STR_POST_AAQ_REG's live-read/same-bundle-ADD timing
+    SUB {{ write_ptr }} {{ write_ptr }} {{ row_stride }};;   # write_ptr = -1: see step 3's note on ST.AAQ's live-read/same-bundle-ADD timing
     SET {{ row_idx }} {{ ZERO }};;
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;  # prime centered[0] into slot 0
 
     # ---- chunk 0 (peeled): row_idx == 0, pointers land at the tile bases ----
     MULT.RC.VV {{ slot0_lr }} r1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
     {#- read_ptr's advance co-issues with the load that reads it (same fix
         as step 3). row_idx advances to 1 here (its own dedicated bundle,
         not fused with anything else -- the peel is a one-off, not a loop
-        iteration, so there is no BLT to fuse it with). #}
+        iteration, so there is no BLT.S to fuse it with). #}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }};
+    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};;
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};;
 
     SET {{ row_limit }} {{ ROW_COUNT }};;
-    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT check before the loop is ever entered)
+    SUB {{ row_limit }} {{ row_limit }} {{ ONE }};;   # row_limit = ROW_COUNT-1: row_idx enters the loop already at 1 with no BLT.S check performed by the peel itself (unlike layernorm_16x240.asm, whose peel's own trailing bundle performs the FIRST ch_index/BLT.S check before the loop is ever entered)
 
 step6_loop:
     MULT.RC.VV {{ slot0_lr }} r1 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ GAMMA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
-    LDR_MULT_REG r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT r0 {{ mask_off_lr }} {{ TEMP_BASE }};;
     MULT.RC.VV {{ slot0_lr }} r0 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD.FIRST;;
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ mask_off_lr }} {{ TEMP_BASE }};
+    ST.AAQ {{ mask_off_lr }} {{ TEMP_BASE }};
     SET {{ gb_ptr }} {{ BETA_TILE_BASE }};;
     ADD {{ gb_ptr }} {{ gb_ptr }} {{ row_idx }};;
-    LDR_CYCLIC_MULT_REG {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
+    LD.MULT.CYCLIC {{ gb_ptr }} {{ ZERO }} {{ slot0_lr }};;
     MULT.RC.VE {{ slot0_lr }} {{ ONE }} 0 {{ mask_shift0 }} {{ DSTRUCT128 }};
     ACC.ADD;;
-    {#- write_ptr, read_ptr, AND row_idx's advances plus BLT all fused
+    {#- write_ptr, read_ptr, AND row_idx's advances plus BLT.S all fused
         into this one bundle -- exactly 3 "lr" ops, the per-cycle maximum
         -- see step1/step3/step4a's identical note on why row_idx's own
-        ADD must share the closing load's bundle with the BLT that reads
+        ADD must share the closing load's bundle with the BLT.S that reads
         its pre-increment snapshot. #}
     ACTIVATE.QUANTIZE identity {{ DSTRUCT128 }};
-    STR_POST_AAQ_REG {{ write_ptr }} {{ OUTPUT_BASE }};
+    ST.AAQ {{ write_ptr }} {{ OUTPUT_BASE }};
     ADD {{ write_ptr }} {{ write_ptr }} {{ row_stride }};
-    LDR_CYCLIC_MULT_REG {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
+    LD.MULT.CYCLIC {{ read_ptr }} {{ ZERO }} {{ slot0_lr }};
     ADD {{ read_ptr }} {{ read_ptr }} {{ row_stride }};
     ADD {{ row_idx }} {{ row_idx }} {{ ONE }};
-    BLT {{ row_idx }} {{ row_limit }} step6_loop;;
+    BLT.S {{ row_idx }} {{ row_limit }} step6_loop;;
 
 end:
-    BKPT;;
+    HALT;;
