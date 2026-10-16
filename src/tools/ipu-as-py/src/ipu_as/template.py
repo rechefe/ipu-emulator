@@ -38,11 +38,12 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import jinja2
+import jinja2.nodes
 from jinja2.sandbox import SandboxedEnvironment
 
 from ipu_as.errors import SourceLocation, TemplateError
@@ -293,9 +294,24 @@ def _environment(
     return _ENVIRONMENTS[key]
 
 
-def lex(text: str) -> list[tuple[int, str, str]]:
-    """Jinja's (line, token type, value) tokens of `text`, without rendering it."""
-    return list(_environment((), None).lex(text))
+def lex(text: str) -> Iterator[tuple[int, str, str]]:
+    """Jinja's (line, token type, value) tokens of `text`, without rendering it.
+
+    Lazy, so a caller keeps the tokens before a syntax error.
+
+    Raises:
+        jinja2.TemplateSyntaxError: while iterating, where the text stops lexing.
+    """
+    return iter(_environment((), None).lex(text))
+
+
+def parse(text: str) -> jinja2.nodes.Template:
+    """Jinja's syntax tree of `text`, without rendering it.
+
+    Raises:
+        jinja2.TemplateSyntaxError: the text is not a template.
+    """
+    return _environment((), None).parse(text)
 
 
 #: The ABI namespaces a template may name registers through, and the register
