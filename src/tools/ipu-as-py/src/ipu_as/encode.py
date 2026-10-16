@@ -23,8 +23,8 @@ from ipu_isa.codec import disasm
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.faults import reserved_operand_codes
-from ipu_isa.schema import SpecError
 from ipu_isa.mnemonics import RESERVED_MNEMONICS
+from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_isa.tags import Tag
 from ipu_isa.view import isa
