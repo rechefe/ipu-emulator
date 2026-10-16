@@ -259,6 +259,18 @@ py_pytest_test(
     ],
 )
 
+# --target hardware over the corpus (E05-15).
+py_pytest_test(
+    name = "test_hardware_target",
+    srcs = ["test/test_hardware_target.py"],
+    data = _ASM_CORPUS,
+    deps = [
+        ":asm_corpus",
+        "//src/tools/ipu-as-py:ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # No `| default` or definedness test in an assembly source (E05-11).
 py_pytest_test(
     name = "test_template_lint",

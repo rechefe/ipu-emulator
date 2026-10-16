@@ -22,8 +22,7 @@ from ipu_emu.errors import EmulatorError
 from ipu_emu.ipu import addressable_rows, xmem_row_size_bytes
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.xmem import XMEM_SIZE_BYTES
-from ipu_isa.codec.disasm import disassemble
-from ipu_isa.codec.word import DecodedWord
+from ipu_isa.codec.disasm import disassemble_fields
 from ipu_isa.errors import IpuError
 from ipu_isa.registers import create_regfile_schema
 from ipu_isa.types import RegDescriptor, RegDtype
@@ -330,9 +329,7 @@ def disassemble_at(state: IpuState, pc: int) -> str:
     if inst is None:
         return f"PC {pc}: <nop>"
 
-    word = DecodedWord(inst).to_word()
-
-    return f"PC {pc}: {disassemble(word)}"
+    return f"PC {pc}: {disassemble_fields(inst)}"
 
 
 # ---------------------------------------------------------------------------

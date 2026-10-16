@@ -1,6 +1,6 @@
 """Custom rule for compiling IPU assembly files."""
 
-def assemble_asm(name, src, output_format = "bin", defines = {}, includes = [], **kwargs):
+def assemble_asm(name, src, output_format = "bin", defines = {}, includes = [], target = "emulator", **kwargs):
     """
     Macro to assemble IPU assembly files.
 
@@ -16,10 +16,15 @@ def assemble_asm(name, src, output_format = "bin", defines = {}, includes = [], 
             distinct directory is passed as -I, after the source's own.
             They must be source files named by relative path (not labels),
             as the directory is found by resolving each one's symlink.
+        target: "emulator" (every slot) or "hardware" (the hardware slots
+            only; an emulator-only instruction fails the build).
         **kwargs: Additional arguments passed to genrule
     """
+    if target not in ("emulator", "hardware"):
+        fail("assemble_asm target must be emulator or hardware, not " + target)
     output_file = name + "." + output_format
-    flags = ["--define '%s=%s'" % (key, defines[key]) for key in sorted(defines)]
+    flags = [] if target == "emulator" else ["--target " + target]
+    flags += ["--define '%s=%s'" % (key, defines[key]) for key in sorted(defines)]
     include_dirs = []
     for include in includes:
         directory = include.rpartition("/")[0] or "."

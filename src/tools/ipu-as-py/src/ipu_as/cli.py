@@ -1,5 +1,8 @@
+import functools
 import json
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
@@ -9,6 +12,7 @@ import tomli
 
 from ipu_as import diagnostics, lark_tree, session, template
 from ipu_as.errors import AssemblerError, ParseError, TemplateError
+from ipu_isa.codec.slot import ReservedEncoding
 
 
 def _exit_with(error: AssemblerError) -> NoReturn:
@@ -43,6 +47,69 @@ def _parse_defines(
     return defines
 
 
+@dataclass(frozen=True)
+class TemplateArgs:
+    """The template inputs a command line gives.
+
+    Attributes:
+        defines: The `--define KEY=VALUE` values, as strings.
+        include_dirs: The `-I` directories, in order.
+    """
+
+    defines: dict[str, str]
+    include_dirs: tuple[str, ...]
+
+    def search_path(self, input: str) -> tuple[Path, ...]:
+        """The template search path for `input`.
+
+        Args:
+            input: The `--input` path, or `-` for stdin.
+
+        Returns:
+            The input's own directory (unless it is stdin), then each `-I` directory.
+        """
+        own = () if input == "-" else (Path(input).resolve().parent,)
+        return own + tuple(Path(d) for d in self.include_dirs)
+
+
+def _template_options(command: Callable) -> Callable:
+    """Add `--define` and `-I` to `command`, which receives them as one `template_args`."""
+
+    # functools.wraps shares command.__dict__, so the options click has already
+    # attached to `command` (those written below this decorator) stay with it.
+    @functools.wraps(command)
+    def with_template(*args, defines: dict[str, str], include_dirs: tuple[str, ...], **kwargs):
+        return command(*args, template_args=TemplateArgs(defines, include_dirs), **kwargs)
+
+    with_template = click.option(
+        "-I",
+        "--include-dir",
+        "include_dirs",
+        multiple=True,
+        type=click.Path(exists=True, file_okay=False),
+        help="A directory {% include %} and {% import %} resolve in, after the input's "
+        "own directory. Repeatable.",
+    )(with_template)
+    return click.option(
+        "--define",
+        "defines",
+        multiple=True,
+        callback=_parse_defines,
+        metavar="KEY=VALUE",
+        help="A template value, checked against the source's ipu:params header. Repeatable.",
+    )(with_template)
+
+
+_target_option = click.option(
+    "--target",
+    type=click.Choice(["emulator", "hardware"]),
+    default="emulator",
+    show_default=True,
+    help="The word to assemble: every slot, as the emulator runs it, or the hardware "
+    "slots only (an emulator-only instruction is then an error).",
+)
+
+
 @click.group()
 def cli():
     pass
@@ -57,23 +124,7 @@ def cli():
     default=None,
     help="Output format; by default bin for a .bin --output, else mem.",
 )
-@click.option(
-    "--define",
-    "defines",
-    multiple=True,
-    callback=_parse_defines,
-    metavar="KEY=VALUE",
-    help="A template value, checked against the source's ipu:params header. Repeatable.",
-)
-@click.option(
-    "-I",
-    "--include-dir",
-    "include_dirs",
-    multiple=True,
-    type=click.Path(exists=True, file_okay=False),
-    help="A directory {% include %} and {% import %} resolve in, after the input's "
-    "own directory. Repeatable.",
-)
+@_template_options
 @click.option(
     "--abi",
     "abi_path",
@@ -82,13 +133,14 @@ def cli():
     help="A kernel.toml whose [abi] table names the registers the template reads "
     "as {{ cr.<name> }} / {{ lr.<name> }}.",
 )
+@_target_option
 def assemble(
     input: str,
     output: str,
     format: str | None,
-    defines: dict[str, str],
-    include_dirs: tuple[str, ...],
+    template_args: TemplateArgs,
     abi_path: str | None,
+    target: str,
 ):
     """Assembles the given input file."""
     click.echo(f"Assembling file: {input}")
@@ -98,12 +150,12 @@ def assemble(
         text = source.read()
     abi = _read_abi(abi_path) if abi_path else None
     try:
-        result = session.assemble(
+        result = session.AssemblySession(
             text,
-            defines=defines,
-            search_path=_search_path(input, include_dirs),
+            defines=template_args.defines,
+            search_path=template_args.search_path(input),
             abi=abi,
-        )
+        ).assemble(target)
     except AssemblerError as error:
         _exit_with(error)
     if (format or _format_of(output)) == "bin":
@@ -117,12 +169,6 @@ def assemble(
 def _format_of(path: str) -> str:
     """The file format a path's suffix names: `bin` for `.bin`, else `mem`."""
     return "bin" if Path(path).suffix == ".bin" else "mem"
-
-
-def _search_path(input: str, include_dirs: tuple[str, ...]) -> tuple[Path, ...]:
-    """The input's own directory (unless it is stdin), then each `-I` directory."""
-    own = () if input == "-" else (Path(input).resolve().parent,)
-    return own + tuple(Path(d) for d in include_dirs)
 
 
 def _read_abi(path: str) -> dict[str, dict[str, str]]:
@@ -149,18 +195,24 @@ def _read_abi(path: str) -> dict[str, dict[str, str]]:
     default=None,
     help="Input format; by default bin for a .bin --input, else mem.",
 )
-def disassemble(input: str, output: str, format: str | None):
+@_target_option
+def disassemble(input: str, output: str, format: str | None, target: str):
     """Disassembles the given input file."""
     click.echo(f"Disassembling file: {input}")
     if output:
         click.echo(f"Output will be saved to: {output}")
     try:
         if (format or _format_of(input)) == "bin":
-            lark_tree.disassemble_from_bin_file(input, output)
+            lark_tree.disassemble_from_bin_file(input, output, target)
         else:
-            lark_tree.disassemble_from_mem_file(input, output)
+            lark_tree.disassemble_from_mem_file(input, output, target)
     except AssemblerError as error:
         _exit_with(error)
+    except ReservedEncoding:
+        # A slot holds an opcode no instruction has: most often a file of the
+        # other target's words.
+        click.echo(f"Error disassembling: {input} is not a file of {target} words")
+        sys.exit(1)
 
 
 #: The `check --json` versions this assembler can print; the contract is in
@@ -200,28 +252,14 @@ def _print_json_versions(ctx: click.Context, _param: click.Parameter, value: boo
     callback=_print_json_versions,
     help="Print the --json versions this assembler supports, as a JSON array, and exit.",
 )
-@click.option(
-    "--define",
-    "defines",
-    multiple=True,
-    callback=_parse_defines,
-    metavar="KEY=VALUE",
-    help="A template value, as for assemble. Repeatable.",
-)
-@click.option(
-    "-I",
-    "--include-dir",
-    "include_dirs",
-    multiple=True,
-    type=click.Path(exists=True, file_okay=False),
-    help="A directory includes resolve in, as for assemble. Repeatable.",
-)
+@_template_options
+@_target_option
 def check(
     input: str,
     as_json: bool,
     json_version: int | None,
-    defines: dict[str, str],
-    include_dirs: tuple[str, ...],
+    template_args: TemplateArgs,
+    target: str,
 ):
     """Report errors in an assembly source without producing output.
 
@@ -238,7 +276,10 @@ def check(
 
     try:
         found = diagnostics.check(
-            source, defines=defines, search_path=_search_path(input, include_dirs)
+            source,
+            defines=template_args.defines,
+            search_path=template_args.search_path(input),
+            target=target,
         )
     except Exception as error:  # noqa: BLE001 - see below
         # A crash in the checker must not read as "this program is fine". The

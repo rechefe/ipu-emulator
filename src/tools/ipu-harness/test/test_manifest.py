@@ -76,7 +76,8 @@ def test_the_scale_example_loads_into_the_expected_view(tmp_path):
     assert m.tensors["y"].role == "output" and m.tensors["y"].store == "element"
     assert dict(m.abi) == {"x": "CR2", "y": "CR3", "rows": "CR4", "s": "CR5"}
     assert m.golden.reference == "reference.py:reference"
-    assert m.golden.tolerance[ElementFormat.E4] == "FP8_ULP"
+    assert m.golden.tolerance[ElementFormat.E4].name == "FP8_ULP"
+    assert m.golden.tolerance[ElementFormat.E4].ulps == 1
     assert list(m.cases) == ["default", "one_row", "sweep", "mine"]
     assert dict(m.cases["default"].values) == {"rows": 4, "s": 2.0}
     assert m.cases["sweep"].values["rows"] == (1, 7, 33, 128)
@@ -154,6 +155,32 @@ S = 's    = { type = "float" }'
 
 # Each rule: an edit of the scale example (old -> new), the message, and the line it must name.
 RULES = [
+    # Tolerance tiers (E06-10): a known name, or an override with its why.
+    ('e4 = "FP8_ULP" }', 'e4 = "LOOSE" }', "'LOOSE' is no tier", 'e4 = "LOOSE"'),
+    (
+        'e4 = "FP8_ULP" }',
+        'e4 = { tier = "FP8_ULP", ulps = 2 } }',
+        "overrides a tier: it needs 'tier' and a 'why'",
+        "tolerance = {",
+    ),
+    (
+        'e4 = "FP8_ULP" }',
+        'e4 = { tier = "FP8_ULP", ulps = -1, why = "x" } }',
+        "-1 must not be negative",
+        "tolerance = {",
+    ),
+    (
+        'fp32 = "EXACT"',
+        'fp32 = { tier = "FP32_ORDER", ulps = 2, why = "x" }',
+        "is never read for fp32 at this tier",
+        "tolerance = {",
+    ),
+    (
+        'e4 = "FP8_ULP" }',
+        'e4 = { tier = "FP8_ULP", rtol = 0.1, why = "x" } }',
+        "is never read for e4 at this tier",
+        "tolerance = {",
+    ),
     # An input's range (E06-08): a non-empty [lo, hi], per format only for the kernel's formats.
     (
         '[inputs.x]\nshape = ["rows", 128]',
@@ -375,7 +402,7 @@ RULES = [
     (
         "tolerance = { fp32",
         'tolerance = { e5 = "X", fp32',
-        "tolerance for e5, a format the kernel does not run in",
+        "tolerance for e5, a format the kernel does not run in or accumulate in",
         "e5 =",
     ),
     ("rows = [1, 7, 33, 128]", "rows = []", "sweeps over no values", "rows = []"),
@@ -445,6 +472,21 @@ def test_formats_come_from_the_isa_enum(tmp_path):
     )
     toml = toml.replace('formats = ["fp32", "e4"]', 'formats = ["fp32"]')
     assert load_manifest(kernel(tmp_path, toml)).formats == tuple(ElementFormat)
+
+
+def test_a_tier_override_keeps_its_why(tmp_path):
+    toml = SCALE.replace(
+        'fp32 = "EXACT"', 'fp32 = { tier = "FP32_ORDER", rtol = 3e-5, why = "measured on case X" }'
+    )
+    tier = load_manifest(kernel(tmp_path, toml)).golden.tolerance[ElementFormat.FP32]
+    assert tier == ("FP32_ORDER", 3e-5, 1e-6, None, "measured on case X")
+
+
+def test_an_accumulator_format_may_name_a_tier(tmp_path):
+    # INT8 accumulates in INT32: an accumulator output in an int8 case is compared there.
+    toml = SCALE.replace('fp32 = "EXACT"', 'fp32 = "EXACT", int32 = "INT8_LSB"')
+    tiers = load_manifest(kernel(tmp_path, toml)).golden.tolerance
+    assert tiers[ElementFormat.INT32].name == "INT8_LSB"
 
 
 def test_an_input_range_is_per_format(tmp_path):

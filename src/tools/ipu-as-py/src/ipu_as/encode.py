@@ -3,9 +3,9 @@
 The assembler owns text: which slot each instruction takes, what each operand
 token means, and where an error is. The bits are the codec's: each slot value
 comes from ``SLOT_CODECS[slot].encode`` and the word from ``WORD_CODEC.pack``.
-Disassembly text is ``ipu_isa.codec.disasm`` (E03-18).
 
     words = [encode_word(compound) for compound in parsed]
+    text = disassemble_word(word)   # ipu_isa.codec.disasm (E03-18)
 """
 
 from __future__ import annotations
@@ -19,10 +19,12 @@ from types import MappingProxyType
 import ipu_as.ipu_token as ipu_token
 from ipu_as.errors import OperandError, SlotError
 from ipu_as.inst import OPERAND_TYPE_MAP
+from ipu_isa.codec import disasm
 from ipu_isa.codec.slot import OPCODE_SLOT, SLOT_CODECS, WORD_CODEC
 from ipu_isa.codec.slot import EncodeError as CodecError
 from ipu_isa.faults import reserved_operand_codes
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
+from ipu_isa.tags import Tag
 from ipu_isa.view import isa
 
 __all__ = [
@@ -31,7 +33,11 @@ __all__ = [
     "WILDCARD_OPCODES",
     "Placed",
     "assign_slots",
+    "disassemble_fields",
+    "disassemble_word",
     "encode_word",
+    "operation_text",
+    "target_tag",
 ]
 
 #: Mnemonics (lower case) that take the first free slot in layout order. Every
@@ -40,7 +46,7 @@ __all__ = [
 WILDCARD_OPCODES = frozenset({"nop"})
 
 #: Every slot instance of a word, most significant first: the order slots are
-#: filled in.
+#: filled in, and the order of the disassembly text.
 SLOT_INSTANCES: tuple[tuple[Slot, int], ...] = tuple(
     (slot, instance) for slot in LAYOUT_ORDER for instance in range(SLOTS[slot].count)
 )
@@ -207,25 +213,60 @@ def _encode_slot(slot: Slot, mnemonic: str, operands: tuple[int, ...]) -> int:
     return value
 
 
-def encode_word(compound: dict) -> int:
+def target_tag(target: str) -> Tag:
+    """The word a target assembles to (``ipu_isa.codec.disasm.target_tag``).
+
+    Args:
+        target: ``"emulator"`` or ``"hardware"`` (or the ``Tag`` itself).
+
+    Returns:
+        ``Tag.EMULATOR`` or ``Tag.HARDWARE``.
+
+    Raises:
+        ValueError: any other target.
+    """
+    return disasm.target_tag(target)
+
+
+def _check_target(placed: Placed, target: Tag) -> None:
+    """Raise if ``placed`` cannot be assembled for ``target``."""
+    opcode = placed.instruction["opcode"]
+    if target is not Tag.HARDWARE or opcode.token.value.lower() in WILDCARD_OPCODES:
+        return
+    if SLOT_CODECS[placed.slot].instruction(opcode.token.value).tag is Tag.EMULATOR:
+        raise SlotError(
+            f"{opcode.token.value} is emulator-only and cannot be assembled for --target hardware",
+            location=opcode.location(),
+            token=opcode.token.value,
+        )
+
+
+def encode_word(compound: dict, target: str = Tag.EMULATOR) -> int:
     """The instruction word of one parsed compound.
 
     Args:
         compound: One entry of ``ASTBuilder``'s output.
+        target: ``Tag.EMULATOR`` (the default) or ``Tag.HARDWARE``. The word is
+            the emulator word either way (``ipu_isa.codec.word.hardware_word``
+            takes its hardware part); for the hardware an EMULATOR-tagged
+            instruction is an error rather than a warning.
 
     Returns:
         The word; a slot instance no instruction takes is NOP.
 
     Raises:
-        SlotError: see ``assign_slots``.
+        SlotError: see ``assign_slots``; or, for ``Tag.HARDWARE``, an
+            emulator-only instruction.
         OperandError: a wrong operand count or an invalid operand value.
         LabelError: an undefined label.
 
     Warns:
-        UserWarning: an instruction of a simulation-only slot.
+        UserWarning: an instruction of a simulation-only slot (emulator target).
     """
+    target = target_tag(target)
     values = {}
     for placed in _placements(compound):
+        _check_target(placed, target)
         operands = _operand_values(placed)
         opcode = placed.instruction["opcode"]
         try:
@@ -236,10 +277,56 @@ def encode_word(compound: dict) -> int:
             raise OperandError(
                 str(error), location=opcode.location(), token=opcode.token.value
             ) from error
-        if opcode.token.value.lower() not in WILDCARD_OPCODES and SLOTS[placed.slot].debug_only:
+        if (
+            target is Tag.EMULATOR
+            and opcode.token.value.lower() not in WILDCARD_OPCODES
+            and SLOTS[placed.slot].debug_only
+        ):
             warnings.warn(
                 f"{opcode.token.value} uses the simulation-only {placed.slot.value} slot "
                 "(not implemented in real IPU hardware)",
                 stacklevel=2,
             )
     return WORD_CODEC.pack(values)
+
+
+# -- disassembly text -------------------------------------------------------------
+# The text is made in one place, ipu_isa.codec.disasm (E03-18); these names are
+# the assembler's entry points to it.
+
+
+def disassemble_word(word: int, target: str = Tag.EMULATOR) -> str:
+    """The assembly text of one word (``ipu_isa.codec.disasm.disassemble``).
+
+    Args:
+        word: The emulator word, or for ``Tag.HARDWARE`` the hardware word.
+        target: Which word ``word`` is; the hardware text has the hardware
+            slots only.
+
+    Returns:
+        One ``MNEMONIC field...`` group per slot instance, most significant
+        first, joined by ``;`` and ending in ``;;``.
+
+    Raises:
+        ValueError: An unknown target.
+        ReservedEncoding: A slot holds an opcode no instruction uses.
+    """
+    return disasm.disassemble(word, target=target)
+
+
+def disassemble_fields(fields: Mapping[str, int], target: str = Tag.EMULATOR) -> str:
+    """``disassemble_word`` of a word already split into its fields
+    (``ipu_isa.codec.disasm.disassemble_fields``).
+
+    Args:
+        fields: Wire field name -> value; missing is 0, extra bits are dropped.
+        target: Which slots to print: every slot, or the hardware slots.
+
+    Returns:
+        As ``disassemble_word``.
+    """
+    return disasm.disassemble_fields(fields, target=target)
+
+
+#: One slot's instruction in assembly order (``ipu_isa.codec.disasm.operation_text``).
+operation_text = disasm.operation_text

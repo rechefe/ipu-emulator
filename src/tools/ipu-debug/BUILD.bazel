@@ -56,6 +56,18 @@ py_pytest_test(
     ],
 )
 
+# The stage view from the decoded word (E08-07).
+py_pytest_test(
+    name = "test_pipeline",
+    srcs = ["test/test_pipeline.py"],
+    data = ["pytest.ini"],
+    imports = ["src"],
+    deps = [
+        ":ipu_debug_lib",
+        requirement("pytest"),
+    ],
+)
+
 py_pytest_test(
     name = "test_debug_tui",
     srcs = ["test/test_debug_tui.py"],
