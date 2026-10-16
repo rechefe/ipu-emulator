@@ -48,7 +48,7 @@ class OperandKind(Enum):
     LABEL = "label"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Domain:
     """The values an operand accepts: assembly names in encoding order
     (registers and enums), or an inclusive integer range (immediates and

@@ -184,6 +184,16 @@ def test_pseudo_literal_must_be_a_valid_register():
     )
 
 
+def test_pseudo_literal_may_be_any_register_in_the_target_domain():
+    """A register-pair literal is valid for an LrdIdx target (ADDB's dest)."""
+    pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
+    pseudo["B"] = copy.deepcopy(pseudo["B"])
+    pseudo["B"]["operands"] = [{"name": "src", "type": "LcrIdx"}]
+    pseudo["B"]["doc"].operands = ["src: source"]
+    pseudo["B"]["expands_to"] = {"slot": "lr", "instruction": "ADDB", "args": ["LRD0", "src"]}
+    validate_pseudo_instruction_spec(pseudo, INSTRUCTION_SPEC)
+
+
 def test_pseudo_expansion_target_must_exist():
     pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
     pseudo["B"]["expands_to"]["instruction"] = "BEQQ"
