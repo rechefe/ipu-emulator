@@ -27,7 +27,7 @@ from __future__ import annotations
 import functools
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 import numpy as np
@@ -58,11 +58,13 @@ class PlanError(ConfigurationError):
     Attributes:
         toml: The kernel's ``kernel.toml``.
         key: The key that failed, as ``section.name[.field]``.
+        reason: What is wrong, without the location (a routing refusal, E06-16).
     """
 
     def __init__(self, manifest: KernelManifest, key: str, message: str) -> None:
         self.toml = manifest.directory / TOML_NAME
         self.key = key
+        self.reason = message
         super().__init__(f"{self.toml}: {key}: {message}")
 
 
@@ -273,10 +275,12 @@ class ParamCheck:
     Attributes:
         params: Every parameter, defaults filled.
         formats: The kernel's formats whose element scalars accept the values.
+        derived: Every ``[derived]`` value (for a routing cost, E06-16).
     """
 
     params: Mapping[str, Value]
     formats: tuple[ElementFormat, ...]
+    derived: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
 
 
 def check_params(manifest: KernelManifest, params: Mapping[str, object]) -> ParamCheck:
@@ -303,7 +307,7 @@ def check_params(manifest: KernelManifest, params: Mapping[str, object]) -> Para
         except PlanError:
             continue
         formats.append(fmt)
-    return ParamCheck(MappingProxyType(checked), tuple(formats))
+    return ParamCheck(MappingProxyType(checked), tuple(formats), MappingProxyType(derived))
 
 
 def plan_case(

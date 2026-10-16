@@ -16,6 +16,9 @@ Schema
     ``ipu_isa.formats.ElementFormat`` names (``fp32``, ``int8``, ``e1``..``e7``,
     ``int32``). ``asm`` (path): the program, default ``<folder>.asm``.
     ``stages`` (``"file.py:fn"``): a multi-program pipeline (E06-14).
+    ``cost``: what routing (E06-16) minimises among the kernels that accept a
+    query: a non-negative number, or an expression in the shape grammar over
+    integer parameter and derived names; default 0.
 
 ``[params.<name>]`` (or ``<name> = { ... }`` under ``[params]``)
     ``type`` (required): ``int``, ``float``, ``bool`` or ``str``. ``min`` and
@@ -136,7 +139,7 @@ _SECTIONS = (
     "cases",
     "golden",
 )
-_KERNEL_KEYS = ("op", "formats", "asm", "stages")
+_KERNEL_KEYS = ("op", "formats", "asm", "stages", "cost")
 _PARAM_KEYS = ("type", "min", "max", "multiple_of", "choices", "default", "unit")
 _TENSOR_KEYS: Mapping[Role, tuple[str, ...]] = {
     "input": ("shape", "row", "pack", "range"),
@@ -262,6 +265,8 @@ class KernelManifest:
         cases: The cases, ``default`` among them.
         golden: How outputs are checked.
         stages: ``"stages.py:run"`` for a multi-program pipeline (E06-14).
+        cost: Routing cost: a number, or an expression over integer
+            parameters and derived values (E06-16).
         fixed: Parameters a registry entry fixed (E06-17), with their values.
     """
 
@@ -278,6 +283,7 @@ class KernelManifest:
     golden: GoldenDecl
     stages: str | None = None
     fixed: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    cost: int | float | str = 0
 
     @property
     def byte_units(self) -> bool:
@@ -632,6 +638,7 @@ class _KernelTable:
     formats: tuple[ElementFormat, ...]
     asm: Path
     stages: str | None
+    cost: int | float | str
 
 
 def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
@@ -653,7 +660,10 @@ def _kernel(r: Reader, directory: Path, raw: object) -> _KernelTable:
     stages = (
         r.function(directory, table["stages"], ("kernel", "stages")) if "stages" in table else None
     )
-    return _KernelTable(op, formats, asm, stages)
+    cost = r.typed(table.get("cost", 0), (int, float, str), ("kernel", "cost"))
+    if not isinstance(cost, str) and cost < 0:
+        raise r.fail(("kernel", "cost"), f"[kernel] cost {cost} must not be negative")
+    return _KernelTable(op, formats, asm, stages, cost)
 
 
 @dataclass(frozen=True)
@@ -771,6 +781,9 @@ def load_manifest(
     entry = _overrides(toml, params, kernel.formats, overrides or {}, source)
     derived = _derived(r, data.get("derived", {}), params)
     scalars = (*params, *derived)
+    if isinstance(kernel.cost, str):
+        integers = [n for n, p in params.items() if p.type == "int"]
+        _check_expression(r, kernel.cost, (*integers, *derived), ("kernel", "cost"))
     tensors = _tensors(r, data, scalars, kernel.formats)
     manifest = KernelManifest(
         name=entry.name or directory.name,
@@ -786,6 +799,7 @@ def load_manifest(
         golden=_golden(r, directory, data.get("golden", {}), kernel.formats),
         stages=kernel.stages,
         fixed=entry.fixed,
+        cost=kernel.cost,
     )
     raw_cases = r.table(data.get("cases", {}), ("cases",))
     if "default" not in raw_cases:
