@@ -6,6 +6,8 @@ Pseudo-instructions are assembly mnemonics that the assembler expands into a rea
 
 **Syntax:** `BGT.S reg1 reg2 label`
 
+**Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -34,6 +36,8 @@ BGT.S LR0 LR1 bigger;;
 ### `BLE.S` — Branch if Less or Equal (pseudo)
 
 **Syntax:** `BLE.S reg1 reg2 label`
+
+**Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
@@ -64,6 +68,8 @@ BLE.S LR0 LR1 smaller_or_equal;;
 
 **Syntax:** `BZ reg label`
 
+**Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -92,6 +98,8 @@ BZ LR0 done;;
 
 **Syntax:** `BNZ reg label`
 
+**Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
+
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 
 | Name | Type | Details |
@@ -119,6 +127,8 @@ BNZ LR0 loop;;
 ### `B` — Unconditional Branch (pseudo)
 
 **Syntax:** `B label`
+
+**Tag:** `ASSEMBLER` (expanded by the assembler; no opcode)
 
 **Operands:** *(the **Type** column links to the [operand type reference](operand-types.md))*
 

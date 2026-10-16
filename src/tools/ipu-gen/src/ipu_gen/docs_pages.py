@@ -13,8 +13,8 @@ from pathlib import Path
 from ipu_as.inst import render_opcode_doc, render_slot_docs
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
 from ipu_isa.formats import FORMATS
-from ipu_isa.layout import word_bits
 from ipu_isa.registers import create_assembler_reg_enums
+from ipu_isa.tags import Tag
 from ipu_isa.timing import KNOWN_DEVIATIONS, SLOT_EXECUTION_ORDER, RegisterAccess, View
 from ipu_isa.view import Isa, isa
 
@@ -436,14 +436,16 @@ def _generate_slots_section(view: Isa) -> str:
         "Slots are grouped into pipeline stages that execute sequentially within a cycle: "
         "**CTRL** (COND + LR run concurrently; LOAD address is resolved here and the data feeds MULT) "
         "→ **MULT** → **ACC** → **AAQ** → **STORE**. "
-        "`ACC_STORE` and `BREAK` are simulation-only. "
+        f"{_emulator_only_sentence(view)} "
         "Any omitted slot is filled with `NOP` by the assembler automatically.\n",
-        "| Slot | Count | Description |",
-        "|------|------:|-------------|",
+        "| Slot | Count | Tag | Description |",
+        "|------|------:|-----|-------------|",
     ]
     for slot in view.layout.layout_order:
         info = view.slots[slot]
-        lines.append(f"| `{slot.value.upper()}` | {info.count} | {info.description} |")
+        lines.append(
+            f"| `{slot.value.upper()}` | {info.count} | `{info.tag.name}` | {info.description} |"
+        )
     lines += [
         "",
         "### `NOP` — No Operation\n",
@@ -454,6 +456,64 @@ def _generate_slots_section(view: Isa) -> str:
         "the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).\n",
     ]
     return "\n".join(lines)
+
+
+def _slot_names(view: Isa, tag: Tag) -> str:
+    """``tag``'s slots, MSB first, with their copy counts, for example ``"`LR`×3, `LOAD`"``."""
+    return ", ".join(
+        f"`{slot.value.upper()}`"
+        + (f"×{view.slots[slot].count}" if view.slots[slot].count > 1 else "")
+        for slot in view.layout.slots_with_tag(tag)
+    )
+
+
+def _emulator_only_sentence(view: Isa) -> str:
+    return f"{_slot_names(view, Tag.EMULATOR)} are emulator-only: not in the hardware word."
+
+
+def _word_layout_sections(view: Isa, level: str) -> str:
+    """The hardware word, then the emulator word, each with its diagrams.
+
+    Args:
+        view: The ISA.
+        level: The heading level of the two sections (``"##"`` or ``"###"``).
+
+    Returns:
+        Markdown: the hardware word first, as the SV package describes it.
+    """
+    hardware = view.layout.slots_with_tag(Tag.HARDWARE)
+    emulator = view.layout.slots_with_tag(Tag.EMULATOR)
+    hw_bits = view.layout.word_bits(Tag.HARDWARE)
+    all_bits = view.layout.word_bits()
+    sub = level + "#"
+    return f"""{level} Hardware word ({hw_bits} bits)
+
+The part of the instruction word the IPU decodes: the hardware slots
+({_slot_names(view, Tag.HARDWARE)}). The SystemVerilog package describes this
+word (`IPU_COMPOUND_INST_WIDTH = {hw_bits}`).
+
+{sub} Whole-word bit layout
+
+{struct_layout_svg(view, hardware, title="Hardware word")}
+
+{sub} Per-slot union layout
+
+{union_layout_svg(view, hardware)}
+
+{level} Emulator word ({all_bits} bits)
+
+The word the emulator decodes and `.bin` files hold: the hardware word followed by
+the emulator-only slots ({_slot_names(view, Tag.EMULATOR)}) below its bit 0. Its top
+{hw_bits} bits are the hardware word.
+
+{sub} Emulator-only slots: union layout
+
+{union_layout_svg(view, emulator)}
+
+{sub} Whole-word bit layout
+
+{struct_layout_svg(view, title="Emulator word")}
+"""
 
 
 def _generate_formats_section() -> str:
@@ -493,7 +553,8 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
 
     content.append("## Compound Instruction Layout\n")
     content.append(
-        "The compound (VLIW) instruction word is shown two ways below.\n\n"
+        "The compound (VLIW) instruction word is shown two ways below, first as the "
+        "hardware word, then as the emulator word.\n\n"
         "* **Whole-word bit layout** — every operand token in its actual bit "
         "position (MSB → LSB), coloured by the owning slot. This is what an "
         "encoded VLIW word looks like in memory.\n"
@@ -502,10 +563,7 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
         "each opcode places in each field. Useful for seeing where cross-"
         "opcode field sharing comes from.\n"
     )
-    content.append("\n### Whole-word bit layout\n")
-    content.append(struct_layout_svg(view))
-    content.append("\n### Per-slot union layout\n")
-    content.append(union_layout_svg(view))
+    content.append(_word_layout_sections(view, "###"))
     content.append("\n---\n\n")
 
     for slot in view.layout.layout_order:
@@ -516,28 +574,20 @@ def generate_instruction_docs(output_path: Path, view: Isa | None = None) -> Non
     print(f"Generated documentation at {output_path}")
 
 
-def generate_instruction_format_md(output_path: Path) -> None:
-    """Generate the instruction-format documentation page (with download links)."""
-    width = word_bits()
-    struct_svg = struct_layout_svg()
-    union_svg = union_layout_svg()
+def generate_instruction_format_md(output_path: Path, view: Isa | None = None) -> None:
+    """Generate the instruction-format documentation page (with download links).
 
+    The hardware word comes first, as the SV package describes it; the emulator
+    word follows as the hardware word plus the emulator-only slots (E03-23).
+    """
+    view = isa() if view is None else view
     content = f"""# Instruction format
 
 This page describes the **binary layout** of a single IPU **compound (VLIW) instruction**.
 Field names, bit widths, opcode values, and union-field sharing are **generated** from
 `instruction_spec.py` in `ipu_isa` (the same source the assembler and emulator use).
 
-## Compound instruction layout ({width} bits)
-
-### Whole-word bit layout
-
-{struct_svg}
-
-### Per-slot union layout
-
-{union_svg}
-
+{_word_layout_sections(view, "##")}
 ## Generated artifacts
 
 These files are produced at documentation build time (and via the `ipu-gen` CLI). They are
@@ -545,7 +595,7 @@ These files are produced at documentation build time (and via the `ipu-gen` CLI)
 
 | Artifact | Description | Download |
 |----------|-------------|----------|
-| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, nested compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
+| SystemVerilog package | `ipu_instr_pkg` — enums, per-slot structs (opcode + operand union), per-instruction `union packed` views, the hardware word as the compound type | [ipu_instr_pkg.sv](assets/ipu_instr_pkg.sv) |
 
 ### Regenerate locally
 
@@ -581,7 +631,7 @@ def generate_programmer_guide_md(output_path: Path, view: Isa | None = None) -> 
 
     for pseudo in (isa() if view is None else view).pseudos():
         target = pseudo.expands_to
-        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands)
+        lines = render_opcode_doc(pseudo.mnemonic, pseudo.doc, pseudo.operands, pseudo.tag)
         lines.append("")
         lines.append(
             f"**Expands to:** `{target.mnemonic}` "

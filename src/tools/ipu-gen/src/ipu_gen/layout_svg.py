@@ -19,7 +19,7 @@ codec (``WORD_LAYOUT``).
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import SlotUnion
@@ -195,9 +195,14 @@ def render_union_layout_svg(
 _WORD_TITLE = "CompoundInst"
 
 
-def _word_slots(view: Isa) -> list[Slot]:
-    """Every slot copy of the instruction word, MSB first."""
-    return [slot for slot in view.layout.layout_order for _ in range(view.slots[slot].count)]
+def _shown(view: Isa, slots: Sequence[Slot] | None) -> list[Slot]:
+    """``slots`` (default: every slot) in layout order, MSB first."""
+    return [slot for slot in view.layout.layout_order if slots is None or slot in slots]
+
+
+def _word_slots(view: Isa, slots: Sequence[Slot] | None = None) -> list[Slot]:
+    """Every slot copy of the word made of ``slots`` (default: every slot), MSB first."""
+    return [slot for slot in _shown(view, slots) for _ in range(view.slots[slot].count)]
 
 
 def _snake_case(name: str) -> str:
@@ -213,15 +218,20 @@ def _slot_tokens(view: Isa, slot: Slot) -> list[tuple[str, int]]:
     return [(_snake_case(name), bits) for name, bits in tokens]
 
 
-def union_layout_svg(view: Isa | None = None) -> str:
+def union_layout_svg(view: Isa | None = None, slots: Sequence[Slot] | None = None) -> str:
     """The per-slot union layout of ``view`` (default: ``isa()``), slots in word
     order (MSB → LSB).
+
+    Args:
+        view: The ISA.
+        slots: The slots to draw, for example ``slots_with_tag(Tag.HARDWARE)``;
+            default every slot.
 
     Returns:
         The SVG source.
     """
     view = isa() if view is None else view
-    order = view.layout.layout_order
+    order = _shown(view, slots)
     return render_union_layout_svg(
         view.layout.unions,
         slot_order=[slot.value for slot in order],
@@ -242,12 +252,12 @@ _TEXT_LINE_H = 11
 _LEGEND_BOX = 12
 
 
-def _word_fields(view: Isa) -> list[dict]:
-    """Every field of the instruction word, LSB first, with its bit range and slot colour."""
+def _word_fields(view: Isa, slots: Sequence[Slot] | None = None) -> list[dict]:
+    """Every field of the word made of ``slots``, LSB first, with its bit range and slot colour."""
     colours = {slot: info.legend_colour for slot, info in view.slots.items()}
     fields = []
     current_bit = 0
-    for slot in reversed(_word_slots(view)):
+    for slot in reversed(_word_slots(view, slots)):
         for token_name, token_bits in reversed(_slot_tokens(view, slot)):
             fields.append(
                 {
@@ -328,13 +338,14 @@ def _row_svg(row_idx: int, num_rows: int, total_bits: int, fields: list[dict]) -
     return out
 
 
-def _legend_svg(view: Isa, legend_y: float) -> list[str]:
-    """The slot colour key below the rows."""
+def _legend_svg(view: Isa, legend_y: float, slots: Sequence[Slot]) -> list[str]:
+    """The colour key of ``slots``, below the rows."""
     out = [
         f'  <text x="{_ROW_X}" y="{legend_y}" class="inst-label" '
         f'style="font-weight: bold;">Instruction Type Colors:</text>'
     ]
-    for i, info in enumerate(view.slots.values()):
+    infos = [info for slot, info in view.slots.items() if slot in slots]
+    for i, info in enumerate(infos):
         y_pos = legend_y + 15 + i * 15
         out.append(
             f'  <rect x="{_ROW_X}" y="{y_pos - _LEGEND_BOX + 2}" '
@@ -348,8 +359,10 @@ def _legend_svg(view: Isa, legend_y: float) -> list[str]:
     return out
 
 
-def struct_layout_svg(view: Isa | None = None) -> str:
-    """Render the whole instruction word as bit rows of 32.
+def struct_layout_svg(
+    view: Isa | None = None, slots: Sequence[Slot] | None = None, title: str = _WORD_TITLE
+) -> str:
+    """Render a whole instruction word as bit rows of 32.
 
     Shows every operand field in its actual bit position, coloured by the
     owning slot.  Complements ``union_layout_svg`` by giving the whole-word
@@ -357,14 +370,21 @@ def struct_layout_svg(view: Isa | None = None) -> str:
     folding cross-opcode field sharing. Field labels are the token-class names
     the ISA records (``SlotInfo.asm_opcode_class``, ``OperandType.token_class``).
 
+    Args:
+        view: The ISA.
+        slots: The word's slots, for example ``slots_with_tag(Tag.HARDWARE)``
+            for the hardware word; default every slot (the emulator word).
+        title: The diagram title's first word.
+
     Returns:
         The SVG source.
     """
     view = isa() if view is None else view
-    fields = _word_fields(view)
-    total_bits = view.layout.word_bits()
+    shown = _shown(view, slots)
+    fields = _word_fields(view, shown)
+    total_bits = sum(view.layout.slot_width(slot) * view.slots[slot].count for slot in shown)
     num_rows = (total_bits + 31) // 32
-    legend_height = 20 + len(view.slots) * 15
+    legend_height = 20 + len(shown) * 15
     svg_width = _ROW_W + _PAD * 2 + 80
     svg_height = (num_rows * _ROW_H) + _TITLE_PX * 4 + _PAD * 3 + legend_height
     svg_lines = [
@@ -380,11 +400,11 @@ def struct_layout_svg(view: Isa | None = None) -> str:
         f'  <rect x="0" y="0" width="{svg_width}" height="{svg_height}" fill="white" stroke="none"/>',
         f'  <text x="{svg_width / 2}" y="{_PAD + _TITLE_PX}" '
         f'text-anchor="middle" class="inst-title">'
-        f"{_WORD_TITLE} Layout - {total_bits} total bits</text>",
+        f"{_escape(title)} Layout - {total_bits} total bits</text>",
     ]
     for row_idx in range(num_rows - 1, -1, -1):
         svg_lines += _row_svg(row_idx, num_rows, total_bits, fields)
-    svg_lines += _legend_svg(view, _PAD + _TITLE_PX * 2.5 + (num_rows * _ROW_H) + 20)
+    svg_lines += _legend_svg(view, _PAD + _TITLE_PX * 2.5 + (num_rows * _ROW_H) + 20, shown)
     svg_lines.append("</svg>")
     return "\n".join(svg_lines)
 
