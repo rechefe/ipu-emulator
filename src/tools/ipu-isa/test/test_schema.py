@@ -7,6 +7,7 @@ validator rejects it with the path of the offending entry.
 from __future__ import annotations
 
 import copy
+import dataclasses
 
 import pytest
 
@@ -136,13 +137,17 @@ def test_read_on_a_non_register_operand():
 def test_doc_operand_names_must_match():
     spec = _spec()
     doc = spec["lr"]["ADD"]["doc"]
-    doc.operands = ["dst: wrong name"] + list(doc.operands[1:])
+    spec["lr"]["ADD"]["doc"] = dataclasses.replace(
+        doc, operands=["dst: wrong name", *doc.operands[1:]]
+    )
     _rejects(spec, r"lr\.ADD\.doc\.operands: names \['dst', .*\] do not match")
 
 
 def test_example_has_no_comma():
     spec = _spec()
-    spec["lr"]["ADD"]["doc"].example = "ADD LR0, LR1, LR2;;"
+    spec["lr"]["ADD"]["doc"] = dataclasses.replace(
+        spec["lr"]["ADD"]["doc"], example="ADD LR0, LR1, LR2;;"
+    )
     _rejects(spec, r"lr\.ADD\.doc\.example: separate operands with spaces")
 
 
@@ -193,7 +198,7 @@ def test_pseudo_literal_may_be_any_register_in_the_target_domain():
     pseudo = copy.deepcopy(PSEUDO_INSTRUCTION_SPEC)
     pseudo["B"] = copy.deepcopy(pseudo["B"])
     pseudo["B"]["operands"] = [{"name": "src", "type": "LcrIdx"}]
-    pseudo["B"]["doc"].operands = ["src: source"]
+    pseudo["B"]["doc"] = dataclasses.replace(pseudo["B"]["doc"], operands=["src: source"])
     pseudo["B"]["expands_to"] = {"slot": "lr", "instruction": "ADDB", "args": ["LRD0", "src"]}
     validate_pseudo_instruction_spec(pseudo, INSTRUCTION_SPEC)
 

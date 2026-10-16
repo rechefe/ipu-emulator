@@ -52,10 +52,7 @@ from ipu_isa.constants import (
 )
 from ipu_isa.geometry import LANES
 from ipu_isa.incr_mod_pow2_k import LR_MOD_POW2_K_ENCODED_MAX, LR_MOD_POW2_K_MIN
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    get_opcode_for_instruction,
-)
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
 from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.registers import (
@@ -64,6 +61,7 @@ from ipu_isa.registers import (
 )
 from ipu_isa.reshape_mask import RESHAPE_ELEMENT_COUNT, RESHAPE_MASK_LR_OFFSET
 from ipu_isa.slots import SLOTS, Slot
+from ipu_isa.view import get_opcode_for_instruction
 
 # ---------------------------------------------------------------------------
 # Constants — derived from the single source of truth in ipu-isa

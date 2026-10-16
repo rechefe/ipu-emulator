@@ -9,6 +9,7 @@ an ISA rule: any CR0-CR15 is a valid operand.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import IntEnum
 from types import MappingProxyType
@@ -78,7 +79,7 @@ class DStructureConfig:
     partition: Partition = DEFAULT_PARTITION
     pad_mode: PadMode = DEFAULT_PAD_MODE
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         """Allow tuple unpacking as (valid_elements, partition)."""
         yield self.valid_elements
         yield self.partition

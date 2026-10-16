@@ -32,11 +32,9 @@ from ipu_as.compound_inst import CompoundInst
 # Re-export Ipu class and BreakResult for backward compatibility
 from ipu_emu.ipu import BreakResult, Ipu
 from ipu_emu.ipu_state import IpuState
-from ipu_isa.instruction_spec import (
-    SLOT_COUNT,
-    get_instruction_by_opcode,
-)
+from ipu_isa.instruction_spec import SLOT_COUNT
 from ipu_isa.slots import SLOTS
+from ipu_isa.view import get_instruction_by_opcode
 
 # ---------------------------------------------------------------------------
 # Instruction word decoder

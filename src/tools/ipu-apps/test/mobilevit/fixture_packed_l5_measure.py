@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from ipu_emu.execute import BreakResult
 from ipu_emu.ipu import _SLOT_FIELD_PREFIX, Ipu
-from ipu_isa.instruction_spec import get_instruction_by_opcode
+from ipu_isa.view import get_instruction_by_opcode
 
 #: The slots a cycle runs after its break slot (the LR slots are not counted).
 _AFTER_BREAK = tuple(slot for slot in _SLOT_FIELD_PREFIX if slot != "break")

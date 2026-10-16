@@ -21,7 +21,9 @@ Algorithm (per slot)
 7. A slot with ``pad_to_bits`` grows one field to reach that width.
 
 The solver is pure: it takes the bit widths and padding targets as arguments
-and returns new frozen values. ``ipu_isa.layout`` runs it once over the spec.
+and returns new frozen values. :func:`compute_layout` runs it over a whole
+spec into an :class:`IsaLayout`; ``ipu_isa.view.load_isa`` calls it once for
+the repository's ISA.
 """
 
 from __future__ import annotations
@@ -29,8 +31,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
+from typing import Any
 
-from ipu_isa.operand_types import OPERAND_TYPES
+from ipu_isa.operand_types import OPERAND_TYPES, OperandType
+from ipu_isa.schema import SpecError
+from ipu_isa.slots import LAYOUT_ORDER, Slot, SlotInfo
+from ipu_isa.tags import Tag
 
 
 def get_operand_type_bits() -> dict[str, int]:
@@ -88,7 +94,7 @@ class SlotUnion:
 
 def compute_slot_layout(
     slot_name: str,
-    instructions: Mapping,
+    instructions: Mapping[str, Mapping[str, Any]],
     type_bits: Mapping[str, int],
     pad_to_bits: int | None = None,
 ) -> SlotUnion:
@@ -222,3 +228,86 @@ def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
             fields = tuple(padded if f is slot_field else f for f in su.fields)
             return replace(su, fields=fields)
     raise ValueError(f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})")
+
+
+@dataclass(frozen=True)
+class IsaLayout:
+    """The packed layout of every slot and the width of every operand type."""
+
+    #: Slot to its union layout, in the spec's slot order.
+    unions: Mapping[Slot, SlotUnion]
+    #: Operand type name to its field width, derived widths filled in.
+    operand_bits: Mapping[str, int]
+    #: Each slot's tag and instance count, as the word is built from them.
+    slots: Mapping[Slot, SlotInfo]
+    #: Slots in the word, most significant first.
+    layout_order: tuple[Slot, ...]
+
+    def slot_width(self, slot: Slot) -> int:
+        """Bits of one instance of ``slot``."""
+        return self.unions[slot].bits
+
+    def slots_with_tag(self, tag: Tag) -> tuple[Slot, ...]:
+        """The slots tagged ``tag``, in layout order."""
+        return tuple(slot for slot in self.layout_order if self.slots[slot].tag is tag)
+
+    def word_bits(self, tag: Tag | None = None) -> int:
+        """Width of the emulator word (``None``) or of its ``tag`` slots only.
+
+        ``word_bits(Tag.HARDWARE)`` is the hardware word: the most significant
+        bits of the emulator word (Q41).
+        """
+        slots = self.layout_order if tag is None else self.slots_with_tag(tag)
+        return sum(self.slot_width(slot) * self.slots[slot].count for slot in slots)
+
+
+def _derived_operand_bits(
+    unions: Mapping[Slot, SlotUnion], operand_types: Mapping[str, OperandType]
+) -> dict[str, int]:
+    """Every operand type's width; a type without an authored width takes the
+    width of the field that carries it, which must be the same everywhere."""
+    bits = {name: record.bits for name, record in operand_types.items() if record.bits}
+    packed: dict[str, set[int]] = {}
+    for su in unions.values():
+        for field in su.fields:
+            for _operand_name, actual_type in field.users.values():
+                packed.setdefault(actual_type, set()).add(field.bits)
+    for name, record in operand_types.items():
+        if record.bits:
+            continue
+        widths = packed.get(name)
+        if not widths:
+            raise SpecError(f"OPERAND_TYPES.{name}: width is derived but no instruction uses it")
+        if len(widths) != 1:
+            raise SpecError(
+                f"OPERAND_TYPES.{name}: width is derived but its fields differ: {sorted(widths)}"
+            )
+        (bits[name],) = widths
+    return bits
+
+
+def compute_layout(
+    spec: Mapping[str, Mapping[str, Any]],
+    operand_types: Mapping[str, OperandType],
+    slots: Mapping[Slot, SlotInfo],
+    layout_order: tuple[Slot, ...] = LAYOUT_ORDER,
+) -> IsaLayout:
+    """Solve the layout of ``spec``. Pure: equal inputs give equal results."""
+    if set(spec) != set(slots) or sorted(layout_order) != sorted(slots):
+        raise SpecError(
+            f"compute_layout: spec slots {sorted(spec)}, slot registry {sorted(slots)} and "
+            f"layout order {sorted(layout_order)} must name the same slots"
+        )
+    type_bits = {name: record.bits or 0 for name, record in operand_types.items()}
+    unions = {
+        Slot(slot): compute_slot_layout(
+            slot, instructions, type_bits, slots[Slot(slot)].pad_to_bits
+        )
+        for slot, instructions in spec.items()
+    }
+    return IsaLayout(
+        unions=MappingProxyType(unions),
+        operand_bits=MappingProxyType(_derived_operand_bits(unions, operand_types)),
+        slots=MappingProxyType(dict(slots)),
+        layout_order=tuple(layout_order),
+    )
