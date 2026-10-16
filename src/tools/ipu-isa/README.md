@@ -9,6 +9,9 @@ catalogue live in `ipu_emu`, and generators live in `ipu_gen`.
 `ipu-isa` provides the single source of truth for:
 
 - **Instructions** (`instruction_spec.py`): every slot, instruction and operand
+- **Element formats** (`formats.py`): `ElementFormat` (`int8`, `e1`..`e7`, and the
+  emulator-only `fp32`, `int32`) with the element bytes, row bytes, accumulator
+  type and register element layout derived from each
 - **Errors** (`errors.py`): `IpuError`, the root of every IPU tooling error
 - **Register descriptors** (`RegDescriptor`): Metadata for all IPU registers
 - **Data types** (`RegDtype`): Register storage formats (uint8, int8, uint32, int32, uint128)

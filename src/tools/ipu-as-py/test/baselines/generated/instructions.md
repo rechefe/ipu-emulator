@@ -24,6 +24,23 @@ A VLIW instruction word encodes one sub-instruction per slot. Slots are grouped 
 
 No operation. Every slot accepts `NOP`. The assembler fills any omitted slot with `NOP` automatically. When written explicitly in a compound instruction, `NOP` is assigned to the next unfilled slot in compound-layout order (COND → LR → LOAD → MULT → ACC → AAQ → STORE → ACC_STORE → BREAK).
 
+## Element formats
+
+The element format is selected at run time. It sets the element width, and from it the XMEM row width, the register element widths and the accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. `EMULATOR` formats exist only in the emulator. A float element is 1 sign bit, the exponent bits and the stored mantissa bits.
+
+| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |
+|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|
+| `INT8` | `HARDWARE` | 8 | 0 | 0 | 128 | `INT32` |
+| `E1` | `HARDWARE` | 8 | 1 | 6 | 128 | `FP32` |
+| `E2` | `HARDWARE` | 8 | 2 | 5 | 128 | `FP32` |
+| `E3` | `HARDWARE` | 8 | 3 | 4 | 128 | `FP32` |
+| `E4` | `HARDWARE` | 8 | 4 | 3 | 128 | `FP32` |
+| `E5` | `HARDWARE` | 8 | 5 | 2 | 128 | `FP32` |
+| `E6` | `HARDWARE` | 8 | 6 | 1 | 128 | `FP32` |
+| `E7` | `HARDWARE` | 8 | 7 | 0 | 128 | `FP32` |
+| `FP32` | `EMULATOR` | 32 | 8 | 23 | 512 | `FP32` |
+| `INT32` | `EMULATOR` | 32 | 0 | 0 | 512 | `INT32` |
+
 ## Compound Instruction Layout
 
 The compound (VLIW) instruction word is shown two ways below.

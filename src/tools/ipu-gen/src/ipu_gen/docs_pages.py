@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ipu_as.inst import Inst
 from ipu_gen.layout_svg import struct_layout_svg, union_layout_svg
+from ipu_isa.formats import FORMATS
 from ipu_isa.instruction_spec import (
     COMPOUND_LAYOUT_SLOT_ORDER,
     PSEUDO_INSTRUCTION_SPEC,
@@ -374,6 +375,27 @@ def _generate_slots_section() -> str:
     return "\n".join(lines)
 
 
+def _generate_formats_section() -> str:
+    """Generate the Element formats table from ``ipu_isa.formats``."""
+    lines: list[str] = [
+        "## Element formats\n",
+        "The element format is selected at run time. It sets the element width, "
+        "and from it the XMEM row width, the register element widths and the "
+        "accumulator type. An XMEM row, R0 and R1 hold 128 elements in every format. "
+        "`EMULATOR` formats exist only in the emulator. A float element is "
+        "1 sign bit, the exponent bits and the stored mantissa bits.\n",
+        "| Format | Tag | Element bits | Exponent bits | Mantissa bits | Row bytes | Accumulator |",
+        "|--------|-----|-------------:|--------------:|--------------:|----------:|-------------|",
+    ]
+    for fmt, info in FORMATS.items():
+        lines.append(
+            f"| `{fmt.name}` | `{info.tag.name}` | {info.element_bits} | {info.exp_bits} | "
+            f"{info.man_bits} | {info.row_bytes} | `{info.accumulator.name}` |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_instruction_docs(output_path: Path) -> None:
     """Generate instruction reference documentation."""
 
@@ -385,6 +407,7 @@ def generate_instruction_docs(output_path: Path) -> None:
     )
 
     content.append(_generate_slots_section())
+    content.append(_generate_formats_section())
 
     content.append("## Compound Instruction Layout\n")
     content.append(
