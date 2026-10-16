@@ -23,7 +23,7 @@ const isDirectory = (p) => fs.stat(p).then((s) => s.isDirectory(), () => false);
 
 async function isCheckout(dir) {
   const marked = await Promise.all(WORKSPACE_FILES.map((f) => exists(path.join(dir, f))));
-  return marked.some(Boolean) && isDirectory(path.join(dir, IPU_PACKAGE));
+  return marked.some(Boolean) && (await isDirectory(path.join(dir, IPU_PACKAGE)));
 }
 
 /** The IPU checkout holding `fsPath` (a file or a directory), or null. */
@@ -62,4 +62,4 @@ function within(dir, target) {
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : null;
 }
 
-module.exports = { checkoutOf, checkoutsFor, isCheckout, within };
+module.exports = { checkoutOf, checkoutsFor, exists, isCheckout, within };

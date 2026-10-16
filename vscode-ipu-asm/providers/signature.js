@@ -49,4 +49,4 @@ function register(context, { lang }) {
   }, { triggerCharacters: [' '], retriggerCharacters: [' '] });
 }
 
-module.exports = { register, describeDomain };
+module.exports = { register };

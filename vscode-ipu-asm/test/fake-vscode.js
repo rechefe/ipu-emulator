@@ -53,7 +53,7 @@ const disposable = () => ({ dispose() {} });
 /** Install the fake as `vscode` for every module required from now on. `folders` are the
  *  workspace folders' paths; `settings` the `ipuAsm.*` values each folder sees. */
 function install({ trusted = true, folders = [], settings = {} } = {}) {
-  const log = { statuses: [], warnings: [], errors: [], terminals: [], commands: new Map() };
+  const log = { statuses: [], warnings: [], errors: [], terminals: [], watchers: [], commands: new Map() };
   const events = new Proxy({}, { get: (all, key) => (all[key] = all[key] || new EventEmitter()) });
   const on = (name) => events[name].event;
   const workspaceFolders = folders.map((dir, index) => ({ uri: Uri.file(dir), name: path.basename(dir), index }));
@@ -68,6 +68,11 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
   const vscode = {
     EventEmitter,
     Uri,
+    RelativePattern: class RelativePattern {
+      constructor(base, pattern) {
+        Object.assign(this, { baseUri: base, pattern });
+      }
+    },
     workspace: {
       get isTrusted() { return trusted; },
       workspaceFolders,
@@ -79,9 +84,18 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
         inspect: () => ({}),
         update: async () => {},
       }),
-      createFileSystemWatcher: () => ({
-        onDidCreate: disposable, onDidChange: disposable, onDidDelete: disposable, dispose() {},
-      }),
+      /** Each watcher is noted with its pattern; `fire('Change', uri)` reports a file event. */
+      createFileSystemWatcher: (pattern) => {
+        const emitters = { Create: new EventEmitter(), Change: new EventEmitter(), Delete: new EventEmitter() };
+        const watcher = {
+          pattern,
+          onDidCreate: emitters.Create.event, onDidChange: emitters.Change.event, onDidDelete: emitters.Delete.event,
+          fire: (event, uri) => emitters[event].fire(uri),
+          dispose() {},
+        };
+        log.watchers.push(watcher);
+        return watcher;
+      },
     },
     window: {
       activeTextEditor: undefined,

@@ -196,4 +196,48 @@ test('activating, finding the checkout, loading its kernels and the first check 
   fs.rmSync(temp, { recursive: true, force: true });
 });
 
+test('the checker binary is used while its sources are unchanged; a change to them, in a checkout opened by a subfolder, goes back through Bazel', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
+  const root = checkout(temp, 'repo');
+  const source = path.join(root, 'src/tools/ipu-as-py/src/ipu_as/parser.py');
+  fs.mkdirSync(path.dirname(source), { recursive: true });
+  fs.writeFileSync(source, '');
+  fs.utimesSync(source, new Date(Date.now() - 60000), new Date(Date.now() - 60000));
+  // A Bazel that builds a checker binary, and runs (logging which ran, to `log`).
+  const log = path.join(temp, 'ran.log');
+  const bazelBin = path.join(temp, 'bazel-bin');
+  const binary = path.join(bazelBin, 'src/tools/ipu-as-py/ipu-as');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, `#!/bin/sh\necho direct >> ${log}\nprintf '[]'\n`, { mode: 0o755 });
+  const standIn = path.join(bin, 'bazel');
+  const failing = fs.readFileSync(standIn, 'utf8');
+  fs.writeFileSync(standIn, `#!/bin/sh\ncase "$1" in\n  build) exit 0 ;;\n  info) echo ${bazelBin} ;;\n  run) echo bazel-run >> ${log}; printf '[]' ;;\nesac\n`);
+  const ran = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
+  try {
+    // The open folder is a subfolder of the checkout: the assembler's sources are outside it.
+    const ext = fake.install({ folders: [path.join(root, 'k')], settings: { manifestCommand: settings.manifestCommand } });
+    const api = await ext.activate();
+    const doc = ext.open(fake.Uri.file(path.join(root, 'k/demo/demo.asm')), 'BKPT;;\n');
+    await until(() => ran().length, 'the first check');
+    const check = async (n) => {
+      await ext.vscode.commands.executeCommand('ipuAsm.check');
+      await until(() => ran().length === n, `check ${n}`);
+      return ran()[n - 1];
+    };
+    await until(async () => (await check(ran().length + 1)) === 'direct', 'the built binary to be used');
+    const before = ran().length;
+    fs.utimesSync(source, new Date(), new Date()); // an edit, after that build
+    assert.strictEqual(await check(before + 1), 'direct', 'until a watcher reports it, the answer is remembered');
+    const watcher = ext.log.watchers.find((w) => w.pattern.baseUri && w.pattern.baseUri.fsPath === path.join(root, 'src/tools/ipu-as-py/src'));
+    assert(watcher, 'the checkout\'s own sources are watched, though they are outside the open folder');
+    watcher.fire('Change', fake.Uri.file(source));
+    assert.strictEqual(await check(before + 2), 'bazel-run', 'the changed source sends the check through Bazel');
+    assert.strictEqual(api.checkerError(doc.uri), null);
+    ext.deactivate();
+  } finally {
+    fs.writeFileSync(standIn, failing);
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 main((n) => `activation.js: ${n} cases pass.`);

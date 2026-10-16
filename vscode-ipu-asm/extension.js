@@ -68,6 +68,14 @@ class CheckState {
      *  source, the binary or the stamp changes: a check does not walk the sources each time. */
     this.command = undefined;
     this.generation = 0;
+    /** File-system watchers on the checker's sources (Checking.watchSources). */
+    this.watchers = [];
+  }
+
+  /** Set what the checker is picked from (`binary`, `stamp`), so it is picked again. */
+  update(fields) {
+    Object.assign(this, fields);
+    this.invalidate();
   }
 
   /** Forget the picked command: something it was picked from has changed. */
@@ -141,8 +149,24 @@ class Checking {
 
   stateOf(root) {
     const key = root || '';
-    if (!this.states.has(key)) this.states.set(key, new CheckState());
+    if (!this.states.has(key)) {
+      const state = new CheckState();
+      if (root) state.watchers = this.watchSources(root, state);
+      this.states.set(key, state);
+    }
     return this.states.get(key);
+  }
+
+  /** Watch checkout `root`'s checker sources: a change makes `state` pick its checker again.
+   *  Relative to the checkout, so a checkout opened by a subfolder, or not opened at all
+   *  (a file from it), is watched as well. */
+  watchSources(root, state) {
+    const glob = `**/*{${checker.SOURCE_EXTENSIONS.join(',')}}`;
+    return checker.SOURCE_DIRS.map((dir) => {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(path.join(root, dir)), glob));
+      for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event(() => state.invalidate());
+      return watcher;
+    });
   }
 
   /** The checkout holding a document's file. An unsaved one has no file: it belongs to the
@@ -161,14 +185,6 @@ class Checking {
       return roots.length === 1 ? roots[0] : null;
     }
     return this.roots.get(uri.toString()) || null;
-  }
-
-  /** The source files the checker is built from changed somewhere: the checkouts holding
-   *  them pick their checker again. */
-  sourceChanged(uri) {
-    for (const [root, state] of this.states) {
-      if (root && checker.SOURCE_DIRS.some((dir) => project.within(path.join(root, dir), uri.fsPath))) state.invalidate();
-    }
   }
 
   /** Build the checker once and remember where Bazel put it.
@@ -192,10 +208,9 @@ class Checking {
     if (info.code !== 0) return info.timedOut ? undefined : null;
 
     const binary = checker.checkerBinary(info.stdout.trim(), process.platform);
-    if (!(await fs.access(binary).then(() => true, () => false))) return null;
+    if (!(await project.exists(binary))) return null;
     const state = this.stateOf(root);
-    state.stamp = Math.max(state.stamp, stamp);
-    state.invalidate();
+    state.update({ stamp: Math.max(state.stamp, stamp) });
     return binary;
   }
 
@@ -208,14 +223,12 @@ class Checking {
       (binary) => {
         state.resolving = false;
         if (binary === undefined) return; // timed out: the next check tries again
-        state.binary = binary;
-        state.invalidate();
+        state.update({ binary });
         if (!binary) console.warn('[ipu-asm] no prebuilt checker; using `bazel run` per check');
       },
       (err) => {
         state.resolving = false;
-        state.binary = null;
-        state.invalidate();
+        state.update({ binary: null });
         console.warn(`[ipu-asm] could not resolve the checker (${err.message})`);
       }
     );
@@ -283,10 +296,7 @@ class Checking {
       // A prebuilt checker that will not start is a stale resolution, not a
       // broken toolchain: `bazel clean` deletes the binary out from under us.
       // Forgetting it sends the next check down the Bazel path, which rebuilds.
-      if (state.binary === command) {
-        state.binary = undefined;
-        state.invalidate();
-      }
+      if (state.binary === command) state.update({ binary: undefined });
       return { error: `${command}: ${r.stderr}`, command };
     }
     if (r.timedOut) return { error: r.stderr, command };
@@ -294,8 +304,7 @@ class Checking {
     try {
       const found = JSON.parse(r.stdout);
       if (rebuilding) {
-        state.stamp = Math.max(state.stamp, stamp);
-        state.invalidate();
+        state.update({ stamp: Math.max(state.stamp, stamp) });
         this.ensureChecker(root);
       }
       return { found };
@@ -351,8 +360,9 @@ class Checking {
   scheduleRefresh(document) {
     if (!document || document.languageId !== LANGUAGE_ID) return;
     const key = document.uri.toString();
+    // Cleared wherever it was put: a document's checkout is not known until its first check.
+    for (const state of this.states.values()) clearTimeout(state.pending.get(key));
     const { pending } = this.stateOf(this.knownCheckout(document.uri));
-    clearTimeout(pending.get(key));
     pending.set(
       key,
       setTimeout(() => {
@@ -423,20 +433,15 @@ class Checking {
       return;
     }
     this.status.hide(); // the Restricted Mode notice, when trust was just granted
-    await this.kernelApi.ready;
+    // A failed scan still leaves the open documents to check.
+    await this.kernelApi.ready.catch((err) => console.warn(`[ipu-asm] could not find the checkouts (${err.message})`));
     for (const root of this.kernelApi.indexes.keys()) this.ensureChecker(root);
     vscode.workspace.textDocuments.forEach((d) => this.refresh(d));
   }
 
-  /** Notice changes to the sources the checker is built from (see sourceChanged). */
-  watchSources() {
-    const watcher = vscode.workspace.createFileSystemWatcher(`**/*{${checker.SOURCE_EXTENSIONS.join(',')}}`);
-    for (const event of [watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete]) event((uri) => this.sourceChanged(uri));
-    return watcher;
-  }
-
   dispose() {
     for (const state of this.states.values()) {
+      state.watchers.forEach((w) => w.dispose());
       for (const timer of state.pending.values()) clearTimeout(timer);
       state.pending.clear();
       for (const child of state.running.values()) {
@@ -454,7 +459,7 @@ class Checking {
 async function activate(context) {
   const kernelApi = kernels.register(context);
   const checking = new Checking(kernelApi);
-  context.subscriptions.push(checking, checking.watchSources());
+  context.subscriptions.push(checking);
 
   // After activation returns, since starting a process blocks briefly.
   setImmediate(() => checking.start());

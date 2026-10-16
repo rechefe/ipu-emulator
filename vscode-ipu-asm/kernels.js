@@ -73,7 +73,9 @@ class KernelIndex {
     try {
       if (result.code !== 0) throw new Error(tail(result.stderr) || `exit ${result.code}`);
       const manifest = JSON.parse(result.stdout);
-      this.workspace = await this.workspaceOf(manifest.workspace);
+      const workspace = await this.workspaceOf(manifest.workspace);
+      if (this.disposed) return; // the checkout went while it loaded
+      this.workspace = workspace;
       this.manifest = manifest;
       this._stdout = result.stdout;
       this.kernelsRoot = runs.kernelsRoot(manifest);
@@ -104,19 +106,21 @@ class KernelIndex {
     return path.resolve(this.root, path.relative(real, workspace));
   }
 
-  /** True when `fsPath` could change the manifest: anything under the kernels (anywhere in the
-   *  workspace before a manifest has said where they are), or any build file of the workspace. */
+  /** True when `fsPath` could change the manifest: anything under the kernels, or any build
+   *  file of the workspace. Before a manifest has said where the kernels are, build files only
+   *  (and the Refresh button): every Python file of the workspace would rerun a failing load. */
   affects(fsPath, buildFile = false) {
-    if (buildFile || this.kernelsRoot === null) {
+    if (buildFile) {
       // Not Bazel's own output trees, which hold copies of everything.
       const rel = project.within(this.workspace, fsPath);
       return Boolean(rel) && !rel.split(path.sep)[0].startsWith('bazel-');
     }
-    return Boolean(project.within(path.join(this.workspace, this.kernelsRoot), fsPath));
+    return this.kernelsRoot !== null && Boolean(project.within(path.join(this.workspace, this.kernelsRoot), fsPath));
   }
 
   /** Stop: a checkout no longer open (its folder removed, or no checkout any more). */
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.manifest = null;
     this._changed.dispose();
@@ -445,6 +449,8 @@ class Kernels {
         clearTimeout(this.timers.get(index));
         this.timers.delete(index);
         index.dispose();
+        const { subscriptions } = this.context;
+        if (subscriptions.includes(index)) subscriptions.splice(subscriptions.indexOf(index), 1);
       }
       await this.addFolders();
       if ([...this.indexes.keys()].join('\n') !== before) this.redraw();
