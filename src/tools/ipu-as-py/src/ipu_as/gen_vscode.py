@@ -40,6 +40,7 @@ from ipu_isa.instruction_spec import (
     syntax,
 )
 from ipu_isa.operand_types import operand_type
+from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.registers import REGISTER_DEFINITIONS, create_assembler_reg_enums
 from ipu_isa.types import RegKind
 
@@ -437,10 +438,12 @@ def build_hover_data(emulator: dict | None = None) -> dict:
         },
         "registers": _registers(),
         "registerDocs": _register_docs(emulator),
+        # "hardware" is false for the debug-only slot (acc_store) only, as
+        # before the slot tags; E08 regenerates the editor data from them.
         "slots": {
             slot: {
                 "description": meta.get("description", ""),
-                "hardware": meta.get("hardware", True),
+                "hardware": not SLOTS[Slot(slot)].debug_only,
             }
             for slot, meta in SLOT_METADATA.items()
         },

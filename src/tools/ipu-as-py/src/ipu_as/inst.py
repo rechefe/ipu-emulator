@@ -13,10 +13,9 @@ from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     COMPOUND_LAYOUT_SLOT_ORDER,
     InstructionDoc,
-    SLOT_UNIONS,
-    is_hardware_slot,
     syntax,
 )
+from ipu_isa.layout import SLOT_UNIONS
 
 
 def _operand_type_md_link(typ: str) -> str:
@@ -351,7 +350,7 @@ class Inst:
         info = SLOTS[Slot(slot)]
         heading, intro = info.doc_heading, info.doc_intro
         lines = [f"## {heading}", ""]
-        if not is_hardware_slot(slot):
+        if info.debug_only:
             lines.append(
                 "> **Simulation-only slot** — not implemented in real IPU hardware. "
                 "Excluded from hardware codegen."

@@ -6,10 +6,7 @@ from ipu_isa.incr_mod_pow2_k import (
     LR_MOD_POW2_K_MAX,
     LR_MOD_POW2_K_MIN,
 )
-from ipu_isa.lr_inc_dec_imm import (
-    LR_INC_DEC_IMM_FIELD_BITS,
-    lr_inc_dec_imm_max,
-)
+from ipu_isa.lr_inc_dec_imm import lr_inc_dec_imm_bits, lr_inc_dec_imm_max
 from ipu_isa.mult_mask_offset import (
     MULT_MASK_OFFSET_FIELD_BITS,
     MULT_MASK_SLOT_COUNT,
@@ -17,8 +14,8 @@ from ipu_isa.mult_mask_offset import (
 from ipu_isa.operand_types import operand_type
 from ipu_isa.reshape_mask import (
     RESHAPE_ELEMENT_COUNT,
-    RESHAPE_MASK_FIELD_BITS,
     RESHAPE_MASK_LR_OFFSET,
+    reshape_mask_field_bits,
     reshape_mask_field_max,
 )
 from ipu_isa.acc_stride_enums import (
@@ -130,7 +127,7 @@ class MultMaskOffsetImmediate(ipu_token.IpuToken):
 class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
     """ACC.RESHAPE element-start index: immediate 0–7 or an LR register.
 
-    Encoding (width auto-derived, see RESHAPE_MASK_FIELD_BITS):
+    Encoding (width auto-derived, see reshape_mask_field_bits()):
       - Immediate  0–7 → encoded as the value itself (0–7).
       - LRn            → encoded as LR_index + RESHAPE_MASK_LR_OFFSET; the
         number of LR registers encodable is however much room remains above
@@ -145,7 +142,7 @@ class LrOrReshapeMaskImmediate(ipu_token.IpuToken):
 
     @classmethod
     def bits(cls) -> int:
-        return RESHAPE_MASK_FIELD_BITS
+        return reshape_mask_field_bits()
 
     @classmethod
     def default(cls) -> "ipu_token.IpuToken":
@@ -228,7 +225,7 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 
     @classmethod
     def bits(cls) -> int:
-        return LR_INC_DEC_IMM_FIELD_BITS
+        return lr_inc_dec_imm_bits()
 
     @classmethod
     def default(cls) -> "ipu_token.IpuToken":
@@ -256,7 +253,7 @@ class LrIncDecImmediate(ipu_token.IpuToken):
 
     @classmethod
     def decode(cls, value: int) -> str:
-        mask = (1 << LR_INC_DEC_IMM_FIELD_BITS) - 1
+        mask = lr_inc_dec_imm_max()
         return str(value & mask)
 
 

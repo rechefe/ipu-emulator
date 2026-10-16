@@ -142,7 +142,7 @@ def render_union_layout_svg(
     """Render a per-slot union layout diagram and return the SVG source.
 
     Args:
-        slot_unions: ``{slot_name: SlotUnion}`` from ``compute_slot_layouts``.
+        slot_unions: ``{slot_name: SlotUnion}`` (``ipu_isa.layout.SLOT_UNIONS``).
         slot_order: Slot names in the order they should appear top-to-bottom
             (typically the MSB → LSB order of the compound instruction).
         slot_counts: Optional ``{slot_name: count}`` for slots that appear

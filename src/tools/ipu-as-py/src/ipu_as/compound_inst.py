@@ -2,10 +2,7 @@ import warnings
 
 import ipu_as.inst as inst
 import ipu_as.utils as utils
-from ipu_isa.instruction_spec import (
-    SLOT_UNIONS,
-    is_hardware_slot,
-)
+from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.schema import SpecError
 from ipu_isa.slots import LAYOUT_ORDER, SLOTS, Slot
 from ipu_gen.union_layout_svg import render_union_layout_svg
@@ -108,7 +105,7 @@ class CompoundInst:
                         f"At: {instruction['opcode'].get_location_string()}"
                     )
 
-            if not is_hardware_slot(inst_type._slot_type_name()):
+            if SLOTS[Slot(inst_type._slot_type_name())].debug_only:
                 warnings.warn(
                     f"{instruction['opcode'].token.value} uses the simulation-only "
                     f"{inst_type._slot_type_name()} slot (not implemented in real IPU hardware)",

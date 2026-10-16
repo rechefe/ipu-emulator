@@ -34,11 +34,10 @@ from ipu_emu.ipu_math import ipu_mult, ipu_add, ipu_sub, dtype_one_byte, DType
 from ipu_emu.ipu_config import REGISTER_WORD_VALUE_MASK, LR_CR_SCALAR_BITS, PadMode, Partition
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
-    SLOT_BINARY_LAYOUT,
-    SLOT_UNIONS,
     SLOT_COUNT,
     get_opcode_for_instruction,
 )
+from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import OPERAND_TYPES
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.acc_stride_enums import (

@@ -18,8 +18,8 @@ from ipu_as import compound_inst, ipu_token, utils
 from ipu_isa.instruction_spec import (
     INSTRUCTION_SPEC,
     SLOT_COUNT,
-    SLOT_UNIONS,
 )
+from ipu_isa.layout import SLOT_UNIONS
 from ipu_isa.operand_types import operand_type
 from ipu_isa.slots import SLOTS, Slot
 from ipu_isa.union_layout import get_operand_type_bits

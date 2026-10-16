@@ -18,34 +18,30 @@ Algorithm (per slot)
 5. Canonical type for a merged field = widest type; ties broken by
    alphabetical type name (first alphabetically wins).
 6. Field order = bin-creation order (deterministic by the sorted input).
+7. A slot with ``pad_to_bits`` grows one field to reach that width.
+
+The solver is pure: it takes the bit widths and padding targets as arguments
+and returns new frozen values. ``ipu_isa.layout`` runs it once over the spec.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from types import MappingProxyType
 
-from ipu_isa import lr_inc_dec_imm
-from ipu_isa import reshape_mask
 from ipu_isa.operand_types import OPERAND_TYPES
-from ipu_isa.slots import SLOTS, Slot
 
-# operand type name -> (module, attribute) written by finalize_derived_operand_bits()
-# once the union field carrying that type has been packed.
-_DERIVED_OPERAND_TARGETS: dict[str, tuple] = {
-    "LrIncDecImmediate": (lr_inc_dec_imm, "LR_INC_DEC_IMM_FIELD_BITS"),
-    "LrOrReshapeMaskImmediate": (reshape_mask, "RESHAPE_MASK_FIELD_BITS"),
-}
 
 def get_operand_type_bits() -> dict[str, int]:
-    """Return the bit-width for each operand type string used in instruction_spec.
+    """Return the authored bit-width of each operand type in the registry.
 
-    Read from the operand-type registry. A width decided by union packing is 0
-    here; ``finalize_derived_operand_bits()`` sets the shared field width after
-    packing.
+    A width decided by union packing is 0 here; ``ipu_isa.layout`` reads the
+    packed width from the field that carries the type.
     """
     return {name: operand_type.bits or 0 for name, operand_type in OPERAND_TYPES.items()}
 
 
-@dataclass
+@dataclass(frozen=True)
 class UnionField:
     """One field in a slot's union layout.
 
@@ -61,33 +57,39 @@ class UnionField:
     index: int
     canonical_type: str
     bits: int
-    users: dict[str, tuple[str, str]] = field(default_factory=dict)
+    users: Mapping[str, tuple[str, str]]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SlotUnion:
     """Complete union layout for one VLIW slot.
 
     Attributes:
         slot: Slot name (e.g. ``"lr"``, ``"mult"``).
         opcode_bits: Number of bits used by the opcode field.
-        fields: Ordered list of union fields (opcode not included).
-        opcode_bindings: Maps opcode_name → [(field_index, operand_name)]
+        fields: Ordered union fields (opcode not included).
+        opcode_bindings: Maps opcode_name → ((field_index, operand_name), ...)
             in operand declaration order.  Every opcode appears here; those
-            with no operands map to an empty list.
+            with no operands map to an empty tuple.
     """
     slot: str
     opcode_bits: int
-    fields: list[UnionField]
-    opcode_bindings: dict[str, list[tuple[int, str]]]
+    fields: tuple[UnionField, ...]
+    opcode_bindings: Mapping[str, tuple[tuple[int, str], ...]]
+
+    @property
+    def bits(self) -> int:
+        """Width of one instance of the slot: opcode plus every field."""
+        return self.opcode_bits + sum(f.bits for f in self.fields)
 
 
 def compute_slot_layout(
     slot_name: str,
-    instructions: dict,
-    type_bits: dict[str, int],
+    instructions: Mapping,
+    type_bits: Mapping[str, int],
+    pad_to_bits: int | None = None,
 ) -> SlotUnion:
-    """Compute the union layout for a single slot."""
+    """Compute the union layout for a single slot, padded to ``pad_to_bits``."""
 
     # ------------------------------------------------------------------ #
     # Step 1 & 2: assign each operand to a typed atomic slot              #
@@ -168,80 +170,53 @@ def compute_slot_layout(
             index=bin_idx,
             canonical_type=canonical,
             bits=max_width,
-            users=users_map,
+            users=MappingProxyType(users_map),
         ))
 
     # ------------------------------------------------------------------ #
     # Step 7: build opcode_bindings                                       #
     # ------------------------------------------------------------------ #
-    opcode_bindings: dict[str, list[tuple[int, str]]] = {
-        opcode_name: [
+    opcode_bindings: dict[str, tuple[tuple[int, str], ...]] = {
+        opcode_name: tuple(
             (slot_to_bin[(t, si)], op["name"])
             for op, (t, si) in zip(
                 instructions[opcode_name]["operands"],
                 slot_assignment[opcode_name],
             )
-        ]
+        )
         for opcode_name in instructions
     }
 
     n_opcodes = len(instructions)
     opcode_bits = max(1, (n_opcodes - 1).bit_length()) if n_opcodes > 1 else 1
 
-    return SlotUnion(
-        slot=slot_name,
-        opcode_bits=opcode_bits,
-        fields=fields,
-        opcode_bindings=opcode_bindings,
+    return _pad_slot(
+        SlotUnion(
+            slot=slot_name,
+            opcode_bits=opcode_bits,
+            fields=tuple(fields),
+            opcode_bindings=MappingProxyType(opcode_bindings),
+        ),
+        pad_to_bits,
     )
 
 
-def _pad_slot_to_target(su: SlotUnion) -> None:
-    """Grow union fields when packing is narrower than the hardware slot width."""
-    target = SLOTS[Slot(su.slot)].pad_to_bits
+def _pad_slot(su: SlotUnion, target: int | None) -> SlotUnion:
+    """Grow one field when packing is narrower than the slot's wire width."""
     if target is None:
-        return
-    total = su.opcode_bits + sum(f.bits for f in su.fields)
-    deficit = target - total
+        return su
+    deficit = target - su.bits
     if deficit <= 0:
-        return
+        return su
     # Prefer padding the field that carries LrModPow2K (k); the extra bit is unused.
     for field in su.fields:
         if any(
             actual_type == "LrModPow2KImmediate"
             for _opcode, (_operand_name, actual_type) in field.users.items()
         ):
-            field.bits += deficit
-            return
+            padded = replace(field, bits=field.bits + deficit)
+            fields = tuple(padded if f is field else f for f in su.fields)
+            return replace(su, fields=fields)
     raise ValueError(
-        f"Cannot pad {su.slot} slot to {target} bits (currently {total})"
+        f"Cannot pad {su.slot} slot to {target} bits (currently {su.bits})"
     )
-
-
-def finalize_derived_operand_bits(slot_unions: dict[str, SlotUnion]) -> None:
-    """Populate module-level constants for operand types with derived bit-widths."""
-    remaining = dict(_DERIVED_OPERAND_TARGETS)
-    for su in slot_unions.values():
-        for field in su.fields:
-            for _opcode, (_operand_name, actual_type) in field.users.items():
-                target = remaining.pop(actual_type, None)
-                if target is not None:
-                    module, attr = target
-                    setattr(module, attr, field.bits)
-    if remaining:
-        raise ValueError(
-            f"Operand types not found in any slot union layout: {sorted(remaining)}"
-        )
-
-
-def compute_slot_layouts(instruction_spec: dict) -> dict[str, SlotUnion]:
-    """Compute union layouts for all slots in *instruction_spec*."""
-    type_bits = get_operand_type_bits()
-    slot_unions = {
-        slot: compute_slot_layout(slot, instructions, type_bits)
-        for slot, instructions in instruction_spec.items()
-    }
-    for su in slot_unions.values():
-        _pad_slot_to_target(su)
-    finalize_derived_operand_bits(slot_unions)
-    return slot_unions

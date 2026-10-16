@@ -1,27 +1,9 @@
 """Tests for the union layout solver."""
 from __future__ import annotations
 
-from ipu_isa.instruction_spec import (
-    INSTRUCTION_SPEC,
-    SLOT_METADATA,
-    SLOT_UNIONS,
-    is_hardware_slot,
-)
-from ipu_isa.union_layout import compute_slot_layouts, get_operand_type_bits
-
-
-def test_solver_is_deterministic():
-    """Running the solver twice produces identical results."""
-    type_bits = get_operand_type_bits()
-    first = compute_slot_layouts(INSTRUCTION_SPEC)
-    second = compute_slot_layouts(INSTRUCTION_SPEC)
-    for slot in first:
-        su1, su2 = first[slot], second[slot]
-        assert su1.opcode_bits == su2.opcode_bits
-        assert len(su1.fields) == len(su2.fields)
-        for f1, f2 in zip(su1.fields, su2.fields):
-            assert f1.canonical_type == f2.canonical_type
-            assert f1.bits == f2.bits
+from ipu_isa.instruction_spec import INSTRUCTION_SPEC
+from ipu_isa.layout import SLOT_UNIONS
+from ipu_isa.union_layout import get_operand_type_bits
 
 
 def test_no_co_occurring_operands_share_a_field():
@@ -90,9 +72,9 @@ def test_lr_slot_total_width_unchanged():
 
 def test_lr_inc_dec_imm_width_derived():
     """INC/DEC immediate shares its field with ADDBI's 8-bit AddbiImmediate (8 bits)."""
-    from ipu_isa.lr_inc_dec_imm import LR_INC_DEC_IMM_FIELD_BITS
+    from ipu_isa.lr_inc_dec_imm import lr_inc_dec_imm_bits
 
-    assert LR_INC_DEC_IMM_FIELD_BITS == 8
+    assert lr_inc_dec_imm_bits() == 8
 
 
 def test_all_slots_present():
@@ -100,10 +82,3 @@ def test_all_slots_present():
     expected = {"load", "store", "acc_store", "lr", "mult", "acc", "aaq", "cond", "break"}
     assert set(SLOT_UNIONS.keys()) == expected
 
-
-def test_acc_store_slot_marked_non_hardware():
-    """The acc_store slot is flagged simulation-only in SLOT_METADATA."""
-    assert SLOT_METADATA["acc_store"]["hardware"] is False
-    assert is_hardware_slot("load")
-    assert is_hardware_slot("store")
-    assert not is_hardware_slot("acc_store")

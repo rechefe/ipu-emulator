@@ -68,6 +68,17 @@ py_pytest_test(
     ],
 )
 
+# Derived operand widths are right whatever is imported first (E03-08).
+py_pytest_test(
+    name = "test_import_order",
+    srcs = ["test/test_import_order.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # compound_inst.SLOT_TO_INST against the slot registry (E03-06).
 py_pytest_test(
     name = "test_slot_to_inst",

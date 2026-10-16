@@ -13,6 +13,10 @@ emulator keys decoded words by them and the downstream RTL repo names its
 types after them. They are written out, not computed from Python class names;
 changing one is a breaking change a PR must call out.
 
+Each slot is tagged HARDWARE or EMULATOR (E03-07). In ``LAYOUT_ORDER`` the
+EMULATOR slots come after every HARDWARE slot, so the hardware word is the
+most significant bits of the emulator word (Q41).
+
 Execution order is not here; E03-14 declares it with the timing contract.
 """
 
@@ -24,6 +28,7 @@ from enum import Enum
 from types import MappingProxyType
 
 from ipu_isa import schema
+from ipu_isa.tags import Tag
 
 
 class Slot(str, Enum):
@@ -52,7 +57,13 @@ class SlotInfo:
     slot: Slot
     count: int  # instances per word: 3 for LR
     pad_to_bits: int | None  # pad the packed slot to this width (wire format), or None
-    hardware: bool  # implemented in silicon (E03-07 replaces this with a tag)
+    tag: Tag  # HARDWARE or EMULATOR
+    # A program that uses the slot is a debugging build: the assembler warns,
+    # the emulator's kernel tests expect DebugOnlyInstructionWarning, and the
+    # instruction reference and the editor mark the slot simulation-only.
+    # ACC_STORE only. BREAK is EMULATOR too, but a breakpoint is the
+    # debugger's own tool and is not flagged (E03-23 and E05-15 revisit this).
+    debug_only: bool
     title: str  # "Loop register"
     description: str  # one paragraph, for the editor and the docs
     doc_heading: str  # heading of the slot's section in the instruction reference
@@ -81,8 +92,8 @@ class SlotInfo:
 #: The keys each authored entry holds (all required).
 ENTRY_KEYS = schema.Keys(
     frozenset(
-        {"count", "pad_to_bits", "hardware", "title", "description", "doc_heading", "doc_intro",
-         "field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class",
+        {"count", "pad_to_bits", "tag", "debug_only", "title", "description",
+         "doc_heading", "doc_intro", "field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class",
          "legend_colour", "legend_label"}
     )
 )
@@ -91,7 +102,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.BREAK: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.EMULATOR,
+        "debug_only": False,
         "title": "Break",
         "description": "Debug break: halts execution or enters debug mode.",
         "doc_heading": "Break Instructions",
@@ -106,7 +118,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.LOAD: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Load",
         "description": (
             "First-stage memory loads that feed the multiply unit (mult-stage, cyclic, "
@@ -127,7 +140,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.STORE: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Store",
         "description": (
             "Last-stage memory stores that drain POST_AAQ_REG to external memory after "
@@ -148,7 +162,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.ACC_STORE: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": False,
+        "tag": Tag.EMULATOR,
+        "debug_only": True,
         "title": "Accumulator store",
         "description": (
             "Simulation-only stores of R_ACC to external memory (STR_ACC_REG). Not "
@@ -169,7 +184,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.MULT: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Multiply",
         "description": "Multiply-stage instructions: element-wise and vector multiply operations.",
         "doc_heading": "MULT Instructions",
@@ -188,7 +204,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.ACC: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Accumulator",
         "description": "Accumulation instructions for combining multiply results into R_ACC.",
         "doc_heading": "ACC Instructions",
@@ -205,7 +222,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.AAQ: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Activation and quantization",
         "description": (
             "Activation and quantization: apply activation to R_ACC and write quantized "
@@ -226,7 +244,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.LR: {
         "count": 3,
         "pad_to_bits": 20,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Loop register",
         "description": (
             "Loop register instructions for controlling addresses, counters, and scalars. "
@@ -246,7 +265,8 @@ _SPEC: dict[Slot, dict] = {
     Slot.COND: {
         "count": 1,
         "pad_to_bits": None,
-        "hardware": True,
+        "tag": Tag.HARDWARE,
+        "debug_only": False,
         "title": "Conditional",
         "description": (
             "Conditional and unconditional branches; control flow based on register "
@@ -291,7 +311,18 @@ def _load(spec: Mapping[Slot, dict], layout_order: tuple[Slot, ...]) -> Mapping[
         schema.check_keys(path, entry, ENTRY_KEYS)
         if not isinstance(entry["count"], int) or entry["count"] < 1:
             raise schema.SpecError(f"{path}.count: must be a positive int")
+        if entry["tag"] not in (Tag.HARDWARE, Tag.EMULATOR):
+            raise schema.SpecError(f"{path}.tag: a slot is Tag.HARDWARE or Tag.EMULATOR")
+        if entry["debug_only"] and entry["tag"] is not Tag.EMULATOR:
+            raise schema.SpecError(f"{path}.debug_only: only an EMULATOR slot can be debug-only")
         records[slot] = SlotInfo(slot=slot, **entry)
+    tags = [records[slot].tag for slot in layout_order]
+    if Tag.EMULATOR in tags and Tag.HARDWARE in tags[tags.index(Tag.EMULATOR):]:
+        late = layout_order[len(tags) - 1 - tags[::-1].index(Tag.HARDWARE)]
+        raise schema.SpecError(
+            f"LAYOUT_ORDER: HARDWARE slot {late.value!r} follows an EMULATOR slot; "
+            "the hardware slots must be the most significant (Q41)"
+        )
     for key in ("field_prefix", "opcode_enum", "sv_struct_base", "asm_opcode_class"):
         schema.check_unique("SLOTS", key, (getattr(info, key) for info in records.values()))
     return MappingProxyType(records)

@@ -39,8 +39,7 @@ def test_derived_views_equal_the_old_literals():
     assert COMPOUND_LAYOUT_SLOT_ORDER == [
         "cond", "lr", "load", "mult", "acc", "aaq", "store", "acc_store", "break",
     ]
-    assert SLOT_METADATA["acc_store"]["hardware"] is False
-    assert all("hardware" not in meta for slot, meta in SLOT_METADATA.items() if slot != "acc_store")
+    assert SLOT_METADATA["acc_store"] == {"description": SLOTS[Slot.ACC_STORE].description}
 
 
 def test_slot_is_its_string():
