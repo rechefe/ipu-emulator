@@ -92,6 +92,31 @@ py_pytest_test(
     ],
 )
 
+# No source or test outside the engine uses an Ipu private (E04-11).
+py_pytest_test(
+    name = "test_engine_privates",
+    size = "small",
+    srcs = ["test_engine_privates.py"],
+    data = [
+        "//src/tools/ipu-apps:py_sources",
+        "//src/tools/ipu-apps:py_test_sources",
+        "//src/tools/ipu-as-py:py_sources",
+        "//src/tools/ipu-as-py:py_test_sources",
+        "//src/tools/ipu-debug:py_sources",
+        "//src/tools/ipu-debug:py_test_sources",
+        "//src/tools/ipu-emu-py:py_sources",
+        "//src/tools/ipu-emu-py:py_test_sources",
+        "//src/tools/ipu-gen:py_sources",
+        "//src/tools/ipu-gen:py_test_sources",
+        "//src/tools/ipu-harness:py_sources",
+        "//src/tools/ipu-harness:py_test_sources",
+        "//src/tools/ipu-isa:py_sources",
+        "//src/tools/ipu-kernels:py_sources",
+        "//src/tools/ipu-kernels:py_test_sources",
+    ],
+    deps = [requirement("pytest")],
+)
+
 # ruff.toml bans a second assembly render path (E05-12).
 py_pytest_test(
     name = "test_one_render_path",

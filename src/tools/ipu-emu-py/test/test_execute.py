@@ -3394,10 +3394,10 @@ HALT;;
 
 class TestDispatchPlans:
     def test_a_missing_handler_is_reported_by_instruction_name(self) -> None:
-        # _build_plan is the per-opcode plan the per-word schedules hold.
+        # build_plan is the per-opcode plan the per-word schedules hold.
         import dataclasses
 
-        from ipu_emu.ipu import _build_plan
+        from ipu_emu.ipu import build_plan
         from ipu_isa.slots import Slot
         from ipu_isa.view import isa
 
@@ -3409,7 +3409,7 @@ class TestDispatchPlans:
         with pytest.raises(
             RuntimeError, match=r"mult/FAKE names handler Ipu\.execute_no_such_handler"
         ):
-            _build_plan(fake, {})
+            build_plan(fake, {})
 
 
 # ============================================================================

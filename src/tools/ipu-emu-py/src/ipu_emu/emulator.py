@@ -84,6 +84,7 @@ def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) ->
     # One engine for the whole run: it carries no per-cycle state beyond the
     # snapshot buffer it reuses, and building one per cycle was pure overhead.
     ipu = Ipu(state)
+    cycle = ipu.cycle  # works while ``ipu`` is alive, which it is for the run
     _begin_run(state)
     try:
         while not state.is_halted:
@@ -92,11 +93,9 @@ def run_until_complete(state: IpuState, max_cycles: int = DEFAULT_MAX_CYCLES) ->
                     f"Exceeded {max_cycles} cycles — possible infinite loop "
                     f"(PC={state.program_counter})"
                 )
-            # Cycle.step(honour_break=False), entered through Ipu's delegates:
-            # the mobilevit measuring fixture wraps both until E04-11 moves it
-            # to a CycleObserver.
-            if ipu.execute_vliw_cycle() == CycleOutcome.BREAK:
-                ipu.execute_vliw_cycle_skip_break()
+            # A BREAK does not stop a normal run: the word retires.
+            if cycle.step() is CycleOutcome.BREAK:
+                cycle.retire()
             cycles += 1
     finally:
         state.stats.total_cycles = cycles
@@ -164,10 +163,8 @@ def run_with_debug(
             if stepping:
                 reasons.append("step")
             # A requested stop must not execute the instruction. Still check
-            # its BREAK slot so simultaneous causes produce one callback. An
-            # unstopped word is Cycle.step(), entered through Ipu's delegate:
-            # debugger tests patch it until E08 migrates them.
-            result = cycle.evaluate_break() if reasons else ipu.execute_vliw_cycle()
+            # its BREAK slot so simultaneous causes produce one callback.
+            result = cycle.evaluate_break() if reasons else cycle.step()
             if result == CycleOutcome.BREAK:
                 reasons.append("BREAK instruction")
             if reasons:

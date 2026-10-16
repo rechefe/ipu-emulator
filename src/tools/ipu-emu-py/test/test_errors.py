@@ -9,6 +9,7 @@ import ipu_emu.errors as errors
 from ipu_emu.alias_profile import AliasProfile
 from ipu_emu.emulator import load_program
 from ipu_emu.errors import ConfigurationError, EmulatorError, EmulatorFault
+from ipu_emu.geometry import partition_vector
 from ipu_emu.ipu import Ipu
 from ipu_emu.ipu_state import INST_MEM_SIZE, IpuState
 from ipu_emu.prototyping import build_enabled, resolve_enabled
@@ -62,4 +63,4 @@ def test_a_handler_outside_a_cycle_raises_a_typed_error():
 
 def test_a_partition_that_is_not_the_enum_is_a_typed_error():
     with pytest.raises(EmulatorError, match="Partition"):
-        Ipu._build_partition_vector(4)
+        partition_vector(4)
