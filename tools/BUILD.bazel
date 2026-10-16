@@ -1,9 +1,11 @@
 load("@ipu_as_deps//:requirements.bzl", "data_requirement", "requirement")
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python_pytest//python_pytest:defs.bzl", "py_pytest_test")
 load("//tools:lint.bzl", "ruff_test")
 
 exports_files([
+    # Read by //:glossary_adoption_test.
+    "glossary_baseline.json",
     "mypy_runner.py",
     "requirements-tools.in",
     "ruff_runner.py",
@@ -45,6 +47,14 @@ py_pytest_test(
         requirement("pytest"),
         requirement("tomli"),
     ],
+)
+
+# The glossary adoption check; the test and the baseline writer are in the root
+# package (//:glossary_adoption_test, //:glossary_baseline).
+py_library(
+    name = "glossary_check",
+    srcs = ["glossary_check.py"],
+    visibility = ["//:__pkg__"],
 )
 
 # Per-package line coverage of a combined lcov report, as a Markdown table.

@@ -19,6 +19,7 @@ Every pull request uses the template in `.github/pull_request_template.md`, whic
     If a run was not possible, say which part did not run and why. CI runs only the default tier; the heavy tier runs nightly, so a break there shows up only the next morning unless the author ran it.
 
 6. After an ISA change, check the generated SystemVerilog package as `CLAUDE.md` describes ("Generated SystemVerilog Package"). The `*_WIDTH` localparams stay identical to the base, or the PR calls the change out as breaking.
+7. When `//:glossary_adoption_test` reports fewer uses of an avoided term than its baseline, run `bazel run //:glossary_baseline` and commit `tools/glossary_baseline.json`. When it reports more, use the glossary term it names; a raised count in the baseline needs a reason in the PR.
 
 ## Reviewer
 
@@ -28,7 +29,7 @@ Check the PR against the [Code conventions](code-conventions.md) and the issue's
 |---|---|
 | Formatting and lint (ruff, the thresholds in `ruff.toml`) | The rules marked **Review** on the conventions page |
 | Type checks of packages with a `mypy_test` | Test independence: expected values come from an independent source, not from the code under test |
-| The default test tier | Names against `GLOSSARY.md` |
+| The default test tier, including the glossary check on the docs (`//:glossary_adoption_test`) | Names in code against `GLOSSARY.md`, and any raised count in `tools/glossary_baseline.json` |
 | The default tier in prototyping mode (`--config=proto`) | The refactor-versus-behaviour split: a refactor PR changes no output and says how that is proven; a behaviour change is labelled and separate |
 | Docs drift tests (`asm` blocks assemble, commands are real, links resolve) | The author's statement that all tests ran locally, and a reason for any part that did not |
 | | One sentence of justification per golden update |
