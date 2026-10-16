@@ -1,0 +1,3 @@
+# The kernel tree: one Bazel package per family, one kernel per target,
+# labelled //kernels/<family>:<name> (ADR 0006, E06). Kernels move here from
+# src/tools/ipu-apps during E06 and E07; kernels/defs.bzl holds the macro.
