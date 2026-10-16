@@ -176,8 +176,20 @@ RULES = [
     (
         '[outputs.y]\nshape = ["rows", 128]',
         '[outputs.y]\nshape = ["rows", 128]\nrange = [0, 1]',
-        "range",
+        "unknown key 'range' in [outputs.y]",
         "range = [0, 1]",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = { int8 = [0.2, 0.8] }',
+        "[0.2, 0.8] holds no int8 value",
+        "range = { int8",
+    ),
+    (
+        '[inputs.x]\nshape = ["rows", 128]',
+        '[inputs.x]\nshape = ["rows", 128]\nrange = [-500, 500]',
+        "is outside int8's [-128.0, 127.0]",
+        "range = [-500, 500]",
     ),
     ('s    = "CR5"', 's    = "CR1"', "[abi] binds CR1, a hardwired constant", 's    = "CR1"'),
     ('s    = "CR5"', 's    = "CR0"', "[abi] binds CR0, a hardwired constant", 's    = "CR0"'),

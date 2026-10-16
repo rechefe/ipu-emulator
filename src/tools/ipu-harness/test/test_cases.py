@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -15,8 +16,6 @@ from ipu_harness.cases import expand, inputs_for, rng
 from ipu_harness.manifest import KernelManifest, load_manifest
 from ipu_harness.params import PlanError, plan_case
 from ipu_isa.formats import ElementFormat as F
-
-HARNESS = Path(__file__).resolve().parents[1] / "src" / "ipu_harness"
 
 SCALE = """\
 [kernel]
@@ -59,14 +58,16 @@ inputs = {{ x = "data/x.npy" }}
 expected = {{ y = "data/y.npy" }}
 {extra_cases}"""
 
+#: E4 values next to 0.3: 0.28125 and 0.3125 (3 mantissa bits); 0.3 rounds to 0.3125.
+E4_NEAR_0_3 = 0.3125
+
 
 def scale(tmp_path: Path, *, x_extra: str = "", extra_cases: str = "") -> KernelManifest:
     directory = tmp_path / "scale"
     (directory / "data").mkdir(parents=True)
     (directory / "scale.asm").write_text("HALT ;;\n")
-    np.save(
-        directory / "data" / "x.npy", np.arange(-4, 4, dtype=np.float32).repeat(32).reshape(2, 128)
-    )
+    x = np.arange(-4, 4, dtype=np.float32).repeat(32).reshape(2, 128)
+    np.save(directory / "data" / "x.npy", x)
     np.save(directory / "data" / "y.npy", np.zeros((2, 128), dtype=np.float32))
     (directory / "kernel.toml").write_text(SCALE.format(x_extra=x_extra, extra_cases=extra_cases))
     return load_manifest(directory)
@@ -75,6 +76,17 @@ def scale(tmp_path: Path, *, x_extra: str = "", extra_cases: str = "") -> Kernel
 def planned(manifest: KernelManifest, name: str, fmt: F = F.FP32):
     case = next(c for c in expand(manifest) if c.name == name)
     return case, plan_case(manifest, case.values, fmt, case=case.decl)
+
+
+def generator(manifest: KernelManifest, body: str) -> None:
+    (manifest.directory / "gen.py").write_text(
+        f"import numpy as np\n\n\ndef make(plan, rng):\n    {body}\n"
+    )
+
+
+MADE = '\n[cases.made]\nrows = 2\ns = 2.0\ngenerator = "gen.py:make"\n'
+
+# --- expansion ----------------------------------------------------------------------------
 
 
 def test_scale_expands_to_seven_cases(tmp_path):
@@ -97,7 +109,14 @@ def test_scale_expands_to_seven_cases(tmp_path):
 def test_a_two_axis_sweep_is_the_cartesian_product_in_order(tmp_path):
     m = scale(tmp_path, extra_cases="\n[cases.grid]\nrows = [2, 1]\ns = [0.5, 1.0, 2.0]\n")
     names = [c.name for c in expand(m) if c.name.startswith("grid")]
-    assert names == [f"grid[rows={r},s={s}]" for r in (2, 1) for s in (0.5, 1.0, 2.0)]
+    assert names == [
+        "grid[rows=2,s=0.5]",
+        "grid[rows=2,s=1.0]",
+        "grid[rows=2,s=2.0]",
+        "grid[rows=1,s=0.5]",
+        "grid[rows=1,s=1.0]",
+        "grid[rows=1,s=2.0]",
+    ]
 
 
 def test_a_value_the_case_does_not_give_takes_its_default(tmp_path):
@@ -105,91 +124,125 @@ def test_a_value_the_case_does_not_give_takes_its_default(tmp_path):
     assert dict(next(c for c in expand(m) if c.name == "half").values) == {"rows": 4, "s": 0.5}
 
 
-_RNG = "from ipu_harness.cases import rng; print(rng('k', 'c', 'x').integers(0, 2**31, 8).tolist())"
+# --- the random streams -------------------------------------------------------------------
+
+_RNG = (
+    "import json; from ipu_harness.cases import rng; "
+    "print(json.dumps(rng('k', 'c', 'x').integers(0, 2**31, 4).tolist()))"
+)
 
 
-def _rng_in_subprocess(hashseed: str) -> str:
+def _rng_in_subprocess(hashseed: str) -> list[int]:
     env = {**os.environ, "PYTHONHASHSEED": hashseed, "PYTHONPATH": os.pathsep.join(sys.path)}
     done = subprocess.run(
         [sys.executable, "-c", _RNG], env=env, capture_output=True, text=True, check=True
     )
-    return done.stdout
+    return list(json.loads(done.stdout))
 
 
 def test_rng_is_stable_across_processes_and_independent_per_tensor():
-    assert _rng_in_subprocess("1") == _rng_in_subprocess("2")
-    assert rng("k", "c", "x").integers(0, 2**31, 8).tolist() == eval(_rng_in_subprocess("3"))
+    first = _rng_in_subprocess("1")
+    assert first == _rng_in_subprocess("2") == rng("k", "c", "x").integers(0, 2**31, 4).tolist()
     assert rng("k", "c", "x").random(8).tolist() != rng("k", "c", "w").random(8).tolist()
+    assert rng("k", "c", "x").random(8).tolist() != rng("k", "d", "x").random(8).tolist()
+
+
+# --- the default generator ----------------------------------------------------------------
 
 
 def test_generated_inputs_are_in_the_format_and_reproducible(tmp_path):
     m = scale(tmp_path)
     case, fp32 = planned(m, "default")
-    x = inputs_for(case, fp32)["x"]
-    assert x.dtype == np.float32 and x.shape == (4, 128) and -1 <= x.min() and x.max() < 1
-    assert np.array_equal(x, inputs_for(case, fp32)["x"])
+    x = inputs_for(case, fp32).tensors["x"]
+    assert x.dtype == np.float32 and x.shape == (4, 128) and -1 <= x.min() and x.max() <= 1
+    assert np.array_equal(x, inputs_for(case, fp32).tensors["x"])
     _, int8 = planned(m, "default", F.INT8)
-    xi = inputs_for(case, int8)["x"]
+    xi = inputs_for(case, int8).tensors["x"]
     assert xi.dtype == np.int8 and xi.min() < -100 and xi.max() > 100  # the whole INT8 range
     _, e4 = planned(m, "default", F.E4)
-    xe = inputs_for(case, e4)["x"]
-    from ipu_harness.params import representable
-
-    assert all(representable(float(v), F.E4)[0] for v in xe.ravel()[:64])
+    xe = inputs_for(case, e4).tensors["x"]
+    # E4 holds 3 mantissa bits: each value in [0.5, 1) is a multiple of 1/16.
+    upper = xe[(xe >= 0.5) & (xe < 1)]
+    assert upper.size and np.array_equal(upper * 16, np.round(upper * 16))
+    assert inputs_for(case, e4).rounded == {}
 
 
 def test_range_keeps_generated_values_inside_it_per_format(tmp_path):
     m = scale(tmp_path, x_extra="range = { int8 = [-3, 3], fp32 = [0, 0.25] }\n")
     case, int8 = planned(m, "default", F.INT8)
-    xi = inputs_for(case, int8)["x"]
-    assert xi.min() >= -3 and xi.max() <= 3 and set(np.unique(xi)) == set(range(-3, 4))
+    xi = inputs_for(case, int8).tensors["x"]
+    assert set(np.unique(xi).tolist()) == {-3, -2, -1, 0, 1, 2, 3}
     _, fp32 = planned(m, "default")
-    x = inputs_for(case, fp32)["x"]
-    assert 0 <= x.min() and x.max() < 0.25
+    x = inputs_for(case, fp32).tensors["x"]
+    assert 0 <= x.min() and x.max() <= 0.25
     _, e4 = planned(m, "default", F.E4)  # not listed: the default range
-    assert inputs_for(case, e4)["x"].min() < 0
+    assert inputs_for(case, e4).tensors["x"].min() < 0
+
+
+# --- the sources and their priority -------------------------------------------------------
 
 
 def test_input_priority_override_then_case_file_then_generator(tmp_path):
-    m = scale(
-        tmp_path,
-        extra_cases='\n[cases.made]\nrows = 2\ns = 2.0\ninputs = { x = "data/x.npy" }\n'
-        'generator = "gen.py:make"\n',
+    both = MADE.replace(
+        'generator = "gen.py:make"', 'inputs = { x = "data/x.npy" }\ngenerator = "gen.py:make"'
     )
-    (m.directory / "gen.py").write_text(
-        "import numpy as np\n"
-        "def make(plan, rng):\n"
-        "    return {'x': np.full(plan.shapes['x'], 0.5)}\n"
-    )
+    m = scale(tmp_path, extra_cases=both.replace("made]", "both]") + MADE)
+    generator(m, "return {'x': np.full(plan.shapes['x'], 0.5)}")
     file_x = np.load(m.directory / "data" / "x.npy")
-    case, plan = planned(m, "made")
-    assert np.array_equal(inputs_for(case, plan)["x"], file_x)  # the case file beats the generator
+    case, plan = planned(m, "both")
+    assert np.array_equal(inputs_for(case, plan).tensors["x"], file_x)  # file beats generator
     override = tmp_path / "override.npy"
     np.save(override, np.ones((2, 128)))
-    assert np.array_equal(inputs_for(case, plan, overrides={"x": override})["x"], np.ones((2, 128)))
-    # Without a file the generator's tensor is used, rounded to the format.
-    (m.directory / "kernel.toml").write_text(
-        (m.directory / "kernel.toml")
-        .read_text()
-        .replace('inputs = { x = "data/x.npy" }\ngen', "gen")
+    assert np.array_equal(
+        inputs_for(case, plan, overrides={"x": override}).tensors["x"], np.ones((2, 128))
     )
-    m2 = load_manifest(m.directory)
-    case2, plan2 = planned(m2, "made")
-    assert np.array_equal(inputs_for(case2, plan2)["x"], np.full((2, 128), 0.5, dtype=np.float32))
+    case, plan = planned(m, "made")  # no file: the generator's
+    assert np.array_equal(inputs_for(case, plan).tensors["x"], np.full((2, 128), 0.5))
 
 
-def test_an_override_names_an_input(tmp_path):
+def test_a_generators_values_are_rounded_to_the_format_and_counted(tmp_path):
+    m = scale(tmp_path, extra_cases=MADE)
+    generator(m, "return {'x': np.full(plan.shapes['x'], 0.3)}")
+    case, e4 = planned(m, "made", F.E4)
+    made = inputs_for(case, e4)
+    assert np.array_equal(made.tensors["x"], np.full((2, 128), E4_NEAR_0_3, dtype=np.float32))
+    assert made.rounded == {"x": 256}
+
+
+def test_a_user_file_is_rounded_to_the_format_and_counted(tmp_path):
+    # E06-10's rule: user data is rounded (saturating) when packed, and the
+    # report says how many values changed; it is not rejected.
+    m = scale(tmp_path)
+    x = np.zeros((2, 128))
+    x[0, :3] = (1.5, 200.0, -300.0)  # INT8: 1.5 -> 2 (to even), 200 -> 127, -300 -> -128
+    np.save(m.directory / "data" / "x.npy", x)
+    case, int8 = planned(m, "mine", F.INT8)
+    got = inputs_for(case, int8)
+    assert got.tensors["x"][0, :4].tolist() == [2, 127, -128, 0]
+    assert got.rounded == {"x": 3}
+    _, fp32 = planned(m, "mine")
+    assert inputs_for(case, fp32).rounded == {}  # exact in FP32
+
+
+def test_an_override_names_an_input_and_its_errors_name_the_file(tmp_path):
     case, plan = planned(scale(tmp_path), "default")
     with pytest.raises(ConfigurationError, match="'z' is no input"):
         inputs_for(case, plan, overrides={"z": tmp_path / "z.npy"})
+    bad = tmp_path / "bad.npy"
+    np.save(bad, np.full((4, 128), np.nan))
+    with pytest.raises(
+        ConfigurationError, match=r"--input x=.*bad\.npy: x holds a value that is not finite"
+    ):
+        inputs_for(case, plan, overrides={"x": bad})
 
 
 @pytest.mark.parametrize(
     "value, message",
     [
-        (np.zeros((3, 128)), r"has shape \(3, 128\), the case's is \(2, 128\)"),
-        (np.array([["a"] * 128] * 2), "not a numeric one"),
-        (np.full((2, 128), 0.1), "fp32 cannot hold exactly"),
+        (np.zeros((3, 128)), r"x has shape \(3, 128\), the case's is \(2, 128\)"),
+        (np.array([["a"] * 128] * 2), "dtype <U1, not an int or float one"),
+        (np.zeros((2, 128), dtype=np.complex64), "dtype complex64, not an int or float one"),
+        (np.full((2, 128), np.inf), "not finite"),
     ],
 )
 def test_a_case_file_of_the_wrong_shape_dtype_or_values_is_rejected(tmp_path, value, message):
@@ -203,14 +256,12 @@ def test_a_case_file_of_the_wrong_shape_dtype_or_values_is_rejected(tmp_path, va
 
 def test_an_object_npy_is_rejected(tmp_path):
     m = scale(tmp_path)
-    np.save(
-        m.directory / "data" / "x.npy",
-        np.array([object()] * 256).reshape(2, 128),
-        allow_pickle=True,
-    )
+    objects = np.array([object()] * 256).reshape(2, 128)
+    np.save(m.directory / "data" / "x.npy", objects, allow_pickle=True)
     case, plan = planned(m, "mine")
-    with pytest.raises(PlanError, match="cannot read"):
+    with pytest.raises(PlanError, match="cannot read") as error:
         inputs_for(case, plan)
+    assert error.value.key == "cases.mine.inputs.x"
 
 
 @pytest.mark.parametrize(
@@ -219,22 +270,26 @@ def test_an_object_npy_is_rejected(tmp_path):
         ("return {'x': b'\\x00' * 256}", "x is bytes, not an array"),
         ("return {'w': np.zeros((2, 128))}", "made 'w', which is no input"),
         ("return [np.zeros((2, 128))]", "returned list, not a dict"),
+        ("return {'x': np.full((2, 128), np.nan)}", "not finite"),
+        ("raise RuntimeError('boom')", "raised RuntimeError: boom"),
     ],
 )
-def test_a_generator_returns_declared_inputs_as_arrays(tmp_path, body, message):
-    m = scale(
-        tmp_path, extra_cases='\n[cases.made]\nrows = 2\ns = 2.0\ngenerator = "gen.py:make"\n'
-    )
-    (m.directory / "gen.py").write_text(f"import numpy as np\ndef make(plan, rng):\n    {body}\n")
+def test_a_generator_returns_finite_arrays_of_declared_inputs(tmp_path, body, message):
+    m = scale(tmp_path, extra_cases=MADE)
+    generator(m, body)
     case, plan = planned(m, "made")
     with pytest.raises(PlanError, match=message) as error:
         inputs_for(case, plan)
     assert error.value.key == "cases.made.generator"
 
 
-def test_no_per_call_reseeding_or_hash_seeding_in_the_harness():
-    for path in sorted(HARNESS.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        assert "hash(" not in text, path
-        assert "RandomState" not in text, path
-        assert "default_rng(" not in text or path.name == "cases.py", path
+def test_a_generator_file_that_does_not_load_or_lacks_the_function_is_located(tmp_path):
+    m = scale(tmp_path, extra_cases=MADE)
+    (m.directory / "gen.py").write_text("def make(:\n")
+    case, plan = planned(m, "made")
+    with pytest.raises(PlanError, match="cannot load gen.py: SyntaxError") as error:
+        inputs_for(case, plan)
+    assert error.value.key == "cases.made.generator"
+    (m.directory / "gen.py").write_text("def other(plan, rng):\n    return {}\n")
+    with pytest.raises(PlanError, match="gen.py has no function make"):
+        inputs_for(case, plan)

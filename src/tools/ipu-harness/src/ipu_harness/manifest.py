@@ -71,6 +71,7 @@ each becomes the parameter's only choice and its value in every case).
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 from collections.abc import Iterable, Mapping
@@ -79,9 +80,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from ipu_harness._codec import limits
 from ipu_harness._toml_source import Locator, ManifestError, Reader, decode_error_line, where
 from ipu_harness.expressions import ExpressionError, names_in
-from ipu_isa.formats import ElementFormat
+from ipu_isa.formats import FORMATS, ElementFormat
 from ipu_isa.registers import REGISTER_DEFINITIONS
 
 if sys.version_info >= (3, 11):
@@ -405,12 +407,26 @@ def _pair(r: Reader, raw: object, path: tuple[str, ...]) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
+def _fits(
+    r: Reader, bounds: tuple[float, float], fmt: ElementFormat, path: tuple[str, ...]
+) -> None:
+    """``bounds`` lie in what ``fmt`` holds, and hold an integer if ``fmt`` is one."""
+    lo, hi = bounds
+    least, most = limits(fmt)
+    if lo < least or hi > most:
+        raise r.fail(path, f"{where(path)} [{lo}, {hi}] is outside {fmt.value}'s [{least}, {most}]")
+    if not FORMATS[fmt].is_float and math.ceil(lo) > math.floor(hi):
+        raise r.fail(path, f"{where(path)} [{lo}, {hi}] holds no {fmt.value} value")
+
+
 def _range(
     r: Reader, raw: object, path: tuple[str, ...], formats: tuple[ElementFormat, ...]
 ) -> dict[ElementFormat, tuple[float, float]]:
     """``range = [lo, hi]`` for every format, or ``{ int8 = [lo, hi], ... }`` per format."""
     if isinstance(raw, list):
         bounds = _pair(r, raw, path)
+        for fmt in formats:
+            _fits(r, bounds, fmt, path)
         return dict.fromkeys(formats, bounds)
     out: dict[ElementFormat, tuple[float, float]] = {}
     for key, value in r.table(raw, path).items():
@@ -418,6 +434,7 @@ def _range(
         if fmt not in formats:
             raise r.fail((*path, key), f"range for {key}, a format the kernel does not run in")
         out[fmt] = _pair(r, value, (*path, key))
+        _fits(r, out[fmt], fmt, (*path, key))
     return out
 
 
