@@ -76,7 +76,7 @@ def test_package_text_matches_golden():
     )
     assert not diff, (
         "The generated SV package changed. If intended, run "
-        f"bazel run //src/tools/ipu-as-py:update_sv_golden\n{diff}"
+        f"{update_sv_golden.UPDATE_COMMAND}\n{diff}"
     )
 
 

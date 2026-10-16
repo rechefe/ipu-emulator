@@ -15,6 +15,7 @@ from pathlib import Path
 from ipu_as import gen_codegen
 
 GOLDEN_PATH = "src/tools/ipu-as-py/test/golden/ipu_instr_pkg.sv"
+UPDATE_COMMAND = "bazel run //src/tools/ipu-as-py:update_sv_golden"
 
 
 def render() -> str:
@@ -26,8 +27,7 @@ def render() -> str:
 def main() -> int:
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if not workspace:
-        print("Run this through Bazel: bazel run //src/tools/ipu-as-py:update_sv_golden",
-              file=sys.stderr)
+        print(f"Run this through Bazel: {UPDATE_COMMAND}", file=sys.stderr)
         return 2
     (Path(workspace) / GOLDEN_PATH).write_text(render(), encoding="utf-8")
     print(f"Wrote {GOLDEN_PATH}")

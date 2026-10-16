@@ -1,5 +1,8 @@
 """Every generated artifact other than the SV package matches its snapshot in
-``test/baselines/generated/`` (see ``generated_artifacts.py``)."""
+``test/baselines/generated/`` (see ``generated_artifacts.py``).
+
+Normalizations applied before comparing are listed in
+``generated_artifacts.NORMALIZATIONS`` (none today)."""
 
 from __future__ import annotations
 

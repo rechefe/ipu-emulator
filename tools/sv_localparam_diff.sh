@@ -16,7 +16,7 @@ if [[ $# -ne 1 ]]; then
   exit 2
 fi
 
-repo="$(git rev-parse --show-toplevel)"
+repo="$(git rev-parse --show-toplevel)" || exit 2
 base="$(git -C "$repo" rev-parse --verify "$1^{commit}")" || exit 2
 worktree="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/sv-localparam-diff"
 target="//docs:generate_instruction_format_artifacts"
@@ -36,11 +36,15 @@ localparams() {
     echo "$0: building $target in $tree failed" >&2
     exit 2
   fi
-  grep -E '^\s*localparam\b' "$tree/bazel-bin/docs/ipu_instr_pkg.sv" | sed -E 's/^\s+//' >"$out"
+  grep -E '^[[:space:]]*localparam[[:space:]]' "$tree/bazel-bin/docs/ipu_instr_pkg.sv" | sed -E 's/^[[:space:]]+//' >"$out"
 }
 
 git -C "$repo" worktree remove --force "$worktree" >/dev/null 2>&1 || true
-git -C "$repo" worktree add --force --detach "$worktree" "$base" >/dev/null 2>&1
+if ! git -C "$repo" worktree add --force --detach "$worktree" "$base" >"$scratch/worktree.log" 2>&1; then
+  cat "$scratch/worktree.log" >&2
+  echo "$0: git worktree add failed" >&2
+  exit 2
+fi
 
 localparams "$worktree" "$scratch/base.txt"
 localparams "$repo" "$scratch/head.txt"
