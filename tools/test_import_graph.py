@@ -330,10 +330,12 @@ _PACKAGES = {
     ("file", "text", "message"),
     [
         ("harness/src/ipu_harness/runner.py", "import ipu_apps\n", "imports ipu_apps"),
+        ("harness/src/ipu_harness/registry.py", "import ipu_kernels\n", "imports ipu_kernels"),
+        # Not even inside a function (Q62): no cycle-dodging lazy imports.
         (
             "harness/src/ipu_harness/registry.py",
-            "import ipu_kernels.elementwise.layers\n",
-            "ipu_kernels.elementwise.layers at module level",
+            "def load():\n    import ipu_kernels.elementwise.layers\n",
+            "imports ipu_kernels.elementwise.layers",
         ),
         ("harness/src/ipu_harness/reference.py", "import torch\n", "torch at module level"),
         (
@@ -368,8 +370,8 @@ def test_e06_01_rules_accept(tmp_path):
             **_PACKAGES,
             "harness/src/ipu_harness/reference.py": (
                 "import ipu_emu\nimport ipu_isa\nimport importlib\n"
-                "def load(op):\n    import torch\n"
-                "    return importlib.import_module('ipu_kernels.reference.ops')\n"
+                "def load(entry):\n    import torch\n"
+                "    return importlib.import_module(entry['module'])\n"
             ),
             "kernels/src/ipu_kernels/pack/rows.py": "import ipu_harness\n",
             "kernels/src/ipu_kernels/reference/softmax.py": (
