@@ -553,11 +553,12 @@ def check(text: str, *, search_path: Sequence[Path] = ()) -> list[Diagnostic]:
     include line, and its message names the template and line.
     """
     rendered = text
+    inputs = template.TemplateInputs(search_path=tuple(Path(p) for p in search_path))
     if any(marker in text for marker in _JINJA_MARKERS):
         # Sandboxed like the assembler: the editor checks a file on open, so this must not run a
         # received .asm's payload (see ipu_as/template.py). An escape surfaces as a SecurityError.
         try:
-            rendered = template.render(text, search_path=search_path, source_name=_MAIN)
+            rendered = template.render(text, inputs, source_name=_MAIN)
         except TemplateError as wrapped:
             return [_template_failure(wrapped)]
 
@@ -567,10 +568,7 @@ def check(text: str, *, search_path: Sequence[Path] = ()) -> list[Diagnostic]:
         if _instrument(text) is not None:
             try:
                 marked = template.render(
-                    text,
-                    search_path=search_path,
-                    source_name=_MAIN,
-                    transform=_instrument_template,
+                    text, inputs, source_name=_MAIN, transform=_instrument_template
                 )
             except TemplateError:
                 marked = None

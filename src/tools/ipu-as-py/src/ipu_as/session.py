@@ -88,9 +88,11 @@ class AssemblySession:
         defines: Mapping[str, object] | None = None,
         params: template.ParamSpec | None = None,
         search_path: Sequence[Path] = (),
+        abi: Mapping[str, Mapping[str, str]] | None = None,
         name: str = "<input>",
     ) -> None:
         self.source = source
+        self.abi = {namespace: dict(names) for namespace, names in (abi or {}).items()}
         self.defines = dict(defines or {})
         self.params = params
         self.search_path = tuple(Path(p) for p in search_path)
@@ -106,13 +108,13 @@ class AssemblySession:
             TemplateError: a bad define or a jinja failure, located.
         """
         if self._rendered is None:
-            self._rendered = template.render(
-                self.source,
+            inputs = template.TemplateInputs(
                 defines=self.defines,
                 params=self.params,
                 search_path=self.search_path,
-                source_name=self.name,
+                namespaces=self.abi,
             )
+            self._rendered = template.render(self.source, inputs, source_name=self.name)
         return self._rendered
 
     def parse(self) -> list[dict]:
@@ -181,14 +183,20 @@ _cache: collections.OrderedDict[tuple, AssemblyResult] = collections.OrderedDict
 
 
 def _cache_key(
-    source: str, defines: Mapping[str, object] | None, params: template.ParamSpec | None
+    source: str,
+    defines: Mapping[str, object] | None,
+    params: template.ParamSpec | None,
+    abi: Mapping[str, Mapping[str, str]] | None,
 ) -> tuple | None:
     """The cache key, or None when the inputs cannot be one (a ParamSpec with an unhashable default)."""
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
     # Each value with its type and repr: True == 1 == 1.0 in Python, but they
     # bind differently against a declared int (only 1 is valid).
     values = tuple(sorted((k, type(v).__name__, repr(v)) for k, v in (defines or {}).items()))
-    key = (digest, values, params)
+    names = tuple(
+        sorted((namespace, tuple(sorted(regs.items()))) for namespace, regs in (abi or {}).items())
+    )
+    key = (digest, values, params, names)
     try:
         hash(key)
     except TypeError:
@@ -202,6 +210,7 @@ def assemble(
     defines: Mapping[str, object] | None = None,
     params: template.ParamSpec | None = None,
     search_path: Sequence[Path] = (),
+    abi: Mapping[str, Mapping[str, str]] | None = None,
     name: str = "<input>",
 ) -> AssemblyResult:
     """Assemble `source`, reusing the result of an identical recent assembly.
@@ -210,14 +219,14 @@ def assemble(
     warnings whether or not the result came from the cache. A source with a
     search path is never cached: an included file can change between calls.
     """
-    key = None if search_path else _cache_key(source, defines, params)
+    key = None if search_path else _cache_key(source, defines, params, abi)
     cached = _cache.get(key) if key is not None else None
     if cached is not None:
         _cache.move_to_end(key)
         cached.reissue_warnings()
         return cached
     result = AssemblySession(
-        source, defines=defines, params=params, search_path=search_path, name=name
+        source, defines=defines, params=params, search_path=search_path, abi=abi, name=name
     )._encode()
     result.reissue_warnings()
     if key is None:

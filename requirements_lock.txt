@@ -1209,6 +1209,8 @@ tomli==2.5.0 \
     --hash=sha256:fd4dc129784e0c5335bd4e61dfcc4487499a013419e655cf2da1d091b7e0efdc
     # via
     #   -r tools/requirements-tools.in
+    #   ipu-as-py (src/tools/ipu-as-py/pyproject.toml)
+    #   ipu-as-py
     #   mypy
     #   pytest
 typing-extensions==4.16.0 \

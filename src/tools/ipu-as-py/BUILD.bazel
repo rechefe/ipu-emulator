@@ -100,6 +100,17 @@ py_pytest_test(
     ],
 )
 
+# `cr` / `lr` ABI namespaces in templates (E05-13).
+py_pytest_test(
+    name = "test_abi",
+    srcs = ["test/test_abi.py"],
+    imports = ["src"],
+    deps = [
+        ":ipu_as_lib",
+        requirement("pytest"),
+    ],
+)
+
 # GNU numeric local labels (E05-14).
 py_pytest_test(
     name = "test_local_labels",
