@@ -2,9 +2,16 @@
 #
 # //tools:test_import_graph reads every Python source under
 # src/tools/*/src/<package>/ and fails on an import of a first-party package
-# that its row does not list. A package imports itself freely. A package
-# with no row here fails the test, so a new package (ipu_harness, the
-# debugger) adds its row in the change that creates it.
+# that its row does not list. A package imports itself freely. A new package
+# (ipu_harness, ipu_debug) adds its row here and its :py_sources to the test's
+# data in the change that creates it; until then the test fails on a package
+# with sources and no row, and on any import of an ipu_* package it has no
+# sources for.
+#
+# Rows are per top-level package. "Nothing imports X except Y" is a row
+# matter: list X only in Y's row. Finer rules (a subpackage such as
+# ipu_kernels.reference, or "not at module level") extend this schema in the
+# issue that needs them (E06-01).
 #
 # Edges marked "temporary" are today's code, not the target design; the
 # issue named beside each one removes it, and that change deletes the edge.
@@ -25,7 +32,8 @@ ipu_as = [
 
 ipu_emu = [
     "ipu_isa",
-    "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it)
+    "ipu_as",  # temporary: execute and the debuggers use CompoundInst (E03-18 removes it; E04-18 checks)
 ]
 
+# ipu_isa is allowed but not imported today.
 ipu_apps = ["ipu_isa", "ipu_as", "ipu_emu"]

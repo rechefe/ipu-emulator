@@ -10,6 +10,10 @@ The check is static, so it sees an import whatever the Bazel deps of the test
 happen to be. ``//src/tools/ipu-isa:test_purity`` keeps the complementary
 run-time check for ``ipu_isa``: its modules import with only ``ipu_isa_lib`` on
 the path.
+
+Rows are per top-level package. A rule finer than that (a subpackage such as
+``ipu_kernels.reference``, or "not at module level") extends the table's
+schema in the issue that needs it (E06-01).
 """
 
 from __future__ import annotations
@@ -28,6 +32,10 @@ else:
 
 TABLE = Path("tools/import_graph.toml")
 SOURCE_ROOT = Path("src/tools")
+
+#: Top-level modules with this prefix are first party, whether or not their
+#: sources are in this test's data.
+FIRST_PARTY_PREFIX = "ipu_"
 
 
 def load_table(path: Path = TABLE) -> dict[str, frozenset[str]]:
@@ -66,14 +74,24 @@ def imported_modules(source: str, filename: str = "<string>") -> Iterator[tuple[
 def violations(
     packages: Mapping[str, Path], table: Mapping[str, frozenset[str]]
 ) -> list[str]:
-    """One line per import of a first-party package that ``table`` forbids."""
+    """One line per import of a first-party package that ``table`` forbids.
+
+    An ``ipu_*`` package with no sources in ``packages`` is reported too: it
+    is first party but not wired into this test.
+    """
     found = []
     for package, directory in sorted(packages.items()):
-        allowed = table[package] | {package}
+        allowed = table.get(package, frozenset()) | {package}
         for path in sorted(directory.rglob("*.py")):
             for line, module in imported_modules(path.read_text(), str(path)):
                 top = module.split(".")[0]
-                if top in packages and top not in allowed:
+                if top not in packages and top.startswith(FIRST_PARTY_PREFIX):
+                    found.append(
+                        f"{path}:{line}: {package} imports unknown first-party package {top}; "
+                        "add its :py_sources to //tools:test_import_graph and its row to "
+                        f"{TABLE}"
+                    )
+                elif top in packages and top not in allowed:
                     found.append(f"{path}:{line}: {package} imports {module}")
     return found
 
@@ -84,8 +102,11 @@ PACKAGES = find_packages()
 
 def test_every_package_has_a_row():
     """A package with no row, or a row with no package sources, is a mistake:
-    add the row, or the package's ``py_sources`` to this test's data."""
-    assert sorted(PACKAGES) == sorted(TABLE_ROWS)
+    add the row, or the package's ``:py_sources`` to this test's data."""
+    assert {
+        "no row": sorted(PACKAGES.keys() - TABLE_ROWS.keys()),
+        "no sources": sorted(TABLE_ROWS.keys() - PACKAGES.keys()),
+    } == {"no row": [], "no sources": []}
 
 
 def test_rows_name_known_packages():
@@ -137,6 +158,12 @@ def test_a_forbidden_import_is_reported(tmp_path, text):
     [found] = violations(packages, table)
     assert found.startswith(str(tmp_path / "a/src/pkg_a/mod.py"))
     assert "pkg_a imports pkg_b" in found
+
+
+def test_an_unwired_first_party_package_is_reported(tmp_path):
+    packages = _plant(tmp_path, {"a/src/ipu_a/mod.py": "import ipu_new.sub\n"})
+    [found] = violations(packages, {"ipu_a": frozenset()})
+    assert "unknown first-party package ipu_new" in found
 
 
 def test_allowed_self_relative_and_third_party_imports_pass(tmp_path):
