@@ -15,6 +15,9 @@ A kernel whose program contains an emulator-only instruction (``STR_ACC_REG``)
 must emit ``DebugOnlyInstructionWarning`` in every case; any other kernel fails
 if the warning appears. Tests that run kernels outside ``case_tests`` say which
 they expect with :func:`debug_only_warning`.
+
+After its check passes, every case is also compared with its record in the
+kernel's ``baseline.json`` (see :mod:`ipu_apps.kernel_registry.baseline`).
 """
 from contextlib import contextmanager
 from functools import cache
@@ -24,6 +27,7 @@ import warnings
 
 import pytest
 
+from ipu_apps.kernel_registry import baseline
 from ipu_apps.kernel_registry.cases import (
     assemble_kernel, load_cases, options_label, package_kernel, run_case,
 )
@@ -71,7 +75,8 @@ def case_tests(package, sweep=()):
     named cases are. The kernel is assembled once and reused. ``run_case``
     raises if the kernel does not halt or a check fails. Each run asserts the
     ``DebugOnlyInstructionWarning`` exactly when the assembled program uses an
-    emulator-only instruction (see :func:`debug_only_warning`).
+    emulator-only instruction (see :func:`debug_only_warning`), and is compared
+    with its baseline record (see :func:`check_baseline`).
     """
     kernel = package_kernel(package)
     cases = load_cases(kernel)
@@ -85,6 +90,7 @@ def case_tests(package, sweep=()):
         params.append(("default", dict(options)))
         ids.append(options_label(options))
     assembled = []
+    updated: dict = {}
 
     @pytest.mark.parametrize("case,options", params, ids=[f"{kernel}-{i}" for i in ids])
     def test_case(case, options, tmp_path_factory):
@@ -92,7 +98,22 @@ def case_tests(package, sweep=()):
             inst_path = assemble_kernel(kernel, tmp_path_factory.mktemp(kernel))
             assembled.append((inst_path, uses_debug_only_instructions(inst_path)))
         inst_path, debug_only = assembled[0]
+        recorder = baseline.Recorder()
         with debug_only_warning(debug_only):
-            run_case(kernel, load_cases(kernel)[case], options=options, inst_path=inst_path)
+            run_case(kernel, load_cases(kernel)[case], options=options, inst_path=inst_path,
+                     recorder=recorder)
+        case_id = options_label(options) if options else case
+        check_baseline(kernel, case_id, recorder.record, updated)
 
     return test_case
+
+
+def check_baseline(kernel, case_id, record, updated) -> None:
+    """Compare a case's run with its baseline record, or, under the update
+    command, collect it into ``updated`` and rewrite the kernel's file."""
+    root = baseline.update_root()
+    if root is None:
+        baseline.check(kernel, case_id, record)
+        return
+    updated[case_id] = record
+    baseline.write(baseline.source_path(root, kernel), updated)

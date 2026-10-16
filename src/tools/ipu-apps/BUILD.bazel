@@ -198,3 +198,29 @@ py_binary(
     main = "test/baselines/update_disassembly_snapshots.py",
     deps = [":disassembly_snapshots"],
 )
+
+# Kernel case baselines (E02-07): `bazel run :update_kernel_baselines --
+# [<kernel> ...]` reruns the kernels' case_tests and rewrites their
+# baseline.json files.
+py_binary(
+    name = "update_kernel_baselines",
+    srcs = ["test/baselines/update_kernel_baselines.py"],
+    main = "test/baselines/update_kernel_baselines.py",
+    data = glob([
+        "src/ipu_apps/**/test.py",
+        "src/ipu_apps/**/*.asm",
+        "src/ipu_apps/**/*.bin",
+        "src/ipu_apps/**/baseline.json",
+    ], allow_empty = True),
+    # As for the kernel tests: pytest must import test.py as ipu_apps.kernels.…
+    legacy_create_init = False,
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)
+
+py_pytest_test(
+    name = "test_kernel_baseline",
+    srcs = ["test/test_kernel_baseline.py"],
+    data = glob(["src/ipu_apps/kernels/reshape/identity/*"]),
+    legacy_create_init = False,
+    deps = [":ipu_apps_lib", requirement("pytest")],
+)

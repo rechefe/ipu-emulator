@@ -1,0 +1,15 @@
+{
+ "default": {
+  "cycles": 38593,
+  "output_sha256": "763ad951ab0bf2e763aca793eeb197766590ddf06c5374dd329f625f427ac948",
+  "stages": [
+   {
+    "cr": [0, 1, 193, 0, 0, 576, 4294967295, 0, 4294967295, 192, 0, 0, 0, 0, 0, 128],
+    "lr": [0, 0, 1, 1, 0, 0, 126, 0, 0, 0, 192, 62, 2, 0, 0, 0],
+    "program_sha256": "56c224f038e3ff6e9c638983878b5f12ae23489d5d48aefa66c0ae33165d4d4b",
+    "xmem_setup_sha256": "ca56ee87a2db00fb91db0f2291eb6b857eeecab8ff91b2674a13bfcfa7a74193"
+   }
+  ],
+  "state_sha256": "55c07b00525b630aa615a66a363321af41fd8a07abd700927f67a933f8850d10"
+ }
+}
