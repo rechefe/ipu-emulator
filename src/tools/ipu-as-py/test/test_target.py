@@ -128,17 +128,18 @@ def test_check_cli_takes_the_target():
     assert "emulator-only" in result.stdout
 
 
-def test_the_hardware_width_is_the_sv_package_without_the_emulator_slots():
+def test_the_hardware_width_is_the_sv_package_width():
+    # E03-22: the SV package describes the hardware word only.
     params = dict(
         (name, int(value))
         for name, value in re.findall(
             r"localparam int unsigned (\w+) = (\d+);", SV_GOLDEN.read_text()
         )
     )
-    emulator_only = sum(
+    hardware_slots = sum(
         params[f"{slot.value.upper()}_SLOT_T_WIDTH"] * SLOTS[slot].count
         for slot in LAYOUT_ORDER
-        if SLOTS[slot].tag is Tag.EMULATOR
+        if SLOTS[slot].tag is Tag.HARDWARE
     )
     hardware = isa().layout.word_bits(Tag.HARDWARE)
-    assert params["IPU_COMPOUND_INST_WIDTH"] - emulator_only == hardware == 155
+    assert params["IPU_COMPOUND_INST_WIDTH"] == hardware_slots == hardware == 155

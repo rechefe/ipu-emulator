@@ -36,7 +36,7 @@ Questions OQ-18 onwards concern the emulator and the ISA definition, not only th
 
 | ID | Question | Proposal | Owner |
 |---|---|---|---|
-| OQ-14 | What is the width of the hardware VLIW word, and how does it pack into 32-bit AXI beats? | The emulator word without the `ACC_STORE` and `BREAK` slots, padded to a multiple of 32 bits | Unassigned |
+| OQ-14 | What is the width of the hardware VLIW word, and how does it pack into 32-bit AXI beats? | Width answered (E03-22): the emulator word without the `ACC_STORE` and `BREAK` slots, 155 bits (`IPU_COMPOUND_INST_WIDTH` in the generated SV package, `word_bits(Tag.HARDWARE)` in `ipu_isa.layout`), 160 bits (20 bytes) padded to 32-bit beats. Still open: how the 160 bits pack into AXI beats. | Unassigned |
 | OQ-15 | What are the AXI address and ID widths, and the width and signal list of `tbl_view`? | Fix in the IPU block specification, together with the cache unit owner | Unassigned |
 
 ## Pipeline

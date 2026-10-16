@@ -1,7 +1,9 @@
 """Generate the SystemVerilog package from the instruction format (E08-13).
 
 Emits the opcode and operand enums, per-slot structs (opcode + operand union)
-and per-instruction ``union packed`` views derived from the slot union layouts. Every
+and per-instruction ``union packed`` views derived from the slot union layouts.
+The package describes the hardware word only (E03-22): emulator-only slots,
+their instructions and any enum only they use are left out. Every
 name comes from ISA data (``SlotInfo.opcode_enum``, ``OperandType.sv_typedef``,
 ``sv_struct_base``), never from a Python class name, so a refactor of the
 assembler cannot rename a downstream RTL type. Reads ``ipu_isa`` only.
@@ -19,6 +21,7 @@ import jinja2
 
 from ipu_isa.operand_types import OPERAND_TYPES, OperandType
 from ipu_isa.slots import Slot
+from ipu_isa.tags import Tag
 from ipu_isa.union_layout import SlotUnion
 from ipu_isa.view import Instruction, Isa, isa
 
@@ -240,7 +243,7 @@ def _slot_union_descriptors(view: Isa, typedef_bits: dict[str, int]) -> list[dic
     """
     slots: list[dict[str, Any]] = []
 
-    for slot in view.spec_slot_order:
+    for slot in _hardware_slots(view, view.spec_slot_order):
         slot_name, slot_union, info = slot.value, view.layout.unions[slot], view.slots[slot]
         opcode_key, struct_base = info.opcode_enum, info.sv_struct_base
         opcode_enum = f"{opcode_key}_t"
@@ -302,7 +305,7 @@ def _compound_members(view: Isa) -> list[dict[str, Any]]:
     members: list[dict[str, Any]] = []
     type_counts: dict[Slot, int] = {}
 
-    order = view.layout.layout_order
+    order = view.layout.slots_with_tag(Tag.HARDWARE)
     for slot in (s for s in order for _ in range(view.slots[s].count)):
         struct_base = view.slots[slot].sv_struct_base
         sv_type = f"{struct_base}_t"
@@ -339,6 +342,21 @@ def _check_operand_enum_order() -> None:
 _check_operand_enum_order()
 
 
+def _hardware_slots(view: Isa, order: Iterable[Slot]) -> tuple[Slot, ...]:
+    """The hardware-tagged slots of ``order``, in that order."""
+    return tuple(slot for slot in order if view.slots[slot].tag is Tag.HARDWARE)
+
+
+def _hardware_operand_types(view: Isa) -> frozenset[str]:
+    """Operand types a hardware slot uses, as an operand or as a field's type."""
+    used: set[str] = set()
+    for slot in _hardware_slots(view, view.layout.layout_order):
+        used.update(field.canonical_type for field in view.layout.unions[slot].fields)
+        for instruction in view.instructions(slot):
+            used.update(op.type.name for op in instruction.operands)
+    return frozenset(used)
+
+
 def _typedef_base(view: Isa, name: str) -> str:
     typedef = view.operand_types[name].sv_typedef
     if typedef is None or not typedef.endswith("_t"):
@@ -347,7 +365,8 @@ def _typedef_base(view: Isa, name: str) -> str:
 
 
 def enum_descriptors(view: Isa | None = None) -> dict[str, list[tuple[int, str]]]:
-    """Every SV enum in package order: each slot's opcodes, then the operand enums.
+    """Every SV enum in package order: each hardware slot's opcodes, then the
+    operand enums a hardware slot uses.
 
     Returns:
         ``{name: [(value, MEMBER), ...]}``, where ``name`` is the typedef without
@@ -356,11 +375,12 @@ def enum_descriptors(view: Isa | None = None) -> dict[str, list[tuple[int, str]]
     """
     view = isa() if view is None else view
     enums: dict[str, list[tuple[int, str]]] = {}
-    for slot in view.spec_slot_order:
+    for slot in _hardware_slots(view, view.spec_slot_order):
         enums[view.slots[slot].opcode_enum] = _members(
             instruction.mnemonic for instruction in view.instructions(slot)
         )
-    for name in OPERAND_ENUM_ORDER:
+    used = _hardware_operand_types(view)
+    for name in (n for n in OPERAND_ENUM_ORDER if n in used):
         enums[_typedef_base(view, name)] = _members(view.operand_types[name].domain.members)
     return enums
 
@@ -395,16 +415,26 @@ def _enum_descriptors_for_templates(view: Isa) -> list[dict[str, Any]]:
 
 
 def _compound_width(view: Isa) -> int:
-    """Bits of the instruction word: each slot's opcode and operand union, per copy."""
-    return view.layout.word_bits()
+    """Bits of the hardware word: each hardware slot's opcode and operand union, per copy."""
+    return view.layout.word_bits(Tag.HARDWARE)
+
+
+def _slot_list(view: Isa, slots: Iterable[Slot]) -> str:
+    """Slots as the compound comment names them, in the given order: ``lr×3``."""
+    return ", ".join(
+        slot.value if view.slots[slot].count == 1 else f"{slot.value}×{view.slots[slot].count}"
+        for slot in slots
+    )
 
 
 def _compound_slot_order(view: Isa) -> str:
-    """The compound word's slots, MSB first, as its comment names them: ``lr×3``."""
-    counts = {slot: view.slots[slot].count for slot in view.layout.layout_order}
-    return ", ".join(
-        slot.value if count == 1 else f"{slot.value}×{count}" for slot, count in counts.items()
-    )
+    """The hardware word's slots, MSB first, as its comment names them: ``lr×3``."""
+    return _slot_list(view, view.layout.slots_with_tag(Tag.HARDWARE))
+
+
+def _emulator_slots(view: Isa) -> str:
+    """The emulator-only slots, MSB first, that the emulator word appends below bit 0."""
+    return _slot_list(view, view.layout.slots_with_tag(Tag.EMULATOR))
 
 
 def build_codegen_context(view: Isa | None = None) -> dict[str, Any]:
@@ -419,6 +449,7 @@ def build_codegen_context(view: Isa | None = None) -> dict[str, Any]:
         "compound_members": _compound_members(view),
         "compound_width": _compound_width(view),
         "compound_slot_order": _compound_slot_order(view),
+        "emulator_slots": _emulator_slots(view),
     }
 
 
