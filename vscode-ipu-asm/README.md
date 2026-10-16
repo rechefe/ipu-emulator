@@ -90,7 +90,7 @@ must keep assembling; a change that breaks it is a real grammar regression.
 |---|---|
 | `test/checker.js` | which checker runs, when the prebuilt one is stale, and how a process that runs too long is stopped |
 | `test/project.js` | which IPU checkout a file or an open folder belongs to, if any |
-| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode, and trusting the workspace starts it |
+| `test/activation.js` | the extension activated on a stand-in `vscode`: nothing runs in Restricted Mode and trusting the workspace starts it; each checkout's status is its own; a failed check is retried; which checkout an unsaved or non-file document is checked in |
 | `test/language.js <isa.json> [parser-tokens.json]` | completion and navigation logic, and agreement with the parser on the corpus |
 | `test/runs.js [manifest.json]` | the run, test, debug, benchmark and query commands, against the real manifest; a manifest value that is no label or flag is refused |
 | `test/rewrites.js` + `check_rewrites` | renaming each label and Jinja symbol, and formatting, leaves the assembled binary unchanged |
@@ -251,7 +251,13 @@ silence is the worse failure.
 So a status bar item reports which state you are in — `$(check) IPU` when
 diagnostics are live, `$(warning) IPU: checks off` when they are not. Clicking
 it, or running **IPU Assembly: Why are diagnostics not running?**, gives the
-reason.
+reason. With several checkouts open, it shows the active editor's: each checkout
+has its own toolchain. A check that failed is run again on the next save or
+**IPU Assembly: Check current file**, even if the text has not changed.
+
+An unsaved buffer is checked in the window's checkout when there is exactly one,
+and not at all when there are several. A git diff view is checked in the
+checkout holding its file; a document with no file on disk is not checked.
 
 The most common reason: **`ipu-as check` is added by the same change as this
 extension**, so a workspace on a branch predating it has no `check` subcommand

@@ -143,12 +143,18 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
     statusItem,
     context,
     events,
-    /** Open a document holding `text` at `uri`, as VS Code reports one opening. */
+    /** Open a document holding `text` at `uri` in the active editor, as VS Code reports it. */
     open(uri, text, languageId = 'ipu-asm') {
       const doc = { uri, languageId, version: 1, isClosed: false, getText: () => text };
       documents.push(doc);
       events.onDidOpenTextDocument.fire(doc);
+      this.show(doc);
       return doc;
+    },
+    /** Make `doc` the active editor's document. */
+    show(doc) {
+      vscode.window.activeTextEditor = { document: doc };
+      events.onDidChangeActiveTextEditor.fire(vscode.window.activeTextEditor);
     },
     /** Trust the workspace, as the user granting it does. */
     trust() {
@@ -158,9 +164,9 @@ function install({ trusted = true, folders = [], settings = {} } = {}) {
     activate() {
       return require(path.join(EXTENSION, 'extension.js')).activate(context);
     },
+    /** Dispose what activation registered, as VS Code does on deactivation. */
     deactivate() {
       for (const d of context.subscriptions) if (d && d.dispose) d.dispose();
-      require(path.join(EXTENSION, 'extension.js')).deactivate();
     },
   };
 }

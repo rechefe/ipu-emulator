@@ -81,4 +81,88 @@ test('in Restricted Mode nothing runs, and the status says why; trusting the wor
   fs.rmSync(temp, { recursive: true, force: true });
 });
 
+/** A checker that notes where it ran, and fails in a checkout holding a `broken` file. */
+function recordingChecker(temp) {
+  const log = path.join(temp, 'checks.log');
+  const script = path.join(temp, 'checker.js');
+  fs.writeFileSync(script, `const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(log)}, process.cwd() + '\\n');
+if (fs.existsSync('broken')) { process.stderr.write('toolchain broken'); process.exit(2); }
+process.stdout.write('[]');
+`);
+  const runs = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
+  return { argv: [process.execPath, script], runs };
+}
+
+/** A trusted window on checkouts `names` (in a fresh temporary folder) with the recording checker. */
+function window(...names) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ipu-activation-'));
+  const roots = names.map((name) => checkout(temp, name));
+  const check = recordingChecker(temp);
+  const ext = fake.install({ folders: roots, settings: { ...settings, checkCommand: check.argv } });
+  const api = ext.activate();
+  const kernel = (root) => fake.Uri.file(path.join(root, 'k/demo/demo.asm'));
+  const done = () => {
+    ext.deactivate();
+    fs.rmSync(temp, { recursive: true, force: true });
+  };
+  return { ext, api, roots, check, kernel, done };
+}
+
+test('a check that failed is run again for the same text, once the toolchain is back', async () => {
+  const w = window('repo');
+  fs.writeFileSync(path.join(w.roots[0], 'broken'), '');
+  const doc = w.ext.open(w.kernel(w.roots[0]), 'BKPT;;\n');
+  await until(() => w.api.checkerError(), 'the check to fail');
+  assert.match(w.ext.statusItem.text, /checks off/);
+  fs.rmSync(path.join(w.roots[0], 'broken'));
+  w.ext.events.onDidSaveTextDocument.fire(doc); // the same version, saved
+  await until(() => w.check.runs().length === 2 && w.ext.statusItem.text === '$(check) IPU', 'the same version to be checked again');
+  assert.strictEqual(w.api.checkerError(), null);
+  // Once it has succeeded, that version is not checked again.
+  w.ext.events.onDidSaveTextDocument.fire(doc);
+  await sleep(300);
+  assert.strictEqual(w.check.runs().length, 2);
+  w.done();
+});
+
+test('each checkout has its own status: a broken toolchain in one does not show for another', async () => {
+  const w = window('a', 'b');
+  const [a, b] = w.roots;
+  fs.writeFileSync(path.join(a, 'broken'), '');
+  const docA = w.ext.open(w.kernel(a), 'BKPT;;\n');
+  await until(() => w.api.checkerError(docA.uri), 'the check in a to fail');
+  const docB = w.ext.open(w.kernel(b), 'BKPT;;\n');
+  await until(() => w.ext.statusItem.text === '$(check) IPU', 'b to check');
+  assert.deepStrictEqual(w.check.runs(), [a, b], 'each checked in its own checkout');
+  assert.strictEqual(w.api.checkerError(docB.uri), null);
+  assert.match(w.api.checkerError(docA.uri), /toolchain broken/);
+  w.ext.show(docA);
+  assert.match(w.ext.statusItem.text, /checks off/);
+  w.ext.show(docB);
+  assert.strictEqual(w.ext.statusItem.text, '$(check) IPU');
+  assert.strictEqual(w.ext.log.warnings.length, 1, 'one pop-up, for the broken checkout');
+  w.done();
+});
+
+test('an unsaved buffer is checked in the window\'s only checkout, and in none when there are two', async () => {
+  const one = window('repo');
+  one.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
+  await until(() => one.check.runs().length, 'the unsaved buffer to be checked');
+  assert.deepStrictEqual(one.check.runs(), one.roots);
+  one.done();
+
+  const two = window('a', 'b');
+  await until(() => two.api.kernels.indexes.size === 2, 'both checkouts');
+  two.ext.open(new fake.Uri('untitled', 'Untitled-1'), 'BKPT;;\n');
+  two.ext.open(new fake.Uri('vscode-vfs', '/a/k/demo/demo.asm'), 'BKPT;;\n'); // no file on disk
+  await sleep(500);
+  assert.deepStrictEqual(two.check.runs(), [], 'nothing checked');
+  // A git diff view's side is the working-tree file's: checked in its own checkout.
+  two.ext.open(new fake.Uri('git', path.join(two.roots[1], 'k/demo/demo.asm')), 'BKPT;;\n');
+  await until(() => two.check.runs().length, 'the git side to be checked');
+  assert.deepStrictEqual(two.check.runs(), [two.roots[1]]);
+  two.done();
+});
+
 main((n) => `activation.js: ${n} cases pass.`);
